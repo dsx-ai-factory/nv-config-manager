@@ -16,24 +16,169 @@
 
 # pylint: disable=too-many-arguments
 import asyncio
+import hashlib
 import json
 import os
+import re
 import sys
+import time
+from collections.abc import Awaitable
 from types import TracebackType
 from typing import Any
 
 import click
+from prometheus_client import start_http_server
 
 from nv_config_manager.common.config import load_config
-from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
+from nv_config_manager.common.log import (
+    LogCategory,
+    configure_logging,
+    escape_log_newlines,
+    get_logger,
+)
 from nv_config_manager.dhcp.kea import KeaClient, KeaException
 from nv_config_manager.dhcp.kea_dhcp_confgen import generate_config, inject_lease_db_config
-from nv_config_manager.dhcp.metrics import DHCP_CACHE_REFRESH_ERRORS
+from nv_config_manager.dhcp.metrics import (
+    DHCP_CACHE_REFRESH_ERRORS,
+    DHCP_CONFIG_HASH_MISMATCHES,
+    DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP,
+    DHCP_SYNC_FAILURES,
+    SyncOperation,
+    SyncState,
+)
 from nv_config_manager.dhcp.nautobot import NautobotClient
 from nv_config_manager.dhcp.redis import RedisClient
 
 configure_logging(service="dhcp")
 logger = get_logger(__name__, category=LogCategory.DHCP)
+
+# Port the sync sidecar serves its Prometheus registry on. The metrics below are
+# incremented in this process, which serves no other HTTP traffic, so without an
+# exporter here they are unreachable -- the /metrics endpoint in dhcp/api.py runs
+# in a separate container with its own registry.
+#
+# Not the 8000 used elsewhere in the repo: every container in the DHCP pod shares
+# one network namespace, and kea already binds 8000 (plus 67, 9000, 9090 and the
+# stork agent port). Changing this requires matching updates to the containerPort
+# in dhcp.yaml, the PodMonitor endpoint in monitoring.yaml, and the Prometheus
+# ingress allow-list in network-policy.yaml; test_sync_metrics_port_is_scrapeable
+# fails if they drift apart.
+SYNC_METRICS_PORT = 9091
+
+# Bound + redact dependency-error text so a Redis/PostgreSQL exception that
+# embeds a DSN or password= assignment cannot leak credentials into logs.
+_MAX_ERROR_CHARS = 300
+_DSN_USERINFO_RE = re.compile(r"(://[^:/@\s]+):([^@/\s]+)@")
+_PASSWORD_ASSIGN_RE = re.compile(r"(?i)(password|passwd|pwd|secret)\s*[:=]\s*\S+")
+
+
+def _safe_error_text(exc: BaseException) -> str:
+    """Return a log-safe, bounded exception string with credentials stripped."""
+    text = escape_log_newlines(f"{type(exc).__name__}: {exc}")
+    text = _DSN_USERINFO_RE.sub(r"\1:<redacted>@", text)
+    text = _PASSWORD_ASSIGN_RE.sub(r"\1=<redacted>", text)
+    if len(text) > _MAX_ERROR_CHARS:
+        return text[:_MAX_ERROR_CHARS] + "…"
+    return text
+
+
+def _config_fingerprint(config: dict[str, Any] | None) -> str:
+    """Return a short, log-safe fingerprint of a KEA config.
+
+    Used only for pre-apply Redis-content drift logs, when KEA has not yet
+    hashed the new desired config. Apply decisions use KEA's native
+    ``config-hash-get`` / ``config-set`` hashes. Only the truncated digest is
+    ever logged, never the config body.
+    """
+    if config is None:
+        return "none"
+    digest = hashlib.sha256(json.dumps(config, sort_keys=True, default=str).encode())
+    return digest.hexdigest()[:12]
+
+
+def _log_sync_state(state: str, message: str, ip_version: int, **fields: Any) -> None:
+    """Emit a structured reconcile-loop log line tagged with ``sync_state``.
+
+    ``fields`` must only contain non-secret values (e.g. config hashes); never
+    pass database credentials or full ``config-get`` responses. Values are
+    newline-escaped to keep structured fields free of log-forging characters.
+    """
+    extra = {
+        "sync_state": state,
+        "ip_version": ip_version,
+        **{key: escape_log_newlines(value) for key, value in fields.items()},
+    }
+    logger.info(message, extra=extra)
+
+
+def _record_sync_failure(operation: str, ip_version: int, exc: BaseException) -> None:
+    """Count a reconcile/apply failure and emit a ``dependency-error`` log line.
+
+    Increments the failure counter for ``operation`` and logs the operation and
+    a redacted, bounded error string. Redis/PostgreSQL exceptions can embed a
+    DSN or password; those are stripped before the record reaches the pipeline.
+    """
+    DHCP_SYNC_FAILURES.labels(operation=operation, ip_version=str(ip_version)).inc()
+    logger.error(
+        "DHCP sync dependency error during %s",
+        operation,
+        extra={
+            "sync_state": SyncState.DEPENDENCY_ERROR,
+            "operation": operation,
+            "ip_version": ip_version,
+            "error": _safe_error_text(exc),
+        },
+    )
+
+
+async def _track_sync_operation[T](
+    operation: str,
+    ip_version: int,
+    awaitable: Awaitable[T],
+) -> T:
+    """Await ``awaitable``, recording a labeled failure before re-raising."""
+    try:
+        return await awaitable
+    except Exception as exc:
+        _record_sync_failure(operation, ip_version, exc)
+        raise
+
+
+def _inject_lease_db_config_tracked(config: dict[str, Any], ip_version: int) -> dict[str, Any]:
+    """Inject the PostgreSQL lease-DB config, recording a ``postgres`` failure."""
+    try:
+        return inject_lease_db_config(config, ip_version)
+    except Exception as exc:
+        _record_sync_failure(SyncOperation.POSTGRES, ip_version, exc)
+        raise
+
+
+def _mark_verified_sync(
+    ip_version: int,
+    running_hash: str,
+    *,
+    recovered: bool,
+    log: bool = True,
+) -> None:
+    """Record a successful verified sync: bump the gauge and log ``in-sync``.
+
+    Call only after the running KEA hash matches the desired hash (or after
+    ``config-set`` plus ``config-hash-get`` verification succeeds). The gauge
+    is always refreshed so its AGE stays low while healthy; the ``in-sync``
+    log line is emitted when ``log`` is true. ``recovered`` marks a post-drift
+    recovery, which must be logged.
+    """
+    DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP.labels(ip_version=str(ip_version)).set(time.time())
+    if not log:
+        return
+    _log_sync_state(
+        SyncState.IN_SYNC,
+        "KEA DHCP configuration recovered and in sync"
+        if recovered
+        else "KEA DHCP configuration in sync",
+        ip_version,
+        running_hash=running_hash,
+    )
 
 
 def _set_config_path(ini_file: str) -> None:
@@ -117,15 +262,21 @@ async def _refresh_kea_configuration_async(
         logger.warning(f"Could not fetch current Kea config, using defaults: {exc}")
         current_kea_config = None
 
-    config = await generate_config(
-        nautobot_client=nautobot_client,
-        redis_client=redis_client,
-        version=ip_version,
-        kea_config=current_kea_config,
+    config = await _track_sync_operation(
+        SyncOperation.CONFIG_GENERATION,
+        ip_version,
+        generate_config(
+            nautobot_client=nautobot_client,
+            redis_client=redis_client,
+            version=ip_version,
+            kea_config=current_kea_config,
+        ),
     )
 
     logger.info("Validating configuration against KEA API.")
-    result, error = await kea_client.test_config(config, version=ip_version)
+    result, error = await _track_sync_operation(
+        SyncOperation.CONFIG_TEST, ip_version, kea_client.test_config(config, version=ip_version)
+    )
     if check:
         logger.info("Generated configuration is valid.")
         return True
@@ -222,7 +373,9 @@ async def _apply_and_verify_kea_config(
     error rather than being silently trusted. The verified effective hash is
     returned to track for subsequent drift detection.
     """
-    applied_hash = await kea_client.set_config(config, version=ip_version)
+    applied_hash = await _track_sync_operation(
+        SyncOperation.CONFIG_SET, ip_version, kea_client.set_config(config, version=ip_version)
+    )
     try:
         effective_hash = await kea_client.get_config_hash(version=ip_version)
     except (KeaException, TimeoutError) as exc:
@@ -255,22 +408,36 @@ async def _sync_kea_configuration_async(
     redis_client = RedisClient.from_config(ini_config)
 
     try:
-        config = await redis_client.load_kea_config(ip_version)
+        config = await _track_sync_operation(
+            SyncOperation.REDIS_READ, ip_version, redis_client.load_kea_config(ip_version)
+        )
         while config is None:
-            logger.info(
-                f"Waiting for KEA DHCP{ip_version} Configuration to be available in Redis..."
+            _log_sync_state(
+                SyncState.WAITING_FOR_INITIAL_REDIS_CONFIG,
+                f"Waiting for KEA DHCP{ip_version} Configuration to be available in Redis...",
+                ip_version,
             )
             await asyncio.sleep(1)
-            config = await redis_client.load_kea_config(ip_version)
+            config = await _track_sync_operation(
+                SyncOperation.REDIS_READ, ip_version, redis_client.load_kea_config(ip_version)
+            )
 
         # Inject Lease DB details after loading from Redis
-        # so that secrets are not stored in the Redis cache
-        config = inject_lease_db_config(config, ip_version)
+        # so that secrets are not stored in the Redis cache. The lease DB is a
+        # PostgreSQL dependency, so failures here are labeled ``postgres``.
+        config = _inject_lease_db_config_tracked(config, ip_version)
 
         # Run once. The startup path always applies the desired Redis config and
         # captures a fresh effective hash, which keeps a config-sync restart safe.
-        logger.info(f"Setting initial KEA DHCPv{ip_version} Configuration from Redis.")
+        _log_sync_state(
+            SyncState.APPLYING,
+            f"Setting initial KEA DHCPv{ip_version} Configuration from Redis.",
+            ip_version,
+            desired_hash=_config_fingerprint(config),
+        )
         expected_hash = await _apply_and_verify_kea_config(kea_client, config, ip_version)
+        if expected_hash is not None:
+            _mark_verified_sync(ip_version, expected_hash, recovered=False)
 
         if refresh_interval:
             logger.info(
@@ -280,27 +447,60 @@ async def _sync_kea_configuration_async(
             previous_config = config
             while True:
                 try:
-                    new_config = await redis_client.load_kea_config(ip_version)
+                    new_config = await _track_sync_operation(
+                        SyncOperation.REDIS_READ,
+                        ip_version,
+                        redis_client.load_kea_config(ip_version),
+                    )
                     if new_config is None:
-                        logger.info(
-                            "No configuration found in Redis, waiting for configuration to be available..."
+                        _log_sync_state(
+                            SyncState.WAITING_FOR_INITIAL_REDIS_CONFIG,
+                            "No configuration found in Redis, "
+                            "waiting for configuration to be available...",
+                            ip_version,
                         )
                         await asyncio.sleep(refresh_interval)
                         continue
-                    new_config = inject_lease_db_config(new_config, ip_version)
+                    new_config = _inject_lease_db_config_tracked(new_config, ip_version)
                     if new_config != previous_config:
-                        logger.info("Configuration changed, updating KEA DHCP Configuration.")
+                        desired_hash = _config_fingerprint(new_config)
+                        running_hash = expected_hash or "none"
+                        DHCP_CONFIG_HASH_MISMATCHES.labels(ip_version=str(ip_version)).inc()
+                        _log_sync_state(
+                            SyncState.DRIFT_DETECTED,
+                            "KEA DHCP configuration drift detected, updating.",
+                            ip_version,
+                            desired_hash=desired_hash,
+                            running_hash=running_hash,
+                        )
+                        _log_sync_state(
+                            SyncState.APPLYING,
+                            "Applying updated KEA DHCP configuration.",
+                            ip_version,
+                            desired_hash=desired_hash,
+                        )
                         expected_hash = await _apply_and_verify_kea_config(
                             kea_client, new_config, ip_version
                         )
                         previous_config = new_config
+                        if expected_hash is not None:
+                            _mark_verified_sync(ip_version, expected_hash, recovered=True)
                     else:
                         # Redis is unchanged, but KEA (e.g. the Kea container) may
                         # have restarted from its bootstrap config while this
                         # sidecar kept running. Compare KEA's effective config hash
                         # against the last applied hash and reapply on drift.
+                        # Refresh the in-sync gauge only after that verification.
                         running_hash = await kea_client.get_config_hash(version=ip_version)
                         if running_hash != expected_hash:
+                            DHCP_CONFIG_HASH_MISMATCHES.labels(ip_version=str(ip_version)).inc()
+                            _log_sync_state(
+                                SyncState.DRIFT_DETECTED,
+                                "KEA DHCP configuration drift detected, updating.",
+                                ip_version,
+                                desired_hash=expected_hash or "none",
+                                running_hash=running_hash or "none",
+                            )
                             logger.warning(
                                 "KEA running configuration hash (%s) does not match the "
                                 "expected hash (%s); reapplying desired configuration "
@@ -308,11 +508,24 @@ async def _sync_kea_configuration_async(
                                 running_hash,
                                 expected_hash,
                             )
+                            _log_sync_state(
+                                SyncState.APPLYING,
+                                "Applying updated KEA DHCP configuration.",
+                                ip_version,
+                                desired_hash=expected_hash or "none",
+                            )
                             expected_hash = await _apply_and_verify_kea_config(
                                 kea_client, previous_config, ip_version
                             )
-                        elif debug:
-                            logger.info("No configuration changes detected.")
+                            if expected_hash is not None:
+                                _mark_verified_sync(ip_version, expected_hash, recovered=True)
+                        else:
+                            _mark_verified_sync(
+                                ip_version,
+                                running_hash if debug else "",
+                                recovered=False,
+                                log=debug,
+                            )
                 except Exception as exc:
                     DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
                     logger.error(f"Error refreshing the KEA config: {exc}")
@@ -349,6 +562,18 @@ def sync_kea_configuration(
     _set_config_path(ini_file)
     if not debug:
         sys.excepthook = _exception_handler
+
+    try:
+        start_http_server(SYNC_METRICS_PORT)
+    except OSError as exc:
+        # A bind failure must not prevent reconciliation. Only config-sync-v4
+        # exists today; a second sidecar sharing this port would otherwise
+        # CrashLoop the pod. IPv6 would need its own chart port, not a silent
+        # offset here.
+        logger.error(
+            "Could not start the DHCP sync metrics server; continuing without metrics export",
+            extra={"port": SYNC_METRICS_PORT, "error": escape_log_newlines(exc)},
+        )
 
     asyncio.run(_sync_kea_configuration_async(ip_version, refresh_interval, debug))
 
