@@ -16,8 +16,10 @@
 
 from __future__ import annotations
 
+import subprocess
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import Mock, call
 
 import pytest
 
@@ -41,6 +43,66 @@ def _manager_with_images(images: list[SimpleNamespace]) -> AirSimulationManager:
         images=SimpleNamespace(list=lambda: iter(images)),
     )
     return manager
+
+
+def test_remote_setup_marker_exists_uses_single_remote_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = AirSimulationManager.__new__(AirSimulationManager)
+    commands: list[list[str]] = []
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        capture_output: bool,
+        timeout: int,
+    ) -> SimpleNamespace:
+        assert capture_output is True
+        assert timeout == 10
+        commands.append(cmd)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(sim_manager_module.subprocess, "run", fake_run)
+
+    assert manager._remote_setup_marker_exists(["ssh", "nvcm@worker.example"])
+    assert commands == [
+        [
+            "ssh",
+            "nvcm@worker.example",
+            "sudo grep -F -q -- 'NVCM DSX Air Setup Complete' "
+            "/var/log/cloud-init-output.log /var/log/nvcm-setup.log",
+        ]
+    ]
+
+
+def test_remote_setup_marker_timeout_is_not_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = AirSimulationManager.__new__(AirSimulationManager)
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        capture_output: bool,
+        timeout: int,
+    ) -> SimpleNamespace:
+        raise subprocess.TimeoutExpired(cmd, timeout)
+
+    monkeypatch.setattr(sim_manager_module.subprocess, "run", fake_run)
+
+    assert not manager._remote_setup_marker_exists(["ssh", "nvcm@worker.example"])
+
+
+def test_terminate_process_kills_after_grace_period() -> None:
+    proc = Mock()
+    proc.poll.return_value = None
+    proc.wait.side_effect = [subprocess.TimeoutExpired("ssh", 5), 0]
+
+    AirSimulationManager._terminate_process(proc)
+
+    proc.terminate.assert_called_once_with()
+    proc.kill.assert_called_once_with()
+    assert proc.wait.call_args_list == [call(timeout=5), call(timeout=5)]
 
 
 def test_resolve_cumulus_vx_images_prefers_exact_name() -> None:

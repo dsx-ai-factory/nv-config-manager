@@ -362,15 +362,6 @@ _SETUP_SCRIPT_TEMPLATE = textwrap.dedent("""\
     echo ">>> Cloning repositories..."
     __CLONE_COMMANDS__
 
-    # ==========================================================================
-    # DONE
-    # ==========================================================================
-    echo ""
-    echo "========================================"
-    echo "  NVCM DSX Air Setup Complete!"
-    echo "========================================"
-    echo "Finished: $(date)"
-    echo ""
     echo "Cluster status:"
     kubectl get nodes -o wide
     echo ""
@@ -382,6 +373,15 @@ _SETUP_SCRIPT_TEMPLATE = textwrap.dedent("""\
     echo "    --chart-dir /home/nvcm/nv-config-manager/deploy/helm \\\\"
     echo "    --kind-cluster nvcm \\\\"
     echo "    --install-envoy-gateway --install-cnpg-operator --install-cert-manager"
+    echo ""
+
+    # ==========================================================================
+    # DONE
+    # ==========================================================================
+    echo "========================================"
+    echo "  NVCM DSX Air Setup Complete!"
+    echo "========================================"
+    echo "Finished: $(date)"
 """)
 
 

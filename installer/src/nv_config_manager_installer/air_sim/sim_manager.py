@@ -763,9 +763,49 @@ class AirSimulationManager:
         return self.ssh_password
 
     _SETUP_COMPLETE_MARKER = "NVCM DSX Air Setup Complete"
+    _SETUP_LOG_PATHS = ("/var/log/cloud-init-output.log", "/var/log/nvcm-setup.log")
     _DEPLOY_COMPLETE_MARKER = "Deployment completed successfully!"
 
     _SOCKS_PORT = 8080
+
+    def _remote_setup_marker_exists(self, ssh_base: list[str]) -> bool:
+        grep_cmd = " ".join(
+            shlex.quote(part)
+            for part in (
+                "sudo",
+                "grep",
+                "-F",
+                "-q",
+                "--",
+                self._SETUP_COMPLETE_MARKER,
+                *self._SETUP_LOG_PATHS,
+            )
+        )
+        try:
+            result = subprocess.run(
+                [*ssh_base, grep_cmd],
+                capture_output=True,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            return False
+        return result.returncode == 0
+
+    @staticmethod
+    def _terminate_process(proc: subprocess.Popen[str]) -> None:
+        """Stop a child process without letting cleanup timeouts mask the result."""
+        if proc.poll() is not None:
+            return
+
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                LOG.warning("SSH log process did not exit after being killed.")
 
     def _ssh_run_and_tail(
         self,
@@ -2127,6 +2167,10 @@ class AirSimulationManager:
             LOG.warning("Timed out waiting for SSH. Log in manually to check status.")
             return False
 
+        if self._remote_setup_marker_exists(ssh_base):
+            LOG.info("\nCloud-init setup already finished successfully.")
+            return True
+
         # -- Phase 2: tail cloud-init output --------------------------------
         LOG.info("Tailing cloud-init output ...")
         LOG.info("(Ctrl+C to stop tailing and continue)\n")
@@ -2152,7 +2196,7 @@ class AirSimulationManager:
                             "Log tail ended unexpectedly. SSH session "
                             "may have dropped -- check the server manually."
                         )
-                        proc.wait(timeout=5)
+                        self._terminate_process(proc)
                         return False
 
                     line = line.rstrip("\n")
@@ -2160,8 +2204,7 @@ class AirSimulationManager:
 
                     if self._SETUP_COMPLETE_MARKER in line:
                         LOG.info("\nCloud-init setup finished successfully.")
-                        proc.terminate()
-                        proc.wait(timeout=5)
+                        self._terminate_process(proc)
                         return True
 
                 now = time.monotonic()
@@ -2178,31 +2221,30 @@ class AirSimulationManager:
                 status_text = f"{status.stdout}\n{status.stderr}".strip()
                 if "status: error" in status_text or "extended_status: error" in status_text:
                     LOG.warning("Cloud-init reported an error:\n%s", status_text)
-                    proc.terminate()
-                    proc.wait(timeout=5)
+                    self._terminate_process(proc)
                     return False
 
                 if "status: done" in status_text:
                     done_seen_at = done_seen_at or now
                     if now - done_seen_at > 5:
+                        if self._remote_setup_marker_exists(ssh_base):
+                            LOG.info("\nCloud-init setup finished successfully.")
+                            self._terminate_process(proc)
+                            return True
                         LOG.warning(
                             "Cloud-init completed without the setup-complete marker. "
                             "Check /var/log/nvcm-setup.log on the server."
                         )
-                        proc.terminate()
-                        proc.wait(timeout=5)
+                        self._terminate_process(proc)
                         return False
 
             LOG.warning("\nTimed out waiting for setup to complete. Check the server manually.")
-            proc.terminate()
-            proc.wait(timeout=5)
+            self._terminate_process(proc)
             return False
 
         except KeyboardInterrupt:
             LOG.info("\nTailing interrupted. Setup may still be running on the server.")
-            if proc.poll() is None:
-                proc.terminate()
-                proc.wait(timeout=5)
+            self._terminate_process(proc)
             return False
 
     def start_simulation(self, simulation_id: str, wait: bool = True) -> None:
