@@ -190,6 +190,12 @@ spec:
         - name: NV_CONFIG_MANAGER_INI
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathDhcp" . | quote }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
+        ports:
+        # Reconcile metrics for this sidecar. Must stay in sync with
+        # SYNC_METRICS_PORT in dhcp/cli.py, the PodMonitor endpoint in
+        # monitoring.yaml, and the Prometheus allow-list in network-policy.yaml.
+        - containerPort: 9091
+          name: sync-metrics
         # Backstop livenessProbe for the case where the in-loop divergence
         # check in _sync_kea_configuration_async can't recover (e.g. the
         # asyncio loop wedges or the kea control socket is unresponsive long

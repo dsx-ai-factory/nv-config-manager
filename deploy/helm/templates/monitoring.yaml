@@ -433,6 +433,17 @@ spec:
       metricRelabelings:
         {{- include "nv-config-manager.podMonitorMetricRelabelings" . | nindent 8 }}
       {{- end }}
+    # config-sync-v4 process-local registry (SYNC_METRICS_PORT in dhcp/cli.py).
+    # The /metrics on healthcheck/api is a different process and does not
+    # include the reconcile counters or last-successful-sync gauge.
+    - port: sync-metrics
+      path: /metrics
+      interval: {{ $scrapeInterval }}
+      scrapeTimeout: {{ $scrapeTimeout }}
+      {{- if .Values.global.customLabels }}
+      metricRelabelings:
+        {{- include "nv-config-manager.podMonitorMetricRelabelings" . | nindent 8 }}
+      {{- end }}
 {{- end }}
 
 {{- /* Config Store PodMonitor */}}
