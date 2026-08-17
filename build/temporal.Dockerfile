@@ -17,7 +17,7 @@ FROM temporalio/server:${TEMPORAL_SERVER_VERSION} AS server-upstream
 FROM temporalio/admin-tools:${TEMPORAL_ADMIN_TOOLS_VERSION} AS admin-tools-upstream
 FROM temporalio/ui:${TEMPORAL_UI_VERSION} AS ui-upstream
 
-FROM golang:1.26.5-alpine AS bootstrap-builder
+FROM golang:1.26.6-alpine AS bootstrap-builder
 WORKDIR /src
 COPY components/temporal/go.mod ./
 COPY components/temporal/cmd/ ./cmd/
@@ -26,14 +26,14 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/temporal-bootstrap
 # Rebuild the version-matched UI server until an upstream release includes the
 # patched Go toolchain and dependency versions. The released module contains
 # the same embedded frontend assets as the upstream image.
-FROM golang:1.26.5-alpine AS ui-server-builder
+FROM golang:1.26.6-alpine AS ui-server-builder
 ARG TEMPORAL_UI_VERSION
 WORKDIR /src
 RUN go mod download github.com/temporalio/ui-server/v2@v${TEMPORAL_UI_VERSION} && \
     cp -R /go/pkg/mod/github.com/temporalio/ui-server/v2@v${TEMPORAL_UI_VERSION}/. . && \
     chmod -R u+w . && \
-    go get golang.org/x/crypto@v0.52.0 \
-        golang.org/x/net@v0.55.0 \
+    go get golang.org/x/crypto@v0.53.0 \
+        golang.org/x/net@v0.56.0 \
         golang.org/x/text@v0.39.0 \
         google.golang.org/grpc@v1.82.1 && \
     CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/ui-server ./cmd/server/main.go
