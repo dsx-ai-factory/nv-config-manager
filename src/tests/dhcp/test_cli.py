@@ -222,6 +222,9 @@ async def test_config_hash_get_failure_is_handled_without_reapply(mocker: Any) -
     )
     _patch_sleep_to_break(mocker)
     metric = mocker.patch.object(cli, "DHCP_CACHE_REFRESH_ERRORS", MagicMock())
+    hash_get_before = _counter_value(
+        DHCP_SYNC_FAILURES, operation=SyncOperation.HASH_GET, ip_version="4"
+    )
 
     with pytest.raises(_StopLoop):
         await cli._sync_kea_configuration_async(ip_version=4, refresh_interval=5, debug=False)
@@ -230,6 +233,10 @@ async def test_config_hash_get_failure_is_handled_without_reapply(mocker: Any) -
     set_config.assert_awaited_once_with(DESIRED_CONFIG, version=4)
     metric.labels.assert_called_once_with(ip_version="4")
     metric.labels.return_value.inc.assert_called_once()
+    assert (
+        _counter_value(DHCP_SYNC_FAILURES, operation=SyncOperation.HASH_GET, ip_version="4")
+        == hash_get_before + 1
+    )
 
 
 @pytest.mark.parametrize(
@@ -288,7 +295,7 @@ def _make_clients(
     load_side_effect: list[Any],
     set_config_side_effect: Any = None,
     *,
-    config_hash: str = "verified-hash",
+    config_hash: str | None = "verified-hash",
 ) -> tuple[MagicMock, MagicMock]:
     """Build mock Kea and Redis clients wired for the observability tests."""
     kea_client = MagicMock()
@@ -339,6 +346,7 @@ def test_record_sync_failure_increments_operation_label() -> None:
             SyncOperation.REDIS_READ,
             SyncOperation.CONFIG_GENERATION,
             SyncOperation.CONFIG_SET,
+            SyncOperation.HASH_GET,
             SyncOperation.CONFIG_TEST,
             SyncOperation.POSTGRES,
         )
@@ -371,6 +379,17 @@ def test_record_sync_failure_escapes_newlines_and_hides_secret(
     assert ":<redacted>@" in blob
     assert any(rec.sync_state == SyncState.DEPENDENCY_ERROR for rec in caplog.records)
 
+    with caplog.at_level(logging.ERROR):
+        caplog.clear()
+        cli._record_sync_failure(
+            SyncOperation.REDIS_READ,
+            4,
+            RuntimeError(f"could not connect to redis://:{_SECRET_PASSWORD}@localhost:6379/0"),
+        )
+    blob = _log_blob(caplog)
+    assert _SECRET_PASSWORD not in blob
+    assert ":<redacted>@" in blob
+
 
 async def test_sync_loop_records_redis_read_failure() -> None:
     """A Redis read error in the loop increments the redis_read failure label."""
@@ -386,6 +405,27 @@ async def test_sync_loop_records_redis_read_failure() -> None:
         _counter_value(DHCP_SYNC_FAILURES, operation=SyncOperation.REDIS_READ, ip_version="4")
         == before + 1
     )
+
+
+async def test_sync_loop_refresh_error_log_redacts_redis_password(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The outer refresh-loop error log must not leak a Redis DSN password."""
+    initial = {"Dhcp4": {"subnet4": []}}
+    kea_client, redis_client = _make_clients(
+        load_side_effect=[
+            initial,
+            ConnectionError(f"redis://:{_SECRET_PASSWORD}@localhost:6379/0"),
+        ],
+    )
+
+    with caplog.at_level(logging.ERROR):
+        await _run_sync_until_stop(kea_client, redis_client)
+
+    blob = _log_blob(caplog)
+    assert _SECRET_PASSWORD not in blob
+    assert ":<redacted>@" in blob
+    assert "Error refreshing the KEA config:" in caplog.text
 
 
 async def test_sync_loop_records_config_set_failure() -> None:
@@ -453,6 +493,20 @@ async def test_sync_loop_updates_last_successful_sync_gauge() -> None:
     assert _gauge_value(DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP, ip_version="4") == 1_800_000_000.0
     kea_client.set_config.assert_awaited_once()
     kea_client.get_config_hash.assert_awaited_once()
+
+
+async def test_sync_loop_does_not_mark_verified_when_hash_unavailable() -> None:
+    """Two missing hashes are not a verified match; the gauge must stay put."""
+    config = {"Dhcp4": {"subnet4": []}}
+    kea_client, redis_client = _make_clients(
+        load_side_effect=[config, config],
+        config_hash=None,
+    )
+    before = _gauge_value(DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP, ip_version="4")
+
+    await _run_sync_until_stop(kea_client, redis_client)
+
+    assert _gauge_value(DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP, ip_version="4") == before
 
 
 async def test_sync_loop_logs_waiting_for_initial_redis_config(

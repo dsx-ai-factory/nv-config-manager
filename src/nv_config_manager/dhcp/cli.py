@@ -68,7 +68,9 @@ SYNC_METRICS_PORT = 9091
 # Bound + redact dependency-error text so a Redis/PostgreSQL exception that
 # embeds a DSN or password= assignment cannot leak credentials into logs.
 _MAX_ERROR_CHARS = 300
-_DSN_USERINFO_RE = re.compile(r"(://[^:/@\s]+):([^@/\s]+)@")
+# `*` so redis://:password@host (empty username) is redacted as well as
+# postgresql://user:password@host.
+_DSN_USERINFO_RE = re.compile(r"(://[^:/@\s]*):([^@/\s]+)@")
 _PASSWORD_ASSIGN_RE = re.compile(r"(?i)(password|passwd|pwd|secret)\s*[:=]\s*\S+")
 
 
@@ -385,7 +387,11 @@ async def _apply_and_verify_kea_config(
         # refresh loop already swallows both. Aborting here would crash-loop
         # the sidecar over a config that is actually applied. Returning None
         # leaves the next drift check to reapply and re-verify.
-        logger.warning(f"Could not verify the applied KEA configuration hash: {exc}")
+        _record_sync_failure(SyncOperation.HASH_GET, ip_version, exc)
+        logger.warning(
+            "Could not verify the applied KEA configuration hash: %s",
+            _safe_error_text(exc),
+        )
         return None
     if applied_hash is not None and effective_hash != applied_hash:
         raise KeaException(
@@ -491,7 +497,11 @@ async def _sync_kea_configuration_async(
                         # sidecar kept running. Compare KEA's effective config hash
                         # against the last applied hash and reapply on drift.
                         # Refresh the in-sync gauge only after that verification.
-                        running_hash = await kea_client.get_config_hash(version=ip_version)
+                        running_hash = await _track_sync_operation(
+                            SyncOperation.HASH_GET,
+                            ip_version,
+                            kea_client.get_config_hash(version=ip_version),
+                        )
                         if running_hash != expected_hash:
                             DHCP_CONFIG_HASH_MISMATCHES.labels(ip_version=str(ip_version)).inc()
                             _log_sync_state(
@@ -519,6 +529,11 @@ async def _sync_kea_configuration_async(
                             )
                             if expected_hash is not None:
                                 _mark_verified_sync(ip_version, expected_hash, recovered=True)
+                        elif running_hash is None:
+                            # Kea omitted the digest (pre-2.4). Equality of two
+                            # Nones is not a verified hash match; leave the
+                            # gauge untouched so age-based alerts still fire.
+                            pass
                         else:
                             _mark_verified_sync(
                                 ip_version,
@@ -528,7 +543,10 @@ async def _sync_kea_configuration_async(
                             )
                 except Exception as exc:
                     DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
-                    logger.error(f"Error refreshing the KEA config: {exc}")
+                    logger.error(
+                        "Error refreshing the KEA config: %s",
+                        _safe_error_text(exc),
+                    )
                 if debug:
                     logger.info(f"Sleeping {refresh_interval}s...")
                 await asyncio.sleep(refresh_interval)
