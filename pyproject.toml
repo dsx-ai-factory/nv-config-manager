@@ -107,7 +107,7 @@ dependencies = [
     # Documentation
     "mkdocs>=1.6.1",
     # Model Context Protocol
-    "mcp>=1.8.0",
+    "mcp>=1.28.1,<2",
     # Network Templates (render service)
     "nv-config-manager-templates",
 ]
