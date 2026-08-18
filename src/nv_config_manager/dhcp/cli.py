@@ -497,25 +497,25 @@ async def _sync_kea_configuration_async(
                         # sidecar kept running. Compare KEA's effective config hash
                         # against the last applied hash and reapply on drift.
                         # Refresh the in-sync gauge only after that verification.
-                        running_hash = await _track_sync_operation(
-                            SyncOperation.HASH_GET,
-                            ip_version,
-                            kea_client.get_config_hash(version=ip_version),
-                        )
-                        if running_hash != expected_hash:
+                        try:
+                            kea_running_hash = await kea_client.get_config_hash(version=ip_version)
+                        except Exception as exc:
+                            _record_sync_failure(SyncOperation.HASH_GET, ip_version, exc)
+                            raise
+                        if kea_running_hash != expected_hash:
                             DHCP_CONFIG_HASH_MISMATCHES.labels(ip_version=str(ip_version)).inc()
                             _log_sync_state(
                                 SyncState.DRIFT_DETECTED,
                                 "KEA DHCP configuration drift detected, updating.",
                                 ip_version,
                                 desired_hash=expected_hash or "none",
-                                running_hash=running_hash or "none",
+                                running_hash=kea_running_hash or "none",
                             )
                             logger.warning(
                                 "KEA running configuration hash (%s) does not match the "
                                 "expected hash (%s); reapplying desired configuration "
                                 "(KEA may have restarted).",
-                                running_hash,
+                                kea_running_hash,
                                 expected_hash,
                             )
                             _log_sync_state(
@@ -529,7 +529,7 @@ async def _sync_kea_configuration_async(
                             )
                             if expected_hash is not None:
                                 _mark_verified_sync(ip_version, expected_hash, recovered=True)
-                        elif running_hash is None:
+                        elif kea_running_hash is None:
                             # Kea omitted the digest (pre-2.4). Equality of two
                             # Nones is not a verified hash match; leave the
                             # gauge untouched so age-based alerts still fire.
@@ -537,7 +537,7 @@ async def _sync_kea_configuration_async(
                         else:
                             _mark_verified_sync(
                                 ip_version,
-                                running_hash if debug else "",
+                                kea_running_hash if debug else "",
                                 recovered=False,
                                 log=debug,
                             )
