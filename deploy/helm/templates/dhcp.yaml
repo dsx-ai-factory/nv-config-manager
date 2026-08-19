@@ -192,7 +192,7 @@ spec:
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         ports:
         # Reconcile metrics for this sidecar. Must stay in sync with
-        # SYNC_METRICS_PORT in dhcp/cli.py, the PodMonitor endpoint in
+        # CONFGEN_METRICS_PORT in dhcp/cli.py, the PodMonitor endpoint in
         # monitoring.yaml, and the Prometheus allow-list in network-policy.yaml.
         - containerPort: 9091
           name: sync-metrics
@@ -285,6 +285,12 @@ spec:
         - name: NV_CONFIG_MANAGER_INI
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathDhcp" . | quote }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
+        ports:
+        # config_generation / config_test failures are counted in this process's
+        # own registry. Same port as config-sync-v4 (separate Deployment, so no
+        # conflict); see CONFGEN_METRICS_PORT in dhcp/cli.py.
+        - containerPort: 9091
+          name: refresh-metrics
         resources:
           {{- toYaml .Values.networkDhcp.resources.confgen | nindent 10 }}
         volumeMounts:

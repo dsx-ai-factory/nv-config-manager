@@ -53,7 +53,7 @@ spec:
         - protocol: TCP
           port: 9090
         - protocol: TCP
-          port: 9091  # DHCP config-sync-v4 reconcile metrics (SYNC_METRICS_PORT)
+          port: 9091  # DHCP confgen reconcile metrics (CONFGEN_METRICS_PORT)
         - protocol: TCP
           port: {{ ($ztpSftpDownloads.metricsPort | default 9100) }}
         - protocol: TCP

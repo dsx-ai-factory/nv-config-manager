@@ -433,10 +433,47 @@ spec:
       metricRelabelings:
         {{- include "nv-config-manager.podMonitorMetricRelabelings" . | nindent 8 }}
       {{- end }}
-    # config-sync-v4 process-local registry (SYNC_METRICS_PORT in dhcp/cli.py).
+    # config-sync-v4 process-local registry (CONFGEN_METRICS_PORT in dhcp/cli.py).
     # The /metrics on healthcheck/api is a different process and does not
     # include the reconcile counters or last-successful-sync gauge.
     - port: sync-metrics
+      path: /metrics
+      interval: {{ $scrapeInterval }}
+      scrapeTimeout: {{ $scrapeTimeout }}
+      {{- if .Values.global.customLabels }}
+      metricRelabelings:
+        {{- include "nv-config-manager.podMonitorMetricRelabelings" . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
+{{- /* Network DHCP Refresh PodMonitor
+
+config-refresh-v4 is its own Deployment, so the selector above does not match
+it and its config_generation / config_test failure counters would never be
+collected. Same named-port contract as the sync sidecar. */}}
+{{- if and .Values.monitoring.podMonitors.enabled .Values.networkDhcp.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ $dhcpName }}-refresh
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+    app.kubernetes.io/component: network-dhcp-refresh
+    {{- with $monitoringCRLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- include "nv-config-manager.podTargetLabels" . | nindent 2 }}
+  namespaceSelector:
+    matchNames:
+      - {{ $namespace }}
+  selector:
+    matchLabels:
+      app: {{ $dhcpName }}-refresh
+  podMetricsEndpoints:
+    - port: refresh-metrics
       path: /metrics
       interval: {{ $scrapeInterval }}
       scrapeTimeout: {{ $scrapeTimeout }}

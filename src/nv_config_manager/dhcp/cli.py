@@ -23,6 +23,7 @@ import re
 import sys
 import time
 from collections.abc import Awaitable
+from traceback import format_tb
 from types import TracebackType
 from typing import Any
 
@@ -45,6 +46,8 @@ from nv_config_manager.dhcp.metrics import (
     DHCP_SYNC_FAILURES,
     SyncOperation,
     SyncState,
+    initialize_refresh_metrics,
+    initialize_sync_metrics,
 )
 from nv_config_manager.dhcp.nautobot import NautobotClient
 from nv_config_manager.dhcp.redis import RedisClient
@@ -52,18 +55,19 @@ from nv_config_manager.dhcp.redis import RedisClient
 configure_logging(service="dhcp")
 logger = get_logger(__name__, category=LogCategory.DHCP)
 
-# Port the sync sidecar serves its Prometheus registry on. The metrics below are
-# incremented in this process, which serves no other HTTP traffic, so without an
-# exporter here they are unreachable -- the /metrics endpoint in dhcp/api.py runs
-# in a separate container with its own registry.
+# Port each confgen process serves its Prometheus registry on. The metrics below
+# are incremented in-process, and neither command serves other HTTP traffic, so
+# without an exporter here they are unreachable -- the /metrics endpoint in
+# dhcp/api.py runs in a different container with its own registry.
 #
-# Not the 8000 used elsewhere in the repo: every container in the DHCP pod shares
-# one network namespace, and kea already binds 8000 (plus 67, 9000, 9090 and the
-# stork agent port). Changing this requires matching updates to the containerPort
-# in dhcp.yaml, the PodMonitor endpoint in monitoring.yaml, and the Prometheus
-# ingress allow-list in network-policy.yaml; test_sync_metrics_port_is_scrapeable
-# fails if they drift apart.
-SYNC_METRICS_PORT = 9091
+# config-sync-v4 and config-refresh-v4 live in separate Deployments, so they can
+# share one port. Not the 8000 used elsewhere in the repo: every container in the
+# DHCP pod shares one network namespace, and kea already binds 8000 (plus 67,
+# 9000, 9090 and the stork agent port). Changing this requires matching updates
+# to the containerPorts in dhcp.yaml, the PodMonitor endpoints in monitoring.yaml,
+# and the Prometheus ingress allow-list in network-policy.yaml;
+# test_confgen_metrics_port_is_scrapeable fails if they drift apart.
+CONFGEN_METRICS_PORT = 9091
 
 # Bound + redact dependency-error text so a Redis/PostgreSQL exception that
 # embeds a DSN or password= assignment cannot leak credentials into logs.
@@ -74,11 +78,20 @@ _DSN_USERINFO_RE = re.compile(r"(://[^:/@\s]*):([^@/\s]+)@")
 _PASSWORD_ASSIGN_RE = re.compile(r"(?i)(password|passwd|pwd|secret)\s*[:=]\s*\S+")
 
 
-def _safe_error_text(exc: BaseException) -> str:
-    """Return a log-safe, bounded exception string with credentials stripped."""
-    text = escape_log_newlines(f"{type(exc).__name__}: {exc}")
+def _redact_secrets(text: str) -> str:
+    """Strip DSN userinfo and ``password=`` style assignments from ``text``."""
     text = _DSN_USERINFO_RE.sub(r"\1:<redacted>@", text)
-    text = _PASSWORD_ASSIGN_RE.sub(r"\1=<redacted>", text)
+    return _PASSWORD_ASSIGN_RE.sub(r"\1=<redacted>", text)
+
+
+def _safe_error_text(error: BaseException | str) -> str:
+    """Return a log-safe, bounded error string with credentials stripped.
+
+    Accepts a message as well as an exception because KEA reports a validation
+    rejection as a returned error string rather than by raising.
+    """
+    raw = error if isinstance(error, str) else f"{type(error).__name__}: {error}"
+    text = _redact_secrets(escape_log_newlines(raw))
     if len(text) > _MAX_ERROR_CHARS:
         return text[:_MAX_ERROR_CHARS] + "…"
     return text
@@ -113,7 +126,7 @@ def _log_sync_state(state: str, message: str, ip_version: int, **fields: Any) ->
     logger.info(message, extra=extra)
 
 
-def _record_sync_failure(operation: str, ip_version: int, exc: BaseException) -> None:
+def _record_sync_failure(operation: str, ip_version: int, error: BaseException | str) -> None:
     """Count a reconcile/apply failure and emit a ``dependency-error`` log line.
 
     Increments the failure counter for ``operation`` and logs the operation and
@@ -128,7 +141,7 @@ def _record_sync_failure(operation: str, ip_version: int, exc: BaseException) ->
             "sync_state": SyncState.DEPENDENCY_ERROR,
             "operation": operation,
             "ip_version": ip_version,
-            "error": _safe_error_text(exc),
+            "error": _safe_error_text(error),
         },
     )
 
@@ -183,6 +196,26 @@ def _mark_verified_sync(
     )
 
 
+def _start_metrics_server(process: str) -> None:
+    """Expose this process's registry so the PodMonitor can reach its metrics.
+
+    ``process`` only labels the failure log; both confgen commands bind the same
+    port because they run in separate pods.
+    """
+    try:
+        start_http_server(CONFGEN_METRICS_PORT)
+    except OSError as exc:
+        # A bind failure must not prevent reconciliation, so this is logged and
+        # swallowed rather than raised. A second process sharing this port in one
+        # pod would otherwise CrashLoop it. IPv6 would need its own chart port,
+        # not a silent offset here.
+        logger.error(
+            "Could not start the DHCP %s metrics server; continuing without metrics export",
+            process,
+            extra={"port": CONFGEN_METRICS_PORT, "error": escape_log_newlines(exc)},
+        )
+
+
 def _set_config_path(ini_file: str) -> None:
     """Set NV_CONFIG_MANAGER_INI env var for consistent config loading."""
     os.environ["NV_CONFIG_MANAGER_INI"] = ini_file
@@ -193,11 +226,18 @@ def _exception_handler(
     exception: BaseException,
     traceback: TracebackType | None,
 ) -> None:  # pylint: disable=unused-argument
+    """Log an unhandled exception with credentials stripped from the message.
+
+    Tracked reconcile operations redact the error before counting it, but they
+    re-raise, and anything that escapes ``asyncio.run`` lands here. Formatting
+    the exception raw -- or handing it to ``exc_info`` -- would put the original
+    Redis/PostgreSQL DSN back into the log and undo that redaction. Only stack
+    frames are attached, since those carry no exception message.
+    """
     logger.error(
-        "%s: %s",
-        exception_type.__name__,
-        exception,
-        exc_info=(exception_type, exception, traceback),
+        "%s\n%s",
+        _safe_error_text(exception),
+        _redact_secrets("".join(format_tb(traceback))),
     )
 
 
@@ -279,12 +319,17 @@ async def _refresh_kea_configuration_async(
     result, error = await _track_sync_operation(
         SyncOperation.CONFIG_TEST, ip_version, kea_client.test_config(config, version=ip_version)
     )
+    if not result:
+        # test_config reports a KEA validation rejection as (False, error)
+        # instead of raising, so the tracked-operation wrapper sees a successful
+        # await and the rejection has to be counted here.
+        _record_sync_failure(SyncOperation.CONFIG_TEST, ip_version, str(error))
+        raise click.ClickException(f"Generated configuration is invalid: {error}")
+
     if check:
         logger.info("Generated configuration is valid.")
         return True
 
-    if not result:
-        raise click.ClickException(f"Generated configuration is invalid: {error}")
     logger.info("Persisting configuration to Redis.")
     await redis_client.persist_kea_config(ip_version, config)
     logger.info(f"KEA DHCP{ip_version} Configuration Refresh Complete.")
@@ -358,6 +403,14 @@ def refresh_kea_configuration(
     if not debug:
         sys.excepthook = _exception_handler
 
+    # config_generation / config_test failures are recorded in this process, so
+    # they need an exporter here -- the config-sync-v4 registry is a different
+    # pod and never sees them. Skipped for --check, a one-shot validation run
+    # that exits long before any scrape.
+    if not check:
+        initialize_refresh_metrics(ip_version)
+        _start_metrics_server("refresh")
+
     asyncio.run(_refresh_loop_async(ip_version, check, refresh_interval))
 
 
@@ -394,6 +447,16 @@ async def _apply_and_verify_kea_config(
         )
         return None
     if applied_hash is not None and effective_hash != applied_hash:
+        # KEA did not keep what config-set reported, which is drift. Counted
+        # here because this raise bypasses the tracked-operation wrappers: both
+        # calls above returned successfully.
+        DHCP_CONFIG_HASH_MISMATCHES.labels(ip_version=str(ip_version)).inc()
+        _record_sync_failure(
+            SyncOperation.CONFIG_SET,
+            ip_version,
+            f"KEA effective hash {effective_hash} does not match "
+            f"the config-set hash {applied_hash}",
+        )
         raise KeaException(
             f"KEA effective configuration hash ({effective_hash}) does not match "
             f"the hash returned by config-set ({applied_hash}); "
@@ -581,17 +644,8 @@ def sync_kea_configuration(
     if not debug:
         sys.excepthook = _exception_handler
 
-    try:
-        start_http_server(SYNC_METRICS_PORT)
-    except OSError as exc:
-        # A bind failure must not prevent reconciliation. Only config-sync-v4
-        # exists today; a second sidecar sharing this port would otherwise
-        # CrashLoop the pod. IPv6 would need its own chart port, not a silent
-        # offset here.
-        logger.error(
-            "Could not start the DHCP sync metrics server; continuing without metrics export",
-            extra={"port": SYNC_METRICS_PORT, "error": escape_log_newlines(exc)},
-        )
+    initialize_sync_metrics(ip_version)
+    _start_metrics_server("sync")
 
     asyncio.run(_sync_kea_configuration_async(ip_version, refresh_interval, debug))
 

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
+import click
 import pytest
 
 from nv_config_manager.dhcp import cli
@@ -29,6 +30,8 @@ from nv_config_manager.dhcp.metrics import (
     DHCP_SYNC_FAILURES,
     SyncOperation,
     SyncState,
+    initialize_refresh_metrics,
+    initialize_sync_metrics,
 )
 
 DESIRED_CONFIG: dict[str, Any] = {"Dhcp4": {"subnet4": ["desired"]}}
@@ -289,6 +292,15 @@ def _counter_value(metric: Any, **labels: str) -> float:
 def _gauge_value(metric: Any, **labels: str) -> float:
     """Return the current value of a labeled gauge."""
     return metric.labels(**labels)._value.get()  # noqa: SLF001
+
+
+def _has_child(metric: Any, *label_values: str) -> bool:
+    """Report whether a labeled child exists, without creating one.
+
+    ``metric.labels(...)`` would materialize the series being asked about, so
+    the registry has to be inspected directly.
+    """
+    return tuple(label_values) in metric._metrics  # noqa: SLF001
 
 
 def _make_clients(
@@ -571,7 +583,7 @@ def test_sync_kea_configuration_starts_metrics_server() -> None:
             debug=True,
         )
 
-    start_http_server.assert_called_once_with(cli.SYNC_METRICS_PORT)
+    start_http_server.assert_called_once_with(cli.CONFGEN_METRICS_PORT)
 
 
 def test_sync_kea_configuration_continues_when_metrics_port_is_bound(
@@ -596,23 +608,197 @@ def test_sync_kea_configuration_continues_when_metrics_port_is_bound(
     assert "continuing without metrics export" in caplog.text
 
 
-def test_sync_metrics_port_is_scrapeable() -> None:
-    """SYNC_METRICS_PORT must match the chart port, PodMonitor, and NetworkPolicy.
+def test_confgen_metrics_port_is_scrapeable() -> None:
+    """CONFGEN_METRICS_PORT must match the chart ports, PodMonitors, and NetworkPolicy.
 
     Prometheus scrapes named ports declared on the pod, and NetworkPolicy
-    enumerates those ports for the monitoring namespace. If any of the four
-    sites drifts, the metrics exist in-process but are never collected.
+    enumerates those ports for the monitoring namespace. If any of these sites
+    drifts, the metrics exist in-process but are never collected. Both confgen
+    processes are covered: config-refresh-v4 is a separate Deployment, so it
+    needs its own named port and PodMonitor endpoint.
     """
     repo = Path(__file__).resolve().parents[3]
     dhcp_yaml = (repo / "deploy/helm/templates/dhcp.yaml").read_text()
     monitoring_yaml = (repo / "deploy/helm/templates/monitoring.yaml").read_text()
     policy_yaml = (repo / "deploy/helm/templates/network-policy.yaml").read_text()
 
-    port = cli.SYNC_METRICS_PORT
+    port = cli.CONFGEN_METRICS_PORT
     assert f"containerPort: {port}" in dhcp_yaml
     assert "name: sync-metrics" in dhcp_yaml
+    assert "name: refresh-metrics" in dhcp_yaml
     assert "port: sync-metrics" in monitoring_yaml
+    assert "port: refresh-metrics" in monitoring_yaml
     assert f"port: {port}" in policy_yaml
+
+
+def test_refresh_kea_configuration_starts_metrics_server() -> None:
+    """config_generation / config_test are counted here, so this process must export.
+
+    The config-sync-v4 registry is in a different pod and never sees them.
+    """
+    with (
+        patch.object(cli, "start_http_server") as start_http_server,
+        patch.object(cli, "_set_config_path"),
+        patch.object(cli, "_refresh_loop_async"),
+        patch.object(cli.asyncio, "run"),
+    ):
+        cli.refresh_kea_configuration.callback(
+            ini_file="/tmp/nv-config-manager.ini",
+            ip_version=4,
+            check=False,
+            refresh_interval=300,
+            debug=True,
+        )
+
+    start_http_server.assert_called_once_with(cli.CONFGEN_METRICS_PORT)
+
+
+def test_refresh_kea_configuration_check_mode_skips_metrics_server() -> None:
+    """--check is a one-shot validation run; nothing can scrape it before it exits."""
+    with (
+        patch.object(cli, "start_http_server") as start_http_server,
+        patch.object(cli, "_set_config_path"),
+        patch.object(cli, "_refresh_loop_async"),
+        patch.object(cli.asyncio, "run"),
+    ):
+        cli.refresh_kea_configuration.callback(
+            ini_file="/tmp/nv-config-manager.ini",
+            ip_version=4,
+            check=True,
+            refresh_interval=0,
+            debug=True,
+        )
+
+    start_http_server.assert_not_called()
+
+
+def test_exception_handler_redacts_credentials(caplog: pytest.LogCaptureFixture) -> None:
+    """Tracked operations re-raise, so the unhandled-exception path must redact too.
+
+    ``_record_sync_failure`` sanitizes before counting, but the exception keeps
+    travelling and ends up here. Logging it raw would undo that redaction.
+    """
+    try:
+        raise RuntimeError(
+            f"could not connect to postgresql://kea_user:{_SECRET_PASSWORD}@dhcp-db/kea_dhcp"
+        )
+    except RuntimeError as exc:
+        with caplog.at_level(logging.ERROR):
+            cli._exception_handler(type(exc), exc, exc.__traceback__)
+
+    blob = _log_blob(caplog)
+    assert _SECRET_PASSWORD not in blob
+    assert ":<redacted>@" in blob
+    # Stack frames carry no exception message, so they are still attached.
+    assert "test_exception_handler_redacts_credentials" in blob
+
+
+async def test_refresh_counts_config_test_rejection() -> None:
+    """KEA reports a validation rejection as ``(False, error)`` instead of raising.
+
+    The tracked-operation wrapper sees a successful await, so without an explicit
+    increment the config_test label would never move.
+    """
+    kea_client = MagicMock()
+    kea_client.get_config = AsyncMock(return_value=[{"arguments": {}}])
+    kea_client.test_config = AsyncMock(return_value=(False, "subnet4[0] is malformed"))
+    redis_client = MagicMock()
+    redis_client.persist_kea_config = AsyncMock()
+    before = _counter_value(DHCP_SYNC_FAILURES, operation=SyncOperation.CONFIG_TEST, ip_version="4")
+
+    with (
+        patch.object(cli, "generate_config", AsyncMock(return_value=DESIRED_CONFIG)),
+        pytest.raises(click.ClickException, match="Generated configuration is invalid"),
+    ):
+        await cli._refresh_kea_configuration_async(
+            MagicMock(), kea_client, redis_client, 4, check=False
+        )
+
+    assert (
+        _counter_value(DHCP_SYNC_FAILURES, operation=SyncOperation.CONFIG_TEST, ip_version="4")
+        == before + 1
+    )
+    redis_client.persist_kea_config.assert_not_awaited()
+
+
+async def test_refresh_check_mode_reports_invalid_config() -> None:
+    """--check must fail on a rejected config rather than logging it as valid."""
+    kea_client = MagicMock()
+    kea_client.get_config = AsyncMock(return_value=[{"arguments": {}}])
+    kea_client.test_config = AsyncMock(return_value=(False, "subnet4[0] is malformed"))
+
+    with (
+        patch.object(cli, "generate_config", AsyncMock(return_value=DESIRED_CONFIG)),
+        pytest.raises(click.ClickException, match="Generated configuration is invalid"),
+    ):
+        await cli._refresh_kea_configuration_async(
+            MagicMock(), kea_client, MagicMock(), 4, check=True
+        )
+
+
+async def test_apply_verification_mismatch_counts_drift() -> None:
+    """A config-set / config-hash-get disagreement is drift and must be counted.
+
+    Both calls return successfully, so this raise bypasses the tracked-operation
+    wrappers entirely.
+    """
+    kea_client = MagicMock()
+    kea_client.set_config = AsyncMock(return_value="APPLIED_HASH")
+    kea_client.get_config_hash = AsyncMock(return_value="SOMETHING_ELSE")
+    mismatches_before = _counter_value(DHCP_CONFIG_HASH_MISMATCHES, ip_version="4")
+    failures_before = _counter_value(
+        DHCP_SYNC_FAILURES, operation=SyncOperation.CONFIG_SET, ip_version="4"
+    )
+
+    with pytest.raises(KeaException, match="does not match"):
+        await cli._apply_and_verify_kea_config(kea_client, DESIRED_CONFIG, 4)
+
+    assert _counter_value(DHCP_CONFIG_HASH_MISMATCHES, ip_version="4") == mismatches_before + 1
+    assert (
+        _counter_value(DHCP_SYNC_FAILURES, operation=SyncOperation.CONFIG_SET, ip_version="4")
+        == failures_before + 1
+    )
+
+
+# Unused IP versions, so these assertions see a registry no other test has touched.
+_SYNC_SEED_VERSION = 94
+_REFRESH_SEED_VERSION = 96
+
+
+def test_initialize_sync_metrics_seeds_series_before_first_sync() -> None:
+    """A pod whose initial sync never succeeds must still export a stale gauge.
+
+    prometheus_client creates a labeled child on first use, so without seeding
+    there would be no series at all -- and an alert on the age of a missing
+    series cannot fire.
+    """
+    version = str(_SYNC_SEED_VERSION)
+    initialize_sync_metrics(_SYNC_SEED_VERSION)
+
+    assert _gauge_value(DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP, ip_version=version) == 0
+    for operation in (
+        SyncOperation.REDIS_READ,
+        SyncOperation.CONFIG_SET,
+        SyncOperation.HASH_GET,
+        SyncOperation.POSTGRES,
+    ):
+        assert _has_child(DHCP_SYNC_FAILURES, operation, version)
+    # Recorded by config-refresh-v4, whose registry is in another pod; seeding
+    # them here would export series that can never move off zero.
+    assert not _has_child(DHCP_SYNC_FAILURES, SyncOperation.CONFIG_GENERATION, version)
+    assert not _has_child(DHCP_SYNC_FAILURES, SyncOperation.CONFIG_TEST, version)
+
+
+def test_initialize_refresh_metrics_seeds_only_refresh_operations() -> None:
+    """The refresh process must not claim a sync timestamp it can never advance."""
+    version = str(_REFRESH_SEED_VERSION)
+    initialize_refresh_metrics(_REFRESH_SEED_VERSION)
+
+    for operation in (SyncOperation.CONFIG_GENERATION, SyncOperation.CONFIG_TEST):
+        assert _has_child(DHCP_SYNC_FAILURES, operation, version)
+    assert not _has_child(DHCP_SYNC_FAILURES, SyncOperation.REDIS_READ, version)
+    # It generates and validates config but never applies it to KEA.
+    assert not _has_child(DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP, version)
 
 
 def _log_blob(caplog: pytest.LogCaptureFixture) -> str:

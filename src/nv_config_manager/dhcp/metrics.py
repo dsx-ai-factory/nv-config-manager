@@ -14,6 +14,8 @@
 # limitations under the License.
 """Prometheus metrics and observability taxonomy for the DHCP service."""
 
+from collections.abc import Iterable
+
 from prometheus_client import Counter, Gauge, Histogram
 
 
@@ -32,6 +34,22 @@ class SyncOperation:
     HASH_GET = "hash_get"
     CONFIG_TEST = "config_test"
     POSTGRES = "postgres"
+
+
+# Which operations each process can actually record. The two DHCP confgen
+# commands run in separate pods with separate registries, so seeding a label
+# value in the wrong one exports a series that can never move off zero.
+SYNC_PROCESS_OPERATIONS = (
+    SyncOperation.REDIS_READ,
+    SyncOperation.CONFIG_SET,
+    SyncOperation.HASH_GET,
+    SyncOperation.POSTGRES,
+)
+
+REFRESH_PROCESS_OPERATIONS = (
+    SyncOperation.CONFIG_GENERATION,
+    SyncOperation.CONFIG_TEST,
+)
 
 
 class SyncState:
@@ -109,3 +127,36 @@ DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP = Gauge(
     "Unix timestamp of the last successful verified DHCP synchronization",
     ["ip_version"],
 )
+
+
+def _seed_failure_counters(ip_version: str, operations: Iterable[str]) -> None:
+    """Materialize the failure counter for each ``operation`` at zero."""
+    for operation in operations:
+        DHCP_SYNC_FAILURES.labels(operation=operation, ip_version=ip_version)
+
+
+def initialize_sync_metrics(ip_version: int) -> None:
+    """Create every config-sync series up front, before the first reconcile.
+
+    prometheus_client only materializes a labeled child on first use, so a pod
+    whose initial sync never succeeds would export no
+    ``last_successful_sync_timestamp`` series at all -- and an alert on the age
+    of a series that does not exist cannot fire. Seeding the gauge at 0 makes
+    that pod report an unbounded age instead, which is the intended signal.
+    Counters are seeded for the same reason: ``rate()`` needs a prior sample.
+    """
+    version = str(ip_version)
+    DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP.labels(ip_version=version).set(0)
+    DHCP_CONFIG_HASH_MISMATCHES.labels(ip_version=version)
+    DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=version)
+    _seed_failure_counters(version, SYNC_PROCESS_OPERATIONS)
+
+
+def initialize_refresh_metrics(ip_version: int) -> None:
+    """Create every config-refresh series up front, before the first refresh.
+
+    Deliberately does not touch ``last_successful_sync_timestamp``: this process
+    generates and validates config but never applies it to KEA, so exporting a
+    sync timestamp it can never advance would alert forever.
+    """
+    _seed_failure_counters(str(ip_version), REFRESH_PROCESS_OPERATIONS)
