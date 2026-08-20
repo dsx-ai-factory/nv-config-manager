@@ -922,6 +922,27 @@ gateway:
     maxConnectionDuration: 0s
     # TCP connect timeout - time to establish connection to backend
     connectTimeout: 10s
+  # Retry policy for requests the gateway never managed to hand to a backend.
+  # Envoy does not retry at all unless this is set, so a single refused
+  # connection reaches the client as a 503. That is most likely while endpoints
+  # are churning - a rollout, or an autoscaler scaling in - where a pod stops
+  # accepting connections a moment before the gateway stops routing to it.
+  # Envoy Gateway only; kgateway TrafficPolicy has a separate retry schema and
+  # is not covered here.
+  retry:
+    enabled: true
+    # Total attempts is numRetries + 1.
+    numRetries: 2
+    # Deliberately narrow. Both triggers mean the request never reached a
+    # backend, so replaying it cannot apply a write twice. Excluded on purpose:
+    # 5xx/retriable-status-codes, where the backend may have already committed,
+    # and reset, which can arrive after the request was sent.
+    triggers:
+      - connect-failure
+      - refused-stream
+    backOff:
+      baseInterval: 100ms
+      maxInterval: 1s
   # CORS configuration
   cors:
     enabled: true

@@ -1,3 +1,25 @@
+{{- /* -----------------------------------------------------------------------
+  Shared retry policy, emitted into every BackendTrafficPolicy below rather
+  than set once on the Gateway. A policy targeting an HTTPRoute overrides the
+  Gateway-level policy for that route instead of merging with it, so the ZTP
+  routes would silently lose retries if this were only set globally.
+  ----------------------------------------------------------------------- */}}
+{{- define "nv-config-manager.gatewayRetry" -}}
+{{- $r := .Values.gateway.retry | default dict -}}
+{{- if $r.enabled -}}
+retry:
+  numRetries: {{ $r.numRetries | default 2 | int }}
+  retryOn:
+    triggers:
+      {{- range ($r.triggers | default (list "connect-failure" "refused-stream")) }}
+      - {{ . | quote }}
+      {{- end }}
+  perRetry:
+    backOff:
+      baseInterval: {{ dig "backOff" "baseInterval" "100ms" $r | quote }}
+      maxInterval: {{ dig "backOff" "maxInterval" "1s" $r | quote }}
+{{- end -}}
+{{- end }}
 {{- if and .Values.gateway.enabled (eq (include "nv-config-manager.gatewayControllerType" .) "envoyGateway") }}
 {{- if .Values.gateway.create }}
 {{- $policyName := include "nv-config-manager.componentName" (dict "root" . "component" "global-traffic-policy") }}
@@ -23,6 +45,7 @@ spec:
       maxConnectionDuration: {{ .Values.gateway.timeout.maxConnectionDuration | default "0s" }}
     tcp:
       connectTimeout: {{ .Values.gateway.timeout.connectTimeout | default "10s" }}
+  {{- include "nv-config-manager.gatewayRetry" . | nindent 2 }}
   
   {{- if .Values.gateway.rateLimit.enabled }}
   rateLimit:
@@ -71,6 +94,7 @@ spec:
       maxConnectionDuration: "0s"
     tcp:
       connectTimeout: {{ .Values.gateway.timeout.connectTimeout | default "10s" }}
+  {{- include "nv-config-manager.gatewayRetry" . | nindent 2 }}
 {{- if and .Values.oidc.enabled (.Values.networkZtp.gateway.svcHostname | default "") }}
 ---
 apiVersion: gateway.envoyproxy.io/v1alpha1
@@ -93,6 +117,7 @@ spec:
       maxConnectionDuration: "0s"
     tcp:
       connectTimeout: {{ .Values.gateway.timeout.connectTimeout | default "10s" }}
+  {{- include "nv-config-manager.gatewayRetry" . | nindent 2 }}
 {{- end }}
 {{- end }}
 {{- end }}
