@@ -8,8 +8,18 @@
 {{- $r := .Values.gateway.retry | default dict -}}
 {{- if $r.enabled -}}
 retry:
-  numRetries: {{ $r.numRetries | default 2 | int }}
+  {{- /* dig, not `default`: 0 is falsy in Go templates, so `default 2` would
+       quietly rewrite an explicit numRetries: 0 to 2 and leave an operator
+       unable to keep the policy while turning retries off. dig substitutes
+       only when the key is genuinely absent, which is what makes a partial
+       gateway.retry override work. */}}
+  numRetries: {{ dig "numRetries" 2 $r | int }}
   retryOn:
+    {{- /* `default` is deliberate here, unlike numRetries above. An empty
+         triggers list would render `triggers:` as null, and Envoy would fall
+         back to its own retryOn default, which retries 5xx - exactly what the
+         narrow list below exists to avoid. Falling back to the safe pair beats
+         silently widening what gets replayed. Set enabled: false to opt out. */}}
     triggers:
       {{- range ($r.triggers | default (list "connect-failure" "refused-stream")) }}
       - {{ . | quote }}
