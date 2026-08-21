@@ -927,11 +927,10 @@ gateway:
   # connection reaches the client as a 503. That is most likely while endpoints
   # are churning - a rollout, or an autoscaler scaling in - where a pod stops
   # accepting connections a moment before the gateway stops routing to it.
-  # Envoy Gateway only; kgateway TrafficPolicy has a separate retry schema and
-  # is not covered here.
   # Only connection failures and refused streams are retried, both of which mean
   # the request never reached a backend, so a write is never applied twice. The
   # triggers and backoff (100ms base, 1s cap) are fixed in the template.
+  # Applies under both gateway controllers.
   retry:
     enabled: true
     # Total attempts is numRetries + 1.
