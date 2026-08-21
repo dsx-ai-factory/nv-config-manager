@@ -943,6 +943,17 @@ gateway:
     backOff:
       baseInterval: 100ms
       maxInterval: 1s
+    # Adds a status-code retry for the 502 the OIDC browser proxy returns when
+    # it cannot reach a backend. Restricted to methods that are safe to replay,
+    # because a 502 cannot be distinguished from a write that already committed.
+    # Only takes effect when oidc.enabled puts the proxy in the request path.
+    safeMethods:
+      enabled: true
+      methods:
+        - GET
+        - HEAD
+      httpStatusCodes:
+        - 502
   # CORS configuration
   cors:
     enabled: true

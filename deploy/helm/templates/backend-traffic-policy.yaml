@@ -5,7 +5,10 @@
   routes would silently lose retries if this were only set globally.
   ----------------------------------------------------------------------- */}}
 {{- define "nv-config-manager.gatewayRetry" -}}
-{{- $r := .Values.gateway.retry | default dict -}}
+{{- /* Accepts either the root context or a dict of `root` plus `statusCodes`.
+     `.root | default .` keeps the plain-root call sites below unchanged. */ -}}
+{{- $root := .root | default . -}}
+{{- $r := $root.Values.gateway.retry | default dict -}}
 {{- if $r.enabled -}}
 retry:
   {{- /* dig, not `default`: 0 is falsy in Go templates, so `default 2` would
@@ -14,16 +17,33 @@ retry:
        only when the key is genuinely absent, which is what makes a partial
        gateway.retry override work. */}}
   numRetries: {{ dig "numRetries" 2 $r | int }}
+  {{- /* `default` is deliberate here, unlike numRetries above. An empty
+       triggers list would render `triggers:` as null, and Envoy would fall
+       back to its own retryOn default, which retries 5xx - exactly what the
+       narrow list below exists to avoid. Falling back to the safe pair beats
+       silently widening what gets replayed. Set enabled: false to opt out. */}}
+  {{- $triggers := ($r.triggers | default (list "connect-failure" "refused-stream")) }}
+  {{- if .statusCodes }}
+  {{- /* Not optional. Envoy ignores retriable_status_codes unless retry_on
+       contains retriable-status-codes, and Envoy Gateway builds retry_on from
+       these triggers verbatim rather than inferring it from httpStatusCodes.
+       Without this the status codes below would render, validate, and do
+       nothing. */}}
+  {{- $triggers = append $triggers "retriable-status-codes" | uniq }}
+  {{- end }}
   retryOn:
-    {{- /* `default` is deliberate here, unlike numRetries above. An empty
-         triggers list would render `triggers:` as null, and Envoy would fall
-         back to its own retryOn default, which retries 5xx - exactly what the
-         narrow list below exists to avoid. Falling back to the safe pair beats
-         silently widening what gets replayed. Set enabled: false to opt out. */}}
     triggers:
-      {{- range ($r.triggers | default (list "connect-failure" "refused-stream")) }}
+      {{- range $triggers }}
       - {{ . | quote }}
       {{- end }}
+    {{- if .statusCodes }}
+    {{- /* Only reached from the method-matched rule below, never from a policy
+         that covers every method. */}}
+    httpStatusCodes:
+      {{- range (dig "safeMethods" "httpStatusCodes" (list 502) $r) }}
+      - {{ . | int }}
+      {{- end }}
+    {{- end }}
   perRetry:
     backOff:
       baseInterval: {{ dig "backOff" "baseInterval" "100ms" $r | quote }}
@@ -128,6 +148,100 @@ spec:
     tcp:
       connectTimeout: {{ .Values.gateway.timeout.connectTimeout | default "10s" }}
   {{- include "nv-config-manager.gatewayRetry" . | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- /* -----------------------------------------------------------------------
+  Safe-method retry for the browser routes. With oidc.enabled, oauth2-proxy
+  proxies to the component Service, so a pod that stops accepting mid-rollout
+  makes the proxy answer 502 rather than the connection failing at the gateway.
+  That is a real response, which the transport-only triggers cannot absorb, and
+  it cannot be told apart from a write that already committed -- so it is
+  retried only on the method-matched rule, reached here by sectionName.
+
+  The timeouts are restated rather than inherited: a policy targeting a route
+  rule is the most specific one, so it replaces the Gateway- and route-level
+  policies for that rule instead of merging with them. ZTP is separate because
+  its uploads run on far longer timeouts than the global default, and the rule
+  would otherwise be silently downgraded to that default.
+  ----------------------------------------------------------------------- */}}
+{{- if include "nv-config-manager.browserSafeMethodRetryEnabled" . }}
+{{- $ruleName := include "nv-config-manager.browserSafeMethodRuleName" . }}
+{{- $temporalName := include "nv-config-manager.componentName" (dict "root" . "component" "temporal") }}
+{{- $routes := list }}
+{{- if .Values.renderService.enabled }}
+{{- $routes = append $routes (include "nv-config-manager.componentName" (dict "root" . "component" "render")) }}
+{{- end }}
+{{- if .Values.networkDhcp.enabled }}
+{{- $routes = append $routes (include "nv-config-manager.componentName" (dict "root" . "component" "dhcp")) }}
+{{- end }}
+{{- if .Values.temporal.enabled }}
+{{- $routes = append $routes (printf "%s-api" $temporalName) }}
+{{- if .Values.temporal.server.enabled }}
+{{- $routes = append $routes (printf "%s-web" $temporalName) }}
+{{- end }}
+{{- end }}
+{{- if .Values.ui.enabled }}
+{{- $routes = append $routes (include "nv-config-manager.componentName" (dict "root" . "component" "ui")) }}
+{{- end }}
+{{- if and .Values.nautobot.enabled .Values.externalServices.nautobot.local }}
+{{- $routes = append $routes (include "nv-config-manager.componentName" (dict "root" . "component" "nautobot")) }}
+{{- end }}
+{{- if .Values.configStore.enabled }}
+{{- $routes = append $routes (printf "%s-api" (include "nv-config-manager.componentName" (dict "root" . "component" "config-store"))) }}
+{{- end }}
+{{- if .Values.mcp.enabled }}
+{{- $routes = append $routes (include "nv-config-manager.componentName" (dict "root" . "component" "mcp")) }}
+{{- end }}
+{{- if $routes }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: {{ include "nv-config-manager.componentName" (dict "root" . "component" "browser-retry-policy") }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+spec:
+  targetRefs:
+  {{- range $routes }}
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: {{ . }}
+    sectionName: {{ $ruleName }}
+  {{- end }}
+  timeout:
+    http:
+      requestTimeout: {{ .Values.gateway.timeout.requestTimeout | default "300s" }}
+      connectionIdleTimeout: {{ .Values.gateway.timeout.connectionIdleTimeout | default "60s" }}
+      maxConnectionDuration: {{ .Values.gateway.timeout.maxConnectionDuration | default "0s" }}
+    tcp:
+      connectTimeout: {{ .Values.gateway.timeout.connectTimeout | default "10s" }}
+  {{- include "nv-config-manager.gatewayRetry" (dict "root" . "statusCodes" true) | nindent 2 }}
+{{- end }}
+{{- if .Values.networkZtp.enabled }}
+{{- $ztpName := include "nv-config-manager.componentName" (dict "root" . "component" "ztp") }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: {{ $ztpName }}-upload-browser-retry-policy
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: {{ $ztpName }}
+    sectionName: {{ $ruleName }}
+  timeout:
+    http:
+      requestTimeout: {{ .Values.networkZtp.upload.timeout | default "3600s" }}
+      connectionIdleTimeout: {{ .Values.networkZtp.upload.idleTimeout | default "300s" }}
+      maxConnectionDuration: "0s"
+    tcp:
+      connectTimeout: {{ .Values.gateway.timeout.connectTimeout | default "10s" }}
+  {{- include "nv-config-manager.gatewayRetry" (dict "root" . "statusCodes" true) | nindent 2 }}
 {{- end }}
 {{- end }}
 {{- end }}
