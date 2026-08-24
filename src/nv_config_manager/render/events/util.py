@@ -45,6 +45,14 @@ class DeviceNotEnabledError(Exception):
     """To be raised if a device is not enabled for NVIDIA Config Manager."""
 
 
+# How long a device stays deduped while its render is queued but not yet
+# processed. This has to cover worst-case queue latency: a change to one shared
+# Nautobot object fans out to every attached device, so if the flag expires
+# before the render runs, the next change re-publishes the same device and the
+# queue amplifies by one copy per change.
+QUEUED_FLAG_TTL_SECONDS = 3600
+
+
 def _get_queue_redis_client() -> RedisClient | None:
     """Create a Redis client for queue operations."""
     if is_local_environment():
@@ -75,7 +83,30 @@ async def mark_queued(device_uuid: str, client: RedisClient | None = None) -> No
 
     try:
         queue_key = f"{device_uuid}_queued"
-        await client.setex(queue_key, 60, 1, serialize=False)  # TTL of 60 seconds
+        await client.setex(queue_key, QUEUED_FLAG_TTL_SECONDS, 1, serialize=False)
+    finally:
+        if owned_client:
+            await _close_queue_redis_client(client)
+
+
+async def claim_queued(device_uuid: str, client: RedisClient | None = None) -> bool:
+    """Atomically claim the render queue slot for a device.
+
+    Returns True when the caller won the claim and should publish, False when a
+    render is already queued. Separate ``exists`` and ``setex`` calls let
+    concurrent producers both observe an unset flag and both publish, so the
+    check and the set have to happen in one ``SET NX EX``.
+    """
+    owned_client = client is None
+    client = client or _get_queue_redis_client()
+    if client is None:
+        # Local environment, never dedup
+        return True
+
+    try:
+        queue_key = f"{device_uuid}_queued"
+        claimed = await client.redis.set(queue_key, b"1", ex=QUEUED_FLAG_TTL_SECONDS, nx=True)
+        return bool(claimed)
     finally:
         if owned_client:
             await _close_queue_redis_client(client)
@@ -148,8 +179,9 @@ async def _process_single_device_enqueue(
         None if successful, dict with error details if failed
     """
     try:
-        # Check if device is already queued for rendering
-        if await is_queued(device_uuid, queue_client):
+        # Claim before the Nautobot lookup so that concurrent producers collapse
+        # to a single publish per device rather than one publish per change.
+        if not await claim_queued(device_uuid, queue_client):
             logger.info(
                 "Device %s already has a pending render, skipping duplicate queue request",
                 device_uuid,
@@ -157,13 +189,11 @@ async def _process_single_device_enqueue(
             return None
 
         if not await should_run(device_uuid, dcim_client):
+            await clear_queued(device_uuid, queue_client)
             return {
                 "device_uuid": device_uuid,
                 "error": f"{device_uuid} is not enabled for configuration renders.",
             }
-
-        # Mark device as queued before publishing
-        await mark_queued(device_uuid, queue_client)
 
         # Publish message using provided jetstream connection
         message = {

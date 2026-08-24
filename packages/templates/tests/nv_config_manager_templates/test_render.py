@@ -150,6 +150,21 @@ def test_missing_site_aggregate_fails_edge_render() -> None:
         renderer.render(template, render_data)
 
 
+def test_missing_intended_firmware_yields_no_entrypoints() -> None:
+    """A device awaiting firmware assignment renders nothing instead of failing."""
+    os.environ["NV_CONFIG_MANAGER_SKIP_VAULT"] = "1"
+
+    with (RENDER_DATA_DIR / "a09-u28-p01-bleaf-01.json").open(encoding="utf-8") as file:
+        render_data = RenderData.from_cache(json.load(file))
+    no_firmware = render_data.device.model_copy(
+        update={
+            "firmware": render_data.device.firmware.model_copy(update={"desired_version": None})
+        }
+    )
+
+    assert Renderer().list_entrypoints(no_firmware) == []
+
+
 def test_renderer_exposes_plugin_extension_data(public_leaf_data, public_location_data) -> None:
     """Plugin filters receive extension data, not provider cache envelope metadata."""
     render_data = RenderData(

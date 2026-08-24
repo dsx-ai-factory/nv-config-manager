@@ -21,7 +21,12 @@ import logging
 import os
 import signal
 import ssl
+import threading
+import time
 from asyncio import AbstractEventLoop
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
 
 import nats
 import nats.errors
@@ -128,6 +133,21 @@ class PullConsumer:
         # Must be < FetchMaxWait/2 (default FetchMaxWait=5s, so heartbeat must be < 2.5s)
         self.heartbeat_interval = 1.0
 
+        # Liveness. A broken connection can leave this loop retrying forever
+        # without the process ever exiting, so the only trustworthy evidence
+        # that the consumer still works is a fetch that completes. An idle
+        # queue is healthy; a fetch that never completes is not.
+        #
+        # The budget has to exceed the longest time one message can legitimately
+        # occupy the loop, because the clock is only stamped between fetches. A
+        # message still being worked on past its ack wait is already redelivered
+        # elsewhere, so that is the point where a stalled loop stops being
+        # merely slow.
+        self.liveness_timeout = float(
+            os.getenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", str(CONSUMER_ACK_WAIT_SECONDS + 240))
+        )
+        self._last_successful_fetch = time.monotonic()
+
     def run(self) -> None:
         """Run the consumer."""
         try:
@@ -172,6 +192,19 @@ class PullConsumer:
         Override this in subclasses to implement custom flow control logic.
         """
         return True
+
+    def _record_successful_fetch(self) -> None:
+        """Note that a fetch completed, whether or not it returned messages."""
+        self._last_successful_fetch = time.monotonic()
+
+    def liveness(self) -> tuple[bool, str]:
+        """Report whether a fetch has completed recently enough."""
+        stalled_for = time.monotonic() - self._last_successful_fetch
+        if stalled_for > self.liveness_timeout:
+            return False, (
+                f"no successful fetch for {stalled_for:.0f}s (limit {self.liveness_timeout:.0f}s)"
+            )
+        return True, f"last successful fetch {stalled_for:.0f}s ago"
 
     async def ack(self, msg: Msg) -> None:
         """Acknowledge a message with resilient error handling."""
@@ -352,12 +385,14 @@ class PullConsumer:
                     # raise an exception after missing heartbeats. Any exception
                     # during fetch indicates we should recreate the consumer.
                     msgs = await pull_subscription.fetch(batch=1, heartbeat=self.heartbeat_interval)
+                    self._record_successful_fetch()
                     if msgs:
                         await self._resilient_message_handler(msgs[0])
                     else:
                         await asyncio.sleep(self.idle_wait)
                 except FetchTimeoutError:
                     # Heartbeats were fine, but no messages were received
+                    self._record_successful_fetch()
                     await asyncio.sleep(self.idle_wait)
                 except Exception as e:
                     # Any exception during fetch (timeouts, heartbeat failures,
@@ -588,22 +623,58 @@ class PullDeviceChangeConsumer(PullConsumer):
             await self.nak(msg, delay=5)
             return
         try:
-            # Clear the queued flag only after successfully acquiring the lock
-            await clear_queued(device_id)
             # Dispatch is now async, so we can await it directly
             await self.dispatcher.nautobot_change_dispatch(data)
+            # Release the dedup slot only once the render is finished. Clearing
+            # at lock acquisition reopens it for the whole duration of the
+            # render, so a change arriving mid-render enqueues a duplicate.
+            await clear_queued(device_id)
             await self.ack(msg)
         except RenderException:
             # No need to redeliver render exceptions, they won't succeed on retry
+            await clear_queued(device_id)
             await self.ack(msg)
         except Exception as e:
             self.logger.error("Error processing device change message: %s", data, exc_info=e)
+            # Leave the dedup slot claimed: the render is still pending until a
+            # redelivery completes it.
             await self.nak(msg)
         finally:
             try:
                 await lock.release()
             except Exception as e:
                 self.logger.error("Error releasing lock for %s", device_id, exc_info=e)
+
+
+def start_liveness_server(consumer: PullConsumer, port: int = 8001) -> ThreadingHTTPServer:
+    """Serve consumer liveness on /healthz.
+
+    Without this the pod stays Running and Ready while the consumer makes no
+    progress, because the retry loop swallows every error and the process never
+    exits. Nothing outside the process can then restart it.
+    """
+
+    class LivenessHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path.rstrip("/") not in ("/healthz", ""):
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            live, detail = consumer.liveness()
+            body = detail.encode()
+            self.send_response(HTTPStatus.OK if live else HTTPStatus.SERVICE_UNAVAILABLE)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            """Drop per-request logging so probes do not flood the log."""
+
+    server = ThreadingHTTPServer(("", port), LivenessHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
 
 
 def main() -> None:
@@ -622,6 +693,7 @@ def main() -> None:
     else:
         raise NotImplementedError(f"No consumer implemented for {consumer_name}.")
 
+    start_liveness_server(consumer)
     consumer.run()
     get_logger(__name__, category=LogCategory.RENDER_EVENT).info("Exiting...")
 

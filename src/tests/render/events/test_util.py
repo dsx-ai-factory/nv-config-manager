@@ -21,7 +21,9 @@ import pytest
 
 from nv_config_manager.dcim import RenderDeviceStatus
 from nv_config_manager.render.events.util import (
+    QUEUED_FLAG_TTL_SECONDS,
     DeviceNotEnabledError,
+    claim_queued,
     clear_queued,
     is_queued,
     mark_queued,
@@ -112,11 +114,16 @@ is_aggregate_environment=false
     )
     with patch("nv_config_manager.render.events.util._get_queue_redis_client") as redis_getter:
         redis = MagicMock()
-        redis.exists = AsyncMock(return_value=False)
-        redis.setex = AsyncMock()
+        redis.redis.set = AsyncMock(return_value=True)  # Claim won
+        redis.delete = AsyncMock()
         redis_getter.return_value = redis
 
         await queue_render("test-device", "message", "user", "2024-01-16T21:46:05Z")
+
+        # The claim is a single atomic SET NX EX, not a separate check and set
+        redis.redis.set.assert_awaited_once_with(
+            "test-device_queued", b"1", ex=QUEUED_FLAG_TTL_SECONDS, nx=True
+        )
 
     mock_nats_connection.jetstream.return_value.publish.assert_awaited_once()
     mock_dcim_client.get_render_device_status.assert_awaited_once_with("test-device")
@@ -152,13 +159,16 @@ is_aggregate_environment=false
     mock_nats_connection.jetstream.return_value.publish.side_effect = RuntimeError("NATS error")
     with patch("nv_config_manager.render.events.util._get_queue_redis_client") as redis_getter:
         redis = MagicMock()
-        redis.exists = AsyncMock(return_value=False)
-        redis.setex = AsyncMock()
+        redis.redis.set = AsyncMock(return_value=True)  # Claim won
         redis.delete = AsyncMock()
         redis_getter.return_value = redis
 
         with pytest.raises(Exception, match="NATS error"):
             await queue_render("test-device", "message", "user", "2024-01-16T21:46:05Z")
+
+        redis.redis.set.assert_awaited_once_with(
+            "test-device_queued", b"1", ex=QUEUED_FLAG_TTL_SECONDS, nx=True
+        )
 
     redis.delete.assert_awaited_once_with("test-device_queued")
 
@@ -177,5 +187,25 @@ async def test_redis_deduplication_functions():
         assert await is_queued("device") is True
         await clear_queued("device")
 
-    redis.setex.assert_awaited_once_with("device_queued", 60, 1, serialize=False)
+    redis.setex.assert_awaited_once_with(
+        "device_queued", QUEUED_FLAG_TTL_SECONDS, 1, serialize=False
+    )
     redis.delete.assert_awaited_once_with("device_queued")
+
+
+@pytest.mark.asyncio
+async def test_claim_queued_is_atomic_and_exclusive():
+    """Only the first caller may claim a device, via a single SET NX EX."""
+    with patch("nv_config_manager.render.events.util._get_queue_redis_client") as redis_getter:
+        redis = MagicMock()
+        redis.redis.set = AsyncMock(return_value=True)
+        redis_getter.return_value = redis
+
+        assert await claim_queued("device") is True
+        redis.redis.set.assert_awaited_once_with(
+            "device_queued", b"1", ex=QUEUED_FLAG_TTL_SECONDS, nx=True
+        )
+
+        # A second caller loses the claim while the flag is held
+        redis.redis.set = AsyncMock(return_value=None)
+        assert await claim_queued("device") is False
