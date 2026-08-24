@@ -16,6 +16,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 import pytest_asyncio
 
@@ -137,14 +138,31 @@ async def test_whoami_uses_service_root(async_config_store_client):
 
 
 @pytest.mark.asyncio
+async def test_load_file_not_found(async_config_store_client):
+    """Test a 404 from the per-file endpoint maps to ConfigStoreFileNotFound."""
+    mock_session = _mock_retry_client(None)
+    mock_session.get.return_value.raise_for_status = MagicMock(
+        side_effect=aiohttp.ClientResponseError(
+            request_info=MagicMock(), history=(), status=404, message="Not Found"
+        )
+    )
+
+    with patch(
+        "nv_config_manager.common.client.config_store.RetryClient", return_value=mock_session
+    ):
+        with pytest.raises(ConfigStoreFileNotFound):
+            await async_config_store_client.load_file(
+                "123e4567-e89b-12d3-a456-426614174000", "startup.yaml"
+            )
+
+
+@pytest.mark.asyncio
 async def test_persist_files_new(async_config_store_client):
-    """Test persisting new files."""
+    """Test persisting files for a device with nothing stored yet."""
     device_uuid = "123e4567-e89b-12d3-a456-426614174000"
 
-    async def mock_load_file(dev_uuid, filename):
-        raise ConfigStoreFileNotFound(f"File {filename} not found")
-
-    async_config_store_client.load_file = mock_load_file
+    list_configs = AsyncMock(return_value=[])
+    async_config_store_client.list_device_configs = list_configs
 
     mock_session = _mock_retry_client(MOCK_BATCH_POST_RESPONSE)
 
@@ -163,6 +181,34 @@ async def test_persist_files_new(async_config_store_client):
     assert len(config_files) == 1
     assert config_files[0].commit == "6"
     assert config_files[0].filename == "startup.yaml"
+    # A device with no stored configs must be discovered without a per-file GET.
+    list_configs.assert_awaited_once_with(device_uuid)
+
+
+@pytest.mark.asyncio
+async def test_persist_files_skips_unchanged(async_config_store_client):
+    """Test files matching the stored content are not resubmitted."""
+    device_uuid = "123e4567-e89b-12d3-a456-426614174000"
+
+    async_config_store_client.list_device_configs = AsyncMock(
+        return_value=[dict(MOCK_GET_RESPONSE)]
+    )
+
+    mock_session = _mock_retry_client(MOCK_BATCH_POST_RESPONSE)
+
+    with patch(
+        "nv_config_manager.common.client.config_store.RetryClient", return_value=mock_session
+    ):
+        config_files = await async_config_store_client.persist_files(
+            device_uuid=device_uuid,
+            files={"startup.yaml.j2": MOCK_GET_RESPONSE["content"]},
+            commit_message="test commit message",
+            user="testuser",
+            user_domain="config-manager.example.com",
+        )
+
+    assert config_files is None
+    mock_session.post.assert_not_called()
 
 
 @pytest.mark.asyncio
