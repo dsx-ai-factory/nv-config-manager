@@ -128,7 +128,7 @@ include:
           PULSE_IMAGE_NAME:
             - oauth2-proxy
           PULSE_EXTERNAL_IMAGE:
-            - quay.io/oauth2-proxy/oauth2-proxy:v7.15.3
+            - quay.io/oauth2-proxy/oauth2-proxy:v7.15.4
           PULSE_CONTAINER_SCANNER_PLATFORM:
             - linux/amd64
             - linux/arm64
