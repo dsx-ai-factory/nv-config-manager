@@ -391,16 +391,21 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
         """
         author_email = f"{user}@{user_domain}"
 
+        # One device-scoped read instead of a GET per file. The per-file endpoint
+        # 404s for anything not yet stored, so a first render of a device (or of a
+        # newly added template) used to emit a 404 per file purely to compute the
+        # diff. The device endpoint returns an empty list instead.
+        existing_content = {
+            str(config["filename"]): str(config["content"])
+            for config in await self.list_device_configs(device_uuid)
+        }
+
         filtered_items = []
         for filename, content in files.items():
             clean_filename = filename.replace(".j2", "")
-            try:
-                existing_file = await self.load_file(device_uuid, clean_filename)
-                if content == existing_file.content:
-                    self.logger.info("No diff for %s/%s", device_uuid, clean_filename)
-                    continue
-            except ConfigStoreFileNotFound:
-                pass
+            if existing_content.get(clean_filename) == content:
+                self.logger.info("No diff for %s/%s", device_uuid, clean_filename)
+                continue
 
             filtered_items.append(
                 {
