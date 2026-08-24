@@ -736,6 +736,47 @@ async def test_refresh_check_mode_reports_invalid_config() -> None:
         )
 
 
+async def test_refresh_rejection_message_redacts_quoted_secret(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A KEA rejection echoes the offending config, so Click must not render it raw.
+
+    The config is JSON, so the lease-DB password arrives as a quoted key. Both
+    the CLI message and the failure log have to redact it.
+    """
+    rejection = (
+        '{"Dhcp4": {"lease-database": {"type": "postgresql", '
+        f'"password": "{_SECRET_PASSWORD}"}}}}}} is malformed'
+    )
+    kea_client = MagicMock()
+    kea_client.get_config = AsyncMock(return_value=[{"arguments": {}}])
+    kea_client.test_config = AsyncMock(return_value=(False, rejection))
+
+    with (
+        patch.object(cli, "generate_config", AsyncMock(return_value=DESIRED_CONFIG)),
+        caplog.at_level(logging.ERROR),
+        pytest.raises(click.ClickException) as excinfo,
+    ):
+        await cli._refresh_kea_configuration_async(
+            MagicMock(), kea_client, MagicMock(), 4, check=True
+        )
+
+    assert _SECRET_PASSWORD not in str(excinfo.value)
+    assert '"password"=<redacted>' in str(excinfo.value)
+    assert _SECRET_PASSWORD not in _log_blob(caplog)
+
+
+def test_redact_secrets_covers_quoted_and_bare_keys() -> None:
+    """Both assignment spellings redact, and a spaced quoted value is consumed whole."""
+    assert cli._redact_secrets("password=hunter2") == "password=<redacted>"
+    assert cli._redact_secrets("password: hunter2") == "password=<redacted>"
+    assert cli._redact_secrets('"password": "hunter2"') == '"password"=<redacted>'
+    assert cli._redact_secrets("'passwd': 'hunter2'") == "'passwd'=<redacted>"
+    # A bare-run fallback would stop at the first space and leak the remainder.
+    assert cli._redact_secrets('"secret": "a b c"') == '"secret"=<redacted>'
+    assert cli._redact_secrets("no secrets here") == "no secrets here"
+
+
 async def test_apply_verification_mismatch_counts_drift() -> None:
     """A config-set / config-hash-get disagreement is drift and must be counted.
 

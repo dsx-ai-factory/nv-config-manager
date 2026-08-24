@@ -75,13 +75,23 @@ _MAX_ERROR_CHARS = 300
 # `*` so redis://:password@host (empty username) is redacted as well as
 # postgresql://user:password@host.
 _DSN_USERINFO_RE = re.compile(r"(://[^:/@\s]*):([^@/\s]+)@")
-_PASSWORD_ASSIGN_RE = re.compile(r"(?i)(password|passwd|pwd|secret)\s*[:=]\s*\S+")
+# The key may be quoted, because a rejected KEA config is JSON and reaches this
+# as `"password": "..."`. The value alternation takes a quoted string before
+# falling back to a bare run, so a secret containing spaces is consumed whole.
+_PASSWORD_ASSIGN_RE = re.compile(
+    r"""(?i)
+    (["']?)(password|passwd|pwd|secret)\1
+    \s*[:=]\s*
+    (?:"[^"]*"|'[^']*'|\S+)
+    """,
+    re.VERBOSE,
+)
 
 
 def _redact_secrets(text: str) -> str:
     """Strip DSN userinfo and ``password=`` style assignments from ``text``."""
     text = _DSN_USERINFO_RE.sub(r"\1:<redacted>@", text)
-    return _PASSWORD_ASSIGN_RE.sub(r"\1=<redacted>", text)
+    return _PASSWORD_ASSIGN_RE.sub(r"\1\2\1=<redacted>", text)
 
 
 def _safe_error_text(error: BaseException | str) -> str:
@@ -324,7 +334,11 @@ async def _refresh_kea_configuration_async(
         # instead of raising, so the tracked-operation wrapper sees a successful
         # await and the rejection has to be counted here.
         _record_sync_failure(SyncOperation.CONFIG_TEST, ip_version, str(error))
-        raise click.ClickException(f"Generated configuration is invalid: {error}")
+        # KEA echoes the offending config back in the rejection, so this text can
+        # carry the lease-DB password. Click renders it to stderr unredacted.
+        raise click.ClickException(
+            f"Generated configuration is invalid: {_safe_error_text(str(error))}"
+        )
 
     if check:
         logger.info("Generated configuration is valid.")
