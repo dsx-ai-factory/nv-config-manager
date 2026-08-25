@@ -183,6 +183,7 @@ class SpiffeConfig:
     jwks_uri: str
     audiences: list[str]
     group_prefixes: tuple[tuple[str, str], ...] = ()
+    jwt_svid_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -295,6 +296,7 @@ def _load_spiffe_from_ini(config: ConfigParser) -> SpiffeConfig | None:
         jwks_uri=jwks_uri,
         audiences=audiences,
         group_prefixes=tuple(group_prefixes),
+        jwt_svid_path=config.get(section, "jwt_svid_path", fallback=""),
     )
 
 
@@ -1014,6 +1016,18 @@ def install_identity_probe(
     any other middleware so call order is not important.
     """
     unauthenticated_path_set = frozenset(_normalize_request_path(p) for p in unauthenticated_paths)
+
+    # Register SPIFFE credential health metrics on the shared registry.
+    # Imported here (not at module top) to avoid a circular import: metrics
+    # imports this module for auth-config access.
+    from nv_config_manager.common.metrics import install_spiffe_bundle_metrics
+
+    # Registration failure of an ancillary observability feature must never
+    # abort the primary auth wiring (middleware, /whoami, enforcement).
+    try:
+        install_spiffe_bundle_metrics()
+    except Exception:
+        logger.warning("Failed to register SPIFFE credential health metrics", exc_info=True)
 
     if enforce_auth:
         _install_openapi_auth_schema(
