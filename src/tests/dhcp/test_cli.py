@@ -139,13 +139,18 @@ async def test_mismatched_hash_reapplies(mocker: Any) -> None:
     ]
 
 
-async def test_kea_restart_bootstrap_recovery_with_unchanged_redis(mocker: Any) -> None:
+async def test_kea_restart_bootstrap_recovery_with_unchanged_redis(
+    mocker: Any, caplog: pytest.LogCaptureFixture
+) -> None:
     """A KEA restart to bootstrap config is recovered even when Redis is unchanged.
 
     This is the EKS-upgrade failure mode: the Kea container restarts from its
     bootstrap /etc/kea/kea-dhcp4.conf while the sidecar keeps running, so Redis
     never changes. The loop must still detect the effective-hash drift and
     reapply the desired configuration.
+
+    This is also the only sync-loop path that counts a hash mismatch, because it
+    is the only one that reads Kea's effective hash back and compares it.
     """
     load_kea_config = AsyncMock(side_effect=[DESIRED_CONFIG, DESIRED_CONFIG])
     set_config = AsyncMock(return_value="DESIRED_HASH")
@@ -158,12 +163,24 @@ async def test_kea_restart_bootstrap_recovery_with_unchanged_redis(mocker: Any) 
         get_config_hash=get_config_hash,
     )
     _patch_sleep_to_break(mocker)
+    mismatches_before = _counter_value(DHCP_CONFIG_HASH_MISMATCHES, ip_version="4")
 
-    with pytest.raises(_StopLoop):
+    with caplog.at_level(logging.INFO), pytest.raises(_StopLoop):
         await cli._sync_kea_configuration_async(ip_version=4, refresh_interval=5, debug=False)
 
     assert set_config.await_count == 2
     assert set_config.await_args_list[-1] == call(DESIRED_CONFIG, version=4)
+    assert _counter_value(DHCP_CONFIG_HASH_MISMATCHES, ip_version="4") == mismatches_before + 1
+
+    drift = [
+        rec
+        for rec in caplog.records
+        if getattr(rec, "sync_state", None) == SyncState.DRIFT_DETECTED
+    ]
+    assert drift
+    # The observed hash is Kea's, not a cached stand-in.
+    assert drift[0].running_hash == "BOOTSTRAP_HASH"
+    assert drift[0].desired_hash == "DESIRED_HASH"
 
 
 async def test_redis_changed_reapplies_new_config(mocker: Any) -> None:
@@ -458,10 +475,15 @@ async def test_sync_loop_records_config_set_failure() -> None:
     )
 
 
-async def test_sync_loop_increments_mismatch_and_logs_hashes(
+async def test_desired_config_update_is_not_counted_as_drift(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Drift bumps the mismatch counter and logs desired/running hashes."""
+    """A new config in Redis is a desired-state update, not confirmed Kea drift.
+
+    Only two Redis snapshots are compared on this path; Kea's effective hash is
+    never read. Counting it as a hash mismatch would fire drift alerts on every
+    routine config push.
+    """
     initial = {"Dhcp4": {"subnet4": []}}
     changed = {"Dhcp4": {"subnet4": [{"subnet": "10.0.0.0/24"}]}}
     kea_client, redis_client = _make_clients(load_side_effect=[initial, changed])
@@ -470,23 +492,24 @@ async def test_sync_loop_increments_mismatch_and_logs_hashes(
     with caplog.at_level(logging.INFO):
         await _run_sync_until_stop(kea_client, redis_client)
 
-    assert _counter_value(DHCP_CONFIG_HASH_MISMATCHES, ip_version="4") == before + 1
+    assert _counter_value(DHCP_CONFIG_HASH_MISMATCHES, ip_version="4") == before
 
     states = {getattr(rec, "sync_state", None) for rec in caplog.records}
-    assert SyncState.DRIFT_DETECTED in states
+    assert SyncState.DESIRED_CONFIG_UPDATED in states
+    assert SyncState.DRIFT_DETECTED not in states
     assert SyncState.APPLYING in states
     assert SyncState.IN_SYNC in states
 
-    drift_records = [
+    updates = [
         rec
         for rec in caplog.records
-        if getattr(rec, "sync_state", None) == SyncState.DRIFT_DETECTED
+        if getattr(rec, "sync_state", None) == SyncState.DESIRED_CONFIG_UPDATED
     ]
-    assert drift_records
-    drift = drift_records[0]
-    assert hasattr(drift, "desired_hash")
-    assert hasattr(drift, "running_hash")
-    assert drift.desired_hash != drift.running_hash
+    assert updates
+    update = updates[0]
+    # No running_hash: this path never observed Kea's effective hash.
+    assert not hasattr(update, "running_hash")
+    assert update.desired_hash != update.previous_desired_hash
 
 
 async def test_sync_loop_updates_last_successful_sync_gauge() -> None:
@@ -762,18 +785,21 @@ async def test_refresh_rejection_message_redacts_quoted_secret(
         )
 
     assert _SECRET_PASSWORD not in str(excinfo.value)
-    assert '"password"=<redacted>' in str(excinfo.value)
+    assert '"password": <redacted>' in str(excinfo.value)
     assert _SECRET_PASSWORD not in _log_blob(caplog)
 
 
 def test_redact_secrets_covers_quoted_and_bare_keys() -> None:
-    """Both assignment spellings redact, and a spaced quoted value is consumed whole."""
+    """Every assignment spelling redacts, including asymmetric and spaced values."""
     assert cli._redact_secrets("password=hunter2") == "password=<redacted>"
-    assert cli._redact_secrets("password: hunter2") == "password=<redacted>"
-    assert cli._redact_secrets('"password": "hunter2"') == '"password"=<redacted>'
-    assert cli._redact_secrets("'passwd': 'hunter2'") == "'passwd'=<redacted>"
+    assert cli._redact_secrets("password: hunter2") == "password: <redacted>"
+    assert cli._redact_secrets('"password": "hunter2"') == '"password": <redacted>'
+    assert cli._redact_secrets("'passwd': 'hunter2'") == "'passwd': <redacted>"
     # A bare-run fallback would stop at the first space and leak the remainder.
-    assert cli._redact_secrets('"secret": "a b c"') == '"secret"=<redacted>'
+    assert cli._redact_secrets('"secret": "a b c"') == '"secret": <redacted>'
+    # Quotes are matched independently, so malformed pairing still redacts.
+    assert "hunter2" not in cli._redact_secrets('password": "hunter2"')
+    assert "hunter2" not in cli._redact_secrets('password\' : "hunter2"')
     assert cli._redact_secrets("no secrets here") == "no secrets here"
 
 

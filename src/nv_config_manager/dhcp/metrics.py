@@ -62,7 +62,11 @@ class SyncState:
       process is blocked waiting for config-generation to publish one.
     * ``in-sync`` -- running Kea config matches the desired Redis config
       (also emitted right after a successful verified apply/recovery).
-    * ``drift-detected`` -- desired config differs from the running config.
+    * ``desired-config-updated`` -- config-generation published a new desired
+      config to Redis. Routine, and distinct from ``drift-detected``: nothing is
+      known to have diverged, the desired state simply moved.
+    * ``drift-detected`` -- Kea's effective config hash disagrees with the hash
+      this process last applied, confirmed by reading the hash back from Kea.
     * ``applying`` -- pushing a new config to the local Kea server.
     * ``dependency-error`` -- a dependency (Redis, Kea, PostgreSQL, config
       generation) raised while reconciling.
@@ -70,6 +74,7 @@ class SyncState:
 
     WAITING_FOR_INITIAL_REDIS_CONFIG = "waiting-for-initial-redis-config"
     IN_SYNC = "in-sync"
+    DESIRED_CONFIG_UPDATED = "desired-config-updated"
     DRIFT_DETECTED = "drift-detected"
     APPLYING = "applying"
     DEPENDENCY_ERROR = "dependency-error"
@@ -110,11 +115,14 @@ DHCP_SYNC_FAILURES = Counter(
     ["operation", "ip_version"],
 )
 
-# Number of times the desired (Redis) config diverged from the running (Kea)
-# config, i.e. configuration drift / hash mismatch was detected.
+# Number of times Kea's effective config hash was read back and disagreed with
+# the hash this process last applied, i.e. confirmed drift. Only incremented on
+# an observed disagreement, never when the desired config in Redis simply
+# changed, so that alerts on this counter stay quiet during routine config
+# pushes and mean "Kea is not running what we gave it".
 DHCP_CONFIG_HASH_MISMATCHES = Counter(
     "nv_config_manager_dhcp_config_hash_mismatches_total",
-    "Total detected KEA configuration hash mismatches (drift detected)",
+    "Total confirmed KEA configuration hash mismatches (drift detected)",
     ["ip_version"],
 )
 

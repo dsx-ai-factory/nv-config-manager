@@ -76,12 +76,13 @@ _MAX_ERROR_CHARS = 300
 # postgresql://user:password@host.
 _DSN_USERINFO_RE = re.compile(r"(://[^:/@\s]*):([^@/\s]+)@")
 # The key may be quoted, because a rejected KEA config is JSON and reaches this
-# as `"password": "..."`. The value alternation takes a quoted string before
-# falling back to a bare run, so a secret containing spaces is consumed whole.
+# as `"password": "..."`. The quotes are matched independently rather than as a
+# balanced pair: over-redacting malformed input is harmless, whereas requiring
+# symmetry lets `password": "..."` through. The value alternation takes a quoted
+# string before a bare run so a secret containing spaces is consumed whole.
 _PASSWORD_ASSIGN_RE = re.compile(
     r"""(?i)
-    (["']?)(password|passwd|pwd|secret)\1
-    \s*[:=]\s*
+    (["']?(?:password|passwd|pwd|secret)["']?\s*[:=]\s*)
     (?:"[^"]*"|'[^']*'|\S+)
     """,
     re.VERBOSE,
@@ -91,7 +92,7 @@ _PASSWORD_ASSIGN_RE = re.compile(
 def _redact_secrets(text: str) -> str:
     """Strip DSN userinfo and ``password=`` style assignments from ``text``."""
     text = _DSN_USERINFO_RE.sub(r"\1:<redacted>@", text)
-    return _PASSWORD_ASSIGN_RE.sub(r"\1\2\1=<redacted>", text)
+    return _PASSWORD_ASSIGN_RE.sub(r"\1<redacted>", text)
 
 
 def _safe_error_text(error: BaseException | str) -> str:
@@ -547,14 +548,20 @@ async def _sync_kea_configuration_async(
                     new_config = _inject_lease_db_config_tracked(new_config, ip_version)
                     if new_config != previous_config:
                         desired_hash = _config_fingerprint(new_config)
-                        running_hash = expected_hash or "none"
-                        DHCP_CONFIG_HASH_MISMATCHES.labels(ip_version=str(ip_version)).inc()
+                        # Two Redis snapshots differ, which means config-generation
+                        # published a new desired config. That is not drift: Kea's
+                        # effective hash has not been read here, so nothing is known
+                        # to have diverged. Counting it as a hash mismatch would fire
+                        # drift alerts on every routine config push, and reporting the
+                        # previously applied hash as ``running_hash`` would assert a
+                        # disagreement that was never observed. Verified drift is
+                        # detected in the else branch, which does read the hash back.
                         _log_sync_state(
-                            SyncState.DRIFT_DETECTED,
-                            "KEA DHCP configuration drift detected, updating.",
+                            SyncState.DESIRED_CONFIG_UPDATED,
+                            "New desired KEA DHCP configuration published, updating.",
                             ip_version,
                             desired_hash=desired_hash,
-                            running_hash=running_hash,
+                            previous_desired_hash=_config_fingerprint(previous_config),
                         )
                         _log_sync_state(
                             SyncState.APPLYING,
