@@ -28,6 +28,8 @@ assumes. These tests pin the assumptions against a real server:
 * The hash changes when the config changes, or real drift would go unnoticed.
 * The hash is content-addressed, not a counter or a timestamp, which is what
   makes a hash stored before a restart comparable to one read after it.
+* The reconcile loop itself, given a real Kea whose config changed out of
+  band, reapplies the Redis desired config and leaves Kea running it again.
 
 These use testcontainers inline, following ``test_kea_dhcp_confgen.py``.
 """
@@ -36,9 +38,12 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import logging
 import time
 from collections.abc import AsyncIterator, Iterator
+from configparser import ConfigParser
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import requests
@@ -46,7 +51,7 @@ from testcontainers.core.container import DockerContainer
 
 from nv_config_manager.dhcp import cli
 from nv_config_manager.dhcp.kea import KeaClient
-from nv_config_manager.dhcp.metrics import DHCP_CONFIG_HASH_MISMATCHES
+from nv_config_manager.dhcp.metrics import DHCP_CONFIG_HASH_MISMATCHES, SyncState
 
 KEA_IMAGE = "docker.cloudsmith.io/isc/docker/kea-dhcp4:2.6.2"
 KEA_CONTROL_PORT = 8000
@@ -243,3 +248,81 @@ async def test_out_of_band_change_makes_the_stored_hash_stale(kea_client: KeaCli
     await kea_client.set_config(await _config_b(kea_client), version=4)
 
     assert await kea_client.get_config_hash(version=4) != stored_hash
+
+
+class _StopLoop(Exception):
+    """Sentinel raised from a patched asyncio.sleep to exit the sync loop."""
+
+
+def _dummy_ini() -> ConfigParser:
+    cfg = ConfigParser()
+    cfg.read_dict(
+        {
+            "dhcp.kea": {"server": "localhost", "port": "8000"},
+            "redis": {"host": "localhost", "port": "6379", "db": "0"},
+        }
+    )
+    return cfg
+
+
+async def test_sync_loop_repairs_out_of_band_kea_change(
+    kea_client: KeaClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The reconcile loop must put Kea back on the Redis config after drift.
+
+    The tests above only show that an out-of-band change *would* look like
+    drift. This one runs ``_sync_kea_configuration_async`` against the real
+    server: Redis still holds config A, someone else pushes config B onto
+    Kea, and the loop has to reapply A. Repair is the running subnet going
+    back to A's, not a log line or a mocked hash.
+    """
+    config_a = await _config_a(kea_client)
+    config_b = await _config_b(kea_client)
+    real_get = kea_client.get_config_hash
+    real_set = kea_client.set_config
+    hash_gets = {"n": 0}
+
+    async def get_config_hash(version: int = 4) -> str | None:
+        # Apply-verify does one hash-get after startup set. The next get is the
+        # loop's drift check: that is the window where a restarted Kea would
+        # already be on bootstrap. Inject B *before* that read so the loop sees
+        # a real disagreement, then let it reapply A.
+        hash_gets["n"] += 1
+        if hash_gets["n"] == 2:
+            await real_set(config_b, version=version)
+        return await real_get(version=version)
+
+    kea_client.get_config_hash = get_config_hash  # type: ignore[method-assign]
+
+    redis_client = MagicMock()
+    redis_client.load_kea_config = AsyncMock(return_value=config_a)
+    redis_client.close = AsyncMock()
+
+    mismatches_before = _counter_value(DHCP_CONFIG_HASH_MISMATCHES, ip_version="4")
+
+    with (
+        caplog.at_level(logging.INFO),
+        patch.object(cli, "load_config", return_value=_dummy_ini()),
+        patch.object(cli, "inject_lease_db_config", side_effect=lambda cfg, ver: cfg),
+        patch.object(cli.KeaClient, "from_config", return_value=kea_client),
+        patch.object(cli.RedisClient, "from_config", return_value=redis_client),
+        patch.object(cli.asyncio, "sleep", new=AsyncMock(side_effect=_StopLoop())),
+    ):
+        try:
+            await cli._sync_kea_configuration_async(ip_version=4, refresh_interval=1, debug=False)
+        except _StopLoop:
+            pass
+
+    running = await _running_dhcp4(kea_client)
+    assert running["subnet4"][0]["subnet"] == "10.10.0.0/24"
+    assert _counter_value(DHCP_CONFIG_HASH_MISMATCHES, ip_version="4") == mismatches_before + 1
+
+    states = {getattr(rec, "sync_state", None) for rec in caplog.records}
+    assert SyncState.DRIFT_DETECTED in states
+    assert SyncState.IN_SYNC in states
+    recovered = [
+        rec
+        for rec in caplog.records
+        if getattr(rec, "sync_state", None) == SyncState.IN_SYNC and "recovered" in rec.getMessage()
+    ]
+    assert recovered, "repair must log recovered-and-in-sync, not only the startup in-sync"
