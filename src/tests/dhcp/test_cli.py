@@ -800,6 +800,9 @@ def test_redact_secrets_covers_quoted_and_bare_keys() -> None:
     # Quotes are matched independently, so malformed pairing still redacts.
     assert "hunter2" not in cli._redact_secrets('password": "hunter2"')
     assert "hunter2" not in cli._redact_secrets('password\' : "hunter2"')
+    # An escaped quote inside the value must not terminate the match early.
+    assert "secret" not in cli._redact_secrets(r'"password": "a\"secret"')
+    assert cli._redact_secrets(r'"password": "a\"secret"') == '"password": <redacted>'
     assert cli._redact_secrets("no secrets here") == "no secrets here"
 
 

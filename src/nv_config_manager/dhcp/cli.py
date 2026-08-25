@@ -80,10 +80,19 @@ _DSN_USERINFO_RE = re.compile(r"(://[^:/@\s]*):([^@/\s]+)@")
 # balanced pair: over-redacting malformed input is harmless, whereas requiring
 # symmetry lets `password": "..."` through. The value alternation takes a quoted
 # string before a bare run so a secret containing spaces is consumed whole.
+# Quoted values allow escaped characters (including \") so a JSON fragment
+# like `"password": "a\"secret"` is consumed whole rather than stopping at
+# the escaped quote and leaking the rest.
 _PASSWORD_ASSIGN_RE = re.compile(
     r"""(?i)
     (["']?(?:password|passwd|pwd|secret)["']?\s*[:=]\s*)
-    (?:"[^"]*"|'[^']*'|\S+)
+    (?:
+        "(?:\\.|[^"\\])*"
+        |
+        '(?:\\.|[^'\\])*'
+        |
+        \S+
+    )
     """,
     re.VERBOSE,
 )
