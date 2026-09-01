@@ -103,8 +103,21 @@ class WorkflowMetadataMixin:
 
     @classmethod
     def get_workflow_required_activities(cls) -> Sequence[RequiredActivity]:
-        """Return the activities that must be installed with this workflow."""
-        return cls.workflow_required_activities
+        """Return the activities required by the workflow and each of its mixins."""
+        required: list[RequiredActivity] = []
+        for base in reversed(cls.__mro__):
+            if base is WorkflowMetadataMixin:
+                continue
+
+            declared = base.__dict__.get("workflow_required_activities")
+            if declared is None:
+                continue
+            if isinstance(declared, str) or not isinstance(declared, Sequence):
+                # Preserve malformed declarations for registry validation, which
+                # can report the owning workflow and plugin in the error.
+                return declared
+            required.extend(declared)
+        return tuple(required)
 
     @classmethod
     async def canonicalize_input(cls, body: BaseModel) -> BaseModel:
