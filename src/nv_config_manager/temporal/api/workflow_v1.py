@@ -364,6 +364,14 @@ class WorkflowSummaryResponse(WorkflowResponse):
             failed_stage = False
             workflow_input = None
 
+        # Stage-state search attributes record the last state observed by the
+        # workflow. Temporal termination does not give workflow code a chance
+        # to clear them, so they must not describe a closed execution as
+        # currently awaiting approval.
+        pending_approval = description.status == WorkflowExecutionStatus.RUNNING and bool(
+            pending_approval
+        )
+
         try:
             user = cast(str, description.search_attributes[USER_SEARCH_ATTRIBUTE][0])
         except (KeyError, IndexError):
@@ -451,6 +459,12 @@ class WorkflowDetailResponse(WorkflowSummaryResponse):
             failed_stage = False
             workflow_input = None
             stages = []
+
+        # A closed execution cannot still be waiting for an approval, even if
+        # its final indexed stage state was PENDING_APPROVAL.
+        pending_approval = description.status == WorkflowExecutionStatus.RUNNING and bool(
+            pending_approval
+        )
 
         result = None
         if description.status == WorkflowExecutionStatus.COMPLETED:

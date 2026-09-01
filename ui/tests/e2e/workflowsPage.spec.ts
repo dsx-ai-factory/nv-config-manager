@@ -211,6 +211,47 @@ test.describe("Workflows Page", () => {
     );
   });
 
+  test("terminal status takes precedence over stale stage flags", async ({
+    page,
+  }) => {
+    await page.unroute(/.*\/v1\/workflow\/?(\?.*)?$/);
+    await page.route(/.*\/v1\/workflow\/?(\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        json: {
+          workflows: [
+            {
+              id: "terminated-pending-workflow",
+              workflow_type: "DeployWorkflow",
+              workflow_input: {},
+              started_by: "test",
+              start_time: "2025-03-04T02:32:38.087457Z",
+              close_time: "2025-03-04T02:33:38.087457Z",
+              status: "TERMINATED",
+              pending_approval: true,
+              failed_stage: false,
+              search_attributes: { PendingApproval: [true], User: ["test"] },
+              href: "https://temporal.example.com/terminated-pending-workflow",
+            },
+          ],
+          next_page_token: null,
+          total_count: 1,
+          page_count: 1,
+        },
+      });
+    });
+
+    await page.goto("/workflows");
+
+    const workflowRow = page.locator("tbody tr").first();
+    await expect(
+      workflowRow.getByText("Terminated", { exact: true })
+    ).toBeVisible();
+    await expect(
+      workflowRow.getByText("Pending Approval", { exact: true })
+    ).toHaveCount(0);
+  });
+
   test("shows user roles and disables workflows the user cannot execute", async ({
     page,
   }) => {

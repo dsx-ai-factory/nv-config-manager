@@ -28,6 +28,7 @@ from nv_config_manager.dcim import DCIMSelection, DeviceMetadata
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
 from nv_config_manager.temporal.api.main import app
 from nv_config_manager.temporal.api.workflow_v1 import (
+    WorkflowDetailResponse,
     WorkflowSummaryResponse,
     cache_workflow_input,
     signal_workflow,
@@ -1000,6 +1001,49 @@ async def test_running_workflow_with_failed_stage_exposes_failed_stage_flag(
     assert result.workflow_input == {"user": "cached"}
     handle.query.assert_not_awaited()
     cache.cache_query.assert_not_awaited()
+    mock_redis.from_config.assert_called_once_with(mock_load_config.return_value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response_type", [WorkflowSummaryResponse, WorkflowDetailResponse])
+@patch("nv_config_manager.temporal.api.workflow_v1.load_config")
+@patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
+async def test_terminated_workflow_is_not_pending_approval(
+    mock_redis, mock_load_config, response_type
+):
+    """A stale search attribute must not override a terminated execution status."""
+    cache = mock_redis.from_config.return_value
+
+    async def get_cached_query(_workflow_id, query):
+        if query == "input":
+            return {"user": "cached"}
+        if query == "compressed_stages":
+            return StageMixin.compress_stages([])
+        return None
+
+    cache.get_cached_query = AsyncMock(side_effect=get_cached_query)
+    cache.cache_query = AsyncMock()
+
+    handle = MagicMock()
+    handle.id = "terminated-pending-workflow"
+    handle.query = AsyncMock()
+
+    description = MagicMock()
+    description.search_attributes = {
+        PENDING_APPROVAL_SEARCH_ATTRIBUTE: [True],
+        "User": ["test"],
+    }
+    description.status = WorkflowExecutionStatus.TERMINATED
+    description.start_time = datetime.fromisoformat("1970-01-01T00:00:00+00:00")
+    description.close_time = datetime.fromisoformat("1970-01-01T00:01:00+00:00")
+    description.workflow_type = "HelloWorldApproval"
+    handle.describe = AsyncMock(return_value=description)
+
+    result = await response_type.from_handle(handle)
+
+    assert result.status == "TERMINATED"
+    assert result.pending_approval is False
+    handle.query.assert_not_awaited()
     mock_redis.from_config.assert_called_once_with(mock_load_config.return_value)
 
 
