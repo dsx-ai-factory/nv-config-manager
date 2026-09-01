@@ -188,13 +188,13 @@ kubectl get secret nautobot-admin -n nv-config-manager -o jsonpath='{.data.api_t
 
 The `kind-up-sec` environment includes the MCP server. To connect Claude Code:
 
-1. Install the TLS certificate.
+1. Install the local gateway CA.
 
    ```bash
    make install-cert
    ```
 
-   Node.js (and Claude Code) does not use the system trust store because the gateway cert is self-signed with `CA:FALSE`. Scope the variable to the specific command rather than exporting it globally (see step 3 below).
+   The command is restricted to the current local Kind cluster. It trusts the CA in the system and Chrome/Chromium stores, and saves a PEM copy for Node.js at `~/.config/nv-config-manager/certs/config-manager.local-ca.crt`.
 
 2. Add the MCP server.
 
@@ -211,7 +211,8 @@ The `kind-up-sec` environment includes the MCP server. To connect Claude Code:
 3. Authenticate.
 
    ```bash
-   NODE_TLS_REJECT_UNAUTHORIZED=0 claude mcp login nv-config-manager
+   NODE_EXTRA_CA_CERTS="$HOME/.config/nv-config-manager/certs/config-manager.local-ca.crt" \
+     claude mcp login nv-config-manager
    ```
 
 Then, log in with any pre-configured local Keycloak account: `nvcm-admin` / `nvcm-admin`, `nvcm-network` / `nvcm-network`, or `demo` / `demo`.

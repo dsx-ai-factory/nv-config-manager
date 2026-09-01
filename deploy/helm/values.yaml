@@ -794,6 +794,10 @@ gateway:
   # Certificate configuration (cert-manager)
   certificates:
     enabled: true
+    # Local-development only. When enabled with selfSigned, bootstrap a private
+    # CA and issue the gateway leaf from it. External and existing self-signed
+    # deployments retain their configured issuer behavior.
+    localCA: false
     issuer:
       kind: ClusterIssuer
       name: letsencrypt-prod

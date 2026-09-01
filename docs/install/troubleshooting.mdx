@@ -40,7 +40,7 @@ For local SSH forwarding, replace `<GATEWAY_IP>` with `127.0.0.1` and forward th
 
 ## Browser Certificate Warnings
 
-When self-signed TLS is enabled, browsers and API clients must trust the generated certificate authority or explicitly accept the browser warning for every service hostname. Certificate trust is hostname-specific; accepting `config-manager.example.com` does not automatically trust `nautobot.config-manager.example.com`.
+For installer-managed local deployments, run `make install-cert` after `make kind-up` or `make kind-up-sec`. It trusts the generated local CA, so every gateway hostname covered by the certificate is trusted. Re-run it whenever the local Kind cluster is recreated. Other self-signed or externally managed deployments must distribute their CA through their normal client trust process.
 
 ## ESO Secrets Not Syncing
 

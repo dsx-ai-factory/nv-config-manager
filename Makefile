@@ -20,6 +20,8 @@ KIND_SEC_NAMESPACE ?= nv-config-manager
 KIND_SEC_HOSTNAME ?= config-manager.local
 KIND_SEC_KEYCLOAK_HOSTNAME ?= keycloak.$(KIND_SEC_HOSTNAME)
 KIND_SEC_SPIFFE_TRUST_DOMAIN ?= $(KIND_SEC_HOSTNAME)
+KIND_SEC_FULLNAME ?= $(if $(findstring nv-config-manager,$(RELEASE_NAME)),$(RELEASE_NAME),$(RELEASE_NAME)-nv-config-manager)
+KIND_SEC_GATEWAY_CA_SECRET ?= $(KIND_SEC_FULLNAME)-gateway-ca
 KIND_SEC_OIDC_CLIENT_SECRET ?= nvcm-local-client-secret
 KIND_SEC_KEYCLOAK_ADMIN_PASSWORD ?= admin
 KIND_SEC_RENDERED_CONFIG ?= /tmp/nvcm-local-sec-$(KIND_CLUSTER_NAME).yaml
@@ -87,7 +89,7 @@ help:
 	@echo "  make kind-down                    - Delete Kind cluster"
 	@echo "  make topology                     - Populate Nautobot with mock topology data"
 	@echo "  make workflow-perf-seed           - Seed local Temporal with pending/running/failing workflows for list latency testing"
-	@echo "  make install-cert                 - Install self-signed CA certificate in system keychain"
+	@echo "  make install-cert                 - Trust the local gateway CA in system, browser, and Node.js tools"
 	@echo ""
 	@echo "Docker Build:"
 	@echo "  make docker-build     - Build all Docker images locally"
@@ -957,40 +959,94 @@ topology:
 	@echo "🌐 Deploying mock topology jobs and creating test topology..."
 	cd installer && uv run nv-config-manager-installer deploy ../$(INSTALL_CONFIG)
 
-# Install self-signed CA certificate into the system trust store (macOS and Linux).
-# Trusts the gateway TLS cert for browsers and system tools.
-# Note: Node.js ignores the system trust store. For Node.js-based tools such as
-# Claude Code, set NODE_TLS_REJECT_UNAUTHORIZED=0 or use NODE_EXTRA_CA_CERTS
-# once the gateway cert is issued by a proper CA (CA:TRUE).
+# Install the local gateway CA certificate into macOS/Linux, browser, and Node.js trust stores.
+# This target is deliberately restricted to the configured local Kind cluster.
 install-cert:
 	@CERT_TMP=$$(mktemp); \
 	trap "rm -f $$CERT_TMP" EXIT INT TERM; \
-	echo "Extracting gateway TLS certificate..."; \
-	if ! CERT_DATA=$$(kubectl get secret -n $(KIND_SEC_NAMESPACE) nv-config-manager-gateway-tls \
+	if [ "$$(id -u)" -eq 0 ]; then \
+		echo "Error: run 'make install-cert' as your regular user; it prompts for sudo only when needed." >&2; \
+		exit 1; \
+	fi; \
+	if [ "$$(kubectl config current-context 2>/dev/null)" != "kind-$(KIND_CLUSTER_NAME)" ]; then \
+		echo "Error: install-cert only trusts certificates from the local Kind context kind-$(KIND_CLUSTER_NAME)." >&2; \
+		exit 1; \
+	fi; \
+	NVCM_OS=$$(uname); \
+	NVCM_CERT_USER=$$(id -un); \
+	case "$$NVCM_OS" in \
+		Darwin) NVCM_USER_HOME=$$(dscl . -read "/Users/$$NVCM_CERT_USER" NFSHomeDirectory 2>/dev/null | awk 'NR == 1 {print $$2}') ;; \
+		Linux) \
+			if ! command -v getent >/dev/null; then \
+				echo "Error: getent is required to locate your home directory." >&2; exit 1; \
+			fi; \
+			if ! command -v certutil >/dev/null; then \
+				echo "Error: certutil is required to trust the local CA in Chrome/Chromium." >&2; \
+				echo "Install libnss3-tools (Debian/Ubuntu) or nss-tools (RHEL/Fedora), then retry." >&2; exit 1; \
+			fi; \
+			NVCM_USER_HOME=$$(getent passwd "$$NVCM_CERT_USER" | cut -d: -f6) ;; \
+		*) echo "Unsupported OS: install the local CA manually into your trust stores." >&2; exit 1 ;; \
+	esac; \
+	if [ -z "$$NVCM_USER_HOME" ]; then \
+		echo "Error: could not determine your home directory." >&2; exit 1; \
+	fi; \
+	NVCM_CA_DIR="$$NVCM_USER_HOME/.config/nv-config-manager/certs"; \
+	NVCM_CA_FILE="$$NVCM_CA_DIR/$(KIND_SEC_HOSTNAME)-ca.crt"; \
+	NVCM_NSS_DB="$$NVCM_USER_HOME/.pki/nssdb"; \
+	echo "Extracting local gateway CA certificate..."; \
+	if ! CERT_DATA=$$(kubectl get secret -n $(KIND_SEC_NAMESPACE) $(KIND_SEC_GATEWAY_CA_SECRET) \
 		-o jsonpath='{.data.tls\.crt}'); then \
-		echo "Error: gateway TLS secret was not found." >&2; exit 1; \
+		echo "Error: local gateway CA secret $(KIND_SEC_GATEWAY_CA_SECRET) was not found." >&2; \
+		echo "Run make kind-up or make kind-up-sec to deploy the local CA, then retry." >&2; exit 1; \
 	fi; \
-	if [ -z "$$CERT_DATA" ] || ! printf '%s' "$$CERT_DATA" | base64 -d > "$$CERT_TMP" || [ ! -s "$$CERT_TMP" ]; then \
-		echo "Error: gateway TLS secret does not contain a valid certificate." >&2; exit 1; \
+	if [ -z "$$CERT_DATA" ]; then \
+		echo "Error: local gateway CA secret does not contain a certificate." >&2; exit 1; \
 	fi; \
-	echo "Installing certificate (sudo required)..."; \
-	if [ "$$(uname)" = "Darwin" ]; then \
+	if ! printf '%s' "$$CERT_DATA" | base64 -d > "$$CERT_TMP" 2>/dev/null; then \
+		if ! printf '%s' "$$CERT_DATA" | base64 -D > "$$CERT_TMP" 2>/dev/null; then \
+			echo "Error: could not decode the local gateway CA certificate." >&2; exit 1; \
+		fi; \
+	fi; \
+	if [ ! -s "$$CERT_TMP" ]; then \
+		echo "Error: local gateway CA secret does not contain a certificate." >&2; exit 1; \
+	fi; \
+	if ! openssl x509 -in "$$CERT_TMP" -noout -text | grep -q 'CA:TRUE'; then \
+		echo "Error: local gateway CA secret does not contain a CA certificate." >&2; \
+		exit 1; \
+	fi; \
+	NVCM_CERT_SUBJECT=$$(openssl x509 -in "$$CERT_TMP" -noout -subject -nameopt RFC2253 | sed 's/^subject=//'); \
+	NVCM_CERT_ISSUER=$$(openssl x509 -in "$$CERT_TMP" -noout -issuer -nameopt RFC2253 | sed 's/^issuer=//'); \
+	if [ "$$NVCM_CERT_SUBJECT" != "CN=$(KIND_SEC_HOSTNAME) local development CA" ] || [ "$$NVCM_CERT_ISSUER" != "$$NVCM_CERT_SUBJECT" ]; then \
+		echo "Error: refusing to trust a certificate that is not the expected local development CA." >&2; \
+		exit 1; \
+	fi; \
+	mkdir -p "$$NVCM_CA_DIR"; \
+	cp "$$CERT_TMP" "$$NVCM_CA_FILE"; \
+	chmod 0644 "$$NVCM_CA_FILE"; \
+	echo "Installing CA certificate (sudo required)..."; \
+	if [ "$$NVCM_OS" = "Darwin" ]; then \
 		sudo security add-trusted-cert -d -r trustRoot \
 			-k /Library/Keychains/System.keychain "$$CERT_TMP"; \
 	elif [ -d /usr/local/share/ca-certificates ]; then \
-		sudo cp "$$CERT_TMP" /usr/local/share/ca-certificates/nvcm-gateway.crt && \
+		sudo cp "$$CERT_TMP" /usr/local/share/ca-certificates/nvcm-gateway-ca.crt && \
 		sudo update-ca-certificates; \
 	elif [ -d /etc/pki/ca-trust/source/anchors ]; then \
-		sudo cp "$$CERT_TMP" /etc/pki/ca-trust/source/anchors/nvcm-gateway.crt && \
+		sudo cp "$$CERT_TMP" /etc/pki/ca-trust/source/anchors/nvcm-gateway-ca.crt && \
 		sudo update-ca-trust; \
 	else \
 		echo "Unsupported OS: install the gateway cert manually into your trust store"; exit 1; \
 	fi; \
-	echo "Certificate installed."; \
-	echo ""; \
-	echo "Note: Node.js tools (e.g. Claude Code) ignore the system trust store because"; \
-	echo "      the gateway cert is self-signed with CA:FALSE. Scope the variable to"; \
-	echo "      the specific command: NODE_TLS_REJECT_UNAUTHORIZED=0 claude mcp login ..."
+	if [ "$$NVCM_OS" = "Linux" ]; then \
+		if [ ! -f "$$NVCM_NSS_DB/cert9.db" ]; then \
+			mkdir -p "$$NVCM_NSS_DB"; \
+			certutil -N --empty-password -d "sql:$$NVCM_NSS_DB"; \
+		fi; \
+		certutil -D -d "sql:$$NVCM_NSS_DB" -n "NVCM Local Gateway CA" >/dev/null 2>&1 || true; \
+		certutil -A -d "sql:$$NVCM_NSS_DB" -n "NVCM Local Gateway CA" -t "C,," -i "$$CERT_TMP"; \
+	fi; \
+	echo "CA certificate installed in the system and Chrome/Chromium trust stores."; \
+	echo "Restart your browser to pick up the new trust anchor."; \
+	echo "For Node.js tools, use: NODE_EXTRA_CA_CERTS=$$NVCM_CA_FILE claude mcp login nv-config-manager"
 
 # Remove local deployment (preserves shared operators)
 local-down:

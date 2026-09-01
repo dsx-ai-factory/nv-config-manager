@@ -264,7 +264,7 @@ jobs:
           kind_ca_bundle="${RUNNER_TEMP}/nvcm-kind-ca-bundle.crt"
           cp "${REQUESTS_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}" "${kind_ca_bundle}"
           printf '\n' >>"${kind_ca_bundle}"
-          kubectl get secret -n "${NV_CONFIG_MANAGER_NAMESPACE}" nv-config-manager-gateway-tls \
+          kubectl get secret -n "${NV_CONFIG_MANAGER_NAMESPACE}" nv-config-manager-gateway-ca \
             -o jsonpath='{.data.tls\.crt}' | base64 --decode >>"${kind_ca_bundle}"
           echo "REQUESTS_CA_BUNDLE=${kind_ca_bundle}" >>"${GITHUB_ENV}"
 

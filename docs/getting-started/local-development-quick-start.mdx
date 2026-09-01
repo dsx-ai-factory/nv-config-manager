@@ -76,6 +76,16 @@ Add local hostnames for the Envoy Gateway.
 127.0.0.1 mcp.config-manager.local
 ```
 
+Trust the local development CA in the system and browser stores:
+
+```bash
+make install-cert
+```
+
+The command only operates against the local Kind cluster. It also saves the CA
+for Node.js clients at
+`~/.config/nv-config-manager/certs/config-manager.local-ca.crt`.
+
 Then open:
 
 | Service | URL |
