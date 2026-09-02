@@ -12,21 +12,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Workflow lock activities."""
+"""Reusable activities shared across workflow families."""
 
 from nv_config_manager_workflows.activities.lock import (
-    AcquireWorkflowLockInput,
-    ReleaseWorkflowLockInput,
-    RenewWorkflowLockInput,
     acquire_workflow_lock,
     release_workflow_lock,
     renew_workflow_lock,
 )
 
+REGISTERED_COMMON_ACTIVITIES = [
+    acquire_workflow_lock,
+    renew_workflow_lock,
+    release_workflow_lock,
+]
+
 __all__ = [
-    "AcquireWorkflowLockInput",
-    "ReleaseWorkflowLockInput",
-    "RenewWorkflowLockInput",
+    "REGISTERED_COMMON_ACTIVITIES",
     "acquire_workflow_lock",
     "release_workflow_lock",
     "renew_workflow_lock",

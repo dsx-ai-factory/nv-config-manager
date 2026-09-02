@@ -16,6 +16,11 @@
 
 Shared across services so critical sections are serialized across workers and pods.
 Falls back to a no-op lock in local development where no shared Redis is available.
+
+The token-based helpers now live in :mod:`nv_config_manager_workflows.lock` so the
+workflow package carries no service configuration; they are re-exported here for
+existing callers. ``create_lock`` stays in the service because its consumers are
+service runtime concerns (the render consumer, producer and HTTP routes).
 """
 
 from __future__ import annotations
@@ -24,9 +29,14 @@ import logging
 from typing import TYPE_CHECKING
 
 from redis.asyncio.lock import Lock as AsyncRedisLock
-from redis.exceptions import LockError, LockNotOwnedError
 
 from nv_config_manager.common.config import is_local_environment, redis_client
+from nv_config_manager_workflows.lock import (
+    acquire_lock,
+    configure_lock_backend,
+    release_lock,
+    renew_lock,
+)
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -85,6 +95,17 @@ def _get_lock_redis_client() -> RedisClient | None:
     return _lock_redis_client
 
 
+def configure_workflow_lock_backend() -> None:
+    """Point the workflow package's lock helpers at this service's Redis.
+
+    Call once at startup. Derives the backend from the same client as
+    ``create_lock`` so the two cannot disagree about whether this is a local
+    single-process run.
+    """
+    client = _get_lock_redis_client()
+    configure_lock_backend(client.redis if client is not None else None)
+
+
 async def create_lock(
     name: str,
     timeout: int = 180,
@@ -111,89 +132,11 @@ async def create_lock(
     )
 
 
-# ---------------------------------------------------------------------------
-# Token-based locking
-# ---------------------------------------------------------------------------
-
-
-def _token_bytes(token: str) -> bytes:
-    """Encode a caller-supplied lock token the way redis-py stores it."""
-    return token.encode()
-
-
-def _redis_lock(name: str, timeout: int) -> AsyncRedisLock | None:
-    """Build a Redis-backed lock, or None in local single-process development."""
-    client = _get_lock_redis_client()
-    if client is None:
-        return None
-    return AsyncRedisLock(client.redis, name, timeout=timeout)
-
-
-async def acquire_lock(
-    name: str,
-    token: str,
-    timeout: int,
-    blocking_timeout: float | None = None,
-    blocking: bool = True,
-) -> bool:
-    """Acquire a distributed lock on ``name`` for ``token``.
-
-    Returns True once held, or False if it could not be acquired immediately
-    when ``blocking`` is False, otherwise within ``blocking_timeout``.
-
-    """
-    lock = _redis_lock(name, timeout)
-    if lock is None:
-        return True
-
-    token_bytes = _token_bytes(token)
-
-    if await lock.acquire(token=token_bytes, blocking=False):
-        return True
-    if await _refresh_if_owned(lock, token_bytes):
-        return True
-
-    if not blocking:
-        return False
-    return bool(
-        await lock.acquire(token=token_bytes, blocking=True, blocking_timeout=blocking_timeout)
-    )
-
-
-async def _refresh_if_owned(lock: AsyncRedisLock, token_bytes: bytes) -> bool:
-    """Extend ``lock``'s TTL when ``token_bytes`` already holds it, else False."""
-    lock.local.token = token_bytes
-    try:
-        await lock.reacquire()
-    except LockNotOwnedError:
-        return False
-    return True
-
-
-async def renew_lock(name: str, token: str, timeout: int) -> bool:
-    """Extend the TTL of a lock this ``token`` holds back out to ``timeout``."""
-    lock = _redis_lock(name, timeout)
-    if lock is None:
-        return True
-
-    lock.local.token = _token_bytes(token)
-    try:
-        await lock.reacquire()
-        return True
-    except LockNotOwnedError:
-        return False
-
-
-async def release_lock(name: str, token: str) -> bool:
-    """Release a lock held by ``token``."""
-    lock = _redis_lock(name, timeout=1)
-    if lock is None:
-        return True
-
-    lock.local.token = _token_bytes(token)
-    try:
-        await lock.release()
-        return True
-    except (LockNotOwnedError, LockError):
-        log.warning("Lock %s was not owned at release time.", name)
-        return False
+__all__ = [
+    "acquire_lock",
+    "configure_lock_backend",
+    "configure_workflow_lock_backend",
+    "create_lock",
+    "release_lock",
+    "renew_lock",
+]
