@@ -236,6 +236,11 @@ spec:
         # HTTP API (port 8000)
         - protocol: TCP
           port: 8000
+        {{- if .Values.networkZtp.ingress.tls.enabled }}
+        # HTTPS API (port 8443)
+        - protocol: TCP
+          port: 8443
+        {{- end }}
         # HTTP API (port 9000, for internal/gateway access)
         - protocol: TCP
           port: 9000

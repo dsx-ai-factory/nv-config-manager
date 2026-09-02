@@ -336,13 +336,27 @@ def load_auth_config(config: ConfigParser | None = None) -> AuthConfig:
             raw_groups = config.get(service_section, "allowed_groups", fallback="")
         allowed_groups = tuple(g.strip() for g in raw_groups.split(",") if g.strip())
 
+        # Header trust is a listener-level decision. Some services run a
+        # gateway-facing listener and a directly exposed listener from the
+        # same INI, so each process must be able to override the shared value.
+        accept_request_headers = config.getboolean(
+            auth_section,
+            "accept_request_headers",
+            fallback=False,
+        )
+        accept_request_headers_env = os.getenv("ACCEPT_REQUEST_HEADERS")
+        if accept_request_headers_env is not None:
+            normalized = accept_request_headers_env.strip().lower()
+            if normalized not in ConfigParser.BOOLEAN_STATES:
+                raise ValueError(
+                    "ACCEPT_REQUEST_HEADERS must be a boolean value "
+                    f"(received {accept_request_headers_env!r})"
+                )
+            accept_request_headers = ConfigParser.BOOLEAN_STATES[normalized]
+
         _auth_config = AuthConfig(
             required=config.getboolean(auth_section, "required", fallback=True),
-            accept_request_headers=config.getboolean(
-                auth_section,
-                "accept_request_headers",
-                fallback=False,
-            ),
+            accept_request_headers=accept_request_headers,
             cookie_name=config.get(
                 auth_section, "cookie_name", fallback="NVConfigManagerAccessToken"
             ),
@@ -787,7 +801,8 @@ def auth_required() -> bool:
 def accept_request_headers() -> bool:
     """Return ``True`` when proxy-injected identity headers should be trusted.
 
-    Reads ``[auth] accept_request_headers`` from the INI.
+    ``ACCEPT_REQUEST_HEADERS`` overrides the shared
+    ``[auth] accept_request_headers`` value for listener-specific policy.
     """
     return load_auth_config().accept_request_headers
 

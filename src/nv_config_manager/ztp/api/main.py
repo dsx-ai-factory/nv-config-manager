@@ -17,6 +17,11 @@
 from __future__ import annotations
 
 import argparse
+import os
+import signal
+import threading
+import time
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
@@ -36,6 +41,27 @@ configure_logging(service="ztp")
 setup_tracing("ztp")
 
 
+def _tls_material_state(certfile: str, keyfile: str) -> tuple[int, int, int, int]:
+    """Return a cheap change detector for the projected TLS Secret files."""
+    cert = Path(certfile).stat()
+    key = Path(keyfile).stat()
+    return cert.st_mtime_ns, cert.st_size, key.st_mtime_ns, key.st_size
+
+
+def _watch_tls_material(certfile: str, keyfile: str, interval: float) -> None:
+    """Restart the container after cert-manager rotates the mounted Secret."""
+    initial = _tls_material_state(certfile, keyfile)
+    while True:
+        time.sleep(interval)
+        try:
+            current = _tls_material_state(certfile, keyfile)
+        except OSError:
+            continue
+        if current != initial:
+            os.kill(os.getpid(), signal.SIGTERM)
+            return
+
+
 def main() -> None:
     """CLI entrypoint for ZTP API."""
     parser = argparse.ArgumentParser(description="ZTP API Server")
@@ -43,13 +69,37 @@ def main() -> None:
         "--host", type=str, default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)"
     )
     parser.add_argument("--port", type=int, default=9000, help="Port to listen on (default: 9000)")
+    parser.add_argument("--ssl-certfile", default="", help="PEM TLS certificate chain")
+    parser.add_argument("--ssl-keyfile", default="", help="PEM TLS private key")
+    parser.add_argument(
+        "--tls-reload-interval",
+        type=float,
+        default=30.0,
+        help="Seconds between mounted TLS Secret rotation checks",
+    )
     args = parser.parse_args()
+    if bool(args.ssl_certfile) != bool(args.ssl_keyfile):
+        parser.error("--ssl-certfile and --ssl-keyfile must be provided together")
+    if args.tls_reload_interval <= 0:
+        parser.error("--tls-reload-interval must be positive")
+
+    if args.ssl_certfile:
+        watcher = threading.Thread(
+            target=_watch_tls_material,
+            args=(args.ssl_certfile, args.ssl_keyfile, args.tls_reload_interval),
+            name="ztp-tls-certificate-watcher",
+            daemon=True,
+        )
+        watcher.start()
 
     uvicorn.run(
         "nv_config_manager.ztp.api.main:app",
         host=args.host,
         port=args.port,
         proxy_headers=True,
+        forwarded_allow_ips="127.0.0.1",
+        ssl_certfile=args.ssl_certfile or None,
+        ssl_keyfile=args.ssl_keyfile or None,
         log_config=None,
         timeout_keep_alive=75,
         limit_concurrency=1000,

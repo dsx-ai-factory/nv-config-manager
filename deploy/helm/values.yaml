@@ -1320,6 +1320,46 @@ renderService:
 # =============================================================================
 networkZtp:
   enabled: true
+  # Certificate delivery for devices during ZTP and subsequent rotation.
+  # Certificate IDs and source names are assigned to devices through their
+  # DCIM config context. The source definitions below map those stable names
+  # to provider-specific issuer roles or CA paths.
+  certificates:
+    enabled: false
+    provider: vault
+    # The projected PKI JWT represents the ZTP pod's existing global service
+    # account. The separate Vault namespace, auth role, audience, and policy
+    # limit it to the configured PKI issue/read paths.
+    # The target Vault JWT role must bind the exact Kubernetes subject:
+    # system:serviceaccount:<global.namespace>:<global.serviceAccountName>.
+    vault:
+      address: ""
+      # Vault Enterprise namespace containing the PKI/auth mounts. Leave empty
+      # for OpenBao or a non-namespaced Vault deployment.
+      namespace: ""
+      authMount: jwt/k8s/nv-config-manager-local
+      authRole: nv-config-manager-switch-certificate-issuer
+      audience: vault
+      tokenPath: /var/run/secrets/nv-config-manager-pki/token
+      pkiMount: pki/dev-dsx-nvidia-com
+      # Boolean or a CA bundle path already present in the ZTP image.
+      verify: true
+      # Optionally mount a CA bundle from an existing Secret. When name is
+      # set, the rendered Vault client uses mountPath instead of verify above.
+      caSecret:
+        name: ""
+        key: ca.crt
+        mountPath: /etc/nv-config-manager/vault-pki-ca/ca.crt
+      timeoutSeconds: 30
+    sources: []
+      # Identity certificate example:
+      # - name: switch-telemetry
+      #   issueRole: nv-config-manager-switch-telemetry
+      #   ttl: 168h
+      #   commonNameTemplate: "switch-{device_id}"
+      # CA-only example:
+      # - name: switch-telemetry-ca
+      #   caPath: pki/dev-dsx-nvidia-com/ca/pem
   # Gateway routing - subdomain based
   gateway:
     # Hostname: ztp.<baseHostname> (OIDC+JWT, browser access)
@@ -1341,6 +1381,27 @@ networkZtp:
   # Choose ONE provider: nlb (AWS), cilium, or metallb.
   # ---------------------------------------------------------------------------
   ingress:
+    # Provider-neutral TLS termination in the ZTP pod. NLB, Cilium, and
+    # MetalLB pass TCP 443 through so the application retains the client IP.
+    tls:
+      enabled: false
+      # Defaults to <release>-network-ztp-tls.
+      secretName: ""
+      reloadIntervalSeconds: 30
+      certificate:
+        # When false, secretName must identify a pre-created kubernetes.io/tls Secret.
+        create: false
+        issuerRef:
+          kind: ClusterIssuer
+          # Public ACME issuers such as Let's Encrypt require a publicly
+          # valid DNS name. Use a private issuer for private-IP SANs.
+          name: letsencrypt-prod
+        dnsNames: []
+        # Required when switches address the endpoint by IP. Private IP SANs
+        # require a private issuer whose CA is bootstrapped by the ZTP script.
+        ipAddresses: []
+        duration: 2160h
+        renewBefore: 720h
     # -------------------------------------------------------------------------
     # AWS Network Load Balancer (NLB) - for EKS environments
     # -------------------------------------------------------------------------

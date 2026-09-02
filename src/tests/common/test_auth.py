@@ -172,6 +172,27 @@ class TestConfigLoading:
         assert cfg.accept_request_headers is True
         assert cfg.cookie_name == "MyCookie"
 
+    @pytest.mark.parametrize(
+        ("environment_value", "expected"),
+        [("true", True), ("1", True), ("false", False), ("0", False)],
+    )
+    def test_request_header_trust_environment_override(
+        self, monkeypatch, environment_value, expected
+    ):
+        """A listener can override the shared INI header-trust policy."""
+        monkeypatch.setenv("ACCEPT_REQUEST_HEADERS", environment_value)
+        cp = _make_config(auth={"accept_request_headers": str(not expected)})
+
+        cfg = load_auth_config(cp)
+
+        assert cfg.accept_request_headers is expected
+
+    def test_request_header_trust_rejects_invalid_environment_value(self, monkeypatch):
+        monkeypatch.setenv("ACCEPT_REQUEST_HEADERS", "sometimes")
+
+        with pytest.raises(ValueError, match="ACCEPT_REQUEST_HEADERS must be a boolean"):
+            load_auth_config(ConfigParser())
+
     def test_single_jwt_provider(self):
         """A single [auth.jwt.*] section is parsed correctly."""
         cp = _make_config(

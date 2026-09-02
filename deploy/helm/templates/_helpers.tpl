@@ -107,6 +107,51 @@ Workload ServiceAccount (Vault K8s/JWT auth binds to this identity; must match V
 {{- .Values.global.serviceAccountName | default "vault-access-sa" -}}
 {{- end }}
 
+{{/* Provider-neutral PKI client configuration for the ZTP API. */}}
+{{- define "nv-config-manager.networkZtpPkiIniConfig" -}}
+{{- $certificates := .Values.networkZtp.certificates -}}
+{{- $vaultCASecret := $certificates.vault.caSecret | default dict -}}
+{{- if $certificates.enabled }}
+
+[pki]
+provider = {{ $certificates.provider | required "networkZtp.certificates.provider is required when certificate delivery is enabled" }}
+{{- if eq $certificates.provider "vault" }}
+
+[pki.vault]
+address = {{ $certificates.vault.address | required "networkZtp.certificates.vault.address is required when Vault certificate delivery is enabled" }}
+namespace = {{ $certificates.vault.namespace | default "" }}
+auth_mount = {{ $certificates.vault.authMount | required "networkZtp.certificates.vault.authMount is required when Vault certificate delivery is enabled" }}
+auth_role = {{ $certificates.vault.authRole | required "networkZtp.certificates.vault.authRole is required when Vault certificate delivery is enabled" }}
+token_path = {{ $certificates.vault.tokenPath | default "/var/run/secrets/nv-config-manager-pki/token" }}
+pki_mount = {{ $certificates.vault.pkiMount | required "networkZtp.certificates.vault.pkiMount is required when Vault certificate delivery is enabled" }}
+{{- if $vaultCASecret.name }}
+verify = {{ $vaultCASecret.mountPath | required "networkZtp.certificates.vault.caSecret.mountPath is required when a Vault CA Secret is configured" }}
+{{- else }}
+verify = {{ $certificates.vault.verify }}
+{{- end }}
+timeout_seconds = {{ $certificates.vault.timeoutSeconds | default 30 }}
+{{- end }}
+
+{{- range $source := $certificates.sources }}
+
+[pki.source.{{ $source.name | required "every networkZtp.certificates.sources entry requires a name" }}]
+{{- with $source.issueRole }}
+issue_role = {{ . }}
+{{- end }}
+{{- with $source.caPath }}
+ca_path = {{ . }}
+{{- end }}
+ttl = {{ $source.ttl | default "168h" }}
+common_name_template = {{ $source.commonNameTemplate | default "{device_name}" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/* TLS Secret used by the provider-neutral ZTP HTTPS listener. */}}
+{{- define "nv-config-manager.networkZtpTLSSecretName" -}}
+{{- .Values.networkZtp.ingress.tls.secretName | default (include "nv-config-manager.componentName" (dict "root" . "component" "network-ztp-tls")) -}}
+{{- end }}
+
 {{/*
 Deployment rollout strategy.
 Pass root and, optionally, strategy. Global strategy wins when set so local

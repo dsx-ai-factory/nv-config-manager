@@ -66,11 +66,16 @@ from nv_config_manager_installer.schema import (
     VaultPathConfig,
     VaultPathsConfig,
     WorkflowRBACOverride,
+    ZTPCertificatesConfig,
+    ZTPPKISourceConfig,
     ZTPS3CephConfig,
     ZTPS3CephObjectBucketClaimConfig,
     ZTPS3CephObjectStoreUserConfig,
     ZTPStorageConfig,
     ZTPStorageType,
+    ZTPTLSCertificateConfig,
+    ZTPTLSConfig,
+    ZTPVaultPKIConfig,
     get_known_workflows,
 )
 
@@ -130,6 +135,102 @@ class TestGenerateHelmValues:
         assert ext["postgres"]["temporal"]["host"] == "cluster-temporal-rw"
         assert ext["postgres"]["configStore"]["host"] == "cluster-config-store-rw"
         assert values["mcp"]["enabled"] is True
+
+    def test_ztp_certificate_values(self):
+        config = _make_config(
+            infrastructure=InfrastructureConfig(
+                load_balancer=LoadBalancerConfig(
+                    provider=LBProvider.METALLB,
+                    ztp_lb_ip="192.0.2.10",
+                ),
+                ztp_tls=ZTPTLSConfig(
+                    enabled=True,
+                    certificate=ZTPTLSCertificateConfig(
+                        create=True,
+                        issuer_name="ztp-private-ca",
+                        ip_addresses=["192.0.2.10"],
+                    ),
+                ),
+                ztp_certificates=ZTPCertificatesConfig(
+                    enabled=True,
+                    vault=ZTPVaultPKIConfig(
+                        address="https://vault.example.com",
+                        namespace="prod/dsx",
+                        auth_mount="jwt/k8s/prod",
+                        auth_role="switch-certificate-issuer",
+                        pki_mount="pki/dev-dsx-nvidia-com",
+                        verify=True,
+                        ca_secret_name="dsx-vault-ca",
+                        ca_secret_key="tls-ca.pem",
+                        ca_mount_path="/etc/nv-config-manager/vault-pki-ca/dsx.pem",
+                    ),
+                    sources=[
+                        ZTPPKISourceConfig(
+                            name="otel-client",
+                            issue_role="switch-telemetry",
+                            ttl="168h",
+                            common_name_template="switch-{device_id}",
+                        ),
+                        ZTPPKISourceConfig(
+                            name="otel-ca",
+                            ca_path="pki/dev-dsx-nvidia-com/ca/pem",
+                        ),
+                    ],
+                ),
+            )
+        )
+
+        values = _gen(config)
+
+        assert values["networkZtp"]["ingress"]["tls"] == {
+            "enabled": True,
+            "secretName": "",
+            "reloadIntervalSeconds": 30,
+            "certificate": {
+                "create": True,
+                "issuerRef": {"kind": "ClusterIssuer", "name": "ztp-private-ca"},
+                "dnsNames": [],
+                "ipAddresses": ["192.0.2.10"],
+                "duration": "2160h",
+                "renewBefore": "720h",
+            },
+        }
+
+        assert values["networkZtp"]["certificates"] == {
+            "enabled": True,
+            "provider": "vault",
+            "vault": {
+                "address": "https://vault.example.com",
+                "namespace": "prod/dsx",
+                "authMount": "jwt/k8s/prod",
+                "authRole": "switch-certificate-issuer",
+                "audience": "vault",
+                "pkiMount": "pki/dev-dsx-nvidia-com",
+                "verify": True,
+                "caSecret": {
+                    "name": "dsx-vault-ca",
+                    "key": "tls-ca.pem",
+                    "mountPath": "/etc/nv-config-manager/vault-pki-ca/dsx.pem",
+                },
+                "timeoutSeconds": 30,
+            },
+            "sources": [
+                {
+                    "name": "otel-client",
+                    "issueRole": "switch-telemetry",
+                    "caPath": "",
+                    "ttl": "168h",
+                    "commonNameTemplate": "switch-{device_id}",
+                },
+                {
+                    "name": "otel-ca",
+                    "issueRole": "",
+                    "caPath": "pki/dev-dsx-nvidia-com/ca/pem",
+                    "ttl": "168h",
+                    "commonNameTemplate": "{device_name}",
+                },
+            ],
+        }
 
     def test_s3_irsa_role_and_region(self):
         """S3 IRSA emits an annotated ServiceAccount without a credentials Secret."""

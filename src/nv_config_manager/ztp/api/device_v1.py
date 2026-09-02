@@ -14,15 +14,29 @@
 # limitations under the License.
 """V1 Device API Endpoints."""
 
+from cryptography import x509
+from cryptography.hazmat.primitives.serialization import NoEncryption, load_pem_private_key
+from cryptography.hazmat.primitives.serialization.pkcs12 import serialize_key_and_certificates
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
-from nv_config_manager.common.auth import auth_required, require_sso_or_device
+from nv_config_manager.common.auth import (
+    accept_request_headers,
+    auth_required,
+    require_sso_or_device,
+)
 from nv_config_manager.common.client import ConfigStoreException, ConfigStoreFileNotFound
 from nv_config_manager.common.config import get_storage_client, temporal_client
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMNotFoundError, dcim_client_session
+from nv_config_manager.dcim.models import CertificateKind, DeviceCertificate
+from nv_config_manager.pki import (
+    CertificateIssueRequest,
+    IssuedCertificate,
+    PKIError,
+    create_pki_client,
+)
 from nv_config_manager.ztp.api.schemas import ChecksumResponse
 from nv_config_manager.ztp.api.streaming import create_object_storage_streaming_response
 from nv_config_manager.ztp.device import DeviceData
@@ -31,6 +45,12 @@ from nv_config_manager.ztp.storage import ObjectStorageNotFoundException
 logger = get_logger(__name__, category=LogCategory.ZTP_API)
 
 router = APIRouter(prefix="/device", tags=["device"], responses={404: {"description": "Not found"}})
+
+_CERTIFICATE_RESPONSE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Pragma": "no-cache",
+    "X-Content-Type-Options": "nosniff",
+}
 
 
 async def _get_device_data(device_uuid: str) -> DeviceData:
@@ -43,14 +63,16 @@ async def _authorize_request(request: Request, device_uuid: str) -> None:
     # This endpoint has sensitive content, check if coming from the
     # device associated with this configuration
 
-    if not auth_required():
-        return
+    if accept_request_headers():
+        if not auth_required():
+            return
 
-    identity = await require_sso_or_device(request)
-    if identity is not None and identity.source != "anonymous":
-        # Request came in through SSO, mTLS, SPIFFE, or JWT/OIDC — the
-        # shared auth layer has validated it, so no further IP check needed.
-        return
+        identity = await require_sso_or_device(request)
+        if identity is not None and identity.source != "anonymous":
+            # The gateway-facing listener accepts identities validated by the
+            # shared auth layer. Direct listeners disable header trust and
+            # always continue to the device IP check below.
+            return
 
     try:
         device_data = await _get_device_data(device_uuid)
@@ -101,6 +123,115 @@ async def load_configuration(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ConfigStoreException as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def _assigned_certificate(device_data: DeviceData, certificate_id: str) -> DeviceCertificate:
+    for certificate in device_data.certificates:
+        if certificate.id == certificate_id:
+            return certificate
+    raise HTTPException(status_code=404, detail="Certificate is not assigned to this device.")
+
+
+def _pkcs12_bundle(certificate_id: str, issued: IssuedCertificate) -> bytes:
+    """Build the NVUE identity bundle entirely in memory."""
+    try:
+        certificate = x509.load_pem_x509_certificate(issued.certificate_pem.encode("utf-8"))
+        private_key = load_pem_private_key(
+            issued.private_key_pem.encode("utf-8"),
+            password=None,
+        )
+        ca_chain = [
+            x509.load_pem_x509_certificate(certificate_pem.encode("utf-8"))
+            for certificate_pem in issued.ca_chain_pem
+        ]
+        return serialize_key_and_certificates(
+            name=certificate_id.encode("ascii"),
+            key=private_key,
+            cert=certificate,
+            cas=ca_chain,
+            encryption_algorithm=NoEncryption(),
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="The PKI provider returned invalid certificate material.",
+        ) from exc
+
+
+@router.get("/{device_uuid}/certificates/{certificate_id}", response_class=Response)
+async def load_certificate(
+    device_uuid: str,
+    certificate_id: str,
+    request: Request,
+) -> Response:
+    """Issue or load one certificate explicitly assigned to the requesting device."""
+    await _authorize_request(request, device_uuid)
+    try:
+        device_data = await _get_device_data(device_uuid)
+    except DCIMNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    certificate = _assigned_certificate(device_data, certificate_id)
+    if certificate.kind == CertificateKind.IDENTITY and request.url.scheme != "https":
+        raise HTTPException(
+            status_code=426,
+            detail="Device identity certificates are available only over HTTPS.",
+            headers={"Upgrade": "TLS/1.2"},
+        )
+
+    try:
+        client = create_pki_client()
+        async with client:
+            if certificate.kind == CertificateKind.CA:
+                ca_chain = await client.get_ca_chain(certificate.source)
+                content = "\n".join(item.rstrip() for item in ca_chain) + "\n"
+                logger.info(
+                    "Served CA certificate %s for device %s from source %s",
+                    certificate.id,
+                    device_uuid,
+                    certificate.source,
+                )
+                return Response(
+                    content=content.encode("utf-8"),
+                    media_type="application/x-pem-file",
+                    headers={
+                        **_CERTIFICATE_RESPONSE_HEADERS,
+                        "Content-Disposition": f'attachment; filename="{certificate.id}.pem"',
+                    },
+                )
+
+            issued = await client.issue_certificate(
+                CertificateIssueRequest(
+                    source=certificate.source,
+                    device_id=device_data.id,
+                    device_name=device_data.name,
+                )
+            )
+            bundle = _pkcs12_bundle(certificate.id, issued)
+            logger.info(
+                "Issued identity certificate %s for device %s from source %s; serial=%s; "
+                "expires_at=%s",
+                certificate.id,
+                device_uuid,
+                certificate.source,
+                issued.serial_number,
+                issued.expires_at.isoformat(),
+            )
+            return Response(
+                content=bundle,
+                media_type="application/x-pkcs12",
+                headers={
+                    **_CERTIFICATE_RESPONSE_HEADERS,
+                    "Content-Disposition": f'attachment; filename="{certificate.id}.p12"',
+                },
+            )
+    except PKIError as exc:
+        logger.error(
+            "Certificate service failed for device %s certificate %s: %s",
+            device_uuid,
+            certificate_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(status_code=503, detail="Certificate service unavailable.") from exc
 
 
 # ONIE process pulls image first, then looks for $url.ztp to load the ZTP script

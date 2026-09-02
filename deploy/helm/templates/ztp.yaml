@@ -5,6 +5,11 @@
 {{- $ztpFileStorage := eq .Values.networkZtp.storage.type "file" }}
 {{- $ztpSpiffeJwt := and .Values.spiffe.enabled (eq (.Values.spiffe.authMode | default "jwt") "jwt") }}
 {{- $ztpVaultAgentJwt := and (eq .Values.secrets.method "vault-agent") (eq (.Values.secrets.vaultAgent.autoAuthMethod | default "kubernetes") "jwt") }}
+{{- $ztpPkiJwt := and .Values.networkZtp.certificates.enabled (eq .Values.networkZtp.certificates.provider "vault") }}
+{{- $ztpPkiCASecret := .Values.networkZtp.certificates.vault.caSecret | default dict }}
+{{- $ztpPkiCA := and $ztpPkiJwt $ztpPkiCASecret.name }}
+{{- $ztpLBEnabled := or .Values.networkZtp.ingress.nlb .Values.networkZtp.ingress.cilium .Values.networkZtp.ingress.metallb }}
+{{- $ztpTLS := and $ztpLBEnabled (.Values.networkZtp.ingress.tls.enabled | default false) }}
 {{- $downloads := .Values.networkZtp.downloads | default dict }}
 {{- $sftpDownloads := $downloads.sftp | default dict }}
 ---
@@ -59,7 +64,7 @@ spec:
       {{- end }}
       containers:
       # HTTP API container for user access (via envoy/gateway with SSO/mTLS headers)
-      # ACCEPT_REQUEST_HEADERS=true allows SSO/mTLS header-based authorization
+      # This listener trusts identity headers injected by the gateway.
       # Mounts os-images read-write so uploads can write files and update manifest.json
       - name: http-api
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -87,7 +92,7 @@ spec:
           name: http
         resources:
           {{- toYaml .Values.networkZtp.resources.http | nindent 10 }}
-        {{- if or $ztpConfigVolume $ztpFileStorage $ztpSpiffeJwt .Values.dcim.providerPackages.enabled }}
+        {{- if or $ztpConfigVolume $ztpFileStorage $ztpSpiffeJwt $ztpPkiJwt .Values.dcim.providerPackages.enabled }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
         {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
@@ -96,6 +101,16 @@ spec:
           mountPath: {{ .Values.networkZtp.storage.file.mountPath | default "/mnt/images" }}
         {{- end }}
         {{- include "nv-config-manager.authVolumeMounts" . | nindent 8 }}
+        {{- if $ztpPkiJwt }}
+        - name: pki-jwt
+          mountPath: {{ dir (.Values.networkZtp.certificates.vault.tokenPath | default "/var/run/secrets/nv-config-manager-pki/token") }}
+          readOnly: true
+        {{- end }}
+        {{- if $ztpPkiCA }}
+        - name: pki-vault-ca
+          mountPath: {{ dir ($ztpPkiCASecret.mountPath | required "networkZtp.certificates.vault.caSecret.mountPath is required") }}
+          readOnly: true
+        {{- end }}
         {{- end }}
         # /healthcheck has no dependencies; it only proves the event loop can
         # still accept a request. Chart-default timings (1s timeout, 10s period,
@@ -127,8 +142,8 @@ spec:
           failureThreshold: 3
 
       # HTTP API container for device access via LoadBalancer (IP-based authorization)
-      # No ACCEPT_REQUEST_HEADERS - uses client IP validation against Nautobot device addresses
-      {{- if or .Values.networkZtp.ingress.nlb .Values.networkZtp.ingress.cilium .Values.networkZtp.ingress.metallb }}
+      # Never trust caller-supplied identity headers on the directly exposed listener.
+      {{- if $ztpLBEnabled }}
       - name: http-lb
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
         imagePullPolicy: {{ .Values.global.images.nvConfigManager.pullPolicy }}
@@ -139,6 +154,8 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        - name: ACCEPT_REQUEST_HEADERS
+          value: "false"
         {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
@@ -151,13 +168,23 @@ spec:
           name: http-lb
         resources:
           {{- toYaml .Values.networkZtp.resources.http | nindent 10 }}
-        {{- if or $ztpConfigVolume $ztpFileStorage .Values.dcim.providerPackages.enabled }}
+        {{- if or $ztpConfigVolume $ztpFileStorage $ztpPkiJwt .Values.dcim.providerPackages.enabled }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
         {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if $ztpFileStorage }}
         - name: os-images
           mountPath: {{ .Values.networkZtp.storage.file.mountPath | default "/mnt/images" }}
+          readOnly: true
+        {{- end }}
+        {{- if $ztpPkiJwt }}
+        - name: pki-jwt
+          mountPath: {{ dir (.Values.networkZtp.certificates.vault.tokenPath | default "/var/run/secrets/nv-config-manager-pki/token") }}
+          readOnly: true
+        {{- end }}
+        {{- if $ztpPkiCA }}
+        - name: pki-vault-ca
+          mountPath: {{ dir ($ztpPkiCASecret.mountPath | required "networkZtp.certificates.vault.caSecret.mountPath is required") }}
           readOnly: true
         {{- end }}
         {{- end }}
@@ -181,6 +208,80 @@ spec:
           httpGet:
             path: /healthcheck
             port: 8000
+          timeoutSeconds: 3
+          periodSeconds: 10
+          failureThreshold: 3
+      {{- end }}
+
+      {{- if $ztpTLS }}
+      # Provider-neutral HTTPS endpoint for device access. The external
+      # LoadBalancer remains TCP pass-through, preserving the switch IP.
+      - name: https-lb
+        image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
+        imagePullPolicy: {{ .Values.global.images.nvConfigManager.pullPolicy }}
+        {{- include "nv-config-manager.containerSecurityContext" . | nindent 8 }}
+        {{- include "nv-config-manager.networkZtpEntrypoint" (dict "root" . "command" (list "nv-config-manager-ztp-api") "args" (list "--port" "8443" "--ssl-certfile" "/etc/nv-config-manager/ztp-tls/tls.crt" "--ssl-keyfile" "/etc/nv-config-manager/ztp-tls/tls.key" "--tls-reload-interval" (toString (.Values.networkZtp.ingress.tls.reloadIntervalSeconds | default 30)))) | nindent 8 }}
+        env:
+        - name: NV_CONFIG_MANAGER_INI
+          value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
+        - name: ENVIRONMENT
+          value: {{ .Values.global.environment }}
+        - name: ACCEPT_REQUEST_HEADERS
+          value: "false"
+        {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
+        {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
+        {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
+        {{- include "nv-config-manager.networkZtpStorageEnv" . | nindent 8 }}
+        {{- if .Values.observability.enabled }}
+        {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-ztp") | nindent 8 }}
+        {{- end }}
+        ports:
+        - containerPort: 8443
+          name: https-lb
+        resources:
+          {{- toYaml .Values.networkZtp.resources.https | nindent 10 }}
+        volumeMounts:
+        {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
+        {{- if $ztpFileStorage }}
+        - name: os-images
+          mountPath: {{ .Values.networkZtp.storage.file.mountPath | default "/mnt/images" }}
+          readOnly: true
+        {{- end }}
+        {{- if $ztpPkiJwt }}
+        - name: pki-jwt
+          mountPath: {{ dir (.Values.networkZtp.certificates.vault.tokenPath | default "/var/run/secrets/nv-config-manager-pki/token") }}
+          readOnly: true
+        {{- end }}
+        {{- if $ztpPkiCA }}
+        - name: pki-vault-ca
+          mountPath: {{ dir ($ztpPkiCASecret.mountPath | required "networkZtp.certificates.vault.caSecret.mountPath is required") }}
+          readOnly: true
+        {{- end }}
+        - name: ztp-tls
+          mountPath: /etc/nv-config-manager/ztp-tls
+          readOnly: true
+        startupProbe:
+          httpGet:
+            path: /healthcheck
+            port: 8443
+            scheme: HTTPS
+          timeoutSeconds: 5
+          periodSeconds: 5
+          failureThreshold: 30
+        livenessProbe:
+          httpGet:
+            path: /healthcheck
+            port: 8443
+            scheme: HTTPS
+          timeoutSeconds: 5
+          periodSeconds: 15
+          failureThreshold: 6
+        readinessProbe:
+          httpGet:
+            path: /healthcheck
+            port: 8443
+            scheme: HTTPS
           timeoutSeconds: 3
           periodSeconds: 10
           failureThreshold: 3
@@ -256,15 +357,38 @@ spec:
       
       {{- /* SPIFFE helper sidecar for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar" (dict "root" . "serviceName" "network-ztp") | nindent 6 }}
-      {{- if or $ztpVaultAgentJwt $ztpConfigVolume $ztpFileStorage $ztpSpiffeJwt .Values.dcim.providerPackages.enabled }}
+      {{- if or $ztpVaultAgentJwt $ztpConfigVolume $ztpFileStorage $ztpSpiffeJwt $ztpPkiJwt $ztpTLS .Values.dcim.providerPackages.enabled }}
       volumes:
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
       {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
+      {{- if $ztpPkiJwt }}
+      - name: pki-jwt
+        projected:
+          defaultMode: 0440
+          sources:
+          - serviceAccountToken:
+              audience: {{ .Values.networkZtp.certificates.vault.audience | default "vault" | quote }}
+              expirationSeconds: 3600
+              path: {{ base (.Values.networkZtp.certificates.vault.tokenPath | default "/var/run/secrets/nv-config-manager-pki/token") }}
+      {{- end }}
+      {{- if $ztpPkiCA }}
+      - name: pki-vault-ca
+        secret:
+          secretName: {{ $ztpPkiCASecret.name }}
+          items:
+          - key: {{ $ztpPkiCASecret.key | required "networkZtp.certificates.vault.caSecret.key is required" }}
+            path: {{ base ($ztpPkiCASecret.mountPath | required "networkZtp.certificates.vault.caSecret.mountPath is required") }}
+      {{- end }}
       {{- if $ztpFileStorage }}
       - name: os-images
         persistentVolumeClaim:
           claimName: {{ .Values.networkZtp.storage.file.pvcName | default "ztp-os-images" }}
+      {{- end }}
+      {{- if $ztpTLS }}
+      - name: ztp-tls
+        secret:
+          secretName: {{ include "nv-config-manager.networkZtpTLSSecretName" . }}
       {{- end }}
       {{- /* SPIFFE volumes */ -}}
       {{- include "nv-config-manager.authSidecar.volumes" (dict "root" .) | nindent 6 }}
@@ -366,10 +490,12 @@ spec:
     targetPort: 8000
     protocol: TCP
     name: http
+  {{- if $ztpTLS }}
   - port: 443
     targetPort: 8443
     protocol: TCP
     name: https
+  {{- end }}
   - port: 2222
     targetPort: 2222
     protocol: TCP

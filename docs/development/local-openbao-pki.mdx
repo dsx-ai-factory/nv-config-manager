@@ -1,0 +1,226 @@
+---
+title: Local OpenBao PKI
+description: Validate switch certificate issuance with a disposable OpenBao PKI and Kubernetes JWKS authentication.
+---
+
+Use the local OpenBao setup to develop the switch certificate service without
+accessing the production DSX Vault namespace. It mirrors the production
+integration boundary, but creates a disposable local CA.
+
+## What it configures
+
+Run:
+
+```bash
+make openbao-pki-local
+```
+
+The target installs OpenBao in dev mode and configures:
+
+- pinned OpenBao Helm chart version from `deploy/operator-versions.env`
+- PKI mount `pki/dev-dsx-nvidia-com`
+- issue role `nv-config-manager-switch-telemetry`
+- seven-day, client-auth-only EC certificates
+- `no_store=true` and `generate_lease=false`
+- policy access limited to the single issue endpoint and CA-chain reads
+- JWT auth mount `jwt/k8s/nv-config-manager-local`
+- JWKS discovery from the Kubernetes API
+- a local-only binding that exposes Kubernetes' public OIDC discovery and JWKS
+  non-resource URLs to OpenBao's unauthenticated key fetcher
+- role binding to the same service-account subject used by the ZTP deployment
+  and ESO: `system:serviceaccount:nv-config-manager:vault-access-sa`
+- audience `vault`
+
+The script finishes by requesting a projected service-account token, logging in
+through the JWT role, issuing a certificate, and verifying its validity,
+certificate chain, private-key response, and client-only extended key usage.
+
+OpenBao dev mode is ephemeral and uses the local root token. Do not use this
+configuration in production. The issuer-discovery binding exposes only public
+signing metadata and keys; JWT issuer, audience, and exact subject validation
+still control authentication.
+
+## Production mapping
+
+Production uses the `dgxc-dsx` Vault Enterprise namespace and an existing DSX
+PKI issue endpoint. Local OpenBao does not implement Enterprise namespaces, so
+the local setup models separation with a dedicated PKI mount, JWT auth mount,
+role, and policy while reusing the application's Kubernetes service account.
+
+The application configuration should keep these values independent so local
+and production differ only by configuration:
+
+| Setting | Local default | Production |
+| --- | --- | --- |
+| Vault address | `http://openbao.openbao.svc.cluster.local:8200` | DSX Vault address |
+| Vault namespace | empty | `dgxc-dsx` |
+| JWT auth mount | `jwt/k8s/nv-config-manager-local` | cluster-specific DSX JWT mount |
+| JWT role | `nv-config-manager-switch-certificate-issuer` | DSX workload role |
+| PKI issue path | `pki/dev-dsx-nvidia-com/issue/nv-config-manager-switch-telemetry` | approved existing DSX issue path |
+
+Override local values when validating a different production-compatible path:
+
+```bash
+PKI_MOUNT=pki/example \
+PKI_ROLE=example-client-role \
+PKI_DOMAIN=switches.example.internal \
+./scripts/setup-local-openbao-pki --install-openbao
+```
+
+The caller supplies only the device common name and requested TTL to the issue
+endpoint. It cannot choose a Vault path, PKI role, server-auth usage, IP SAN, or
+URI SAN.
+
+## Connect certificate delivery
+
+Enable the ZTP certificate service with provider paths that match the local
+setup:
+
+```yaml
+networkZtp:
+  certificates:
+    enabled: true
+    provider: vault
+    vault:
+      address: http://openbao.openbao.svc.cluster.local:8200
+      namespace: ""
+      authMount: jwt/k8s/nv-config-manager-local
+      authRole: nv-config-manager-switch-certificate-issuer
+      audience: vault
+      pkiMount: pki/dev-dsx-nvidia-com
+      verify: false
+    sources:
+      - name: telemetry-client
+        issueRole: nv-config-manager-switch-telemetry
+        ttl: 168h
+        commonNameTemplate: device-{device_id}.switches.dev.dsx.nvidia.com
+      - name: telemetry-ca
+        caPath: pki/dev-dsx-nvidia-com/ca/pem
+```
+
+When Vault uses a private TLS issuer, create a Secret containing its CA bundle
+and configure the mount explicitly:
+
+```yaml
+networkZtp:
+  certificates:
+    vault:
+      verify: true
+      caSecret:
+        name: dsx-vault-ca
+        key: ca.crt
+        mountPath: /etc/nv-config-manager/vault-pki-ca/ca.crt
+```
+
+The Secret must already exist in the Config Manager namespace. The chart mounts
+only the selected key into each ZTP API container and uses `mountPath` as the
+Vault client's verification bundle. The installer exposes the equivalent
+`ca_secret_name`, `ca_secret_key`, and `ca_mount_path` fields under
+`infrastructure.ztp_certificates.vault`.
+
+The projected PKI JWT uses the ZTP pod's existing global service account. ESO
+also names that service account in its SecretStore, but performs its own token
+exchange independently. The PKI login is isolated by its separate Vault
+namespace, auth role, audience, and policy. A distinct PKI service-account
+identity would require moving certificate serving to a separate deployment.
+
+## Production Vault onboarding requirement
+
+The target PKI Vault namespace must register the same Kubernetes identity used
+by the existing Config Manager deployment. No certificate-specific Kubernetes
+service account is created or selected by this feature.
+
+For every production cluster, the `dsx-vault` configuration must provide:
+
+1. A JWT backend at the configured `authMount`, with the cluster's Kubernetes
+   issuer and signing keys or OIDC discovery configuration.
+1. A JWT role named by `authRole`, bound to the exact subject
+   `system:serviceaccount:<global.namespace>:<global.serviceAccountName>`.
+1. A bound audience containing the configured `audience`. The default `vault`
+   audience matches the existing `dsx-vault` Kubernetes JWT roles.
+1. A policy granting `create` and `update` only on the selected PKI issue role,
+   plus `read` on the CA path used by the configured CA source.
+
+For the chart defaults, the required subject is:
+
+```text
+system:serviceaccount:nv-config-manager:vault-access-sa
+```
+
+The same subject can be registered in both the existing secrets namespace and
+the DSX PKI namespace without conflict. Each Vault namespace performs its own
+JWT login and returns a namespace-scoped token with only that role's policies.
+Changing either `global.namespace` or `global.serviceAccountName` changes the
+JWT `sub` and therefore requires the PKI role binding to be updated before
+deployment.
+
+Assign the stable NVUE IDs and full-mTLS export policy in the device's effective
+Nautobot configuration context:
+
+```yaml
+certificates:
+  # Optional for a privately issued ZTP HTTPS certificate. Omit with Let's Encrypt.
+  - id: ztp-server-ca
+    source: ztp-server-ca
+    kind: ca
+    services:
+      - ztp
+  - id: otel-ca
+    source: telemetry-ca
+    kind: ca
+  - id: otel-client
+    source: telemetry-client
+    kind: identity
+telemetry:
+  otlp:
+    ca_certificate: otel-ca
+    destinations:
+      - address: 192.0.2.40
+        port: 4317
+        client_certificate: otel-client
+```
+
+The boot script and other non-secret bootstrap data may remain on the private,
+IP-addressed HTTP endpoint. Identity certificate imports use the dedicated
+HTTPS listener before applying `startup.yaml`; a ZTP-service CA is the sole
+public bootstrap exception. NLB, Cilium, and MetalLB pass TCP 443 through to
+the ZTP pod so application source-IP authorization continues to see the switch
+address.
+
+Let's Encrypt is suitable only when the switch connects using a publicly valid
+DNS name covered by the certificate. It cannot issue a certificate containing
+a private-IP SAN. An IP-only ZTP deployment must therefore use a private
+cert-manager issuer and assign that issuer's public CA to the `ztp` service in
+the device's Nautobot `certificates` context as shown above. The boot script
+imports that public CA into its stable NVUE ID from the source-IP-authorized
+HTTP endpoint before the first HTTPS import. Private keys are never embedded in
+or served alongside the HTTP boot script.
+
+The identity response is generated as an unencrypted PKCS#12 bundle in memory
+because the NVUE import action has no passphrase parameter. The endpoint uses
+the existing device source-IP check and sets no-store response headers. The
+nightly workflow runs at 02:00 UTC with up to two hours of jitter and tells the
+switch to fetch fresh material into the same IDs; the workflow does not receive
+or persist the private key.
+
+For a cert-manager-managed private-IP certificate, configure the ZTP
+LoadBalancer and a private issuer:
+
+```yaml
+networkZtp:
+  ingress:
+    tls:
+      enabled: true
+      certificate:
+        create: true
+        issuerRef:
+          kind: ClusterIssuer
+          name: ztp-private-ca
+        ipAddresses:
+          - 192.0.2.10
+```
+
+Alternatively, set `secretName` and leave `certificate.create` false to use an
+existing `kubernetes.io/tls` Secret. The HTTPS listener watches projected
+certificate files and restarts its container after cert-manager renewal so the
+new keypair is loaded.

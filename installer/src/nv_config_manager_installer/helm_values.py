@@ -825,6 +825,65 @@ def _build_ztp_storage(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
     return storage
 
 
+def _build_ztp_certificates(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
+    """Build provider-neutral ZTP certificate settings for the Helm chart."""
+    certificates = config.infrastructure.ztp_certificates
+    result: dict[str, Any] = {
+        "enabled": certificates.enabled,
+        "provider": certificates.provider,
+    }
+    if certificates.provider == "vault":
+        vault = certificates.vault
+        result["vault"] = {
+            "address": vault.address,
+            "namespace": vault.namespace,
+            "authMount": vault.auth_mount,
+            "authRole": vault.auth_role,
+            "audience": vault.audience,
+            "pkiMount": vault.pki_mount,
+            "verify": vault.verify,
+            "caSecret": {
+                "name": vault.ca_secret_name,
+                "key": vault.ca_secret_key,
+                "mountPath": vault.ca_mount_path,
+            },
+            "timeoutSeconds": vault.timeout_seconds,
+        }
+    result["sources"] = [
+        {
+            "name": source.name,
+            "issueRole": source.issue_role,
+            "caPath": source.ca_path,
+            "ttl": source.ttl,
+            "commonNameTemplate": source.common_name_template,
+        }
+        for source in certificates.sources
+    ]
+    return result
+
+
+def _build_ztp_tls(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
+    """Build TLS and cert-manager settings for the device-facing ZTP listener."""
+    tls = config.infrastructure.ztp_tls
+    certificate = tls.certificate
+    return {
+        "enabled": tls.enabled,
+        "secretName": tls.secret_name,
+        "reloadIntervalSeconds": tls.reload_interval_seconds,
+        "certificate": {
+            "create": certificate.create,
+            "issuerRef": {
+                "kind": certificate.issuer_kind,
+                "name": certificate.issuer_name,
+            },
+            "dnsNames": list(certificate.dns_names),
+            "ipAddresses": list(certificate.ip_addresses),
+            "duration": certificate.duration,
+            "renewBefore": certificate.renew_before,
+        },
+    }
+
+
 def _build_lb_ingress(
     config: NVConfigManagerInstallConfig,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -833,6 +892,7 @@ def _build_lb_ingress(
     lb = config.infrastructure.load_balancer
     ztp: dict[str, Any] = {"enabled": svc.ztp, "client": {"useInternalEndpoint": True}}
     ztp["storage"] = _build_ztp_storage(config)
+    ztp["certificates"] = _build_ztp_certificates(config)
     if config.infrastructure.ztp_storage.node_selector:
         ztp["nodeSelector"] = dict(config.infrastructure.ztp_storage.node_selector)
     dhcp: dict[str, Any] = {"enabled": svc.dhcp}
@@ -847,6 +907,7 @@ def _build_lb_ingress(
     elif lb.provider != LBProvider.NONE:
         _apply_static_lb(ztp, lb.ztp_lb_ip, lb.ztp_dns_name, lb)
         _apply_static_lb(dhcp, lb.dhcp_lb_ip, lb.dhcp_dns_name, lb)
+    ztp.setdefault("ingress", {})["tls"] = _build_ztp_tls(config)
     return ztp, dhcp
 
 

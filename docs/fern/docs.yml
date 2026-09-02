@@ -68,6 +68,8 @@ navigation:
       collapsed-by-default: true
     - page: Contribute a DCIM Provider
       path: ../development/contributing-dcim-provider.mdx
+    - page: Local OpenBao PKI
+      path: ../development/local-openbao-pki.mdx
     - folder: ../nautobot
       title: Nautobot Overview
       collapsible: true

@@ -40,3 +40,14 @@
     {{- fail "gateway.nodePort supports at most one HTTPS listener for kgateway" -}}
   {{- end -}}
 {{- end -}}
+{{- $ztpTLS := .Values.networkZtp.ingress.tls | default dict -}}
+{{- $ztpTLSCertificate := $ztpTLS.certificate | default dict -}}
+{{- if and .Values.networkZtp.certificates.enabled (not ($ztpTLS.enabled | default false)) -}}
+  {{- fail "networkZtp.ingress.tls.enabled must be true when device certificate delivery is enabled; private keys may not be served over HTTP" -}}
+{{- end -}}
+{{- if and ($ztpTLS.enabled | default false) (not (or .Values.networkZtp.ingress.nlb .Values.networkZtp.ingress.cilium .Values.networkZtp.ingress.metallb)) -}}
+  {{- fail "networkZtp.ingress.tls.enabled requires an NLB, Cilium, or MetalLB ZTP ingress provider" -}}
+{{- end -}}
+{{- if and ($ztpTLS.enabled | default false) ($ztpTLSCertificate.create | default false) (eq (len ($ztpTLSCertificate.dnsNames | default list)) 0) (eq (len ($ztpTLSCertificate.ipAddresses | default list)) 0) -}}
+  {{- fail "networkZtp.ingress.tls.certificate requires at least one dnsNames or ipAddresses entry" -}}
+{{- end -}}

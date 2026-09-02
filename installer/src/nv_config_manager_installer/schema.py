@@ -685,6 +685,103 @@ class ZTPStorageConfig(BaseModel):
     os_images: list[ZTPOSImage] = Field(default_factory=list)
 
 
+class ZTPPKISourceConfig(BaseModel):
+    """One logical certificate source exposed to DCIM assignments."""
+
+    name: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    issue_role: str = ""
+    ca_path: str = ""
+    ttl: str = "168h"
+    common_name_template: str = "{device_name}"
+
+    @model_validator(mode="after")
+    def validate_capability(self) -> ZTPPKISourceConfig:
+        if not self.issue_role and not self.ca_path:
+            raise ValueError("a PKI source requires issue_role or ca_path")
+        return self
+
+
+class ZTPVaultPKIConfig(BaseModel):
+    """Vault/OpenBao JWKS authentication and PKI mount settings."""
+
+    address: str = ""
+    namespace: str = ""
+    auth_mount: str = ""
+    auth_role: str = ""
+    audience: str = "vault"
+    pki_mount: str = ""
+    verify: bool | str = True
+    ca_secret_name: str = ""
+    ca_secret_key: str = "ca.crt"
+    ca_mount_path: str = "/etc/nv-config-manager/vault-pki-ca/ca.crt"
+    timeout_seconds: int = Field(default=30, ge=1, le=300)
+
+    @model_validator(mode="after")
+    def validate_ca_secret(self) -> ZTPVaultPKIConfig:
+        if not self.ca_secret_name:
+            return self
+        if not self.ca_secret_key:
+            raise ValueError("a Vault PKI CA Secret requires ca_secret_key")
+        if not self.ca_mount_path.startswith("/") or self.ca_mount_path.endswith("/"):
+            raise ValueError("a Vault PKI CA Secret requires an absolute file ca_mount_path")
+        return self
+
+
+class ZTPCertificatesConfig(BaseModel):
+    """Certificate delivery and rotation configuration for network ZTP."""
+
+    enabled: bool = False
+    provider: str = "vault"
+    vault: ZTPVaultPKIConfig = Field(default_factory=ZTPVaultPKIConfig)
+    sources: list[ZTPPKISourceConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_enabled_provider(self) -> ZTPCertificatesConfig:
+        if not self.enabled:
+            return self
+        if self.provider != "vault":
+            raise ValueError("the installer currently supports the Vault PKI provider")
+        required = {
+            "address": self.vault.address,
+            "auth_mount": self.vault.auth_mount,
+            "auth_role": self.vault.auth_role,
+            "pki_mount": self.vault.pki_mount,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise ValueError(f"enabled Vault PKI requires: {', '.join(missing)}")
+        if not self.sources:
+            raise ValueError("enabled certificate delivery requires at least one PKI source")
+        return self
+
+
+class ZTPTLSCertificateConfig(BaseModel):
+    """Optional cert-manager Certificate for the device-facing ZTP listener."""
+
+    create: bool = False
+    issuer_kind: str = "ClusterIssuer"
+    issuer_name: str = "letsencrypt-prod"
+    dns_names: list[str] = Field(default_factory=list)
+    ip_addresses: list[str] = Field(default_factory=list)
+    duration: str = "2160h"
+    renew_before: str = "720h"
+
+    @model_validator(mode="after")
+    def validate_names(self) -> ZTPTLSCertificateConfig:
+        if self.create and not (self.dns_names or self.ip_addresses):
+            raise ValueError("a managed ZTP TLS certificate requires a DNS name or IP address")
+        return self
+
+
+class ZTPTLSConfig(BaseModel):
+    """TLS termination for the IP-authenticated ZTP LoadBalancer endpoint."""
+
+    enabled: bool = False
+    secret_name: str = ""
+    reload_interval_seconds: int = Field(default=30, ge=1, le=3600)
+    certificate: ZTPTLSCertificateConfig = Field(default_factory=ZTPTLSCertificateConfig)
+
+
 class ExternalRedisConfig(BaseModel):
     """External Redis connection settings."""
 
@@ -827,6 +924,8 @@ class InfrastructureConfig(BaseModel):
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
     load_balancer: LoadBalancerConfig = Field(default_factory=LoadBalancerConfig)
     ztp_storage: ZTPStorageConfig = Field(default_factory=ZTPStorageConfig)
+    ztp_certificates: ZTPCertificatesConfig = Field(default_factory=ZTPCertificatesConfig)
+    ztp_tls: ZTPTLSConfig = Field(default_factory=ZTPTLSConfig)
 
     @model_validator(mode="after")
     def validate_kgateway_nlb(self) -> InfrastructureConfig:
@@ -848,6 +947,10 @@ class InfrastructureConfig(BaseModel):
                 "Gateway AWS NLB configuration is supported only with Envoy Gateway; "
                 "kgateway service parameters do not yet support it"
             )
+        if self.ztp_certificates.enabled and not self.ztp_tls.enabled:
+            raise ValueError("ZTP certificate delivery requires ztp_tls.enabled")
+        if self.ztp_tls.enabled and self.load_balancer.provider == LBProvider.NONE:
+            raise ValueError("ZTP TLS requires a configured load balancer provider")
         return self
 
 
