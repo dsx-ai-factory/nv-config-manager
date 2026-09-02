@@ -11,6 +11,7 @@ dependencies = [
     "nv-config-manager-dcim",
     "py-markdown-table>=1.1.0",
     "pydantic>=2.10.2",
+    "redis[hiredis]>=5.2.1",
     "temporalio>=1.29.0,<1.32.0",
 ]
 

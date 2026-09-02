@@ -2583,6 +2583,7 @@ dependencies = [
     { name = "nv-config-manager-dcim" },
     { name = "py-markdown-table" },
     { name = "pydantic" },
+    { name = "redis", extra = ["hiredis"] },
     { name = "temporalio" },
 ]
 
@@ -2599,6 +2600,7 @@ requires-dist = [
     { name = "nv-config-manager-dcim", editable = "packages/dcim" },
     { name = "py-markdown-table", specifier = ">=1.1.0" },
     { name = "pydantic", specifier = ">=2.10.2" },
+    { name = "redis", extras = ["hiredis"], specifier = ">=5.2.1" },
     { name = "temporalio", specifier = ">=1.29.0,<1.32.0" },
 ]
 

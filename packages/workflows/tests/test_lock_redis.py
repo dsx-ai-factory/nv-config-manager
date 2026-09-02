@@ -27,20 +27,21 @@ import time
 from collections.abc import AsyncIterator
 
 import pytest
-from testcontainers.redis import RedisContainer
+from redis.asyncio import Redis
 
-from nv_config_manager.common import lock as lock_module
-from nv_config_manager.common.client import RedisClient
-from nv_config_manager.common.lock import acquire_lock, release_lock, renew_lock
-
-pytestmark = pytest.mark.timeout(120)
+from nv_config_manager_workflows.lock import (
+    acquire_lock,
+    configure_lock_backend,
+    release_lock,
+    renew_lock,
+)
 
 HOLD_S = 0.3
 TTL_S = 30
 
 
 @pytest.fixture
-async def redis_lock_backend(monkeypatch) -> AsyncIterator[None]:
+async def redis_lock_backend() -> AsyncIterator[None]:
     """Point the lock helpers at a real Redis, or skip when none is available."""
     host = os.environ.get("REDIS_HOST")
     port = int(os.environ.get("REDIS_PORT", "6379"))
@@ -49,8 +50,11 @@ async def redis_lock_backend(monkeypatch) -> AsyncIterator[None]:
     if not host:
         if not os.environ.get("LOCK_REDIS_TEST"):
             pytest.skip("Set REDIS_HOST or LOCK_REDIS_TEST=1 to run the Redis-backed lock test")
+        redis_container = pytest.importorskip(
+            "testcontainers.redis", reason="testcontainers is not installed"
+        )
         try:
-            container = RedisContainer("redis:7-alpine")
+            container = redis_container.RedisContainer("redis:7-alpine")
             container.start()
             host = container.get_container_host_ip()
             port = int(container.get_exposed_port(6379))
@@ -60,23 +64,21 @@ async def redis_lock_backend(monkeypatch) -> AsyncIterator[None]:
                     container.stop()
             pytest.skip(f"No Redis available for lock test: {exc}")
 
-    client = RedisClient(host=host, port=port)
+    client: Redis = Redis(host=host, port=port)
     try:
         await client.ping()
     except Exception as exc:
-        await client.close()
+        await client.aclose()
         if container is not None:
             container.stop()
         pytest.skip(f"Redis not reachable for lock test: {exc}")
 
-    # Force the Redis-backed path (bypass the local no-op).
-    monkeypatch.setattr(lock_module, "is_local_environment", lambda: False)
-    monkeypatch.setattr(lock_module, "_lock_redis_client", client)
-
+    configure_lock_backend(client)
     try:
         yield
     finally:
-        await client.close()
+        configure_lock_backend(None)
+        await client.aclose()
         if container is not None:
             container.stop()
 
@@ -96,7 +98,6 @@ def _kinds_in_time_order(events: list[tuple[str, str, float]]) -> list[str]:
     return [kind for kind, _token, _ts in sorted(events, key=lambda e: e[2])]
 
 
-@pytest.mark.asyncio
 async def test_same_key_holders_are_serialized(redis_lock_backend):
     """Two concurrent holders of one key never overlap their critical sections."""
     events: list[tuple[str, str, float]] = []
@@ -109,7 +110,6 @@ async def test_same_key_holders_are_serialized(redis_lock_backend):
     assert _kinds_in_time_order(events) == ["enter", "exit", "enter", "exit"]
 
 
-@pytest.mark.asyncio
 async def test_distinct_keys_run_concurrently(redis_lock_backend):
     """Holders of different keys hold independent locks and overlap freely."""
     events: list[tuple[str, str, float]] = []
@@ -122,7 +122,6 @@ async def test_distinct_keys_run_concurrently(redis_lock_backend):
     assert _kinds_in_time_order(events) == ["enter", "enter", "exit", "exit"]
 
 
-@pytest.mark.asyncio
 async def test_renew_extends_holder_and_release_frees_key(redis_lock_backend):
     """A holder can renew its own lock, and release lets another token take it."""
     key = "wf-lock:ngc:pkey=0x0007"
@@ -139,7 +138,6 @@ async def test_renew_extends_holder_and_release_frees_key(redis_lock_backend):
     await release_lock(key, "run-b")
 
 
-@pytest.mark.asyncio
 async def test_renew_fails_when_lock_lost_to_another_holder(redis_lock_backend):
     """Renewing a key owned by a different token reports the loss."""
     key = "wf-lock:ngc:pkey=0x0008"
