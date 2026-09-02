@@ -1,0 +1,282 @@
+#!/usr/bin/env bash
+# Configure a local OpenBao PKI and Kubernetes JWT/JWKS authentication for
+# switch certificate development. The defaults intentionally mirror the DSX
+# Vault path and auth conventions while keeping the local CA disposable.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+OPERATOR_VERSIONS_FILE="$REPO_ROOT/deploy/operator-versions.env"
+
+OPENBAO_NAMESPACE="${OPENBAO_NAMESPACE:-openbao}"
+OPENBAO_RELEASE="${OPENBAO_RELEASE:-openbao}"
+OPENBAO_POD="${OPENBAO_POD:-openbao-0}"
+OPENBAO_ROOT_TOKEN="${OPENBAO_ROOT_TOKEN:-root}"
+APP_NAMESPACE="${APP_NAMESPACE:-nv-config-manager}"
+SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-vault-access-sa}"
+AUTH_MOUNT="${AUTH_MOUNT:-jwt/k8s/nv-config-manager-local}"
+AUTH_ROLE="${AUTH_ROLE:-nv-config-manager-switch-certificate-issuer}"
+PKI_MOUNT="${PKI_MOUNT:-pki/dev-dsx-nvidia-com}"
+PKI_ROLE="${PKI_ROLE:-nv-config-manager-switch-telemetry}"
+PKI_DOMAIN="${PKI_DOMAIN:-switches.dev.dsx.nvidia.com}"
+PKI_TTL="${PKI_TTL:-168h}"
+PKI_MAX_TTL="${PKI_MAX_TTL:-168h}"
+PKI_MOUNT_MAX_TTL="${PKI_MOUNT_MAX_TTL:-87600h}"
+JWT_AUDIENCE="${JWT_AUDIENCE:-vault}"
+KUBERNETES_ISSUER="${KUBERNETES_ISSUER:-https://kubernetes.default.svc.cluster.local}"
+KUBERNETES_JWKS_URL="${KUBERNETES_JWKS_URL:-https://kubernetes.default.svc.cluster.local/openid/v1/jwks}"
+KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
+HELM_BIN="${HELM_BIN:-helm}"
+INSTALL_OPENBAO=false
+OPENBAO_CHART_VERSION="0.29.3"
+if [[ -f "$OPERATOR_VERSIONS_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$OPERATOR_VERSIONS_FILE"
+fi
+
+usage() {
+    cat <<'EOF'
+Usage: ./scripts/setup-local-openbao-pki [--install-openbao]
+
+Configures a disposable local PKI engine and Kubernetes JWT/JWKS auth in
+OpenBao, then verifies service-account login and seven-day client certificate
+issuance. OpenBao dev mode is for local validation only.
+
+Options:
+  --install-openbao  Install or update the OpenBao Helm release in dev mode.
+  --help             Show this help.
+
+Important environment overrides:
+  APP_NAMESPACE, SERVICE_ACCOUNT, AUTH_MOUNT, AUTH_ROLE
+  PKI_MOUNT, PKI_ROLE, PKI_DOMAIN, PKI_TTL, PKI_MAX_TTL
+  KUBERNETES_ISSUER, KUBERNETES_JWKS_URL, JWT_AUDIENCE
+  KUBECTL_BIN, HELM_BIN
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --install-openbao)
+            INSTALL_OPENBAO=true
+            shift
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+require_command() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        echo "Required command not found: $1" >&2
+        exit 1
+    fi
+}
+
+require_command "$KUBECTL_BIN"
+require_command jq
+require_command openssl
+if [[ "$INSTALL_OPENBAO" == "true" ]]; then
+    require_command "$HELM_BIN"
+fi
+
+kubectl_cmd() {
+    "$KUBECTL_BIN" "$@"
+}
+
+bao_root() {
+    kubectl_cmd -n "$OPENBAO_NAMESPACE" exec "$OPENBAO_POD" -- \
+        env BAO_TOKEN="$OPENBAO_ROOT_TOKEN" bao "$@"
+}
+
+bao_with_token() {
+    local token="$1"
+    shift
+    kubectl_cmd -n "$OPENBAO_NAMESPACE" exec "$OPENBAO_POD" -- \
+        env BAO_TOKEN="$token" bao "$@"
+}
+
+if [[ "$INSTALL_OPENBAO" == "true" ]]; then
+    echo "Installing OpenBao in disposable dev mode..."
+    "$HELM_BIN" repo add openbao https://openbao.github.io/openbao-helm >/dev/null 2>&1 || true
+    "$HELM_BIN" repo update openbao >/dev/null
+    "$HELM_BIN" upgrade --install "$OPENBAO_RELEASE" openbao/openbao \
+        --version "$OPENBAO_CHART_VERSION" \
+        --namespace "$OPENBAO_NAMESPACE" \
+        --create-namespace \
+        --set server.dev.enabled=true \
+        --set server.dev.devRootToken="$OPENBAO_ROOT_TOKEN" \
+        --set server.dataStorage.enabled=false \
+        --set server.standalone.enabled=false \
+        --set injector.enabled=false \
+        --wait \
+        --timeout 5m
+fi
+
+kubectl_cmd -n "$OPENBAO_NAMESPACE" wait \
+    --for=condition=ready "pod/$OPENBAO_POD" --timeout=120s >/dev/null
+
+echo "Ensuring application service account exists..."
+kubectl_cmd create namespace "$APP_NAMESPACE" --dry-run=client -o yaml | \
+    kubectl_cmd apply -f - >/dev/null
+kubectl_cmd -n "$APP_NAMESPACE" create serviceaccount "$SERVICE_ACCOUNT" \
+    --dry-run=client -o yaml | kubectl_cmd apply -f - >/dev/null
+
+# OpenBao's JWT backend fetches the public signing keys without a Kubernetes
+# bearer token. Kind's default issuer-discovery role is bound only to
+# authenticated service accounts, so expose just the two non-resource OIDC/JWKS
+# paths through the built-in read-only role. This is local-cluster setup only;
+# production clusters supply their own reachable JWKS/discovery endpoint.
+kubectl_cmd create clusterrolebinding openbao-service-account-issuer-discovery \
+    --clusterrole=system:service-account-issuer-discovery \
+    --group=system:unauthenticated \
+    --dry-run=client -o yaml | kubectl_cmd apply -f - >/dev/null
+
+echo "Configuring PKI mount $PKI_MOUNT..."
+mounts_json="$(bao_root secrets list -format=json)"
+if ! jq -e --arg mount "$PKI_MOUNT/" 'has($mount)' <<<"$mounts_json" >/dev/null; then
+    bao_root secrets enable -path="$PKI_MOUNT" pki >/dev/null
+    bao_root secrets tune -max-lease-ttl="$PKI_MOUNT_MAX_TTL" "$PKI_MOUNT" >/dev/null
+    bao_root write "$PKI_MOUNT/root/generate/internal" \
+        common_name="NVCM Local Development Root CA" \
+        issuer_name="nvcm-local-development-root" \
+        ttl="$PKI_MOUNT_MAX_TTL" \
+        key_type=rsa \
+        key_bits=4096 \
+        exclude_cn_from_sans=true \
+        organization=NVIDIA \
+        ou="NV Config Manager" >/dev/null
+else
+    bao_root secrets tune -max-lease-ttl="$PKI_MOUNT_MAX_TTL" "$PKI_MOUNT" >/dev/null
+fi
+
+bao_root write "$PKI_MOUNT/config/urls" \
+    issuing_certificates="http://$OPENBAO_RELEASE.$OPENBAO_NAMESPACE.svc.cluster.local:8200/v1/$PKI_MOUNT/ca/pem" \
+    crl_distribution_points="http://$OPENBAO_RELEASE.$OPENBAO_NAMESPACE.svc.cluster.local:8200/v1/$PKI_MOUNT/crl/pem" >/dev/null
+
+bao_root write "$PKI_MOUNT/roles/$PKI_ROLE" \
+    allowed_domains="$PKI_DOMAIN" \
+    allow_bare_domains=false \
+    allow_subdomains=true \
+    allow_glob_domains=false \
+    allow_any_name=false \
+    enforce_hostnames=true \
+    allow_ip_sans=false \
+    server_flag=false \
+    client_flag=true \
+    key_type=ec \
+    key_bits=256 \
+    ttl="$PKI_TTL" \
+    max_ttl="$PKI_MAX_TTL" \
+    no_store=true \
+    generate_lease=false >/dev/null
+
+policy_name="nv-config-manager-switch-certificate-issuer"
+policy=$(cat <<EOF
+path "$PKI_MOUNT/issue/$PKI_ROLE" {
+  capabilities = ["create", "update"]
+}
+
+path "$PKI_MOUNT/ca/pem" {
+  capabilities = ["read"]
+}
+
+path "$PKI_MOUNT/cert/ca" {
+  capabilities = ["read"]
+}
+
+path "$PKI_MOUNT/cert/ca_chain" {
+  capabilities = ["read"]
+}
+EOF
+)
+printf '%s\n' "$policy" | kubectl_cmd -n "$OPENBAO_NAMESPACE" exec -i "$OPENBAO_POD" -- \
+    env BAO_TOKEN="$OPENBAO_ROOT_TOKEN" bao policy write "$policy_name" - >/dev/null
+
+echo "Configuring Kubernetes JWKS auth mount $AUTH_MOUNT..."
+auths_json="$(bao_root auth list -format=json)"
+if ! jq -e --arg mount "$AUTH_MOUNT/" 'has($mount)' <<<"$auths_json" >/dev/null; then
+    bao_root auth enable -path="$AUTH_MOUNT" jwt >/dev/null
+fi
+
+# The OpenBao pod's projected service-account CA validates the Kubernetes API
+# JWKS endpoint. OpenBao refreshes keys from this URL instead of pinning a
+# copied public key, matching the production auto-rotation model.
+bao_root write "auth/$AUTH_MOUNT/config" \
+    bound_issuer="$KUBERNETES_ISSUER" \
+    jwks_url="$KUBERNETES_JWKS_URL" \
+    jwks_ca_pem=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt >/dev/null
+
+bound_subject="system:serviceaccount:$APP_NAMESPACE:$SERVICE_ACCOUNT"
+bao_root write "auth/$AUTH_MOUNT/role/$AUTH_ROLE" \
+    role_type=jwt \
+    bound_audiences="$JWT_AUDIENCE" \
+    bound_subject="$bound_subject" \
+    user_claim=sub \
+    token_policies="default,$policy_name" \
+    token_ttl=1h \
+    token_max_ttl=1h >/dev/null
+
+echo "Verifying JWKS login and client-only certificate issuance..."
+service_account_jwt="$(kubectl_cmd -n "$APP_NAMESPACE" create token "$SERVICE_ACCOUNT" \
+    --audience="$JWT_AUDIENCE" --duration=10m)"
+login_json="$(bao_root write -format=json "auth/$AUTH_MOUNT/login" \
+    role="$AUTH_ROLE" jwt="$service_account_jwt")"
+workload_token="$(jq -er '.auth.client_token' <<<"$login_json")"
+
+unbound_service_account_jwt="$(kubectl_cmd -n "$APP_NAMESPACE" create token default \
+    --audience="$JWT_AUDIENCE" --duration=10m)"
+if bao_root write "auth/$AUTH_MOUNT/login" role="$AUTH_ROLE" \
+    jwt="$unbound_service_account_jwt" >/dev/null 2>&1; then
+    echo "JWT role unexpectedly accepted an unbound service account" >&2
+    exit 1
+fi
+
+if bao_with_token "$workload_token" read "$PKI_MOUNT/roles/$PKI_ROLE" >/dev/null 2>&1; then
+    echo "Issuance token unexpectedly read PKI role configuration" >&2
+    exit 1
+fi
+
+smoke_common_name="local-smoke.$PKI_DOMAIN"
+issue_json="$(bao_with_token "$workload_token" write -format=json \
+    "$PKI_MOUNT/issue/$PKI_ROLE" common_name="$smoke_common_name" ttl="$PKI_TTL")"
+
+jq -er '.data.certificate' <<<"$issue_json" | openssl x509 -noout -checkend 518400 >/dev/null
+if jq -er '.data.certificate' <<<"$issue_json" | \
+    openssl x509 -noout -checkend 604800 >/dev/null; then
+    echo "Issued certificate unexpectedly remains valid beyond the seven-day limit" >&2
+    exit 1
+fi
+jq -er '.data.certificate' <<<"$issue_json" | openssl x509 -noout -text | \
+    grep -q "TLS Web Client Authentication"
+if jq -er '.data.certificate' <<<"$issue_json" | openssl x509 -noout -text | \
+    grep -q "TLS Web Server Authentication"; then
+    echo "Issued certificate unexpectedly permits TLS server authentication" >&2
+    exit 1
+fi
+jq -e '.data.private_key != null and .data.issuing_ca != null and (.data.ca_chain | length > 0)' \
+    <<<"$issue_json" >/dev/null
+
+serial_number="$(jq -r '.data.serial_number' <<<"$issue_json")"
+expiration="$(jq -r '.data.expiration' <<<"$issue_json")"
+if bao_root read "$PKI_MOUNT/cert/$serial_number" >/dev/null 2>&1; then
+    echo "Issued certificate was stored despite no_store=true" >&2
+    exit 1
+fi
+
+echo "OpenBao PKI validation succeeded."
+echo "  PKI issue path: $PKI_MOUNT/issue/$PKI_ROLE"
+echo "  JWT auth path:  auth/$AUTH_MOUNT/login"
+echo "  JWT role:       $AUTH_ROLE"
+echo "  Bound subject:  $bound_subject"
+echo "  Audience:       $JWT_AUDIENCE"
+echo "  Smoke serial:   $serial_number"
+echo "  Smoke expiry:   $expiration"
+echo "  Vault namespace: empty locally; production uses the separate DSX namespace"

@@ -30,6 +30,16 @@ query ListRenderEnabledDevices($is_aggregate_managed: Boolean) {
   }
 }
 
+query ListCertificateEnabledDevices($is_aggregate_managed: Boolean) {
+  config_manager_devices(render_enabled: true, is_aggregate_managed: $is_aggregate_managed) {
+    device {
+      id
+      platform { name }
+      config_context
+    }
+  }
+}
+
 query ListRenderTemplateVersions {
   config_manager_devices {
     device { id }

@@ -23,7 +23,7 @@ from nv_config_manager.common.client import (
     ConfigStoreFileNotFound,
 )
 from nv_config_manager.common.config import get_internal_auth_headers, load_config
-from nv_config_manager.dcim.models import ZTPDevice
+from nv_config_manager.dcim.models import DeviceCertificate, ZTPDevice
 
 
 @dataclass
@@ -36,6 +36,7 @@ class DeviceData:  # pylint: disable=too-many-instance-attributes
     platform_name: str
     version: str | None
     config_store_instance: str | None
+    certificates: tuple[DeviceCertificate, ...] = ()
 
     @property
     def platform(self) -> str:
@@ -110,4 +111,5 @@ class DeviceData:  # pylint: disable=too-many-instance-attributes
             platform_name=device.platform_name,
             version=device.firmware_version,
             config_store_instance=device.config_store_instance,
+            certificates=device.certificates,
         )

@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 import yaml
 from jinja2 import DictLoader
-from nv_config_manager_dcim import RenderData, RenderDataExtension
+from nv_config_manager_dcim import DeviceRenderData, RenderData, RenderDataExtension
 
 from nv_config_manager_templates.dataclasses.interface import ConnectedDevice
 from nv_config_manager_templates.filters import FilterException
@@ -169,3 +169,68 @@ def test_renderer_exposes_plugin_extension_data(public_leaf_data, public_locatio
     )
 
     assert renderer.render("extension-test.j2", render_data) == "True"
+
+
+def test_cumulus_516_renders_certificate_imports_and_mtls_otel(
+    public_leaf_data, public_location_data
+) -> None:
+    """Cumulus imports assigned certs before applying full-mTLS OTLP config."""
+    device_payload = public_leaf_data.model_dump(mode="json")
+    device_payload["firmware"]["desired_version"] = "5.16.1"
+    device_payload["certificates"] = [
+        {
+            "id": "otel-ca",
+            "source": "switch-telemetry-ca",
+            "kind": "ca",
+            "services": ["ztp"],
+        },
+        {"id": "otel-client", "source": "switch-telemetry", "kind": "identity"},
+    ]
+    device_payload["telemetry"] = {
+        "otlp": {
+            "ca_certificate": "otel-ca",
+            "destinations": [
+                {
+                    "address": "192.0.2.40",
+                    "port": 4317,
+                    "client_certificate": "otel-client",
+                }
+            ],
+        }
+    }
+    render_data = RenderData(
+        device=DeviceRenderData.model_validate(device_payload),
+        location=public_location_data,
+    )
+    renderer = Renderer(enable_plugins=False)
+    entrypoints = renderer.list_entrypoints(render_data.device)
+    boot_template = next(path for path in entrypoints if path.endswith("/boot-script.j2"))
+    startup_template = next(path for path in entrypoints if path.endswith("/startup.yaml.j2"))
+
+    boot_script = renderer.render(boot_template, render_data)
+    startup = yaml.safe_load(renderer.render(startup_template, render_data))
+
+    certificate_base_url = (
+        "https://192.0.2.10/v1/device/c9e574df-2295-4258-b5b2-16247b6e3aa7/certificates"
+    )
+    assert (
+        "nv action import system security ca-certificate otel-ca uri "
+        "http://192.0.2.10/v1/device/"
+        "c9e574df-2295-4258-b5b2-16247b6e3aa7/certificates/otel-ca"
+    ) in boot_script
+    assert (
+        "nv action import system security certificate otel-client uri-bundle "
+        f"{certificate_base_url}/otel-client"
+    ) in boot_script
+    assert boot_script.index("ca-certificate otel-ca") < boot_script.index(
+        "certificate otel-client"
+    )
+    assert boot_script.index("ca-certificate otel-ca") < boot_script.index("nv config replace")
+
+    grpc = startup[0]["set"]["system"]["telemetry"]["export"]["otlp"]["grpc"]
+    assert grpc["insecure"] == "disabled"
+    assert grpc["certificate"] == "otel-ca"
+    assert grpc["destination"]["192.0.2.40"] == {
+        "port": 4317,
+        "client-certificate": "otel-client",
+    }

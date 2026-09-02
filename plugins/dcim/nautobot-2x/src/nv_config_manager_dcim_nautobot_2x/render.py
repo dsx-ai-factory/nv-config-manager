@@ -26,6 +26,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
 from nv_config_manager_dcim.errors import DCIMInvalidDataError
+from nv_config_manager_dcim.models import DeviceCertificate
 from nv_config_manager_dcim.render import (
     DeviceRenderData,
     LocationRenderData,
@@ -59,12 +60,15 @@ from nv_config_manager_dcim.render import (
     RenderLocationVlan,
     RenderNamedEndpointSet,
     RenderNetworkData,
+    RenderOtlpData,
+    RenderOtlpDestination,
     RenderOverlayData,
     RenderPrefix,
     RenderPrefixSet,
     RenderRouteTarget,
     RenderRoutingData,
     RenderServicesData,
+    RenderTelemetryData,
     RenderVlan,
     RenderVrf,
 )
@@ -676,6 +680,42 @@ def _access_data(context: Mapping[str, Any], device_name: str) -> RenderAccessDa
     return RenderAccessData(credentials=tuple(credentials))
 
 
+def _certificates_data(
+    context: Mapping[str, Any], device_name: str
+) -> tuple[DeviceCertificate, ...]:
+    """Map the ordered certificate assignments used by ZTP and templates."""
+    return tuple(
+        DeviceCertificate.model_validate(certificate)
+        for certificate in _mappings(
+            context.get("certificates", ()),
+            f"device '{device_name}' configuration context certificates",
+        )
+    )
+
+
+def _telemetry_data(context: Mapping[str, Any], device_name: str) -> RenderTelemetryData:
+    """Map an optional, full-mTLS OTLP export policy."""
+    telemetry = _context_mapping(context, "telemetry", device_name)
+    if telemetry is None:
+        return RenderTelemetryData()
+    otlp = _context_mapping(telemetry, "otlp", device_name)
+    if otlp is None:
+        return RenderTelemetryData()
+    destinations = tuple(
+        RenderOtlpDestination.model_validate(destination)
+        for destination in _mappings(
+            otlp.get("destinations", ()),
+            f"device '{device_name}' telemetry OTLP destinations",
+        )
+    )
+    return RenderTelemetryData(
+        otlp=RenderOtlpData(
+            ca_certificate=_optional_text(otlp.get("ca_certificate")),
+            destinations=destinations,
+        )
+    )
+
+
 def _routing_data(
     device: Mapping[str, Any], context: Mapping[str, Any], device_name: str, site_asn: str | None
 ) -> RenderRoutingData:
@@ -1098,6 +1138,8 @@ def _build_render_data(
             firmware=_firmware_data(context, device_name),
             services=_services_data(context, device_name),
             access=_access_data(context, device_name),
+            certificates=_certificates_data(context, device_name),
+            telemetry=_telemetry_data(context, device_name),
         ),
         location=location_data,
     )

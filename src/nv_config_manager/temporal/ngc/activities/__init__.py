@@ -35,6 +35,9 @@ from nv_config_manager.temporal.ngc.activities.cable_validation import (
     format_results,
     validate_device_neighbors,
 )
+from nv_config_manager.temporal.ngc.activities.certificate_rotation import (
+    rotate_device_certificates,
+)
 from nv_config_manager.temporal.ngc.activities.config import get_ui_base_url
 from nv_config_manager.temporal.ngc.activities.dcim import (
     assign_vrf_to_device,
@@ -53,6 +56,7 @@ from nv_config_manager.temporal.ngc.activities.dcim import (
     get_network_devices,
     get_switch_port_by_remote_mac_address,
     get_vrfs_by_overlay_id,
+    get_ztp_device,
     provision_vrf,
     reconcile_spx_overlay_assignments,
     remove_unmapped_device_vrfs,
@@ -166,6 +170,7 @@ REGISTERED_ACTIVITIES = [
     load_running_configuration,
     persist_config_backup,
     record_backup_config_manager_plugin,
+    rotate_device_certificates,
     get_device_intended_neighbors,
     get_device_actual_neighbors,
     get_device_mac_table,
@@ -195,6 +200,7 @@ REGISTERED_ACTIVITIES = [
     get_network_devices,
     get_host_device,
     get_network_device,
+    get_ztp_device,
     decorate_result,
     get_available_route_distinguishers,
     provision_vrf,

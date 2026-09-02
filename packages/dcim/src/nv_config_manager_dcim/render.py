@@ -23,9 +23,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from pydantic import Field, IPvAnyAddress, IPvAnyInterface, IPvAnyNetwork, JsonValue
+from pydantic import (
+    Field,
+    IPvAnyAddress,
+    IPvAnyInterface,
+    IPvAnyNetwork,
+    JsonValue,
+    model_validator,
+)
 
-from nv_config_manager_dcim.models import DCIMModel
+from nv_config_manager_dcim.models import CertificateKind, DCIMModel, DeviceCertificate
 
 RENDER_DATA_CACHE_SCHEMA_VERSION = 1
 """Version of the portable, provider-neutral ``RenderData`` cache envelope."""
@@ -320,6 +327,27 @@ class RenderAccessData(DCIMModel):
     credentials: tuple[RenderCredentialReference, ...] = ()
 
 
+class RenderOtlpDestination(DCIMModel):
+    """One IP-addressed OTLP collector secured with a device certificate."""
+
+    address: IPvAnyAddress
+    port: int = Field(default=4317, ge=1, le=65535)
+    client_certificate: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+class RenderOtlpData(DCIMModel):
+    """Full mTLS policy for Cumulus OTLP export."""
+
+    ca_certificate: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    destinations: tuple[RenderOtlpDestination, ...] = ()
+
+
+class RenderTelemetryData(DCIMModel):
+    """Provider-neutral telemetry export configuration."""
+
+    otlp: RenderOtlpData = Field(default_factory=RenderOtlpData)
+
+
 class DeviceRenderData(DCIMModel):
     """Fully typed device data supplied to a template render."""
 
@@ -331,6 +359,30 @@ class DeviceRenderData(DCIMModel):
     firmware: RenderFirmwareData = Field(default_factory=RenderFirmwareData)
     services: RenderServicesData = Field(default_factory=RenderServicesData)
     access: RenderAccessData = Field(default_factory=RenderAccessData)
+    certificates: tuple[DeviceCertificate, ...] = ()
+    telemetry: RenderTelemetryData = Field(default_factory=RenderTelemetryData)
+
+    @model_validator(mode="after")
+    def _validate_certificate_references(self) -> DeviceRenderData:
+        certificates = {certificate.id: certificate for certificate in self.certificates}
+        if len(certificates) != len(self.certificates):
+            raise ValueError("certificate IDs must be unique per device")
+
+        otlp = self.telemetry.otlp
+        if not otlp.destinations:
+            return self
+        if otlp.ca_certificate is None:
+            raise ValueError("OTLP mTLS requires a CA certificate ID")
+        ca_certificate = certificates.get(otlp.ca_certificate)
+        if ca_certificate is None or ca_certificate.kind != CertificateKind.CA:
+            raise ValueError("OTLP CA certificate must reference an assigned CA certificate")
+        for destination in otlp.destinations:
+            client_certificate = certificates.get(destination.client_certificate)
+            if client_certificate is None or client_certificate.kind != CertificateKind.IDENTITY:
+                raise ValueError(
+                    "OTLP client certificate must reference an assigned identity certificate"
+                )
+        return self
 
 
 class RenderPrefix(DCIMModel):

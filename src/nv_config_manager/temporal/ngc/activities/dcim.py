@@ -21,7 +21,7 @@ import re
 from typing import Any, ClassVar
 
 import netaddr
-from nv_config_manager_dcim import DeviceInventoryFilter
+from nv_config_manager_dcim import DeviceInventoryFilter, ZTPDevice
 from pydantic import BaseModel, computed_field
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -76,6 +76,27 @@ async def get_network_device(
     async with client:
         device = await client.get_network_device(activity_input.device_id)
     return GetNetworkDeviceOutput(device=device)
+
+
+class GetZTPDeviceInput(BaseModel):
+    """Get certificate and ZTP endpoint intent for one device."""
+
+    device_id: str
+
+
+class GetZTPDeviceOutput(BaseModel):
+    """Normalized ZTP intent for one device."""
+
+    device: ZTPDevice
+
+
+@activity.defn
+async def get_ztp_device(activity_input: GetZTPDeviceInput) -> GetZTPDeviceOutput:
+    """Get provider-neutral ZTP intent used by certificate rotation."""
+    client = create_dcim_client()
+    async with client:
+        device = await client.get_ztp_device(activity_input.device_id)
+    return GetZTPDeviceOutput(device=device)
 
 
 class GetHostDeviceInput(BaseModel):

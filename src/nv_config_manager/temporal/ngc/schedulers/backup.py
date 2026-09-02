@@ -49,6 +49,10 @@ from nv_config_manager.temporal.common.search_attributes import (
 )
 from nv_config_manager.temporal.converter import get_data_converter
 from nv_config_manager.temporal.ngc.workflows.backup import BackupInput, BackupWorkflow, TriggerEnum
+from nv_config_manager.temporal.ngc.workflows.certificate_rotation import (
+    CertificateRotationInput,
+    CertificateRotationWorkflow,
+)
 from nv_config_manager.temporal.telemetry import get_runtime, setup_telemetry
 
 
@@ -56,10 +60,16 @@ class BackupScheduler:
     """Backup Workflow Scheduler."""
 
     SCHEDULE_PREFIX = "backup-"
+    CERTIFICATE_SCHEDULE_PREFIX = "certificate-rotation-"
     # Run every 12 hours, with a jitter of 1 hour to avoid all devices being scheduled at the same time
     SPEC = ScheduleSpec(
         intervals=[ScheduleIntervalSpec(every=timedelta(hours=12))],
         jitter=timedelta(hours=1),
+    )
+    CERTIFICATE_SPEC = ScheduleSpec(
+        cron_expressions=["0 2 * * *"],
+        jitter=timedelta(hours=2),
+        time_zone_name="UTC",
     )
 
     logger = get_logger(__name__, category=LogCategory.TEMPORAL_WORKFLOW)
@@ -84,12 +94,35 @@ class BackupScheduler:
         async with client:
             return await client.get_backup_enabled_device_ids(is_aggregate_env)  # type: ignore[attr-defined]
 
+    async def certificate_devices_to_schedule(self) -> set[str]:
+        """Retrieve devices with certificate assignments when PKI is configured."""
+        config = load_config()
+        if not config.has_section("pki"):
+            return set()
+        is_aggregate_env = config.getboolean(
+            "aggregate", "is_aggregate_environment", fallback=False
+        )
+        client = create_dcim_client()
+        async with client:
+            operation = getattr(client, "get_certificate_enabled_device_ids", None)
+            if operation is None:
+                return set()
+            return set(await operation(is_aggregate_env))
+
     async def scheduled_devices(self, temporal_client: Client) -> set[str]:
         """Retrieve the set of currently scheduled devices."""
         devices = set()
         async for schedule in await temporal_client.list_schedules():
             if schedule.id.startswith(self.SCHEDULE_PREFIX):
                 devices.add(schedule.id.replace(self.SCHEDULE_PREFIX, ""))
+        return devices
+
+    async def scheduled_certificate_devices(self, temporal_client: Client) -> set[str]:
+        """Retrieve devices with an existing nightly certificate schedule."""
+        devices = set()
+        async for schedule in await temporal_client.list_schedules():
+            if schedule.id.startswith(self.CERTIFICATE_SCHEDULE_PREFIX):
+                devices.add(schedule.id.removeprefix(self.CERTIFICATE_SCHEDULE_PREFIX))
         return devices
 
     async def schedule_device(self, device_uuid: str, temporal_client: Client) -> None:
@@ -150,6 +183,62 @@ class BackupScheduler:
         handle = temporal_client.get_schedule_handle(f"{self.SCHEDULE_PREFIX}{device_uuid}")
         await handle.delete()
 
+    async def schedule_certificate_device(self, device_uuid: str, temporal_client: Client) -> None:
+        """Create a daily, jittered certificate reissue schedule for one device."""
+        self.logger.info("Scheduling certificate rotation for %s", device_uuid)
+        workflow_roles = RBACConfig().get_workflow_roles(CertificateRotationWorkflow.__name__)
+        if not workflow_roles:
+            self.logger.error(
+                "No RBAC configuration found for %s", CertificateRotationWorkflow.__name__
+            )
+            return
+        typed_search_attributes = TypedSearchAttributes(
+            (
+                SearchAttributePair(
+                    SearchAttributeKey.for_keyword(USER_SEARCH_ATTRIBUTE),
+                    "nv-config-manager-temporal",
+                ),
+                SearchAttributePair[Sequence[str]](
+                    SearchAttributeKey.for_keyword_list(READ_ROLES_SEARCH_ATTRIBUTE),
+                    sorted(workflow_roles["read_roles"]),
+                ),
+                SearchAttributePair[Sequence[str]](
+                    SearchAttributeKey.for_keyword_list(EXECUTE_ROLES_SEARCH_ATTRIBUTE),
+                    sorted(workflow_roles["execute_roles"]),
+                ),
+                SearchAttributePair[bool](
+                    SearchAttributeKey.for_bool(PENDING_APPROVAL_SEARCH_ATTRIBUTE), False
+                ),
+                SearchAttributePair[bool](
+                    SearchAttributeKey.for_bool(FAILED_STAGE_SEARCH_ATTRIBUTE), False
+                ),
+            )
+        )
+        await temporal_client.create_schedule(
+            f"{self.CERTIFICATE_SCHEDULE_PREFIX}{device_uuid}",
+            Schedule(
+                action=ScheduleActionStartWorkflow(
+                    CertificateRotationWorkflow.run,
+                    CertificateRotationInput(device_id=device_uuid),
+                    id=str(uuid4()),
+                    task_queue="default-task-queue",
+                    execution_timeout=timedelta(minutes=15),
+                    typed_search_attributes=typed_search_attributes,
+                ),
+                spec=self.CERTIFICATE_SPEC,
+            ),
+        )
+
+    async def unschedule_certificate_device(
+        self, device_uuid: str, temporal_client: Client
+    ) -> None:
+        """Delete a certificate schedule after its DCIM assignments are removed."""
+        self.logger.info("Removing certificate rotation schedule for %s", device_uuid)
+        handle = temporal_client.get_schedule_handle(
+            f"{self.CERTIFICATE_SCHEDULE_PREFIX}{device_uuid}"
+        )
+        await handle.delete()
+
     async def reconcile_schedules(self) -> None:
         """Reconcile the scheduled device backups against desired backups."""
         temporal_client = await self.temporal_client()
@@ -167,7 +256,14 @@ class BackupScheduler:
         for device in schedules_to_remove:
             await self.unschedule_device(device, temporal_client)
 
-        self.logger.info("Backup scheduling updates complete.")
+        desired_certificate_devices = await self.certificate_devices_to_schedule()
+        scheduled_certificate_devices = await self.scheduled_certificate_devices(temporal_client)
+        for device in desired_certificate_devices - scheduled_certificate_devices:
+            await self.schedule_certificate_device(device, temporal_client)
+        for device in scheduled_certificate_devices - desired_certificate_devices:
+            await self.unschedule_certificate_device(device, temporal_client)
+
+        self.logger.info("Backup and certificate scheduling updates complete.")
 
     async def run(self) -> None:
         """Run the backup scheduler."""

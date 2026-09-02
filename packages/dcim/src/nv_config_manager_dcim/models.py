@@ -17,9 +17,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from nv_config_manager_dcim.errors import DCIMInvalidDataError
 
@@ -112,6 +113,36 @@ class DCIMDeviceSelectionFilter(DCIMModel):
     managed_only: bool = False
 
 
+class CertificateKind(StrEnum):
+    """How a device consumes one assigned certificate declaration."""
+
+    CA = "ca"
+    IDENTITY = "identity"
+
+
+class CertificateService(StrEnum):
+    """A service that consumes an assigned certificate during bootstrap."""
+
+    ZTP = "ztp"
+
+
+class DeviceCertificate(DCIMModel):
+    """A provider-neutral certificate assigned to a managed device."""
+
+    id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    source: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    kind: CertificateKind
+    services: tuple[CertificateService, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_services(self) -> DeviceCertificate:
+        if self.services and self.kind != CertificateKind.CA:
+            raise ValueError("only CA certificates may provide service trust")
+        if len(self.services) != len(set(self.services)):
+            raise ValueError("certificate services must be unique")
+        return self
+
+
 class ZTPDevice(DCIMModel):
     """Normalized DCIM data required to serve a ZTP request."""
 
@@ -121,6 +152,15 @@ class ZTPDevice(DCIMModel):
     platform_name: str
     firmware_version: str | None
     config_store_instance: str | None
+    certificates: tuple[DeviceCertificate, ...] = ()
+    ztp_servers: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _certificate_ids_are_unique(self) -> ZTPDevice:
+        certificate_ids = [certificate.id for certificate in self.certificates]
+        if len(certificate_ids) != len(set(certificate_ids)):
+            raise ValueError("certificate IDs must be unique per device")
+        return self
 
 
 class RenderDeviceStatus(DCIMModel):

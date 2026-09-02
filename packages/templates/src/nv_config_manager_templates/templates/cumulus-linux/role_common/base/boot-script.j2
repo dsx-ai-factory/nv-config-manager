@@ -107,6 +107,26 @@ retry_curl --fail -H "Content-Type: application/json" -d "$JSON_PAYLOAD" \
 http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/validate_serial
 {% endblock %}
 
+{% if device_data.certificates %}
+# Import device certificates before applying startup.yaml, which can reference
+# their stable NVUE IDs. The HTTPS listener authorizes the request by the switch
+# source IP; identity responses are generated as in-memory PKCS#12 bundles.
+# A CA assigned to the ztp service in Nautobot is public bootstrap material and
+# may be fetched over the source-IP-authorized HTTP endpoint before HTTPS works.
+{% for certificate in device_data.certificates %}
+{% if certificate.kind == "ca" and "ztp" in certificate.services %}
+nv action import system security ca-certificate {{ certificate.id }} uri http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/certificates/{{ certificate.id }}
+{% endif %}
+{% endfor %}
+{% for certificate in device_data.certificates %}
+{% if certificate.kind == "ca" and "ztp" not in certificate.services %}
+nv action import system security ca-certificate {{ certificate.id }} uri https://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/certificates/{{ certificate.id }}
+{% elif certificate.kind == "identity" %}
+nv action import system security certificate {{ certificate.id }} uri-bundle https://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/certificates/{{ certificate.id }}
+{% endif %}
+{% endfor %}
+{% endif %}
+
 {# Optional Adaptive Routing profile config for CIN Leaf/Spine/Core switchs #}
 {% block ar_profile_custom %}{% endblock %}
 

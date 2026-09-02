@@ -31,6 +31,7 @@ import paramiko
 import requests
 from netmiko import ConnectHandler  # type: ignore[import-untyped]
 from netmiko.exceptions import NetmikoAuthenticationException  # type: ignore[import-untyped]
+from nv_config_manager_dcim import CertificateKind
 from requests.adapters import HTTPAdapter, Retry
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
@@ -298,6 +299,44 @@ class CumulusConnection(NetworkConnection):
         state = rsp.json()["state"]
         transition = rsp.json().get("transition")
         return cast(str, state), transition
+
+    def import_certificate(
+        self,
+        certificate_id: str,
+        kind: CertificateKind,
+        uri: str,
+        timeout: int = 120,
+    ) -> None:
+        """Import or replace a certificate by stable NVUE ID and wait for completion."""
+        if kind == CertificateKind.CA:
+            resource = "ca-certificate"
+            parameters = {"uri": uri}
+        else:
+            resource = "certificate"
+            parameters = {"uri-bundle": uri}
+        payload = {"@import": {"state": "start", "parameters": parameters}}
+        response = self.post(
+            f"{self._base_url}system/security/{resource}/{certificate_id}",
+            json=payload,
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        action_id = response.json()
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            action = self.get(f"{self._base_url}action/{action_id}", timeout=10).json()
+            state = action.get("state")
+            if state == "action_success":
+                return
+            if state == "action_error":
+                detail = action.get("detail") or action.get("issue") or "unknown error"
+                raise NetworkDeviceException(
+                    f"NVUE certificate import {certificate_id} failed: {detail}"
+                )
+            time.sleep(1)
+        raise NetworkDeviceException(
+            f"Timed out waiting for NVUE certificate import {certificate_id}"
+        )
 
     def _get_diff(self, revision: str) -> str:
         # Need to diff in both directions

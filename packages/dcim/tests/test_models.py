@@ -20,11 +20,14 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from nv_config_manager_dcim import (
+    CertificateKind,
     DCIMDeviceSelection,
+    DeviceCertificate,
     DeviceMetadata,
     OSImageVersions,
     RenderDeviceIdentity,
     RenderLocation,
+    ZTPDevice,
 )
 from nv_config_manager_dcim.render import DeviceRenderData, LocationRenderData, RenderData
 
@@ -90,3 +93,83 @@ def test_device_metadata_preserves_mutable_url_and_legacy_alias() -> None:
     metadata.nautobot_url = "https://dcim.example/devices/device-1/updated"
 
     assert metadata.device_url == "https://dcim.example/devices/device-1/updated"
+
+
+def test_ztp_device_certificate_intent_is_typed_and_unique() -> None:
+    """ZTP exposes provider-neutral certificate declarations with unique IDs."""
+    certificate = DeviceCertificate(
+        id="otel-client",
+        source="telemetry-client",
+        kind=CertificateKind.IDENTITY,
+    )
+    device = ZTPDevice(
+        device_id="device-1",
+        name="leaf-1",
+        addresses=["192.0.2.10"],
+        platform_name="Cumulus Linux",
+        firmware_version="5.16.1",
+        config_store_instance=None,
+        certificates=(certificate,),
+    )
+
+    assert device.certificates == (certificate,)
+    with pytest.raises(ValidationError, match="certificate IDs must be unique"):
+        ZTPDevice(
+            device_id="device-1",
+            name="leaf-1",
+            addresses=["192.0.2.10"],
+            platform_name="Cumulus Linux",
+            firmware_version="5.16.1",
+            config_store_instance=None,
+            certificates=(certificate, certificate),
+        )
+
+
+def test_ztp_service_trust_requires_a_ca_certificate() -> None:
+    """Only public CA material may bootstrap a named service over HTTP."""
+    with pytest.raises(ValidationError, match="only CA certificates"):
+        DeviceCertificate(
+            id="ztp-identity",
+            source="ztp",
+            kind="identity",
+            services=("ztp",),
+        )
+
+
+@pytest.mark.parametrize("field", ["id", "source"])
+def test_device_certificate_rejects_unsafe_identifiers(field: str) -> None:
+    """Certificate identifiers are safe to embed in URLs and filenames."""
+    values = {"id": "otel-client", "source": "telemetry-client", "kind": "identity"}
+    values[field] = "../unsafe"
+
+    with pytest.raises(ValidationError):
+        DeviceCertificate.model_validate(values)
+
+
+def test_render_device_rejects_wrong_otel_certificate_kind() -> None:
+    """OTLP CA and client references resolve to correctly typed assignments."""
+    with pytest.raises(ValidationError, match="OTLP CA certificate"):
+        DeviceRenderData.model_validate(
+            {
+                "identity": {
+                    "id": "device-id",
+                    "name": "switch-1",
+                    "platform": "Cumulus Linux",
+                    "role": "Leaf",
+                    "model": "SN5600",
+                    "location": {"name": "site-1"},
+                },
+                "certificates": [{"id": "otel-ca", "source": "telemetry", "kind": "identity"}],
+                "telemetry": {
+                    "otlp": {
+                        "ca_certificate": "otel-ca",
+                        "destinations": [
+                            {
+                                "address": "192.0.2.40",
+                                "client_certificate": "otel-ca",
+                            }
+                        ],
+                    }
+                },
+            }
+        )
