@@ -136,6 +136,112 @@ func (a *DeviceAPIService) LoadBootscriptV1DeviceDeviceUuidBootScriptGetExecute(
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
+type ApiLoadCertificateV1DeviceDeviceUuidCertificatesCertificateIdGetRequest struct {
+	ctx           context.Context
+	ApiService    *DeviceAPIService
+	deviceUuid    string
+	certificateId string
+}
+
+func (r ApiLoadCertificateV1DeviceDeviceUuidCertificatesCertificateIdGetRequest) Execute() (*http.Response, error) {
+	return r.ApiService.LoadCertificateV1DeviceDeviceUuidCertificatesCertificateIdGetExecute(r)
+}
+
+/*
+LoadCertificateV1DeviceDeviceUuidCertificatesCertificateIdGet Load Certificate
+
+Issue or load one certificate explicitly assigned to the requesting device.
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param deviceUuid
+	@param certificateId
+	@return ApiLoadCertificateV1DeviceDeviceUuidCertificatesCertificateIdGetRequest
+*/
+func (a *DeviceAPIService) LoadCertificateV1DeviceDeviceUuidCertificatesCertificateIdGet(ctx context.Context, deviceUuid string, certificateId string) ApiLoadCertificateV1DeviceDeviceUuidCertificatesCertificateIdGetRequest {
+	return ApiLoadCertificateV1DeviceDeviceUuidCertificatesCertificateIdGetRequest{
+		ApiService:    a,
+		ctx:           ctx,
+		deviceUuid:    deviceUuid,
+		certificateId: certificateId,
+	}
+}
+
+// Execute executes the request
+func (a *DeviceAPIService) LoadCertificateV1DeviceDeviceUuidCertificatesCertificateIdGetExecute(r ApiLoadCertificateV1DeviceDeviceUuidCertificatesCertificateIdGetRequest) (*http.Response, error) {
+	var (
+		localVarHTTPMethod = http.MethodGet
+		localVarPostBody   interface{}
+		formFiles          []formFile
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DeviceAPIService.LoadCertificateV1DeviceDeviceUuidCertificatesCertificateIdGet")
+	if err != nil {
+		return nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/v1/device/{device_uuid}/certificates/{certificate_id}"
+	localVarPath = strings.Replace(localVarPath, "{"+"device_uuid"+"}", url.PathEscape(parameterValueToString(r.deviceUuid, "deviceUuid")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"certificate_id"+"}", url.PathEscape(parameterValueToString(r.certificateId, "certificateId")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
+			var v HTTPValidationError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+		}
+		return localVarHTTPResponse, newErr
+	}
+
+	return localVarHTTPResponse, nil
+}
+
 type ApiLoadConfigurationV1DeviceDeviceUuidConfigConfigletGetRequest struct {
 	ctx        context.Context
 	ApiService *DeviceAPIService
