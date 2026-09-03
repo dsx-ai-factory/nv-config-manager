@@ -489,7 +489,7 @@
     },
     "/healthcheck": {
       "get": {
-        "description": "Execute healthcheck.",
+        "description": "Readiness probe (strict): Kea online AND desired config applied.\n\nGates both pod readiness and the externally exposed NLB health endpoint. A\npod becomes ready -- and therefore a valid external DHCP target -- only when\nKea is online AND the expected desired configuration has been successfully\napplied/verified. An unconfigured pod (bootstrap config only) is never ready.\n\nA config mismatch makes the pod UNREADY (triggering reconciliation) but does\nNOT restart a live Kea; the readiness path never recycles the Kea container.",
         "operationId": "healthcheck_healthcheck_get",
         "responses": {
           "200": {
@@ -736,6 +736,27 @@
           }
         ],
         "summary": "Get Lease"
+      }
+    },
+    "/livez": {
+      "get": {
+        "description": "Liveness probe for the Kea container.\n\nOnly checks that the Kea DHCP process/control channel is alive. A config\nmismatch (desired config not yet applied) must NOT fail this probe, because\nliveness failures recycle the Kea container; config correctness is enforced\nseparately by the readiness probe (``/healthcheck``).",
+        "operationId": "livez_livez_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Livez Livez Get",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [],
+        "summary": "Livez"
       }
     },
     "/pool": {

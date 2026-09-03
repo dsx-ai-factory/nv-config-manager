@@ -19,6 +19,7 @@ import asyncio
 import base64
 import binascii
 from collections.abc import AsyncIterator, Coroutine
+from configparser import ConfigParser
 from contextlib import asynccontextmanager
 from ipaddress import ip_address
 from typing import Any
@@ -591,42 +592,105 @@ async def metrics() -> Response:
     )
 
 
+async def _assert_kea_online(client: KeaClient) -> None:
+    """Raise 500 unless the Kea DHCP process/control channel is alive.
+
+    This is the *liveness* signal: it only reflects whether Kea itself is
+    running and answering on its control channel. It deliberately says nothing
+    about whether the desired configuration has been applied, so a config
+    mismatch never restarts a live Kea.
+    """
+    status = await client.status()
+    for process in status:
+        if process["result"] != 0:
+            raise HTTPException(status_code=500, detail=status)
+
+
+def _assert_desired_config_applied(
+    config: list[dict[str, Any]] | dict[str, Any],
+    app_config: ConfigParser,
+) -> None:
+    """Raise 500 unless Kea's running config reflects the desired configuration.
+
+    This is the *readiness* gate. It is intentionally strict: a freshly started
+    Kea running only the bootstrap config must NOT be reported ready, otherwise
+    an unconfigured pod could become an external DHCP target that silently drops
+    requests. There is deliberately no "empty Redis" escape hatch here -- the
+    bootstrap/validation path reaches Kea through the internal validation Service
+    (publishNotReadyAddresses), not by weakening readiness.
+
+    Today the applied-config signal is a proxy: on remote-lease-db deployments a
+    successful initial sync swaps Kea's ``lease-database`` from the bootstrap
+    ``memfile`` to ``postgresql``, so its presence means "the desired config was
+    applied".
+
+    TODO(part-1 hash verification): once ``KeaClient.get_config_hash`` /
+    ``expected_hash`` land, plug the applied-hash-vs-expected-hash comparison in
+    here (in addition to / in place of the lease-database heuristic) so readiness
+    reflects the exact desired configuration rather than a proxy signal.
+    """
+    # KEA returns a list of responses, we want the first one
+    config_list = config if isinstance(config, list) else [config]
+
+    # Some error conditions don't return result or argument keys
+    if config_list[0].get("result", 0) != 0 or "arguments" not in config_list[0]:
+        error_msg = config_list[0].get("text", "No message provided")
+        raise HTTPException(status_code=500, detail=f"Failed to get KEA config: {error_msg}")
+
+    # Only remote (PostgreSQL) lease-db deployments have a config-applied proxy
+    # signal in the running Kea config. Local/memfile deployments have no such
+    # marker, so there is nothing further to assert here. Every chart-rendered
+    # INI hardcodes ``local = false``, so no deployed pod takes this branch; the
+    # hash comparison in the TODO above is what closes it for hand-written INIs.
+    remote_lease_db = not app_config["dhcp.lease_db"].getboolean("local")
+    if not remote_lease_db:
+        return
+
+    dhcp4_config = config_list[0]["arguments"]["Dhcp4"]
+    lease_db_type = dhcp4_config.get("lease-database", {}).get("type", "memfile")
+    if lease_db_type != "postgresql":
+        raise HTTPException(status_code=500, detail="Lease database not present in Dhcp4 config")
+
+
+@app.get("/livez")
+async def livez() -> str:
+    """Liveness probe for the Kea container.
+
+    Only checks that the Kea DHCP process/control channel is alive. A config
+    mismatch (desired config not yet applied) must NOT fail this probe, because
+    liveness failures recycle the Kea container; config correctness is enforced
+    separately by the readiness probe (``/healthcheck``).
+    """
+    client = KeaClient.from_config(attached=True)
+    try:
+        await _assert_kea_online(client)
+        return "OK"
+    except TimeoutError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except ClientResponseError as exc:
+        raise HTTPException(status_code=500, detail=str(exc.message)) from exc
+    finally:
+        await client.close()
+
+
 @app.get("/healthcheck")
 async def healthcheck() -> str:
-    """Execute healthcheck."""
+    """Readiness probe (strict): Kea online AND desired config applied.
+
+    Gates both pod readiness and the externally exposed NLB health endpoint. A
+    pod becomes ready -- and therefore a valid external DHCP target -- only when
+    Kea is online AND the expected desired configuration has been successfully
+    applied/verified. An unconfigured pod (bootstrap config only) is never ready.
+
+    A config mismatch makes the pod UNREADY (triggering reconciliation) but does
+    NOT restart a live Kea; the readiness path never recycles the Kea container.
+    """
     client = KeaClient.from_config(attached=True)
     app_config = load_config()
     try:
-        status = await client.status()
-        for process in status:
-            if process["result"] != 0:
-                raise HTTPException(status_code=500, detail=status)
-        # Load the config and validate that the lease-db is present to validate
-        # that initial config sync has occurred
-        remote_lease_db = not app_config["dhcp.lease_db"].getboolean("local")
+        await _assert_kea_online(client)
         config = await client.get_config(4)
-        # KEA returns a list of responses, we want the first one
-        config_list = config if isinstance(config, list) else [config]
-
-        # Some error conditions don't return result or argument keys
-        if config_list[0].get("result", 0) != 0 or "arguments" not in config_list[0]:
-            error_msg = config_list[0].get("text", "No message provided")
-            raise HTTPException(status_code=500, detail=f"Failed to get KEA config: {error_msg}")
-
-        dhcp4_config = config_list[0]["arguments"]["Dhcp4"]
-        lease_db_type = dhcp4_config.get("lease-database", {}).get("type", "memfile")
-        if remote_lease_db and lease_db_type != "postgresql":
-            # This check is only valid after the very first config sync has occurred,
-            # if there is no data at all in Redis, we must not fail the healthcheck
-            # or the config-refresh process will never be able to validate the config
-            redis_client = RedisClient.from_config(app_config)
-            if await redis_client.load_kea_config(4) is None:
-                await redis_client.close()
-                return "OK"
-            await redis_client.close()
-            raise HTTPException(
-                status_code=500, detail="Lease database not present in Dhcp4 config"
-            )
+        _assert_desired_config_applied(config, app_config)
         return "OK"
     except TimeoutError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

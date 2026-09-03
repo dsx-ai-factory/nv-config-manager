@@ -13,12 +13,55 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from configparser import ConfigParser
+
 import pytest
 from aiohttp import ClientResponseError
 from aioresponses import aioresponses
 from yarl import URL
 
-from nv_config_manager.dhcp.kea import KeaClient, KeaException
+from nv_config_manager.dhcp.kea import KEA_PORT_ENV, KEA_SERVER_ENV, KeaClient, KeaException
+
+
+def _kea_config(server: str = "dhcp-internal", port: str = "8000") -> ConfigParser:
+    """Build a minimal ConfigParser with a [dhcp.kea] section."""
+    config = ConfigParser()
+    config.read_dict({"dhcp.kea": {"server": server, "port": port}})
+    return config
+
+
+def test_from_config_uses_ini_endpoint_by_default(monkeypatch) -> None:
+    """Without an override, the client targets the INI-configured Kea endpoint."""
+    monkeypatch.delenv(KEA_SERVER_ENV, raising=False)
+    monkeypatch.delenv(KEA_PORT_ENV, raising=False)
+
+    client = KeaClient.from_config(_kea_config("dhcp-internal", "8000"))
+
+    assert client.url == "http://dhcp-internal:8000/"
+
+
+def test_from_config_env_override_targets_bootstrap_endpoint(monkeypatch) -> None:
+    """The refresh container can retarget Kea via env vars without touching the INI.
+
+    This is how config-refresh reaches Kea through the internal bootstrap Service
+    (publishNotReadyAddresses) to run config-test before pods are Ready.
+    """
+    monkeypatch.setenv(KEA_SERVER_ENV, "dhcp-kea-bootstrap")
+    monkeypatch.setenv(KEA_PORT_ENV, "9999")
+
+    client = KeaClient.from_config(_kea_config("dhcp-internal", "8000"))
+
+    assert client.url == "http://dhcp-kea-bootstrap:9999/"
+
+
+def test_from_config_attached_ignores_env_override(monkeypatch) -> None:
+    """Attached clients always target the co-located Kea over localhost."""
+    monkeypatch.setenv(KEA_SERVER_ENV, "dhcp-kea-bootstrap")
+    monkeypatch.setenv(KEA_PORT_ENV, "9999")
+
+    client = KeaClient.from_config(_kea_config("dhcp-internal", "8000"), attached=True)
+
+    assert client.url == "http://localhost:8000/"
 
 
 @pytest.mark.parametrize(
