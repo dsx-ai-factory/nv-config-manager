@@ -14,21 +14,26 @@
 # limitations under the License.
 """Workflow result archival contract tests."""
 
+import base64
 import json
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 from temporalio import workflow
 
+from nv_config_manager_workflows.converter import get_data_converter
 from nv_config_manager_workflows.metadata import RequiredActivity, WorkflowMetadataMixin
 from nv_config_manager_workflows.mixins import (
     ArchiveMixin,
     WorkflowResultLog,
 )
 from nv_config_manager_workflows.mixins.archive import PUBLISH_NATS_ACTIVITY_NAME
+
+LEGACY_ARCHIVE_PAYLOAD = Path(__file__).parents[1] / "data" / "legacy_archive_payload.json"
 
 
 def workflow_info() -> SimpleNamespace:
@@ -63,6 +68,7 @@ def test_result_log_preserves_the_wire_shape(monkeypatch: pytest.MonkeyPatch) ->
 async def test_archive_schedules_the_existing_activity_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    frozen = json.loads(LEGACY_ARCHIVE_PAYLOAD.read_text())
     calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
 
     async def execute_activity(*args: Any, **kwargs: Any) -> None:
@@ -80,10 +86,14 @@ async def test_archive_schedules_the_existing_activity_contract(
 
     (activity_name, activity_input), options = calls[0]
     assert activity_name == "publish_nats"
-    assert activity_input["subject"] is None
-    assert json.loads(activity_input["message"])["workflow_id"] == "workflow-17"
+    assert activity_input == {"subject": None, "message": frozen["message"]}
     assert options["schedule_to_close_timeout"] == timedelta(minutes=1)
     assert options["retry_policy"].maximum_attempts == 1
+
+    converter = get_data_converter().payload_converter
+    (payload,) = converter.to_payloads([activity_input])
+    assert payload.metadata["encoding"] == base64.b64decode(frozen["encoding"])
+    assert payload.data == base64.b64decode(frozen["data"])
 
 
 def test_the_publisher_is_declared_as_a_required_activity() -> None:
