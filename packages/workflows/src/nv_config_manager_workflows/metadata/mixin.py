@@ -108,17 +108,12 @@ class WorkflowMetadataMixin:
         for base in reversed(cls.__mro__):
             if base is WorkflowMetadataMixin:
                 continue
-            if "workflow_required_activities" not in base.__dict__:
-                continue
 
-            declared = base.__dict__["workflow_required_activities"]
+            declared = base.__dict__.get("workflow_required_activities")
             if declared is None:
                 continue
             if isinstance(declared, str) or not isinstance(declared, Sequence):
-                raise TypeError(
-                    f"{base.__name__}.workflow_required_activities {declared!r} "
-                    "is not a sequence of activity functions"
-                )
+                return declared
             required.extend(declared)
         return tuple(required)
 
