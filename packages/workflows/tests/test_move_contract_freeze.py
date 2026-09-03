@@ -26,6 +26,7 @@ from nv_config_manager_workflows.activities import REGISTERED_COMMON_ACTIVITIES
 from nv_config_manager_workflows.converter import COMPRESSION_ENCODING
 from nv_config_manager_workflows.decorators.workflow import _WORKFLOW_LOCK_PATCH_ID
 from nv_config_manager_workflows.metadata.lock import _LOCK_KEY_PREFIX
+from nv_config_manager_workflows.mixins.archive import PUBLISH_NATS_ACTIVITY_NAME
 
 
 def test_compression_encoding_is_frozen() -> None:
@@ -48,7 +49,9 @@ def test_lock_activity_names_are_frozen() -> None:
     from temporalio import activity
 
     names = sorted(
-        activity._Definition.must_from_callable(fn).name for fn in REGISTERED_COMMON_ACTIVITIES
+        name
+        for fn in REGISTERED_COMMON_ACTIVITIES
+        if (name := activity._Definition.must_from_callable(fn).name) is not None
     )
 
     assert names == [
@@ -56,3 +59,8 @@ def test_lock_activity_names_are_frozen() -> None:
         "release_workflow_lock",
         "renew_workflow_lock",
     ]
+
+
+def test_publish_nats_activity_name_is_frozen() -> None:
+    """ArchiveMixin dispatches on this string; the service registers the publisher."""
+    assert PUBLISH_NATS_ACTIVITY_NAME == "publish_nats"

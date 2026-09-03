@@ -43,7 +43,21 @@ def test_metadata_defaults_fail_closed() -> None:
     assert not WorkflowMetadataMixin.workflow_api_enabled
     assert not WorkflowMetadataMixin.workflow_mcp_enabled
     assert WorkflowMetadataMixin.workflow_api_endpoint is None
+    assert WorkflowMetadataMixin.workflow_required_activities == ()
     assert WorkflowMetadataMixin.get_workflow_required_activities() == ()
+
+
+def test_required_activities_are_composed_across_the_mro() -> None:
+    class Publisher:
+        workflow_required_activities = (collect_facts,)
+
+    class ArchivedWorkflow(WorkflowMetadataMixin, Publisher):
+        workflow_required_activities = ("store_results",)
+
+    assert ArchivedWorkflow.get_workflow_required_activities() == (
+        collect_facts,
+        "store_results",
+    )
 
 
 def test_metadata_accessors_read_subclass_declarations() -> None:

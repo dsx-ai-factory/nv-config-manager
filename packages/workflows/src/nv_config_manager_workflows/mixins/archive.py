@@ -16,12 +16,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import timedelta
 
 from pydantic import BaseModel
 from temporalio import workflow
 from temporalio.common import RetryPolicy, SearchAttributes
 
+from nv_config_manager_workflows.metadata import RequiredActivity
 from nv_config_manager_workflows.mixins.base import BaseMixin
 
 PUBLISH_NATS_ACTIVITY_NAME = "publish_nats"
@@ -50,6 +52,8 @@ class WorkflowResultLog(BaseModel):
 
 class ArchiveMixin(BaseMixin):
     """Mixin to send a workflow result to NATS for archival."""
+
+    workflow_required_activities: Sequence[RequiredActivity] = (PUBLISH_NATS_ACTIVITY_NAME,)
 
     async def archive_results(self) -> None:
         """Publish the workflow result through the registered NATS activity."""
