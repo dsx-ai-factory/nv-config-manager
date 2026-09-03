@@ -15,6 +15,7 @@
 """Workflow result archival contract tests."""
 
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -22,10 +23,12 @@ from typing import Any, cast
 import pytest
 from temporalio import workflow
 
+from nv_config_manager_workflows.metadata import RequiredActivity, WorkflowMetadataMixin
 from nv_config_manager_workflows.mixins import (
     ArchiveMixin,
     WorkflowResultLog,
 )
+from nv_config_manager_workflows.mixins.archive import PUBLISH_NATS_ACTIVITY_NAME
 
 
 def workflow_info() -> SimpleNamespace:
@@ -81,3 +84,15 @@ async def test_archive_schedules_the_existing_activity_contract(
     assert json.loads(activity_input["message"])["workflow_id"] == "workflow-17"
     assert options["schedule_to_close_timeout"] == timedelta(minutes=1)
     assert options["retry_policy"].maximum_attempts == 1
+
+
+def test_the_publisher_is_declared_as_a_required_activity() -> None:
+    """The activity is executed by name, so registration is what catches its absence."""
+
+    class ArchivedWorkflow(WorkflowMetadataMixin, ArchiveMixin):
+        workflow_required_activities: Sequence[RequiredActivity] = ("collect_facts",)
+
+    assert ArchivedWorkflow.get_workflow_required_activities() == (
+        PUBLISH_NATS_ACTIVITY_NAME,
+        "collect_facts",
+    )

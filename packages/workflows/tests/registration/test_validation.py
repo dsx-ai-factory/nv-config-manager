@@ -22,6 +22,10 @@ from temporalio import activity, workflow
 from temporalio.common import RawValue
 
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.mixins.archive import (
+    PUBLISH_NATS_ACTIVITY_NAME,
+    ArchiveMixin,
+)
 from nv_config_manager_workflows.registration.descriptor import WorkflowPluginDescriptor
 from nv_config_manager_workflows.registration.errors import (
     WorkflowConflictError,
@@ -55,6 +59,10 @@ async def collect_facts_twin() -> None: ...
 
 @activity.defn(name="apply_config")
 async def apply_configuration() -> None: ...
+
+
+@activity.defn(name=PUBLISH_NATS_ACTIVITY_NAME)
+async def publish_result() -> None: ...
 
 
 @activity.defn(dynamic=True)
@@ -103,6 +111,16 @@ class BetaWorkflow(WorkflowMetadataMixin, StageMixin):
 @workflow.defn
 class BareWorkflow(WorkflowMetadataMixin, StageMixin):
     """Declares no metadata: registrable by the worker, exposed nowhere else."""
+
+    @workflow.run
+    async def run(self, workflow_input: BaseModel) -> None: ...
+
+
+@workflow.defn
+class ArchivedWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin):
+    """Combines its own requirement with the one contributed by ArchiveMixin."""
+
+    workflow_required_activities = (collect_facts,)
 
     @workflow.run
     async def run(self, workflow_input: BaseModel) -> None: ...
@@ -757,6 +775,23 @@ class TestRequiredActivities:
 
         assert 'requires activity "collect_facts"' in str(raised.value)
         assert "no installed workflow plugin supplies" in str(raised.value)
+
+    def test_a_requirement_inherited_from_a_mixin_is_rejected_when_unsupplied(self) -> None:
+        with pytest.raises(WorkflowRequiredActivityError) as raised:
+            validate_plugins(installed(plugin("archive-plugin", workflows=(ArchivedWorkflow,))))
+
+        assert f'requires activity "{PUBLISH_NATS_ACTIVITY_NAME}"' in str(raised.value)
+
+    def test_a_requirement_inherited_from_a_mixin_is_satisfied_by_a_supplier(self) -> None:
+        validate_plugins(
+            installed(
+                plugin(
+                    "archive-plugin",
+                    workflows=(ArchivedWorkflow,),
+                    activities=(collect_facts, publish_result),
+                )
+            )
+        )
 
     def test_a_requirement_declared_by_name_is_matched(
         self, monkeypatch: pytest.MonkeyPatch
