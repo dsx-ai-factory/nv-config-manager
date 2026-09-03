@@ -697,7 +697,7 @@ class TestDeclaredMetadata:
 
         validate_plugins(installed(plugin("alpha-plugin", workflows=(AlphaWorkflow,))))
 
-    @pytest.mark.parametrize("entry", [None, "", "   ", 42, undecorated_activity])
+    @pytest.mark.parametrize("entry", [None, "", "   ", 42, [], undecorated_activity])
     def test_each_required_activity_must_be_identifiable(
         self, monkeypatch: pytest.MonkeyPatch, entry: Any
     ) -> None:

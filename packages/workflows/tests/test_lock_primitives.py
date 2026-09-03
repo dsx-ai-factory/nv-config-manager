@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Protocol
 
 import pytest
 from redis.asyncio import Redis
@@ -41,17 +42,17 @@ def _unconfigured_backend(monkeypatch: pytest.MonkeyPatch) -> None:
 class TestBackendConfiguration:
     """The host application chooses the backend; the module holds no config."""
 
-    async def test_unconfigured_backend_fails_with_a_named_error(self):
+    async def test_unconfigured_backend_fails_with_a_named_error(self) -> None:
         """An unconfigured backend must not surface as an AttributeError."""
         with pytest.raises(LockBackendNotConfiguredError, match="configure_lock_backend"):
             await acquire_lock("k", "t", timeout=30)
 
-    async def test_none_backend_builds_no_redis_lock(self):
+    async def test_none_backend_builds_no_redis_lock(self) -> None:
         configure_lock_backend(None)
 
         assert lock_module._redis_lock("k", timeout=30) is None
 
-    async def test_redis_backend_builds_a_lock_bound_to_that_client(self):
+    async def test_redis_backend_builds_a_lock_bound_to_that_client(self) -> None:
         client = Redis(host="localhost")  # constructing does not connect
         configure_lock_backend(client)
 
@@ -67,16 +68,16 @@ class TestLocalNoop:
     """configure_lock_backend(None) reproduces the old local single-process path."""
 
     @pytest.fixture(autouse=True)
-    def _local(self):
+    def _local(self) -> None:
         configure_lock_backend(None)
 
-    async def test_acquire_returns_true(self):
+    async def test_acquire_returns_true(self) -> None:
         assert await acquire_lock("k", "token", timeout=30) is True
 
-    async def test_renew_returns_true(self):
+    async def test_renew_returns_true(self) -> None:
         assert await renew_lock("k", "token", timeout=30) is True
 
-    async def test_release_returns_true(self):
+    async def test_release_returns_true(self) -> None:
         assert await release_lock("k", "token") is True
 
 
@@ -107,11 +108,17 @@ class _FakeRedisLock:
         raise LockNotOwnedError("lock is not owned by this token")
 
 
+class _InstallFake(Protocol):
+    """Swap in a fake lock owned by ``owner`` and hand it back for inspection."""
+
+    def __call__(self, owner: bytes | None) -> _FakeRedisLock: ...
+
+
 class TestAcquireLockReentrancy:
     """acquire_lock is idempotent for a token and honors the blocking flag."""
 
     @pytest.fixture
-    def use_fake(self, monkeypatch: pytest.MonkeyPatch):
+    def use_fake(self, monkeypatch: pytest.MonkeyPatch) -> _InstallFake:
         def _install(owner: bytes | None) -> _FakeRedisLock:
             fake = _FakeRedisLock(owner=owner)
             monkeypatch.setattr(lock_module, "_redis_lock", lambda name, timeout: fake)
@@ -119,28 +126,28 @@ class TestAcquireLockReentrancy:
 
         return _install
 
-    async def test_free_lock_is_acquired_without_blocking(self, use_fake):
+    async def test_free_lock_is_acquired_without_blocking(self, use_fake: _InstallFake) -> None:
         fake = use_fake(owner=None)
         assert await acquire_lock("k", "t", timeout=30, blocking_timeout=5) is True
         assert fake.blocking_waits == []
 
-    async def test_own_lock_is_refreshed_without_blocking(self, use_fake):
+    async def test_own_lock_is_refreshed_without_blocking(self, use_fake: _InstallFake) -> None:
         """A retried acquire whose result was lost refreshes its own lock."""
         fake = use_fake(owner=b"t")
         assert await acquire_lock("k", "t", timeout=30, blocking_timeout=5) is True
         # Never waited out blocking_timeout on a lock we already hold.
         assert fake.blocking_waits == []
 
-    async def test_conflict_fails_fast_when_non_blocking(self, use_fake):
+    async def test_conflict_fails_fast_when_non_blocking(self, use_fake: _InstallFake) -> None:
         fake = use_fake(owner=b"other")
         assert await acquire_lock("k", "t", timeout=30, blocking=False) is False
         assert fake.blocking_waits == []
 
-    async def test_conflict_waits_when_blocking(self, use_fake):
+    async def test_conflict_waits_when_blocking(self, use_fake: _InstallFake) -> None:
         fake = use_fake(owner=b"other")
         assert await acquire_lock("k", "t", timeout=30, blocking_timeout=3) is False
         assert fake.blocking_waits == [3]
 
-    async def test_renew_reports_a_lost_lock(self, use_fake):
+    async def test_renew_reports_a_lost_lock(self, use_fake: _InstallFake) -> None:
         use_fake(owner=b"other")
         assert await renew_lock("k", "t", timeout=30) is False

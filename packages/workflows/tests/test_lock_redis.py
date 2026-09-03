@@ -24,7 +24,8 @@ import asyncio
 import contextlib
 import os
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
+from typing import cast
 
 import pytest
 from redis.asyncio import Redis
@@ -35,6 +36,9 @@ from nv_config_manager_workflows.lock import (
     release_lock,
     renew_lock,
 )
+
+# Each test starts its own throwaway Redis container; the root 30s default is too tight.
+pytestmark = pytest.mark.timeout(120)
 
 HOLD_S = 0.3
 TTL_S = 30
@@ -66,7 +70,7 @@ async def redis_lock_backend() -> AsyncIterator[None]:
 
     client: Redis = Redis(host=host, port=port)
     try:
-        await client.ping()
+        await cast("Awaitable[bool]", client.ping())
     except Exception as exc:
         await client.aclose()
         if container is not None:
@@ -98,7 +102,7 @@ def _kinds_in_time_order(events: list[tuple[str, str, float]]) -> list[str]:
     return [kind for kind, _token, _ts in sorted(events, key=lambda e: e[2])]
 
 
-async def test_same_key_holders_are_serialized(redis_lock_backend):
+async def test_same_key_holders_are_serialized(redis_lock_backend: None) -> None:
     """Two concurrent holders of one key never overlap their critical sections."""
     events: list[tuple[str, str, float]] = []
 
@@ -110,7 +114,7 @@ async def test_same_key_holders_are_serialized(redis_lock_backend):
     assert _kinds_in_time_order(events) == ["enter", "exit", "enter", "exit"]
 
 
-async def test_distinct_keys_run_concurrently(redis_lock_backend):
+async def test_distinct_keys_run_concurrently(redis_lock_backend: None) -> None:
     """Holders of different keys hold independent locks and overlap freely."""
     events: list[tuple[str, str, float]] = []
 
@@ -122,7 +126,7 @@ async def test_distinct_keys_run_concurrently(redis_lock_backend):
     assert _kinds_in_time_order(events) == ["enter", "enter", "exit", "exit"]
 
 
-async def test_renew_extends_holder_and_release_frees_key(redis_lock_backend):
+async def test_renew_extends_holder_and_release_frees_key(redis_lock_backend: None) -> None:
     """A holder can renew its own lock, and release lets another token take it."""
     key = "wf-lock:ngc:pkey=0x0007"
 
@@ -138,7 +142,7 @@ async def test_renew_extends_holder_and_release_frees_key(redis_lock_backend):
     await release_lock(key, "run-b")
 
 
-async def test_renew_fails_when_lock_lost_to_another_holder(redis_lock_backend):
+async def test_renew_fails_when_lock_lost_to_another_holder(redis_lock_backend: None) -> None:
     """Renewing a key owned by a different token reports the loss."""
     key = "wf-lock:ngc:pkey=0x0008"
 

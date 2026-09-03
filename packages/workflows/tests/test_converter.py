@@ -32,7 +32,7 @@ from nv_config_manager_workflows.converter import (
 LEGACY_PAYLOADS = Path(__file__).parent / "data" / "legacy_payloads.json"
 
 
-async def test_compression_codec_encodes_with_gzip_metadata():
+async def test_compression_codec_encodes_with_gzip_metadata() -> None:
     """Encode sets binary/gzip encoding metadata on payloads."""
     codec = CompressionPayloadCodec()
     payload = Payload(data=b'{"key": "value"}')
@@ -42,7 +42,7 @@ async def test_compression_codec_encodes_with_gzip_metadata():
     assert len(encoded[0].data) > 0
 
 
-async def test_compression_codec_reduces_size_for_compressible_data():
+async def test_compression_codec_reduces_size_for_compressible_data() -> None:
     """Encode produces smaller payload for repetitive/compressible content."""
     codec = CompressionPayloadCodec()
     # Repetitive content compresses well
@@ -55,7 +55,7 @@ async def test_compression_codec_reduces_size_for_compressible_data():
     assert len(encoded[0].data) < original_size
 
 
-async def test_compression_codec_round_trip():
+async def test_compression_codec_round_trip() -> None:
     """Encode then decode returns the original payload."""
     codec = CompressionPayloadCodec()
     payload = Payload(data=b'{"workflow": "input", "large": "payload"}')
@@ -66,7 +66,7 @@ async def test_compression_codec_round_trip():
     assert decoded[0].metadata == payload.metadata
 
 
-async def test_compression_codec_passes_through_unknown_encoding():
+async def test_compression_codec_passes_through_unknown_encoding() -> None:
     """Decode leaves payloads without our encoding unchanged."""
     codec = CompressionPayloadCodec()
     # Payload that was not compressed by us (e.g. from before codec was enabled)
@@ -80,7 +80,7 @@ async def test_compression_codec_passes_through_unknown_encoding():
     assert decoded[0].metadata == payload.metadata
 
 
-async def test_get_data_converter_returns_converter_with_codec():
+async def test_get_data_converter_returns_converter_with_codec() -> None:
     """get_data_converter() returns a converter that uses our codec."""
     converter = get_data_converter()
     assert converter.payload_codec is not None
@@ -98,7 +98,9 @@ def _legacy_cases() -> list[tuple[str, bytes, bytes]]:
 
 
 @pytest.mark.parametrize(("name", "encoded", "original"), _legacy_cases())
-async def test_decodes_payloads_encoded_before_the_move(name, encoded, original):
+async def test_decodes_payloads_encoded_before_the_move(
+    name: str, encoded: bytes, original: bytes
+) -> None:
     """Histories written by the pre-move codec must still decode (GNICFD W5).
 
     The captured bytes come from ``nv_config_manager.temporal.converter`` as it

@@ -31,7 +31,7 @@ The attributes this module reads from a workflow class (each one optional):
 ``workflow_mcp_enabled``                expose as an MCP tool
 ``workflow_required_activities``        activity functions the workflow executes
 ``get_workflow_cli_name()``             CLI command name, unique across plugins
-``get_workflow_required_activities()``  overrides the attribute above
+``get_workflow_required_activities()``  composes the attribute across the MRO
 ======================================  =========================================
 
 These accessors are the same ones the worker, API, CLI and MCP consumers read,
@@ -178,12 +178,12 @@ def missing_metadata_attributes(workflow: type[WorkflowMetadataMixin]) -> tuple[
 def workflow_required_activity_names(
     workflow: type[WorkflowMetadataMixin],
 ) -> tuple[str, ...]:
-    """Return the Temporal activity names the workflow declares that it calls."""
+    """Return the unique Temporal activity names the workflow declares that it calls."""
     declared = declared_required_activities(workflow)
     if not is_activity_sequence(declared):
         return ()
     resolved = (required_activity_name(entry) for entry in declared)
-    return tuple(name for name in resolved if name is not None)
+    return tuple(dict.fromkeys(name for name in resolved if name is not None))
 
 
 def declared_required_activities(

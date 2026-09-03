@@ -132,7 +132,7 @@ def _call(name: str) -> dict[str, Any]:
 
 
 class TestWithoutALockSpec:
-    async def test_body_runs_with_no_lock_activities(self, patched_history):
+    async def test_body_runs_with_no_lock_activities(self, patched_history: None) -> None:
         result = await _UnlockedProbe().run(_ProbeInput(resource="r1"))
 
         assert result == "ran:r1"
@@ -140,7 +140,7 @@ class TestWithoutALockSpec:
 
 
 class TestReplayGate:
-    async def test_pre_patch_history_takes_the_unlocked_path(self, legacy_history):
+    async def test_pre_patch_history_takes_the_unlocked_path(self, legacy_history: None) -> None:
         """Executions started before the lock existed must not gain lock commands."""
         result = await _LockedProbe().run(_ProbeInput(resource="r1"))
 
@@ -149,13 +149,13 @@ class TestReplayGate:
 
 
 class TestWithALockSpec:
-    async def test_lock_is_held_around_the_body(self, patched_history):
+    async def test_lock_is_held_around_the_body(self, patched_history: None) -> None:
         result = await _LockedProbe().run(_ProbeInput(resource="r1"))
 
         assert result == "ran:r1"
         assert TRACE == ["acquire_workflow_lock", "body", "release_workflow_lock"]
 
-    async def test_key_and_token_identify_the_resource_and_run(self, patched_history):
+    async def test_key_and_token_identify_the_resource_and_run(self, patched_history: None) -> None:
         await _LockedProbe().run(_ProbeInput(resource="r1"))
 
         acquire = _call("acquire_workflow_lock")["input"]
@@ -165,26 +165,26 @@ class TestWithALockSpec:
         assert release.key == acquire.key
         assert release.token == acquire.token
 
-    async def test_lock_is_released_when_the_body_fails(self, patched_history):
+    async def test_lock_is_released_when_the_body_fails(self, patched_history: None) -> None:
         with pytest.raises(WorkflowRuntimeFailure):
             await _LockedProbe().run(_ProbeInput(resource="r2", fail=True))
 
         assert TRACE == ["acquire_workflow_lock", "body", "release_workflow_lock"]
         assert _call("release_workflow_lock")["input"].key == "wf-lock:test:resource=r2"
 
-    async def test_body_failure_keeps_its_non_retryable_verdict(self, patched_history):
+    async def test_body_failure_keeps_its_non_retryable_verdict(self, patched_history: None) -> None:
         with pytest.raises(WorkflowRuntimeFailure) as exc:
             await _LockedProbe().run(_ProbeInput(resource="r2", fail=True))
 
         assert exc.value.non_retryable is True
 
-    async def test_waiting_spec_lets_acquire_retry(self, patched_history):
+    async def test_waiting_spec_lets_acquire_retry(self, patched_history: None) -> None:
         """A waiter retries until the holder releases; 0 means unlimited."""
         await _LockedProbe().run(_ProbeInput(resource="r1"))
 
         assert _call("acquire_workflow_lock")["retry_policy"].maximum_attempts == 0
 
-    async def test_fail_on_conflict_spec_acquires_once(self, patched_history):
+    async def test_fail_on_conflict_spec_acquires_once(self, patched_history: None) -> None:
         await _FailFastProbe().run(_ProbeInput(resource="r1"))
 
         acquire = _call("acquire_workflow_lock")

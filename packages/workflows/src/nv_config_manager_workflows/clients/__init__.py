@@ -14,6 +14,6 @@
 # limitations under the License.
 """Reusable clients used by workflow activities."""
 
-from nv_config_manager_workflows.clients.redis import RedisClient, RedisSettings
+from nv_config_manager_workflows.clients.redis import RedisClient, RedisSettings, async_result
 
-__all__ = ["RedisClient", "RedisSettings"]
+__all__ = ["RedisClient", "RedisSettings", "async_result"]

@@ -22,11 +22,11 @@ from nv_config_manager_workflows.activities.tech_support import (
 )
 
 
-def test_tech_support_bundle_key_preserves_existing_format():
+def test_tech_support_bundle_key_preserves_existing_format() -> None:
     assert tech_support_bundle_key("workflow-id", "switch-01") == (
         "tech_support:workflow-id:switch-01"
     )
 
 
-def test_tech_support_bundle_ttl_preserves_existing_duration():
+def test_tech_support_bundle_ttl_preserves_existing_duration() -> None:
     assert TECH_SUPPORT_BUNDLE_TTL == timedelta(hours=24)

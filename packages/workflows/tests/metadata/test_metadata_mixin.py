@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from temporalio import activity
 
 from nv_config_manager_workflows.metadata import RequiredActivity, WorkflowMetadataMixin
+from nv_config_manager_workflows.registration import workflow_required_activity_names
 
 
 class WorkflowInput(BaseModel):
@@ -58,6 +59,21 @@ def test_required_activities_are_composed_across_the_mro() -> None:
 
     assert ArchivedWorkflow.get_workflow_required_activities() == (
         collect_facts,
+        "store_results",
+    )
+
+
+def test_a_requirement_shared_with_a_mixin_is_reported_once() -> None:
+    """Restating what a base already requires is a redundancy, not a second entry."""
+
+    class Publisher:
+        workflow_required_activities: Sequence[RequiredActivity] = ("collect_facts",)
+
+    class ArchivedWorkflow(WorkflowMetadataMixin, Publisher):
+        workflow_required_activities = (collect_facts, "store_results")
+
+    assert workflow_required_activity_names(ArchivedWorkflow) == (
+        "collect_facts",
         "store_results",
     )
 

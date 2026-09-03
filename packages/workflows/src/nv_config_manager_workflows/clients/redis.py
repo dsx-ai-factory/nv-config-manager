@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 import redis.asyncio as redis_asyncio
 
@@ -33,6 +34,15 @@ _PICKLE_MARKERS = {b"\x80\x02", b"\x80\x03", b"\x80\x04", b"\x80\x05"}
 def _is_pickle(data: bytes) -> bool:
     """Check if data looks like a pickle payload (vs JSON)."""
     return len(data) >= 2 and data[:2] in _PICKLE_MARKERS
+
+
+def async_result[ResultT](response: Awaitable[ResultT] | ResultT) -> Awaitable[ResultT]:
+    """Narrow a raw redis-py command result to its awaitable form.
+
+    The command mixins are shared between the sync and async clients, so their
+    inline types union both returns; ``redis.asyncio`` always yields the awaitable.
+    """
+    return cast("Awaitable[ResultT]", response)
 
 
 class RedisSettings(TypedDict):
@@ -67,7 +77,7 @@ class RedisClient:
         socket_connect_timeout: int = 5,
     ) -> None:
         """Initialize the asynchronous Redis connection."""
-        self._redis: redis_asyncio.Redis[bytes] = redis_asyncio.Redis(
+        self._redis: redis_asyncio.Redis = redis_asyncio.Redis(
             host=host,
             port=port,
             db=db,
@@ -92,13 +102,13 @@ class RedisClient:
         await self.close()
 
     @property
-    def redis(self) -> redis_asyncio.Redis[bytes]:
+    def redis(self) -> redis_asyncio.Redis:
         """Get the underlying asynchronous Redis connection."""
         return self._redis
 
     async def ping(self) -> bool:
         """Test the Redis connection."""
-        return await self._redis.ping()
+        return await async_result(self._redis.ping())
 
     async def set(
         self, key: str, value: Any, ttl: timedelta | None = None, serialize: bool = True
@@ -110,7 +120,7 @@ class RedisClient:
 
     async def get(self, key: str, deserialize: bool = True) -> Any | None:
         """Get a value, treating legacy pickle values as cache misses."""
-        value = await self._redis.get(key)
+        value = await async_result(self._redis.get(key))
         if value and deserialize:
             if _is_pickle(value):
                 logger.warning("Discarding legacy pickle value for key=%s (cache miss)", key)
@@ -120,26 +130,28 @@ class RedisClient:
 
     async def delete(self, key: str) -> None:
         """Delete a key."""
-        await self._redis.delete(key)
+        await async_result(self._redis.delete(key))
 
     async def exists(self, key: str) -> bool:
         """Check whether a key exists."""
-        return bool(await self._redis.exists(key))
+        return bool(await async_result(self._redis.exists(key)))
 
     async def keys(self, pattern: str) -> list[str]:
         """Get keys matching a pattern."""
-        result = await self._redis.keys(pattern)
+        result = await async_result(self._redis.keys(pattern))
         return [key.decode() if isinstance(key, bytes) else key for key in result]
 
     async def hset(self, name: str, key: str, value: Any, serialize: bool = True) -> None:
         """Set a hash field value."""
         if serialize:
             value = json.dumps(value).encode()
-        await self._redis.hset(name, key, value)
+        # redis-py types hash values as str; this client runs with decode_responses=False.
+        await async_result(self._redis.hset(name, key, cast("str", value)))
 
     async def hget(self, name: str, key: str, deserialize: bool = True) -> Any | None:
         """Get a hash field value."""
-        value = await self._redis.hget(name, key)
+        raw = await async_result(self._redis.hget(name, key))
+        value = cast("bytes | None", raw)
         if value and deserialize:
             if _is_pickle(value):
                 logger.warning("Discarding legacy pickle value for hash=%s key=%s", name, key)
@@ -149,11 +161,11 @@ class RedisClient:
 
     async def hdel(self, name: str, *keys: str) -> None:
         """Delete one or more hash fields."""
-        await self._redis.hdel(name, *keys)
+        await async_result(self._redis.hdel(name, *keys))
 
     async def hgetall(self, name: str, deserialize: bool = True) -> dict[str, Any]:
         """Get all hash fields and values."""
-        result = await self._redis.hgetall(name)
+        result = await async_result(self._redis.hgetall(name))
         decoded: dict[str, Any] = {}
         for key, value in result.items():
             key_str = key.decode() if isinstance(key, bytes) else key
@@ -174,7 +186,7 @@ class RedisClient:
 
     async def ttl(self, key: str) -> int:
         """Get a key's time-to-live in seconds."""
-        return await self._redis.ttl(key)
+        return await async_result(self._redis.ttl(key))
 
     async def setex(self, key: str, seconds: int, value: Any, serialize: bool = True) -> None:
         """Set a value with an expiration expressed in seconds."""

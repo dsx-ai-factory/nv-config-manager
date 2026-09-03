@@ -27,6 +27,7 @@ from nv_config_manager_workflows.converter import COMPRESSION_ENCODING
 from nv_config_manager_workflows.decorators.workflow import _WORKFLOW_LOCK_PATCH_ID
 from nv_config_manager_workflows.metadata.lock import _LOCK_KEY_PREFIX
 from nv_config_manager_workflows.mixins.archive import PUBLISH_NATS_ACTIVITY_NAME
+from nv_config_manager_workflows.registration import activity_name
 
 
 def test_compression_encoding_is_frozen() -> None:
@@ -46,13 +47,7 @@ def test_workflow_lock_patch_id_is_frozen() -> None:
 
 def test_lock_activity_names_are_frozen() -> None:
     """Activity type names are matched as strings when replaying a history."""
-    from temporalio import activity
-
-    names = sorted(
-        name
-        for fn in REGISTERED_COMMON_ACTIVITIES
-        if (name := activity._Definition.must_from_callable(fn).name) is not None
-    )
+    names = sorted((activity_name(fn) for fn in REGISTERED_COMMON_ACTIVITIES), key=str)
 
     assert names == [
         "acquire_workflow_lock",
