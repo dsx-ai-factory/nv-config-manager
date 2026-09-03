@@ -628,20 +628,74 @@ class TestDeclaredMetadata:
     ) -> None:
         monkeypatch.setattr(AlphaWorkflow, "workflow_required_activities", declared)
 
-        with pytest.raises(WorkflowRegistrationError, match="not a sequence of activity functions"):
+        with pytest.raises(WorkflowRegistrationError) as raised:
             validate_plugins(installed(alpha_plugin()))
+
+        assert str(raised.value) == (
+            'Workflow "AlphaWorkflow" from plugin "alpha-plugin" declares '
+            f"workflow_required_activities {declared!r}, which is not a sequence "
+            f"of activity functions"
+        )
 
     def test_required_activities_cannot_be_a_one_shot_iterator(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(
-            AlphaWorkflow,
-            "workflow_required_activities",
-            iter((collect_facts,)),
+        declared = iter((collect_facts,))
+        monkeypatch.setattr(AlphaWorkflow, "workflow_required_activities", declared)
+
+        with pytest.raises(WorkflowRegistrationError) as raised:
+            validate_plugins(installed(alpha_plugin()))
+
+        assert str(raised.value) == (
+            'Workflow "AlphaWorkflow" from plugin "alpha-plugin" declares '
+            f"workflow_required_activities {declared!r}, which is not a sequence "
+            f"of activity functions"
         )
 
-        with pytest.raises(WorkflowRegistrationError, match="not a sequence of activity functions"):
+    def test_a_malformed_declaration_on_a_mixin_is_reported_against_the_plugin(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(ArchiveMixin, "workflow_required_activities", 42)
+
+        with pytest.raises(WorkflowRegistrationError) as raised:
+            validate_plugins(installed(plugin("archive-plugin", workflows=(ArchivedWorkflow,))))
+
+        assert str(raised.value) == (
+            'Workflow "ArchivedWorkflow" from plugin "archive-plugin" declares '
+            "workflow_required_activities 42, which is not a sequence of activity functions"
+        )
+
+    @pytest.mark.parametrize("declared", [42, "collect_facts"])
+    def test_a_declared_required_activities_accessor_must_return_a_sequence(
+        self, monkeypatch: pytest.MonkeyPatch, declared: Any
+    ) -> None:
+        """The contract invites overriding the accessor, so it is checked like the attribute."""
+        monkeypatch.setattr(
+            AlphaWorkflow,
+            "get_workflow_required_activities",
+            classmethod(lambda cls: declared),
+        )
+
+        with pytest.raises(WorkflowRegistrationError) as raised:
             validate_plugins(installed(alpha_plugin()))
+
+        assert str(raised.value) == (
+            'Workflow "AlphaWorkflow" from plugin "alpha-plugin" declares '
+            f"workflow_required_activities {declared!r}, which is not a sequence "
+            f"of activity functions"
+        )
+
+    def test_a_workflow_may_decline_to_declare_required_activities(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Returning None clears the requirement: the plugin supplies no activities."""
+        monkeypatch.setattr(
+            AlphaWorkflow,
+            "get_workflow_required_activities",
+            classmethod(lambda cls: None),
+        )
+
+        validate_plugins(installed(plugin("alpha-plugin", workflows=(AlphaWorkflow,))))
 
     @pytest.mark.parametrize("entry", [None, "", "   ", 42, undecorated_activity])
     def test_each_required_activity_must_be_identifiable(
@@ -652,7 +706,10 @@ class TestDeclaredMetadata:
         with pytest.raises(WorkflowRegistrationError) as raised:
             validate_plugins(installed(alpha_plugin()))
 
-        assert "neither an activity function nor a non-empty activity name" in str(raised.value)
+        assert str(raised.value) == (
+            'Workflow "AlphaWorkflow" from plugin "alpha-plugin" declares required activity '
+            f"{entry!r}, which is neither an activity function nor a non-empty activity name"
+        )
 
 
 class TestConflictsBetweenPlugins:
