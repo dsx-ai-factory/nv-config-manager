@@ -17,15 +17,20 @@
 import asyncio
 import time
 from contextlib import closing
-from datetime import timedelta
+from typing import cast
 
 from pydantic import BaseModel
 from temporalio import activity
 
+from nv_config_manager.common.client.redis import redis_settings
 from nv_config_manager.common.config import load_config
 from nv_config_manager.temporal.client.device import NetworkConnection, NetworkDeviceData
-from nv_config_manager.temporal.client.redis import RedisClient
 from nv_config_manager.temporal.common.mixins.device import Platform
+from nv_config_manager_workflows.activities.tech_support import (
+    TECH_SUPPORT_BUNDLE_TTL,
+    tech_support_bundle_key,
+)
+from nv_config_manager_workflows.clients import RedisClient
 
 # Master list of all diagnostic commands and their human-readable descriptions.
 # Adding a new command only requires an entry here — no per-platform duplication.
@@ -232,7 +237,7 @@ def collect_tech_support_bundle(activity_input: TechSupportInput) -> TechSupport
         content, cl_support_log = connection.get_tech_support_bundle(_heartbeat)
 
     # Store raw bytes in Redis; never transmit them through Temporal.
-    redis_key = f"tech_support:{info.workflow_id}:{device_name}"
+    redis_key = tech_support_bundle_key(cast(str, info.workflow_id), device_name)
     # Use the external-facing API URL from the INI config so the download link
     # is always user-reachable (api_url, not the internal api_service).
     config = load_config()
@@ -242,8 +247,13 @@ def collect_tech_support_bundle(activity_input: TechSupportInput) -> TechSupport
     )
 
     async def _save() -> None:
-        cache = RedisClient.from_config(load_config())
-        await cache.set(redis_key, content, ttl=timedelta(hours=24), serialize=False)
+        async with RedisClient(**redis_settings(config)) as cache:
+            await cache.set(
+                redis_key,
+                content,
+                ttl=TECH_SUPPORT_BUNDLE_TTL,
+                serialize=False,
+            )
 
     asyncio.run(_save())
 

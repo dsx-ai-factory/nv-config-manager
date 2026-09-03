@@ -77,6 +77,7 @@ from nv_config_manager.temporal.ngc.workflows import (
     REGISTERED_WORKFLOWS as NGC_REGISTERED_WORKFLOWS,
 )
 from nv_config_manager.temporal.telemetry import get_runtime
+from nv_config_manager_workflows.activities.tech_support import tech_support_bundle_key
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_API)
 
@@ -863,7 +864,7 @@ async def download_tech_support(workflow_id: str, device_name: str, request: Req
     if not await is_authorized(request, handle, "read"):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    redis_key = f"tech_support:{workflow_id}:{device_name}"
+    redis_key = tech_support_bundle_key(workflow_id, device_name)
     cache = RedisClient.from_config(load_config())
     content: bytes | None = await cache.get(redis_key, deserialize=False)
     if content is None:

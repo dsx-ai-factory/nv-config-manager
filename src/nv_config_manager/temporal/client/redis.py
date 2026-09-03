@@ -12,9 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Redis Client for Temporal workflows.
+"""Application-side Redis cache for Temporal API responses.
 
-Extends the common RedisClient with workflow-specific caching methods.
+Extends the reusable client with HTTP query and workflow-result caching methods.
 """
 
 from __future__ import annotations
@@ -25,10 +25,10 @@ from nv_config_manager.common.client import RedisClient as BaseRedisClient
 
 
 class RedisClient(BaseRedisClient):
-    """Redis Client for Temporal workflow caching.
+    """Redis client for application-side Temporal API caching.
 
-    Extends the base RedisClient with methods for caching workflow
-    queries and results.
+    The query and result helpers remain in the application because reusable
+    activities use only the generic Redis client.
     """
 
     def query_key(self, workflow_id: str, query: str) -> str:

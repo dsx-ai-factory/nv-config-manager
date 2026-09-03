@@ -26,7 +26,6 @@ from pydantic import BaseModel
 
 from nv_config_manager.common.auth import install_identity_probe
 from nv_config_manager.common.config import load_config
-from nv_config_manager.common.lock import configure_workflow_lock_backend
 from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
 from nv_config_manager.common.telemetry import (
     group_fastapi_status_codes,
@@ -39,7 +38,6 @@ from nv_config_manager.temporal.telemetry import setup_telemetry
 
 configure_logging(service="temporal-api")
 setup_telemetry("nv-config-manager-temporal-api")
-configure_workflow_lock_backend()
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_API)
 
 rbac_config = RBACConfig()

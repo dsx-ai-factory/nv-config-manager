@@ -12,29 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Reusable activities shared across workflow families."""
+"""Shared Redis storage contract for tech-support activities."""
 
-from nv_config_manager_workflows.activities.lock import (
-    acquire_workflow_lock,
-    release_workflow_lock,
-    renew_workflow_lock,
-)
-from nv_config_manager_workflows.activities.tech_support import (
-    TECH_SUPPORT_BUNDLE_TTL,
-    tech_support_bundle_key,
-)
+from datetime import timedelta
 
-REGISTERED_COMMON_ACTIVITIES = [
-    acquire_workflow_lock,
-    renew_workflow_lock,
-    release_workflow_lock,
-]
+TECH_SUPPORT_BUNDLE_TTL = timedelta(hours=24)
 
-__all__ = [
-    "REGISTERED_COMMON_ACTIVITIES",
-    "TECH_SUPPORT_BUNDLE_TTL",
-    "acquire_workflow_lock",
-    "release_workflow_lock",
-    "renew_workflow_lock",
-    "tech_support_bundle_key",
-]
+
+def tech_support_bundle_key(workflow_id: str, device_name: str) -> str:
+    """Build the Redis key used to exchange a tech-support bundle."""
+    return f"tech_support:{workflow_id}:{device_name}"

@@ -12,76 +12,32 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Async Redis Client.
-
-Shared async Redis client for all NVIDIA Config Manager services.
-"""
+"""Application configuration adapter for the reusable Redis client."""
 
 from __future__ import annotations
 
-import json
-import logging
 from configparser import ConfigParser
-from datetime import timedelta
-from typing import Any, Self
+from typing import Self
 
-import redis.asyncio as redis_asyncio
-
-logger = logging.getLogger(__name__)
-
-# Pickle protocol markers (first two bytes of any pickle payload)
-_PICKLE_MARKERS = {b"\x80\x02", b"\x80\x03", b"\x80\x04", b"\x80\x05"}
+from nv_config_manager_workflows.clients import RedisClient as BaseRedisClient
+from nv_config_manager_workflows.clients import RedisSettings
 
 
-def _is_pickle(data: bytes) -> bool:
-    """Check if data looks like a pickle payload (vs JSON)."""
-    return len(data) >= 2 and data[:2] in _PICKLE_MARKERS
+def redis_settings(config: ConfigParser, db_key: str = "db") -> RedisSettings:
+    """Translate the application's Redis INI section into constructor settings."""
+    return {
+        "host": config.get("redis", "host"),
+        "port": config.getint("redis", "port", fallback=6379),
+        "db": config.getint("redis", db_key, fallback=0),
+        "ssl": config.getboolean("redis", "ssl", fallback=False),
+        "password": config.get("redis", "password", fallback=None),
+        "socket_timeout": config.getint("redis", "socket_timeout", fallback=5),
+        "socket_connect_timeout": config.getint("redis", "socket_connect_timeout", fallback=5),
+    }
 
 
-class RedisClient:
-    """Async Redis Client with caching utilities.
-
-    Serializes values as JSON. Detects legacy pickle-format values on read
-    and treats them as cache misses (returns None) to safely migrate away
-    from pickle deserialization.
-    """
-
-    DEFAULT_TTL = timedelta(days=14)
-
-    def __init__(
-        self,
-        host: str,
-        port: int = 6379,
-        db: int = 0,
-        ssl: bool = False,
-        password: str | None = None,
-        socket_timeout: int = 5,
-        socket_connect_timeout: int = 5,
-    ) -> None:
-        """Initialize async Redis client.
-
-        Args:
-            host: Redis host
-            port: Redis port
-            db: Redis database number
-            ssl: Whether to use SSL
-            password: Redis password
-            socket_timeout: Socket timeout in seconds
-            socket_connect_timeout: Connection timeout in seconds
-        """
-        params: dict[str, Any] = {
-            "host": host,
-            "port": port,
-            "db": db,
-            "ssl": ssl,
-            "socket_timeout": socket_timeout,
-            "socket_connect_timeout": socket_connect_timeout,
-            "decode_responses": False,
-        }
-        if password:
-            params["password"] = password
-
-        self._redis: redis_asyncio.Redis[bytes] = redis_asyncio.Redis(**params)  # type: ignore[ty:invalid-assignment]
+class RedisClient(BaseRedisClient):
+    """Reusable Redis client with an application-specific INI constructor."""
 
     @classmethod
     def from_config(
@@ -89,139 +45,5 @@ class RedisClient:
         config: ConfigParser,
         db_key: str = "db",
     ) -> Self:
-        """Create RedisClient from INI configuration.
-
-        Args:
-            config: ConfigParser with redis section
-            db_key: Key for database number ("db" or "lock_db")
-
-        Returns:
-            Configured RedisClient instance
-        """
-        return cls(
-            host=config.get("redis", "host"),
-            port=config.getint("redis", "port", fallback=6379),
-            db=config.getint("redis", db_key, fallback=0),
-            ssl=config.getboolean("redis", "ssl", fallback=False),
-            password=config.get("redis", "password", fallback=None),
-            socket_timeout=config.getint("redis", "socket_timeout", fallback=5),
-            socket_connect_timeout=config.getint("redis", "socket_connect_timeout", fallback=5),
-        )
-
-    @property
-    def redis(self) -> redis_asyncio.Redis[bytes]:
-        """Get the underlying async Redis connection."""
-        return self._redis
-
-    async def ping(self) -> bool:
-        """Test connection to Redis."""
-        return await self._redis.ping()
-
-    async def set(
-        self, key: str, value: Any, ttl: timedelta | None = None, serialize: bool = True
-    ) -> None:
-        """Set a value in Redis.
-
-        Args:
-            key: Redis key
-            value: Value to store
-            ttl: Time-to-live (uses DEFAULT_TTL if None)
-            serialize: Whether to JSON-serialize the value
-        """
-        if serialize:
-            value = json.dumps(value).encode()
-        await self._redis.set(key, value, ex=ttl or self.DEFAULT_TTL)
-
-    async def get(self, key: str, deserialize: bool = True) -> Any | None:
-        """Get a value from Redis.
-
-        Args:
-            key: Redis key
-            deserialize: Whether to JSON-deserialize the value
-
-        Returns:
-            The stored value, or None if not found or if the value is
-            a legacy pickle payload (treated as a cache miss).
-        """
-        value = await self._redis.get(key)
-        if value and deserialize:
-            if _is_pickle(value):
-                logger.warning("Discarding legacy pickle value for key=%s (cache miss)", key)
-                return None
-            return json.loads(value)
-        return value
-
-    async def delete(self, key: str) -> None:
-        """Delete a key from Redis."""
-        await self._redis.delete(key)
-
-    async def exists(self, key: str) -> bool:
-        """Check if a key exists in Redis."""
-        return bool(await self._redis.exists(key))
-
-    async def keys(self, pattern: str) -> list[str]:
-        """Get keys matching a pattern."""
-        result = await self._redis.keys(pattern)
-        return [k.decode() if isinstance(k, bytes) else k for k in result]
-
-    async def hset(self, name: str, key: str, value: Any, serialize: bool = True) -> None:
-        """Set a hash field value."""
-        if serialize:
-            value = json.dumps(value).encode()
-        await self._redis.hset(name, key, value)
-
-    async def hget(self, name: str, key: str, deserialize: bool = True) -> Any | None:
-        """Get a hash field value."""
-        value = await self._redis.hget(name, key)
-        if value and deserialize:
-            if _is_pickle(value):
-                logger.warning("Discarding legacy pickle value for hash=%s key=%s", name, key)
-                return None
-            return json.loads(value)
-        return value
-
-    async def hdel(self, name: str, *keys: str) -> None:
-        """Delete hash field(s)."""
-        await self._redis.hdel(name, *keys)
-
-    async def hgetall(self, name: str, deserialize: bool = True) -> dict[str, Any]:
-        """Get all hash fields and values."""
-        result = await self._redis.hgetall(name)
-        decoded: dict[str, Any] = {}
-        for k, v in result.items():
-            key_str = k.decode() if isinstance(k, bytes) else k
-            if deserialize:
-                if _is_pickle(v):
-                    logger.warning(
-                        "Discarding legacy pickle value for hash=%s key=%s", name, key_str
-                    )
-                    continue
-                decoded[key_str] = json.loads(v)
-            else:
-                decoded[key_str] = v
-        return decoded
-
-    async def expire(self, key: str, ttl: timedelta) -> None:
-        """Set expiration on a key."""
-        await self._redis.expire(key, ttl)
-
-    async def ttl(self, key: str) -> int:
-        """Get time-to-live for a key in seconds."""
-        return await self._redis.ttl(key)
-
-    async def setex(self, key: str, seconds: int, value: Any, serialize: bool = True) -> None:
-        """Set a value with expiration in seconds.
-
-        Args:
-            key: Redis key
-            seconds: Expiration time in seconds
-            value: Value to store
-            serialize: Whether to JSON-serialize the value
-        """
-        if serialize:
-            value = json.dumps(value).encode()
-        await self._redis.setex(key, seconds, value)
-
-    async def close(self) -> None:
-        """Close the Redis connection."""
-        await self._redis.close()
+        """Create a client from the application's Redis INI section."""
+        return cls(**redis_settings(config, db_key))
