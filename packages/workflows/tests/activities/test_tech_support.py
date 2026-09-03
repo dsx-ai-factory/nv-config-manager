@@ -12,29 +12,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Reusable activities shared across workflow families."""
+"""Tests for the shared tech-support Redis storage contract."""
 
-from nv_config_manager_workflows.activities.lock import (
-    acquire_workflow_lock,
-    release_workflow_lock,
-    renew_workflow_lock,
-)
+from datetime import timedelta
+
 from nv_config_manager_workflows.activities.tech_support import (
     TECH_SUPPORT_BUNDLE_TTL,
     tech_support_bundle_key,
 )
 
-REGISTERED_COMMON_ACTIVITIES = [
-    acquire_workflow_lock,
-    renew_workflow_lock,
-    release_workflow_lock,
-]
 
-__all__ = [
-    "REGISTERED_COMMON_ACTIVITIES",
-    "TECH_SUPPORT_BUNDLE_TTL",
-    "acquire_workflow_lock",
-    "release_workflow_lock",
-    "renew_workflow_lock",
-    "tech_support_bundle_key",
-]
+def test_tech_support_bundle_key_preserves_existing_format():
+    assert tech_support_bundle_key("workflow-id", "switch-01") == (
+        "tech_support:workflow-id:switch-01"
+    )
+
+
+def test_tech_support_bundle_ttl_preserves_existing_duration():
+    assert TECH_SUPPORT_BUNDLE_TTL == timedelta(hours=24)

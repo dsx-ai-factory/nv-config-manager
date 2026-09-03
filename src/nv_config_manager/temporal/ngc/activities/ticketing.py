@@ -32,10 +32,11 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 import nv_config_manager.temporal.client.jira  # noqa: F401 — registers JiraTicketingProvider
+from nv_config_manager.common.client.redis import redis_settings
 from nv_config_manager.common.config import load_config
 from nv_config_manager.temporal.client.jira import JiraClientError
-from nv_config_manager.temporal.client.redis import RedisClient
 from nv_config_manager.temporal.client.ticketing import get_ticketing_provider
+from nv_config_manager_workflows.clients import RedisClient
 
 # =============================================================================
 # Input / Output Models
@@ -164,8 +165,8 @@ async def upload_tech_support_from_redis(
     passing a large payload through Temporal.  This activity reads them back and
     forwards them directly to the ticketing provider.
     """
-    cache = RedisClient.from_config(load_config())
-    content: bytes | None = await cache.get(activity_input.redis_key, deserialize=False)
+    async with RedisClient(**redis_settings(load_config())) as cache:
+        content: bytes | None = await cache.get(activity_input.redis_key, deserialize=False)
     if content is None:
         raise ApplicationError(
             f"Tech-support bundle for '{activity_input.device_name}' not found in Redis "
