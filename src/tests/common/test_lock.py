@@ -41,6 +41,11 @@ def _reset_lock_client(monkeypatch):
     monkeypatch.setattr(workflow_lock_module, "_lock_redis", workflow_lock_module._UNSET)
 
 
+def test_token_helpers_are_not_exported_from_the_service_module() -> None:
+    for name in ("acquire_lock", "configure_lock_backend", "release_lock", "renew_lock"):
+        assert not hasattr(lock_module, name)
+
+
 class TestFakeLock:
     @pytest.mark.asyncio
     async def test_acquire_and_release_are_noops(self):
