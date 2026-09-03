@@ -16,11 +16,6 @@
 
 Shared across services so critical sections are serialized across workers and pods.
 Falls back to a no-op lock in local development where no shared Redis is available.
-
-The token-based helpers now live in :mod:`nv_config_manager_workflows.lock` so the
-workflow package carries no service configuration; they are re-exported here for
-existing callers. ``create_lock`` stays in the service because its consumers are
-service runtime concerns (the render consumer, producer and HTTP routes).
 """
 
 from __future__ import annotations
@@ -31,12 +26,7 @@ from typing import TYPE_CHECKING
 from redis.asyncio.lock import Lock as AsyncRedisLock
 
 from nv_config_manager.common.config import is_local_environment, redis_client
-from nv_config_manager_workflows.lock import (
-    acquire_lock,
-    configure_lock_backend,
-    release_lock,
-    renew_lock,
-)
+from nv_config_manager_workflows.lock import configure_lock_backend as _configure_lock_backend
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -103,7 +93,7 @@ def configure_workflow_lock_backend() -> None:
     single-process run.
     """
     client = _get_lock_redis_client()
-    configure_lock_backend(client.redis if client is not None else None)
+    _configure_lock_backend(client.redis if client is not None else None)
 
 
 async def create_lock(
@@ -133,10 +123,6 @@ async def create_lock(
 
 
 __all__ = [
-    "acquire_lock",
-    "configure_lock_backend",
     "configure_workflow_lock_backend",
     "create_lock",
-    "release_lock",
-    "renew_lock",
 ]
