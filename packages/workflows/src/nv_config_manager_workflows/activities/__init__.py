@@ -14,6 +14,9 @@
 # limitations under the License.
 """Reusable activities shared across workflow families."""
 
+from collections.abc import Callable
+from typing import Any
+
 from nv_config_manager_workflows.activities.lock import (
     acquire_workflow_lock,
     release_workflow_lock,
@@ -24,7 +27,7 @@ from nv_config_manager_workflows.activities.tech_support import (
     tech_support_bundle_key,
 )
 
-REGISTERED_COMMON_ACTIVITIES = [
+REGISTERED_COMMON_ACTIVITIES: list[Callable[..., Any]] = [
     acquire_workflow_lock,
     renew_workflow_lock,
     release_workflow_lock,

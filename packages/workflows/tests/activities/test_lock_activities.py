@@ -19,6 +19,8 @@ The activities translate lock-helper results into Temporal retry semantics.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 from temporalio.exceptions import ApplicationError
 
@@ -45,8 +47,12 @@ class _Recorder:
         return self.result
 
 
+_InstallRecorder = Callable[[str, bool], _Recorder]
+"""Replace the named lock helper with a recorder that returns ``result``."""
+
+
 @pytest.fixture
-def helper(monkeypatch: pytest.MonkeyPatch):
+def helper(monkeypatch: pytest.MonkeyPatch) -> _InstallRecorder:
     """Replace one lock helper with a recorder returning ``result``."""
 
     def _install(name: str, result: bool) -> _Recorder:
@@ -58,14 +64,14 @@ def helper(monkeypatch: pytest.MonkeyPatch):
 
 
 class TestAcquire:
-    async def test_succeeds_silently(self, helper):
+    async def test_succeeds_silently(self, helper: _InstallRecorder) -> None:
         helper("acquire_lock", True)
 
         await acquire_workflow_lock(
             AcquireWorkflowLockInput(key="k", token="t", ttl_seconds=60, wait_timeout_seconds=5)
         )
 
-    async def test_conflict_is_retryable_when_waiting(self, helper):
+    async def test_conflict_is_retryable_when_waiting(self, helper: _InstallRecorder) -> None:
         helper("acquire_lock", False)
 
         with pytest.raises(ApplicationError) as exc:
@@ -75,7 +81,7 @@ class TestAcquire:
 
         assert exc.value.non_retryable is False
 
-    async def test_conflict_is_non_retryable_when_failing(self, helper):
+    async def test_conflict_is_non_retryable_when_failing(self, helper: _InstallRecorder) -> None:
         helper("acquire_lock", False)
 
         with pytest.raises(ApplicationError) as exc:
@@ -91,7 +97,7 @@ class TestAcquire:
 
         assert exc.value.non_retryable is True
 
-    async def test_blocks_while_waiting(self, helper):
+    async def test_blocks_while_waiting(self, helper: _InstallRecorder) -> None:
         acquire = helper("acquire_lock", True)
 
         await acquire_workflow_lock(
@@ -100,7 +106,7 @@ class TestAcquire:
 
         assert acquire.calls[0][1]["blocking"] is True
 
-    async def test_does_not_block_when_failing(self, helper):
+    async def test_does_not_block_when_failing(self, helper: _InstallRecorder) -> None:
         """on_conflict='fail' must not wait out wait_timeout_seconds."""
         acquire = helper("acquire_lock", True)
 
@@ -118,12 +124,12 @@ class TestAcquire:
 
 
 class TestRenew:
-    async def test_succeeds_silently(self, helper):
+    async def test_succeeds_silently(self, helper: _InstallRecorder) -> None:
         helper("renew_lock", True)
 
         await renew_workflow_lock(RenewWorkflowLockInput(key="k", token="t", ttl_seconds=60))
 
-    async def test_raises_when_lock_lost(self, helper):
+    async def test_raises_when_lock_lost(self, helper: _InstallRecorder) -> None:
         helper("renew_lock", False)
 
         with pytest.raises(ApplicationError, match="Lost workflow lock"):
@@ -131,7 +137,7 @@ class TestRenew:
 
 
 class TestRelease:
-    async def test_never_raises(self, helper):
+    async def test_never_raises(self, helper: _InstallRecorder) -> None:
         """An already-lost lock is not an error; the TTL would have freed it."""
         helper("release_lock", False)
 

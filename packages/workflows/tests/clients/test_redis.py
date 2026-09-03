@@ -30,7 +30,7 @@ def _client_with_backend() -> tuple[RedisClient, MagicMock]:
     return client, backend
 
 
-def test_constructor_uses_explicit_connection_settings():
+def test_constructor_uses_explicit_connection_settings() -> None:
     with patch("nv_config_manager_workflows.clients.redis.redis_asyncio.Redis") as constructor:
         RedisClient(
             host="redis.example.com",
@@ -54,7 +54,7 @@ def test_constructor_uses_explicit_connection_settings():
     )
 
 
-async def test_set_serializes_json_and_applies_default_ttl():
+async def test_set_serializes_json_and_applies_default_ttl() -> None:
     client, backend = _client_with_backend()
     backend.set = AsyncMock()
 
@@ -67,7 +67,7 @@ async def test_set_serializes_json_and_applies_default_ttl():
     )
 
 
-async def test_set_preserves_raw_bytes_and_explicit_ttl():
+async def test_set_preserves_raw_bytes_and_explicit_ttl() -> None:
     client, backend = _client_with_backend()
     backend.set = AsyncMock()
     ttl = timedelta(hours=1)
@@ -77,28 +77,28 @@ async def test_set_preserves_raw_bytes_and_explicit_ttl():
     backend.set.assert_awaited_once_with("key", b"raw", ex=ttl)
 
 
-async def test_get_deserializes_json():
+async def test_get_deserializes_json() -> None:
     client, backend = _client_with_backend()
     backend.get = AsyncMock(return_value=b'{"value": 1}')
 
     assert await client.get("key") == {"value": 1}
 
 
-async def test_get_returns_raw_bytes_when_requested():
+async def test_get_returns_raw_bytes_when_requested() -> None:
     client, backend = _client_with_backend()
     backend.get = AsyncMock(return_value=b"raw")
 
     assert await client.get("key", deserialize=False) == b"raw"
 
 
-async def test_get_treats_legacy_pickle_as_cache_miss():
+async def test_get_treats_legacy_pickle_as_cache_miss() -> None:
     client, backend = _client_with_backend()
     backend.get = AsyncMock(return_value=b"\x80\x04legacy")
 
     assert await client.get("key") is None
 
 
-async def test_async_context_manager_closes_connection():
+async def test_async_context_manager_closes_connection() -> None:
     backend = MagicMock()
     backend.close = AsyncMock()
     with patch(
