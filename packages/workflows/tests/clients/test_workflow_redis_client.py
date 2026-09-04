@@ -100,7 +100,7 @@ async def test_get_treats_legacy_pickle_as_cache_miss() -> None:
 
 async def test_async_context_manager_closes_connection() -> None:
     backend = MagicMock()
-    backend.close = AsyncMock()
+    backend.aclose = AsyncMock()
     with patch(
         "nv_config_manager_workflows.clients.redis.redis_asyncio.Redis",
         return_value=backend,
@@ -108,4 +108,4 @@ async def test_async_context_manager_closes_connection() -> None:
         async with RedisClient(host="redis.example.com"):
             pass
 
-    backend.close.assert_awaited_once_with()
+    backend.aclose.assert_awaited_once_with()
