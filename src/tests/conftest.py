@@ -24,6 +24,9 @@ from aiohttp import ClientResponse
 
 from nv_config_manager.common import auth as auth_mod
 from nv_config_manager.common.config import clear_config_cache
+from nv_config_manager.temporal.runtime import configure_workflow_runtime
+from nv_config_manager_workflows import lock as workflow_lock_module
+from nv_config_manager_workflows import runtime as workflow_runtime_module
 
 _CLIENT_RESPONSE_INIT = ClientResponse.__init__
 
@@ -199,11 +202,17 @@ def mock_ini_config(mocker):
 
     mocker.patch("configparser.ConfigParser.read", new=mock_func)
 
+    configure_workflow_runtime(lock_redis=None)
+
     yield
 
     # Clear cache after test to prevent leaking to next test
     clear_config_cache()
     _clear_auth_config_cache()
+    workflow_runtime_module._nats = workflow_runtime_module._UNSET
+    workflow_runtime_module._slack = workflow_runtime_module._UNSET
+    workflow_runtime_module._ui_base_url = workflow_runtime_module._UNSET
+    workflow_lock_module._lock_redis = workflow_lock_module._UNSET
 
 
 @pytest.fixture()

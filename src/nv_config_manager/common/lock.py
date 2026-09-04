@@ -26,10 +26,11 @@ from typing import TYPE_CHECKING
 from redis.asyncio.lock import Lock as AsyncRedisLock
 
 from nv_config_manager.common.config import is_local_environment, redis_client
-from nv_config_manager_workflows.lock import configure_lock_backend as _configure_lock_backend
 
 if TYPE_CHECKING:
     from types import TracebackType
+
+    from redis.asyncio import Redis
 
     from nv_config_manager.common.client import RedisClient
 
@@ -85,15 +86,10 @@ def _get_lock_redis_client() -> RedisClient | None:
     return _lock_redis_client
 
 
-def configure_workflow_lock_backend() -> None:
-    """Point the workflow package's lock helpers at this service's Redis.
-
-    Call once at startup. Derives the backend from the same client as
-    ``create_lock`` so the two cannot disagree about whether this is a local
-    single-process run.
-    """
+def workflow_lock_backend() -> Redis | None:
+    """Return the Redis connection shared by service and workflow locks."""
     client = _get_lock_redis_client()
-    _configure_lock_backend(client.redis if client is not None else None)
+    return client.redis if client is not None else None
 
 
 async def create_lock(
@@ -123,6 +119,6 @@ async def create_lock(
 
 
 __all__ = [
-    "configure_workflow_lock_backend",
     "create_lock",
+    "workflow_lock_backend",
 ]

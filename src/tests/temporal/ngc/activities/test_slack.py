@@ -14,19 +14,30 @@
 # limitations under the License.
 """Tests for the Slack activity."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from nv_config_manager.temporal.ngc.activities import slack as slack_activity
 from nv_config_manager.temporal.ngc.activities.slack import (
     SlackMessageInput,
     SlackMessageOutput,
     send_slack_message,
 )
+from nv_config_manager_workflows import runtime as runtime_module
+from nv_config_manager_workflows.runtime import SlackNotConfiguredError
 
 
 class TestSendSlackMessage:
     """Tests for the send_slack_message activity."""
+
+    @pytest.mark.asyncio
+    async def test_fails_clearly_before_runtime_configuration(self, monkeypatch):
+        monkeypatch.setattr(runtime_module, "_slack", runtime_module._UNSET)
+
+        with pytest.raises(SlackNotConfiguredError, match="configure_slack"):
+            await send_slack_message(SlackMessageInput(message="hello"))
 
     @pytest.mark.asyncio
     async def test_noop_when_slack_unconfigured(self, custom_ini):
@@ -95,3 +106,24 @@ channel_name =
             thread_ts="1234567890.123456",
         )
         assert result.thread_ts == "1234567890.999999"
+
+    @pytest.mark.asyncio
+    @patch("nv_config_manager.temporal.ngc.activities.slack.WebClient")
+    async def test_workflow_link_message_is_unchanged(self, mock_webclient_cls, monkeypatch):
+        """Runtime configuration does not change the Slack message wire content."""
+        mock_client = MagicMock()
+        mock_client.chat_postMessage.return_value = {"ts": "1234567890.123456"}
+        mock_webclient_cls.return_value = mock_client
+        monkeypatch.setattr(
+            slack_activity.activity,
+            "info",
+            lambda: SimpleNamespace(workflow_id="workflow-123"),
+        )
+
+        await send_slack_message(SlackMessageInput(message="done", link_workflow=True))
+
+        mock_client.chat_postMessage.assert_called_once_with(
+            channel="#nv-config-manager-test",
+            text="done\nView workflow: https://temporal-ui.example.com/workflows/workflow-123",
+            thread_ts=None,
+        )
