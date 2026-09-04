@@ -88,6 +88,8 @@ class TestCreateLock:
         first = await create_lock("resource-c")
         second = await create_lock("resource-d")
 
+        assert isinstance(first, AsyncRedisLock)
+        assert isinstance(second, AsyncRedisLock)
         assert first.redis is second.redis
 
 
@@ -120,4 +122,5 @@ class TestConfigureWorkflowLockBackend:
         configure_workflow_lock_backend()
         lock = await create_lock("resource-e")
 
+        assert isinstance(lock, AsyncRedisLock)
         assert lock.redis is workflow_lock_module._lock_redis
