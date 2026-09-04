@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from temporalio import activity, workflow
 from temporalio.common import RawValue
 
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.metadata import RequiredActivity, WorkflowMetadataMixin
 from nv_config_manager_workflows.mixins.archive import (
     PUBLISH_NATS_ACTIVITY_NAME,
     ArchiveMixin,
@@ -120,7 +120,7 @@ class BareWorkflow(WorkflowMetadataMixin, StageMixin):
 class ArchivedWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin):
     """Combines its own requirement with the one contributed by ArchiveMixin."""
 
-    workflow_required_activities = (collect_facts,)
+    workflow_required_activities: Sequence[RequiredActivity] = (collect_facts,)
 
     @workflow.run
     async def run(self, workflow_input: BaseModel) -> None: ...

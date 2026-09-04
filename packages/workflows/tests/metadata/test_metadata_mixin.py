@@ -55,12 +55,22 @@ def test_required_activities_are_composed_across_the_mro() -> None:
         workflow_required_activities: Sequence[RequiredActivity] = (collect_facts,)
 
     class ArchivedWorkflow(WorkflowMetadataMixin, Publisher):
-        workflow_required_activities = ("store_results",)
+        workflow_required_activities: Sequence[RequiredActivity] = ("store_results",)
 
     assert ArchivedWorkflow.get_workflow_required_activities() == (
         collect_facts,
         "store_results",
     )
+
+
+def test_an_empty_workflow_declaration_cannot_hide_a_mixin_requirement() -> None:
+    class Publisher:
+        workflow_required_activities: Sequence[RequiredActivity] = (collect_facts,)
+
+    class ArchivedWorkflow(WorkflowMetadataMixin, Publisher):
+        workflow_required_activities: Sequence[RequiredActivity] = ()
+
+    assert ArchivedWorkflow.get_workflow_required_activities() == (collect_facts,)
 
 
 def test_a_requirement_shared_with_a_mixin_is_reported_once() -> None:
@@ -70,7 +80,10 @@ def test_a_requirement_shared_with_a_mixin_is_reported_once() -> None:
         workflow_required_activities: Sequence[RequiredActivity] = ("collect_facts",)
 
     class ArchivedWorkflow(WorkflowMetadataMixin, Publisher):
-        workflow_required_activities = (collect_facts, "store_results")
+        workflow_required_activities: Sequence[RequiredActivity] = (
+            collect_facts,
+            "store_results",
+        )
 
     assert workflow_required_activity_names(ArchivedWorkflow) == (
         "collect_facts",

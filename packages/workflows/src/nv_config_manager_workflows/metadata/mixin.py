@@ -103,7 +103,7 @@ class WorkflowMetadataMixin:
 
     @classmethod
     def get_workflow_required_activities(cls) -> Sequence[RequiredActivity]:
-        """Return the activities required by the workflow and each of its mixins."""
+        """Combine the workflow's and its mixins' additive activity requirements."""
         required: list[RequiredActivity] = []
         for base in reversed(cls.__mro__):
             if base is WorkflowMetadataMixin:
