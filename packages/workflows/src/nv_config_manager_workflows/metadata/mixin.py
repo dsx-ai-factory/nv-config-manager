@@ -36,6 +36,8 @@ class WorkflowMetadataMixin:
     workflow_namespace: str | None = None
     workflow_mcp_enabled: bool = False
     workflow_lock: WorkflowLockSpec | None = None
+    # Per-class declaration only. Consumers must use
+    # get_workflow_required_activities() to aggregate requirements across the MRO.
     workflow_required_activities: Sequence[RequiredActivity] = ()
 
     @classmethod
@@ -103,7 +105,11 @@ class WorkflowMetadataMixin:
 
     @classmethod
     def get_workflow_required_activities(cls) -> Sequence[RequiredActivity]:
-        """Combine the workflow's and its mixins' additive activity requirements."""
+        """Return activity requirements aggregated across the workflow's MRO.
+
+        Consumers must use this accessor rather than reading
+        ``workflow_required_activities`` directly.
+        """
         required: list[RequiredActivity] = []
         for base in reversed(cls.__mro__):
             if base is WorkflowMetadataMixin:
