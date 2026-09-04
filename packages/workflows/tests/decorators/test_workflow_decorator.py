@@ -172,7 +172,9 @@ class TestWithALockSpec:
         assert TRACE == ["acquire_workflow_lock", "body", "release_workflow_lock"]
         assert _call("release_workflow_lock")["input"].key == "wf-lock:test:resource=r2"
 
-    async def test_body_failure_keeps_its_non_retryable_verdict(self, patched_history: None) -> None:
+    async def test_body_failure_keeps_its_non_retryable_verdict(
+        self, patched_history: None
+    ) -> None:
         with pytest.raises(WorkflowRuntimeFailure) as exc:
             await _LockedProbe().run(_ProbeInput(resource="r2", fail=True))
 
