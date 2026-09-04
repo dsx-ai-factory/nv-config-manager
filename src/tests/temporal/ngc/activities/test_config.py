@@ -16,7 +16,20 @@
 
 import pytest
 
-from nv_config_manager.temporal.ngc.activities.config import build_workflow_url
+from nv_config_manager.temporal.ngc.activities.config import build_workflow_url, get_ui_base_url
+from nv_config_manager_workflows import runtime as runtime_module
+from nv_config_manager_workflows.runtime import UIBaseURLNotConfiguredError
+
+
+def test_get_ui_base_url_reads_startup_configuration() -> None:
+    assert get_ui_base_url() == "https://temporal-ui.example.com"
+
+
+def test_get_ui_base_url_fails_clearly_before_configuration(monkeypatch) -> None:
+    monkeypatch.setattr(runtime_module, "_ui_base_url", runtime_module._UNSET)
+
+    with pytest.raises(UIBaseURLNotConfiguredError, match="configure_ui_base_url"):
+        get_ui_base_url()
 
 
 class TestBuildWorkflowUrl:
