@@ -196,4 +196,4 @@ class RedisClient:
 
     async def close(self) -> None:
         """Close the Redis connection."""
-        await self._redis.close()
+        await self._redis.aclose()
