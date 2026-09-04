@@ -33,6 +33,7 @@ from nv_config_manager_workflows.activities.lock import (
     release_workflow_lock,
     renew_workflow_lock,
 )
+from nv_config_manager_workflows.lock import LockBackendNotConfiguredError
 
 
 class _Recorder:
@@ -70,6 +71,21 @@ class TestAcquire:
         await acquire_workflow_lock(
             AcquireWorkflowLockInput(key="k", token="t", ttl_seconds=60, wait_timeout_seconds=5)
         )
+
+    async def test_unconfigured_backend_is_non_retryable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def raise_unconfigured(*args: object, **kwargs: object) -> bool:
+            raise LockBackendNotConfiguredError("Workflow lock backend is not configured")
+
+        monkeypatch.setattr(lock_activities, "acquire_lock", raise_unconfigured)
+
+        with pytest.raises(ApplicationError, match="backend is not configured") as exc:
+            await acquire_workflow_lock(
+                AcquireWorkflowLockInput(key="k", token="t", ttl_seconds=60, wait_timeout_seconds=5)
+            )
+
+        assert exc.value.non_retryable is True
 
     async def test_conflict_is_retryable_when_waiting(self, helper: _InstallRecorder) -> None:
         helper("acquire_lock", False)

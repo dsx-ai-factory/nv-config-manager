@@ -22,7 +22,12 @@ from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager_workflows.lock import acquire_lock, release_lock, renew_lock
+from nv_config_manager_workflows.lock import (
+    LockBackendNotConfiguredError,
+    acquire_lock,
+    release_lock,
+    renew_lock,
+)
 
 log = logging.getLogger(__name__)
 
@@ -55,13 +60,16 @@ class ReleaseWorkflowLockInput(BaseModel):
 @activity.defn
 async def acquire_workflow_lock(input: AcquireWorkflowLockInput) -> None:
     """Acquire the per-resource lock, waiting or failing on contention."""
-    acquired = await acquire_lock(
-        input.key,
-        input.token,
-        timeout=input.ttl_seconds,
-        blocking_timeout=input.wait_timeout_seconds,
-        blocking=not input.fail_on_conflict,
-    )
+    try:
+        acquired = await acquire_lock(
+            input.key,
+            input.token,
+            timeout=input.ttl_seconds,
+            blocking_timeout=input.wait_timeout_seconds,
+            blocking=not input.fail_on_conflict,
+        )
+    except LockBackendNotConfiguredError as error:
+        raise ApplicationError(str(error), non_retryable=True) from error
     if acquired:
         log.info("Acquired workflow lock %s", input.key)
         return

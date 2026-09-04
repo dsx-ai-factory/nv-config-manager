@@ -29,9 +29,9 @@ The attributes this module reads from a workflow class (each one optional):
 ``workflow_api_enabled``                expose for direct invocation through the API
 ``workflow_api_endpoint``               API path, unique across plugins
 ``workflow_mcp_enabled``                expose as an MCP tool
-``workflow_required_activities``        additive activity requirements across the MRO
+``workflow_required_activities``        per-class activity requirement declaration
 ``get_workflow_cli_name()``             CLI command name, unique across plugins
-``get_workflow_required_activities()``  composes the attribute across the MRO
+``get_workflow_required_activities()``  composes the declarations across the MRO
 ======================================  =========================================
 
 These accessors are the same ones the worker, API, CLI and MCP consumers read,
