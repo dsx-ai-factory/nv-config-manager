@@ -25,6 +25,7 @@ from nv_config_manager.common.auth import auth_required as config_auth_required
 from nv_config_manager.common.client import (
     ConfigStoreClient,
     ConfigStoreException,
+    ConfigStoreType,
     DHCPClient,
     DHCPClientException,
     TemporalClient,
@@ -155,10 +156,14 @@ async def fetch_device_configs(
     file_type: str | None = "intended",
 ) -> dict[str, Any]:
     """Return a bounded response containing a list of Config Store files."""
+    resolved_file_type = ConfigStoreType(file_type) if file_type is not None else None
 
     async def call() -> list[dict[str, object]]:
-        async with config_store_client(settings, file_type or "intended") as client:
-            return await client.list_device_configs(device_id, file_type=file_type)
+        async with config_store_client(
+            settings,
+            resolved_file_type or ConfigStoreType.INTENDED,
+        ) as client:
+            return await client.list_device_configs(device_id, file_type=resolved_file_type)
 
     return await _bounded_client_call(call, settings.max_response_bytes)
 
@@ -171,13 +176,14 @@ async def fetch_device_config(
     version: int | None = None,
 ) -> dict[str, Any]:
     """Get a bounded Config Store file."""
+    resolved_file_type = ConfigStoreType(file_type)
 
     async def call() -> Any:
-        async with config_store_client(settings, file_type) as client:
+        async with config_store_client(settings, resolved_file_type) as client:
             return await client.get_config_file(
                 device_id,
                 filename,
-                file_type=file_type,
+                file_type=resolved_file_type,
                 version=version,
             )
 
@@ -192,13 +198,14 @@ async def fetch_config_versions(
     limit: int = 100,
 ) -> dict[str, Any]:
     """List bounded Config Store versions."""
+    resolved_file_type = ConfigStoreType(file_type)
 
     async def call() -> Any:
-        async with config_store_client(settings, file_type) as client:
+        async with config_store_client(settings, resolved_file_type) as client:
             return await client.get_config_versions(
                 device_id,
                 filename,
-                file_type=file_type,
+                file_type=resolved_file_type,
                 limit=limit,
             )
 
@@ -214,15 +221,16 @@ async def fetch_config_diff(
     file_type: str = "intended",
 ) -> dict[str, Any]:
     """Get a bounded Config Store diff."""
+    resolved_file_type = ConfigStoreType(file_type)
 
     async def call() -> Any:
-        async with config_store_client(settings, file_type) as client:
+        async with config_store_client(settings, resolved_file_type) as client:
             return await client.get_config_diff(
                 device_id,
                 filename,
                 from_version,
                 to_version,
-                file_type=file_type,
+                file_type=resolved_file_type,
             )
 
     return await _bounded_client_call(call, settings.max_response_bytes)
@@ -278,7 +286,10 @@ def workflow_client(settings: MCPSettings) -> TemporalClient:
     )
 
 
-def config_store_client(settings: MCPSettings, file_type: str = "intended") -> ConfigStoreClient:
+def config_store_client(
+    settings: MCPSettings,
+    file_type: ConfigStoreType = ConfigStoreType.INTENDED,
+) -> ConfigStoreClient:
     """Create a Config Store API client."""
     return ConfigStoreClient.for_mcp(
         target=settings.config_store_api_url,

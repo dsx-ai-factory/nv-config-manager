@@ -34,6 +34,7 @@ from nv_config_manager.temporal.factories import (
     ticketing_client_settings,
     ufm_client_settings,
 )
+from nv_config_manager_workflows.clients import ConfigStoreType
 
 
 @pytest.fixture
@@ -155,7 +156,7 @@ def test_config_store_client_settings_match_current_constructor_values(
 ) -> None:
     assert config_store_client_settings(client_config, file_type="backup") == {
         "target": "http://config-store.internal:8080",
-        "file_type": "backup",
+        "file_type": ConfigStoreType.BACKUP,
         "ui_url": "https://config-manager.example",
         "verify": False,
         "client_certificate": None,
@@ -229,7 +230,7 @@ def test_external_config_store_endpoint_settings(client_config: ConfigParser) ->
 
     assert config_store_client_settings(client_config) == {
         "target": "https://config-store.example",
-        "file_type": "intended",
+        "file_type": ConfigStoreType.INTENDED,
         "ui_url": "https://config-manager.example",
         "verify": "/certs/ca.crt",
         "client_certificate": ("/certs/client.crt", "/certs/client.key"),
