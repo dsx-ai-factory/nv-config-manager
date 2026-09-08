@@ -14,24 +14,83 @@
 # limitations under the License.
 """Reusable Temporal workflow and activity library for NVIDIA Config Manager network automation."""
 
+from nv_config_manager_workflows.lock import (
+    LockBackendNotConfiguredError,
+    acquire_lock,
+    release_lock,
+    renew_lock,
+)
 from nv_config_manager_workflows.runtime import (
+    NatsConfigurationProvider,
     NatsNotConfiguredError,
     RuntimeConfigurationError,
+    SlackConfigurationProvider,
     SlackNotConfiguredError,
     UIBaseURLNotConfiguredError,
+    UIBaseURLProvider,
     configure_nats,
     configure_runtime,
     configure_slack,
     configure_ui_base_url,
+    get_nats_configuration,
+    get_slack_configuration,
+    get_ui_base_url,
+)
+from nv_config_manager_workflows.search_attributes import upsert_missing_search_attributes
+from nv_config_manager_workflows.secrets import (
+    CredentialConfig,
+    CredentialSection,
+    get_credential,
+    get_rotation_passwords,
+    get_site_slug,
+    resolve_config_section,
+    resolve_credentials,
+)
+from nv_config_manager_workflows.workflow_references import (
+    DeviceReferences,
+    LocationReference,
+    OptionalDeviceReference,
+    OptionalLocationReference,
+    WorkflowReference,
+    WorkflowReferenceKind,
 )
 
 __all__ = [
+    # lock
+    "LockBackendNotConfiguredError",
+    "acquire_lock",
+    "release_lock",
+    "renew_lock",
+    # runtime
+    "NatsConfigurationProvider",
     "NatsNotConfiguredError",
     "RuntimeConfigurationError",
+    "SlackConfigurationProvider",
     "SlackNotConfiguredError",
     "UIBaseURLNotConfiguredError",
+    "UIBaseURLProvider",
     "configure_nats",
     "configure_runtime",
     "configure_slack",
     "configure_ui_base_url",
+    "get_nats_configuration",
+    "get_slack_configuration",
+    "get_ui_base_url",
+    # search_attributes
+    "upsert_missing_search_attributes",
+    # secrets
+    "CredentialConfig",
+    "CredentialSection",
+    "get_credential",
+    "get_rotation_passwords",
+    "get_site_slug",
+    "resolve_config_section",
+    "resolve_credentials",
+    # workflow_references
+    "DeviceReferences",
+    "LocationReference",
+    "OptionalDeviceReference",
+    "OptionalLocationReference",
+    "WorkflowReference",
+    "WorkflowReferenceKind",
 ]

@@ -24,7 +24,7 @@ import logging
 
 import pytest
 
-from nv_config_manager_workflows.log import WORKFLOW_LOG_CATEGORY, get_workflow_logger
+from nv_config_manager_workflows.log import WORKFLOW_LOG_CATEGORY, get_logger
 from nv_config_manager_workflows.stage import StageMixin
 
 STAGE_LOGGER_NAME = "nv_config_manager_workflows.stage.mixin"
@@ -32,7 +32,7 @@ STAGE_LOGGER_NAME = "nv_config_manager_workflows.stage.mixin"
 
 def test_records_carry_the_workflow_category(caplog: pytest.LogCaptureFixture) -> None:
     """Dashboards select on this field, so a plain logger would drop them."""
-    logger = get_workflow_logger("test.category")
+    logger = get_logger("test.category")
 
     with caplog.at_level(logging.INFO, logger="test.category"):
         logger.error("stage failed")
@@ -42,7 +42,7 @@ def test_records_carry_the_workflow_category(caplog: pytest.LogCaptureFixture) -
 
 def test_per_call_fields_are_merged_with_the_category(caplog: pytest.LogCaptureFixture) -> None:
     """A call site adding structured fields must not displace the category."""
-    logger = get_workflow_logger("test.merge")
+    logger = get_logger("test.merge")
 
     with caplog.at_level(logging.INFO, logger="test.merge"):
         logger.error("stage failed", extra={"stage": "render"})
@@ -53,7 +53,7 @@ def test_per_call_fields_are_merged_with_the_category(caplog: pytest.LogCaptureF
 
 
 def test_the_logger_name_stays_the_calling_module(caplog: pytest.LogCaptureFixture) -> None:
-    logger = get_workflow_logger("test.naming")
+    logger = get_logger("test.naming")
 
     with caplog.at_level(logging.INFO, logger="test.naming"):
         logger.error("stage failed")
