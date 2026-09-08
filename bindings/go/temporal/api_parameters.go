@@ -282,7 +282,7 @@ func (r ApiGetDevicePasswordUsersV1ParameterDeviceDeviceIdPasswordUsersGetReques
 /*
 GetDevicePasswordUsersV1ParameterDeviceDeviceIdPasswordUsersGet Get Device Password Users
 
-Get available password users from device config context password_mappings.
+Get available password users and their secret names for a device.
 
 Args:
 
@@ -290,7 +290,7 @@ Args:
 
 Returns:
 
-	   List of password users with their secret names from password_mappings.
+	   List of password users with their provider-normalized secret names.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param deviceId
@@ -404,7 +404,7 @@ func (r ApiGetDeviceSecretsV1ParameterDeviceDeviceIdSecretsGetRequest) Execute()
 /*
 GetDeviceSecretsV1ParameterDeviceDeviceIdSecretsGet Get Device Secrets
 
-Return a list of secrets available in device config context.
+Return a list of secrets available for a device.
 
 Args:
 
@@ -412,7 +412,7 @@ Args:
 
 Returns:
 
-	   List of secrets found in the device's config context
+	   List of secrets returned by the configured DCIM provider
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param deviceId
@@ -526,7 +526,7 @@ func (r ApiGetDeviceUsersWithVersionsV1ParameterDeviceDeviceIdSecretTypesGetRequ
 /*
 GetDeviceUsersWithVersionsV1ParameterDeviceDeviceIdSecretTypesGet Get Secret Types for Device
 
-Get available secret types from device config context.
+Get available secret types from the configured DCIM provider.
 
 Args: device_id: The UUID of the device.
 
@@ -1153,7 +1153,7 @@ func (r ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest) Execute() ([]Tag, 
 /*
 GetNamespaceTagsV1ParameterNamespaceTagGet Get Namespace Tags
 
-Return a list of tags used by Nautobot namespaces.
+Return the configured DCIM provider's namespace tag choices.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@return ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest

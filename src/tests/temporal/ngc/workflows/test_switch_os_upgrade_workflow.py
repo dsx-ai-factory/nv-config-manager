@@ -26,7 +26,7 @@ from temporalio.client import Client, WorkflowHandle
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
-from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
+from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
 from nv_config_manager.temporal.ngc.activities.backup import (
     PersistConfigBackupInput,
     RecordBackupConfigManagerPluginInput,
@@ -51,6 +51,7 @@ from nv_config_manager.temporal.ngc.activities.os import (
 from nv_config_manager.temporal.ngc.activities.render import ValidateRenderedImageChangeInput
 from nv_config_manager.temporal.ngc.workflows.backup import BackupWorkflow
 from nv_config_manager.temporal.ngc.workflows.os_upgrade import (
+    SUPPORTED_PLATFORMS,
     SwitchOSUpgradeInput,
     SwitchOSUpgradeWorkflow,
 )
@@ -58,6 +59,12 @@ from nv_config_manager.temporal.ngc.workflows.os_upgrade import (
 # Test-specific retry policy and timeout
 TEST_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 TEST_TIMEOUT = timedelta(seconds=10)
+
+
+def test_supported_platforms_include_juniper_junos():
+    """Switch OS Upgrade accepts Juniper Junos in addition to Cumulus Linux."""
+    assert Platform.CUMULUS_LINUX in SUPPORTED_PLATFORMS
+    assert Platform.JUNIPER_JUNOS in SUPPORTED_PLATFORMS
 
 
 @activity.defn(name="get_network_device")
@@ -174,8 +181,7 @@ async def mock_check_recorded_config_drift(activity_input: CheckRecordedConfigDr
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nautobot.NautobotClient")
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.os_upgrade.DEFAULT_ACTIVITY_RETRY_POLICY",
     TEST_RETRY_POLICY,
@@ -184,7 +190,6 @@ async def mock_check_recorded_config_drift(activity_input: CheckRecordedConfigDr
 async def test_execute_workflow(
     mock_timedelta,
     mock_time,
-    mock_nb_client,
     env,
 ):
     task_queue_name = str(uuid.uuid4())
@@ -278,8 +283,7 @@ async def test_execute_workflow(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nautobot.NautobotClient")
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.os_upgrade.DEFAULT_ACTIVITY_RETRY_POLICY",
     TEST_RETRY_POLICY,
@@ -288,7 +292,6 @@ async def test_execute_workflow(
 async def test_execute_workflow_with_config_drift(
     mock_timedelta,
     mock_time,
-    mock_nb_client,
     env,
 ):
     task_queue_name = str(uuid.uuid4())

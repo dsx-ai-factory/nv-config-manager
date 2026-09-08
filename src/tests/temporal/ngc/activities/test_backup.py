@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import nv_config_manager.temporal.ngc.activities.backup as backup_activities
+from nv_config_manager.dcim import ConfigurationBackupMetadata
 from nv_config_manager.temporal.ngc.activities.backup import (
     RecordBackupConfigManagerPluginInput,
     record_backup_config_manager_plugin,
@@ -45,16 +46,16 @@ def clients(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, AsyncMock]:
     config_store_client = MagicMock()
     config_store_client.file_url.return_value = "https://config-store.example/backup"
 
-    nautobot_client = AsyncMock()
-    nautobot_client.__aenter__.return_value = nautobot_client
+    dcim_client = AsyncMock()
+    dcim_client.__aenter__.return_value = dcim_client
     monkeypatch.setattr(
         backup_activities, "config_store_client", lambda _file_type: config_store_client
     )
-    monkeypatch.setattr(backup_activities, "NautobotClient", lambda: nautobot_client)
+    monkeypatch.setattr(backup_activities, "create_dcim_client", lambda: dcim_client)
     monkeypatch.setattr(
         backup_activities, "config_store_ui_url", lambda: "https://config-store.example"
     )
-    return config_store_client, nautobot_client
+    return config_store_client, dcim_client
 
 
 @pytest.mark.asyncio
@@ -62,27 +63,20 @@ async def test_record_backup_does_not_report_metadata_only_update_as_new_backup(
     clients: tuple[MagicMock, AsyncMock],
 ) -> None:
     """A changed intended commit must not imply that Config Store wrote a new backup."""
-    _, nautobot_client = clients
-    nautobot_client.load_config_manager_plugin_backup_config.return_value = {
-        "commit_id": "7",
-        "deployed_commit_id": "previous-intended-commit",
-        "workflow_id": "previous-workflow",
-    }
+    _, dcim_client = clients
+    dcim_client.get_configuration_backup_metadata.return_value = ConfigurationBackupMetadata(
+        commit_id="7",
+        deployed_commit_id="previous-intended-commit",
+        workflow_id="previous-workflow",
+    )
 
     changed, display = await record_backup_config_manager_plugin(_record_input())
 
     assert changed is False
     assert display.startswith("No diff to previous backup execution:")
-    nautobot_client.update_config_manager_plugin_backup_config.assert_awaited_once_with(
-        "device-id",
-        "https://config-store.example",
-        "7",
-        "startup.yaml",
-        "test-user",
-        "Backup trigger: API User: test-user",
-        "previous-workflow",
-        None,
-    )
+    intent = dcim_client.record_configuration_backup.await_args.args[0]
+    assert intent.workflow_id == "previous-workflow"
+    assert intent.deployed_commit_id is None
 
 
 @pytest.mark.asyncio
@@ -90,12 +84,12 @@ async def test_record_backup_reports_new_config_store_version(
     clients: tuple[MagicMock, AsyncMock],
 ) -> None:
     """A new Config Store commit is reported as a changed backup."""
-    _, nautobot_client = clients
-    nautobot_client.load_config_manager_plugin_backup_config.return_value = {
-        "commit_id": "6",
-        "deployed_commit_id": "intended-commit",
-        "workflow_id": "previous-workflow",
-    }
+    _, dcim_client = clients
+    dcim_client.get_configuration_backup_metadata.return_value = ConfigurationBackupMetadata(
+        commit_id="6",
+        deployed_commit_id="intended-commit",
+        workflow_id="previous-workflow",
+    )
 
     changed, display = await record_backup_config_manager_plugin(
         _record_input(commit_id="7", deployed_commit_id="intended-commit")
@@ -104,8 +98,7 @@ async def test_record_backup_reports_new_config_store_version(
     assert changed is True
     assert display.startswith("Persisted new backup configuration:")
     assert (
-        nautobot_client.update_config_manager_plugin_backup_config.await_args.args[6]
-        == "current-workflow"
+        dcim_client.record_configuration_backup.await_args.args[0].workflow_id == "current-workflow"
     )
 
 
@@ -114,12 +107,12 @@ async def test_record_backup_retry_preserves_original_changed_result(
     clients: tuple[MagicMock, AsyncMock],
 ) -> None:
     """A retry after a completed plugin update still reports the original backup write."""
-    _, nautobot_client = clients
-    nautobot_client.load_config_manager_plugin_backup_config.return_value = {
-        "commit_id": "7",
-        "deployed_commit_id": "intended-commit",
-        "workflow_id": "current-workflow",
-    }
+    _, dcim_client = clients
+    dcim_client.get_configuration_backup_metadata.return_value = ConfigurationBackupMetadata(
+        commit_id="7",
+        deployed_commit_id="intended-commit",
+        workflow_id="current-workflow",
+    )
 
     changed, display = await record_backup_config_manager_plugin(
         _record_input(deployed_commit_id="intended-commit")
@@ -127,7 +120,7 @@ async def test_record_backup_retry_preserves_original_changed_result(
 
     assert changed is True
     assert display.startswith("Persisted new backup configuration:")
-    nautobot_client.update_config_manager_plugin_backup_config.assert_not_awaited()
+    dcim_client.record_configuration_backup.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -135,18 +128,18 @@ async def test_record_backup_treats_empty_deployed_commit_as_none(
     clients: tuple[MagicMock, AsyncMock],
 ) -> None:
     """The plugin's empty-string representation of no deployed commit is unchanged."""
-    _, nautobot_client = clients
-    nautobot_client.load_config_manager_plugin_backup_config.return_value = {
-        "commit_id": "7",
-        "deployed_commit_id": "",
-        "workflow_id": "previous-workflow",
-    }
+    _, dcim_client = clients
+    dcim_client.get_configuration_backup_metadata.return_value = ConfigurationBackupMetadata(
+        commit_id="7",
+        deployed_commit_id="",
+        workflow_id="previous-workflow",
+    )
 
     changed, display = await record_backup_config_manager_plugin(_record_input())
 
     assert changed is False
     assert display.startswith("No diff to previous backup execution:")
-    nautobot_client.update_config_manager_plugin_backup_config.assert_not_awaited()
+    dcim_client.record_configuration_backup.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -154,12 +147,12 @@ async def test_record_backup_normalizes_empty_input_deployed_commit(
     clients: tuple[MagicMock, AsyncMock],
 ) -> None:
     """An empty input deployed commit matches a stored null value."""
-    _, nautobot_client = clients
-    nautobot_client.load_config_manager_plugin_backup_config.return_value = {
-        "commit_id": "7",
-        "deployed_commit_id": None,
-        "workflow_id": "previous-workflow",
-    }
+    _, dcim_client = clients
+    dcim_client.get_configuration_backup_metadata.return_value = ConfigurationBackupMetadata(
+        commit_id="7",
+        deployed_commit_id=None,
+        workflow_id="previous-workflow",
+    )
 
     changed, display = await record_backup_config_manager_plugin(
         _record_input(deployed_commit_id="")
@@ -167,4 +160,4 @@ async def test_record_backup_normalizes_empty_input_deployed_commit(
 
     assert changed is False
     assert display.startswith("No diff to previous backup execution:")
-    nautobot_client.update_config_manager_plugin_backup_config.assert_not_awaited()
+    dcim_client.record_configuration_backup.assert_not_awaited()

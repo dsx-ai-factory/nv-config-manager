@@ -15,7 +15,7 @@ import (
 	"fmt"
 )
 
-// Platform Network device platform types.
+// Platform Network device platform types understood by the workflow services.
 type Platform string
 
 // List of Platform
@@ -24,6 +24,7 @@ const (
 	CUMULUS_LINUX Platform = "cumulus-linux"
 	NV_OS         Platform = "nv-os"
 	MLNX_OS       Platform = "mlnx-os"
+	JUNIPER_JUNOS Platform = "juniper-junos"
 	UFM           Platform = "ufm"
 )
 
@@ -33,6 +34,7 @@ var AllowedPlatformEnumValues = []Platform{
 	"cumulus-linux",
 	"nv-os",
 	"mlnx-os",
+	"juniper-junos",
 	"ufm",
 }
 

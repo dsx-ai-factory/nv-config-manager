@@ -34,6 +34,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager.dcim import create_dcim_client
 from nv_config_manager.temporal.client.device import (
     DeviceArpTable,
     DeviceMacTable,
@@ -42,7 +43,6 @@ from nv_config_manager.temporal.client.device import (
     format_mac,
     is_mac_address,
 )
-from nv_config_manager.temporal.client.nautobot import NautobotClient
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
@@ -444,8 +444,8 @@ async def validate_device_neighbors(
 
     MAC and LLDP will be checked, if either is correct, the link is considered valid.
 
-    This function will catch actual LLDP neighbors that aren't in nautobot, but it will
-    not validate MAC addresses that are on the device but not in nautobot.
+    This function catches actual LLDP neighbors that are not modeled in the DCIM, but it
+    does not validate MAC addresses that are on the device but absent from the DCIM.
 
     """
     intended = activity_input.intended
@@ -521,9 +521,9 @@ async def decorate_result(
     if not mac_to_host:
         return DecorateResultActivityOutput(devices=activity_result)
 
-    client = NautobotClient()
+    client = create_dcim_client()
     async with client:
-        interfaces = await client.get_interfaces_by_mac(mac_addresses=list(mac_to_host.keys()))
+        interfaces = await client.get_interface_hosts_by_mac(list(mac_to_host.keys()))
 
     for interface in interfaces:
         if interface.mac_address:

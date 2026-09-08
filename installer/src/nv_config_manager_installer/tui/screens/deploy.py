@@ -614,28 +614,21 @@ class DeployScreen(Container):
             yield LogViewerWidget(self._config.cluster.namespace, id="log-viewer-panel")
 
     def _get_initial_steps(self) -> list[DeployStep]:
-        """Return placeholder steps for the initial render."""
-        return [
-            DeployStep("prereqs", "Check prerequisites"),
-            DeployStep("build-images", "Build local images"),
-            DeployStep("load-kind", "Load images to Kind"),
-            DeployStep("install-crds", "Install CRDs / operators"),
-            DeployStep("create-namespace", "Create namespace"),
-            DeployStep("create-secrets", "Create Kubernetes secrets"),
-            DeployStep("populate-vault", "Populate Vault secrets"),
-            DeployStep("setup-jobs-pvc", "Setup custom jobs PVC"),
-            DeployStep("setup-templates-pvc", "Setup template plugins PVC"),
-            DeployStep("setup-ztp-pvc", "Setup ZTP images PVC"),
-            DeployStep("generate-values", "Generate Helm values"),
-            DeployStep("helm-install", "Helm install / upgrade"),
-            DeployStep("patch-gateway", "Configure local Gateway access"),
-            DeployStep("restart-nautobot", "Restart Nautobot"),
-            DeployStep("restart-render", "Restart Render Service"),
-            DeployStep("run-jobs", "Run post-deploy jobs"),
-            DeployStep("refresh-cache", "Refresh caches"),
-            DeployStep("run-tests", "Run integration tests"),
-            DeployStep("endpoints", "Collect endpoints"),
-        ]
+        """Return the selected deployer's steps for the initial render."""
+        return self.deployer_class().create_steps()
+
+    def deployer_class(self) -> type[Deployer]:
+        """Return the deployment engine used by this screen."""
+        return Deployer
+
+    def create_deployer(
+        self,
+        config: NVConfigManagerInstallConfig,
+        options: DeployOptions,
+        callback: DeployCallback,
+    ) -> Deployer:
+        """Construct the deployment engine; provider screens may override this factory."""
+        return self.deployer_class()(config, options, callback)
 
     def on_mount(self) -> None:
         self._sync_image_defaults()
@@ -768,7 +761,7 @@ class DeployScreen(Container):
         callback = _TuiCallback(self)
 
         try:
-            self._deployer = Deployer(self._config, options, callback)
+            self._deployer = self.create_deployer(self._config, options, callback)
         except Exception as exc:
             self._deployer = None
             self._deploy_running = False

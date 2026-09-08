@@ -12,33 +12,46 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Temporal search attribute names used by NVIDIA Config Manager."""
+"""Deprecated import path for :mod:`nv_config_manager_workflows.search_attributes`.
 
-from typing import Any
+The constants and the upsert helper moved to the standalone workflows package,
+which the stage framework needs without the service installed. This module
+re-exports them so existing service imports keep resolving; import from
+``nv_config_manager_workflows`` in new code.
 
-from temporalio import workflow
+Note for test authors: ``upsert_missing_search_attributes`` reads ``workflow``
+from the package module's globals, so patch
+``nv_config_manager_workflows.search_attributes.workflow`` rather than this path.
+"""
 
-INITIAL_SEARCH_ATTRIBUTES_PATCH_ID = "initial-search-attributes-v1"
+from nv_config_manager_workflows.search_attributes import (
+    DEVICE_ID_SEARCH_ATTRIBUTE,
+    DEVICE_NAME_SEARCH_ATTRIBUTE,
+    DEVICE_PLATFORM_SEARCH_ATTRIBUTE,
+    DEVICE_ROLE_SEARCH_ATTRIBUTE,
+    EXECUTE_ROLES_SEARCH_ATTRIBUTE,
+    FAILED_STAGE_SEARCH_ATTRIBUTE,
+    INITIAL_SEARCH_ATTRIBUTES_PATCH_ID,
+    ISSUE_KEY_SEARCH_ATTRIBUTE,
+    PENDING_APPROVAL_SEARCH_ATTRIBUTE,
+    READ_ROLES_SEARCH_ATTRIBUTE,
+    SITE_SEARCH_ATTRIBUTE,
+    USER_SEARCH_ATTRIBUTE,
+    upsert_missing_search_attributes,
+)
 
-DEVICE_ID_SEARCH_ATTRIBUTE = "DeviceID"
-DEVICE_NAME_SEARCH_ATTRIBUTE = "DeviceName"
-DEVICE_PLATFORM_SEARCH_ATTRIBUTE = "DevicePlatform"
-DEVICE_ROLE_SEARCH_ATTRIBUTE = "DeviceRole"
-EXECUTE_ROLES_SEARCH_ATTRIBUTE = "ExecuteRoles"
-FAILED_STAGE_SEARCH_ATTRIBUTE = "FailedStage"
-ISSUE_KEY_SEARCH_ATTRIBUTE = "IssueKey"
-PENDING_APPROVAL_SEARCH_ATTRIBUTE = "PendingApproval"
-READ_ROLES_SEARCH_ATTRIBUTE = "ReadRoles"
-SITE_SEARCH_ATTRIBUTE = "Site"
-USER_SEARCH_ATTRIBUTE = "User"
-
-
-def upsert_missing_search_attributes(attributes: dict[str, list[Any]]) -> None:
-    """Upsert attributes not already attached when the workflow was started."""
-    if workflow.patched(INITIAL_SEARCH_ATTRIBUTES_PATCH_ID):
-        initial_attributes = workflow.info().search_attributes
-        attributes = {
-            name: value for name, value in attributes.items() if name not in initial_attributes
-        }
-    if attributes:
-        workflow.upsert_search_attributes(attributes)
+__all__ = [
+    "DEVICE_ID_SEARCH_ATTRIBUTE",
+    "DEVICE_NAME_SEARCH_ATTRIBUTE",
+    "DEVICE_PLATFORM_SEARCH_ATTRIBUTE",
+    "DEVICE_ROLE_SEARCH_ATTRIBUTE",
+    "EXECUTE_ROLES_SEARCH_ATTRIBUTE",
+    "FAILED_STAGE_SEARCH_ATTRIBUTE",
+    "INITIAL_SEARCH_ATTRIBUTES_PATCH_ID",
+    "ISSUE_KEY_SEARCH_ATTRIBUTE",
+    "PENDING_APPROVAL_SEARCH_ATTRIBUTE",
+    "READ_ROLES_SEARCH_ATTRIBUTE",
+    "SITE_SEARCH_ATTRIBUTE",
+    "USER_SEARCH_ATTRIBUTE",
+    "upsert_missing_search_attributes",
+]

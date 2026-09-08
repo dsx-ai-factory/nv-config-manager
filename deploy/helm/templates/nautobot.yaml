@@ -6,22 +6,22 @@
 {{- $natsSecretName := include "nv-config-manager.natsSecretName" . }}
 {{- $redisName := include "nv-config-manager.componentName" (dict "root" . "component" "redis") }}
 # =============================================================================
-# Local Nautobot Stack Deployment
+# Bundled NATS and Nautobot Deployments
 # =============================================================================
-# This template deploys a local Nautobot instance within the nv-config-manager namespace
-# for environments that bundle Nautobot with NVIDIA Config Manager.
-# Includes: Nautobot Server, Celery Workers, Redis, NATS, PostgreSQL (via CNPG)
+# NATS is core NVIDIA Config Manager infrastructure and can be deployed without
+# Nautobot. The Nautobot resources below remain independently optional.
 #
 # NOTE: Secrets (nautobot-admin, nautobot-django-secret, nats-*) are created
 # by the installer before Helm install when using vault.method=kubernetes.
 # =============================================================================
 
-{{- if and .Values.nautobot.enabled .Values.externalServices.nautobot.local }}
-
 # =============================================================================
-# NATS for Nautobot
+# NATS
 # =============================================================================
-{{- if or .Values.nautobotNats.enabled .Values.nautobot.enabled }}
+{{- if or .Values.nautobotNats.enabled .Values.externalServices.nats.local }}
+{{- if ne .Values.externalServices.nats.authMethod "password" }}
+{{- fail "externalServices.nats.authMethod must be password when bundled NATS is enabled" }}
+{{- end }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -228,8 +228,12 @@ spec:
           NAUTOBOT_SERVER="nats://${NAUTOBOT_USER}:${NAUTOBOT_PASSWORD}@{{ $natsName }}:4222"
           CONFIG_MANAGER_STREAM="{{ .Values.externalServices.nats.streams.configManager.name }}"
           CONFIG_MANAGER_SUBJECTS="{{ join "," .Values.externalServices.nats.streams.configManager.subjects }}"
-          NAUTOBOT_STREAM="{{ .Values.externalServices.nats.streams.nautobot.name }}"
-          NAUTOBOT_SUBJECTS="{{ join "," .Values.externalServices.nats.streams.nautobot.subjects }}"
+          DCIM_STREAM="{{ .Values.dcim.events.stream | default .Values.externalServices.nats.streams.nautobot.name }}"
+          {{- if .Values.dcim.events.subject }}
+          DCIM_SUBJECTS="{{ .Values.dcim.events.subject }}"
+          {{- else }}
+          DCIM_SUBJECTS="{{ join "," .Values.externalServices.nats.streams.nautobot.subjects }}"
+          {{- end }}
           MAX_BYTES="{{ .Values.nautobotNats.natsReady.streamMaxBytes | default 104857600 | int64 }}"
           
           echo "Waiting for NATS server..."
@@ -260,11 +264,11 @@ spec:
               --force
           fi
           
-          # Create nautobot stream (all users share the same account when bundled together)
-          echo "Creating/updating ${NAUTOBOT_STREAM} stream..."
-          if ! nats stream add "$NAUTOBOT_STREAM" \
+          # Create the provider-neutral DCIM event stream.
+          echo "Creating/updating ${DCIM_STREAM} stream..."
+          if ! nats stream add "$DCIM_STREAM" \
             --server="$NV_CONFIG_MANAGER_SERVER" \
-            --subjects="$NAUTOBOT_SUBJECTS" \
+            --subjects="$DCIM_SUBJECTS" \
             --retention=limits \
             --storage=file \
             --replicas=1 \
@@ -275,8 +279,9 @@ spec:
             --no-deny-purge \
             --defaults 2>&1; then
             echo "Stream exists, updating..."
-            nats stream edit "$NAUTOBOT_STREAM" \
+            nats stream edit "$DCIM_STREAM" \
               --server="$NV_CONFIG_MANAGER_SERVER" \
+              --subjects="$DCIM_SUBJECTS" \
               --max-bytes="$MAX_BYTES" \
               --force
           fi
@@ -285,7 +290,7 @@ spec:
           echo "Verifying streams..."
           nats stream ls -s "$NV_CONFIG_MANAGER_SERVER"
           nats stream info "$CONFIG_MANAGER_STREAM" --server="$NV_CONFIG_MANAGER_SERVER" >/dev/null
-          nats stream info "$NAUTOBOT_STREAM" --server="$NV_CONFIG_MANAGER_SERVER" >/dev/null
+          nats stream info "$DCIM_STREAM" --server="$NV_CONFIG_MANAGER_SERVER" >/dev/null
           echo "NATS streams ready"
         {{- else }}
         # Use nats-ready binary for production (streams have 20GB max_bytes).
@@ -308,9 +313,13 @@ spec:
         - name: NV_CONFIG_MANAGER_NATS_STREAM_SUBJECTS
           value: {{ join "," .Values.externalServices.nats.streams.configManager.subjects | quote }}
         - name: NAUTOBOT_NATS_STREAM_NAME
-          value: {{ .Values.externalServices.nats.streams.nautobot.name | quote }}
+          value: {{ .Values.dcim.events.stream | default .Values.externalServices.nats.streams.nautobot.name | quote }}
         - name: NAUTOBOT_NATS_STREAM_SUBJECTS
+          {{- if .Values.dcim.events.subject }}
+          value: {{ .Values.dcim.events.subject | quote }}
+          {{- else }}
           value: {{ join "," .Values.externalServices.nats.streams.nautobot.subjects | quote }}
+          {{- end }}
         - name: NAUTOBOT_USER
           value: "nautobot"
         - name: NAUTOBOT_PASSWORD
@@ -360,6 +369,8 @@ spec:
           secretName: {{ $natsName }}-box-contexts
 {{- end }}
 {{- end }}
+
+{{- if and .Values.nautobot.enabled .Values.externalServices.nautobot.local }}
 
 # =============================================================================
 # Nautobot ConfigMaps

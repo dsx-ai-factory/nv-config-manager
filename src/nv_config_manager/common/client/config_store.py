@@ -380,7 +380,7 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
         """Persist files to the Config Store using batch API.
 
         Args:
-            device_uuid: Device UUID
+            device_uuid: DCIM provider device identifier
             files: Dictionary mapping filenames to content
             commit_message: Commit message for the changes
             user: Username

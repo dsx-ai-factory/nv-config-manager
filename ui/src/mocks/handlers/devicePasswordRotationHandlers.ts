@@ -25,7 +25,7 @@ export const devicePasswordRotationHandlers = [
       const body = await request.json() as { device_id?: string; selected_secret?: string } | null;
 
       // Validate body exists and has required fields
-      if (!body || !body.device_id || !body.selected_secret) {
+      if (!body?.device_id || !body.selected_secret) {
         return HttpResponse.json(
           {
             error: "Missing required fields: device_id and selected_secret",

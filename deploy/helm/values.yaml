@@ -33,6 +33,47 @@
 
 nameOverride: ""
 fullnameOverride: ""
+
+# =============================================================================
+# DCIM Provider Configuration
+# =============================================================================
+# The built-in provider remains the default. Provider-specific non-secret
+# configuration is rendered into [dcim.options]. External provider packages
+# are installed separately through the provider package settings.
+dcim:
+  provider: nautobot-2x
+  # Shared provider connection settings. Empty values inherit the legacy
+  # Nautobot settings only when provider=nautobot-2x. Other providers must set
+  # server explicitly and may use dcim.options for provider-specific auth.
+  server: ""
+  publicUrl: ""
+  # Label used by the Config Manager UI. Empty uses "Nautobot" for the
+  # built-in provider and the provider name for an external provider.
+  displayName: ""
+  # true, false, a CA bundle path, or empty to inherit Nautobot's legacy value.
+  verify: ""
+  cacheRefreshInterval: 0
+  cacheTtl: 0
+  # Kubernetes secret used by secrets.method=kubernetes. ESO and Vault Agent
+  # use secrets.vault.paths.dcim for non-Nautobot providers instead.
+  tokenSecret:
+    name: nautobot-token
+    key: token
+  options: {}
+  # Provider-neutral DCIM event stream. Empty values retain the historical
+  # Nautobot changelog stream during the compatibility window.
+  events:
+    stream: ""
+    subject: ""
+  # Optional external provider packages. Each image must contain one or more
+  # provider/dependency wheels under /plugin-wheels. Installation is offline;
+  # the image therefore carries every dependency required by the provider.
+  providerPackages:
+    enabled: false
+    # Match the glibc-based NVCM runtime so compiled provider wheels remain compatible.
+    installerImage: python:3.13-bookworm
+    images: []
+
 # =============================================================================
 # Global Configuration
 # =============================================================================
@@ -133,6 +174,9 @@ global:
     redis:
       repository: docker.io/library/redis
       tag: "7-alpine"
+    redisExporter:
+      repository: docker.io/oliver006/redis_exporter
+      tag: "v1.90.0"
     nats:
       repository: docker.io/library/nats
       tag: "2.14-alpine"
@@ -140,6 +184,7 @@ global:
       repository: docker.io/natsio/nats-box
       tag: "0.14.3"
     # prometheus-nats-exporter sidecar (optional; nautobotNats.metrics.enabled).
+    # The historical values prefix does not imply that Nautobot must be enabled.
     # Polls the NATS monitoring endpoint and exposes nats_* Prometheus metrics.
     natsExporter:
       repository: docker.io/natsio/prometheus-nats-exporter
@@ -356,6 +401,17 @@ secrets:
     #       token: "api_token"               # Map logical name to actual key
     # -------------------------------------------------------------------------
     paths:
+      # Generic external DCIM token. Used when dcim.provider is not nautobot-2x.
+      dcim:
+        path: "" # Required for an external provider with ESO or Vault Agent
+        keys:
+          token: "token"
+      # NATS credentials are separate from DCIM credentials for external
+      # providers. Nautobot deployments retain the legacy nautobot path.
+      nats:
+        path: "" # Required when an external provider uses NATS password auth
+        keys:
+          password: "password"
       nautobot:
         # Full path to nautobot secret in Vault
         path: "" # Required: e.g., "my-org/nv-config-manager/dev/nautobot"
@@ -563,6 +619,15 @@ externalServices:
         memory: 512Mi
       limits:
         memory: 1Gi
+    metricsExport:
+      enabled: false
+      port: 9121
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 64Mi
     persistence:
       enabled: true
       size: 2Gi
@@ -951,7 +1016,7 @@ oidc:
     insecureAllowUnverifiedEmail: false
     image:
       repository: quay.io/oauth2-proxy/oauth2-proxy
-      tag: v7.15.3
+      tag: v7.15.4
       pullPolicy: IfNotPresent
     resources:
       requests:
@@ -1786,7 +1851,8 @@ temporal:
   # matchLabels:
   # app.kubernetes.io/component: nv-config-manager-worker
 
-  # Scheduler (for automatic backup scheduling)
+  # Scheduler (for automatic backup scheduling; currently available only with
+  # the built-in Nautobot provider)
   scheduler:
     enabled: true
     resources:
@@ -2310,9 +2376,6 @@ cnpg:
   # PostgreSQL Cluster pods; poolerImageName is reserved for CNPG Pooler resources.
   imageName: ""
   poolerImageName: ""
-  # Monitoring via PodMonitor (requires Prometheus Operator)
-  monitoring:
-    enabled: true
   # ---------------------------------------------------------------------------
   # Cluster Definitions
   # ---------------------------------------------------------------------------
@@ -2374,7 +2437,7 @@ cnpg:
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false
-      schedule: "0 0 * * *" # Daily at midnight
+      schedule: "0 0 0 * * *" # Daily at midnight; CNPG cron takes 6 fields (leading seconds)
       retentionPolicy: "30d"
       target: preferStandby # preferStandby or primary
   # Temporal visibility database cluster
@@ -2405,7 +2468,7 @@ cnpg:
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false
-      schedule: "0 0 * * *"
+      schedule: "0 0 0 * * *"
       retentionPolicy: "30d"
       target: preferStandby
   # Config Store Service database cluster
@@ -2436,7 +2499,7 @@ cnpg:
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false
-      schedule: "0 0 * * *"
+      schedule: "0 0 0 * * *"
       retentionPolicy: "30d" # Config store may need longer retention
       target: preferStandby
   # DHCP database cluster
@@ -2467,7 +2530,7 @@ cnpg:
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false
-      schedule: "0 0 * * *"
+      schedule: "0 0 0 * * *"
       retentionPolicy: "30d"
       target: preferStandby
   # Nautobot PostgreSQL cluster (when nautobot.enabled=true)
@@ -2499,7 +2562,7 @@ cnpg:
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false
-      schedule: "0 0 * * *"
+      schedule: "0 0 0 * * *"
       retentionPolicy: "30d"
       target: preferStandby
 # =============================================================================
@@ -2853,10 +2916,12 @@ nautobot:
     # where the jobs volume can attach.
     nodeSelector: {}
 # =============================================================================
-# Local NATS (when externalServices.nats.local=true or nautobot.enabled=true)
+# Bundled NATS (independent of the selected DCIM provider)
 # =============================================================================
 nautobotNats:
-  enabled: false # Auto-enabled when nautobot.enabled=true
+  # Historical value prefix retained for compatibility. Enable this directly,
+  # or set externalServices.nats.local=true, to deploy NATS from this chart.
+  enabled: false
   # JetStream configuration
   jetstream:
     enabled: true
@@ -2967,7 +3032,9 @@ monitoring:
     # per-environment when probes need to match a site-specific alerting /
     # dashboard regex.
     jobNamePrefix: ""
-  # PodMonitors: each PodMonitor is enabled when podMonitors.enabled AND the target service is enabled
+  # PodMonitors: each PodMonitor is enabled when podMonitors.enabled AND the
+  # target service is enabled. CNPG scrapes also require podMonitors.cnpg.enabled
+  # (and cnpg.enabled + each cluster's enabled flag).
   podMonitors:
     enabled: false
     # Default scrape interval
@@ -2979,6 +3046,10 @@ monitoring:
     nautobot:
       scrapeProtocols:
         - PrometheusText1.0.0
+    cnpg:
+      enabled: true
+    redis:
+      enabled: false
     # Per-endpoint metricRelabelings for global.customLabels are rendered in monitoring.yaml (job-based).
 # =============================================================================
 # Local Observability Stack (subcharts)

@@ -25,8 +25,10 @@ export async function GET() {
     // Config Store API
     configStoreApiUrl:
       process.env.CONFIG_STORE_API_URL || "http://localhost:9000",
-    // Nautobot
-    nautobotUrl: process.env.NAUTOBOT_URL || "https://nautobot.example.com",
+    // Selected DCIM provider
+    dcimUrl: process.env.DCIM_URL || "https://nautobot.example.com",
+    dcimProvider: process.env.DCIM_PROVIDER || "nautobot",
+    dcimDisplayName: process.env.DCIM_DISPLAY_NAME || "Nautobot",
     // Render Service
     renderServiceUrl: process.env.RENDER_SERVICE_URL || "http://localhost:9000",
     // ZTP Service

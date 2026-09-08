@@ -8,6 +8,7 @@ Thank you for your interest in contributing to NVIDIA Config Manager! This docum
 - [Cryptographically Signing Commits](#cryptographically-signing-commits)
 - [Getting Started](#getting-started)
 - [How to Contribute](#how-to-contribute)
+- [Contributing a DCIM Provider](#contributing-a-dcim-provider)
 - [Pull Request Process](#pull-request-process)
 - [Coding Standards](#coding-standards)
 - [License](#license)
@@ -200,6 +201,13 @@ force-pushing it.
 4. Sign off all commits as described above
 5. Submit a pull request
 
+### Contributing a DCIM Provider
+
+DCIM providers are standalone packages that depend on the provider-neutral SDK
+rather than on Config Manager service code. Follow the [DCIM provider
+contribution guide](docs/development/contributing-dcim-provider.mdx) for the
+entry-point, Pydantic model, event, render-data, and test contract.
+
 ## Pull Request Process
 
 1. **Ensure all tests pass** before submitting:
@@ -255,6 +263,17 @@ uv run ruff check src/
 uv run --project installer ruff format --check installer/src/ installer/tests/
 uv run --project installer ruff check installer/src/ installer/tests/
 ```
+
+Lists where order is insignificant (a registry or lookup table where entries
+are read by name, not by position — e.g. `REGISTERED_WORKFLOWS` in
+`src/nv_config_manager/temporal/ngc/workflows/__init__.py`) should stay
+alphabetically ordered for readability. Wrap those in `# keep-sorted start` /
+`# keep-sorted end` comments, enforced by
+[keep-sorted](https://github.com/google/keep-sorted), pinned via
+`KEEP_SORTED_VERSION` in the root `Makefile`. `make lint` checks the order;
+`make format` fixes it. Do not add these markers to lists where order carries
+meaning (execution order, priority, migration sequence, etc.) — sorting those
+would silently change behavior.
 
 ### TypeScript/JavaScript (UI)
 

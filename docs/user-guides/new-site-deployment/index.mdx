@@ -10,6 +10,13 @@ The guide assumes Nautobot has already been populated with the site's device dat
 
 The Config Manager, Nautobot, Kea, relay, and packet-flow checks in this guide apply across supported network operating systems. Device commands and file paths vary by vendor. Cumulus Linux-specific material is explicitly labeled, with its main command and recovery reference grouped in [Cumulus Linux device checks and recovery](#cumulus-linux-device-checks-and-recovery).
 
+<Note>
+The workflow and service steps apply to every DCIM provider. The data-entry
+examples on this page use the bundled Nautobot provider. For another provider,
+model the corresponding device identity, IP, platform, intended firmware, and
+topology data according to that provider's documentation.
+</Note>
+
 ## Prerequisites
 
 Before starting bringup, confirm the following are in place:

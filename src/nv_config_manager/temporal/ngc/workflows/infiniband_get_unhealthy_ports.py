@@ -33,7 +33,7 @@ from nv_config_manager.temporal.common.mixins.stage import (
 from nv_config_manager.temporal.common.workflow_references import DeviceReference
 
 with workflow.unsafe.imports_passed_through():
-    from nv_config_manager.temporal.ngc.activities.nautobot import (
+    from nv_config_manager.temporal.ngc.activities.dcim import (
         GetNetworkDeviceInput,
         get_network_device,
     )
@@ -62,6 +62,7 @@ class InfinibandGetUnhealthyPortsWorkflow(WorkflowMetadataMixin, StageMixin):
     workflow_name = "InfiniBand Get Unhealthy Ports"
     workflow_description = "Validate and report unhealthy ports in Infiniband network fabric"
     workflow_input_class = InfinibandGetUnhealthyPortsInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/infiniband_get_unhealthy_ports"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True

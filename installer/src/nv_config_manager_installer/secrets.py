@@ -28,6 +28,7 @@ import string
 from typing import Any
 
 from nv_config_manager_installer.schema import (
+    BUILT_IN_NAUTOBOT_PROVIDER,
     NVConfigManagerInstallConfig,
     PasswordSource,
     SecretsMethod,
@@ -110,18 +111,33 @@ _DB_GROUPS: list[tuple[str, str, str]] = [
 ]
 
 
-def _generate_core_k8s_secrets(state: dict[str, str], _v: Any) -> None:
-    """Populate core Kubernetes secrets (Nautobot, Redis, PostgreSQL)."""
-    state["nautobot_token"] = _v("nautobot", "token") or _generate_token(40)
-    if ro_token := _v("nautobot", "readOnlyToken"):
-        state["nautobot_read_only_token"] = ro_token
-    nats_password = _v("nautobot", "natsPassword") or _generate_nats_config_password()
+def _generate_core_k8s_secrets(
+    config: NVConfigManagerInstallConfig, state: dict[str, str], _v: Any
+) -> None:
+    """Populate core Kubernetes secrets for the selected DCIM and services."""
+    if config.dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER:
+        state["nautobot_token"] = _v("nautobot", "token") or _generate_token(40)
+        if ro_token := _v("nautobot", "readOnlyToken"):
+            state["nautobot_read_only_token"] = ro_token
+    else:
+        state["dcim_token"] = _v("dcim", "token") or _generate_token(40)
+
+    if config.dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER:
+        nats_password = _v("nautobot", "natsPassword")
+    else:
+        # Keep the legacy Nautobot key as a compatibility fallback for early
+        # external-provider configurations while making NATS independently owned.
+        nats_password = _v("nats", "password") or _v("nautobot", "natsPassword")
+    nats_password = nats_password or _generate_nats_config_password()
     state["nats_password"] = _validate_nats_config_password(nats_password)
     state["redis_password"] = _v("redis", "password") or _generate_url_safe_password()
-    state["nautobot_admin_password"] = _v("nautobot_app", "adminPassword") or _generate_password()
-    state["django_secret_key"] = _v("nautobot_app", "djangoSecretKey") or _generate_password(50)
-    if sv := _v("nautobot_app", "superuserApiToken"):
-        state["superuser_api_token"] = sv
+    if config.services.nautobot:
+        state["nautobot_admin_password"] = (
+            _v("nautobot_app", "adminPassword") or _generate_password()
+        )
+        state["django_secret_key"] = _v("nautobot_app", "djangoSecretKey") or _generate_password(50)
+        if sv := _v("nautobot_app", "superuserApiToken"):
+            state["superuser_api_token"] = sv
     for db, user_key, pass_key in _DB_GROUPS:
         state[f"{db}_db_user"] = _v("postgres", user_key) or db
         state[f"{db}_db_password"] = _v("postgres", pass_key) or _generate_url_safe_password()
@@ -203,7 +219,7 @@ def generate_secrets(config: NVConfigManagerInstallConfig) -> dict[str, str]:
     def _v(group: str, vault_key: str) -> str:
         return _k8s_val(config, group, vault_key)
 
-    _generate_core_k8s_secrets(state, _v)
+    _generate_core_k8s_secrets(config, state, _v)
     _generate_optional_k8s_secrets(config, state, _v)
     _generate_redfish_secrets(config, state)
 
@@ -223,22 +239,7 @@ def build_openbao_secret_data(
     def value(group: str, key: str) -> str:
         return _k8s_val(config, group, key)
 
-    nats_password = value("nautobot", "natsPassword") or _generate_nats_config_password()
-    nautobot_token = (
-        value("nautobot", "token")
-        or value("nautobot_app", "superuserApiToken")
-        or _generate_token(40)
-    )
     groups: dict[str, dict[str, str]] = {
-        "nautobot": {
-            "token": nautobot_token,
-            "readOnlyToken": value("nautobot", "readOnlyToken") or _generate_token(40),
-            "natsPassword": _validate_nats_config_password(nats_password),
-            "natsSysPassword": value("nautobot", "natsSysPassword")
-            or _generate_nats_config_password(),
-            "natsNautobotPassword": value("nautobot", "natsNautobotPassword")
-            or _generate_nats_config_password(),
-        },
         "redis": {
             "password": value("redis", "password") or _generate_url_safe_password(),
         },
@@ -247,12 +248,33 @@ def build_openbao_secret_data(
             "user": value("network", "user") or config.secrets.config_manager_service_username,
             "password": value("network", "password") or _generate_url_safe_password(),
         },
-        "nautobot_app": {
-            "adminPassword": value("nautobot_app", "adminPassword") or _generate_password(),
-            "djangoSecretKey": value("nautobot_app", "djangoSecretKey") or _generate_password(50),
-            "superuserApiToken": nautobot_token,
-        },
     }
+    if config.dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER:
+        nats_password = value("nautobot", "natsPassword") or _generate_nats_config_password()
+        nautobot_token = (
+            value("nautobot", "token")
+            or value("nautobot_app", "superuserApiToken")
+            or _generate_token(40)
+        )
+        groups["nautobot"] = {
+            "token": nautobot_token,
+            "readOnlyToken": value("nautobot", "readOnlyToken") or _generate_token(40),
+            "natsPassword": _validate_nats_config_password(nats_password),
+            "natsSysPassword": value("nautobot", "natsSysPassword")
+            or _generate_nats_config_password(),
+            "natsNautobotPassword": value("nautobot", "natsNautobotPassword")
+            or _generate_nats_config_password(),
+        }
+        if config.services.nautobot:
+            groups["nautobot_app"] = {
+                "adminPassword": value("nautobot_app", "adminPassword") or _generate_password(),
+                "djangoSecretKey": value("nautobot_app", "djangoSecretKey")
+                or _generate_password(50),
+                "superuserApiToken": nautobot_token,
+            }
+    else:
+        groups["dcim"] = {"token": value("dcim", "token") or _generate_token(40)}
+        groups["nats"] = {"password": value("nats", "password") or _generate_nats_config_password()}
     for database, user_key, password_key in _DB_GROUPS:
         groups["postgres"][user_key] = value("postgres", user_key) or database
         groups["postgres"][password_key] = value("postgres", password_key) or (
@@ -344,6 +366,8 @@ def build_openbao_secret_data(
 # suffix used when the user hasn't specified a custom vault path.
 _VAULT_PATH_GROUPS: list[tuple[str, str, str]] = [
     # (schema_field, helm_key, default_path_suffix)
+    ("dcim", "dcim", "dcim"),
+    ("nats", "nats", "nats"),
     ("nautobot", "nautobot", "nautobot"),
     ("redis", "redis", "redis"),
     ("postgres", "postgres", "postgres"),

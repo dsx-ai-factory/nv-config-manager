@@ -20,7 +20,9 @@ import { Suspense, use } from "react";
 import { handlers } from "@/mocks/handlers";
 
 const mockingEnabledPromise =
-  typeof window !== "undefined" && !window.BYPASS_MSW && process.env.NODE_ENV === 'development' 
+  typeof globalThis.window !== "undefined" &&
+  !globalThis.window.BYPASS_MSW &&
+  process.env.NODE_ENV === 'development'
     ? import("@/mocks/browser").then(async ({ worker }) => {
         await worker.start({
           onUnhandledRequest(request, print) {

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -30,7 +30,7 @@ def test_healthcheck():
     assert rsp.json() == "OK"
 
 
-@patch("nv_config_manager.render.api.render_v1.execute_render")
+@patch("nv_config_manager.render.api.render_v1.execute_render", new_callable=AsyncMock)
 @patch.dict(os.environ, {"LOCAL_VENV": "1"})
 def test_render(mock_execute_render):
     """Verify render API."""
@@ -52,14 +52,14 @@ def test_render(mock_execute_render):
             {"filename": "tenant.yaml", "commit": commit_2},
         ]
     }
-    mock_execute_render.assert_called_with(
+    mock_execute_render.assert_awaited_with(
         "test", "Manual render initiated by anonymous", "anonymous"
     )
 
     # Test with custom commit message
     custom_message = "Custom commit message"
     rsp = client.post("/v1/render/test/render", json={"commit_message": custom_message})
-    mock_execute_render.assert_called_with("test", custom_message, "anonymous")
+    mock_execute_render.assert_awaited_with("test", custom_message, "anonymous")
     assert rsp.status_code == 201
 
     # Test with no changes (empty list)
@@ -69,8 +69,8 @@ def test_render(mock_execute_render):
     assert rsp.json() == {"updated_files": []}
 
 
-@patch("nv_config_manager.render.api.render_v1.queue_render_batch")
-@patch("nv_config_manager.render.api.render_v1.get_render_enabled_devices")
+@patch("nv_config_manager.render.api.render_v1.queue_render_batch", new_callable=AsyncMock)
+@patch("nv_config_manager.render.api.render_v1.get_render_enabled_devices", new_callable=AsyncMock)
 @patch.dict(os.environ, {"LOCAL_VENV": "1"})
 def test_render_all_success(mock_get_devices, mock_queue_render_batch):
     """Test render all endpoint with successful queueing."""
@@ -103,8 +103,8 @@ def test_render_all_success(mock_get_devices, mock_queue_render_batch):
     assert isinstance(call[0][3], str)
 
 
-@patch("nv_config_manager.render.api.render_v1.queue_render_batch")
-@patch("nv_config_manager.render.api.render_v1.get_render_enabled_devices")
+@patch("nv_config_manager.render.api.render_v1.queue_render_batch", new_callable=AsyncMock)
+@patch("nv_config_manager.render.api.render_v1.get_render_enabled_devices", new_callable=AsyncMock)
 @patch.dict(os.environ, {"LOCAL_VENV": "1"})
 def test_render_all_custom_commit_message(mock_get_devices, mock_queue_render_batch):
     """Test render all endpoint with custom commit message."""
@@ -123,8 +123,8 @@ def test_render_all_custom_commit_message(mock_get_devices, mock_queue_render_ba
     assert call[0][1] == custom_message
 
 
-@patch("nv_config_manager.render.api.render_v1.queue_render_batch")
-@patch("nv_config_manager.render.api.render_v1.get_render_enabled_devices")
+@patch("nv_config_manager.render.api.render_v1.queue_render_batch", new_callable=AsyncMock)
+@patch("nv_config_manager.render.api.render_v1.get_render_enabled_devices", new_callable=AsyncMock)
 @patch.dict(os.environ, {"LOCAL_VENV": "1"})
 def test_render_all_no_devices(mock_get_devices, mock_queue_render_batch):
     """Test render all endpoint when no devices are found."""
@@ -142,8 +142,8 @@ def test_render_all_no_devices(mock_get_devices, mock_queue_render_batch):
     mock_queue_render_batch.assert_not_called()
 
 
-@patch("nv_config_manager.render.api.render_v1.queue_render_batch")
-@patch("nv_config_manager.render.api.render_v1.get_render_enabled_devices")
+@patch("nv_config_manager.render.api.render_v1.queue_render_batch", new_callable=AsyncMock)
+@patch("nv_config_manager.render.api.render_v1.get_render_enabled_devices", new_callable=AsyncMock)
 @patch.dict(os.environ, {"LOCAL_VENV": "1"})
 def test_render_all_partial_failures(mock_get_devices, mock_queue_render_batch):
     """Test render all endpoint with some devices failing to queue."""
@@ -171,7 +171,7 @@ def test_render_all_partial_failures(mock_get_devices, mock_queue_render_batch):
     assert "Device not enabled for renders" in returned_failed_devices[0]["error"]
 
 
-@patch("nv_config_manager.render.api.render_v1.get_render_enabled_devices")
+@patch("nv_config_manager.render.api.render_v1.get_render_enabled_devices", new_callable=AsyncMock)
 @patch.dict(os.environ, {"LOCAL_VENV": "1"})
 def test_render_all_graphql_error(mock_get_devices):
     """Test render all endpoint when GraphQL query fails."""
@@ -188,8 +188,8 @@ def test_render_all_graphql_error(mock_get_devices):
     assert "Failed to query render-enabled devices" in rsp.json()["detail"]
 
 
-@patch("nv_config_manager.render.api.render_v1.queue_render_batch")
-@patch("nv_config_manager.render.api.render_v1.get_render_enabled_devices")
+@patch("nv_config_manager.render.api.render_v1.queue_render_batch", new_callable=AsyncMock)
+@patch("nv_config_manager.render.api.render_v1.get_render_enabled_devices", new_callable=AsyncMock)
 @patch.dict(os.environ, {"LOCAL_VENV": "1"})
 def test_render_all_user_extraction(mock_get_devices, mock_queue_render_batch):
     """Test render all endpoint with custom user header."""

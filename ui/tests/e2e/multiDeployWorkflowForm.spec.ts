@@ -170,7 +170,7 @@ test.describe("New Multi-Configuration Deploy Workflow", () => {
         `&location=${SITES_LIST.rno1}` +
         `&status=${STATUS_LIST.active}` +
         `&status=${STATUS_LIST.provisioning}` +
-        `&tenant=${TENANT_LIST.nsv}`
+        `&tenant=${TENANT_LIST.tenant_a}`
     );
 
     // Verify fields are pre-populated
@@ -198,7 +198,7 @@ test.describe("New Multi-Configuration Deploy Workflow", () => {
 
     await expect(
       page.getByRole("button", {
-        name: `${TENANT_LIST.nsv}. Open options`,
+        name: `${TENANT_LIST.tenant_a}. Open options`,
         exact: true,
       })
     ).toBeVisible();

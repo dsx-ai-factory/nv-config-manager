@@ -16,6 +16,7 @@
 
 import asyncio
 import time
+from contextlib import closing
 from datetime import timedelta
 
 from pydantic import BaseModel
@@ -123,6 +124,13 @@ PLATFORM_COMMANDS: dict[Platform, set[str]] = {
         "show_inventory",
         "show_mlag",
     },
+    Platform.JUNIPER_JUNOS: {
+        "show_version",
+        "show_interfaces",
+        "show_lldp_neighbors",
+        "show_route_table",
+        "show_arp_table",
+    },
     Platform.MLNX_OS: set(),
     Platform.UFM: set(),
 }
@@ -187,13 +195,14 @@ def run_diagnostic_commands(activity_input: RunDiagnosticsInput) -> RunDiagnosti
         activity_input.device_data.platform,
         activity_input.commands,
     )
-    connection = NetworkConnection.from_device_data(activity_input.device_data)
     outputs: dict[str, str] = {}
-    for name in valid_commands:
-        try:
-            outputs[name] = connection.run_diagnostic_command(name)
-        except Exception as e:
-            outputs[name] = f"ERROR: {e}"  # per-command failure captured, never aborts the device
+    with closing(NetworkConnection.from_device_data(activity_input.device_data)) as connection:
+        for name in valid_commands:
+            try:
+                outputs[name] = connection.run_diagnostic_command(name)
+            except Exception as e:
+                # per-command failure captured, never aborts the device
+                outputs[name] = f"ERROR: {e}"
     return RunDiagnosticsOutput(device_name=activity_input.device_data.name, outputs=outputs)
 
 
@@ -219,8 +228,8 @@ def collect_tech_support_bundle(activity_input: TechSupportInput) -> TechSupport
         elapsed = int(time.monotonic() - start)
         activity.heartbeat(f"Generating cl-support bundle on {device_name} ({elapsed}s elapsed)...")
 
-    connection = NetworkConnection.from_device_data(activity_input.device_data)
-    content, cl_support_log = connection.get_tech_support_bundle(_heartbeat)
+    with closing(NetworkConnection.from_device_data(activity_input.device_data)) as connection:
+        content, cl_support_log = connection.get_tech_support_bundle(_heartbeat)
 
     # Store raw bytes in Redis; never transmit them through Temporal.
     redis_key = f"tech_support:{info.workflow_id}:{device_name}"

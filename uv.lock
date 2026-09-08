@@ -13,7 +13,10 @@ resolution-markers = [
 [manifest]
 members = [
     "nv-config-manager",
+    "nv-config-manager-dcim",
+    "nv-config-manager-dcim-nautobot-2x",
     "nv-config-manager-templates",
+    "nv-config-manager-workflows",
 ]
 
 [[package]]
@@ -1105,6 +1108,15 @@ wheels = [
 ]
 
 [[package]]
+name = "graphql-core"
+version = "3.2.11"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4d/90/f2aff026ab4aebd80eb71905106a0885f4cfde85dcf965543f45bed0d9ee/graphql_core-3.2.11.tar.gz", hash = "sha256:e7e156d10beb127cab5c89ff0da71416fc73d27c484a4757d3b2d35633774802", size = 528407, upload-time = "2026-06-05T13:45:22.915Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/15/b92b4e1d88d02c6eff9733c9eea21846ab435cc4d813d84ccc5d335955df/graphql_core-3.2.11-py3-none-any.whl", hash = "sha256:0b3e35ff41e9adba53021ab0cef475eb18f57c7f53f0f2ca55567fbf3c537ea0", size = 214879, upload-time = "2026-06-05T13:45:21.245Z" },
+]
+
+[[package]]
 name = "greenlet"
 version = "3.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1476,6 +1488,28 @@ wheels = [
 ]
 
 [[package]]
+name = "junos-eznc"
+version = "2.8.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jinja2" },
+    { name = "lxml" },
+    { name = "ncclient" },
+    { name = "paramiko" },
+    { name = "pyparsing" },
+    { name = "pyserial" },
+    { name = "pyyaml" },
+    { name = "scp" },
+    { name = "six" },
+    { name = "transitions" },
+    { name = "yamlloader" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/34/66/aeab71e5844ff25b771c509b19f8c85e0e5d1c34851b52135de3e9609b9c/junos_eznc-2.8.2.tar.gz", hash = "sha256:bb0426e74bce4544405723a9047341ede91b29cd9b61f1be9e633a55c470fffc", size = 186097, upload-time = "2026-06-22T09:18:47.619Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7c/9c/e60c8fcc16093cc93e5b67d516e628597a3fd124622b3418e88e810f5809/junos_eznc-2.8.2-py2.py3-none-any.whl", hash = "sha256:2e0038910e8bcbc2eeb61f7221127e7cfcfab54a682462076534db56326157ce", size = 217126, upload-time = "2026-06-22T09:18:45.916Z" },
+]
+
+[[package]]
 name = "libpass"
 version = "1.9.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1722,7 +1756,7 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "1.27.2"
+version = "1.29.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1740,9 +1774,9 @@ dependencies = [
     { name = "typing-inspection" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/27/3c/347cf965d313f5d41764e7d46bea6ffe7d9ef13b983cc429b0340962a082/mcp-1.27.2.tar.gz", hash = "sha256:8e02db104096d1c25b28e64bde29a5c32b31bc241710213e12fd4d84985bdfef", size = 621116, upload-time = "2026-05-29T17:16:04.039Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/30/d3/f9acc21dfc886e4f78e2add1a47db46ce16884346afde53f8a064c02c891/mcp-1.29.0.tar.gz", hash = "sha256:52d01f334de1868cc3bb2d6604931126a67631f99a6c5d3b82ba47290315ec36", size = 643148, upload-time = "2026-07-28T13:41:41.939Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c9/11/252c6f971dc4f16af1d98a1c469d8ba523aab00d1bb76b4d3bc1ff32eacc/mcp-1.27.2-py3-none-any.whl", hash = "sha256:d6ff5160c6ca65d93013626efb3fc249de683c30b2d8570755ceddd490344de5", size = 220498, upload-time = "2026-05-29T17:16:02.442Z" },
+    { url = "https://files.pythonhosted.org/packages/01/c8/248b201f6d753d69fd5d6506011abbb35a946d9142b2ae311a948fd0be3d/mcp-1.29.0-py3-none-any.whl", hash = "sha256:f5a075bb611f23d6f4d080c6a1699fa62772eebc562ba9e66b306ddde1c755f7", size = 223436, upload-time = "2026-07-28T13:41:40.337Z" },
 ]
 
 [[package]]
@@ -2087,6 +2121,16 @@ nkeys = [
 ]
 
 [[package]]
+name = "ncclient"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lxml" },
+    { name = "paramiko" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c2/fb/29dbb4987f81d7932d8018079bf3e6d1d5cce320d7c2c90e84d3c7dba40c/ncclient-0.7.0.tar.gz", hash = "sha256:318e8e3e72b1d2a766f3665cabef33436fd25b607da5f15657a199c648a68435", size = 116221, upload-time = "2025-08-25T15:29:24.172Z" }
+
+[[package]]
 name = "netaddr"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2217,6 +2261,7 @@ dependencies = [
     { name = "httpx" },
     { name = "idna" },
     { name = "jinja2" },
+    { name = "junos-eznc" },
     { name = "macaddress" },
     { name = "mako" },
     { name = "mcp" },
@@ -2226,7 +2271,10 @@ dependencies = [
     { name = "netmiko" },
     { name = "nkeys" },
     { name = "numpy" },
+    { name = "nv-config-manager-dcim" },
+    { name = "nv-config-manager-dcim-nautobot-2x" },
     { name = "nv-config-manager-templates" },
+    { name = "nv-config-manager-workflows" },
     { name = "openpyxl" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
     { name = "opentelemetry-instrumentation-aiohttp-client" },
@@ -2247,7 +2295,6 @@ dependencies = [
     { name = "pyeapi" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "pynacl" },
-    { name = "pynautobot" },
     { name = "python-json-logger" },
     { name = "python-multipart" },
     { name = "redis", extra = ["hiredis"] },
@@ -2311,6 +2358,10 @@ integration-test = [
 ipython = [
     { name = "ipython" },
 ]
+promotion-gate = [
+    { name = "requests" },
+    { name = "responses" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -2329,16 +2380,20 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.2" },
     { name = "idna", specifier = ">=3.15" },
     { name = "jinja2", specifier = ">=3.1.2" },
+    { name = "junos-eznc", specifier = ">=2.8.2" },
     { name = "macaddress", specifier = ">=2.0.2" },
     { name = "mako", specifier = ">=1.3.12" },
-    { name = "mcp", specifier = ">=1.8.0" },
+    { name = "mcp", specifier = ">=1.29.0,<2" },
     { name = "mkdocs", specifier = ">=1.6.1" },
     { name = "nats-py", extras = ["nkeys"], specifier = ">=2.8.0" },
     { name = "netaddr", specifier = ">=0.10.1" },
     { name = "netmiko", specifier = ">=4.3.0" },
     { name = "nkeys", specifier = ">=0.2.0" },
     { name = "numpy", specifier = ">=2.1.0,<3.0.0" },
-    { name = "nv-config-manager-templates", editable = "components/network-templates" },
+    { name = "nv-config-manager-dcim", editable = "packages/dcim" },
+    { name = "nv-config-manager-dcim-nautobot-2x", editable = "plugins/dcim/nautobot-2x" },
+    { name = "nv-config-manager-templates", editable = "packages/templates" },
+    { name = "nv-config-manager-workflows", editable = "packages/workflows" },
     { name = "openpyxl", specifier = ">=3.1.0" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.11.1,<2" },
     { name = "opentelemetry-instrumentation-aiohttp-client", specifier = ">=0.46b0" },
@@ -2358,7 +2413,6 @@ requires-dist = [
     { name = "pyeapi", specifier = ">=1.0.2" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.13.0" },
     { name = "pynacl", specifier = ">=1.6.2" },
-    { name = "pynautobot", specifier = ">=2.4.0" },
     { name = "python-json-logger", specifier = ">=2.0.7" },
     { name = "python-multipart", specifier = ">=0.0.30" },
     { name = "redis", extras = ["hiredis"], specifier = ">=5.2.1" },
@@ -2368,7 +2422,7 @@ requires-dist = [
     { name = "slack-sdk", specifier = ">=3.35.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.23" },
     { name = "starlette", specifier = ">=1.3.1" },
-    { name = "temporalio", extras = ["opentelemetry"], specifier = ">=1.29.0" },
+    { name = "temporalio", extras = ["opentelemetry"], specifier = ">=1.29.0,<1.32.0" },
     { name = "types-netaddr", specifier = ">=1.3.0.20250822" },
     { name = "types-openpyxl", specifier = ">=3.1.5.20250602" },
     { name = "urllib3", specifier = ">=2.7.0" },
@@ -2418,17 +2472,81 @@ docs = [
 ]
 integration-test = [{ name = "pytest", specifier = ">=8.3.3" }]
 ipython = [{ name = "ipython", specifier = ">=8.28.0" }]
+promotion-gate = [
+    { name = "requests", specifier = ">=2.33.0" },
+    { name = "responses", specifier = ">=0.25.3" },
+]
+
+[[package]]
+name = "nv-config-manager-dcim"
+version = "1.0.0"
+source = { editable = "packages/dcim" }
+dependencies = [
+    { name = "netaddr" },
+    { name = "pydantic" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "netaddr", specifier = ">=1.3.0" },
+    { name = "pydantic", specifier = ">=2.10.2" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "pytest-asyncio", specifier = ">=0.23.7" },
+    { name = "ruff", specifier = ">=0.15.11" },
+]
+
+[[package]]
+name = "nv-config-manager-dcim-nautobot-2x"
+version = "1.0.0"
+source = { editable = "plugins/dcim/nautobot-2x" }
+dependencies = [
+    { name = "aiohttp", extra = ["speedups"] },
+    { name = "graphql-core" },
+    { name = "nv-config-manager-dcim" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", extras = ["speedups"], specifier = ">=3.14.1" },
+    { name = "graphql-core", specifier = ">=3.2.7,<3.3" },
+    { name = "nv-config-manager-dcim", editable = "packages/dcim" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "pytest-asyncio", specifier = ">=0.23.7" },
+    { name = "ruff", specifier = ">=0.15.11" },
+]
 
 [[package]]
 name = "nv-config-manager-templates"
-source = { editable = "components/network-templates" }
+source = { editable = "packages/templates" }
 dependencies = [
     { name = "click" },
     { name = "hvac" },
     { name = "jinja2" },
     { name = "libpass" },
+    { name = "nv-config-manager-dcim" },
     { name = "packaging" },
-    { name = "requests" },
 ]
 
 [package.dev-dependencies]
@@ -2445,8 +2563,8 @@ requires-dist = [
     { name = "importlib-metadata", marker = "python_full_version < '3.10'", specifier = ">=6.0.0" },
     { name = "jinja2", specifier = ">=3.1.2" },
     { name = "libpass", specifier = ">=1.9.3" },
+    { name = "nv-config-manager-dcim", editable = "packages/dcim" },
     { name = "packaging", specifier = ">=24.0" },
-    { name = "requests", specifier = ">=2.31.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -2454,6 +2572,41 @@ dev = [
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "ruff", specifier = ">=0.15.11" },
+]
+
+[[package]]
+name = "nv-config-manager-workflows"
+version = "1.0.0"
+source = { editable = "packages/workflows" }
+dependencies = [
+    { name = "netaddr" },
+    { name = "nv-config-manager-dcim" },
+    { name = "py-markdown-table" },
+    { name = "pydantic" },
+    { name = "temporalio" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "netaddr", specifier = ">=1.3.0" },
+    { name = "nv-config-manager-dcim", editable = "packages/dcim" },
+    { name = "py-markdown-table", specifier = ">=1.1.0" },
+    { name = "pydantic", specifier = ">=2.10.2" },
+    { name = "temporalio", specifier = ">=1.29.0,<1.32.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "pytest-asyncio", specifier = ">=0.23.7" },
+    { name = "ruff", specifier = "==0.16.3" },
 ]
 
 [[package]]
@@ -3318,17 +3471,12 @@ wheels = [
 ]
 
 [[package]]
-name = "pynautobot"
-version = "3.1.0"
+name = "pyparsing"
+version = "3.3.2"
 source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "packaging" },
-    { name = "requests" },
-    { name = "urllib3" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/81/7f/f49b7f2bdad89ddc5869c9e67896fa8048cd689fb701395971dfa89fec99/pynautobot-3.1.0.tar.gz", hash = "sha256:72f99278eefb81ab4f60748e128acf35101e28b1a3b77b6a979da122e0d1d7e9", size = 33338, upload-time = "2026-03-31T14:02:18.301Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f3/91/9c6ee907786a473bf81c5f53cf703ba0957b23ab84c264080fb5a450416f/pyparsing-3.3.2.tar.gz", hash = "sha256:c777f4d763f140633dcb6d8a3eda953bf7a214dc4eff598413c070bcdc117cbc", size = 6851574, upload-time = "2026-01-21T03:57:59.36Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9d/91/15932faa74db2783f3dcb7f81d08b976b36f64d725c7ea916803a8b5a6cf/pynautobot-3.1.0-py3-none-any.whl", hash = "sha256:f217cfa90c67310415c6d83dc23b7210b4dcb85dc3b8e009cec55a5fca33874e", size = 41772, upload-time = "2026-03-31T14:02:16.95Z" },
+    { url = "https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl", hash = "sha256:850ba148bd908d7e2411587e247a1e4f0327839c40e2e5e6d05a007ecc69911d", size = 122781, upload-time = "2026-01-21T03:57:55.912Z" },
 ]
 
 [[package]]
@@ -4088,6 +4236,18 @@ wheels = [
 ]
 
 [[package]]
+name = "transitions"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4f/83/9e90f3494057d73c9e6bd8de8488af7c9fa714666ccc2db30fe07d147818/transitions-0.9.3.tar.gz", hash = "sha256:881fb75bb1654ed55d86060bb067f2c716f8e155f57bb73fd444e53713aafec8", size = 1191029, upload-time = "2025-07-02T10:49:03.153Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f4/05/fea3020e90aa378941ff10de8860fb3b1288313c27efd10fa0c476498f7e/transitions-0.9.3-py2.py3-none-any.whl", hash = "sha256:02463248f2b668d86f66636b1e3c9e8de84d93e22915247f4e1aa9ee1cae28aa", size = 112792, upload-time = "2025-07-02T10:49:01.415Z" },
+]
+
+[[package]]
 name = "ty"
 version = "0.0.32"
 source = { registry = "https://pypi.org/simple" }
@@ -4467,6 +4627,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/79/d9/7cfd5a312760ac4dd8bf0184a6ee9e43c33e47f3dadc303032ce012b8fa3/wrapt-1.17.3-cp314-cp314t-win_amd64.whl", hash = "sha256:73d496de46cd2cdbdbcce4ae4bcdb4afb6a11234a1df9c085249d55166b95116", size = 41334, upload-time = "2025-08-12T05:53:14.178Z" },
     { url = "https://files.pythonhosted.org/packages/46/78/10ad9781128ed2f99dbc474f43283b13fea8ba58723e98844367531c18e9/wrapt-1.17.3-cp314-cp314t-win_arm64.whl", hash = "sha256:f38e60678850c42461d4202739f9bf1e3a737c7ad283638251e79cc49effb6b6", size = 38471, upload-time = "2025-08-12T05:52:57.784Z" },
     { url = "https://files.pythonhosted.org/packages/1f/f6/a933bd70f98e9cf3e08167fc5cd7aaaca49147e48411c0bd5ae701bb2194/wrapt-1.17.3-py3-none-any.whl", hash = "sha256:7171ae35d2c33d326ac19dd8facb1e82e5fd04ef8c6c0e394d7af55a55051c22", size = 23591, upload-time = "2025-08-12T05:53:20.674Z" },
+]
+
+[[package]]
+name = "yamlloader"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e7/e6/81677e777ca8a3588012f74e215050e3001e39d253076beb1c3306fc9460/yamlloader-1.6.0.tar.gz", hash = "sha256:918232976c9910d079ef74b3266ff9ef674228609aa56e67718b3992940a823f", size = 77622, upload-time = "2025-11-10T15:34:30.228Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d2/8a/132113ebc0f5ef3e893c4c75b058f70206b80a8a69ba46fbaeb5d409eb32/yamlloader-1.6.0-py3-none-any.whl", hash = "sha256:d9ea9948759732eab65e1dbcea510f1582b9c096aab33c893bf55ae9d58783e8", size = 7804, upload-time = "2025-11-10T15:34:29.04Z" },
 ]
 
 [[package]]

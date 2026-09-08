@@ -5,6 +5,8 @@
 # These paths affect the published artifacts (images and charts):
 #   - build/**          - Dockerfiles and build configurations
 #   - components/**     - Go code (nats-ready), Nautobot config
+#   - packages/**       - Public Python libraries
+#   - plugins/**        - Installable extension implementations
 #   - db/**             - Database migrations
 #   - deploy/helm/**    - Helm charts
 #   - src/**            - Python source code
@@ -16,6 +18,8 @@
 .artifact-paths: &artifact-paths
   - "build/**/*"
   - "components/**/*"
+  - "packages/**/*"
+  - "plugins/**/*"
   - "db/**/*"
   - "deploy/helm/**/*"
   - "src/**/*"

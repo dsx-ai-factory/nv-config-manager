@@ -46,7 +46,12 @@ import pytest
 # shell startup) plus a login/token mint, so under CI contention they can exceed
 # the strict global 30s per-test timeout without actually hanging. Give this
 # module more headroom; the rest of the suite keeps the tight default.
-pytestmark = [pytest.mark.integration, pytest.mark.rbac, pytest.mark.timeout(120)]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.rbac,
+    pytest.mark.timeout(120),
+    pytest.mark.dcim_provider("nautobot-2x"),
+]
 
 # Users seeded by scripts/create-local-security-nautobot-users, with the roles
 # the local Keycloak realm assigns (password == username).

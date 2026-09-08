@@ -29,6 +29,7 @@
 #   --include-skopeo        Include the build host Skopeo binary in tools/skopeo/
 #   --include-agpl-observability Include AGPL Grafana/Loki/Tempo observability charts and related images
 #   --skopeo-binary PATH    Skopeo binary to include (default: command -v skopeo)
+#   --extra-images-file PATH Additional image references, one per line, for this bundle
 #   --arch ARCH             Build only for specific architecture: amd64, arm64, or both (default: both)
 #   --help                  Show help message
 #
@@ -36,6 +37,7 @@
 #   charts.config            Extra Helm charts whose images should be included
 #   ../operator-versions.env Operator/dependency chart and CRD versions used for image discovery
 #   extraimages.config       Additional images not discovered from charts
+#   --extra-images-file      Site-specific images, including external DCIM provider packages
 #
 set -euo pipefail
 
@@ -74,6 +76,7 @@ CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-auto}"  # auto, docker, or containerd
 INCLUDE_SKOPEO="${INCLUDE_SKOPEO:-false}"
 INCLUDE_AGPL_OBSERVABILITY="${INCLUDE_AGPL_OBSERVABILITY:-false}"
 SKOPEO_BINARY="${SKOPEO_BINARY:-}"
+EXTRA_IMAGES_FILE="${EXTRA_IMAGES_FILE:-}"
 BUILD_DIR=""
 
 # Parse command line arguments
@@ -125,6 +128,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skopeo-binary)
             SKOPEO_BINARY="$2"
+            shift 2
+            ;;
+        --extra-images-file)
+            EXTRA_IMAGES_FILE="$2"
             shift 2
             ;;
         --arch)
@@ -643,20 +650,34 @@ extract_images_from_external_charts() {
 }
 
 load_extra_images() {
-    # Load additional images from extraimages.config
-    local extra_images_file="$SCRIPT_DIR/extraimages.config"
-    
-    if [[ ! -f "$extra_images_file" ]]; then
-        return 0
+    # Load product defaults plus an optional site-specific image list. The latter
+    # is used for images that cannot be discovered from our chart, such as an
+    # external DCIM provider wheel image selected in install.yaml.
+    local extra_images_file
+    local line
+    local -a image_files=("$SCRIPT_DIR/extraimages.config")
+
+    if [[ -n "$EXTRA_IMAGES_FILE" ]]; then
+        image_files+=("$EXTRA_IMAGES_FILE")
     fi
-    
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        # Skip empty lines and comments
-        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-        # Remove leading/trailing whitespace
-        line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-        [[ -n "$line" ]] && echo "$line"
-    done < "$extra_images_file"
+
+    for extra_images_file in "${image_files[@]}"; do
+        if [[ ! -f "$extra_images_file" ]]; then
+            if [[ "$extra_images_file" == "$EXTRA_IMAGES_FILE" ]]; then
+                log_error "Extra images file not found: $extra_images_file" >&2
+                return 1
+            fi
+            continue
+        fi
+
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            # Skip empty lines and comments
+            [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+            # Remove leading/trailing whitespace
+            line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            [[ -n "$line" ]] && echo "$line"
+        done < "$extra_images_file"
+    done
     return 0
 }
 

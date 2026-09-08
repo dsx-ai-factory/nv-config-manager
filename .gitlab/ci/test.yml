@@ -1,5 +1,5 @@
 .network-template-paths: &network-template-paths
-  - "components/network-templates/**/*"
+  - "packages/templates/**/*"
   - pyproject.toml
   - uv.lock
 
@@ -21,6 +21,9 @@ test-mr-py:
       changes:
         - "src/**/*"
         - "components/nautobot/**/*"
+        - "packages/dcim/**/*"
+        - "packages/workflows/**/*"
+        - "plugins/dcim/nautobot-2x/**/*"
         - pyproject.toml
         - uv.lock
       when: on_success
@@ -43,6 +46,7 @@ test-mr-py:
     - pip install uv
     - uv sync --frozen
   script:
+    - uv run pytest packages/dcim/tests -v
     - uv run pytest -n auto --cov=src/nv_config_manager --cov-report=xml:coverage.xml --cov-report=term
     - *nautobot-coverage-script
   artifacts:
@@ -76,15 +80,15 @@ test-mr-network-templates:
     - pip install uv
     - uv sync --frozen
   script:
-    - uv run pytest components/network-templates/tests -v --cov=nv_config_manager_templates --cov-report=xml:components/network-templates/coverage.xml --cov-report=term
+    - uv run pytest packages/templates/tests -v --cov=nv_config_manager_templates --cov-report=xml:packages/templates/coverage.xml --cov-report=term
   artifacts:
     when: always
     paths:
-      - components/network-templates/coverage.xml
+      - packages/templates/coverage.xml
     reports:
       coverage_report:
         coverage_format: cobertura
-        path: components/network-templates/coverage.xml
+        path: packages/templates/coverage.xml
     expire_in: 1 week
   coverage: '/TOTAL.*\s+(\d+%)/'
 
@@ -413,9 +417,9 @@ test-main-py:
     - linux/amd64
     - docker
   rules:
-    # Skip during test-env promote pipelines (web pipelines on the default
-    # branch with $NVCM_PROMOTE_ENV set).
-    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/
+    # Skip default-branch triggered pipelines without trusting their supplied
+    # variables; the promote validators authorize their dedicated jobs.
+    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/)
       when: never
     - if: $CI_COMMIT_TAG
       when: on_success
@@ -440,6 +444,7 @@ test-main-py:
     - pip install uv
     - uv sync --frozen
   script:
+    - uv run pytest packages/dcim/tests -v
     - uv run pytest -n auto --cov=src/nv_config_manager --cov-report=xml:coverage.xml --cov-report=term
     - *nautobot-coverage-script
   artifacts:
@@ -463,9 +468,8 @@ test-main-network-templates:
     - linux/amd64
     - docker
   rules:
-    # Skip during test-env promote pipelines (web pipelines on the default
-    # branch with $NVCM_PROMOTE_ENV set).
-    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/
+    # Skip default-branch triggered pipelines (see test-main-py).
+    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/)
       when: never
     - if: $CI_COMMIT_TAG
       when: on_success
@@ -478,15 +482,15 @@ test-main-network-templates:
     - pip install uv
     - uv sync --frozen
   script:
-    - uv run pytest components/network-templates/tests -v --cov=nv_config_manager_templates --cov-report=xml:components/network-templates/coverage.xml --cov-report=term
+    - uv run pytest packages/templates/tests -v --cov=nv_config_manager_templates --cov-report=xml:packages/templates/coverage.xml --cov-report=term
   artifacts:
     when: always
     paths:
-      - components/network-templates/coverage.xml
+      - packages/templates/coverage.xml
     reports:
       coverage_report:
         coverage_format: cobertura
-        path: components/network-templates/coverage.xml
+        path: packages/templates/coverage.xml
     expire_in: 1 week
   coverage: '/TOTAL.*\s+(\d+%)/'
 
@@ -499,9 +503,8 @@ test-main-installer:
     - linux/amd64
     - docker
   rules:
-    # Skip during test-env promote pipelines (web pipelines on the default
-    # branch with $NVCM_PROMOTE_ENV set).
-    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/
+    # Skip default-branch triggered pipelines (see test-main-py).
+    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/)
       when: never
     - if: $CI_COMMIT_TAG
       when: on_success
@@ -535,9 +538,8 @@ test-main-ui-e2e:
     - linux/amd64
     - docker
   rules:
-    # Skip during test-env promote pipelines (web pipelines on the default
-    # branch with $NVCM_PROMOTE_ENV set).
-    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/
+    # Skip default-branch triggered pipelines (see test-main-py).
+    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/)
       when: never
     - if: $CI_COMMIT_TAG
       when: on_success

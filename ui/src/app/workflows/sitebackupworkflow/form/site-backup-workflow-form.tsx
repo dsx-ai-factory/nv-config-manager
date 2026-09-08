@@ -232,7 +232,7 @@ export const SiteBackupWorkflowForm = () => {
                     <div className="space-y-1 leading-none">
                       <FormLabel>Backup enabled only</FormLabel>
                       <FormDescription>
-                        Include only devices with backup enabled in Nautobot.
+                        Include only devices with backup enabled in the DCIM.
                         Uncheck to back up all managed devices that match the
                         other filters.
                       </FormDescription>

@@ -39,7 +39,7 @@ import traceback
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
 import yaml
 
@@ -60,6 +60,7 @@ from nv_config_manager_installer.pvc_updater import (
     validate_ztp_path_component,
 )
 from nv_config_manager_installer.schema import (
+    BUILT_IN_NAUTOBOT_PROVIDER,
     GatewayType,
     ImageSource,
     LBProvider,
@@ -70,31 +71,23 @@ from nv_config_manager_installer.schema import (
 )
 from nv_config_manager_installer.secrets import generate_secrets
 
-_PROJECT_ROOT_MARKERS = ("deploy", "Makefile", ".git")
 _DEFAULT_GATEWAY_CLASS_NAME = "envoy-gateway"
 _HELM_RELEASE_NAME_ANNOTATION = "meta.helm.sh/release-name"
 _HELM_RELEASE_NAMESPACE_ANNOTATION = "meta.helm.sh/release-namespace"
 
 
 def find_project_root(start: Path | None = None) -> Path:
-    """Walk upward from *start* (default: cwd) looking for the NVIDIA Config Manager project root.
+    """Return an explicit root or the source tree containing this installer package."""
+    if start is not None:
+        candidate = start.expanduser().resolve()
+        if not candidate.is_dir():
+            raise RuntimeError(f"Installer project root is not a directory: {candidate}")
+        return candidate
 
-    The root is identified by containing a ``deploy/`` directory, a ``Makefile``,
-    or a ``.git`` directory. This lets the installer work correctly regardless of
-    whether it's invoked from the repo root, the ``installer/`` subdirectory, or
-    anywhere else inside the tree.
-
-    Falls back to cwd if no marker is found.
-    """
-    candidate = (start or Path.cwd()).resolve()
-    for _ in range(20):
-        if any((candidate / m).exists() for m in _PROJECT_ROOT_MARKERS):
-            return candidate
-        parent = candidate.parent
-        if parent == candidate:
-            break
-        candidate = parent
-    return Path.cwd().resolve()
+    # deployer.py lives at installer/src/nv_config_manager_installer/deployer.py.
+    # Resolving from the package prevents an unrelated wrapper repository in cwd
+    # from being mistaken for the NVCM source tree.
+    return Path(__file__).resolve().parents[3]
 
 
 class StepStatus(StrEnum):
@@ -160,6 +153,7 @@ class DeployOptions:
     """Options that influence the deployment pipeline but aren't in the config file."""
 
     chart_dir: str = "deploy/helm"
+    project_root: Path | None = None
     build_images: bool = False
     load_kind: bool = False
     kind_cluster: str = "nv-config-manager"
@@ -1086,13 +1080,15 @@ def _run_logged_parallel(
 class Deployer:
     """Orchestrates the full NVIDIA Config Manager deployment pipeline."""
 
+    CONFIG_MODEL: ClassVar[type[NVConfigManagerInstallConfig]] = NVConfigManagerInstallConfig
+
     def __init__(
         self,
         config: NVConfigManagerInstallConfig,
         options: DeployOptions,
         callback: DeployCallback | None = None,
     ) -> None:
-        self.config = NVConfigManagerInstallConfig.model_validate(config.model_dump())
+        self.config = self.CONFIG_MODEL.model_validate(config.model_dump())
         self.options = options
         self.callback = callback or _NoopCallback()
         self._secrets_state: dict[str, str] = {}
@@ -1100,7 +1096,13 @@ class Deployer:
         self._k8s: K8sClient | None = None
         self._local_image_tags: dict[str, str] = {}
 
-        self.steps: list[DeployStep] = [
+        self.steps = self.create_steps()
+        self._step_map = {s.id: s for s in self.steps}
+
+    @classmethod
+    def create_steps(cls) -> list[DeployStep]:
+        """Return deployment steps shown by CLI and TUI frontends."""
+        return [
             DeployStep("prereqs", "Check prerequisites"),
             DeployStep("build-images", "Build local images"),
             DeployStep("load-kind", "Load images to Kind"),
@@ -1121,7 +1123,6 @@ class Deployer:
             DeployStep("run-tests", "Run integration tests"),
             DeployStep("endpoints", "Collect endpoints"),
         ]
-        self._step_map = {s.id: s for s in self.steps}
 
     def _get_step(self, step_id: str) -> DeployStep:
         return self._step_map[step_id]
@@ -1154,9 +1155,46 @@ class Deployer:
                 "install kgateway and its Gateway API CRDs before deploying Config Manager"
             )
 
+    def _local_image_builds(self) -> tuple[tuple[str, str, str, str | None], ...]:
+        """Return local images required by this deployment.
+
+        Derived installers may override this hook to add or replace provider-owned
+        images without reimplementing the build and Kind loading pipeline.
+        """
+        if self.config.services.nautobot:
+            return _LOCAL_IMAGE_BUILDS
+        return tuple(
+            build for build in _LOCAL_IMAGE_BUILDS if build[0] != "nv-config-manager-nautobot"
+        )
+
+    def _validate_project_paths(self, project_root: Path) -> None:
+        """Fail early when repository-owned deployment inputs are unavailable."""
+        chart_dir = Path(self.options.chart_dir)
+        chart_path = chart_dir if chart_dir.is_absolute() else project_root / chart_dir
+        if not chart_path.is_dir():
+            raise RuntimeError(
+                f"Helm chart directory not found: {chart_path}. "
+                "Pass --project-root when running from a separate installer repository."
+            )
+
+        if not self.options.build_images:
+            return
+        for name, dockerfile, context, _target in self._local_image_builds():
+            missing = [
+                path
+                for path in (project_root / dockerfile, project_root / context)
+                if not path.exists()
+            ]
+            if missing:
+                raise RuntimeError(
+                    f"Local image inputs for {name} were not found under {project_root}: "
+                    + ", ".join(str(path) for path in missing)
+                )
+
     def run(self) -> bool:
         """Execute the full deployment pipeline. Returns True on success."""
-        project_root = find_project_root()
+        project_root = find_project_root(self.options.project_root)
+        self._validate_project_paths(project_root)
         original_cwd = Path.cwd()
         os.chdir(project_root)
         self.callback.on_log(f"Project root: {project_root}")
@@ -1194,7 +1232,9 @@ class Deployer:
             self._setup_templates_pvc()
             self._setup_ztp_pvc()
             self._generate_values()
+            self._run_provider_pre_helm_install()
             self._helm_install()
+            self._run_provider_post_helm_install()
             self._patch_gateway()
             self._restart_nautobot()
             self._restart_render_service()
@@ -1230,6 +1270,21 @@ class Deployer:
                     os.environ.pop("KUBECONFIG", None)
 
     # -- Step implementations ------------------------------------------------
+
+    def _run_provider_pre_helm_install(self) -> None:
+        """Run provider-owned deployment steps before the umbrella Helm release.
+
+        Derived installers can insert provider-specific ``DeployStep`` entries
+        through :meth:`create_steps` and execute them here without replacing the
+        common deployment sequence.
+        """
+
+    def _run_provider_post_helm_install(self) -> None:
+        """Run provider-owned deployment steps after the umbrella Helm release.
+
+        This is intended for provider readiness checks and bootstrap work that
+        depends on NVIDIA Config Manager services being installed.
+        """
 
     def _check_prerequisites(self) -> None:
         step = self._start_step("prereqs")
@@ -1439,7 +1494,8 @@ class Deployer:
         build_cmd = ["docker", "buildx", "build"] if use_buildx else ["docker", "build"]
         build_output_args = ["--load"] if use_buildx else []
         build_commands: list[_ParallelCommand] = []
-        for name, dockerfile, context, target in _LOCAL_IMAGE_BUILDS:
+        image_builds = self._local_image_builds()
+        for name, dockerfile, context, target in image_builds:
             build_tag = f"{name}:local"
             image_build_args = [*apt_mirror_args]
             if name == "nv-config-manager":
@@ -1480,7 +1536,7 @@ class Deployer:
             max_parallel=max_parallel,
         )
 
-        for name, _, _, _ in _LOCAL_IMAGE_BUILDS:
+        for name, _, _, _ in image_builds:
             build_tag = f"{name}:local"
             digest_tag = _get_image_digest_tag(build_tag)
             if digest_tag:
@@ -1500,7 +1556,7 @@ class Deployer:
 
         step = self._start_step("load-kind")
         cluster = self.options.kind_cluster
-        for name, _, _, _ in _LOCAL_IMAGE_BUILDS:
+        for name, _, _, _ in self._local_image_builds():
             tag = self._local_image_tags.get(name, "local")
             img = f"{name}:{tag}"
             self.callback.on_log(f"Loading {img} into Kind cluster {cluster}...")
@@ -2199,12 +2255,17 @@ class Deployer:
         self._finish_step(step)
 
     def _create_core_secrets(self, step: DeployStep, s: dict[str, str]) -> None:
-        """Create Redis, Nautobot, DB, NATS, and device credential secrets."""
+        """Create Redis, DCIM, DB, NATS, and device credential secrets."""
         self._apply_secret(step, "redis-password", {"password": s.get("redis_password", "")})
-        nautobot_token_data = {"token": s.get("nautobot_token", "")}
-        if ro_token := s.get("nautobot_read_only_token"):
-            nautobot_token_data["read-only-token"] = ro_token
-        self._apply_secret(step, "nautobot-token", nautobot_token_data)
+        dcim = self.config.dcim
+        token_state_key = (
+            "nautobot_token" if dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER else "dcim_token"
+        )
+        dcim_token_data = {dcim.token_secret_key: s.get(token_state_key, "")}
+        if dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER:
+            if ro_token := s.get("nautobot_read_only_token"):
+                dcim_token_data["read-only-token"] = ro_token
+        self._apply_secret(step, dcim.token_secret_name, dcim_token_data)
 
         for db in ["temporal", "temporal_visibility", "config_store", "dhcp", "nautobot"]:
             self._apply_secret(
@@ -2216,21 +2277,22 @@ class Deployer:
                 },
             )
 
-        self._apply_secret(
-            step,
-            "nautobot-admin",
-            {
-                "password": s.get("nautobot_admin_password", ""),
-                "api_token": s.get("nautobot_token", ""),
-            },
-        )
-        self._apply_secret(
-            step, "nautobot-django-secret", {"secret_key": s.get("django_secret_key", "")}
-        )
-
         nats_pw = s.get("nats_password", "")
         for nats_name in ("nats-sys", "nats-nv-config-manager", "nats-nautobot"):
             self._apply_secret(step, nats_name, {"password": nats_pw})
+
+        if self.config.services.nautobot:
+            self._apply_secret(
+                step,
+                "nautobot-admin",
+                {
+                    "password": s.get("nautobot_admin_password", ""),
+                    "api_token": s.get("nautobot_token", ""),
+                },
+            )
+            self._apply_secret(
+                step, "nautobot-django-secret", {"secret_key": s.get("django_secret_key", "")}
+            )
 
         if self.config.services.temporal:
             svc_user = self.config.secrets.config_manager_service_username or "nv-config-manager"

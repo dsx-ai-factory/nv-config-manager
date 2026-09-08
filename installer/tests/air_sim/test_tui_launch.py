@@ -16,17 +16,24 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
+from textual.app import ComposeResult
 from textual.widgets import Input, Static
 
 import nv_config_manager_installer.air_sim.sim_manager as sim_manager_module
+from nv_config_manager_installer.air_sim.orchestrator import (
+    OrchestratorCallback,
+    SimOrchestrator,
+)
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
 from nv_config_manager_installer.air_sim.sim_manager import AirSimulationManager
 from nv_config_manager_installer.tui.air_sim.app import NVCMAirSimApp
 from nv_config_manager_installer.tui.air_sim.screens.launch import (
     _MAX_DEPLOY_LOG_LINES,
+    AirProviderStatus,
     LaunchScreen,
     _clean_dhcp_line,
     _create_deploy_log_path,
@@ -35,6 +42,10 @@ from nv_config_manager_installer.tui.air_sim.screens.launch import (
     _PodStatusWidget,
     _StreamTabsWidget,
     _TuiCallback,
+)
+from nv_config_manager_installer.tui.air_sim.screens.topology import (
+    PopulationPanel,
+    TopologyScreen,
 )
 from nv_config_manager_installer.tui.widgets import LabeledSwitch
 
@@ -63,6 +74,21 @@ class CallbackRecorder:
 
     def enqueue_log_line(self, line: str, stream: str = "deploy") -> None:
         self.entries.append((line, stream))
+
+    def on_step(self, step_id: str, status: object, message: str = "") -> None:
+        pass
+
+    def on_log(self, line: str) -> None:
+        pass
+
+    def on_ssh_ready(self, host: str, port: int) -> None:
+        pass
+
+    def on_deploy_started(self, host: str, port: int) -> None:
+        pass
+
+    def on_complete(self, success: bool, host: str = "", port: int = 0) -> None:
+        pass
 
 
 @pytest.mark.asyncio
@@ -118,7 +144,7 @@ async def test_access_panel_copy_button_and_panel_body_copy_command() -> None:
 
         launch = app.query_one("#screen-launch", LaunchScreen)
         launch._ssh_cmd_text = f"sshpass -p {TEST_OOB_SSH_PASSWORD} ssh -p 17117 nvcm@example.air"
-        launch._show_proxy_panel(PUBLIC_AIR_WORKER, 17117, nautobot_ready=True)
+        launch._show_proxy_panel(PUBLIC_AIR_WORKER, 17117, provider_ready=True)
         launch.query_one("#stream-viewer", _StreamTabsWidget).select_stream("access")
         await pilot.pause(0.1)
 
@@ -162,7 +188,7 @@ async def test_access_panel_upgrades_when_nautobot_is_ready() -> None:
 
         assert app.query_one("#btn-launch-browser").display is False
 
-        launch._show_proxy_panel(PUBLIC_AIR_WORKER, 17117, nautobot_ready=True)
+        launch._show_proxy_panel(PUBLIC_AIR_WORKER, 17117, provider_ready=True)
         await pilot.pause(0.1)
 
         assert app.query_one("#btn-launch-browser").display is True
@@ -184,7 +210,7 @@ async def test_access_panel_socks_port_updates_proxy_commands() -> None:
 
         launch = app.query_one("#screen-launch", LaunchScreen)
         launch._ssh_cmd_text = f"sshpass -p {TEST_OOB_SSH_PASSWORD} ssh -p 17117 nvcm@example.air"
-        launch._show_proxy_panel(PUBLIC_AIR_WORKER, 17117, nautobot_ready=True)
+        launch._show_proxy_panel(PUBLIC_AIR_WORKER, 17117, provider_ready=True)
         launch.query_one("#stream-viewer", _StreamTabsWidget).select_stream("access")
         await pilot.pause(0.1)
 
@@ -213,14 +239,14 @@ async def test_access_panel_preserves_custom_socks_port_after_refresh() -> None:
 
         launch = app.query_one("#screen-launch", LaunchScreen)
         launch._ssh_cmd_text = f"sshpass -p {TEST_OOB_SSH_PASSWORD} ssh -p 17117 nvcm@example.air"
-        launch._show_proxy_panel(PUBLIC_AIR_WORKER, 17117, nautobot_ready=True)
+        launch._show_proxy_panel(PUBLIC_AIR_WORKER, 17117, provider_ready=True)
         launch.query_one("#stream-viewer", _StreamTabsWidget).select_stream("access")
         await pilot.pause(0.1)
 
         app.query_one("#socks-port", Input).value = "18080"
         await pilot.pause(0.1)
 
-        launch._show_proxy_panel(PUBLIC_AIR_WORKER, 17117, nautobot_ready=True)
+        launch._show_proxy_panel(PUBLIC_AIR_WORKER, 17117, provider_ready=True)
         await pilot.pause(0.1)
 
         assert app.query_one("#socks-port", Input).value == "18080"
@@ -426,6 +452,115 @@ async def test_switch_provisioning_waiting_state_names_nautobot_dependency() -> 
             str(panel.query_one("#prov-count").render())
             == "Switches Provisioned: waiting for Nautobot"
         )
+
+
+@pytest.mark.asyncio
+async def test_derived_air_tui_selects_provider_launch_behavior() -> None:
+    provider_status = AirProviderStatus(
+        display_name="NetBox",
+        web_pod_prefix="nv-config-manager-netbox",
+        access_url="https://netbox.nvcm.air",
+        dependent_pod_prefixes=("nv-config-manager-render-",),
+    )
+
+    class ProviderOrchestrator(SimOrchestrator):
+        pass
+
+    class ProviderLaunchScreen(LaunchScreen):
+        PROVIDER_STATUS = provider_status
+
+        def create_orchestrator(self, callback: OrchestratorCallback) -> SimOrchestrator:
+            return ProviderOrchestrator(self._config, callback)
+
+    class ProviderAirApp(ClipboardAirSimApp):
+        SCREEN_CLASSES = {
+            **NVCMAirSimApp.SCREEN_CLASSES,
+            "launch": ProviderLaunchScreen,
+        }
+
+    app = ProviderAirApp(
+        config=SimConfig(
+            ngc_api_key="nvapi-test",
+            oob_ssh_password=TEST_OOB_SSH_PASSWORD,
+        )
+    )
+    async with app.run_test(size=(180, 100)) as pilot:
+        app.switch_section("launch")
+        await pilot.pause(0.1)
+
+        launch = app.query_one("#screen-launch", ProviderLaunchScreen)
+        assert isinstance(launch.create_orchestrator(CallbackRecorder()), ProviderOrchestrator)
+
+        panel = launch.query_one("#pod-status-panel", _PodStatusWidget)
+        panel._update_table(
+            [
+                {
+                    "name": "nv-config-manager-netbox-7c6c5b566-2kqq2",
+                    "ready": "1/1",
+                    "status": "Running",
+                }
+            ]
+        )
+        assert "NetBox: ready" in str(panel.query_one("#pod-summary").render())
+
+        launch._show_proxy_panel(PUBLIC_AIR_WORKER, 17117, provider_ready=True)
+        await pilot.pause(0.1)
+        assert "netbox.nvcm.air" in str(app.query_one("#cmd-browser-unix", Static).render())
+        assert "NetBox is ready" in str(app.query_one("#proxy-hint").render())
+
+
+@pytest.mark.asyncio
+async def test_derived_air_tui_preserves_config_model_and_replaces_population_panel() -> None:
+    @dataclass
+    class ProviderSimConfig(SimConfig):
+        provider_site: str = "netbox-demo"
+
+    class ProviderPopulationPanel(PopulationPanel):
+        def compose(self) -> ComposeResult:
+            yield Input(value=self._config.provider_site, id="provider-site")
+
+        def write_to_config(self, config: SimConfig) -> None:
+            assert isinstance(config, ProviderSimConfig)
+            config.provider_site = self.query_one("#provider-site", Input).value.strip()
+
+        def sync_from_config(self, config: SimConfig) -> None:
+            super().sync_from_config(config)
+            assert isinstance(config, ProviderSimConfig)
+            self.query_one("#provider-site", Input).value = config.provider_site
+
+    class ProviderTopologyScreen(TopologyScreen):
+        POPULATION_PANEL_CLASS = ProviderPopulationPanel
+
+    class ProviderAirApp(ClipboardAirSimApp):
+        CONFIG_MODEL = ProviderSimConfig
+        SCREEN_CLASSES = {
+            **NVCMAirSimApp.SCREEN_CLASSES,
+            "topology": ProviderTopologyScreen,
+        }
+
+    app = ProviderAirApp()
+    assert isinstance(app.config, ProviderSimConfig)
+    assert isinstance(app.load_prebuilt_config("superpod"), ProviderSimConfig)
+
+    async with app.run_test(size=(180, 100)):
+        topology = app.query_one("#screen-topology", ProviderTopologyScreen)
+        assert isinstance(topology.query_one("#population-panel"), ProviderPopulationPanel)
+        assert not topology.query("#run-mock-topology-job")
+
+        topology.query_one("#provider-site", Input).value = "netbox-lab"
+        topology.write_to_config(app.config)
+        assert app.config.provider_site == "netbox-lab"
+
+
+def test_provider_launch_screen_can_replace_nautobot_validation() -> None:
+    class ProviderLaunchScreen(LaunchScreen):
+        def validate_provider_config(self) -> str:
+            return ""
+
+    config = SimConfig(run_mock_topology_job=True, mock_topology_path="")
+
+    assert "Nautobot" in LaunchScreen(config).validate_provider_config()
+    assert ProviderLaunchScreen(config).validate_provider_config() == ""
 
 
 @pytest.mark.asyncio

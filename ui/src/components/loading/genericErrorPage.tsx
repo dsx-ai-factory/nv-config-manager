@@ -61,7 +61,7 @@ export function ErrorPage({
   error,
   showBackButton = true,
   customAction,
-}: ErrorPageProps) {
+}: Readonly<ErrorPageProps>) {
   const router = useRouter();
 
   const handleBack = () => {

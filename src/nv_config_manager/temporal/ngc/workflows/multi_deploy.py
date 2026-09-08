@@ -46,16 +46,16 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin, NetworkDeviceData
     from nv_config_manager.temporal.ngc.activities.config import build_workflow_url, get_ui_base_url
+    from nv_config_manager.temporal.ngc.activities.dcim import (
+        GetNetworkDevicesInput,
+        get_network_devices,
+    )
     from nv_config_manager.temporal.ngc.activities.deploy import (
         ConfigApplyActivityInput,
         DiffActivityInput,
         apply_approved_configuration,
         load_intended_configuration,
         perform_candidate_diff,
-    )
-    from nv_config_manager.temporal.ngc.activities.nautobot import (
-        GetNetworkDevicesInput,
-        get_network_devices,
     )
     from nv_config_manager.temporal.ngc.workflows.backup import (
         BackupInput,
@@ -585,6 +585,7 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
         "Deploy configurations to multiple devices by role with batching and approval workflow"
     )
     workflow_input_class = MultiDeployInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/multi_deploy"
     workflow_namespace = "ngc"
 
@@ -593,7 +594,7 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
         StageMixin.__init__(self)
         self.define_stage(
             name="discover_devices",
-            description="Discover devices by role from Nautobot.",
+            description="Discover devices by role from the DCIM.",
             requires_approval=False,
             depends_on=[],
         )
@@ -636,7 +637,7 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
     async def discover_devices(
         self, stage_input: DiscoverDevicesStageInput
     ) -> DiscoverDevicesStageOutput:
-        """Discover devices by role from Nautobot."""
+        """Discover devices by role from the DCIM."""
         result = await workflow.execute_activity(
             get_network_devices,
             GetNetworkDevicesInput(

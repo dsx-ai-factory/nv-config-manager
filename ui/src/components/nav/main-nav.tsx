@@ -25,7 +25,7 @@ interface MainNavProps {
   items?: NavItem[]
 }
 
-export function MainNav({ items }: MainNavProps) {
+export function MainNav({ items }: Readonly<MainNavProps>) {
   return (
     <div className="flex gap-6 md:gap-10">
       <Link

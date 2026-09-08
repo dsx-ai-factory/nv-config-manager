@@ -19,10 +19,11 @@ configurations for all render-enabled devices in the deployment.
 """
 
 import time
-from typing import Any
 
 import pytest
 import requests
+
+from tests.integration.dcim_adapter import DCIMIntegrationAdapter
 
 # Mark all tests in this module as integration tests
 pytestmark = pytest.mark.integration
@@ -30,45 +31,6 @@ pytestmark = pytest.mark.integration
 
 class TestRenderPipeline:
     """Tests for the complete render pipeline."""
-
-    # GraphQL query to get all render-enabled devices and their config status
-    DEVICE_RENDER_STATUS_QUERY = """
-    query {
-        config_manager_devices(render_enabled: true) {
-            id
-            device {
-                name
-            }
-            intended_config {
-                commit_id
-            }
-        }
-    }
-    """
-
-    # GraphQL query to count total render-enabled devices
-    DEVICE_COUNT_QUERY = """
-    query {
-        config_manager_devices(render_enabled: true) {
-            id
-        }
-    }
-    """
-
-    def _query_graphql(
-        self,
-        nautobot_url: str,
-        nautobot_client: requests.Session,
-        query: str,
-    ) -> dict[str, Any]:
-        """Execute a GraphQL query against Nautobot."""
-        response = nautobot_client.post(
-            f"{nautobot_url}/api/graphql/",
-            json={"query": query},
-            timeout=30,
-        )
-        response.raise_for_status()
-        return response.json()
 
     def _get_queue_status(
         self,
@@ -84,8 +46,18 @@ class TestRenderPipeline:
             response.raise_for_status()
             data = response.json()
 
-            total_pending = sum(c.get("num_pending", 0) for c in data.get("consumers", []))
-            total_ack_pending = sum(c.get("num_ack_pending", 0) for c in data.get("consumers", []))
+            device_consumers = [
+                consumer
+                for consumer in data.get("consumers", [])
+                if str(consumer.get("name", "")).endswith("-device")
+            ]
+            if not device_consumers or any(
+                consumer.get("num_pending", -1) < 0 or consumer.get("num_ack_pending", -1) < 0
+                for consumer in device_consumers
+            ):
+                return {"pending": -1, "ack_pending": -1}
+            total_pending = sum(consumer["num_pending"] for consumer in device_consumers)
+            total_ack_pending = sum(consumer["num_ack_pending"] for consumer in device_consumers)
 
             return {
                 "pending": total_pending,
@@ -94,6 +66,24 @@ class TestRenderPipeline:
         except requests.RequestException:
             # If we can't reach the API, assume queues are not ready
             return {"pending": -1, "ack_pending": -1}
+
+    @pytest.mark.timeout(60)
+    def test_render_all_queues_enabled_devices(
+        self,
+        render_api_url: str,
+        render_client: requests.Session,
+    ) -> None:
+        """Force render work into the queue before asserting that it drains."""
+        response = render_client.post(
+            f"{render_api_url}/v1/render/all",
+            json={"commit_message": "Integration test render-all"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        assert response.status_code == 202
+        assert payload["queued_count"] == payload["total_devices"]
+        assert payload["queued_count"] > 0
 
     @pytest.mark.timeout(660)  # 11 minutes - allow time for queue drain
     def test_render_queues_drain(
@@ -143,27 +133,16 @@ class TestRenderPipeline:
     @pytest.mark.timeout(60)  # 1 minute for GraphQL query
     def test_all_devices_have_rendered_config(
         self,
-        nautobot_url: str,
-        nautobot_client: requests.Session,
+        dcim_adapter: DCIMIntegrationAdapter,
     ) -> None:
         """Test that all render-enabled devices have a rendered configuration.
 
-        This test queries Nautobot's GraphQL API to verify that every device
+        This test uses the provider adapter to verify that every device
         with render_enabled=true has a non-null intended_config with a commit_id.
         """
         print("\n=== Verifying device render status ===")
 
-        result = self._query_graphql(
-            nautobot_url,
-            nautobot_client,
-            self.DEVICE_RENDER_STATUS_QUERY,
-        )
-
-        # Check for GraphQL errors
-        if "errors" in result:
-            pytest.fail(f"GraphQL query failed: {result['errors']}")
-
-        devices = result.get("data", {}).get("config_manager_devices", [])
+        devices = dcim_adapter.list_devices(render_enabled=True)
         total_count = len(devices)
 
         print(f"Total render-enabled devices: {total_count}")
@@ -177,7 +156,7 @@ class TestRenderPipeline:
         missing_render = [
             {
                 "id": device["id"],
-                "name": device.get("device", {}).get("name", "unknown"),
+                "name": device.get("name", "unknown"),
             }
             for device in devices
             if device.get("intended_config") is None
@@ -204,8 +183,7 @@ class TestRenderPipeline:
     @pytest.mark.timeout(60)  # 1 minute for GraphQL query
     def test_rendered_configs_have_commit_ids(
         self,
-        nautobot_url: str,
-        nautobot_client: requests.Session,
+        dcim_adapter: DCIMIntegrationAdapter,
     ) -> None:
         """Test that all rendered configs have valid commit IDs.
 
@@ -213,22 +191,13 @@ class TestRenderPipeline:
         """
         print("\n=== Verifying commit IDs in rendered configs ===")
 
-        result = self._query_graphql(
-            nautobot_url,
-            nautobot_client,
-            self.DEVICE_RENDER_STATUS_QUERY,
-        )
-
-        if "errors" in result:
-            pytest.fail(f"GraphQL query failed: {result['errors']}")
-
-        devices = result.get("data", {}).get("config_manager_devices", [])
+        devices = dcim_adapter.list_devices(render_enabled=True)
 
         # Filter to devices that have intended_config but missing commit_id
         missing_commit_id = [
             {
                 "id": device["id"],
-                "name": device.get("device", {}).get("name", "unknown"),
+                "name": device.get("name", "unknown"),
             }
             for device in devices
             if device.get("intended_config") is not None

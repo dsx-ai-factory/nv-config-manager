@@ -111,6 +111,18 @@
             "description": "Cache TTL in seconds",
             "title": "Cache Ttl"
           },
+          "dcim_connected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the selected DCIM client is available",
+            "title": "Dcim Connected"
+          },
           "enabled": {
             "description": "Whether cache service is enabled",
             "title": "Enabled",
@@ -137,7 +149,7 @@
                 "type": "null"
               }
             ],
-            "description": "Whether Nautobot client is available",
+            "description": "Legacy alias for dcim_connected",
             "title": "Nautobot Connected"
           },
           "redis_connected": {
@@ -163,7 +175,7 @@
         "description": "Cache test response when there's an error.",
         "properties": {
           "device_uuid": {
-            "description": "Device UUID",
+            "description": "DCIM provider device identifier",
             "title": "Device Uuid",
             "type": "string"
           },
@@ -189,7 +201,7 @@
             "type": "string"
           },
           "device_uuid": {
-            "description": "Device UUID",
+            "description": "DCIM provider device identifier",
             "title": "Device Uuid",
             "type": "string"
           },
@@ -230,7 +242,7 @@
         "description": "Cache test response when device is not found.",
         "properties": {
           "device_uuid": {
-            "description": "Device UUID",
+            "description": "DCIM provider device identifier",
             "title": "Device Uuid",
             "type": "string"
           },
@@ -336,11 +348,10 @@
                 "type": "null"
               }
             ],
-            "description": "Device metadata from Nautobot"
+            "description": "Device metadata from the selected DCIM provider"
           },
           "device_uuid": {
-            "description": "Device UUID",
-            "format": "uuid",
+            "description": "DCIM provider device identifier",
             "title": "Device Uuid",
             "type": "string"
           },
@@ -437,11 +448,10 @@
                 "type": "null"
               }
             ],
-            "description": "Device metadata from Nautobot"
+            "description": "Device metadata from the selected DCIM provider"
           },
           "device_uuid": {
-            "description": "Device UUID",
-            "format": "uuid",
+            "description": "DCIM provider device identifier",
             "title": "Device Uuid",
             "type": "string"
           },
@@ -476,7 +486,7 @@
             "type": "integer"
           },
           "device_uuid": {
-            "description": "Device UUID",
+            "description": "DCIM provider device identifier",
             "title": "Device Uuid",
             "type": "string"
           },
@@ -529,7 +539,7 @@
             "type": "string"
           },
           "uuid": {
-            "description": "Device UUID",
+            "description": "DCIM provider device identifier",
             "title": "Uuid",
             "type": "string"
           }
@@ -546,8 +556,20 @@
         "type": "object"
       },
       "DeviceMetadata": {
-        "description": "Device metadata from Nautobot.",
+        "description": "Device metadata from the selected DCIM provider.",
         "properties": {
+          "device_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Provider UI link for the device",
+            "title": "Device Url"
+          },
           "last_updated": {
             "anyOf": [
               {
@@ -575,7 +597,7 @@
                 "type": "null"
               }
             ],
-            "description": "Link to device in Nautobot",
+            "description": "Legacy alias for device_url when the selected provider is Nautobot",
             "title": "Nautobot Url"
           },
           "platform": {
@@ -640,10 +662,10 @@
         "type": "object"
       },
       "DeviceUUID": {
-        "description": "Device UUID entry.",
+        "description": "Provider-owned device identifier entry.\n\nThe class and response field names are retained for API compatibility.",
         "properties": {
           "uuid": {
-            "description": "Device UUID",
+            "description": "DCIM provider device identifier",
             "title": "Uuid",
             "type": "string"
           }
@@ -666,11 +688,10 @@
                 "type": "null"
               }
             ],
-            "description": "Device metadata from Nautobot"
+            "description": "Device metadata from the selected DCIM provider"
           },
           "device_uuid": {
-            "description": "Device UUID",
-            "format": "uuid",
+            "description": "DCIM provider device identifier",
             "title": "Device Uuid",
             "type": "string"
           },
@@ -903,7 +924,6 @@
             "name": "device_uuid",
             "required": true,
             "schema": {
-              "format": "uuid",
               "title": "Device Uuid",
               "type": "string"
             }
@@ -1018,7 +1038,7 @@
     },
     "/v1/admin/devices/search": {
       "get": {
-        "description": "Search devices by name with their latest configuration metadata.\n\nIf q is not provided, returns the 100 most recently updated devices from DB.\nIf q is provided, uses Redis cache to find matching device names and their UUIDs,\nthen fetches their latest config info from DB.\nResults are sorted by most recent update first.\nResults are filtered by file_type (intended or backup).\nInactive devices (removed from nv_config_manager/Nautobot) are hidden unless include_inactive is True.",
+        "description": "Search devices by name with their latest configuration metadata.\n\nIf q is not provided, returns the 100 most recently updated devices from DB.\nIf q is provided, uses Redis cache to find matching device names and identifiers,\nthen fetches their latest config info from DB.\nResults are sorted by most recent update first.\nResults are filtered by file_type (intended or backup).\nDevices no longer returned by the selected DCIM provider are hidden unless\ninclude_inactive is True.",
         "operationId": "search_devices_v1_admin_devices_search_get",
         "parameters": [
           {
@@ -1114,7 +1134,6 @@
             "name": "device_uuid",
             "required": true,
             "schema": {
-              "format": "uuid",
               "title": "Device Uuid",
               "type": "string"
             }
@@ -1190,7 +1209,6 @@
             "name": "device_uuid",
             "required": true,
             "schema": {
-              "format": "uuid",
               "title": "Device Uuid",
               "type": "string"
             }
@@ -1259,7 +1277,6 @@
             "name": "device_uuid",
             "required": true,
             "schema": {
-              "format": "uuid",
               "title": "Device Uuid",
               "type": "string"
             }
@@ -1318,7 +1335,6 @@
             "name": "device_uuid",
             "required": true,
             "schema": {
-              "format": "uuid",
               "title": "Device Uuid",
               "type": "string"
             }
@@ -1399,7 +1415,6 @@
             "name": "device_uuid",
             "required": true,
             "schema": {
-              "format": "uuid",
               "title": "Device Uuid",
               "type": "string"
             }
@@ -1467,7 +1482,6 @@
             "name": "device_uuid",
             "required": true,
             "schema": {
-              "format": "uuid",
               "title": "Device Uuid",
               "type": "string"
             }
@@ -1552,7 +1566,6 @@
             "name": "device_uuid",
             "required": true,
             "schema": {
-              "format": "uuid",
               "title": "Device Uuid",
               "type": "string"
             }

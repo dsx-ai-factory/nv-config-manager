@@ -19,7 +19,7 @@ import (
 // checks if the IBPKeyCreationInput type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &IBPKeyCreationInput{}
 
-// IBPKeyCreationInput InfiniBand PKey Creation Workflow Input.  By default, auto-assigns the next available PKey. Pass an explicit “pkey“ value only when a specific partition key is required.  “site“ is optional. When omitted, the workflow resolves the device's Site-typed Nautobot location from “host“ and uses that as the UFM credential lookup key. Pass “site“ explicitly to override the auto-resolved value (e.g. for API callers that want to skip the Nautobot round-trip).
+// IBPKeyCreationInput InfiniBand PKey Creation Workflow Input.  By default, auto-assigns the next available PKey. Pass an explicit “pkey“ value only when a specific partition key is required.  “site“ is optional. When omitted, the workflow resolves the device's Site-typed DCIM location from “host“ and uses that as the UFM credential lookup key. Pass “site“ explicitly to override the auto-resolved value (e.g. for API callers that want to skip the DCIM round-trip).
 type IBPKeyCreationInput struct {
 	// Hostname of the UFM server managing the InfiniBand fabric.
 	Host string `json:"host"`

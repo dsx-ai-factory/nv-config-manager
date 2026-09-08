@@ -152,7 +152,7 @@ async def mock_get_ui_base_url() -> str:
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.reprovision.DEFAULT_ACTIVITY_RETRY_POLICY",
     return_value=TEST_RETRY_POLICY,
@@ -240,7 +240,7 @@ async def test_reprovision_workflow(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.reprovision.DEFAULT_ACTIVITY_RETRY_POLICY",
     new=TEST_RETRY_POLICY,
@@ -305,7 +305,7 @@ async def test_reprovision_backup_continues_when_ui_url_lookup_fails(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.reprovision.DEFAULT_ACTIVITY_RETRY_POLICY",
     new=TEST_RETRY_POLICY,
@@ -400,7 +400,7 @@ async def test_reprovision_pre_backup_rejects_invalid_config_before_factory_rese
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.reprovision.DEFAULT_ACTIVITY_RETRY_POLICY",
     new=TEST_RETRY_POLICY,
@@ -495,7 +495,7 @@ async def test_reprovision_retries_pre_backup_stage(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.reprovision.DEFAULT_ACTIVITY_RETRY_POLICY",
     return_value=TEST_RETRY_POLICY,
@@ -569,7 +569,7 @@ async def test_reprovision_workflow_ztp_failure(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.reprovision.DEFAULT_ACTIVITY_RETRY_POLICY",
     return_value=TEST_RETRY_POLICY,

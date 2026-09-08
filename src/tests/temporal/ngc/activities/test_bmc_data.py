@@ -2470,7 +2470,7 @@ TEST_SERVERS = [
         "id": "86d41e26-2520-58b5-a3f0-2d5e507e8b22",
         "name": "rno1-m04-c10-server1.lab1",
         "role": {"name": "tenant-a-device"},
-        "tenant": {"name": "nsv"},
+        "tenant": {"name": "invalid-tenant"},
         "device_type": {"model": "poweredge-r750"},
         "platform": {"name": "Linux"},
         "location": {"location_type": {"name": "Site"}, "name": "test_site"},

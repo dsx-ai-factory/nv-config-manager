@@ -8,13 +8,18 @@ This walkthrough shows how the render engine selects entrypoint templates, expan
 
 ## Entrypoint Selection
 
-For each device, the renderer loads device data and location data from Nautobot, then selects every entrypoint below this logical path:
+For each device, the selected DCIM provider loads one `RenderData` payload with
+device, location, and optional plugin data. The renderer then selects every
+entrypoint below this logical path:
 
 ```text
 <normalized-platform>/<normalized-role>/<intended-firmware>/entrypoint/
 ```
 
-The platform and role values come from Nautobot and are normalized by lower-casing and replacing whitespace with hyphens. The firmware value comes from the device config context key `intended-firmware.version`.
+The platform, role, and intended-firmware values come from provider-supplied
+render data and are normalized by lower-casing and replacing whitespace with
+hyphens. The bundled Nautobot provider currently maps intended firmware from
+its configuration context; that is not a requirement for another provider.
 
 For a device with platform `Cumulus Linux`, role `Storage Leaf`, and intended firmware `5.16.1`, the renderer looks under:
 
@@ -110,7 +115,7 @@ The final render is the merged result of those layers:
 1. The role base supplies role-level blocks and includes.
 1. The common base supplies the file skeleton and default blocks.
 1. Jinja replaces each `include` with the included template output.
-1. Filters convert Nautobot and plugin data into the values used by the templates.
+1. Filters convert provider-supplied device, location, and plugin data into the values used by the templates.
 
 ## Plugin Discovery
 
@@ -126,7 +131,8 @@ dependencies = ["nv-config-manager-templates"]
 example = "example_config_manager_templates"
 ```
 
-The plugin module can provide any combination of templates, filters, GraphQL queries, or location resolution:
+The plugin module can provide any combination of templates, filters, or
+provider-neutral render-data requirements:
 
 ```python
 from pathlib import Path
@@ -143,22 +149,18 @@ def get_custom_filters() -> dict[str, Any]:
     return _filters()
 
 
-def get_graphql_queries() -> dict[str, str]:
+def get_render_data_requirements() -> dict[str, object]:
     return {}
-
-
-def get_location_name(device_data: dict[str, Any]) -> str | None:
-    return None
 ```
 
 At renderer startup, Config Manager:
 
 1. Discovers installed entry points from `nv_config_manager_templates.plugins`.
-1. Calls plugin hooks such as `get_template_paths()`, `get_custom_filters()`, and `get_graphql_queries()`.
+1. Calls plugin hooks such as `get_template_paths()`, `get_custom_filters()`, and `get_render_data_requirements()`.
 1. Adds plugin template paths before the built-in package templates.
 1. Loads built-in filters.
 1. Loads plugin filters that do not conflict with an existing filter name.
-1. Executes plugin GraphQL queries during data loading and passes results as `plugin_data`.
+1. Collects provider-neutral plugin data requirements. The selected DCIM provider owns obtaining and normalizing matching data before it invokes the renderer.
 
 Because plugin template paths are loaded before the built-in templates, a plugin can add new logical paths or intentionally shadow a built-in template path. Shadowing should be explicit and covered by render tests. Prefer `extends` and small block overrides when the plugin only needs to adjust part of a built-in template.
 
@@ -181,7 +183,7 @@ src/example_config_manager_templates/templates/
           qos.j2
 ```
 
-For a new Nautobot device role, create a role path that matches the normalized role name. For example, role `Example Storage Leaf` resolves to `example-storage-leaf`.
+For a new device role, create a role path that matches the normalized role name. For example, role `Example Storage Leaf` resolves to `example-storage-leaf`.
 
 An entrypoint can reuse a built-in base template and override only the blocks that differ:
 
@@ -210,17 +212,19 @@ device_data
 location_data
 ```
 
-When plugin queries are registered, the context can also include:
+When the selected provider supplies plugin data, the context can also include:
 
 ```text
 plugin_data
 ```
 
-Plugin query results are keyed by query name. Templates should not traverse raw plugin GraphQL response paths directly. Instead, expose stable domain concepts through plugin filters:
+Plugin data is keyed by requirement name. Templates should not traverse raw
+provider response paths directly. Instead, expose stable domain concepts
+through plugin filters:
 
 ```python
 def fabric_policy(plugin_data: dict, policy_name: str) -> dict:
-    query_data = plugin_data.get("fabric_policy") or {}
+    policy_data = plugin_data.get("fabric_policy") or {}
     ...
 ```
 
@@ -230,37 +234,51 @@ Then call that filter from the template:
 {% set policy = plugin_data|fabric_policy("default") %}
 ```
 
-This keeps Nautobot plugin model changes isolated to Python filters instead of spreading response-shape assumptions across templates.
+This keeps provider model changes isolated to Python filters instead of spreading response-shape assumptions across templates.
 
 ## Local Plugin Testing
 
 Install the plugin into the same Python environment as `nv-config-manager-templates`, then use `template-cli` for local iteration.
 
-Cache core and plugin query data:
+Create a provider configuration file, for example `example-provider.toml`:
+
+```toml
+[provider]
+name = "example"
+
+[provider.settings]
+endpoint = "https://dcim.example"
+token = "<token>"
+```
+
+Cache the complete provider-supplied render data:
 
 ```bash
 uv run template-cli cache-query \
-  --hostname sw01 \
-  --nautobot-url https://nautobot.example.com \
-  --token-file ~/.nautobot-token \
-  --output-file tests/resources/nautobot/sw01.json \
-  --output-location-file tests/resources/nautobot/DC01.json \
-  --output-plugin-file tests/resources/nautobot/sw01-plugin-data.json
+  --provider-config example-provider.toml \
+  --device-name sw01 \
+  --output-render-data-file tests/resources/render-data/sw01.json
 ```
 
 Render from cached data:
 
 ```bash
 uv run template-cli render \
-  --cached-data tests/resources/nautobot/sw01.json \
-  --cached-location-data tests/resources/nautobot/DC01.json \
-  --cached-plugin-data tests/resources/nautobot/sw01-plugin-data.json \
+  --cached-render-data tests/resources/render-data/sw01.json \
   --entrypoint startup.yaml.j2
 ```
 
 Without `--vault`, `template-cli render` disables Vault lookups and returns placeholder secret values. Use this mode for render tests, not for production device configuration.
 
-For regression coverage, add cached Nautobot JSON, cached plugin data when needed, and expected rendered output for every plugin role and entrypoint.
+For regression coverage, add a portable `RenderData` cache and expected
+rendered output for every plugin role and entrypoint. Template tests do not
+accept split or native DCIM cache formats.
+
+The template library does not know a provider's REST or GraphQL APIs. When a
+plugin needs extension data, declare `get_render_data_requirements()` and work
+with the provider author to populate the matching `plugin_data` value. See
+[Contribute a DCIM Provider](../development/contributing-dcim-provider.mdx)
+for the provider-side contract.
 
 ## Deployment
 

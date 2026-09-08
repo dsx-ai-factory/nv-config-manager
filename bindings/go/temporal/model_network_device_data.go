@@ -19,13 +19,13 @@ import (
 // checks if the NetworkDeviceData type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &NetworkDeviceData{}
 
-// NetworkDeviceData Network device data.
+// NetworkDeviceData Normalized network-device inventory and configuration intent.
 type NetworkDeviceData struct {
 	BackupEnabled *bool                  `json:"backup_enabled,omitempty"`
-	ConfigContext map[string]interface{} `json:"config_context,omitempty"`
 	DeployEnabled *bool                  `json:"deploy_enabled,omitempty"`
 	DeviceType    string                 `json:"device_type"`
 	Id            string                 `json:"id"`
+	Intent        map[string]interface{} `json:"intent,omitempty"`
 	Name          string                 `json:"name"`
 	Platform      Platform               `json:"platform"`
 	Position      NullableInt32          `json:"position,omitempty"`
@@ -114,39 +114,6 @@ func (o *NetworkDeviceData) SetBackupEnabled(v bool) {
 	o.BackupEnabled = &v
 }
 
-// GetConfigContext returns the ConfigContext field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *NetworkDeviceData) GetConfigContext() map[string]interface{} {
-	if o == nil {
-		var ret map[string]interface{}
-		return ret
-	}
-	return o.ConfigContext
-}
-
-// GetConfigContextOk returns a tuple with the ConfigContext field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-
-func (o *NetworkDeviceData) GetConfigContextOk() (map[string]interface{}, bool) {
-	if o == nil || IsNil(o.ConfigContext) {
-		return nil, false
-	}
-	return o.ConfigContext, true
-}
-
-// HasConfigContext returns a boolean if a field has been set.
-func (o *NetworkDeviceData) HasConfigContext() bool {
-	if o != nil && !IsNil(o.ConfigContext) {
-		return true
-	}
-
-	return false
-}
-
-// SetConfigContext gets a reference to the given map[string]interface{} and assigns it to the ConfigContext field.
-func (o *NetworkDeviceData) SetConfigContext(v map[string]interface{}) {
-	o.ConfigContext = v
-}
-
 // GetDeployEnabled returns the DeployEnabled field value if set, zero value otherwise.
 func (o *NetworkDeviceData) GetDeployEnabled() bool {
 	if o == nil || IsNil(o.DeployEnabled) {
@@ -226,6 +193,39 @@ func (o *NetworkDeviceData) GetIdOk() (*string, bool) {
 // SetId sets field value
 func (o *NetworkDeviceData) SetId(v string) {
 	o.Id = v
+}
+
+// GetIntent returns the Intent field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *NetworkDeviceData) GetIntent() map[string]interface{} {
+	if o == nil {
+		var ret map[string]interface{}
+		return ret
+	}
+	return o.Intent
+}
+
+// GetIntentOk returns a tuple with the Intent field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+func (o *NetworkDeviceData) GetIntentOk() (map[string]interface{}, bool) {
+	if o == nil || IsNil(o.Intent) {
+		return nil, false
+	}
+	return o.Intent, true
+}
+
+// HasIntent returns a boolean if a field has been set.
+func (o *NetworkDeviceData) HasIntent() bool {
+	if o != nil && !IsNil(o.Intent) {
+		return true
+	}
+
+	return false
+}
+
+// SetIntent gets a reference to the given map[string]interface{} and assigns it to the Intent field.
+func (o *NetworkDeviceData) SetIntent(v map[string]interface{}) {
+	o.Intent = v
 }
 
 // GetName returns the Name field value
@@ -545,14 +545,14 @@ func (o NetworkDeviceData) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.BackupEnabled) {
 		toSerialize["backup_enabled"] = o.BackupEnabled
 	}
-	if o.ConfigContext != nil {
-		toSerialize["config_context"] = o.ConfigContext
-	}
 	if !IsNil(o.DeployEnabled) {
 		toSerialize["deploy_enabled"] = o.DeployEnabled
 	}
 	toSerialize["device_type"] = o.DeviceType
 	toSerialize["id"] = o.Id
+	if o.Intent != nil {
+		toSerialize["intent"] = o.Intent
+	}
 	toSerialize["name"] = o.Name
 	toSerialize["platform"] = o.Platform
 	if o.Position.IsSet() {

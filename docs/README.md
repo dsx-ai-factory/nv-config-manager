@@ -23,6 +23,7 @@ make docs-preview
 
 - Content pages live under `docs/**/*.mdx`.
 - Navigation is defined in `docs/fern/docs.yml`.
+- DCIM integrations follow [Contribute a DCIM Provider](development/contributing-dcim-provider.mdx); keep generic service documentation provider-neutral and put bundled Nautobot behavior in the Nautobot documentation.
 - OpenAPI specs are generated into `docs/api-specs/` with `make openapi`.
 - Installer TUI screenshots are generated into `docs/assets/images/installer/` with `make docs-screenshots`.
 - DSX Air sim TUI screenshots are generated into `docs/assets/images/air-sim/` with `make docs-air-sim-screenshots`.

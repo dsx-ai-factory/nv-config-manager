@@ -22,18 +22,15 @@ from __future__ import annotations
 
 import os
 import ssl
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from configparser import ConfigParser, SectionProxy
 from enum import Enum
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import certifi
 import nats
 import nats.js.errors
-import pynautobot
-from requests import PreparedRequest, Response
-from requests.adapters import HTTPAdapter
 
 # =============================================================================
 # CLIENT IMPORTS
@@ -43,7 +40,6 @@ from nv_config_manager.common.client import (
     ConfigStoreClient,
     DHCPClient,
     NatsClient,
-    NautobotClient,
     RedisClient,
     RenderClient,
     TemporalClient,
@@ -60,6 +56,7 @@ from nv_config_manager.common.log import (  # noqa: F401, E402
     configure_logging,
     get_logger,
 )
+from nv_config_manager.dcim import DCIMClient, create_dcim_client
 from nv_config_manager.ztp.filestore import FileStoreClient
 from nv_config_manager.ztp.s3 import S3Client
 from nv_config_manager.ztp.storage import ObjectStorageClient
@@ -206,6 +203,24 @@ def nats_nautobot_api_prefix(config: ConfigParser | None = None) -> str:
     """Return the JetStream API prefix for Nautobot changelog events."""
     nats_config = _nats_section(config)
     return nats_config.get("nautobot_api_prefix", DEFAULT_NATS_API_PREFIX)
+
+
+def nats_dcim_change_config(config: ConfigParser | None = None) -> tuple[str, str]:
+    """Return the stream and subject for provider-neutral DCIM change events.
+
+    The legacy Nautobot settings remain the fallback while its publisher is
+    upgraded. External providers should configure ``dcim_change_*`` directly.
+    """
+    nats_config = _nats_section(config)
+    stream = nats_config.get(
+        "dcim_change_stream",
+        nats_config.get("nautobot_stream", DEFAULT_NAUTOBOT_NATS_STREAM),
+    )
+    subject = nats_config.get(
+        "dcim_change_subject",
+        nats_config.get("nautobot_subject", DEFAULT_NAUTOBOT_NATS_SUBJECT),
+    )
+    return stream, subject
 
 
 def parse_verify_param(
@@ -409,18 +424,31 @@ def dhcp_client(config: ConfigParser | None = None) -> DHCPClient:
     return DHCPClient.from_config(config)
 
 
-def nautobot_client(config: ConfigParser | None = None) -> NautobotClient:
-    """Create a NautobotClient for this environment.
+def dcim_client(config: ConfigParser | None = None) -> DCIMClient:
+    """Create a client for the configured DCIM provider.
 
-    Args:
-        config: ConfigParser instance (uses load_config() if None)
-
-    Returns:
-        Configured NautobotClient instance
+    Existing deployments without a ``[dcim]`` section select the built-in
+    Nautobot provider. New services should use this factory instead of
+    constructing a backend-specific client.
     """
     if config is None:
         config = load_config()
-    return NautobotClient.from_config(config)
+    return create_dcim_client(config)
+
+
+def dcim_cache_ttl(config: ConfigParser | None = None, default: int = 86400) -> int:
+    """Return the provider-neutral device metadata cache TTL.
+
+    ``[nautobot] cache_ttl`` remains the legacy fallback until the generic
+    configuration rendering in the next implementation checkpoint is in place.
+    """
+    if config is None:
+        config = load_config()
+    if config.has_option("dcim", "cache_ttl"):
+        return config.getint("dcim", "cache_ttl")
+    if config.has_option("nautobot", "cache_ttl"):
+        return config.getint("nautobot", "cache_ttl")
+    return default
 
 
 def redis_client(
@@ -526,30 +554,6 @@ class NATSConnectionManager:
         self._connection = None
 
 
-class NautobotConnectionManager:
-    """Singleton to manage shared Nautobot API connection."""
-
-    _instance: NautobotConnectionManager | None = None
-    _connection: pynautobot.api | None = None
-
-    def __new__(cls) -> NautobotConnectionManager:
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-    def set_connection(self, connection: pynautobot.api) -> None:
-        """Set the shared Nautobot API connection."""
-        self._connection = connection
-
-    def get_connection(self) -> pynautobot.api | None:
-        """Get the shared Nautobot API connection."""
-        return self._connection
-
-    def clear_connection(self) -> None:
-        """Clear the shared connection."""
-        self._connection = None
-
-
 # =============================================================================
 # NATS CONNECTION
 # =============================================================================
@@ -616,71 +620,6 @@ async def nats_connection(
     return conn
 
 
-# =============================================================================
-# PYNAUTOBOT CLIENT (sync, for render)
-# =============================================================================
-
-
-class TimeoutHTTPAdapter(HTTPAdapter):
-    """HTTPAdapter with configurable timeout."""
-
-    def __init__(self, *args: Any, timeout: int = 5, **kwargs: Any) -> None:
-        self.timeout = timeout
-        super().__init__(*args, **kwargs)
-
-    def send(
-        self,
-        request: PreparedRequest,
-        stream: bool = False,
-        timeout: float | tuple[float, float] | tuple[float, None] | None = None,
-        verify: bool | str = True,
-        cert: bytes | str | tuple[bytes | str, bytes | str] | None = None,
-        proxies: Mapping[str, str] | None = None,
-    ) -> Response:
-        return super().send(
-            request,
-            stream=stream,
-            timeout=self.timeout,
-            verify=verify,
-            cert=cert,
-            proxies=proxies,
-        )
-
-
-def pynautobot_client() -> Any:
-    """Return a pynautobot API client for this environment.
-
-    This is the sync pynautobot client used by render service.
-
-    Returns:
-        Configured pynautobot.api instance
-    """
-    config = load_config()
-    nb_config = config["nautobot"]
-
-    kwargs: dict[str, Any] = {
-        "url": nb_config["server"],
-        "token": nb_config["token"],
-        "threading": True,
-        "max_workers": nb_config.getint("max_workers", fallback=8),
-        "retries": nb_config.getint("retries", fallback=3),
-    }
-
-    if "ca_cert_path" in nb_config:
-        kwargs["verify"] = nb_config["ca_cert_path"]
-
-    connection = pynautobot.api(**kwargs)
-    for protocol in ("http://", "https://"):
-        existing_adapter = cast(HTTPAdapter, connection.http_session.get_adapter(protocol))
-        retry_policy = existing_adapter.max_retries
-        connection.http_session.mount(
-            protocol,
-            TimeoutHTTPAdapter(timeout=10, max_retries=retry_policy),
-        )
-    return connection
-
-
-# =============================================================================
 # STORAGE CLIENT (ZTP)
 # =============================================================================
 

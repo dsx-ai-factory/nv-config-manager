@@ -36,6 +36,27 @@ from nv_config_manager.temporal.ngc.activities.cable_validation import (
     validate_device_neighbors,
 )
 from nv_config_manager.temporal.ngc.activities.config import get_ui_base_url
+from nv_config_manager.temporal.ngc.activities.dcim import (
+    assign_vrf_to_device,
+    assign_vrf_to_interface,
+    check_recorded_config_drift,
+    delete_overlay,
+    delete_vrf,
+    get_available_route_distinguishers,
+    get_device_interfaces,
+    get_device_vrfs,
+    get_host_data_by_macs,
+    get_host_data_by_names,
+    get_host_device,
+    get_host_devices,
+    get_network_device,
+    get_network_devices,
+    get_switch_port_by_remote_mac_address,
+    get_vrfs_by_overlay_id,
+    provision_vrf,
+    reconcile_spx_overlay_assignments,
+    remove_unmapped_device_vrfs,
+)
 from nv_config_manager.temporal.ngc.activities.deploy import (
     apply_approved_configuration,
     load_intended_configuration,
@@ -72,14 +93,12 @@ from nv_config_manager.temporal.ngc.activities.hardware_validation import (
     get_platform_environment_voltage,
     get_platform_inventory,
 )
-from nv_config_manager.temporal.ngc.activities.ib_guid_discovery import (
-    discover_ib_port_guids,
-    sync_ib_guid_on_interface,
-)
-from nv_config_manager.temporal.ngc.activities.ib_nautobot import (
+from nv_config_manager.temporal.ngc.activities.ib_dcim import (
     cleanup_empty_pkey_partition,
+    create_partition_in_dcim,
     create_partition_in_nautobot,
     fetch_pkey_assignments,
+    record_ib_pkey_in_dcim,
     record_ib_pkey_in_nautobot,
     record_pkey_assignments,
     remove_pkey_assignments,
@@ -89,6 +108,10 @@ from nv_config_manager.temporal.ngc.activities.ib_nautobot import (
     resolve_ib_site_for_host,
     resolve_interface_guids,
     sync_pkey_assignments,
+)
+from nv_config_manager.temporal.ngc.activities.ib_guid_discovery import (
+    discover_ib_port_guids,
+    sync_ib_guid_on_interface,
 )
 from nv_config_manager.temporal.ngc.activities.ib_pkey import (
     add_guids_to_pkey,
@@ -102,27 +125,6 @@ from nv_config_manager.temporal.ngc.activities.ib_pkey import (
     verify_pkey_members_absent,
 )
 from nv_config_manager.temporal.ngc.activities.nats import publish_nats
-from nv_config_manager.temporal.ngc.activities.nautobot import (
-    assign_vrf_to_device,
-    assign_vrf_to_interface,
-    check_recorded_config_drift,
-    delete_overlay,
-    delete_vrf,
-    get_available_route_distinguishers,
-    get_device_interfaces,
-    get_device_vrfs,
-    get_host_data_by_macs,
-    get_host_data_by_names,
-    get_host_device,
-    get_host_devices,
-    get_network_device,
-    get_network_devices,
-    get_switch_port_by_remote_mac_address,
-    get_vrfs_by_overlay_id,
-    provision_vrf,
-    reconcile_spx_overlay_assignments,
-    remove_unmapped_device_vrfs,
-)
 from nv_config_manager.temporal.ngc.activities.nvlinkswitch_firmware import (
     compare_running_desired,
     get_running_firmware,
@@ -248,7 +250,9 @@ REGISTERED_ACTIVITIES = [
     verify_pkey_created,
     add_guids_to_pkey,
     verify_pkey_members,
+    record_ib_pkey_in_dcim,
     record_ib_pkey_in_nautobot,
+    create_partition_in_dcim,
     create_partition_in_nautobot,
     resolve_interface_guids,
     resolve_guids_to_interfaces,

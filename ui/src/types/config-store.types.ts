@@ -21,6 +21,7 @@ export interface DeviceMetadata {
   role: string | null;
   rack: string | null;
   primary_ip4: string | null;
+  device_url: string | null;
   nautobot_url: string | null;
   last_updated: string | null;
 }
@@ -99,4 +100,3 @@ export interface DeleteDeviceResponse {
   deleted_versions: number;
   message: string;
 }
-

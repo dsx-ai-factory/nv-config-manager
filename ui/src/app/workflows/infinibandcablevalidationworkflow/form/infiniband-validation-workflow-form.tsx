@@ -85,16 +85,16 @@ export const InfinibandValidationWorkflowForm = () => {
       const isSiteValid = sites.some((option) => option.key === querySite);
       const siteId = sites.find((option) => option.key === querySite)?.value;
 
-      if (!isSiteValid) {
+      if (isSiteValid) {
+        if (siteId && form.getValues("site") !== siteId) {
+          form.setValue("site", siteId); // Set valid site from URL
+        }
+      } else {
         if (form.getValues("site") !== "") {
           form.setValue("site", ""); // Clear site if invalid
         }
         if (form.getValues("device") !== "") {
           form.setValue("device", ""); // Clear device if site is invalid
-        }
-      } else {
-        if (siteId && form.getValues("site") !== siteId) {
-          form.setValue("site", siteId); // Set valid site from URL
         }
       }
     }
@@ -110,10 +110,8 @@ export const InfinibandValidationWorkflowForm = () => {
         if (form.getValues("device") !== queryDevice) {
           form.setValue("device", queryDevice); // Set valid device from URL
         }
-      } else {
-        if (form.getValues("device") !== "") {
-          form.setValue("device", ""); // Clear device if invalid
-        }
+      } else if (form.getValues("device") !== "") {
+        form.setValue("device", ""); // Clear device if invalid
       }
     }
   }, [queryDevice, deviceData, form, isManualChange]);

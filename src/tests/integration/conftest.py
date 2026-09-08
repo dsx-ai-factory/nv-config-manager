@@ -15,7 +15,7 @@
 """Pytest configuration for integration tests.
 
 These tests require a running NVIDIA Config Manager deployment with DNS/hosts configured
-to resolve the service hostnames (e.g., nautobot.config-manager.local, render.config-manager.local).
+to resolve the service hostnames (for example, the selected DCIM and Render API routes).
 
 For local/CI environments, add entries to /etc/hosts pointing to the gateway IP.
 SFTP is the only service that uses a kubectl port-forward (directly to the ZTP pod)
@@ -29,6 +29,7 @@ import atexit
 import base64
 import json
 import os
+import socket
 import subprocess
 import time
 from collections.abc import Callable, Generator
@@ -38,6 +39,7 @@ import requests
 import urllib3
 
 from nv_config_manager.common.oidc import OIDCAuth
+from tests.integration.dcim_adapter import DCIMIntegrationAdapter, load_dcim_integration_adapter
 
 # Suppress InsecureRequestWarning for self-signed certs in tests
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -65,6 +67,18 @@ atexit.register(_cleanup_port_forwards)
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     """Add custom command-line options for integration tests."""
+    parser.addoption(
+        "--dcim-provider",
+        action="store",
+        default="nautobot-2x",
+        help="DCIM provider selected by the deployment (default: nautobot-2x)",
+    )
+    parser.addoption(
+        "--dcim-integration-adapter",
+        action="store",
+        default="tests.integration.dcim_adapter:NautobotIntegrationAdapter",
+        help="Provider inspection adapter as module:class",
+    )
     parser.addoption(
         "--nv-config-manager-namespace",
         action="store",
@@ -95,8 +109,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help=(
-            "Legacy fallback that routes only Temporal API and Nautobot requests through kubectl port-forwards. "
-            "Normal integration runs should use Envoy Gateway hostnames with local DNS or /etc/hosts configured."
+            "Route Temporal, DCIM, Render, ZTP, and DHCP requests through kubectl "
+            "port-forwards. Normal runs use Envoy Gateway hostnames."
         ),
     )
     parser.addoption(
@@ -213,15 +227,27 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "rbac: marks tests that require live group-mapping RBAC (opt-in via --rbac)"
     )
+    config.addinivalue_line(
+        "markers", "dcim_provider(name): test applies only to the named DCIM provider"
+    )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    if config.getoption("--ci") or os.environ.get("CI"):
-        return
-    skip_ci = pytest.mark.skip(reason="CI-only test (pass --ci or set CI env var to run)")
+    selected_provider = str(config.getoption("--dcim-provider"))
+    run_ci = bool(config.getoption("--ci") or os.environ.get("CI"))
     for item in items:
-        if item.get_closest_marker("ci_only"):
-            item.add_marker(skip_ci)
+        if item.get_closest_marker("ci_only") and not run_ci:
+            item.add_marker(
+                pytest.mark.skip(reason="CI-only test (pass --ci or set CI env var to run)")
+            )
+        if marker := item.get_closest_marker("dcim_provider"):
+            supported = {str(name) for name in marker.args}
+            if selected_provider not in supported:
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason=f"requires DCIM provider {', '.join(sorted(supported))}"
+                    )
+                )
 
 
 @pytest.fixture(scope="session")
@@ -234,6 +260,23 @@ def config_manager_namespace(request: pytest.FixtureRequest) -> str:
 def base_hostname(request: pytest.FixtureRequest) -> str:
     """Get the base hostname for NVIDIA Config Manager services."""
     return str(request.config.getoption("--base-hostname"))
+
+
+@pytest.fixture(scope="session")
+def dcim_provider_name(request: pytest.FixtureRequest) -> str:
+    """Return the provider selected for this integration run."""
+    return str(request.config.getoption("--dcim-provider"))
+
+
+@pytest.fixture(scope="session")
+def dcim_adapter_type(request: pytest.FixtureRequest) -> type[DCIMIntegrationAdapter]:
+    """Load the provider-owned test adapter selected on the command line."""
+    spec = str(request.config.getoption("--dcim-integration-adapter"))
+    try:
+        adapter = load_dcim_integration_adapter(spec)
+    except (AttributeError, ImportError, ValueError) as exc:
+        pytest.fail(f"Could not load DCIM integration adapter {spec!r}: {exc}")
+    return adapter
 
 
 @pytest.fixture(scope="session")
@@ -296,6 +339,28 @@ def _start_service_port_forward(
     return None
 
 
+def _service_port_forward(
+    namespace: str,
+    service: str,
+    local_port: int,
+    remote_port: int,
+) -> Generator[str]:
+    """Yield a local URL backed by a Kubernetes service port-forward."""
+    proc = _start_service_port_forward(namespace, service, local_port, remote_port)
+    if proc is None:
+        pytest.fail(
+            f"Failed to start port-forward for {service} in namespace {namespace!r}. "
+            "Ensure kubectl is configured and the service exists."
+        )
+    try:
+        yield f"http://localhost:{local_port}"
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+        if proc in _port_forward_processes:
+            _port_forward_processes.remove(proc)
+
+
 @pytest.fixture(scope="session")
 def temporal_api_port_forward(
     use_port_forward: bool,
@@ -310,13 +375,78 @@ def temporal_api_port_forward(
         yield ""
         return
 
-    local_port = 18001
+    yield from _service_port_forward(
+        config_manager_namespace, "nv-config-manager-temporal-api", 18001, 9000
+    )
+
+
+@pytest.fixture(scope="session")
+def render_api_port_forward(
+    use_port_forward: bool,
+    config_manager_namespace: str,
+) -> Generator[str]:
+    """Port-forward the Render API when requested."""
+    if not use_port_forward:
+        yield ""
+        return
+    yield from _service_port_forward(
+        config_manager_namespace, "nv-config-manager-render-api", 18002, 9000
+    )
+
+
+@pytest.fixture(scope="session")
+def ztp_api_port_forward(
+    use_port_forward: bool,
+    config_manager_namespace: str,
+) -> Generator[str]:
+    """Port-forward the ZTP API when requested."""
+    if not use_port_forward:
+        yield ""
+        return
+    yield from _service_port_forward(
+        config_manager_namespace, "nv-config-manager-ztp-api", 18003, 9000
+    )
+
+
+@pytest.fixture(scope="session")
+def dhcp_api_port_forward(
+    use_port_forward: bool,
+    config_manager_namespace: str,
+) -> Generator[str]:
+    """Port-forward the DHCP API when requested."""
+    if not use_port_forward:
+        yield ""
+        return
+    yield from _service_port_forward(
+        config_manager_namespace, "nv-config-manager-dhcp-internal", 18004, 9000
+    )
+
+
+@pytest.fixture(scope="session")
+def dcim_port_forward(
+    use_port_forward: bool,
+    config_manager_namespace: str,
+    dcim_adapter_type: type[DCIMIntegrationAdapter],
+) -> Generator[str]:
+    """Port-forward the selected DCIM service when requested.
+
+    Yields the base URL to use (e.g. 'http://localhost:18080'), or '' when
+    port-forward is not needed.
+    """
+    if not use_port_forward:
+        yield ""
+        return
+
+    local_port = 18080
     proc = _start_service_port_forward(
-        config_manager_namespace, "nv-config-manager-temporal-api", local_port, 9000
+        config_manager_namespace,
+        dcim_adapter_type.service_name,
+        local_port,
+        dcim_adapter_type.service_port,
     )
     if proc is None:
         pytest.fail(
-            f"Failed to start port-forward for nv-config-manager-temporal-api in namespace "
+            f"Failed to start port-forward for {dcim_adapter_type.service_name} in namespace "
             f"'{config_manager_namespace}'. Ensure kubectl is configured and the service exists."
         )
     try:
@@ -330,34 +460,13 @@ def temporal_api_port_forward(
 
 @pytest.fixture(scope="session")
 def nautobot_port_forward(
-    use_port_forward: bool,
-    config_manager_namespace: str,
-) -> Generator[str]:
-    """Port-forward the Nautobot service when --use-port-forward is set.
-
-    Yields the base URL to use (e.g. 'http://localhost:18080'), or '' when
-    port-forward is not needed.
-    """
-    if not use_port_forward:
-        yield ""
-        return
-
-    local_port = 18080
-    proc = _start_service_port_forward(
-        config_manager_namespace, "nv-config-manager-nautobot", local_port, 80
-    )
-    if proc is None:
-        pytest.fail(
-            f"Failed to start port-forward for nv-config-manager-nautobot in namespace "
-            f"'{config_manager_namespace}'. Ensure kubectl is configured and the service exists."
-        )
-    try:
-        yield f"http://localhost:{local_port}"
-    finally:
-        proc.terminate()
-        proc.wait(timeout=5)
-        if proc in _port_forward_processes:
-            _port_forward_processes.remove(proc)
+    dcim_provider_name: str,
+    dcim_port_forward: str,
+) -> str:
+    """Compatibility alias for Nautobot-specific tests during adapter migration."""
+    if dcim_provider_name != "nautobot-2x":
+        pytest.skip("Nautobot port-forward requested for a different DCIM provider")
+    return dcim_port_forward
 
 
 @pytest.fixture(scope="session")
@@ -419,16 +528,16 @@ def oidc_auth(
 
 
 @pytest.fixture(scope="session")
-def nautobot_token(config_manager_namespace: str) -> str:
-    """Get the Nautobot API token.
+def dcim_token(
+    config_manager_namespace: str,
+    dcim_adapter_type: type[DCIMIntegrationAdapter],
+) -> str:
+    """Resolve the selected provider's API token from the environment or Kubernetes."""
+    if token := os.environ.get("DCIM_TOKEN") or os.environ.get(
+        dcim_adapter_type.token_environment_variable
+    ):
+        return token
 
-    Either uses environment variable NAUTOBOT_TOKEN or retrieves from Kubernetes secret.
-    """
-    env_token = os.environ.get("NAUTOBOT_TOKEN")
-    if env_token:
-        return env_token
-
-    # Get token from Kubernetes secret (nautobot-admin secret, api_token key)
     try:
         result = subprocess.run(
             [
@@ -437,17 +546,31 @@ def nautobot_token(config_manager_namespace: str) -> str:
                 "secret",
                 "-n",
                 config_manager_namespace,
-                "nautobot-admin",
+                dcim_adapter_type.secret_name,
                 "-o",
-                "jsonpath={.data.api_token}",
+                f"jsonpath={{.data.{dcim_adapter_type.secret_key}}}",
             ],
             capture_output=True,
             text=True,
             check=True,
         )
         return base64.b64decode(result.stdout).decode("utf-8")
-    except subprocess.CalledProcessError as e:
-        pytest.fail(f"Could not retrieve api_token from nautobot-admin secret: {e}")
+    except subprocess.CalledProcessError as exc:
+        pytest.fail(
+            f"Could not retrieve {dcim_adapter_type.secret_key} from "
+            f"{dcim_adapter_type.secret_name}: {exc}"
+        )
+
+
+@pytest.fixture(scope="session")
+def nautobot_token(dcim_provider_name: str, dcim_token: str) -> str:
+    """Get the Nautobot API token.
+
+    Compatibility alias for the provider-specific tests retained in this suite.
+    """
+    if dcim_provider_name != "nautobot-2x":
+        pytest.skip("Nautobot token requested for a different DCIM provider")
+    return dcim_token
 
 
 # =============================================================================
@@ -455,6 +578,51 @@ def nautobot_token(config_manager_namespace: str) -> str:
 # When --sso is enabled, API URLs use svc-* hostnames (JWT-only, no OIDC redirect).
 # Nautobot always uses its regular hostname (token-based auth, not OIDC).
 # =============================================================================
+
+
+@pytest.fixture(scope="session")
+def dcim_url(
+    base_hostname: str,
+    dcim_port_forward: str,
+    dcim_adapter_type: type[DCIMIntegrationAdapter],
+) -> str:
+    """Return the selected DCIM provider's externally reachable URL."""
+    if dcim_port_forward:
+        return dcim_port_forward
+    if env_url := os.environ.get("DCIM_URL") or os.environ.get(
+        dcim_adapter_type.url_environment_variable
+    ):
+        return env_url
+    return f"https://{dcim_adapter_type.hostname_prefix}.{base_hostname}"
+
+
+@pytest.fixture(scope="session")
+def dcim_adapter(
+    dcim_provider_name: str,
+    dcim_adapter_type: type[DCIMIntegrationAdapter],
+    dcim_url: str,
+    dcim_token: str,
+) -> DCIMIntegrationAdapter:
+    """Create the provider-owned lifecycle inspection adapter."""
+    if dcim_adapter_type.provider_name != dcim_provider_name:
+        pytest.fail(
+            f"DCIM adapter {dcim_adapter_type.__name__} serves "
+            f"{dcim_adapter_type.provider_name!r}, not {dcim_provider_name!r}"
+        )
+    return dcim_adapter_type(dcim_url, dcim_token)
+
+
+@pytest.fixture(scope="session")
+def dcim_device_ids(dcim_adapter: DCIMIntegrationAdapter) -> list[str]:
+    """Fetch up to three managed Cumulus Linux devices through the adapter."""
+    devices = dcim_adapter.list_devices(platform="Cumulus Linux")
+    device_ids = [str(device["id"]) for device in devices[:3]]
+    if not device_ids:
+        pytest.fail(
+            "No Cumulus Linux devices found in the selected DCIM. Load the mock topology first."
+        )
+    print(f"\n[fixtures] Found {len(device_ids)} Cumulus Linux device(s) in the DCIM")
+    return device_ids
 
 
 @pytest.fixture(scope="session")
@@ -496,24 +664,28 @@ def nautobot_device_ids(
 
 @pytest.fixture(scope="session")
 def nautobot_url(
-    base_hostname: str,
-    nautobot_port_forward: str,
+    dcim_provider_name: str,
+    dcim_url: str,
 ) -> str:
     """Get the Nautobot API URL.
 
     Nautobot uses its own token auth, so it always uses the regular hostname.
     When --use-port-forward is set, routes through a kubectl port-forward instead.
     """
-    if nautobot_port_forward:
-        return nautobot_port_forward
-    if env_url := os.environ.get("NAUTOBOT_URL"):
-        return env_url
-    return f"https://nautobot.{base_hostname}"
+    if dcim_provider_name != "nautobot-2x":
+        pytest.skip("Nautobot URL requested for a different DCIM provider")
+    return dcim_url
 
 
 @pytest.fixture(scope="session")
-def render_api_url(base_hostname: str, sso_enabled: bool) -> str:
+def render_api_url(
+    base_hostname: str,
+    sso_enabled: bool,
+    render_api_port_forward: str,
+) -> str:
     """Get the Render API URL."""
+    if render_api_port_forward:
+        return render_api_port_forward
     if env_url := os.environ.get("RENDER_URL"):
         return env_url
     prefix = "svc-render" if sso_enabled else "render"
@@ -521,8 +693,14 @@ def render_api_url(base_hostname: str, sso_enabled: bool) -> str:
 
 
 @pytest.fixture(scope="session")
-def ztp_api_url(base_hostname: str, sso_enabled: bool) -> str:
+def ztp_api_url(
+    base_hostname: str,
+    sso_enabled: bool,
+    ztp_api_port_forward: str,
+) -> str:
     """Get the ZTP API URL."""
+    if ztp_api_port_forward:
+        return ztp_api_port_forward
     if env_url := os.environ.get("ZTP_URL"):
         return env_url
     prefix = "svc-ztp" if sso_enabled else "ztp"
@@ -530,8 +708,14 @@ def ztp_api_url(base_hostname: str, sso_enabled: bool) -> str:
 
 
 @pytest.fixture(scope="session")
-def dhcp_api_url(base_hostname: str, sso_enabled: bool) -> str:
+def dhcp_api_url(
+    base_hostname: str,
+    sso_enabled: bool,
+    dhcp_api_port_forward: str,
+) -> str:
     """Get the DHCP API URL."""
+    if dhcp_api_port_forward:
+        return dhcp_api_port_forward
     if env_url := os.environ.get("DHCP_URL"):
         return env_url
     prefix = "svc-dhcp" if sso_enabled else "dhcp"
@@ -559,8 +743,6 @@ def temporal_api_url(
 
 def _check_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
     """Check if a port is open and accepting connections."""
-    import socket
-
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True
