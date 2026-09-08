@@ -23,6 +23,7 @@ import pytest
 from nv_config_manager.common.client import TemporalClient, ZTPClient
 from nv_config_manager_workflows.clients.render import RenderClient
 
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("client_cls", "base_url"),

@@ -53,7 +53,7 @@ class ConfigStoreClientSettings(TypedDict):
     """Explicit constructor settings for :class:`ConfigStoreClient`."""
 
     target: str
-    file_type: ConfigStoreType
+    file_type: ConfigStoreType | str
     ui_url: str
     verify: NotRequired[bool | str]
     client_certificate: NotRequired[tuple[str, str] | None]
@@ -90,7 +90,7 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
     def __init__(
         self,
         target: str,
-        file_type: ConfigStoreType,
+        file_type: ConfigStoreType | str,
         ui_url: str,
         verify: bool | str = True,
         client_certificate: tuple[str, str] | None = None,
@@ -100,13 +100,14 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
 
         Args:
             target: Base URL of the nv-config-manager-config-store-service
-            file_type: Config Store file type
+            file_type: Config Store file type enum or value
             ui_url: UI base URL for generating user-facing links
             verify: SSL verification - True (default), False (disable), or str (path to CA cert)
             client_certificate: Tuple of (cert_file, key_file) for mTLS
             headers: Static dict or callable returning fresh headers per-request
         """
         base_url = target.rstrip("/")
+        file_type_value = ConfigStoreType(file_type).value
         super().__init__(
             base_url=base_url,
             connector=self._create_connector(verify, client_certificate),
@@ -119,7 +120,7 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
             headers=headers,
         )
         self.target: str = base_url
-        self.file_type: str = file_type.value
+        self.file_type: str = file_type_value
         self.config_url: str = f"{base_url}/v1/config"
         self._ui_url: str = ui_url.rstrip("/")
         self._verify: bool | str = verify
@@ -130,7 +131,7 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
         cls,
         target: str,
         headers: dict[str, str] | Callable[[], dict[str, str]],
-        file_type: ConfigStoreType = ConfigStoreType.INTENDED,
+        file_type: ConfigStoreType | str = ConfigStoreType.INTENDED,
         ui_url: str | None = None,
         verify: bool | str = True,
     ) -> ConfigStoreClient:
@@ -214,7 +215,7 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
     async def list_device_configs(
         self,
         device_uuid: str,
-        file_type: ConfigStoreType | None | _FileTypeUnset = _FILE_TYPE_UNSET,
+        file_type: ConfigStoreType | str | None | _FileTypeUnset = _FILE_TYPE_UNSET,
     ) -> list[dict[str, object]]:
         """List latest configuration files for a device."""
         try:
@@ -236,7 +237,7 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
         self,
         device_uuid: str,
         filename: str,
-        file_type: ConfigStoreType | None | _FileTypeUnset = _FILE_TYPE_UNSET,
+        file_type: ConfigStoreType | str | None | _FileTypeUnset = _FILE_TYPE_UNSET,
         version: int | None = None,
     ) -> dict[str, object]:
         """Get a configuration file from Config Store."""
@@ -268,7 +269,7 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
         self,
         device_uuid: str,
         filename: str,
-        file_type: ConfigStoreType | None | _FileTypeUnset = _FILE_TYPE_UNSET,
+        file_type: ConfigStoreType | str | None | _FileTypeUnset = _FILE_TYPE_UNSET,
         limit: int = 100,
     ) -> dict[str, object]:
         """List versions for a device configuration file."""
@@ -297,7 +298,7 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
         filename: str,
         from_version: int,
         to_version: int,
-        file_type: ConfigStoreType | None | _FileTypeUnset = _FILE_TYPE_UNSET,
+        file_type: ConfigStoreType | str | None | _FileTypeUnset = _FILE_TYPE_UNSET,
     ) -> dict[str, object]:
         """Get a diff between two Config Store versions."""
         params = self._file_type_params(file_type)
@@ -399,13 +400,13 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
 
     def _file_type_params(
         self,
-        file_type: ConfigStoreType | None | _FileTypeUnset,
+        file_type: ConfigStoreType | str | None | _FileTypeUnset,
     ) -> dict[str, object]:
         if file_type is None:
             return {}
         if isinstance(file_type, _FileTypeUnset):
             return {"file_type": self.file_type}
-        return {"file_type": file_type.value}
+        return {"file_type": ConfigStoreType(file_type).value}
 
     async def __aenter__(self) -> ConfigStoreClient:
         """Async context manager entry."""

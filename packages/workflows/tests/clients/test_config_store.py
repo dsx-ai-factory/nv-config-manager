@@ -101,6 +101,19 @@ async def test_init_with_ca_cert_disabled():
     await client.close()
 
 
+@pytest.mark.asyncio
+async def test_init_accepts_legacy_string_file_type():
+    """String file types remain accepted at the public client boundary."""
+    client = ConfigStoreClient(
+        target="http://config-store.example.com",
+        file_type="backup",
+        ui_url="https://config-manager.example.com",
+    )
+
+    assert client.file_type == "backup"
+    await client.close()
+
+
 def _mock_retry_client(response_data):
     """Create a mock RetryClient context manager returning response_data."""
     mock_response = AsyncMock()
@@ -202,7 +215,7 @@ async def test_config_query_paths_and_parameters_are_unchanged(async_config_stor
         await async_config_store_client.get_config_versions(
             "device-1",
             "startup config",
-            file_type=ConfigStoreType.BACKUP,
+            file_type="backup",
             limit=20,
         )
         await async_config_store_client.get_config_diff(
