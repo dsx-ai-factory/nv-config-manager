@@ -82,6 +82,7 @@ def _vault_client(config: ConfigParser) -> PKIClient:
         pki_mount=pki_mount,
         sources=sources,
         verify=parse_verify_param(vault),
+        allow_insecure=vault.getboolean("allow_insecure", fallback=False),
         timeout_seconds=vault.getfloat("timeout_seconds", fallback=30.0),
     )
 

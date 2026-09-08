@@ -12,7 +12,8 @@ OPERATOR_VERSIONS_FILE="$REPO_ROOT/deploy/operator-versions.env"
 OPENBAO_NAMESPACE="${OPENBAO_NAMESPACE:-openbao}"
 OPENBAO_RELEASE="${OPENBAO_RELEASE:-openbao}"
 OPENBAO_POD="${OPENBAO_POD:-openbao-0}"
-OPENBAO_ROOT_TOKEN="${OPENBAO_ROOT_TOKEN:-root}"
+OPENBAO_ROOT_TOKEN_SECRET="${OPENBAO_ROOT_TOKEN_SECRET:-openbao-dev-root-token}"
+OPENBAO_ROOT_TOKEN="${OPENBAO_ROOT_TOKEN:-}"
 APP_NAMESPACE="${APP_NAMESPACE:-nv-config-manager}"
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-vault-access-sa}"
 AUTH_MOUNT="${AUTH_MOUNT:-jwt/k8s/nv-config-manager-local}"
@@ -51,7 +52,7 @@ Important environment overrides:
   APP_NAMESPACE, SERVICE_ACCOUNT, AUTH_MOUNT, AUTH_ROLE
   PKI_MOUNT, PKI_ROLE, PKI_DOMAIN, PKI_TTL, PKI_MAX_TTL
   KUBERNETES_ISSUER, KUBERNETES_JWKS_URL, JWT_AUDIENCE
-  KUBECTL_BIN, HELM_BIN
+  OPENBAO_ROOT_TOKEN, KUBECTL_BIN, HELM_BIN
 EOF
 }
 
@@ -85,6 +86,17 @@ require_command jq
 require_command openssl
 if [[ "$INSTALL_OPENBAO" == "true" ]]; then
     require_command "$HELM_BIN"
+    if [[ -z "$OPENBAO_ROOT_TOKEN" ]]; then
+        OPENBAO_ROOT_TOKEN="$(openssl rand -hex 24)"
+    fi
+elif [[ -z "$OPENBAO_ROOT_TOKEN" ]]; then
+    encoded_root_token="$("$KUBECTL_BIN" -n "$OPENBAO_NAMESPACE" get secret \
+        "$OPENBAO_ROOT_TOKEN_SECRET" -o jsonpath='{.data.token}' 2>/dev/null || true)"
+    if [[ -z "$encoded_root_token" ]]; then
+        echo "OPENBAO_ROOT_TOKEN is required when the local token Secret is absent" >&2
+        exit 1
+    fi
+    OPENBAO_ROOT_TOKEN="$(printf '%s' "$encoded_root_token" | base64 -d)"
 fi
 
 kubectl_cmd() {
@@ -118,6 +130,9 @@ if [[ "$INSTALL_OPENBAO" == "true" ]]; then
         --set injector.enabled=false \
         --wait \
         --timeout 5m
+    kubectl_cmd -n "$OPENBAO_NAMESPACE" create secret generic \
+        "$OPENBAO_ROOT_TOKEN_SECRET" --from-literal=token="$OPENBAO_ROOT_TOKEN" \
+        --dry-run=client -o yaml | kubectl_cmd apply -f - >/dev/null
 fi
 
 kubectl_cmd -n "$OPENBAO_NAMESPACE" wait \

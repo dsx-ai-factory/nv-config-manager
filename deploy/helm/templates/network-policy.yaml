@@ -241,9 +241,6 @@ spec:
         - protocol: TCP
           port: 8443
         {{- end }}
-        # HTTP API (port 9000, for internal/gateway access)
-        - protocol: TCP
-          port: 9000
         # SFTP (port 2222)
         - protocol: TCP
           port: 2222

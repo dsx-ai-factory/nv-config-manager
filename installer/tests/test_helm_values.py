@@ -182,6 +182,7 @@ class TestGenerateHelmValues:
 
         values = _gen(config)
 
+        assert values["networkZtp"]["ingress"]["metallb"]["staticIP"] == "192.0.2.10"
         assert values["networkZtp"]["ingress"]["tls"] == {
             "enabled": True,
             "secretName": "",
@@ -207,6 +208,7 @@ class TestGenerateHelmValues:
                 "audience": "vault",
                 "pkiMount": "pki/dev-dsx-nvidia-com",
                 "verify": True,
+                "allowInsecure": False,
                 "caSecret": {
                     "name": "dsx-vault-ca",
                     "key": "tls-ca.pem",
@@ -231,6 +233,46 @@ class TestGenerateHelmValues:
                 },
             ],
         }
+
+    def test_ztp_tls_requires_existing_secret_when_certificate_is_unmanaged(self):
+        with pytest.raises(ValueError, match="requires secret_name"):
+            ZTPTLSConfig(enabled=True)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"address": "http://vault.example"},
+            {"address": "https://vault.example", "verify": False},
+        ],
+    )
+    def test_ztp_vault_rejects_insecure_transport_without_opt_in(self, kwargs):
+        with pytest.raises(ValueError, match="allow_insecure"):
+            ZTPVaultPKIConfig(**kwargs)
+
+    def test_ztp_vault_allows_explicit_local_insecure_transport(self):
+        vault = ZTPVaultPKIConfig(
+            address="http://openbao.openbao.svc:8200",
+            verify=False,
+            allow_insecure=True,
+        )
+
+        assert vault.allow_insecure is True
+
+    def test_ztp_tls_requires_ztp_service(self):
+        with pytest.raises(ValueError, match="services.ztp must be true"):
+            _make_config(
+                services=ServicesConfig(ztp=False),
+                infrastructure=InfrastructureConfig(
+                    load_balancer=LoadBalancerConfig(
+                        provider=LBProvider.METALLB,
+                        ztp_lb_ip="192.0.2.10",
+                    ),
+                    ztp_tls=ZTPTLSConfig(
+                        enabled=True,
+                        secret_name="ztp-tls",
+                    ),
+                ),
+            )
 
     def test_s3_irsa_role_and_region(self):
         """S3 IRSA emits an annotated ServiceAccount without a credentials Secret."""

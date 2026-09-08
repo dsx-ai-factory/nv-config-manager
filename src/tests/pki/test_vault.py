@@ -25,6 +25,7 @@ from aioresponses import aioresponses
 from nv_config_manager.pki import (
     CertificateIssueRequest,
     PKIConfigurationError,
+    PKIProviderError,
     PKISourceNotFoundError,
     VaultPKIClient,
     VaultPKISource,
@@ -186,6 +187,7 @@ auth_role = issuer
 token_path = {token_path}
 pki_mount = pki/dev-dsx-nvidia-com
 verify = false
+allow_insecure = true
 
 [pki.source.telemetry-client]
 issue_role = switch-client
@@ -197,6 +199,98 @@ common_name_template = device-{{device_id}}.switches.example.com
     client = create_pki_client(config)
 
     assert isinstance(client, VaultPKIClient)
+
+
+@pytest.mark.parametrize(
+    ("address", "verify"),
+    [
+        ("http://vault.example", True),
+        ("https://vault.example", False),
+    ],
+)
+def test_client_rejects_insecure_transport_without_explicit_opt_in(
+    tmp_path, address, verify
+) -> None:
+    token_path = tmp_path / "token"
+    with pytest.raises(PKIConfigurationError, match="allow_insecure"):
+        VaultPKIClient(
+            address=address,
+            auth_mount="jwt/test",
+            auth_role="issuer",
+            token_path=str(token_path),
+            pki_mount="pki/test",
+            sources={"client": VaultPKISource(issue_role="role")},
+            verify=verify,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [307, 308])
+async def test_login_refuses_redirects(tmp_path, status) -> None:
+    client = _client(tmp_path)
+    with aioresponses() as mocked:
+        mocked.post(
+            "https://vault.example/v1/auth/jwt/k8s/test-cluster/login",
+            status=status,
+            headers={"Location": "https://attacker.example/login"},
+        )
+        with pytest.raises(PKIProviderError, match="redirect"):
+            await client.get_ca_chain("telemetry-ca")
+    await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [307, 308])
+async def test_authenticated_request_refuses_redirects(tmp_path, status) -> None:
+    client = _client(tmp_path)
+    with aioresponses() as mocked:
+        mocked.post(
+            "https://vault.example/v1/auth/jwt/k8s/test-cluster/login",
+            payload={"auth": {"client_token": "vault-token", "lease_duration": 3600}},
+        )
+        mocked.get(
+            "https://vault.example/v1/pki/dev-dsx-nvidia-com/ca/pem",
+            status=status,
+            headers={"Location": "https://attacker.example/ca"},
+        )
+        with pytest.raises(PKIProviderError, match="redirect"):
+            await client.get_ca_chain("telemetry-ca")
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_ca_chain_rejects_non_mapping_data(tmp_path) -> None:
+    client = _client(tmp_path)
+    with aioresponses() as mocked:
+        mocked.post(
+            "https://vault.example/v1/auth/jwt/k8s/test-cluster/login",
+            payload={"auth": {"client_token": "vault-token", "lease_duration": 3600}},
+        )
+        mocked.get(
+            "https://vault.example/v1/pki/dev-dsx-nvidia-com/ca/pem",
+            payload={"data": None},
+        )
+        with pytest.raises(PKIProviderError, match="invalid response"):
+            await client.get_ca_chain("telemetry-ca")
+    await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ca_chain", ["not-a-list", [123], ["not-a-certificate"]])
+async def test_ca_chain_rejects_malformed_json_certificate_data(tmp_path, ca_chain) -> None:
+    client = _client(tmp_path)
+    with aioresponses() as mocked:
+        mocked.post(
+            "https://vault.example/v1/auth/jwt/k8s/test-cluster/login",
+            payload={"auth": {"client_token": "vault-token", "lease_duration": 3600}},
+        )
+        mocked.get(
+            "https://vault.example/v1/pki/dev-dsx-nvidia-com/ca/pem",
+            payload={"data": {"ca_chain": ca_chain}},
+        )
+        with pytest.raises(PKIProviderError):
+            await client.get_ca_chain("telemetry-ca")
+    await client.close()
 
 
 def test_factory_rejects_caller_controlled_path_characters() -> None:

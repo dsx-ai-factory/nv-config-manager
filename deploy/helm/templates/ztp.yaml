@@ -92,7 +92,7 @@ spec:
           name: http
         resources:
           {{- toYaml .Values.networkZtp.resources.http | nindent 10 }}
-        {{- if or $ztpConfigVolume $ztpFileStorage $ztpSpiffeJwt $ztpPkiJwt .Values.dcim.providerPackages.enabled }}
+        {{- if or $ztpConfigVolume $ztpFileStorage $ztpSpiffeJwt .Values.dcim.providerPackages.enabled }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
         {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
@@ -101,16 +101,6 @@ spec:
           mountPath: {{ .Values.networkZtp.storage.file.mountPath | default "/mnt/images" }}
         {{- end }}
         {{- include "nv-config-manager.authVolumeMounts" . | nindent 8 }}
-        {{- if $ztpPkiJwt }}
-        - name: pki-jwt
-          mountPath: {{ dir (.Values.networkZtp.certificates.vault.tokenPath | default "/var/run/secrets/nv-config-manager-pki/token") }}
-          readOnly: true
-        {{- end }}
-        {{- if $ztpPkiCA }}
-        - name: pki-vault-ca
-          mountPath: {{ dir ($ztpPkiCASecret.mountPath | required "networkZtp.certificates.vault.caSecret.mountPath is required") }}
-          readOnly: true
-        {{- end }}
         {{- end }}
         # /healthcheck has no dependencies; it only proves the event loop can
         # still accept a request. Chart-default timings (1s timeout, 10s period,
@@ -389,6 +379,7 @@ spec:
       - name: ztp-tls
         secret:
           secretName: {{ include "nv-config-manager.networkZtpTLSSecretName" . }}
+          defaultMode: 0440
       {{- end }}
       {{- /* SPIFFE volumes */ -}}
       {{- include "nv-config-manager.authSidecar.volumes" (dict "root" .) | nindent 6 }}

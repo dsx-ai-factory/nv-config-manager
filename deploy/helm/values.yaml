@@ -1337,11 +1337,13 @@ networkZtp:
       # Vault Enterprise namespace containing the PKI/auth mounts. Leave empty
       # for OpenBao or a non-namespaced Vault deployment.
       namespace: ""
-      authMount: jwt/k8s/nv-config-manager-local
-      authRole: nv-config-manager-switch-certificate-issuer
+      authMount: ""
+      authRole: ""
       audience: vault
       tokenPath: /var/run/secrets/nv-config-manager-pki/token
-      pkiMount: pki/dev-dsx-nvidia-com
+      pkiMount: ""
+      # Explicit local-development escape hatch for HTTP or verify=false.
+      allowInsecure: false
       # Boolean or a CA bundle path already present in the ZTP image.
       verify: true
       # Optionally mount a CA bundle from an existing Secret. When name is

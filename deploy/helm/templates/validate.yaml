@@ -42,12 +42,40 @@
 {{- end -}}
 {{- $ztpTLS := .Values.networkZtp.ingress.tls | default dict -}}
 {{- $ztpTLSCertificate := $ztpTLS.certificate | default dict -}}
+{{- if and (or .Values.networkZtp.certificates.enabled ($ztpTLS.enabled | default false)) (not .Values.networkZtp.enabled) -}}
+  {{- fail "networkZtp.enabled must be true when ZTP certificate delivery or TLS is enabled" -}}
+{{- end -}}
 {{- if and .Values.networkZtp.certificates.enabled (not ($ztpTLS.enabled | default false)) -}}
   {{- fail "networkZtp.ingress.tls.enabled must be true when device certificate delivery is enabled; private keys may not be served over HTTP" -}}
+{{- end -}}
+{{- if and .Values.networkZtp.certificates.enabled (eq .Values.networkZtp.certificates.provider "vault") -}}
+  {{- $vaultPki := .Values.networkZtp.certificates.vault | default dict -}}
+  {{- range $field := list "address" "authMount" "authRole" "pkiMount" -}}
+    {{- if not (index $vaultPki $field) -}}
+      {{- fail (printf "networkZtp.certificates.vault.%s is required when Vault certificate delivery is enabled" $field) -}}
+    {{- end -}}
+  {{- end -}}
+  {{- if and (not ($vaultPki.allowInsecure | default false)) (not (hasPrefix "https://" $vaultPki.address)) -}}
+    {{- fail "networkZtp.certificates.vault.address must use HTTPS unless allowInsecure is explicitly enabled" -}}
+  {{- end -}}
+  {{- if and (hasKey $vaultPki "verify") (kindIs "bool" $vaultPki.verify) (not $vaultPki.verify) (not ($vaultPki.allowInsecure | default false)) -}}
+    {{- fail "networkZtp.certificates.vault.verify may be false only when allowInsecure is explicitly enabled" -}}
+  {{- end -}}
+{{- end -}}
+{{- if and .Values.networkZtp.certificates.enabled (eq (len (.Values.networkZtp.certificates.sources | default list)) 0) -}}
+  {{- fail "networkZtp.certificates.sources requires at least one entry when certificate delivery is enabled" -}}
+{{- end -}}
+{{- range $source := .Values.networkZtp.certificates.sources | default list -}}
+  {{- if not (or ($source.issueRole | default "") ($source.caPath | default "")) -}}
+    {{- fail "every networkZtp.certificates.sources entry requires issueRole, caPath, or both" -}}
+  {{- end -}}
 {{- end -}}
 {{- if and ($ztpTLS.enabled | default false) (not (or .Values.networkZtp.ingress.nlb .Values.networkZtp.ingress.cilium .Values.networkZtp.ingress.metallb)) -}}
   {{- fail "networkZtp.ingress.tls.enabled requires an NLB, Cilium, or MetalLB ZTP ingress provider" -}}
 {{- end -}}
 {{- if and ($ztpTLS.enabled | default false) ($ztpTLSCertificate.create | default false) (eq (len ($ztpTLSCertificate.dnsNames | default list)) 0) (eq (len ($ztpTLSCertificate.ipAddresses | default list)) 0) -}}
   {{- fail "networkZtp.ingress.tls.certificate requires at least one dnsNames or ipAddresses entry" -}}
+{{- end -}}
+{{- if and ($ztpTLS.enabled | default false) (not ($ztpTLSCertificate.create | default false)) (not ($ztpTLS.secretName | default "")) -}}
+  {{- fail "networkZtp.ingress.tls.secretName is required when TLS is enabled and certificate.create is false" -}}
 {{- end -}}

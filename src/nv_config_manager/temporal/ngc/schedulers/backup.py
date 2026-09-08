@@ -109,21 +109,16 @@ class BackupScheduler:
                 return set()
             return set(await operation(is_aggregate_env))
 
-    async def scheduled_devices(self, temporal_client: Client) -> set[str]:
-        """Retrieve the set of currently scheduled devices."""
-        devices = set()
+    async def scheduled_device_sets(self, temporal_client: Client) -> tuple[set[str], set[str]]:
+        """Partition one Temporal schedule listing by managed schedule type."""
+        backup_devices: set[str] = set()
+        certificate_devices: set[str] = set()
         async for schedule in await temporal_client.list_schedules():
             if schedule.id.startswith(self.SCHEDULE_PREFIX):
-                devices.add(schedule.id.replace(self.SCHEDULE_PREFIX, ""))
-        return devices
-
-    async def scheduled_certificate_devices(self, temporal_client: Client) -> set[str]:
-        """Retrieve devices with an existing nightly certificate schedule."""
-        devices = set()
-        async for schedule in await temporal_client.list_schedules():
-            if schedule.id.startswith(self.CERTIFICATE_SCHEDULE_PREFIX):
-                devices.add(schedule.id.removeprefix(self.CERTIFICATE_SCHEDULE_PREFIX))
-        return devices
+                backup_devices.add(schedule.id.removeprefix(self.SCHEDULE_PREFIX))
+            elif schedule.id.startswith(self.CERTIFICATE_SCHEDULE_PREFIX):
+                certificate_devices.add(schedule.id.removeprefix(self.CERTIFICATE_SCHEDULE_PREFIX))
+        return backup_devices, certificate_devices
 
     async def schedule_device(self, device_uuid: str, temporal_client: Client) -> None:
         """Schedule a device backup workflow."""
@@ -222,7 +217,7 @@ class BackupScheduler:
                     CertificateRotationInput(device_id=device_uuid),
                     id=str(uuid4()),
                     task_queue="default-task-queue",
-                    execution_timeout=timedelta(minutes=15),
+                    execution_timeout=timedelta(minutes=35),
                     typed_search_attributes=typed_search_attributes,
                 ),
                 spec=self.CERTIFICATE_SPEC,
@@ -243,7 +238,9 @@ class BackupScheduler:
         """Reconcile the scheduled device backups against desired backups."""
         temporal_client = await self.temporal_client()
         desired_devices = await self.devices_to_schedule()
-        scheduled_devices = await self.scheduled_devices(temporal_client)
+        scheduled_devices, scheduled_certificate_devices = await self.scheduled_device_sets(
+            temporal_client
+        )
 
         schedules_to_add = desired_devices - scheduled_devices
         schedules_to_remove = scheduled_devices - desired_devices
@@ -257,7 +254,6 @@ class BackupScheduler:
             await self.unschedule_device(device, temporal_client)
 
         desired_certificate_devices = await self.certificate_devices_to_schedule()
-        scheduled_certificate_devices = await self.scheduled_certificate_devices(temporal_client)
         for device in desired_certificate_devices - scheduled_certificate_devices:
             await self.schedule_certificate_device(device, temporal_client)
         for device in scheduled_certificate_devices - desired_certificate_devices:

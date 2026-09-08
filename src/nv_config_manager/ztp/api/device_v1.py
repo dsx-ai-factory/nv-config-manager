@@ -59,28 +59,39 @@ async def _get_device_data(device_uuid: str) -> DeviceData:
         return DeviceData.from_dcim(await client.get_ztp_device(device_uuid))
 
 
-async def _authorize_request(request: Request, device_uuid: str) -> None:
+async def _authorize_request(
+    request: Request,
+    device_uuid: str,
+    *,
+    allow_authenticated_identity: bool = True,
+) -> DeviceData | None:
     # This endpoint has sensitive content, check if coming from the
     # device associated with this configuration
 
     if accept_request_headers():
-        if not auth_required():
-            return
-
-        identity = await require_sso_or_device(request)
-        if identity is not None and identity.source != "anonymous":
-            # The gateway-facing listener accepts identities validated by the
-            # shared auth layer. Direct listeners disable header trust and
-            # always continue to the device IP check below.
-            return
+        requires_auth = auth_required()
+        if allow_authenticated_identity and not requires_auth:
+            return None
+        if requires_auth:
+            identity = await require_sso_or_device(request)
+            if (
+                allow_authenticated_identity
+                and identity is not None
+                and identity.source != "anonymous"
+            ):
+                # The gateway-facing listener accepts identities validated by the
+                # shared auth layer. Direct listeners disable header trust and
+                # always continue to the device IP check below.
+                return None
 
     try:
         device_data = await _get_device_data(device_uuid)
     except DCIMNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    allowed_addresses = device_data.addresses
-    allowed_addresses.append("127.0.0.1")
+    allowed_addresses = set(device_data.addresses)
+    if allow_authenticated_identity:
+        allowed_addresses.add("127.0.0.1")
 
     if request.client is None:
         raise HTTPException(status_code=403, detail="Unable to determine client IP address.")
@@ -101,6 +112,7 @@ async def _authorize_request(request: Request, device_uuid: str) -> None:
                 "Ensure the requesting IP is assigned to the device in the DCIM."
             ),
         )
+    return device_data
 
 
 @router.get("/{device_uuid}/boot-script", response_class=PlainTextResponse)
@@ -165,11 +177,13 @@ async def load_certificate(
     request: Request,
 ) -> Response:
     """Issue or load one certificate explicitly assigned to the requesting device."""
-    await _authorize_request(request, device_uuid)
-    try:
-        device_data = await _get_device_data(device_uuid)
-    except DCIMNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    device_data = await _authorize_request(
+        request,
+        device_uuid,
+        allow_authenticated_identity=False,
+    )
+    if device_data is None:  # Defensive: device-only authorization always returns data.
+        raise HTTPException(status_code=403, detail="Device authorization is required.")
     certificate = _assigned_certificate(device_data, certificate_id)
     if certificate.kind == CertificateKind.IDENTITY and request.url.scheme != "https":
         raise HTTPException(

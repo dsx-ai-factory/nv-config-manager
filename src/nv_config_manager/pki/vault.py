@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from string import Formatter
 from typing import Any
+from urllib.parse import urlsplit
 
 import aiohttp
 
@@ -84,10 +85,30 @@ class VaultPKIClient(PKIClient):
         sources: dict[str, VaultPKISource],
         namespace: str | None = None,
         verify: bool | str = True,
+        allow_insecure: bool = False,
         timeout_seconds: float = 30.0,
     ) -> None:
         """Create a Vault PKI client without performing network I/O."""
-        self._address = address.rstrip("/")
+        normalized_address = address.rstrip("/")
+        parsed_address = urlsplit(normalized_address)
+        if (
+            parsed_address.scheme not in {"http", "https"}
+            or not parsed_address.netloc
+            or parsed_address.username is not None
+            or parsed_address.password is not None
+            or parsed_address.query
+            or parsed_address.fragment
+        ):
+            raise PKIConfigurationError("Vault address must be an absolute HTTP(S) URL")
+        if parsed_address.scheme != "https" and not allow_insecure:
+            raise PKIConfigurationError(
+                "Vault address must use HTTPS unless allow_insecure is explicitly enabled"
+            )
+        if verify is False and not allow_insecure:
+            raise PKIConfigurationError(
+                "Vault TLS verification may be disabled only when allow_insecure is enabled"
+            )
+        self._address = normalized_address
         self._auth_mount = auth_mount.strip("/")
         self._auth_role = auth_role
         self._token_path = Path(token_path)
@@ -154,7 +175,10 @@ class VaultPKIClient(PKIClient):
                     url,
                     headers=self._base_headers(),
                     json={"role": self._auth_role, "jwt": workload_jwt},
+                    allow_redirects=False,
                 ) as response:
+                    if 300 <= response.status < 400:
+                        raise PKIProviderError("Vault JWT login refused a redirect response")
                     payload = await self._json_response(response, "Vault JWT login")
                     if response.status >= 400:
                         raise PKIAuthenticationError(
@@ -190,9 +214,17 @@ class VaultPKIClient(PKIClient):
             headers = self._base_headers()
             headers["X-Vault-Token"] = token
             try:
-                async with session.request(method, url, headers=headers, json=payload) as response:
+                async with session.request(
+                    method,
+                    url,
+                    headers=headers,
+                    json=payload,
+                    allow_redirects=False,
+                ) as response:
                     content = await response.read()
                     content_type = response.headers.get("Content-Type", "")
+                    if 300 <= response.status < 400:
+                        raise PKIProviderError("Vault PKI request refused a redirect response")
                     if response.status in {401, 403} and attempt == 0:
                         self._invalidate_token()
                         continue
@@ -279,9 +311,19 @@ class VaultPKIClient(PKIClient):
         content, content_type = await self._authorized_request("GET", source_config.ca_path)
         if "json" in content_type.lower():
             payload = self._decode_json(content, "Vault CA chain read")
-            data = payload.get("data", {})
-            values = data.get("ca_chain") or [data.get("certificate")]
-            certificates = tuple(str(value) for value in values if value)
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                raise PKIProviderError("Vault CA chain returned an invalid response")
+            values = data.get("ca_chain")
+            if values is None:
+                values = [data.get("certificate")]
+            if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+                raise PKIProviderError("Vault CA chain returned an invalid response")
+            certificates = tuple(value.strip() for value in values if value.strip())
+            if not all(
+                _PEM_CERTIFICATE_PATTERN.fullmatch(certificate) for certificate in certificates
+            ):
+                raise PKIProviderError("Vault CA chain returned invalid PEM data")
         else:
             try:
                 pem_bundle = content.decode("utf-8")

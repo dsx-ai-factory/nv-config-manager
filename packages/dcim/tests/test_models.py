@@ -173,3 +173,45 @@ def test_render_device_rejects_wrong_otel_certificate_kind() -> None:
                 },
             }
         )
+
+
+def test_render_device_rejects_duplicate_otel_destination_addresses() -> None:
+    """A YAML destination map cannot represent two collectors at the same address."""
+    with pytest.raises(ValidationError, match="destination addresses must be unique"):
+        DeviceRenderData.model_validate(
+            {
+                "identity": {
+                    "id": "device-id",
+                    "name": "switch-1",
+                    "platform": "Cumulus Linux",
+                    "role": "Leaf",
+                    "model": "SN5600",
+                    "location": {"name": "site-1"},
+                },
+                "certificates": [
+                    {"id": "otel-ca", "source": "telemetry-ca", "kind": "ca"},
+                    {
+                        "id": "otel-client",
+                        "source": "telemetry-client",
+                        "kind": "identity",
+                    },
+                ],
+                "telemetry": {
+                    "otlp": {
+                        "ca_certificate": "otel-ca",
+                        "destinations": [
+                            {
+                                "address": "192.0.2.40",
+                                "port": 4317,
+                                "client_certificate": "otel-client",
+                            },
+                            {
+                                "address": "192.0.2.40",
+                                "port": 4318,
+                                "client_certificate": "otel-client",
+                            },
+                        ],
+                    }
+                },
+            }
+        )

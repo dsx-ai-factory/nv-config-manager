@@ -68,10 +68,46 @@ async def test_certificate_scheduling_is_optional_for_dcim_providers(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_scheduled_devices():
+async def test_certificate_scheduling_is_skipped_without_pki(monkeypatch):
+    config = Mock()
+    config.has_section.return_value = False
+    monkeypatch.setattr(
+        "nv_config_manager.temporal.ngc.schedulers.backup.load_config",
+        lambda: config,
+    )
+    scheduler = BackupScheduler()
+
+    assert await scheduler.certificate_devices_to_schedule() == set()
+
+
+@pytest.mark.asyncio
+async def test_certificate_devices_to_schedule_returns_provider_ids(monkeypatch):
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.get_certificate_enabled_device_ids.return_value = ["device1", "device2"]
+    config = Mock()
+    config.has_section.return_value = True
+    config.getboolean.return_value = True
+    monkeypatch.setattr(
+        "nv_config_manager.temporal.ngc.schedulers.backup.load_config",
+        lambda: config,
+    )
+    monkeypatch.setattr(
+        "nv_config_manager.temporal.ngc.schedulers.backup.create_dcim_client",
+        lambda: client,
+    )
+    scheduler = BackupScheduler()
+
+    assert await scheduler.certificate_devices_to_schedule() == {"device1", "device2"}
+    client.get_certificate_enabled_device_ids.assert_awaited_once_with(True)
+
+
+@pytest.mark.asyncio
+async def test_scheduled_device_sets_partitions_one_listing():
     schedules = [
         Mock(id="backup-device1"),
         Mock(id="backup-device2"),
+        Mock(id="certificate-rotation-device3"),
         Mock(id="other-schedule"),
     ]
 
@@ -82,22 +118,21 @@ async def test_scheduled_devices():
     mock_client.list_schedules.return_value = mock_list_schedules
 
     scheduler = BackupScheduler()
-    scheduled_devices = await scheduler.scheduled_devices(mock_client)
+    backup_devices, certificate_devices = await scheduler.scheduled_device_sets(mock_client)
 
-    assert scheduled_devices == {"device1", "device2"}
+    assert backup_devices == {"device1", "device2"}
+    assert certificate_devices == {"device3"}
+    mock_client.list_schedules.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.ngc.schedulers.backup.BackupScheduler.temporal_client")
 @patch("nv_config_manager.temporal.ngc.schedulers.backup.BackupScheduler.devices_to_schedule")
-@patch("nv_config_manager.temporal.ngc.schedulers.backup.BackupScheduler.scheduled_devices")
+@patch("nv_config_manager.temporal.ngc.schedulers.backup.BackupScheduler.scheduled_device_sets")
 @patch("nv_config_manager.temporal.ngc.schedulers.backup.BackupScheduler.schedule_device")
 @patch("nv_config_manager.temporal.ngc.schedulers.backup.BackupScheduler.unschedule_device")
 @patch(
     "nv_config_manager.temporal.ngc.schedulers.backup.BackupScheduler.certificate_devices_to_schedule"
-)
-@patch(
-    "nv_config_manager.temporal.ngc.schedulers.backup.BackupScheduler.scheduled_certificate_devices"
 )
 @patch(
     "nv_config_manager.temporal.ngc.schedulers.backup.BackupScheduler.schedule_certificate_device"
@@ -108,18 +143,19 @@ async def test_scheduled_devices():
 async def test_reconcile_schedules(
     unschedule_certificate_device_mock,
     schedule_certificate_device_mock,
-    scheduled_certificate_devices_mock,
     certificate_devices_to_schedule_mock,
     unschedule_device_mock,
     schedule_device_mock,
-    scheduled_devices_mock,
+    scheduled_device_sets_mock,
     devices_to_schedule_mock,
     temporal_client_mock,
 ):
     devices_to_schedule_mock.return_value = {"device1", "device2"}
-    scheduled_devices_mock.return_value = {"device2", "device3"}
+    scheduled_device_sets_mock.return_value = (
+        {"device2", "device3"},
+        {"device1", "device5"},
+    )
     certificate_devices_to_schedule_mock.return_value = {"device1", "device4"}
-    scheduled_certificate_devices_mock.return_value = {"device1", "device5"}
 
     scheduler = BackupScheduler()
     await scheduler.reconcile_schedules()

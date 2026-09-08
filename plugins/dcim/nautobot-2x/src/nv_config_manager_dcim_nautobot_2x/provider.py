@@ -18,10 +18,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
+from ipaddress import IPv4Address
 from typing import Any, Self
 from uuid import UUID
-
-from pydantic import ValidationError
 
 from nv_config_manager_dcim.api import (
     DCIMClient,
@@ -50,6 +49,7 @@ from nv_config_manager_dcim.models import (
     ZTPDevice,
 )
 from nv_config_manager_dcim.render import RenderData, RenderDataExtension, RenderDataRequest
+from pydantic import ValidationError
 
 from nv_config_manager_dcim_nautobot_2x.client import NautobotException
 from nv_config_manager_dcim_nautobot_2x.dhcp import NautobotDHCPOperations
@@ -571,6 +571,20 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 raise DCIMInvalidDataError(
                     f"Nautobot device {device_id} config_context.ztp.ipv4 must be a list"
                 )
+            ztp_servers: list[str] = []
+            for server in raw_ztp_servers:
+                if not isinstance(server, str):
+                    raise DCIMInvalidDataError(
+                        f"Nautobot device {device_id} config_context.ztp.ipv4 entries "
+                        "must be IPv4 address strings"
+                    )
+                try:
+                    ztp_servers.append(str(IPv4Address(server)))
+                except ValueError as exc:
+                    raise DCIMInvalidDataError(
+                        f"Nautobot device {device_id} config_context.ztp.ipv4 contains "
+                        f"an invalid IPv4 address: {server!r}"
+                    ) from exc
             certificate_data = config_context.get("certificates", [])
             if not isinstance(certificate_data, list):
                 raise DCIMInvalidDataError(
@@ -597,7 +611,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 firmware_version=firmware_version,
                 config_store_instance=config_store_instance,
                 certificates=certificates,
-                ztp_servers=tuple(str(server) for server in raw_ztp_servers),
+                ztp_servers=tuple(ztp_servers),
             )
         except (KeyError, TypeError, ValidationError) as exc:
             raise DCIMInvalidDataError(

@@ -341,6 +341,13 @@ class RenderOtlpData(DCIMModel):
     ca_certificate: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
     destinations: tuple[RenderOtlpDestination, ...] = ()
 
+    @model_validator(mode="after")
+    def _destination_addresses_are_unique(self) -> RenderOtlpData:
+        addresses = [destination.address for destination in self.destinations]
+        if len(addresses) != len(set(addresses)):
+            raise ValueError("OTLP destination addresses must be unique")
+        return self
+
 
 class RenderTelemetryData(DCIMModel):
     """Provider-neutral telemetry export configuration."""

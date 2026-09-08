@@ -16,6 +16,7 @@ from unittest.mock import ANY, AsyncMock, patch
 from uuid import uuid4
 
 import pytest
+from nv_config_manager_dcim import DCIMInvalidDataError
 from nv_config_manager_dcim_nautobot_2x.provider import NautobotDCIMClient as NautobotClient
 
 
@@ -67,6 +68,23 @@ async def test_ztp_device_certificate_intent(mock_device_data):
         "otel-client",
     ]
     assert tuple(device_data.certificates[0].services) == ("ztp",)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_server", [None, 1234, {}, "not-an-ip", "2001:db8::1"])
+async def test_ztp_device_rejects_invalid_ipv4_server(mock_device_data, invalid_server):
+    mock_device_data["data"]["config_manager_device"]["device"]["config_context"]["ztp"]["ipv4"] = [
+        invalid_server
+    ]
+    with patch(
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+        new_callable=AsyncMock,
+        return_value=mock_device_data,
+    ):
+        nb = NautobotClient(nautobot_url="https://nautobot.example", token="token")
+        async with nb:
+            with pytest.raises(DCIMInvalidDataError, match="IPv4"):
+                await nb.get_ztp_device(str(uuid4()))
 
 
 @pytest.mark.asyncio

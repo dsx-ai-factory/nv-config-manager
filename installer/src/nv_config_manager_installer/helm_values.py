@@ -842,6 +842,7 @@ def _build_ztp_certificates(config: NVConfigManagerInstallConfig) -> dict[str, A
             "audience": vault.audience,
             "pkiMount": vault.pki_mount,
             "verify": vault.verify,
+            "allowInsecure": vault.allow_insecure,
             "caSecret": {
                 "name": vault.ca_secret_name,
                 "key": vault.ca_secret_key,

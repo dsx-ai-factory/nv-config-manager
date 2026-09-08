@@ -26,6 +26,7 @@ import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -711,6 +712,7 @@ class ZTPVaultPKIConfig(BaseModel):
     audience: str = "vault"
     pki_mount: str = ""
     verify: bool | str = True
+    allow_insecure: bool = False
     ca_secret_name: str = ""
     ca_secret_key: str = "ca.crt"
     ca_mount_path: str = "/etc/nv-config-manager/vault-pki-ca/ca.crt"
@@ -718,6 +720,18 @@ class ZTPVaultPKIConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_ca_secret(self) -> ZTPVaultPKIConfig:
+        if self.address:
+            parsed_address = urlsplit(self.address)
+            if parsed_address.scheme not in {"http", "https"} or not parsed_address.netloc:
+                raise ValueError("the Vault PKI address must be an absolute HTTP(S) URL")
+            if parsed_address.scheme != "https" and not self.allow_insecure:
+                raise ValueError(
+                    "the Vault PKI address must use HTTPS unless allow_insecure is enabled"
+                )
+        if self.verify is False and not self.allow_insecure:
+            raise ValueError(
+                "Vault PKI TLS verification may be disabled only when allow_insecure is enabled"
+            )
         if not self.ca_secret_name:
             return self
         if not self.ca_secret_key:
@@ -780,6 +794,12 @@ class ZTPTLSConfig(BaseModel):
     secret_name: str = ""
     reload_interval_seconds: int = Field(default=30, ge=1, le=3600)
     certificate: ZTPTLSCertificateConfig = Field(default_factory=ZTPTLSCertificateConfig)
+
+    @model_validator(mode="after")
+    def validate_secret_source(self) -> ZTPTLSConfig:
+        if self.enabled and not self.certificate.create and not self.secret_name:
+            raise ValueError("ZTP TLS requires secret_name when certificate.create is false")
+        return self
 
 
 class ExternalRedisConfig(BaseModel):
@@ -1165,6 +1185,12 @@ class NVConfigManagerInstallConfig(BaseModel):
     @model_validator(mode="after")
     def validate_external_nautobot(self) -> NVConfigManagerInstallConfig:
         """Validate provider selection and local Nautobot-only content."""
+        if (
+            self.infrastructure.ztp_certificates.enabled or self.infrastructure.ztp_tls.enabled
+        ) and not self.services.ztp:
+            raise ValueError(
+                "services.ztp must be true when ZTP certificate delivery or TLS is enabled"
+            )
         if self.dcim.provider != BUILT_IN_NAUTOBOT_PROVIDER:
             if self.services.nautobot:
                 raise ValueError("External DCIM providers require services.nautobot=false")

@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from cryptography import x509
@@ -132,6 +132,25 @@ async def test_direct_listener_rejects_spoofed_identity_header(monkeypatch) -> N
 async def test_direct_listener_enforces_ip_auth_when_global_auth_is_disabled(monkeypatch) -> None:
     """Disabling user auth does not make direct device endpoints public."""
     monkeypatch.setenv("ACCEPT_REQUEST_HEADERS", "false")
+    with patch(
+        "nv_config_manager.ztp.api.device_v1._get_device_data",
+        new=AsyncMock(return_value=_device()),
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app, client=("198.51.100.10", 12345)),
+            base_url="https://testserver",
+        ) as client:
+            response = await client.get("/v1/device/device-1/certificates/otel-client")
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_certificate_enforces_ip_auth_on_header_listener_when_auth_is_disabled(
+    monkeypatch,
+) -> None:
+    """Private-key delivery remains device-bound when global user auth is disabled."""
+    monkeypatch.setenv("ACCEPT_REQUEST_HEADERS", "true")
     with (
         patch("nv_config_manager.ztp.api.device_v1.auth_required", return_value=False),
         patch(
@@ -149,10 +168,38 @@ async def test_direct_listener_enforces_ip_auth_when_global_auth_is_disabled(mon
 
 
 @pytest.mark.asyncio
+async def test_gateway_identity_cannot_download_another_devices_certificate(monkeypatch) -> None:
+    """Gateway user identity does not replace device source-IP authorization for keys."""
+    monkeypatch.setenv("ACCEPT_REQUEST_HEADERS", "true")
+    with (
+        patch("nv_config_manager.ztp.api.device_v1.auth_required", return_value=True),
+        patch(
+            "nv_config_manager.ztp.api.device_v1.require_sso_or_device",
+            new=AsyncMock(return_value=Mock(source="sso")),
+        ),
+        patch(
+            "nv_config_manager.ztp.api.device_v1._get_device_data",
+            new=AsyncMock(return_value=_device()),
+        ),
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app, client=("198.51.100.10", 12345)),
+            base_url="https://testserver",
+            headers={"X-Auth-Request-Email": "user@example.com"},
+        ) as client:
+            response = await client.get("/v1/device/device-1/certificates/otel-client")
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_serves_assigned_ca_with_no_store_headers() -> None:
     fake = FakePKIClient(_certificate_material())
     with (
-        patch("nv_config_manager.ztp.api.device_v1._authorize_request", new=AsyncMock()),
+        patch(
+            "nv_config_manager.ztp.api.device_v1._authorize_request",
+            new=AsyncMock(return_value=_device()),
+        ),
         patch(
             "nv_config_manager.ztp.api.device_v1._get_device_data",
             new=AsyncMock(return_value=_device()),
@@ -178,7 +225,10 @@ async def test_issues_assigned_identity_as_unencrypted_pkcs12() -> None:
     issued = _certificate_material()
     fake = FakePKIClient(issued)
     with (
-        patch("nv_config_manager.ztp.api.device_v1._authorize_request", new=AsyncMock()),
+        patch(
+            "nv_config_manager.ztp.api.device_v1._authorize_request",
+            new=AsyncMock(return_value=_device()),
+        ),
         patch(
             "nv_config_manager.ztp.api.device_v1._get_device_data",
             new=AsyncMock(return_value=_device()),
@@ -210,7 +260,10 @@ async def test_issues_assigned_identity_as_unencrypted_pkcs12() -> None:
 async def test_rejects_identity_certificate_over_http() -> None:
     fake = FakePKIClient(_certificate_material())
     with (
-        patch("nv_config_manager.ztp.api.device_v1._authorize_request", new=AsyncMock()),
+        patch(
+            "nv_config_manager.ztp.api.device_v1._authorize_request",
+            new=AsyncMock(return_value=_device()),
+        ),
         patch(
             "nv_config_manager.ztp.api.device_v1._get_device_data",
             new=AsyncMock(return_value=_device()),
@@ -232,7 +285,10 @@ async def test_rejects_identity_certificate_over_http() -> None:
 async def test_rejects_certificate_not_assigned_to_device() -> None:
     fake = FakePKIClient(_certificate_material())
     with (
-        patch("nv_config_manager.ztp.api.device_v1._authorize_request", new=AsyncMock()),
+        patch(
+            "nv_config_manager.ztp.api.device_v1._authorize_request",
+            new=AsyncMock(return_value=_device()),
+        ),
         patch(
             "nv_config_manager.ztp.api.device_v1._get_device_data",
             new=AsyncMock(return_value=_device()),

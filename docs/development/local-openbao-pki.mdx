@@ -35,10 +35,12 @@ The script finishes by requesting a projected service-account token, logging in
 through the JWT role, issuing a certificate, and verifying its validity,
 certificate chain, private-key response, and client-only extended key usage.
 
-OpenBao dev mode is ephemeral and uses the local root token. Do not use this
-configuration in production. The issuer-discovery binding exposes only public
-signing metadata and keys; JWT issuer, audience, and exact subject validation
-still control authentication.
+OpenBao dev mode is ephemeral. The installer generates a random root token and
+stores it in the `openbao-dev-root-token` Secret for repeat setup runs. Supply
+`OPENBAO_ROOT_TOKEN` when configuring an existing release that lacks that
+Secret. Do not use this configuration in production. The issuer-discovery
+binding exposes only public signing metadata and keys; JWT issuer, audience,
+and exact subject validation still control authentication.
 
 ## Production mapping
 
@@ -88,6 +90,7 @@ networkZtp:
       authRole: nv-config-manager-switch-certificate-issuer
       audience: vault
       pkiMount: pki/dev-dsx-nvidia-com
+      allowInsecure: true
       verify: false
     sources:
       - name: telemetry-client
@@ -97,6 +100,10 @@ networkZtp:
       - name: telemetry-ca
         caPath: pki/dev-dsx-nvidia-com/ca/pem
 ```
+
+`allowInsecure` is an explicit local-development exception for the disposable
+HTTP OpenBao service. Leave it disabled for Vault deployments; those require an
+HTTPS address and certificate verification.
 
 When Vault uses a private TLS issuer, create a Secret containing its CA bundle
 and configure the mount explicitly:

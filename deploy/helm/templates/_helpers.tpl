@@ -116,14 +116,20 @@ Workload ServiceAccount (Vault K8s/JWT auth binds to this identity; must match V
 [pki]
 provider = {{ $certificates.provider | required "networkZtp.certificates.provider is required when certificate delivery is enabled" }}
 {{- if eq $certificates.provider "vault" }}
+{{- $vaultAddress := $certificates.vault.address | required "networkZtp.certificates.vault.address is required when Vault certificate delivery is enabled" -}}
+{{- $allowInsecure := $certificates.vault.allowInsecure | default false -}}
+{{- if and (not $allowInsecure) (not (hasPrefix "https://" $vaultAddress)) -}}
+  {{- fail "networkZtp.certificates.vault.address must use HTTPS unless allowInsecure is explicitly enabled" -}}
+{{- end }}
 
 [pki.vault]
-address = {{ $certificates.vault.address | required "networkZtp.certificates.vault.address is required when Vault certificate delivery is enabled" }}
+address = {{ $vaultAddress }}
 namespace = {{ $certificates.vault.namespace | default "" }}
 auth_mount = {{ $certificates.vault.authMount | required "networkZtp.certificates.vault.authMount is required when Vault certificate delivery is enabled" }}
 auth_role = {{ $certificates.vault.authRole | required "networkZtp.certificates.vault.authRole is required when Vault certificate delivery is enabled" }}
 token_path = {{ $certificates.vault.tokenPath | default "/var/run/secrets/nv-config-manager-pki/token" }}
 pki_mount = {{ $certificates.vault.pkiMount | required "networkZtp.certificates.vault.pkiMount is required when Vault certificate delivery is enabled" }}
+allow_insecure = {{ $allowInsecure }}
 {{- if $vaultCASecret.name }}
 verify = {{ $vaultCASecret.mountPath | required "networkZtp.certificates.vault.caSecret.mountPath is required when a Vault CA Secret is configured" }}
 {{- else }}

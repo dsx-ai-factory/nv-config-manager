@@ -48,9 +48,7 @@ def test_sftp_download_closes_client_when_connect_fails(mock_ssh_client):
     ],
 )
 @patch("nv_config_manager.temporal.client.device.cumulus.time.sleep")
-def test_import_certificate_uses_nvue_action_and_waits(
-    _mock_sleep, kind, resource, parameter
-):
+def test_import_certificate_uses_nvue_action_and_waits(_mock_sleep, kind, resource, parameter):
     """Rotation uses the Cumulus 5.16 action payload and waits for completion."""
     conn = CumulusConnection.__new__(CumulusConnection)
     conn._base_url = "https://192.0.2.100:8765/nvue_v1/"
