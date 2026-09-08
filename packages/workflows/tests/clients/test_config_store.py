@@ -66,7 +66,7 @@ async def async_config_store_client():
     """Create a ConfigStoreClient instance for testing."""
     settings: ConfigStoreClientSettings = {
         "target": "http://config-store.example.com",
-        "file_type": "intended",
+        "file_type": ConfigStoreType.INTENDED,
         "ui_url": "https://config-manager.example.com",
     }
     client = ConfigStoreClient(**settings)
@@ -94,7 +94,7 @@ async def test_init_with_ca_cert_disabled():
     """Test client initialization with CA certificate disabled."""
     client = ConfigStoreClient(
         target="http://config-store.example.com",
-        file_type="intended",
+        file_type=ConfigStoreType.INTENDED,
         ui_url="https://config-manager.example.com",
         verify=False,
     )
@@ -202,7 +202,7 @@ async def test_config_query_paths_and_parameters_are_unchanged(async_config_stor
         await async_config_store_client.get_config_versions(
             "device-1",
             "startup config",
-            file_type="backup",
+            file_type=ConfigStoreType.BACKUP,
             limit=20,
         )
         await async_config_store_client.get_config_diff(
@@ -320,7 +320,7 @@ async def test_context_manager():
     """Test async context manager usage."""
     async with ConfigStoreClient(
         target="http://config-store.example.com",
-        file_type="intended",
+        file_type=ConfigStoreType.INTENDED,
         ui_url="https://config-manager.example.com",
     ) as client:
         assert client.target == "http://config-store.example.com"
@@ -336,7 +336,7 @@ async def test_init_with_headers():
     }
     client = ConfigStoreClient(
         target="http://config-store.example.com",
-        file_type="intended",
+        file_type=ConfigStoreType.INTENDED,
         ui_url="https://config-manager.example.com",
         headers=headers,
     )

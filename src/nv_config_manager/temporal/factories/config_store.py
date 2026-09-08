@@ -39,7 +39,7 @@ def config_store_client_settings(
     """Translate the config-store INI section into constructor settings."""
     resolved = resolve_config(config)
     config_section = resolved[section]
-    file_type_value = file_type if isinstance(file_type, str) else file_type.value
+    file_type_value = ConfigStoreType(file_type)
     ui_url = config_section["ui_url"]
     if config_section.getboolean("use_internal_endpoint", fallback=False):
         return {

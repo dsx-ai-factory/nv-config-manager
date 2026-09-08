@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from nv_config_manager.common.client import ConfigStoreType
 from nv_config_manager.mcp import clients
 from nv_config_manager.mcp.settings import MCPSettings
 
@@ -140,6 +141,7 @@ async def test_fetch_device_configs_preserves_list_response_shape(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_files = [{"filename": "startup.yaml", "version": 5}]
+    received_file_types: list[ConfigStoreType | None] = []
 
     class FakeConfigStoreClient:
         async def __aenter__(self) -> FakeConfigStoreClient:
@@ -151,19 +153,28 @@ async def test_fetch_device_configs_preserves_list_response_shape(
         async def list_device_configs(
             self,
             device_id: str,
-            file_type: str | None = "intended",
+            file_type: ConfigStoreType | None = ConfigStoreType.INTENDED,
         ) -> list[dict[str, object]]:
+            received_file_types.append(file_type)
             return config_files
+
+    def fake_config_store_client(
+        settings: MCPSettings,
+        file_type: ConfigStoreType,
+    ) -> FakeConfigStoreClient:
+        received_file_types.append(file_type)
+        return FakeConfigStoreClient()
 
     monkeypatch.setattr(
         clients,
         "config_store_client",
-        lambda settings, file_type: FakeConfigStoreClient(),
+        fake_config_store_client,
     )
 
     result = await clients.fetch_device_configs(settings, "device-1")
 
     assert result == {"truncated": False, "data": config_files}
+    assert received_file_types == [ConfigStoreType.INTENDED, ConfigStoreType.INTENDED]
 
 
 async def test_nautobot_graphql_uses_provider_owned_adapter(
