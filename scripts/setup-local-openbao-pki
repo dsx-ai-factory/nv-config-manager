@@ -86,17 +86,18 @@ require_command jq
 require_command openssl
 if [[ "$INSTALL_OPENBAO" == "true" ]]; then
     require_command "$HELM_BIN"
-    if [[ -z "$OPENBAO_ROOT_TOKEN" ]]; then
-        OPENBAO_ROOT_TOKEN="$(openssl rand -hex 24)"
-    fi
-elif [[ -z "$OPENBAO_ROOT_TOKEN" ]]; then
+fi
+if [[ -z "$OPENBAO_ROOT_TOKEN" ]]; then
     encoded_root_token="$("$KUBECTL_BIN" -n "$OPENBAO_NAMESPACE" get secret \
         "$OPENBAO_ROOT_TOKEN_SECRET" -o jsonpath='{.data.token}' 2>/dev/null || true)"
-    if [[ -z "$encoded_root_token" ]]; then
+    if [[ -n "$encoded_root_token" ]]; then
+        OPENBAO_ROOT_TOKEN="$(printf '%s' "$encoded_root_token" | base64 -d)"
+    elif [[ "$INSTALL_OPENBAO" == "true" ]]; then
+        OPENBAO_ROOT_TOKEN="$(openssl rand -hex 24)"
+    else
         echo "OPENBAO_ROOT_TOKEN is required when the local token Secret is absent" >&2
         exit 1
     fi
-    OPENBAO_ROOT_TOKEN="$(printf '%s' "$encoded_root_token" | base64 -d)"
 fi
 
 kubectl_cmd() {
@@ -133,6 +134,30 @@ if [[ "$INSTALL_OPENBAO" == "true" ]]; then
     kubectl_cmd -n "$OPENBAO_NAMESPACE" create secret generic \
         "$OPENBAO_ROOT_TOKEN_SECRET" --from-literal=token="$OPENBAO_ROOT_TOKEN" \
         --dry-run=client -o yaml | kubectl_cmd apply -f - >/dev/null
+
+    # The OpenBao chart uses an OnDelete StatefulSet. If Helm changed the pod
+    # template (including the dev root token), explicitly recycle the disposable
+    # dev pod so its in-memory server matches the persisted local token.
+    current_revision="$(kubectl_cmd -n "$OPENBAO_NAMESPACE" get statefulset \
+        "$OPENBAO_RELEASE" -o jsonpath='{.status.currentRevision}')"
+    update_revision="$(kubectl_cmd -n "$OPENBAO_NAMESPACE" get statefulset \
+        "$OPENBAO_RELEASE" -o jsonpath='{.status.updateRevision}')"
+    if [[ "$current_revision" != "$update_revision" ]]; then
+        echo "Restarting OpenBao to apply the updated dev configuration..."
+        kubectl_cmd -n "$OPENBAO_NAMESPACE" delete pod "$OPENBAO_POD" --wait=true >/dev/null
+        pod_recreated=false
+        for _ in {1..120}; do
+            if kubectl_cmd -n "$OPENBAO_NAMESPACE" get pod "$OPENBAO_POD" >/dev/null 2>&1; then
+                pod_recreated=true
+                break
+            fi
+            sleep 1
+        done
+        if [[ "$pod_recreated" != "true" ]]; then
+            echo "OpenBao pod was not recreated within 120 seconds" >&2
+            exit 1
+        fi
+    fi
 fi
 
 kubectl_cmd -n "$OPENBAO_NAMESPACE" wait \
