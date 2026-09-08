@@ -68,7 +68,7 @@ export default function ComboBoxInput({
   selectMsg = "Select item",
   searchMsg = "Search items...",
   notFoundMsg = "No items found.",
-}: ComboBoxInputProps) {
+}: Readonly<ComboBoxInputProps>) {
   const [open, setOpen] = useState<boolean>(false);
   return (
     <FormField

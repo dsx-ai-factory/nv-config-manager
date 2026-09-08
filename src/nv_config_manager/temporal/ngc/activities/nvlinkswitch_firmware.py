@@ -16,15 +16,14 @@
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import Any, cast
 
 from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.common.config import ConfigStoreType, config_store_client, ztp_client
+from nv_config_manager.dcim import FirmwareBundle, create_dcim_client
 from nv_config_manager.temporal.client.device import NetworkConnection, NetworkDeviceData
-from nv_config_manager.temporal.client.nautobot import NautobotClient
 
 
 class GetRunningFirmwareInput(BaseModel):
@@ -157,26 +156,20 @@ async def compare_running_desired(
 
 @activity.defn
 async def update_device_context(activity_input: UpdateDeviceContextInput) -> None:
-    """Update local device context with firmware targets."""
+    """Update the device's provider-owned firmware intent."""
     try:
         # Get the desired OS version from the firmware bundle
         _, desired_os = await _get_desired_firmware_and_os_from_context(
             activity_input.device_data, activity_input.bundle_version
         )
 
-        client = NautobotClient()
-
-        # Update both firmware bundle version and intended firmware context
-        # This ensures templates have access to both the bundle config and the OS version
-        context_update = {
-            "firmware_bundle_version": activity_input.bundle_version,
-            "intended-firmware": {"version": desired_os},
-        }
+        client = create_dcim_client()
 
         async with client:
-            await client.merge_config_context(
+            await client.set_device_firmware_intent(  # type: ignore[attr-defined]
                 activity_input.device_data.id,
-                context_update,
+                activity_input.bundle_version,
+                desired_os,
             )
     except Exception as e:
         raise ApplicationError(f"Failed to update device context: {str(e)}") from e
@@ -191,25 +184,13 @@ async def validate_render_targets(activity_input: ValidateRenderTargetsInput) ->
     are present in the rendered fwupdate-commands.txt file.
     """
     try:
-        # Get device context once and extract all expected filenames
-        config_context = await _get_device_config_context(activity_input.device_data)
-        bundle_version = config_context.get("firmware_bundle_version")
-        firmware_bundles = config_context.get("firmware_bundles", {})
-
-        if bundle_version not in firmware_bundles:
-            raise ApplicationError(f"Firmware bundle {bundle_version} not found")
-
-        bundle = firmware_bundles[bundle_version]
-        firmware_section = bundle.get("firmware", {})
+        bundle = await _get_firmware_bundle(activity_input.device_data)
 
         # Extract expected filenames for each component
         expected_files = {}
         for component in activity_input.desired_firmware.keys():
-            component_info = firmware_section.get(component, {})
-            if isinstance(component_info, dict) and "file" in component_info:
-                expected_files[component] = component_info["file"]
-            else:
-                expected_files[component] = None
+            component_info = bundle.components.get(component.lower())
+            expected_files[component] = component_info.file_name if component_info else None
 
         # Validate that the firmware update commands template is rendered correctly
         config_client = config_store_client(ConfigStoreType.INTENDED)
@@ -272,27 +253,13 @@ async def validate_render_targets(activity_input: ValidateRenderTargetsInput) ->
 async def validate_target_files(activity_input: ValidateTargetFilesInput) -> None:
     """Validate that target firmware files exist on ZTP server."""
     try:
-        # Get device context once and extract all firmware file info and ZTP servers
-        config_context = await _get_device_config_context(activity_input.device_data)
-
-        # Extract firmware file paths for each component
-        bundle_version = config_context.get("firmware_bundle_version", "1.2.2")
-        firmware_bundles = config_context.get("firmware_bundles", {})
-
-        if bundle_version not in firmware_bundles:
-            raise ApplicationError(f"Firmware bundle {bundle_version} not found")
-
-        bundle = firmware_bundles[bundle_version]
-        firmware_section = bundle.get("firmware", {})
+        bundle = await _get_firmware_bundle(activity_input.device_data)
 
         # Extract s3_path for each component
         component_s3_paths = {}
         for component in activity_input.desired_firmware.keys():
-            component_info = firmware_section.get(component, {})
-            if isinstance(component_info, dict) and "s3_path" in component_info:
-                component_s3_paths[component] = component_info["s3_path"]
-            else:
-                component_s3_paths[component] = None
+            component_info = bundle.components.get(component.lower())
+            component_s3_paths[component] = component_info.source_path if component_info else None
 
         ztp = ztp_client()
         missing_files = []
@@ -325,57 +292,38 @@ def reboot_device(activity_input: RebootDeviceInput) -> RebootDeviceOutput:
         raise ApplicationError(f"Failed to initiate reboot: {str(e)}") from e
 
 
-async def _get_device_config_context(device_data: NetworkDeviceData) -> dict[str, Any]:
-    """Get device config context with single Nautobot call."""
+async def _get_firmware_bundle(
+    device_data: NetworkDeviceData, bundle_version: str | None = None
+) -> FirmwareBundle:
+    """Get normalized firmware intent through the selected DCIM provider."""
     try:
-        client = NautobotClient()
-        query = """
-        query ($id: ID!) {
-          device(id: $id) {
-            config_context
-          }
-        }
-        """
+        client = create_dcim_client()
         async with client:
-            result = await client.graphql_query(query, {"id": device_data.id})
-            return cast(dict[str, Any], result["data"]["device"]["config_context"])
+            return await client.get_firmware_bundle(  # type: ignore[attr-defined]
+                device_data.id,
+                bundle_version,
+            )
     except Exception as e:
-        raise ApplicationError(f"Failed to get device config context: {str(e)}") from e
+        raise ApplicationError(f"Failed to get device firmware bundle: {str(e)}") from e
 
 
 async def _get_desired_firmware_and_os_from_context(
     device_data: NetworkDeviceData, bundle_version: str
 ) -> tuple[dict[str, str], str]:
-    """Extract desired firmware versions and OS version from device config context with single API call."""
+    """Extract desired firmware versions and OS version from normalized bundle data."""
     try:
-        config_context = await _get_device_config_context(device_data)
-
-        # Extract firmware component versions from bundle
-        firmware_bundles = config_context.get("firmware_bundles", {})
-        if bundle_version not in firmware_bundles:
-            raise ApplicationError(f"Firmware bundle {bundle_version} not found")
-
-        bundle = firmware_bundles[bundle_version]
-        firmware_section = bundle.get("firmware", {})
+        bundle = await _get_firmware_bundle(device_data, bundle_version)
 
         # Build desired firmware mapping
         desired_firmware = {}
-        for component, component_data in firmware_section.items():
-            if isinstance(component_data, dict):
-                # Get the reported_version from the component configuration
-                reported_version = component_data.get("reported_version", "")
-                if not reported_version:
-                    raise ApplicationError(
-                        f"No 'reported_version' found for {component} in bundle {bundle_version}. "
-                        "Please ensure each firmware component includes a 'reported_version' field "
-                        "with the actual version string that devices report after upgrade."
-                    )
-                desired_firmware[component.lower()] = reported_version
+        for component, component_data in bundle.components.items():
+            if not component_data.reported_version:
+                raise ApplicationError(
+                    f"No reported version found for {component} in bundle {bundle.version}. "
+                    "The configured DCIM provider must supply the version devices report after upgrade."
+                )
+            desired_firmware[component.lower()] = component_data.reported_version
 
-        # Get desired OS version
-        nv_os = bundle.get("nv_os", {})
-        desired_os = nv_os.get("version", "")
-
-        return desired_firmware, desired_os
+        return desired_firmware, bundle.desired_os_version
     except Exception as e:
         raise ApplicationError(f"Failed to get desired firmware and OS: {str(e)}") from e

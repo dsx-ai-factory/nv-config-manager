@@ -44,9 +44,6 @@ const useDevices = ({
   const { data, error, isLoading } = useSWR(
     site && apiURL ? sanitizeUrl(`${apiURL}${path}?${params}`) : null,
     fetcher
-    //{
-    //  keepPreviousData: true
-    //}
   );
 
   return {

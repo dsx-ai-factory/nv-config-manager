@@ -14,15 +14,19 @@
 # limitations under the License.
 """Parameter Routes for populating Workflow UI Forms."""
 
+from collections.abc import Mapping
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.common.log import LogCategory, get_logger
-from nv_config_manager.temporal.client.nautobot import OVERLAYS_PLUGIN_BASE, NautobotClient
-from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
+from nv_config_manager.dcim import (
+    DCIMDeviceSelectionFilter,
+    create_dcim_client,
+)
+from nv_config_manager.dcim.errors import DCIMConflictError, DCIMInvalidDataError, DCIMNotFoundError
+from nv_config_manager.temporal.common.mixins.device import Platform
 from nv_config_manager.temporal.ngc.activities.diagnostics import get_available_commands
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_API)
@@ -63,21 +67,11 @@ router = APIRouter(prefix="/parameter", tags=["parameters"])
 @router.get("/site")
 async def get_sites() -> list[Location]:
     """Return a list of NVIDIA Config Manager-managed sites."""
-    client = NautobotClient()
-    query = """
-        query {
-            locations(location_type:"Site") {
-                id
-                name
-            }
-        }
-    """
-    location_key = "locations"
-
+    client = create_dcim_client()
     async with client:
-        data = await client.graphql_query(query)
+        sites = await client.list_locations(("Site",))
 
-    return [Location(id=site["id"], name=site["name"]) for site in data["data"][location_key]]
+    return [Location(id=site.id, name=site.name) for site in sites]
 
 
 @router.get("/location")
@@ -85,20 +79,11 @@ async def get_locations(
     location_type: Annotated[list[str] | None, Query()] = None,
 ) -> list[Location]:
     """Return a list of NVIDIA Config Manager-managed sites."""
-    client = NautobotClient()
-    query = """
-        query ($location_type: [String]) {
-            locations(location_type: $location_type) {
-                id
-                name
-            }
-        }
-    """
-    variables = {"location_type": location_type}
+    client = create_dcim_client()
     async with client:
-        data = await client.graphql_query(query, variables=variables)
+        locations = await client.list_locations(tuple(location_type or ()))
 
-    return [Location(id=loc["id"], name=loc["name"]) for loc in data["data"]["locations"]]
+    return [Location(id=location.id, name=location.name) for location in locations]
 
 
 class Tenant(BaseModel):
@@ -129,97 +114,6 @@ class Overlay(BaseModel):
     name: str
 
 
-# Minimal managed-device query for unique tenants only
-NV_CONFIG_MANAGER_DEVICES_TENANTS_QUERY = """
-    query ($limit: Int!, $offset: Int!) {
-        config_manager_devices(limit: $limit, offset: $offset) {
-            device {
-                tenant {
-                    id
-                    name
-                }
-            }
-        }
-    }
-"""
-
-# Minimal managed-device query for unique roles only
-NV_CONFIG_MANAGER_DEVICES_ROLES_QUERY = """
-    query ($limit: Int!, $offset: Int!) {
-        config_manager_devices(limit: $limit, offset: $offset) {
-            device {
-                role {
-                    id
-                    name
-                }
-            }
-        }
-    }
-"""
-
-
-async def _get_managed_device_tenants() -> list[dict]:
-    """Query managed device records and return unique tenants."""
-    client = NautobotClient()
-    seen: dict[str, dict] = {}
-    page_size = 1000
-    offset = 0
-
-    async with client:
-        while True:
-            data = await client.graphql_query(
-                NV_CONFIG_MANAGER_DEVICES_TENANTS_QUERY,
-                variables={"limit": page_size, "offset": offset},
-            )
-            managed_devices = data.get("data", {}).get("config_manager_devices", [])
-
-            if not managed_devices:
-                break
-
-            for entry in managed_devices:
-                tenant = (entry.get("device") or {}).get("tenant")
-                if tenant and tenant.get("name"):
-                    tid = tenant.get("id") or tenant["name"]
-                    seen[tid] = {"id": tid, "name": tenant["name"]}
-
-            if len(managed_devices) < page_size:
-                break
-            offset += page_size
-
-    return list(seen.values())
-
-
-async def _get_managed_device_roles() -> list[dict]:
-    """Query managed device records and return unique roles."""
-    client = NautobotClient()
-    seen: dict[str, dict] = {}
-    page_size = 1000
-    offset = 0
-
-    async with client:
-        while True:
-            data = await client.graphql_query(
-                NV_CONFIG_MANAGER_DEVICES_ROLES_QUERY,
-                variables={"limit": page_size, "offset": offset},
-            )
-            managed_devices = data.get("data", {}).get("config_manager_devices", [])
-
-            if not managed_devices:
-                break
-
-            for entry in managed_devices:
-                role = (entry.get("device") or {}).get("role")
-                if role and role.get("name"):
-                    rid = role.get("id") or role["name"]
-                    seen[rid] = {"id": rid, "name": role["name"]}
-
-            if len(managed_devices) < page_size:
-                break
-            offset += page_size
-
-    return list(seen.values())
-
-
 @router.get("/tenant")
 async def get_tenants(
     managed_only: Annotated[
@@ -227,23 +121,10 @@ async def get_tenants(
     ] = False,
 ) -> list[Tenant]:
     """Return a list of tenants. Default: all. With managed_only=true: only those with managed devices."""
-    if managed_only:
-        tenants = await _get_managed_device_tenants()
-    else:
-        client = NautobotClient()
-        query = """
-            query {
-                tenants {
-                    id
-                    name
-                }
-            }
-        """
-        async with client:
-            data = await client.graphql_query(query)
-        tenants = [{"id": t["id"], "name": t["name"]} for t in data["data"]["tenants"]]
-
-    return [Tenant(id=t["id"], name=t["name"]) for t in tenants]
+    client = create_dcim_client()
+    async with client:
+        tenants = await client.list_tenants(managed_only)
+    return [Tenant(id=tenant.id, name=tenant.name) for tenant in tenants]
 
 
 @router.get("/role")
@@ -251,23 +132,10 @@ async def get_roles(
     managed_only: Annotated[bool, Query(description="Limit to roles with managed devices")] = False,
 ) -> list[Role]:
     """Return a list of roles. Default: all. With managed_only=true: only those with managed devices."""
-    if managed_only:
-        roles = await _get_managed_device_roles()
-    else:
-        client = NautobotClient()
-        query = """
-            query {
-                roles {
-                    id
-                    name
-                }
-            }
-        """
-        async with client:
-            data = await client.graphql_query(query)
-        roles = [{"id": r["id"], "name": r["name"]} for r in data["data"]["roles"]]
-
-    return [Role(id=r["id"], name=r["name"]) for r in roles]
+    client = create_dcim_client()
+    async with client:
+        roles = await client.list_roles(managed_only)
+    return [Role(id=role.id, name=role.name) for role in roles]
 
 
 @router.get("/namespace-tag")
@@ -276,58 +144,23 @@ async def get_namespace_tags(
         str | None, Query(description="Limit to namespace tags at this location")
     ] = None,
 ) -> list[Tag]:
-    """Return a list of tags used by Nautobot namespaces."""
-    client = NautobotClient()
-    query = """
-        query ($location: String) {
-            namespaces(location: $location) {
-                tags {
-                    name
-                }
-            }
-        }
-    """
-    variables = {"location": location}
+    """Return the configured DCIM provider's namespace tag choices."""
+    client = create_dcim_client()
 
     try:
         async with client:
-            data = await client.graphql_query(query, variables=variables)
+            tag_names = await client.list_namespace_tags(location)
+    except DCIMInvalidDataError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Malformed DCIM namespace tag response.",
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail="Failed to query Nautobot namespace tags.",
+            detail="Failed to query DCIM namespace tags.",
         ) from exc
-
-    namespaces = data.get("data", {}).get("namespaces") if isinstance(data, dict) else None
-    if not isinstance(namespaces, list):
-        raise HTTPException(
-            status_code=500,
-            detail="Malformed Nautobot namespace tag response.",
-        )
-
-    tag_names: set[str] = set()
-    for namespace in namespaces:
-        if not isinstance(namespace, dict):
-            raise HTTPException(
-                status_code=500,
-                detail="Malformed Nautobot namespace tag response.",
-            )
-        tags = namespace.get("tags", [])
-        if not isinstance(tags, list):
-            raise HTTPException(
-                status_code=500,
-                detail="Malformed Nautobot namespace tag response.",
-            )
-        for tag in tags:
-            if not isinstance(tag, dict):
-                raise HTTPException(
-                    status_code=500,
-                    detail="Malformed Nautobot namespace tag response.",
-                )
-            tag_name = tag.get("name")
-            if isinstance(tag_name, str) and tag_name:
-                tag_names.add(tag_name)
-    return [Tag(id=name, name=name) for name in sorted(tag_names)]
+    return [Tag(id=name, name=name) for name in tag_names]
 
 
 @router.get("/overlay")
@@ -338,37 +171,22 @@ async def get_overlays(
     ] = None,
 ) -> list[Overlay]:
     """Return overlays, optionally filtered by location and isolation type."""
-    params: dict[str, str] = {}
-    if location:
-        params["location"] = location
-    if isolation_type:
-        params["isolation_type"] = isolation_type
-
-    client = NautobotClient()
+    client = create_dcim_client()
     try:
         async with client:
-            overlays = await client.get_all(
-                f"{OVERLAYS_PLUGIN_BASE}/overlays/",
-                params=params,
-            )
-    except Exception as exc:
-        logger.exception("Failed to query Nautobot overlays", exc_info=exc)
+            overlays = await client.list_overlays(location, isolation_type)
+    except DCIMInvalidDataError as exc:
         raise HTTPException(
             status_code=500,
-            detail="Failed to query Nautobot overlays.",
+            detail="Malformed DCIM overlay response.",
         ) from exc
-
-    result: list[Overlay] = []
-    for overlay in overlays:
-        overlay_id = overlay.get("id")
-        name = overlay.get("name")
-        if not isinstance(overlay_id, str) or not isinstance(name, str):
-            raise HTTPException(
-                status_code=500,
-                detail="Malformed Nautobot overlay response.",
-            )
-        result.append(Overlay(id=overlay_id, name=name))
-    return sorted(result, key=lambda overlay: overlay.name)
+    except Exception as exc:
+        logger.exception("Failed to query DCIM overlays", exc_info=exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to query DCIM overlays.",
+        ) from exc
+    return [Overlay(id=overlay.id, name=overlay.name) for overlay in overlays]
 
 
 class Status(BaseModel):
@@ -386,23 +204,11 @@ async def get_statuses(
     ] = None,
 ) -> list[Status]:
     """Return a list of statuses. Optional content_type filters to that object type."""
-    client = NautobotClient()
-    query = """
-        query ($content_types: [String]) {
-            statuses(content_types: $content_types) {
-                id
-                name
-            }
-        }
-    """
-    variables: dict[str, list[str] | None] = {"content_types": None}
-    if content_type:
-        variables["content_types"] = [content_type]
-
+    client = create_dcim_client()
     async with client:
-        data = await client.graphql_query(query, variables=variables)
+        statuses = await client.list_statuses(content_type)
 
-    return [Status(id=status["id"], name=status["name"]) for status in data["data"]["statuses"]]
+    return [Status(id=status.id, name=status.name) for status in statuses]
 
 
 @router.get("/device")
@@ -419,74 +225,42 @@ async def get_devices(  # pylint: disable=R0913,R0914
     ] = False,
 ) -> list[Device]:
     """Return a list of filtered devices."""
-    client = NautobotClient()
-
-    query = """
-            query (
-            $site: [String],
-            $status: [String],
-            $role: [String],
-            $tenant: [String],
-            $device_type_id: [String],
-            $manufacturer: [String],
-            $platform: [String],
-            $managed_only: Boolean
-            ) {
-                devices(
-                    location: $site,
-                    status: $status,
-                    role: $role,
-                    tenant: $tenant,
-                    device_type: $device_type_id,
-                    manufacturer: $manufacturer,
-                    platform: $platform,
-                    has_primary_ip: true,
-                    nv_config_manager_device_status: $managed_only
-                ) {
-                    id
-                    name
-                    platform {
-                        name
-                    }
-                }
-            }
-        """
-
-    variables: dict[str, list[str] | bool] = {}
-    if site:
-        variables["site"] = site
-    if status:
-        variables["status"] = status
-    if role:
-        variables["role"] = role
-    if tenant:
-        variables["tenant"] = tenant
-    if device_type_id:
-        variables["device_type_id"] = device_type_id
-    if manufacturer:
-        variables["manufacturer"] = manufacturer
-    if platform:
-        variables["platform"] = platform
-    if managed_only:
-        variables["managed_only"] = True
-
-    if not variables:
+    filters = DCIMDeviceSelectionFilter(
+        sites=tuple(site or ()),
+        statuses=tuple(status or ()),
+        roles=tuple(role or ()),
+        tenants=tuple(tenant or ()),
+        device_type_ids=tuple(device_type_id or ()),
+        manufacturers=tuple(manufacturer or ()),
+        platforms=tuple(platform or ()),
+        managed_only=managed_only,
+    )
+    if not any(
+        (
+            filters.sites,
+            filters.statuses,
+            filters.roles,
+            filters.tenants,
+            filters.device_type_ids,
+            filters.manufacturers,
+            filters.platforms,
+            filters.managed_only,
+        )
+    ):
         raise HTTPException(status_code=400, detail="Must apply at least one filter.")
 
+    client = create_dcim_client()
     try:
         async with client:
-            data = await client.graphql_query(query, variables)
-    except ApplicationError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-    devices = [device for device in data["data"]["devices"] if device["name"]]
+            devices = await client.list_devices(filters)
+    except DCIMInvalidDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return [
         Device(
-            id=device["id"],
-            name=device["name"],
-            platform=NetworkDeviceData._slugify((device.get("platform") or {}).get("name") or "")
-            or None,
+            id=device.id,
+            name=device.name,
+            platform=device.platform,
         )
         for device in devices
     ]
@@ -495,26 +269,14 @@ async def get_devices(  # pylint: disable=R0913,R0914
 @router.get("/device/{device_id}/interfaces", responses={400: {"description": "Bad Request"}})
 async def get_device_interfaces(device_id: str) -> list[DeviceInterface]:
     """Return the interfaces belonging to a device."""
-    client = NautobotClient()
-    query = """
-        query ($device_id: [String]) {
-            interfaces(device_id: $device_id) {
-                id
-                name
-            }
-        }
-    """
-
-    try:
-        async with client:
-            data = await client.graphql_query(query, {"device_id": [device_id]})
-    except ApplicationError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    client = create_dcim_client()
+    async with client:
+        provider_interfaces = await client.get_device_interfaces(device_id)
 
     interfaces = [
-        DeviceInterface(id=interface["id"], name=interface["name"])
-        for interface in data["data"]["interfaces"]
-        if interface["name"]
+        DeviceInterface(id=interface.id, name=interface.name)
+        for interface in provider_interfaces
+        if interface.name
     ]
     return sorted(interfaces, key=lambda interface: interface.name.casefold())
 
@@ -557,37 +319,20 @@ async def get_diagnostics_commands(
 
 @router.get("/device/{device_id}/secrets")
 async def get_device_secrets(device_id: str) -> list[Secret]:
-    """Return a list of secrets available in device config context.
+    """Return a list of secrets available for a device.
 
     Args:
         device_id: The UUID of the device to fetch secrets from
 
     Returns:
-        List of secrets found in the device's config context
+        List of secrets returned by the configured DCIM provider
     """
-    client = NautobotClient()
-
-    query = """
-        query ($id: ID!) {
-            device(id: $id) {
-                name
-                config_context
-            }
-        }
-    """
-
-    variables = {"id": device_id}
+    client = create_dcim_client()
     async with client:
-        data = await client.graphql_query(query, variables)
-
-    device_data = data["data"]["device"]
-
-    config_context = device_data.get("config_context", {}) or {}
-
-    secret_versions = config_context.get("secrets_versions", {})
+        secret_versions = await client.get_device_secret_versions(device_id)
 
     secrets = []
-    if isinstance(secret_versions, dict):
+    if isinstance(secret_versions, Mapping):
         for secret_name, version in secret_versions.items():
             # Format as "secret_name_version" (e.g., "tacacs_key_r1")
             formatted_name = f"{secret_name}_{version}"
@@ -603,32 +348,16 @@ async def get_device_secrets(device_id: str) -> list[Secret]:
     summary="Get Secret Types for Device",
 )
 async def get_device_users_with_versions(device_id: str) -> list[str]:
-    """Get available secret types from device config context.
+    """Get available secret types from the configured DCIM provider.
 
     Args: device_id: The UUID of the device.
 
     Returns:
         List of secret types plus versions from config context.
     """
-    client = NautobotClient()
-
-    query = """
-        query ($id: ID!) {
-            device(id: $id) {
-                name
-                config_context
-            }
-        }
-    """
-
-    variables = {"id": device_id}
+    client = create_dcim_client()
     async with client:
-        data = await client.graphql_query(query, variables)
-
-    device_data = data["data"]["device"]
-    config_context = device_data.get("config_context", {}) or {}
-
-    secrets_versions = config_context.get("secrets_versions", {})
+        secrets_versions = await client.get_device_secret_versions(device_id)
 
     secret_types = []
     for secret_type, version in secrets_versions.items():
@@ -646,32 +375,17 @@ async def get_device_users_with_versions(device_id: str) -> list[str]:
 
 @router.get("/device/{device_id}/password_users")
 async def get_device_password_users(device_id: str) -> list[Secret]:
-    """Get available password users from device config context password_mappings.
+    """Get available password users and their secret names for a device.
 
     Args:
         device_id: The UUID of the device.
 
     Returns:
-        List of password users with their secret names from password_mappings.
+        List of password users with their provider-normalized secret names.
     """
-    client = NautobotClient()
-
-    query = """
-        query ($id: ID!) {
-            device(id: $id) {
-                name
-                config_context
-            }
-        }
-    """
-
-    variables = {"id": device_id}
+    client = create_dcim_client()
     async with client:
-        data = await client.graphql_query(query, variables)
-
-    device_data = data["data"]["device"]
-    config_context = device_data.get("config_context", {}) or {}
-    password_mappings = config_context.get("password_mappings", {})
+        password_mappings = await client.get_device_password_secret_names(device_id)
 
     if not password_mappings or not isinstance(password_mappings, dict):
         raise HTTPException(
@@ -679,15 +393,9 @@ async def get_device_password_users(device_id: str) -> list[Secret]:
             detail=f"No password mappings defined for device {device_id}.",
         )
 
-    users = {}
-    for username, user_config in password_mappings.items():
-        password_type = user_config.get("password", "")
-        rotation = user_config.get("rotation", "")
-        users[username] = f"{password_type}_{rotation}"
-
     # Convert to Secret objects - use username as the name
     secrets = []
-    for username, secret_name in users.items():
+    for username, secret_name in password_mappings.items():
         # Filtering out the nv-config-manager service account temporarily.
         if username != "svc-ngc-cfa-nv-config-manager":
             secrets.append(Secret(name=username, description=f"{username} ({secret_name})"))
@@ -710,34 +418,12 @@ async def get_device_id_by_name(device_name: str) -> Device:
     Raises:
         HTTPException: If device not found or multiple devices match.
     """
-    client = NautobotClient()
-
-    query = """
-        query ($name: [String]!) {
-            devices(name: $name) {
-                id
-                name
-            }
-        }
-    """
-
-    variables = {"name": device_name}
-    async with client:
-        data = await client.graphql_query(query, variables)
-
-    if "errors" in data:
-        raise HTTPException(status_code=400, detail=data["errors"][0]["message"])
-
-    devices = data["data"]["devices"]
-
-    if not devices:
-        raise HTTPException(status_code=404, detail=f"Device with name '{device_name}' not found")
-
-    if len(devices) > 1:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Multiple devices found with name '{device_name}'. Please use device ID directly.",
-        )
-
-    device = devices[0]
-    return Device(id=device["id"], name=device["name"])
+    client = create_dcim_client()
+    try:
+        async with client:
+            device = await client.get_device_selection_by_name(device_name)
+    except DCIMNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (DCIMConflictError, DCIMInvalidDataError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Device(id=device.id, name=device.name)

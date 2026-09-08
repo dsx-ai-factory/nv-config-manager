@@ -16,6 +16,7 @@
 
 import asyncio
 import re
+from contextlib import closing
 
 from pydantic import BaseModel
 from temporalio import activity
@@ -94,10 +95,10 @@ class DiffActivityInput(BaseModel):
 @activity.defn
 def perform_candidate_diff(activity_input: DiffActivityInput) -> str:
     """Load the candidate configuration and return the diff."""
-    connection = NetworkConnection.from_device_data(activity_input.device_data)
-    return connection.perform_candidate_diff(
-        activity_input.configuration, partial=activity_input.partial
-    )
+    with closing(NetworkConnection.from_device_data(activity_input.device_data)) as connection:
+        return connection.perform_candidate_diff(
+            activity_input.configuration, partial=activity_input.partial
+        )
 
 
 class ConfigApplyActivityInput(BaseModel):
@@ -115,13 +116,13 @@ def apply_approved_configuration(
     activity_input: ConfigApplyActivityInput,
 ) -> None:
     """Load the candidate configuration and apply."""
-    connection = NetworkConnection.from_device_data(activity_input.device_data)
-    connection.commit_candidate_config(
-        activity_input.configuration,
-        activity_input.approved_diff,
-        commit_confirm=activity_input.commit_confirm,
-        partial=activity_input.partial,
-    )
+    with closing(NetworkConnection.from_device_data(activity_input.device_data)) as connection:
+        connection.commit_candidate_config(
+            activity_input.configuration,
+            activity_input.approved_diff,
+            commit_confirm=activity_input.commit_confirm,
+            partial=activity_input.partial,
+        )
 
 
 class ValidateConfigDiffActivityInput(BaseModel):

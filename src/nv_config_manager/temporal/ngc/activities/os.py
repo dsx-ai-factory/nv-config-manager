@@ -22,12 +22,12 @@ from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from nv_config_manager.dcim import create_dcim_client
 from nv_config_manager.temporal.client.device import (
     MellanoxConnection,
     NetworkConnection,
     NetworkDeviceData,
 )
-from nv_config_manager.temporal.client.nautobot import NautobotClient
 
 
 class GetCurrentOSInput(BaseModel):
@@ -203,71 +203,14 @@ async def get_os_image_versions(
     activity_input: GetOSImageVersionsInput,
 ) -> GetOSImageVersionsOutput:
     """Get the intended and desired os image versions for a device."""
-    intended_query = """
-query ($id: ID!) {
-  device(id: $id) {
-    role {
-      name
-    }
-    platform {
-      name
-    }
-    config_context
-    location {
-      id
-      location_type {
-        name
-      }
-      parent {
-        id
-        location_type {
-          name
-        }
-      }
-    }
-  }
-}
-"""
-    desired_query = """
-query ($id: [String]!) {
-  config_contexts(location: $id, schema:"location-firmware-targets") {
-    data
-  }
-}
-"""
-
-    client = NautobotClient()
+    client = create_dcim_client()
     async with client:
-        # Load the current intended firmware version set on the device
-        intended_data = await client.graphql_query(intended_query, {"id": activity_input.device_id})
-        platform = intended_data["data"]["device"]["platform"]["name"]
-        intended_firmware = intended_data["data"]["device"]["config_context"]["intended-firmware"][
-            "version"
-        ]
-        ztp_ipv4_address = intended_data["data"]["device"]["config_context"]["ztp"]["ipv4"][0]
-
-        # Load the Site ID from the device location
-        # For now, assume site is either the device location or the parent of the device location
-        # We probably just want to propagate this config context
-        # And in reality we should replace this with something that treats this as a first class concept
-        if intended_data["data"]["device"]["location"]["location_type"]["name"] == "Site":
-            site_id = intended_data["data"]["device"]["location"]["id"]
-        else:
-            site_id = intended_data["data"]["device"]["location"]["parent"]["id"]
-
-        # Load the role from the device role
-        role = intended_data["data"]["device"]["role"]["name"].lower().replace(" ", "-")
-
-        # Load the desired firmware version for this role and platform from the location config context
-        desired_data = await client.graphql_query(desired_query, {"id": site_id})
-        desired_firmware = desired_data["data"]["config_contexts"][0]["data"]["firmware-targets"][
-            role
-        ][platform]
+        versions = await client.get_os_image_versions(activity_input.device_id)
 
     return GetOSImageVersionsOutput(
-        intended_firmware=intended_firmware,
-        desired_firmware=desired_firmware,
-        ztp_ipv4_address=ztp_ipv4_address,
+        intended_firmware=versions.intended_firmware,
+        desired_firmware=versions.desired_firmware,
+        ztp_ipv4_address=versions.ztp_address,
     )
 
 
@@ -275,12 +218,12 @@ query ($id: [String]!) {
 async def update_intended_os_image(
     activity_input: UpdateIntendedOSImageInput,
 ) -> None:
-    """Update intended os image version in Nautobot."""
-    client = NautobotClient()
+    """Update the intended OS image version through the selected DCIM provider."""
+    client = create_dcim_client()
     async with client:
-        await client.merge_config_context(
+        await client.set_intended_os_image(  # type: ignore[attr-defined]
             activity_input.device_id,
-            {"intended-firmware": {"version": activity_input.desired_firmware}},
+            activity_input.desired_firmware,
         )
 
 

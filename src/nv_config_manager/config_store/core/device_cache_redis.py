@@ -20,12 +20,11 @@ import asyncio
 from configparser import ConfigParser
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
 
 from nv_config_manager.common.client import RedisClient
-from nv_config_manager.common.config import load_config, redis_client
+from nv_config_manager.common.config import dcim_cache_ttl, dcim_client, load_config, redis_client
 from nv_config_manager.common.log import LogCategory, get_logger
-from nv_config_manager.config_store.client.nautobot import DeviceMetadata, NautobotClient
+from nv_config_manager.dcim import DCIMClient, DeviceMetadata
 
 logger = get_logger(__name__, category=LogCategory.CACHE)
 
@@ -37,7 +36,7 @@ class CachedDeviceMetadata:
         """Initialize cached metadata.
 
         Args:
-            metadata: Device metadata from Nautobot
+            metadata: Device metadata from the selected DCIM provider
             cached_at: When this was cached
         """
         self.metadata = metadata
@@ -54,7 +53,7 @@ class CachedDeviceMetadata:
 class DeviceCacheService:
     """Redis-based service for managing device metadata cache.
 
-    This service maintains a cache of device metadata from Nautobot in Redis
+    This service maintains a cache of device metadata from the selected DCIM in Redis
     to avoid expensive GraphQL queries on every API request. It supports:
     - Background refresh of all devices at regular intervals
     - On-demand population for cache misses
@@ -65,36 +64,38 @@ class DeviceCacheService:
     """
 
     CACHE_KEY_PREFIX = "config_store_device:"
-    DEVICE_INDEX_KEY = "config_store_device_index"  # Hash mapping name -> UUID
-    ACTIVE_SET_KEY = "config_store_active_device_set"  # Set of active device UUIDs
+    DEVICE_INDEX_KEY = "config_store_device_index"  # Hash mapping name -> device ID
+    ACTIVE_SET_KEY = "config_store_active_device_set"  # Set of active device IDs
     CACHE_TTL = 86400  # 24 hours default TTL
 
     def __init__(
         self,
         redis_client: RedisClient,
-        nautobot_client: NautobotClient,
-        nautobot_base_url: str,
+        dcim_client: DCIMClient,
         cache_ttl: int = CACHE_TTL,
     ) -> None:
         """Initialize cache service.
 
         Args:
             redis_client: Redis async client for caching
-            nautobot_client: Client for querying Nautobot
-            nautobot_base_url: Base URL for Nautobot (for generating links)
+            dcim_client: Client for querying the selected DCIM provider
             cache_ttl: Cache TTL in seconds (default 24 hours)
         """
         self.redis_client = redis_client
-        self.nautobot_client = nautobot_client
-        self.nautobot_base_url = nautobot_base_url.rstrip("/")
+        self.dcim_client = dcim_client
         self.cache_ttl = cache_ttl
 
     @classmethod
-    async def from_config(cls, config: ConfigParser | None = None) -> DeviceCacheService:
+    async def from_config(
+        cls,
+        config: ConfigParser | None = None,
+        provider_client: DCIMClient | None = None,
+    ) -> DeviceCacheService:
         """Create DeviceCacheService from INI configuration.
 
         Args:
-            config: ConfigParser with redis and nautobot sections. If None, loads from default.
+            config: ConfigParser with redis and DCIM provider sections. If None, loads from default.
+            provider_client: Reuse an already initialized DCIM provider client when supplied.
 
         Returns:
             Configured and connected DeviceCacheService instance
@@ -134,25 +135,17 @@ class DeviceCacheService:
             )
             raise
 
-        # Create Nautobot client
-        nautobot_client = NautobotClient.from_config(config)
-
-        # Use public_url for device links (user-facing); fall back to server when not set
-        nautobot_base_url = config.get(
-            "nautobot", "public_url", fallback=config.get("nautobot", "server")
-        )
         return cls(
             redis_client=redis,
-            nautobot_client=nautobot_client,
-            nautobot_base_url=nautobot_base_url,
-            cache_ttl=config.getint("nautobot", "cache_ttl", fallback=cls.CACHE_TTL),
+            dcim_client=provider_client or dcim_client(config),
+            cache_ttl=dcim_cache_ttl(config, default=cls.CACHE_TTL),
         )
 
-    def _make_key(self, device_uuid: UUID) -> str:
-        """Generate Redis key for device UUID.
+    def _make_key(self, device_uuid: str) -> str:
+        """Generate Redis key for a provider-owned device identifier.
 
         Args:
-            device_uuid: Device UUID
+            device_uuid: DCIM provider device identifier
 
         Returns:
             Redis key string
@@ -161,14 +154,14 @@ class DeviceCacheService:
 
     async def get_device_metadata(
         self,
-        device_uuid: UUID,
+        device_uuid: str,
         refresh_on_miss: bool = True,
     ) -> DeviceMetadata | None:
         """Get device metadata from cache.
 
         Args:
-            device_uuid: Device UUID
-            refresh_on_miss: If True, query Nautobot on cache miss
+            device_uuid: DCIM provider device identifier
+            refresh_on_miss: If True, query the selected DCIM on cache miss
 
         Returns:
             DeviceMetadata or None if not found
@@ -185,33 +178,37 @@ class DeviceCacheService:
         except Exception as e:
             logger.error("Failed to get device %s from cache: %s", device_uuid, e)
 
-        # Cache miss - optionally fetch from Nautobot
+        # Cache miss - optionally fetch from the selected DCIM.
         if refresh_on_miss:
-            logger.info("Cache miss for device %s, fetching from Nautobot", device_uuid)
+            logger.info("Cache miss for device %s, fetching from DCIM", device_uuid)
             metadata = await self.refresh_device(device_uuid)
             return metadata
 
         return None
 
-    async def refresh_device(self, device_uuid: UUID) -> DeviceMetadata | None:
+    async def refresh_device(self, device_uuid: str) -> DeviceMetadata | None:
         """Refresh metadata for a single device.
 
         Args:
-            device_uuid: Device UUID
+            device_uuid: DCIM provider device identifier
 
         Returns:
             DeviceMetadata or None if not found
         """
+        if not self.dcim_client.is_valid_device_id(device_uuid):
+            logger.warning(
+                "Invalid device identifier for configured DCIM provider: %s", device_uuid
+            )
+            return None
+
         try:
-            # Fetch from Nautobot
-            metadata = await self.nautobot_client.get_device(str(device_uuid))
+            metadata = await self.dcim_client.get_device_metadata(device_uuid)
 
             if not metadata:
-                logger.warning("Device %s not found in Nautobot", device_uuid)
+                logger.warning("Device %s not found in DCIM", device_uuid)
                 return None
 
-            # Add Nautobot URL
-            metadata.nautobot_url = f"{self.nautobot_base_url}/dcim/devices/{metadata.device_id}/"
+            metadata.device_url = self.dcim_client.get_device_ui_url(metadata.device_id)
 
             # Cache it
             await self._cache_metadata(device_uuid, metadata)
@@ -224,7 +221,7 @@ class DeviceCacheService:
             return None
 
     async def refresh_all_devices(self, limit: int = 1000) -> int:
-        """Refresh metadata for all devices from Nautobot.
+        """Refresh metadata for all devices from the selected DCIM provider.
 
         Fetches all nv-config-manager devices, updates the metadata cache, and replaces
         the active device set so inactive devices can be identified.
@@ -238,23 +235,27 @@ class DeviceCacheService:
         logger.info("Starting full cache refresh (limit=%d)", limit)
 
         try:
-            devices = await self.nautobot_client.get_all_devices(page_size=limit)
+            devices = await self.dcim_client.get_managed_device_metadata(page_size=limit)
 
             if not devices:
-                logger.warning("No devices returned from Nautobot")
+                logger.warning("No devices returned from DCIM")
                 return 0
 
             active_uuids: set[str] = set()
             count = 0
             for metadata in devices:
                 try:
-                    metadata.nautobot_url = (
-                        f"{self.nautobot_base_url}/dcim/devices/{metadata.device_id}/"
-                    )
+                    if not self.dcim_client.is_valid_device_id(metadata.device_id):
+                        logger.error(
+                            "Configured DCIM provider returned an invalid device identifier: %s",
+                            metadata.device_id,
+                        )
+                        continue
+                    metadata.device_url = self.dcim_client.get_device_ui_url(metadata.device_id)
 
-                    device_uuid = UUID(metadata.device_id)
+                    device_uuid = metadata.device_id
                     await self._cache_metadata(device_uuid, metadata)
-                    active_uuids.add(str(device_uuid))
+                    active_uuids.add(device_uuid)
                     count += 1
                 except Exception as e:
                     logger.error("Failed to cache device %s: %s", metadata.device_id, e)
@@ -270,7 +271,7 @@ class DeviceCacheService:
 
     async def search_devices_by_name(
         self, query: str, limit: int = 10
-    ) -> list[tuple[UUID, DeviceMetadata]]:
+    ) -> list[tuple[str, DeviceMetadata]]:
         """Search devices by name (partial, case-insensitive match).
 
         Uses the device name index for fast lookups.
@@ -280,15 +281,15 @@ class DeviceCacheService:
             limit: Maximum number of results
 
         Returns:
-            List of (device_uuid, metadata) tuples matching the query
+            List of (device identifier, metadata) tuples matching the query
         """
         query_lower = query.lower()
-        matches: list[tuple[UUID, DeviceMetadata]] = []
+        matches: list[tuple[str, DeviceMetadata]] = []
 
         try:
             # Get all device names from the index (hash)
-            # This returns a dict of {name: uuid_str}
-            # Use deserialize=False since UUIDs are stored as plain strings
+            # This returns a dict of {name: device_id}
+            # Use deserialize=False since identifiers are stored as plain strings.
             name_index = await self.redis_client.hgetall(self.DEVICE_INDEX_KEY, deserialize=False)
 
             if not name_index:
@@ -296,27 +297,25 @@ class DeviceCacheService:
                 return []
 
             # Search through names for partial matches
-            for name, uuid_bytes in name_index.items():
+            for name, device_id_bytes in name_index.items():
                 if len(matches) >= limit:
                     break
 
-                # UUID strings are stored without pickle, decode bytes
-                uuid_str = (
-                    uuid_bytes.decode("utf-8") if isinstance(uuid_bytes, bytes) else uuid_bytes
+                device_id = (
+                    device_id_bytes.decode("utf-8")
+                    if isinstance(device_id_bytes, bytes)
+                    else device_id_bytes
                 )
 
                 # Check if query matches (case-insensitive partial match)
                 if query_lower in name.lower():
                     try:
-                        device_uuid = UUID(uuid_str)
                         # Get full metadata from cache
-                        metadata = await self.get_device_metadata(
-                            device_uuid, refresh_on_miss=False
-                        )
+                        metadata = await self.get_device_metadata(device_id, refresh_on_miss=False)
                         if metadata:
-                            matches.append((device_uuid, metadata))
+                            matches.append((device_id, metadata))
                     except Exception as e:
-                        logger.debug("Failed to get metadata for %s: %s", uuid_str, e)
+                        logger.debug("Failed to get metadata for %s: %s", device_id, e)
                         continue
 
             return matches
@@ -325,11 +324,11 @@ class DeviceCacheService:
             logger.error("Failed to search devices by name: %s", e)
             return []
 
-    async def is_device_active(self, device_uuid: UUID) -> bool:
+    async def is_device_active(self, device_uuid: str) -> bool:
         """Check if a device is in the active nv-config-manager device set.
 
         Args:
-            device_uuid: Device UUID
+            device_uuid: DCIM provider device identifier
 
         Returns:
             True if the device is currently active in nv-config-manager
@@ -342,24 +341,24 @@ class DeviceCacheService:
             logger.error("Failed to check active status for %s: %s", device_uuid, e)
             return True  # Default to active on error to avoid hiding devices
 
-    async def get_active_device_uuids(self) -> set[UUID]:
-        """Get the set of all active device UUIDs.
+    async def get_active_device_uuids(self) -> set[str]:
+        """Get the set of all active provider-owned device identifiers.
 
         Returns:
-            Set of UUIDs for devices currently active in nv-config-manager
+            Device identifiers currently active in nv-config-manager
         """
         try:
             members = await self.redis_client.redis.smembers(self.ACTIVE_SET_KEY)
-            return {UUID(m.decode() if isinstance(m, bytes) else m) for m in members}
+            return {m.decode() if isinstance(m, bytes) else m for m in members}
         except Exception as e:
             logger.error("Failed to get active device set: %s", e)
             return set()
 
     async def _replace_active_set(self, active_uuids: set[str]) -> None:
-        """Atomically replace the active device UUID set in Redis.
+        """Atomically replace the active device identifier set in Redis.
 
         Args:
-            active_uuids: Set of UUID strings for currently active devices
+            active_uuids: Provider-owned identifiers for currently active devices
         """
         try:
             pipe = self.redis_client.redis.pipeline()
@@ -371,11 +370,11 @@ class DeviceCacheService:
         except Exception as e:
             logger.error("Failed to update active device set: %s", e)
 
-    async def _cache_metadata(self, device_uuid: UUID, metadata: DeviceMetadata) -> None:
+    async def _cache_metadata(self, device_uuid: str, metadata: DeviceMetadata) -> None:
         """Store device metadata in cache and update the name index.
 
         Args:
-            device_uuid: Device UUID
+            device_uuid: DCIM provider device identifier
             metadata: Device metadata to cache
         """
         key = self._make_key(device_uuid)
@@ -389,18 +388,18 @@ class DeviceCacheService:
         else:
             await self.redis_client.set(key, cached.to_dict(), ttl=None)
 
-        # Update the device name index (hash: name -> uuid, no serialization for plain strings)
+        # Update the device name index (hash: name -> ID, no serialization for plain strings)
         await self.redis_client.hset(
             self.DEVICE_INDEX_KEY, metadata.name, str(device_uuid), serialize=False
         )
 
         logger.debug("Cached device %s (TTL=%ds)", device_uuid, self.cache_ttl)
 
-    async def delete_device(self, device_uuid: UUID) -> None:
+    async def delete_device(self, device_uuid: str) -> None:
         """Remove device from cache, index, and active set.
 
         Args:
-            device_uuid: Device UUID
+            device_uuid: DCIM provider device identifier
         """
         metadata = await self.get_device_metadata(device_uuid, refresh_on_miss=False)
 

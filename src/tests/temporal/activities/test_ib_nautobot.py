@@ -22,7 +22,6 @@ import pytest
 from aioresponses import aioresponses
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.temporal.client.nautobot import NautobotException
 from nv_config_manager.temporal.ngc.activities.ib_nautobot import (
     CleanupEmptyPartitionInput,
     CreatePartitionInNautobotInput,
@@ -53,16 +52,18 @@ _NB_ASSIGNMENTS = re.compile(rf"{re.escape(PLUGIN)}/overlay-assignments/.*")
 
 def _nb_config() -> ConfigParser:
     config = ConfigParser()
-    config.add_section("nautobot")
-    config.set("nautobot", "server", NB_URL)
-    config.set("nautobot", "token", "test-token")
-    config.set("nautobot", "verify", "false")
+    config.add_section("dcim")
+    config.set("dcim", "provider", "nautobot-2x")
+    config.set("dcim", "server", NB_URL)
+    config.set("dcim", "token", "test-token")
+    config.set("dcim", "verify", "false")
+    config.add_section("nats")
     return config
 
 
 @pytest.fixture(autouse=True)
 def mock_nb_config():
-    with patch("nv_config_manager.temporal.client.nautobot.load_config") as mock:
+    with patch("nv_config_manager.common.config.load_config") as mock:
         mock.return_value = _nb_config()
         yield mock
 
@@ -328,7 +329,7 @@ class TestResolveGuidsToInterfaces:
         with aioresponses() as m:
             m.post(_NB_GRAPHQL, payload=_graphql_payload([]))
 
-            with pytest.raises(ApplicationError, match="No Nautobot interface found"):
+            with pytest.raises(ApplicationError, match="No DCIM interface found"):
                 await resolve_guids_to_interfaces(
                     ResolveGuidsToInterfacesInput(guids=["0002c903000e0b72"])
                 )
@@ -576,5 +577,5 @@ class TestCleanupEmptyPkeyPartition:
             m.get(_NB_ASSIGNMENTS, payload={"results": []})
             m.delete(_NB_PKEYS, status=500)
 
-            with pytest.raises(NautobotException):
+            with pytest.raises(ApplicationError):
                 await cleanup_empty_pkey_partition(self._input())

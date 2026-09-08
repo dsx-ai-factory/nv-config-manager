@@ -514,11 +514,12 @@ SearchDevicesV1AdminDevicesSearchGet Search devices by name with latest config i
 Search devices by name with their latest configuration metadata.
 
 If q is not provided, returns the 100 most recently updated devices from DB.
-If q is provided, uses Redis cache to find matching device names and their UUIDs,
+If q is provided, uses Redis cache to find matching device names and identifiers,
 then fetches their latest config info from DB.
 Results are sorted by most recent update first.
 Results are filtered by file_type (intended or backup).
-Inactive devices (removed from nv_config_manager/Nautobot) are hidden unless include_inactive is True.
+Devices no longer returned by the selected DCIM provider are hidden unless
+include_inactive is True.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@return ApiSearchDevicesV1AdminDevicesSearchGetRequest

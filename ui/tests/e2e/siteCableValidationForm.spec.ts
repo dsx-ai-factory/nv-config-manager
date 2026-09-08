@@ -84,7 +84,7 @@ test.describe("Site Cable Validation Form", () => {
         `?site=${SITES_LIST.pdx01}` +
         `&role=${ROLES_LIST.leaf}` +
         `&status=${STATUS_LIST.active}` +
-        `&tenant=${TENANT_LIST.nsv}`
+        `&tenant=${TENANT_LIST.tenant_a}`
     );
 
     // Verify all fields are pre-populated
@@ -108,7 +108,7 @@ test.describe("Site Cable Validation Form", () => {
     ).toBeVisible({ timeout: TEST_TIMEOUT });
     await expect(
       page.getByRole("button", {
-        name: `${TENANT_LIST.nsv}. Open options`,
+        name: `${TENANT_LIST.tenant_a}. Open options`,
         exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
@@ -125,7 +125,7 @@ test.describe("Site Cable Validation Form", () => {
       site: SITES_LIST.pdx01,
       roles: [ROLES_LIST.leaf],
       status: [STATUS_LIST.active],
-      tenant: TENANT_LIST.nsv,
+      tenant: TENANT_LIST.tenant_a,
       device_type_ids: [],
       raise_for_invalid: false,
     });
@@ -150,7 +150,7 @@ test.describe("Site Cable Validation Form", () => {
         `?site=${SITES_LIST.pdx01}` +
         `&role=${ROLES_LIST.leaf}` +
         `&status=${STATUS_LIST.active}` +
-        `&tenant=${TENANT_LIST.nsv}`
+        `&tenant=${TENANT_LIST.tenant_a}`
     );
 
     // Verify initial values are pre-populated
@@ -180,7 +180,7 @@ test.describe("Site Cable Validation Form", () => {
       .click();
 
     // Change the tenant
-    await page.getByRole("button", { name: TENANT_LIST.nsv }).click();
+    await page.getByRole("button", { name: TENANT_LIST.tenant_a }).click();
     await page.getByRole("dialog").getByText(TENANT_LIST.ngc).click();
     // Click outside to close any dropdown that might be open
     await page
@@ -281,7 +281,7 @@ test.describe("Site Cable Validation Form", () => {
       .click();
 
     await page.getByRole("button", { name: "Tenant" }).click();
-    await page.getByRole("dialog").getByText(TENANT_LIST.nsv).click();
+    await page.getByRole("dialog").getByText(TENANT_LIST.tenant_a).click();
     // Click outside to close any dropdown that might be open
     await page
       .getByRole("heading", { name: "New Site Cable Validation Workflow" })
@@ -301,7 +301,7 @@ test.describe("Site Cable Validation Form", () => {
         STATUS_LIST.provisioned,
         STATUS_LIST.planned,
       ],
-      tenant: TENANT_LIST.nsv,
+      tenant: TENANT_LIST.tenant_a,
       device_type_ids: [],
       raise_for_invalid: false,
     });
@@ -353,7 +353,7 @@ test.describe("Site Cable Validation Form", () => {
       .click();
 
     await page.getByRole("button", { name: "Tenant" }).click();
-    await page.getByRole("dialog").getByText(TENANT_LIST.nsv).click();
+    await page.getByRole("dialog").getByText(TENANT_LIST.tenant_a).click();
     // Click outside to close any dropdown that might be open
     await page
       .getByRole("heading", { name: "New Site Cable Validation Workflow" })
@@ -385,7 +385,7 @@ test.describe("Site Cable Validation Form", () => {
     ).toBeDisabled();
     await expect(
       page.getByRole("button", {
-        name: `${TENANT_LIST.nsv}. Open options`,
+        name: `${TENANT_LIST.tenant_a}. Open options`,
         exact: true,
       })
     ).toBeDisabled();
@@ -414,7 +414,7 @@ test.describe("Site Cable Validation Form", () => {
       .click();
 
     await page.getByRole("button", { name: "Tenant" }).click();
-    await page.getByRole("dialog").getByText(TENANT_LIST.nsv).click();
+    await page.getByRole("dialog").getByText(TENANT_LIST.tenant_a).click();
 
     await page.getByRole("button", { name: "Submit" }).click();
 

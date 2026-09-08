@@ -62,7 +62,7 @@ async def mock_get_network_device(
             deploy_enabled=False,
             backup_enabled=False,
             ztp_enabled=False,
-            config_context=None,
+            intent=None,
         )
     )
 
@@ -87,7 +87,7 @@ async def mock_load_neighbor_data_by_switch_port(
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow(
     mock_time,
     mock_nats_client,
@@ -126,7 +126,7 @@ async def test_execute_workflow(
                 "approvers": [],
                 "child_workflows": [],
                 "depends_on": [],
-                "description": "Load the switch port by MAC address from Nautobot",
+                "description": "Load the switch port by MAC address from the DCIM",
                 "execution_time": 0.0,
                 "input": {
                     "device_id": None,
@@ -157,7 +157,7 @@ async def test_execute_workflow(
                         "tenant_config_file": "tenant.yaml",
                         "tenant_config_path": "mock_device_id/tenant.yaml",
                         "ztp_enabled": False,
-                        "config_context": None,
+                        "intent": None,
                     },
                     "display": "mock_device:swp1",
                     "interface": "swp1",
@@ -204,7 +204,7 @@ async def test_execute_workflow(
                         "tenant_config_file": "tenant.yaml",
                         "tenant_config_path": "mock_device_id/tenant.yaml",
                         "ztp_enabled": False,
-                        "config_context": None,
+                        "intent": None,
                     },
                     "display": "mock_device:swp1",
                     "interface": "swp1",
@@ -258,7 +258,7 @@ async def test_execute_workflow(
                 "approvers": [],
                 "child_workflows": [],
                 "depends_on": [],
-                "description": "Load the switch port by MAC address from Nautobot",
+                "description": "Load the switch port by MAC address from the DCIM",
                 "execution_time": 0.0,
                 "input": {
                     "device_id": "mock_device_id",
@@ -289,7 +289,7 @@ async def test_execute_workflow(
                         "tenant_config_file": "tenant.yaml",
                         "tenant_config_path": "mock_device_id/tenant.yaml",
                         "ztp_enabled": False,
-                        "config_context": None,
+                        "intent": None,
                     },
                     "display": "mock_device:swp1",
                     "interface": "swp1",
@@ -336,7 +336,7 @@ async def test_execute_workflow(
                         "tenant_config_file": "tenant.yaml",
                         "tenant_config_path": "mock_device_id/tenant.yaml",
                         "ztp_enabled": False,
-                        "config_context": None,
+                        "intent": None,
                     },
                     "display": "mock_device:swp1",
                     "interface": "swp1",

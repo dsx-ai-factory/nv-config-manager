@@ -188,7 +188,10 @@ test.describe("Workflow Detail Page", () => {
     await page.goto(`/workflows/${workflowId}`);
 
     await expect(
-      page.getByRole("heading", { name: stageName, exact: true })
+      page.getByRole("heading", {
+        name: `${stageName} description`,
+        exact: true,
+      }).last()
     ).toBeVisible();
     await expect(page.getByText("Read Roles: all")).toBeVisible();
     await expect(page.getByText("Execute Roles: all")).toBeVisible();

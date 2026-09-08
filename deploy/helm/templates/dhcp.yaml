@@ -46,6 +46,8 @@ spec:
       {{- include "nv-config-manager.scheduling" .Values.networkDhcp | nindent 6 }}
       {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
       initContainers:
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
       # Initialize Kea DHCP schema
       # The kea-admin image entrypoint:
       #   1. Waits for PostgreSQL to be ready
@@ -189,6 +191,7 @@ spec:
         env:
         - name: NV_CONFIG_MANAGER_INI
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathDhcp" . | quote }}
+        {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         # Self-contained backstop livenessProbe for the case where the reconcile
         # loop in _sync_kea_configuration_async wedges (e.g. a Redis/Kea call
@@ -218,11 +221,13 @@ spec:
           {{- toYaml .Values.networkDhcp.resources.confgen | nindent 10 }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniFileMountEtcVault" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
       {{- /* SPIFFE helper sidecar for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar" (dict "root" . "serviceName" "network-dhcp") | nindent 6 }}
       volumes:
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- /* SPIFFE volumes */ -}}
       {{- include "nv-config-manager.authSidecar.volumes" (dict "root" .) | nindent 6 }}
 ---
@@ -267,8 +272,12 @@ spec:
       {{- end }}
       {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
       initContainers:
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
       # Wait for Nautobot to be available before starting refresh
+      {{- if eq (.Values.dcim.provider | default "nautobot-2x") "nautobot-2x" }}
       {{- include "nv-config-manager.waitForNautobot" . | nindent 6 }}
+      {{- end }}
       containers:
       - name: config-refresh-v4
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -278,11 +287,13 @@ spec:
         env:
         - name: NV_CONFIG_MANAGER_INI
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathDhcp" . | quote }}
+        {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         resources:
           {{- toYaml .Values.networkDhcp.resources.confgen | nindent 10 }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniFileMountEtcVault" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if .Values.spiffe.enabled }}
         - name: spiffe-jwt-svid
           mountPath: /var/run/secrets/spiffe
@@ -292,6 +303,7 @@ spec:
       volumes:
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- /* SPIFFE volumes for outbound mTLS */ -}}
       {{- include "nv-config-manager.spiffeClientVolumes" (dict "root" .) | nindent 6 }}
 ---

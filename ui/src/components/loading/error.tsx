@@ -61,7 +61,7 @@ export const TokenExpiryDialog: React.FC<TokenExpiryDialogProps> = ({
           <Button
             variant="approval"
             onClick={() => {
-              window.location.reload();
+              globalThis.location.reload();
             }}
           >
             Refresh

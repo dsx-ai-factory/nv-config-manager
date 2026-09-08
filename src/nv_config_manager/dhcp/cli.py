@@ -26,6 +26,7 @@ import click
 
 from nv_config_manager.common.config import load_config
 from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
+from nv_config_manager.dcim import DCIMClient, dcim_client_session
 from nv_config_manager.dhcp.heartbeat import (
     DEFAULT_HEARTBEAT_FILE,
     DEFAULT_MAX_AGE_SECONDS,
@@ -37,7 +38,6 @@ from nv_config_manager.dhcp.heartbeat import (
 from nv_config_manager.dhcp.kea import KeaClient, KeaException
 from nv_config_manager.dhcp.kea_dhcp_confgen import generate_config, inject_lease_db_config
 from nv_config_manager.dhcp.metrics import DHCP_CACHE_REFRESH_ERRORS
-from nv_config_manager.dhcp.nautobot import NautobotClient
 from nv_config_manager.dhcp.redis import RedisClient
 
 configure_logging(service="dhcp")
@@ -77,9 +77,9 @@ def cli() -> None:
 
 async def _generate_kea_configuration_async(ip_version: int) -> dict[str, Any]:
     """Async implementation of KEA config generation."""
-    async with NautobotClient.from_config(load_config()) as nautobot_client:
+    async with dcim_client_session(load_config()) as dcim_client:
         return await generate_config(
-            nautobot_client=nautobot_client,
+            dcim_client=dcim_client,
             redis_client=None,
             version=ip_version,
         )
@@ -116,14 +116,14 @@ def generate_kea_configuration(
 
 
 async def _refresh_kea_configuration_async(
-    nautobot_client: NautobotClient,
+    dcim_client: DCIMClient,
     kea_client: KeaClient,
     redis_client: RedisClient,
     ip_version: int,
     check: bool,
 ) -> bool:
     """Async implementation of configuration refresh."""
-    logger.info("Generating configuration from nautobot data.")
+    logger.info("Generating configuration from DCIM provider data.")
 
     # Get current Kea config to extract architecture-specific hooks path
     try:
@@ -134,7 +134,7 @@ async def _refresh_kea_configuration_async(
         current_kea_config = None
 
     config = await generate_config(
-        nautobot_client=nautobot_client,
+        dcim_client=dcim_client,
         redis_client=redis_client,
         version=ip_version,
         kea_config=current_kea_config,
@@ -165,10 +165,10 @@ async def _refresh_loop_async(
     redis_client = RedisClient.from_config(config)
 
     try:
-        async with NautobotClient.from_config(config) as nautobot_client:
+        async with dcim_client_session(config) as dcim_client:
             # Always run once
             should_exit = await _refresh_kea_configuration_async(
-                nautobot_client, kea_client, redis_client, ip_version, check
+                dcim_client, kea_client, redis_client, ip_version, check
             )
             if should_exit or not refresh_interval:
                 return
@@ -176,7 +176,7 @@ async def _refresh_loop_async(
             while True:
                 # Leave errors uncaught so that they get raised and restart the container
                 await _refresh_kea_configuration_async(
-                    nautobot_client, kea_client, redis_client, ip_version, check
+                    dcim_client, kea_client, redis_client, ip_version, check
                 )
                 logger.info(f"Sleeping {refresh_interval}s...")
                 await asyncio.sleep(refresh_interval)

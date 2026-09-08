@@ -64,7 +64,7 @@ const filterOption = (
     candidate.toLowerCase(),
   );
 
-  if (candidates.some((candidate) => candidate === normalizedSearch)) return 1;
+  if (candidates.includes(normalizedSearch)) return 1;
   if (candidates.some((candidate) => candidate.startsWith(normalizedSearch))) {
     return 0.75;
   }

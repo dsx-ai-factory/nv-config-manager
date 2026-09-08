@@ -98,7 +98,7 @@ def test_content_hash():
 @pytest.mark.asyncio
 async def test_create_config(db_session):
     """Test creating a new config file."""
-    device_uuid = uuid4()
+    device_uuid = str(uuid4())
     filename = "config.yaml"
     content = "hostname test-device"
     author = "test@example.com"
@@ -120,7 +120,7 @@ async def test_create_config(db_session):
 @pytest.mark.asyncio
 async def test_update_config(db_session):
     """Test updating an existing config file."""
-    device_uuid = uuid4()
+    device_uuid = str(uuid4())
     filename = "config.yaml"
 
     # Create version 1
@@ -153,7 +153,7 @@ async def test_update_config(db_session):
 @pytest.mark.asyncio
 async def test_no_change_no_version(db_session):
     """Test that no new version is created if content hasn't changed."""
-    device_uuid = uuid4()
+    device_uuid = str(uuid4())
     filename = "config.yaml"
     content = "same content"
 
@@ -186,7 +186,7 @@ async def test_no_change_no_version(db_session):
 @pytest.mark.asyncio
 async def test_get_latest_version(db_session):
     """Test getting the latest version of a config."""
-    device_uuid = uuid4()
+    device_uuid = str(uuid4())
     filename = "config.yaml"
 
     # Create multiple versions
@@ -212,7 +212,7 @@ async def test_get_latest_version(db_session):
 @pytest.mark.asyncio
 async def test_get_specific_version(db_session):
     """Test getting a specific version of a config."""
-    device_uuid = uuid4()
+    device_uuid = str(uuid4())
     filename = "config.yaml"
 
     # Create multiple versions
@@ -238,7 +238,7 @@ async def test_get_specific_version(db_session):
 @pytest.mark.asyncio
 async def test_version_history(db_session):
     """Test getting version history."""
-    device_uuid = uuid4()
+    device_uuid = str(uuid4())
     filename = "config.yaml"
 
     # Create multiple versions
@@ -267,7 +267,7 @@ async def test_version_history(db_session):
 @pytest.mark.asyncio
 async def test_file_type_isolation(db_session):
     """Test that intended and backup configs are isolated from each other."""
-    device_uuid = uuid4()
+    device_uuid = str(uuid4())
     filename = "config.yaml"
 
     # Create intended config versions
@@ -344,7 +344,7 @@ async def test_file_type_isolation(db_session):
 @pytest.mark.asyncio
 async def test_delete_device_configs(db_session):
     """Test deleting all config versions for a device."""
-    device_uuid = uuid4()
+    device_uuid = str(uuid4())
 
     # Create multiple configs with multiple versions
     for filename in ["config1.yaml", "config2.yaml"]:
@@ -378,7 +378,7 @@ async def test_delete_device_configs(db_session):
 @pytest.mark.asyncio
 async def test_delete_device_configs_no_configs(db_session):
     """Test deleting configs for a device that has none."""
-    device_uuid = uuid4()
+    device_uuid = str(uuid4())
 
     count = await delete_device_configs(db_session, device_uuid)
 
@@ -388,8 +388,8 @@ async def test_delete_device_configs_no_configs(db_session):
 @pytest.mark.asyncio
 async def test_delete_device_configs_does_not_affect_other_devices(db_session):
     """Test that deleting one device's configs does not affect another device."""
-    device1 = uuid4()
-    device2 = uuid4()
+    device1 = str(uuid4())
+    device2 = str(uuid4())
 
     # Create configs for both devices
     for device_uuid in [device1, device2]:

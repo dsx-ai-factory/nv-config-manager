@@ -163,7 +163,7 @@ def test_run_diagnostic_commands_per_command_error_captured():
             raise RuntimeError("connection refused")
         return "ok output"
 
-    mock_conn = MagicMock()
+    mock_conn = _make_mock_connection()
     mock_conn.run_diagnostic_command.side_effect = side_effect
 
     with patch(
@@ -180,7 +180,7 @@ def test_run_diagnostic_commands_per_command_error_captured():
 
 def test_run_diagnostic_commands_error_message_contains_exception():
     """The ERROR: string captures the exception message."""
-    mock_conn = MagicMock()
+    mock_conn = _make_mock_connection()
     mock_conn.run_diagnostic_command.side_effect = ValueError("timed out")
 
     with patch(

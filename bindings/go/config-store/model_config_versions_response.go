@@ -21,9 +21,9 @@ var _ MappedNullable = &ConfigVersionsResponse{}
 
 // ConfigVersionsResponse Response with list of versions.
 type ConfigVersionsResponse struct {
-	// Device metadata from Nautobot
+	// Device metadata from the selected DCIM provider
 	Device NullableDeviceMetadata `json:"device,omitempty"`
-	// Device UUID
+	// DCIM provider device identifier
 	DeviceUuid string `json:"device_uuid"`
 	// File name
 	Filename string `json:"filename"`

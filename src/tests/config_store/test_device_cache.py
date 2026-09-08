@@ -12,11 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for DeviceCacheService nautobot URL handling.
-
-Covers the public_url config option: when set, device metadata nautobot_url
-uses the public URL (for user-facing links); when unset, it falls back to server.
-"""
+"""Unit tests for provider-neutral DeviceCacheService URL handling."""
 
 from configparser import ConfigParser
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -24,8 +20,8 @@ from uuid import uuid4
 
 import pytest
 
-from nv_config_manager.config_store.client.nautobot import DeviceMetadata
 from nv_config_manager.config_store.core.device_cache_redis import DeviceCacheService
+from nv_config_manager.dcim import DeviceMetadata
 
 
 @pytest.fixture
@@ -44,8 +40,8 @@ def mock_redis():
 
 
 @pytest.fixture
-def mock_nautobot_client():
-    """Nautobot client that returns a single device for get_device."""
+def mock_dcim_client():
+    """DCIM client that returns normalized managed-device metadata."""
     client = MagicMock()
     metadata = DeviceMetadata(
         device_id="abc-123-def",
@@ -55,47 +51,50 @@ def mock_nautobot_client():
         role="Leaf",
         rack="R1",
     )
-    client.get_device = AsyncMock(return_value=metadata)
-    client.get_all_devices = AsyncMock(return_value=[])
+    client.get_device_metadata = AsyncMock(return_value=metadata)
+    client.get_managed_device_metadata = AsyncMock(return_value=[])
+    client.is_valid_device_id = MagicMock(return_value=True)
+    client.get_device_ui_url = MagicMock(
+        side_effect=lambda device_id: f"https://nautobot.example.com/dcim/devices/{device_id}/"
+    )
     return client
 
 
 @pytest.mark.asyncio
-async def test_refresh_device_uses_nautobot_base_url_for_link(mock_redis, mock_nautobot_client):
-    """refresh_device sets metadata.nautobot_url using nautobot_base_url (e.g. public URL)."""
-    public_base = "https://nautobot.example.com"
+async def test_refresh_device_uses_provider_device_link(mock_redis, mock_dcim_client):
+    """refresh_device sets metadata.device_url from the selected provider."""
     service = DeviceCacheService(
         redis_client=mock_redis,
-        nautobot_client=mock_nautobot_client,
-        nautobot_base_url=public_base,
+        dcim_client=mock_dcim_client,
     )
-    device_uuid = uuid4()
+    device_uuid = str(uuid4())
 
     result = await service.refresh_device(device_uuid)
 
     assert result is not None
-    assert result.nautobot_url == "https://nautobot.example.com/dcim/devices/abc-123-def/"
+    assert result.device_url == "https://nautobot.example.com/dcim/devices/abc-123-def/"
 
 
 @pytest.mark.asyncio
-async def test_refresh_device_strips_trailing_slash_from_base(mock_redis, mock_nautobot_client):
-    """nautobot_base_url with trailing slash is normalized so the device URL has no double slash."""
+async def test_refresh_device_does_not_rewrite_provider_device_link(mock_redis, mock_dcim_client):
+    """refresh_device preserves the provider's user-facing device URL."""
+    mock_dcim_client.get_device_ui_url.side_effect = None
+    mock_dcim_client.get_device_ui_url.return_value = "https://dcim.example/devices/abc-123-def"
     service = DeviceCacheService(
         redis_client=mock_redis,
-        nautobot_client=mock_nautobot_client,
-        nautobot_base_url="https://public.nautobot.local/",
+        dcim_client=mock_dcim_client,
     )
-    device_uuid = uuid4()
+    device_uuid = str(uuid4())
 
     result = await service.refresh_device(device_uuid)
 
     assert result is not None
-    assert result.nautobot_url == "https://public.nautobot.local/dcim/devices/abc-123-def/"
+    assert result.device_url == "https://dcim.example/devices/abc-123-def"
 
 
 @pytest.mark.asyncio
-async def test_from_config_uses_public_url_when_set(mock_redis):
-    """from_config uses nautobot.public_url for device links when present."""
+async def test_from_config_uses_dcim_client_factory(mock_redis):
+    """from_config obtains its provider-owned client through the public factory."""
     config = ConfigParser()
     config.read_string(
         """
@@ -114,29 +113,29 @@ token = dummy
 cache_ttl = 3600
 """
     )
-    mock_nb_client = MagicMock()
+    mock_dcim_client = MagicMock()
     with (
         patch(
             "nv_config_manager.config_store.core.device_cache_redis.redis_client",
             return_value=mock_redis,
         ),
         patch(
-            "nv_config_manager.config_store.core.device_cache_redis.NautobotClient",
-        ) as mock_nb_class,
+            "nv_config_manager.config_store.core.device_cache_redis.dcim_client",
+            return_value=mock_dcim_client,
+        ),
     ):
-        mock_nb_class.from_config.return_value = mock_nb_client
         service = await DeviceCacheService.from_config(config=config)
 
-    assert service.nautobot_base_url == "https://nautobot.example.com"
+    assert service.dcim_client is mock_dcim_client
 
 
 @pytest.mark.asyncio
-async def test_refresh_all_devices_updates_active_set(mock_redis, mock_nautobot_client):
+async def test_refresh_all_devices_updates_active_set(mock_redis, mock_dcim_client):
     """refresh_all_devices replaces the active device set in Redis."""
-    uid1, uid2 = str(uuid4()), str(uuid4())
+    uid1, uid2 = "42", str(uuid4())
     device1 = DeviceMetadata(device_id=uid1, name="dev1", site="S1")
     device2 = DeviceMetadata(device_id=uid2, name="dev2", site="S2")
-    mock_nautobot_client.get_all_devices = AsyncMock(return_value=[device1, device2])
+    mock_dcim_client.get_managed_device_metadata = AsyncMock(return_value=[device1, device2])
 
     mock_pipeline = MagicMock()
     mock_pipeline.delete = MagicMock()
@@ -147,8 +146,7 @@ async def test_refresh_all_devices_updates_active_set(mock_redis, mock_nautobot_
 
     service = DeviceCacheService(
         redis_client=mock_redis,
-        nautobot_client=mock_nautobot_client,
-        nautobot_base_url="https://nautobot.example.com",
+        dcim_client=mock_dcim_client,
     )
 
     count = await service.refresh_all_devices()
@@ -166,10 +164,9 @@ async def test_is_device_active(mock_redis):
 
     service = DeviceCacheService(
         redis_client=mock_redis,
-        nautobot_client=MagicMock(),
-        nautobot_base_url="https://nautobot.example.com",
+        dcim_client=MagicMock(),
     )
-    device_uuid = uuid4()
+    device_uuid = str(uuid4())
 
     result = await service.is_device_active(device_uuid)
 
@@ -187,26 +184,24 @@ async def test_is_device_active_returns_true_on_error(mock_redis):
 
     service = DeviceCacheService(
         redis_client=mock_redis,
-        nautobot_client=MagicMock(),
-        nautobot_base_url="https://nautobot.example.com",
+        dcim_client=MagicMock(),
     )
 
-    result = await service.is_device_active(uuid4())
+    result = await service.is_device_active(str(uuid4()))
     assert result is True
 
 
 @pytest.mark.asyncio
 async def test_get_active_device_uuids(mock_redis):
     """get_active_device_uuids returns the set from Redis."""
-    uid1 = uuid4()
-    uid2 = uuid4()
+    uid1 = str(uuid4())
+    uid2 = str(uuid4())
     mock_redis.redis = MagicMock()
     mock_redis.redis.smembers = AsyncMock(return_value={str(uid1).encode(), str(uid2).encode()})
 
     service = DeviceCacheService(
         redis_client=mock_redis,
-        nautobot_client=MagicMock(),
-        nautobot_base_url="https://nautobot.example.com",
+        dcim_client=MagicMock(),
     )
 
     result = await service.get_active_device_uuids()
@@ -214,7 +209,7 @@ async def test_get_active_device_uuids(mock_redis):
 
 
 @pytest.mark.asyncio
-async def test_delete_device_removes_from_active_set(mock_redis, mock_nautobot_client):
+async def test_delete_device_removes_from_active_set(mock_redis, mock_dcim_client):
     """delete_device removes the device from the active set."""
     mock_redis.delete = AsyncMock(return_value=None)
     mock_redis.redis = MagicMock()
@@ -222,10 +217,9 @@ async def test_delete_device_removes_from_active_set(mock_redis, mock_nautobot_c
 
     service = DeviceCacheService(
         redis_client=mock_redis,
-        nautobot_client=mock_nautobot_client,
-        nautobot_base_url="https://nautobot.example.com",
+        dcim_client=mock_dcim_client,
     )
-    device_uuid = uuid4()
+    device_uuid = str(uuid4())
 
     await service.delete_device(device_uuid)
 
@@ -235,8 +229,8 @@ async def test_delete_device_removes_from_active_set(mock_redis, mock_nautobot_c
 
 
 @pytest.mark.asyncio
-async def test_from_config_falls_back_to_server_when_public_url_absent(mock_redis):
-    """from_config falls back to nautobot.server when public_url is not set."""
+async def test_from_config_uses_dcim_client_without_public_url(mock_redis):
+    """The provider owns device-link behavior when public_url is absent."""
     config = ConfigParser()
     config.read_string(
         """
@@ -254,17 +248,53 @@ token = dummy
 cache_ttl = 3600
 """
     )
-    mock_nb_client = MagicMock()
+    mock_dcim_client = MagicMock()
     with (
         patch(
             "nv_config_manager.config_store.core.device_cache_redis.redis_client",
             return_value=mock_redis,
         ),
         patch(
-            "nv_config_manager.config_store.core.device_cache_redis.NautobotClient",
-        ) as mock_nb_class,
+            "nv_config_manager.config_store.core.device_cache_redis.dcim_client",
+            return_value=mock_dcim_client,
+        ),
     ):
-        mock_nb_class.from_config.return_value = mock_nb_client
         service = await DeviceCacheService.from_config(config=config)
 
-    assert service.nautobot_base_url == "http://nautobot-internal:8000"
+    assert service.dcim_client is mock_dcim_client
+
+
+@pytest.mark.asyncio
+async def test_from_config_supports_external_provider_without_nautobot_section(mock_redis):
+    """Config Store can initialize an external provider without legacy Nautobot settings."""
+    config = ConfigParser()
+    config.read_string(
+        """
+[redis]
+host = localhost
+port = 6379
+db = 0
+ssl = false
+socket_timeout = 5
+socket_connect_timeout = 5
+
+[dcim]
+provider = synthetic
+cache_ttl = 120
+"""
+    )
+    mock_dcim_client = MagicMock()
+    with (
+        patch(
+            "nv_config_manager.config_store.core.device_cache_redis.redis_client",
+            return_value=mock_redis,
+        ),
+        patch(
+            "nv_config_manager.config_store.core.device_cache_redis.dcim_client",
+            return_value=mock_dcim_client,
+        ),
+    ):
+        service = await DeviceCacheService.from_config(config=config)
+
+    assert service.dcim_client is mock_dcim_client
+    assert service.cache_ttl == 120

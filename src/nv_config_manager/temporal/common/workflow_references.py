@@ -18,7 +18,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Any
-from uuid import UUID
+
+from pydantic import Field
+
+MAX_DEVICE_REFERENCES = 1000
+"""Maximum number of device IDs accepted in one workflow submission."""
 
 
 class WorkflowReferenceKind(StrEnum):
@@ -38,22 +42,10 @@ class WorkflowReference:
     enrich_search_attributes: bool = True
 
 
-def validate_device_uuid(value: Any) -> str:
-    """Validate a device UUID while preserving the workflow's string input."""
-    if not isinstance(value, str):
-        raise ValueError("Device identifier must be a valid UUID")
-    try:
-        UUID(value)
-    except ValueError as error:
-        raise ValueError("Device identifier must be a valid UUID") from error
-    return value
-
-
 def validate_device_value(value: Any) -> Any:
-    """Reject preloaded API objects and validate a string device UUID."""
+    """Reject preloaded API objects while preserving provider-owned identifiers."""
     if not isinstance(value, str):
         raise ValueError("Preloaded device objects are not accepted by the Workflow API")
-    validate_device_uuid(value)
     return value
 
 
@@ -90,6 +82,7 @@ OptionalDeviceReference = Annotated[
 ]
 DeviceReferences = Annotated[
     list[str],
+    Field(max_length=MAX_DEVICE_REFERENCES),
     DEVICE_REFERENCES,
 ]
 LocationReference = Annotated[

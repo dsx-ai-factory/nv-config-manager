@@ -1,7 +1,7 @@
 ---
 site_name: "Nautobot Overlays"
-site_url: "https://github.com/NVIDIA/nv-config-manager/tree/main/components/nautobot/nautobot-app-overlays/docs"
-repo_url: "https://github.com/NVIDIA/nv-config-manager"
+site_url: "https://github.com/dsx-ai-factory/nv-config-manager/tree/main/components/nautobot/nautobot-app-overlays/docs"
+repo_url: "https://github.com/dsx-ai-factory/nv-config-manager"
 edit_uri: "edit/main/components/nautobot/nautobot-app-overlays/docs/"
 
 theme:

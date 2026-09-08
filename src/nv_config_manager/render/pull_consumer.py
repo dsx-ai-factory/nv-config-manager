@@ -36,12 +36,12 @@ from nv_config_manager.common.config import (
     DEFAULT_NATS_API_PREFIX,
     LogCategory,
     NATSConnectionManager,
-    NautobotConnectionManager,
     configure_logging,
     get_logger,
     load_config,
     nats_config_manager_api_prefix,
     nats_connection,
+    nats_dcim_change_config,
     nats_nautobot_api_prefix,
     nats_nautobot_change_config,
     nats_render_change_config,
@@ -54,6 +54,7 @@ from nv_config_manager.common.nats_admin import (
     provision_consumer_request,
     update_consumer_request,
 )
+from nv_config_manager.dcim import normalize_dcim_event
 from nv_config_manager.render.dispatch import EventDispatcher
 from nv_config_manager.render.events.util import DeviceNotEnabledError, clear_queued
 from nv_config_manager.render.exceptions import RenderException
@@ -479,10 +480,6 @@ class PullConsumer:
                     nats_manager = NATSConnectionManager()
                     nats_manager.clear_connection()
 
-                    # Also clear the Nautobot connection to ensure clean shutdown
-                    nautobot_manager = NautobotConnectionManager()
-                    nautobot_manager.clear_connection()
-
                     await self.nats_conn.close()
                     self.logger.info("NATS connection closed successfully")
             except ssl.SSLError:
@@ -506,11 +503,41 @@ class PullConsumer:
                 self.logger.warning("Could not schedule close_connection task: %s", str(e))
 
 
-class PullNautobotConsumer(PullConsumer):
-    """Pull-based consumer for configured Nautobot changelog events."""
+class PullDCIMConsumer(PullConsumer):
+    """Pull-based consumer for provider-neutral DCIM change events."""
 
     def __init__(self) -> None:
-        """Initialize a Nautobot changelog consumer."""
+        """Initialize a DCIM change-event consumer."""
+        stream, subject = nats_dcim_change_config()
+        api_prefix = nats_nautobot_api_prefix()
+        super().__init__(
+            stream=stream,
+            subject=subject,
+            queue_suffix="dcim",
+            api_prefix=api_prefix,
+            consumer_name_key="nautobot_consumer_name",
+        )
+
+    async def message_handler(self, msg: Msg) -> None:
+        """Normalize and process one provider change event."""
+        try:
+            event = normalize_dcim_event(json.loads(msg.data.decode()))
+            await self.dispatcher.dcim_event_dispatch(event)
+            # Only acknowledge if processing succeeded
+            await self.ack(msg)
+        except DeviceNotEnabledError:
+            # No need to redeliver render exceptions, they won't succeed on retry
+            await self.ack(msg)
+        except Exception as e:
+            self.logger.error("Error processing nautobot message", exc_info=e)
+            await self.nak(msg)
+
+
+class PullNautobotConsumer(PullConsumer):
+    """Compatibility consumer for the historical Nautobot-only configuration."""
+
+    def __init__(self) -> None:
+        """Initialize a legacy Nautobot changelog consumer."""
         stream, subject = nats_nautobot_change_config()
         api_prefix = nats_nautobot_api_prefix()
         super().__init__(
@@ -522,17 +549,15 @@ class PullNautobotConsumer(PullConsumer):
         )
 
     async def message_handler(self, msg: Msg) -> None:
-        """Process a nautobot changelog message."""
+        """Normalize and process a legacy Nautobot changelog message."""
         try:
-            data = json.loads(msg.data.decode())
-            await self.dispatcher.nautobot_event_dispatch(data)
-            # Only acknowledge if processing succeeded
+            event = normalize_dcim_event(json.loads(msg.data.decode()))
+            await self.dispatcher.dcim_event_dispatch(event)
             await self.ack(msg)
         except DeviceNotEnabledError:
-            # No need to redeliver render exceptions, they won't succeed on retry
             await self.ack(msg)
         except Exception as e:
-            self.logger.error("Error processing nautobot message", exc_info=e)
+            self.logger.error("Error processing legacy DCIM message", exc_info=e)
             await self.nak(msg)
 
 
@@ -588,7 +613,9 @@ def main() -> None:
 
     consumer: PullConsumer
     consumer_name = os.getenv("NATS_CONSUMER")
-    if consumer_name == "nautobot":
+    if consumer_name == "dcim":
+        consumer = PullDCIMConsumer()
+    elif consumer_name == "nautobot":
         consumer = PullNautobotConsumer()
     elif consumer_name == "device":
         consumer = PullDeviceChangeConsumer()

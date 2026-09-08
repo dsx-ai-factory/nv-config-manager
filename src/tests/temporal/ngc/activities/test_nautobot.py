@@ -14,9 +14,11 @@
 # limitations under the License.
 import pytest
 from aioresponses import aioresponses
+from nv_config_manager_dcim import DeviceInventoryFilter
+from nv_config_manager_dcim_nautobot_2x.workflow import DeviceVrfInfo, NautobotClient
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.temporal.client.nautobot import DeviceVrfInfo, NautobotClient
+from nv_config_manager.dcim import DCIMError
 from nv_config_manager.temporal.common.mixins.device import (
     DeviceBayData,
     HostDeviceData,
@@ -419,8 +421,7 @@ async def test_assign_vrf_to_interface():
 async def test_nautobot_client_context_manager_errors():
     """Test that NautobotClient creates sessions lazily when not used as context manager."""
     from aiohttp.client_exceptions import ClientConnectorDNSError
-
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     client = NautobotClient()
 
@@ -455,7 +456,7 @@ async def test_nautobot_client_context_manager_errors():
 @pytest.mark.asyncio
 async def test_graphql_query_error():
     """Test that graphql_query handles 400 errors correctly."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     with aioresponses() as m:
         m.post(
@@ -465,7 +466,7 @@ async def test_graphql_query_error():
         )
 
         async with NautobotClient() as client:
-            with pytest.raises(ApplicationError, match="GraphQL error") as exc_info:
+            with pytest.raises(DCIMError, match="GraphQL error") as exc_info:
                 await client.graphql_query("bad query")
             assert exc_info.value.non_retryable is True
 
@@ -486,7 +487,7 @@ async def test_get_device_vrfs_not_found():
 @pytest.mark.asyncio
 async def test_get_interfaces_by_mac():
     """Test getting interfaces by MAC addresses."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     with aioresponses() as m:
         m.post(
@@ -525,7 +526,7 @@ async def test_get_interfaces_by_mac():
 @pytest.mark.asyncio
 async def test_load_config_manager_plugin_backup_config():
     """Test loading NVIDIA Config Manager plugin backup config."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     with aioresponses() as m:
         m.get(
@@ -544,7 +545,7 @@ async def test_load_config_manager_plugin_backup_config():
 @pytest.mark.asyncio
 async def test_load_config_manager_plugin_backup_config_not_found():
     """Test loading NVIDIA Config Manager plugin backup config when not found."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     with aioresponses() as m:
         m.get(
@@ -561,7 +562,7 @@ async def test_load_config_manager_plugin_backup_config_not_found():
 @pytest.mark.asyncio
 async def test_update_config_manager_plugin_backup_config():
     """Test updating NVIDIA Config Manager plugin backup config."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     with aioresponses() as m:
         m.post(
@@ -586,7 +587,7 @@ async def test_update_config_manager_plugin_backup_config():
 
 def test_get_device_ui_url():
     """Test getting device UI URL."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     client = NautobotClient()
     url = client.get_device_ui_url("device-123")
@@ -596,7 +597,7 @@ def test_get_device_ui_url():
 @pytest.mark.asyncio
 async def test_device_filter_variations():
     """Test various device filter parameter combinations."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     # Test status filter
     with aioresponses() as m:
@@ -696,7 +697,7 @@ async def test_device_filter_managed_only_variable():
 @pytest.mark.asyncio
 async def test_no_filter_exception():
     """Test that get_devices raises exception when no filters provided."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient, NautobotException
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient, NautobotException
 
     async with NautobotClient() as client:
         with pytest.raises(NautobotException, match="Must apply at least one filter"):
@@ -706,7 +707,7 @@ async def test_no_filter_exception():
 @pytest.mark.asyncio
 async def test_duplicate_devices_exception():
     """Test that get_devices raises exception on duplicate device names."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient, NautobotException
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient, NautobotException
 
     with aioresponses() as m:
         m.post(
@@ -729,7 +730,7 @@ async def test_duplicate_devices_exception():
 @pytest.mark.asyncio
 async def test_device_status_filters():
     """Test filtering devices by status flags using NautobotClient directly."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     with aioresponses() as m:
         m.post(
@@ -789,7 +790,9 @@ async def test_device_status_filters():
         )
 
         async with NautobotClient() as client:
-            devices = await client.get_network_devices(site="test-site", render_enabled=True)
+            devices = await client.get_network_devices(
+                DeviceInventoryFilter(site="test-site", render_enabled=True)
+            )
 
         assert len(devices) == 1
         assert devices[0].name == "device-1"
@@ -798,7 +801,7 @@ async def test_device_status_filters():
 @pytest.mark.asyncio
 async def test_device_status_filters_deploy():
     """Test filtering devices by deploy_enabled."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     with aioresponses() as m:
         m.post(
@@ -835,7 +838,9 @@ async def test_device_status_filters_deploy():
         )
 
         async with NautobotClient() as client:
-            devices = await client.get_network_devices(site="test-site", deploy_enabled=True)
+            devices = await client.get_network_devices(
+                DeviceInventoryFilter(site="test-site", deploy_enabled=True)
+            )
 
         assert len(devices) == 1
 
@@ -843,7 +848,7 @@ async def test_device_status_filters_deploy():
 @pytest.mark.asyncio
 async def test_device_status_filters_backup():
     """Test filtering devices by backup_enabled."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     with aioresponses() as m:
         m.post(
@@ -880,7 +885,9 @@ async def test_device_status_filters_backup():
         )
 
         async with NautobotClient() as client:
-            devices = await client.get_network_devices(site="test-site", backup_enabled=True)
+            devices = await client.get_network_devices(
+                DeviceInventoryFilter(site="test-site", backup_enabled=True)
+            )
 
         assert len(devices) == 1
 
@@ -888,7 +895,7 @@ async def test_device_status_filters_backup():
 @pytest.mark.asyncio
 async def test_device_status_filters_ztp():
     """Test filtering devices by ztp_enabled."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     with aioresponses() as m:
         m.post(
@@ -925,7 +932,9 @@ async def test_device_status_filters_ztp():
         )
 
         async with NautobotClient() as client:
-            devices = await client.get_network_devices(site="test-site", ztp_enabled=True)
+            devices = await client.get_network_devices(
+                DeviceInventoryFilter(site="test-site", ztp_enabled=True)
+            )
 
         assert len(devices) == 1
 
@@ -933,7 +942,7 @@ async def test_device_status_filters_ztp():
 @pytest.mark.asyncio
 async def test_update_host_device():
     """Test updating a host device."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     with aioresponses() as m:
         m.patch(
@@ -964,7 +973,7 @@ async def test_update_host_device():
 @pytest.mark.asyncio
 async def test_create_vrf():
     """Test creating a VRF."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     with aioresponses() as m:
         m.post(
@@ -981,7 +990,7 @@ async def test_create_vrf():
 @pytest.mark.asyncio
 async def test_delete_vrf():
     """Test deleting a VRF."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     with aioresponses() as m:
         m.delete("https://nautobot.example.com/api/ipam/vrfs/vrf-1/", status=204)
@@ -994,7 +1003,7 @@ async def test_delete_vrf():
 async def test_merge_config_context():
     """Test merging config context data."""
 
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     with aioresponses() as m:
         # Mock GET with query parameters
@@ -1019,7 +1028,7 @@ async def test_merge_config_context():
 @pytest.mark.asyncio
 async def test_installed_plugins():
     """Test getting installed plugins."""
-    from nv_config_manager.temporal.client.nautobot import NautobotClient
+    from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient
 
     with aioresponses() as m:
         m.get(

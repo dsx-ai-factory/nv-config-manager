@@ -19,9 +19,9 @@ import (
 // checks if the DeviceUUID type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &DeviceUUID{}
 
-// DeviceUUID Device UUID entry.
+// DeviceUUID Provider-owned device identifier entry.  The class and response field names are retained for API compatibility.
 type DeviceUUID struct {
-	// Device UUID
+	// DCIM provider device identifier
 	Uuid string `json:"uuid"`
 }
 

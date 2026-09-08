@@ -52,7 +52,7 @@ export default function WorkflowPage({ params }: WorkflowPageProps) {
         error={error}
         errorConfig={getErrorConfig(error)}
         reset={function (): void {
-          window.location.reload();
+          globalThis.location.reload();
         }}
       />
     );

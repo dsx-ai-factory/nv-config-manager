@@ -43,13 +43,16 @@ The Day Zero architecture handles initial network provisioning for new deploymen
 - **Jinja2 Config Templates**: Function and role-based configuration definitions
 - **Render Service**: Generates device-specific configurations from templates and data
 - **ZTP Server**: Zero-Touch Provisioning server that delivers configurations to new devices
-- **Nautobot**: Network source of truth (for example, hostnames, IP addresses, and cabling rules)
+- **Selected DCIM provider**: Network source of truth for normalized device intent (for example, hostnames, IP addresses, and cabling rules). Nautobot is the bundled default provider.
 - **Config Store**: Central repository for rendered configurations
 - **Image Store**: Storage for network operating system images
 
 **Bootstrap Process:**
 
-Anytime you make a change in Nautobot, the Render Service generates device configuration using templates and the Data Store. Then, when a new device joins the network, the configuration is ready to be delivered.
+When the selected provider reports a change that affects a device, its event
+handler asks the Render Service to generate a configuration using templates and
+normalized render data. Then, when a new device joins the network, the
+configuration is ready to be delivered.
 
 1. New device powers on and requests DHCP
 1. DHCP directs device to ZTP Server
@@ -82,7 +85,8 @@ Day Two architecture handles ongoing network changes and operations through a wo
          │               │
          ▼               ▼
     ┌──────────┐     ┌───────┐
-    │ Nautobot │     │ User  │
+    │  DCIM   │     │ User  │
+    │Provider │     │       │
     └──────────┘     └───────┘
 ```
 
@@ -94,7 +98,9 @@ Day Two architecture handles ongoing network changes and operations through a wo
 
 ## Nautobot Interface Capabilities
 
-Config Manager provides a web-based interface through a Nautobot plugin for fleet-wide device management.
+When Nautobot is the selected provider, Config Manager provides a web-based
+interface through a Nautobot plugin for fleet-wide device management. These
+screens are provider-specific; core workflows and services use the DCIM SDK.
 
 ### Instant Fleet-Wide Drift Audit
 
@@ -169,7 +175,7 @@ flowchart LR
     %% === TIER 3: Infrastructure (horizontal) ===
     subgraph Infra["Infrastructure"]
         direction LR
-        Nautobot[(Nautobot)]
+        DCIM[(Selected DCIM Provider)]
         NATS[[NATS JetStream]]
         Redis[(Redis)]
         PostgreSQL[(PostgreSQL)]
@@ -195,25 +201,25 @@ flowchart LR
     Temporal -->|"HTTPS API| Password" | Devices
     Temporal -->|"TCP + Password"| Redis
     Temporal -->|"TLS + Password"| NATS
-    Temporal -->|"GraphQL | TLS + Token"| Nautobot
+    Temporal -->|"Provider API"| DCIM
 
     %% === Render Connections ===
-    Render -->|"GraphQL | TLS + Token"| Nautobot
+    Render -->|"Provider API"| DCIM
     Render -->|"HTTPS REST | SPIFFE"| ConfigStore
     Render -->|"TLS + Password"| NATS
 
     %% === ZTP Connections ===
-    ZTP -->|"GraphQL | TLS + Token"| Nautobot
+    ZTP -->|"Provider API"| DCIM
     ZTP -->|"HTTPS REST | SPIFFE"| ConfigStore
     Devices -->|"HTTP(S) / SFTP"| ZTP
 
     %% === DHCP Connections ===
-    DHCP -->|"GraphQL | TLS + Token"| Nautobot
+    DHCP -->|"Provider API"| DCIM
     DHCP -->|"TCP + Password"| Redis
     DHCP -->|"File / API"| KEA
 
     %% === Config Store Connections ===
-    ConfigStore -->|"GraphQL | TLS + Token"| Nautobot
+    ConfigStore -->|"Provider API"| DCIM
     ConfigStore -->|"TCP + Password"| PostgreSQL
     ConfigStore -->|"TCP + Password"| Redis
 
@@ -226,5 +232,5 @@ flowchart LR
     class UI ui
     class Temporal,Render,ConfigStore,ZTP,DHCP service
     class Devices external
-    class Nautobot,NATS,Redis,PostgreSQL,KEA infra
+    class DCIM,NATS,Redis,PostgreSQL,KEA infra
 ```

@@ -36,7 +36,7 @@ interface RootLayoutProps {
   children: React.ReactNode;
 }
 
-export default function RootLayout({ children }: RootLayoutProps) {
+export default function RootLayout({ children }: Readonly<RootLayoutProps>) {
   const content = (
     <HealthProvider>{children}</HealthProvider>
   );

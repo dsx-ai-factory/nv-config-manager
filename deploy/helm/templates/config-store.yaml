@@ -49,6 +49,8 @@ spec:
       {{- include "nv-config-manager.scheduling" .Values.configStore.api | nindent 6 }}
       {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
       initContainers:
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
       # Wait for Redis to be ready (required for device metadata cache)
       {{- include "nv-config-manager.waitForRedis" . | nindent 6 }}
       containers:
@@ -71,6 +73,7 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: NV_CONFIG_MANAGER_SERVICE
           value: "config_store.api"
+        {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-config-store") | nindent 8 }}
         {{- end }}
@@ -81,6 +84,7 @@ spec:
           {{- toYaml .Values.configStore.api.resources | nindent 10 }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- include "nv-config-manager.authVolumeMounts" . | nindent 8 }}
         livenessProbe:
           httpGet:
@@ -101,6 +105,7 @@ spec:
       volumes:
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- /* SPIFFE volumes */ -}}
       {{- include "nv-config-manager.authSidecar.volumes" (dict "root" .) | nindent 6 }}
 ---
@@ -236,8 +241,12 @@ spec:
       {{- include "nv-config-manager.scheduling" .Values.configStore.cacheRefresh | nindent 6 }}
       {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
       initContainers:
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
       # Wait for Nautobot to be available before starting cache refresh
+      {{- if eq (.Values.dcim.provider | default "nautobot-2x") "nautobot-2x" }}
       {{- include "nv-config-manager.waitForNautobot" . | nindent 6 }}
+      {{- end }}
       containers:
       - name: cache-refresh
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -250,11 +259,13 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         resources:
           {{- toYaml .Values.configStore.cacheRefresh.resources | nindent 10 }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if .Values.spiffe.enabled }}
         - name: spiffe-jwt-svid
           mountPath: /var/run/secrets/spiffe
@@ -264,6 +275,7 @@ spec:
       volumes:
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- /* SPIFFE volumes (CSI driver) for outbound mTLS */ -}}
       {{- include "nv-config-manager.spiffeClientVolumes" (dict "root" .) | nindent 6 }}
 {{- end }}

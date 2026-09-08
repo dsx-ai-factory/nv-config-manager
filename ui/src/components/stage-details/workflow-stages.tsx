@@ -428,7 +428,7 @@ export const WorkflowClientComponent: React.FC<
                 key={stage.name}
               >
                 <CardHeader>
-                  <CardTitle>{stage.name}</CardTitle>
+                  <CardTitle>{stage.description}</CardTitle>
                   <div className="flex space-x-2">
                     <Badge
                       className={handleBadgeClassName(

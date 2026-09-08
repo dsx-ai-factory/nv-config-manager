@@ -180,7 +180,7 @@ export const IBPortGuidDiscoveryWorkflowForm = () => {
                     <div className="space-y-1 leading-none">
                       <FormLabel>Dry run</FormLabel>
                       <FormDescription>
-                        Compute the UFM-to-Nautobot GUID mappings without
+                        Compute the UFM-to-DCIM GUID mappings without
                         writing ib_guid back onto any interface. Uncheck to
                         apply the changes.
                       </FormDescription>

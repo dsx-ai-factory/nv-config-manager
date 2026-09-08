@@ -24,6 +24,7 @@ import requests
 
 from nv_config_manager_installer.accounts import build_eso_config_secrets
 from nv_config_manager_installer.schema import (
+    BUILT_IN_NAUTOBOT_PROVIDER,
     NVConfigManagerInstallConfig,
     PasswordSource,
     VaultPathsConfig,
@@ -35,6 +36,8 @@ from nv_config_manager_installer.secrets import (
 )
 
 _GROUP_PATH_DEFAULTS = {
+    "dcim": "dcim",
+    "nats": "nats",
     "nautobot": "nautobot",
     "redis": "redis",
     "postgres": "postgres",
@@ -200,7 +203,8 @@ class OpenBaoPopulator:
         desired_groups = build_openbao_secret_data(self.config)
         defaults = VaultPathsConfig()
         environment = self.config.cluster.environment
-        self._align_nautobot_tokens(mount, desired_groups, defaults, environment)
+        if self.config.dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER:
+            self._align_nautobot_tokens(mount, desired_groups, defaults, environment)
         for group, desired in desired_groups.items():
             path_config = getattr(self.config.secrets.vault.paths, group)
             if not path_config.enabled:
@@ -229,10 +233,9 @@ class OpenBaoPopulator:
         environment: str,
     ) -> None:
         """Keep the client token identical to Nautobot's superuser API token."""
-        locations = (
-            ("nautobot", "token"),
-            ("nautobot_app", "superuserApiToken"),
-        )
+        locations = [("nautobot", "token")]
+        if "nautobot_app" in desired_groups:
+            locations.append(("nautobot_app", "superuserApiToken"))
         existing_tokens: list[str] = []
         for group, logical_key in locations:
             path_config = getattr(self.config.secrets.vault.paths, group)
@@ -251,7 +254,8 @@ class OpenBaoPopulator:
             )
         token = existing_tokens[0] if existing_tokens else desired_groups["nautobot"]["token"]
         desired_groups["nautobot"]["token"] = token
-        desired_groups["nautobot_app"]["superuserApiToken"] = token
+        if "nautobot_app" in desired_groups:
+            desired_groups["nautobot_app"]["superuserApiToken"] = token
 
     def _populate_git_tokens(self, mount: str, result: OpenBaoPopulationResult) -> None:
         for token in self.config.git_tokens:

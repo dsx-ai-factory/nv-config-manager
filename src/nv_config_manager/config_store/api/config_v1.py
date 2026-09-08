@@ -15,13 +15,15 @@
 """V1 Config API endpoints."""
 
 import difflib
-from typing import TYPE_CHECKING
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager.config_store.api.device_ids import (
+    get_cache_service,
+    validate_device_id,
+)
 from nv_config_manager.config_store.api.schemas import (
     BatchConfigRequest,
     BatchConfigResponse,
@@ -45,15 +47,7 @@ from nv_config_manager.config_store.db import get_db
 
 logger = get_logger(__name__, category=LogCategory.CONFIG_STORE)
 
-if TYPE_CHECKING:
-    from nv_config_manager.config_store.core.device_cache_redis import DeviceCacheService
-
 router = APIRouter()
-
-
-def get_cache_service(request: Request) -> "DeviceCacheService | None":
-    """Get the cache service from app state."""
-    return getattr(request.app.state, "cache_service", None)
 
 
 @router.get(
@@ -62,12 +56,13 @@ def get_cache_service(request: Request) -> "DeviceCacheService | None":
     summary="Get all configs for a device",
 )
 async def get_device_configs(
-    device_uuid: UUID,
+    device_uuid: str,
     request: Request,
     file_type: FileType | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> list[ConfigResponse]:
     """Get all latest configuration files for a device."""
+    validate_device_id(device_uuid, request)
     try:
         configs = await get_all_device_configs(db, device_uuid, file_type)
 
@@ -102,11 +97,13 @@ async def get_device_configs(
     summary="Batch create/update config files",
 )
 async def batch_create_configs(
-    device_uuid: UUID,
+    device_uuid: str,
+    request_obj: Request,
     request: BatchConfigRequest,
     db: AsyncSession = Depends(get_db),
 ) -> BatchConfigResponse:
     """Batch create or update configuration files for a device."""
+    validate_device_id(device_uuid, request_obj)
     created = []
     skipped = []
 
@@ -158,7 +155,7 @@ async def batch_create_configs(
     summary="Create or update a config file",
 )
 async def create_config(
-    device_uuid: UUID,
+    device_uuid: str,
     filename: str,
     request: ConfigCreateRequest,
     request_obj: Request,
@@ -169,6 +166,7 @@ async def create_config(
 
     If the content has not changed, the existing version is returned without creating a new one.
     """
+    validate_device_id(device_uuid, request_obj)
     try:
         async with db.begin():
             config = await create_or_update_config(
@@ -210,7 +208,7 @@ async def create_config(
     summary="Get a config file",
 )
 async def get_config(
-    device_uuid: UUID,
+    device_uuid: str,
     filename: str,
     request: Request,
     file_type: FileType = FileType.INTENDED,
@@ -222,6 +220,7 @@ async def get_config(
 
     If version is not specified, returns the latest version.
     """
+    validate_device_id(device_uuid, request)
     try:
         if version is not None:
             config = await get_specific_version(db, device_uuid, filename, file_type, version)
@@ -263,7 +262,7 @@ async def get_config(
     summary="List all versions of a config file",
 )
 async def list_versions(
-    device_uuid: UUID,
+    device_uuid: str,
     filename: str,
     request: Request,
     file_type: FileType = FileType.INTENDED,
@@ -271,6 +270,7 @@ async def list_versions(
     db: AsyncSession = Depends(get_db),
 ) -> ConfigVersionsResponse:
     """List all versions of a configuration file."""
+    validate_device_id(device_uuid, request)
     try:
         versions = await get_version_history(db, device_uuid, filename, file_type, limit)
 
@@ -305,7 +305,7 @@ async def list_versions(
     summary="Get diff between two versions",
 )
 async def get_diff(
-    device_uuid: UUID,
+    device_uuid: str,
     filename: str,
     request: Request,
     from_version: int,
@@ -314,6 +314,7 @@ async def get_diff(
     db: AsyncSession = Depends(get_db),
 ) -> DiffResponse:
     """Generate a diff between two versions of a configuration file."""
+    validate_device_id(device_uuid, request)
     try:
         from_config = await get_specific_version(db, device_uuid, filename, file_type, from_version)
         to_config = await get_specific_version(db, device_uuid, filename, file_type, to_version)

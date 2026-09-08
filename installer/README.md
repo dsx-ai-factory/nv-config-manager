@@ -305,10 +305,47 @@ Toggle individual NVIDIA Config Manager services on or off.
 | DHCP | DHCP server |
 | Temporal | Temporal workflow engine |
 | Config Store | Configuration storage API |
-| Nautobot | Local Nautobot + NATS + Redis stack |
+| Nautobot | Local Nautobot DCIM stack |
 
 When Nautobot is disabled, configure an external Nautobot URL in the
 [External Services](#3-external-services) section.
+
+For an independently packaged DCIM provider, set `dcim.provider`,
+`dcim.server`, and `services.nautobot: false` in the installer YAML. Provider
+wheel images are configured with `dcim.provider_packages`, and
+provider-specific non-secret settings are supplied through `dcim.options`.
+The bundled TUI remains Nautobot-focused; a provider installer replaces that
+screen while inheriting the rest of the wizard. See the external-provider
+example in [Configuration Samples](../docs/install/configuration-samples.mdx).
+Core Temporal workflows remain available for every selected DCIM provider; the
+provider package supplies their normalized data operations.
+
+See [Contribute a DCIM Provider](../docs/development/contributing-dcim-provider.mdx)
+for provider packaging, provider-owned event handlers, render data, and test
+expectations.
+
+### Derived DCIM provider installers
+
+An external provider should package its own installer and inherit the common
+deployment and TUI implementations instead of copying their orchestration:
+
+- Subclass `NVConfigManagerInstallConfig` for provider deployment fields, then
+  select it with `CONFIG_MODEL` on both `Deployer` and the TUI application.
+- Replace provider-owned panels through the TUI application's `SCREEN_CLASSES`.
+  The deploy screen exposes `deployer_class()` / `create_deployer()` factories.
+- Extend `Deployer.create_steps()`, `_local_image_builds()`,
+  `_run_provider_pre_helm_install()`, and `_run_provider_post_helm_install()` to
+  build, install, and bootstrap provider-owned pods around the common Helm
+  release. Pass `--project-root` when provider image contexts live in a sibling
+  repository.
+- For DSX Air, subclass `SimConfig` and `SimOrchestrator`. The orchestrator has
+  hooks for generated install YAML, simulation-manager construction, provider
+  pre/post-deploy work, rendered-config readiness, deploy commands, and
+  provider UI hostnames. A derived Air TUI replaces its topology/launch screens
+  through `SCREEN_CLASSES`; the launch screen exposes `create_orchestrator()`.
+
+Provider deployment belongs in these lifecycle hooks, not in progress
+callbacks. This keeps the CLI and both TUIs on the same orchestration path.
 
 #### 3. External Services
 
@@ -317,12 +354,13 @@ When Nautobot is disabled, configure an external Nautobot URL in the
 Override in-cluster services with external instances. Leave disabled to use the
 default in-cluster deployments.
 
-**Nautobot**
+**DCIM provider**
 
 | Field | Description |
 |-------|-------------|
-| Use external Nautobot | Toggle — disables the in-cluster Nautobot stack |
-| Nautobot URL | URL of the external Nautobot instance |
+| Provider name | `nautobot-2x` for the built-in provider, or the installed external provider's entry-point name |
+| Use external DCIM | Toggle — disables the in-cluster Nautobot stack |
+| DCIM endpoint | URL of the external provider; required when the provider is not the bundled `nautobot-2x` implementation |
 
 **Redis**
 
@@ -596,6 +634,24 @@ Gateway, TLS, database backups, monitoring, and load balancer configuration.
 | Enable TLS | Self-signed TLS certificates for public endpoints |
 | CNPG S3 Backup | Enable CloudNativePG Postgres backups to S3 |
 | Monitoring | Enable PodMonitors and monitoring resources |
+| Redis metrics | Run the exporter for bundled Redis; unavailable when external Redis is configured |
+
+`infrastructure.monitoring.redis_metrics_enabled` stores the explicit Redis
+metrics preference. For bundled Redis, it enables the Redis exporter _even when
+monitoring is disabled_. When monitoring is enabled, the installer also enables
+the Redis PodMonitor. The local observability stack automatically enables both
+without changing the explicit preference. External Redis suppresses both
+generated settings.
+For a headless local deployment that runs only the exporter:
+
+```yaml
+cluster:
+  environment: local
+infrastructure:
+  monitoring:
+    enabled: false
+    redis_metrics_enabled: true
+```
 
 **Load Balancer** — Select the provider for ZTP/DHCP device-facing services:
 

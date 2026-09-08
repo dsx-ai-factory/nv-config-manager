@@ -42,6 +42,8 @@ from tests.temporal.ngc.activities.test_device_data import (
 )
 
 with workflow.unsafe.imports_passed_through():
+    from nv_config_manager_dcim_nautobot_2x.workflow import NetworkDeviceData
+
     from nv_config_manager.temporal.client.device import (
         AristaConnection,
         CumulusConnection,
@@ -52,7 +54,6 @@ with workflow.unsafe.imports_passed_through():
         InterfaceNeighborData,
         NetworkDeviceException,
     )
-    from nv_config_manager.temporal.client.nautobot import NetworkDeviceData
     from nv_config_manager.temporal.ngc.activities.device import (
         get_device_actual_neighbors,
         get_device_arp_table,
@@ -505,7 +506,7 @@ def test_validate_hostname_mismatch():
         validate_hostname(activity_input)
     assert (
         str(error.value.message)
-        == "Hostname on 172.0.0.1 (rno1-m04-c10-leaf2-hss-tan-lab1) does not match nautobot (mock_device1)."
+        == "Hostname on 172.0.0.1 (rno1-m04-c10-leaf2-hss-tan-lab1) does not match the DCIM record (mock_device1)."
     )
 
     def mock_enable(cmd, encoding="json"):
@@ -529,7 +530,7 @@ def test_validate_hostname_mismatch():
             validate_hostname(activity_input)
         assert (
             str(error.value.message)
-            == "Hostname on 172.0.0.2 (rno1-m04-C10-leaf1.smn.lab1) does not match nautobot (mock_device2)."
+            == "Hostname on 172.0.0.2 (rno1-m04-C10-leaf1.smn.lab1) does not match the DCIM record (mock_device2)."
         )
 
 
