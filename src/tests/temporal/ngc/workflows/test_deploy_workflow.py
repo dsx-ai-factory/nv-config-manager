@@ -1710,92 +1710,83 @@ async def test_execute_tenant_deploy_workflow_newer_commit_disallowed(
     """Test tenant deploy when commit is newer but has disallowed lines."""
     _newer_commit_mock_state["use_newer_commit"] = True
     _newer_commit_mock_state["newer_commit_allowed"] = False
-
-    task_queue_name = str(uuid.uuid4())
-    client: Client = env.client
-    async with Worker(
-        client,
-        task_queue=task_queue_name,
-        workflows=[TenantDeployWorkflow, BackupWorkflow],
-        activities=[
-            mock_get_network_device,
-            mock_load_partial_configuration,
-            mock_load_intended_configuration,
-            perform_candidate_diff,
-            validate_config_diff,
-            apply_approved_configuration,
-            load_running_configuration,
-            mock_persist_config_backup,
-            mock_record_backup_config_manager_plugin,
-            mock_get_ui_base_url,
-            publish_nats,
-        ],
-        activity_executor=ThreadPoolExecutor(5),
-    ):
-        # Setup mocking
-        mock_cumulus_connection.return_value.get_running_configuration.return_value = (
-            "mock running config"
-        )
-        # Mock diff with disallowed line
-        mock_tenant_diff = """nv set vrf test-vrf router bgp router-id 172.28.0.2
+    try:
+        task_queue_name = str(uuid.uuid4())
+        client: Client = env.client
+        async with Worker(
+            client,
+            task_queue=task_queue_name,
+            workflows=[TenantDeployWorkflow, BackupWorkflow],
+            activities=[
+                mock_get_network_device,
+                mock_load_partial_configuration,
+                mock_load_intended_configuration,
+                perform_candidate_diff,
+                validate_config_diff,
+                apply_approved_configuration,
+                load_running_configuration,
+                mock_persist_config_backup,
+                mock_record_backup_config_manager_plugin,
+                mock_get_ui_base_url,
+                publish_nats,
+            ],
+            activity_executor=ThreadPoolExecutor(5),
+        ):
+            mock_cumulus_connection.return_value.get_running_configuration.return_value = (
+                "mock running config"
+            )
+            mock_tenant_diff = """nv set vrf test-vrf router bgp router-id 172.28.0.2
 nv set vrf test-vrf router bgp autonomous-system 4266990009
 nv set interface swp1 ip vrf test-vrf
 nv set interface swp2 ip vrf test-vrf
 nv set system hostname disallowed-change
 """
-        mock_cumulus_connection.return_value.perform_candidate_diff.return_value = mock_tenant_diff
+            mock_cumulus_connection.return_value.perform_candidate_diff.return_value = (
+                mock_tenant_diff
+            )
 
-        input = TenantDeployInput(
-            device="mock_device_uuid",
-            tenant_config_commit_id="7",
-            intended_config_commit_id="11",
-        )
+            input = TenantDeployInput(
+                device="mock_device_uuid",
+                tenant_config_commit_id="7",
+                intended_config_commit_id="11",
+            )
 
-        workflow_id = str(uuid.uuid4())
+            workflow_id = str(uuid.uuid4())
+            handle: WorkflowHandle = await env.client.start_workflow(
+                TenantDeployWorkflow.run,
+                input,
+                id=workflow_id,
+                task_queue=task_queue_name,
+                # Validation fails retryably and then waits for a retry signal, so
+                # handle.result() would surface START_TO_CLOSE instead of the
+                # validation error. Keep a long run timeout and poll the stage.
+                run_timeout=timedelta(minutes=10),
+            )
 
-        handle: WorkflowHandle = await env.client.start_workflow(
-            TenantDeployWorkflow.run,
-            input,
-            id=workflow_id,
-            task_queue=task_queue_name,
-            run_timeout=timedelta(seconds=10),
-        )
-
-        # Wait a bit for workflow to progress, then check stages
-        await asyncio.sleep(2)
-        stages = await handle.query("stages")
-        load_stage = next((s for s in stages if s["name"] == "load_tenant_configuration"), None)
-        assert load_stage is not None
-        assert load_stage["output"]["commit_id"] == "7"
-        assert load_stage["output"]["intended_config_commit_id"] == "11"
-        validate_stage = next(
-            (s for s in stages if s["name"] == "validate_configuration_diff"), None
-        )
-
-        # If validation stage exists and failed, that's what we expect
-        if validate_stage and validate_stage["state"] == "FAILED":
-            assert validate_stage["state"] == "FAILED"
-            # Check traceback for validation error
-            if validate_stage.get("traceback"):
-                assert (
-                    "Invalid diff" in validate_stage["traceback"]
-                    or "Validation failed" in validate_stage["traceback"]
-                    or "disallowed" in validate_stage["traceback"].lower()
+            deadline = asyncio.get_running_loop().time() + 15
+            stages: list[dict[str, Any]] = []
+            validate_stage = None
+            while asyncio.get_running_loop().time() < deadline:
+                stages = await handle.query("stages")
+                validate_stage = next(
+                    (s for s in stages if s["name"] == "validate_configuration_diff"),
+                    None,
                 )
-        else:
-            # Try to get result - it should fail
-            try:
-                await handle.result()
-                assert False, "Workflow should have failed"
-            except WorkflowFailureError as exc:
-                error_msg = str(exc.cause) if hasattr(exc, "cause") else str(exc)
-                # Check error message
-                assert (
-                    "Invalid diff" in error_msg
-                    or "Validation failed" in error_msg
-                    or "disallowed" in error_msg.lower()
+                if validate_stage and validate_stage["state"] == "FAILED":
+                    break
+                await asyncio.sleep(0.1)
+            else:
+                pytest.fail(
+                    "validate_configuration_diff did not fail before the poll "
+                    f"deadline; stages={stages!r}"
                 )
 
-    # Reset state for other tests
-    _newer_commit_mock_state["use_newer_commit"] = False
-    _newer_commit_mock_state["newer_commit_allowed"] = True
+            load_stage = next(s for s in stages if s["name"] == "load_tenant_configuration")
+            assert load_stage["output"]["commit_id"] == "7"
+            assert load_stage["output"]["intended_config_commit_id"] == "11"
+            traceback = validate_stage["traceback"] or ""
+            assert "Invalid diff" in traceback
+            assert "nv set system hostname disallowed-change" in traceback
+    finally:
+        _newer_commit_mock_state["use_newer_commit"] = False
+        _newer_commit_mock_state["newer_commit_allowed"] = True
