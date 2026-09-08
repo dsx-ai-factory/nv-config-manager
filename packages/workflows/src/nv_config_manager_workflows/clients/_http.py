@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Shared mixins for the nv-config-manager HTTP clients.
+"""Shared mixins for reusable NVIDIA Config Manager HTTP clients.
 
 Lives in its own module (rather than ``__init__.py``) so the per-client
 modules can import from here without circular-import gymnastics — the
@@ -23,7 +23,7 @@ the nv-config-manager client classes themselves.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypedDict
+from typing import TypedDict, cast
 
 from aiohttp import ClientTimeout, TCPConnector
 from aiohttp_retry import ExponentialRetry, RetryClient
@@ -42,11 +42,14 @@ class WhoamiResult(TypedDict):
     roles: list[str]
 
 
+type HeaderProvider = dict[str, str] | Callable[[], dict[str, str]] | None
+
+
 class _WhoamiViaRetryClientMixin:
     """Adds an async ``whoami()`` method using the per-call ``RetryClient`` pattern.
 
-    Used by :class:`ZTPClient` and :class:`RenderClient` so the two clients'
-    identity-probe paths stay in lock-step.  :class:`TemporalClient` uses a
+    Used by the Config Store, Render, and service-owned ZTP clients so their
+    identity-probe paths stay in lock-step. :class:`TemporalClient` uses a
     persistent :class:`aiohttp.ClientSession` and does not inherit from this
     mixin — its session shape needs to keep matching every other method on
     the temporal client.
@@ -58,16 +61,26 @@ class _WhoamiViaRetryClientMixin:
     for SPIFFE JWT-SVIDs which rotate on disk.
     """
 
-    base_url: str
-    connector: TCPConnector
-    timeout: ClientTimeout
-    retry_options: ExponentialRetry
-    _headers: dict[str, str] | Callable[[], dict[str, str]] | None
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        connector: TCPConnector,
+        timeout: ClientTimeout,
+        retry_options: ExponentialRetry,
+        headers: HeaderProvider,
+    ) -> None:
+        """Initialize request resources supplied by the concrete client."""
+        self.base_url: str = base_url
+        self.connector: TCPConnector = connector
+        self.timeout: ClientTimeout = timeout
+        self.retry_options: ExponentialRetry = retry_options
+        self._headers: HeaderProvider = headers
 
     def _resolve_headers(self) -> dict[str, str] | None:
         """Return headers for the current request."""
         if callable(self._headers):
-            return self._headers()  # type: ignore[ty:call-top-callable]  # ty can't narrow dict|Callable union
+            return self._headers()  # type: ignore[ty:call-top-callable]  # ty cannot narrow this union
         return self._headers
 
     def _new_session(self) -> RetryClient:
@@ -93,5 +106,4 @@ class _WhoamiViaRetryClientMixin:
         async with self._new_session() as session:
             async with session.get(f"{self.base_url}/whoami") as response:
                 response.raise_for_status()
-                data: WhoamiResult = await response.json()
-                return data
+                return cast("WhoamiResult", await response.json())

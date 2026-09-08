@@ -21,9 +21,10 @@ from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.common.config import ConfigStoreType, config_store_client, ztp_client
+from nv_config_manager.common.config import config_store_client, ztp_client
 from nv_config_manager.dcim import FirmwareBundle, create_dcim_client
 from nv_config_manager.temporal.client.device import NetworkConnection, NetworkDeviceData
+from nv_config_manager_workflows.clients import ConfigStoreType
 
 
 class GetRunningFirmwareInput(BaseModel):

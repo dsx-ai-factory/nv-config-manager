@@ -22,9 +22,10 @@ from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.common.config import ConfigStoreType, config_store_client
+from nv_config_manager.common.config import config_store_client
 from nv_config_manager.temporal.client.device import NetworkConnection
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
+from nv_config_manager_workflows.clients import ConfigStoreType
 
 
 @activity.defn

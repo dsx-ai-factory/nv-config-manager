@@ -44,12 +44,12 @@ def test_config_store_client():
 
         # Verify the internal service endpoint is used without mTLS
         mock_client.assert_called_once()
-        call_args = mock_client.call_args
-        assert call_args[0][0] == "http://config-store-api.example.local:8080"
-        assert call_args[0][1] == "intended"
-        assert call_args[1]["verify"] is False  # No SSL verification for internal HTTP
-        assert call_args[1]["client_certificate"] is None  # No mTLS for internal communication
-        assert call_args[1]["headers"] is get_internal_auth_headers
+        settings = mock_client.call_args.kwargs
+        assert settings["target"] == "http://config-store-api.example.local:8080"
+        assert settings["file_type"] == "intended"
+        assert settings["verify"] is False  # No SSL verification for internal HTTP
+        assert settings["client_certificate"] is None  # No mTLS for internal communication
+        assert settings["headers"] is get_internal_auth_headers
         assert client == mock_client_instance
 
 
@@ -77,7 +77,7 @@ tls_client_key_path = /etc/tls-client/tls.key
         config_store_instance="https://config-manager.example.com/",
     )
 
-    with patch("nv_config_manager.ztp.device.ConfigStoreClient") as mock_client:
+    with patch("nv_config_manager.common.config.ConfigStoreClient") as mock_client:
         mock_client_instance = MagicMock()
         mock_client.return_value = mock_client_instance
 
@@ -85,8 +85,8 @@ tls_client_key_path = /etc/tls-client/tls.key
 
         # Verify the external mTLS endpoint is used
         mock_client.assert_called_once()
-        call_args = mock_client.call_args
-        assert call_args[0][0] == "https://config-store.config-manager.example.com"
-        assert call_args[0][1] == "intended"
-        assert call_args[1]["verify"] is True
+        settings = mock_client.call_args.kwargs
+        assert settings["target"] == "https://config-store.config-manager.example.com"
+        assert settings["file_type"] == "intended"
+        assert settings["verify"] is True
         assert client == mock_client_instance

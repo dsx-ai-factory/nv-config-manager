@@ -23,7 +23,7 @@ from configparser import ConfigParser
 from aiohttp import ClientTimeout, TCPConnector
 from aiohttp_retry import ExponentialRetry
 
-from nv_config_manager.common.client._mixins import _WhoamiViaRetryClientMixin
+from nv_config_manager_workflows.clients._http import _WhoamiViaRetryClientMixin
 
 
 class ZTPClientException(Exception):

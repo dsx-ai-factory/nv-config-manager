@@ -24,7 +24,6 @@ import os
 import ssl
 from collections.abc import Awaitable, Callable
 from configparser import ConfigParser, SectionProxy
-from enum import Enum
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
@@ -37,16 +36,15 @@ import nats.js.errors
 # =============================================================================
 from nv_config_manager.common.client import (
     DEFAULT_NATS_API_PREFIX,
-    ConfigStoreClient,
     DHCPClient,
     NatsClient,
     RedisClient,
-    RenderClient,
     TemporalClient,
     ZTPClient,
     config_manager_api_prefix,
 )
-
+from nv_config_manager_workflows.clients.config_store import ConfigStoreType, ConfigStoreClient
+from nv_config_manager_workflows.clients.render import RenderClient
 # =============================================================================
 # LOGGING (re-exported from nv_config_manager.common.log to avoid circular imports)
 # =============================================================================
@@ -68,13 +66,6 @@ if TYPE_CHECKING:
 # =============================================================================
 # ENUMS
 # =============================================================================
-
-
-class ConfigStoreType(Enum):
-    """Config store file types."""
-
-    BACKUP = "backup"
-    INTENDED = "intended"
 
 
 # =============================================================================
@@ -391,9 +382,10 @@ def config_store_client(
     Returns:
         Configured ConfigStoreClient instance
     """
-    if config is None:
-        config = load_config()
-    return ConfigStoreClient.from_config(config, file_type=file_type)
+    # Imported here because the service adapter imports helpers from this module.
+    from nv_config_manager.temporal.factories.config_store import config_store_client_settings
+
+    return ConfigStoreClient(**config_store_client_settings(config, file_type=file_type))
 
 
 def config_store_ui_url(config: ConfigParser | None = None) -> str:
@@ -492,9 +484,10 @@ def render_client(config: ConfigParser | None = None) -> RenderClient:
     Returns:
         Configured RenderClient instance
     """
-    if config is None:
-        config = load_config()
-    return RenderClient.from_config(config)
+    # Imported here because the service adapter imports helpers from this module.
+    from nv_config_manager.temporal.factories.render import render_client_settings
+
+    return RenderClient(**render_client_settings(config))
 
 
 def temporal_client(config: ConfigParser | None = None) -> TemporalClient:

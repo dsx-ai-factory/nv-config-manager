@@ -15,12 +15,13 @@
 """NVIDIA Config Manager Common Clients - Shared service clients."""
 
 # Config Store Client
-from nv_config_manager.common.client.config_store import (
+from nv_config_manager_workflows.clients.config_store import (
     ConfigFile,
     ConfigFileMetadata,
     ConfigStoreClient,
     ConfigStoreException,
     ConfigStoreFileNotFound,
+    ConfigStoreType,
 )
 
 # DHCP Client
@@ -45,7 +46,7 @@ from nv_config_manager.common.client.nvdataflow import (
 from nv_config_manager.common.client.redis import RedisClient
 
 # Render Client
-from nv_config_manager.common.client.render import (
+from nv_config_manager_workflows.clients.render import (
     FileCommit,
     RenderClient,
     RenderClientException,
@@ -70,6 +71,7 @@ __all__ = [
     "ConfigStoreClient",
     "ConfigStoreException",
     "ConfigStoreFileNotFound",
+    "ConfigStoreType",
     # DHCP
     "DHCPClient",
     "DHCPClientException",
