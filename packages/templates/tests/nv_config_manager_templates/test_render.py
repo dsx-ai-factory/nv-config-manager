@@ -25,12 +25,27 @@ import yaml
 from jinja2 import DictLoader
 from nv_config_manager_dcim import RenderData, RenderDataExtension
 
+from nv_config_manager_templates.dataclasses.interface import ConnectedDevice
 from nv_config_manager_templates.filters import FilterException
 from nv_config_manager_templates.render import Renderer
 
 RESOURCES_DIR = Path(__file__).resolve().parents[1] / "resources"
 EXPECTED_CONFIG_DIR = RESOURCES_DIR / "expected_config"
 RENDER_DATA_DIR = RESOURCES_DIR / "render-data"
+
+
+def test_connected_device_peer_group_is_provider_neutral() -> None:
+    """The shared model derives peer groups without organization-specific aliases."""
+    device = ConnectedDevice(
+        name="peer-01",
+        role="edge-router",
+        asn=None,
+        tags=[],
+        peer_ipv4=None,
+        peer_ipv6=None,
+    )
+
+    assert device.peer_group == "EDGE-ROUTER"
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:

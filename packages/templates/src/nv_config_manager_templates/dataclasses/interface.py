@@ -37,20 +37,8 @@ class ConnectedDevice:  # pylint: disable=too-many-instance-attributes
 
     @property
     def peer_group(self):
-        """The BGP peer group for this device."""
-        peer_group = self.role.upper()
-        if peer_group == "AZURE-GATEWAY":
-            return "GW"
-        if peer_group.startswith("AZURE-"):
-            return peer_group.replace("AZURE-", "")
-        if peer_group in (
-            "GPU",
-            "HIGHSPEEDSTORAGE-SERVER",
-            "CONTROL-SERVER",
-            "USERSTORAGE-SERVER",
-        ):
-            return "SERVER"
-        return peer_group
+        """Return the normalized role as the default BGP peer group."""
+        return (self.role or "").upper()
 
 
 @dataclass(frozen=True)

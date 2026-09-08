@@ -3,7 +3,7 @@
 [![Latest stable release](https://img.shields.io/github/v/release/dsx-ai-factory/nv-config-manager?display_name=tag&label=stable&sort=semver)](https://github.com/dsx-ai-factory/nv-config-manager/releases/latest)
 [![Latest release candidate](https://img.shields.io/github/v/tag/dsx-ai-factory/nv-config-manager?filter=*-rc.*&label=rc&sort=date&color=orange)](https://github.com/dsx-ai-factory/nv-config-manager/tags)
 
-NVIDIA Config Manager (NVCM) is an open-source network automation and configuration management platform for large-scale datacenter operations. It combines a pluggable DCIM provider, event-driven rendering, ZTP, DHCP, workflow automation, and configuration storage behind a single Helm deployment. Nautobot is the bundled reference provider and default deployment, not a core-service dependency.
+NVIDIA Config Manager (NVCM) is an open-source network automation and configuration management platform for large-scale datacenter operations. It combines a pluggable DCIM provider, event-driven rendering, ZTP, DHCP, workflow automation, and configuration storage behind a single Helm deployment. [Nautobot](https://github.com/nautobot/nautobot) is the bundled reference provider and default deployment, not a core-service dependency.
 
 NVCM is currently in Developer Preview and is not recommended for production use.
 

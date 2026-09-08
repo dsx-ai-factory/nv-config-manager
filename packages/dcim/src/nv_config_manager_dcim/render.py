@@ -271,10 +271,10 @@ class RenderFirmwareData(DCIMModel):
 
 
 class RenderEndpointSet(DCIMModel):
-    """A named service's reachable IPv4 and IPv6 endpoints."""
+    """A named service's reachable IPv4 and IPv6 addresses or hostnames."""
 
-    ipv4: tuple[IPvAnyAddress, ...] = ()
-    ipv6: tuple[IPvAnyAddress, ...] = ()
+    ipv4: tuple[str, ...] = ()
+    ipv6: tuple[str, ...] = ()
 
 
 class RenderNamedEndpointSet(DCIMModel):

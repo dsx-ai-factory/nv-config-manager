@@ -193,12 +193,11 @@ class Renderer:
         for plugin in self.plugins:
             for name, func in plugin.get("filters", {}).items():
                 if name in self.environment.filters:
-                    logger.warning(
-                        "Plugin %s filter '%s' conflicts with existing filter, skipping",
+                    logger.info(
+                        "Plugin %s overrides filter '%s'",
                         plugin["name"],
                         name,
                     )
-                    continue
                 self.environment.filters[name] = func
                 logger.info("Loaded filter '%s' from plugin %s", name, plugin["name"])
 

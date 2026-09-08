@@ -17,7 +17,7 @@
 from unittest.mock import AsyncMock, call
 
 import pytest
-from nv_config_manager_dcim import DCIMInvalidDataError
+from nv_config_manager_dcim import DCIMInvalidDataError, RenderDataRequirement
 from nv_config_manager_dcim_nautobot_2x.client import NautobotException
 from nv_config_manager_dcim_nautobot_2x.provider import NautobotDCIMClient
 from nv_config_manager_dcim_nautobot_2x.render import (
@@ -202,7 +202,7 @@ async def test_get_render_data_loads_provider_owned_queries():
                                 ],
                             }
                         ],
-                        "config_context": {},
+                        "config_context": {"backbone": {"schema_version": 1}},
                         "location": {
                             "name": "Rack 1",
                             "location_type": {"name": "Rack"},
@@ -225,17 +225,37 @@ async def test_get_render_data_loads_provider_owned_queries():
                     ]
                 }
             },
+            {"data": {"custom_devices": [{"name": "leaf-1"}]}},
         ]
     )
 
-    render_data = await client.get_render_data(RenderDataRequest(device_id="device-id"))
+    render_data = await client.get_render_data(
+        RenderDataRequest(
+            device_id="device-id",
+            plugin_data_requirements={
+                "custom_graphql": RenderDataRequirement(
+                    parameters={"graphql_query": "query Custom { custom_devices { name } }"}
+                ),
+                "custom_context": RenderDataRequirement(
+                    parameters={"config_context_keys": ["backbone"]}
+                ),
+            },
+        )
+    )
 
     assert render_data.device.identity.location.name == "Rack 1"
     assert render_data.location.location.name == "Site A"
     assert render_data.device.routing.bgp_instances[0].vrfs == ("EXIT", "default")
-    first_call, second_call = client.graphql_query.await_args_list
+    assert render_data.plugin_data["custom_graphql"].data == {
+        "data": {"custom_devices": [{"name": "leaf-1"}]}
+    }
+    assert render_data.plugin_data["custom_context"].data == {
+        "config_context": {"backbone": {"schema_version": 1}}
+    }
+    first_call, second_call, third_call = client.graphql_query.await_args_list
     assert first_call.args[1] == {"id": "device-id", "id_str": "device-id"}
     assert second_call.args[1] == {"location": "Site A"}
+    assert third_call.args[1] == {"id": "device-id", "hostname": "leaf-1"}
 
 
 @pytest.mark.asyncio

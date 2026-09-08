@@ -46,7 +46,7 @@ from nv_config_manager_dcim.models import (
     RenderTemplateVersion,
     ZTPDevice,
 )
-from nv_config_manager_dcim.render import RenderData, RenderDataRequest
+from nv_config_manager_dcim.render import RenderData, RenderDataExtension, RenderDataRequest
 
 from nv_config_manager_dcim_nautobot_2x.client import NautobotException
 from nv_config_manager_dcim_nautobot_2x.dhcp import NautobotDHCPOperations
@@ -610,7 +610,38 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             ) from exc
 
         location_data = await self.graphql_query(_LOCATION_DATA_QUERY, {"location": location_name})
-        return build_render_data(device_data, location_data)
+        render_data = build_render_data(device_data, location_data)
+        plugin_data: dict[str, RenderDataExtension] = {}
+        device = device_data["data"]["device"]
+        device_name = str(device["name"])
+        config_context = device.get("config_context") or {}
+
+        for name, requirement in request.plugin_data_requirements.items():
+            parameters = requirement.parameters
+            graphql_query = parameters.get("graphql_query")
+            context_keys = parameters.get("config_context_keys")
+            if isinstance(graphql_query, str):
+                data = await self.graphql_query(
+                    graphql_query,
+                    {"id": device_id, "hostname": device_name},
+                )
+                schema = "nv-config-manager/nautobot-graphql"
+            elif isinstance(context_keys, list) and all(
+                isinstance(key, str) for key in context_keys
+            ):
+                data = {
+                    "config_context": {
+                        key: config_context[key] for key in context_keys if key in config_context
+                    }
+                }
+                schema = "nv-config-manager/nautobot-config-context"
+            else:
+                raise DCIMInvalidDataError(
+                    f"Unsupported render-data requirement '{name}' for the Nautobot provider"
+                )
+            plugin_data[name] = RenderDataExtension(schema=schema, version=1, data=data)
+
+        return render_data.model_copy(update={"plugin_data": plugin_data})
 
     async def get_render_device_status(self, device_id: str) -> RenderDeviceStatus | None:
         """Return the managed-device status needed before queueing a render."""
