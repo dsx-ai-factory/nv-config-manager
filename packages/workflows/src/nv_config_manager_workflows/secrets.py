@@ -22,8 +22,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from nv_config_manager_workflows.log import AUTH_LOG_CATEGORY, get_logger
+
 type CredentialSection = Mapping[str, str]
 type CredentialConfig = Mapping[str, CredentialSection]
+
+logger = get_logger(__name__, category=AUTH_LOG_CATEGORY)
 
 
 def get_site_slug(site: str) -> str:
@@ -103,9 +107,11 @@ def get_rotation_passwords(
             continue
         try:
             revision = int(key[len(key_prefix) :])
+            logger.debug("Found rotation key: %s (revision %d) in [%s]", key, revision, section)
+            rotations.append((revision, value))
         except ValueError:
-            continue
-        rotations.append((revision, value))
+            logger.debug("Skipping invalid rotation key: %s", key)
 
+    # Sort by revision number (highest first = most recent)
     rotations.sort(reverse=True, key=lambda item: item[0])
     return [password for _, password in rotations[:max_passwords]]

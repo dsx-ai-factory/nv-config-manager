@@ -18,9 +18,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from nv_config_manager_workflows.clients.config_store import ConfigStoreClient, ConfigStoreFileNotFound
 from nv_config_manager.common.config import config_store_client as create_config_store_client
 from nv_config_manager.dcim.models import ZTPDevice
+from nv_config_manager_workflows.clients.config_store import (
+    ConfigStoreClient,
+    ConfigStoreFileNotFound,
+)
 
 
 @dataclass

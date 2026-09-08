@@ -43,8 +43,7 @@ from nv_config_manager.common.client import (
     ZTPClient,
     config_manager_api_prefix,
 )
-from nv_config_manager_workflows.clients.config_store import ConfigStoreType, ConfigStoreClient
-from nv_config_manager_workflows.clients.render import RenderClient
+
 # =============================================================================
 # LOGGING (re-exported from nv_config_manager.common.log to avoid circular imports)
 # =============================================================================
@@ -58,6 +57,8 @@ from nv_config_manager.dcim import DCIMClient, create_dcim_client
 from nv_config_manager.ztp.filestore import FileStoreClient
 from nv_config_manager.ztp.s3 import S3Client
 from nv_config_manager.ztp.storage import ObjectStorageClient
+from nv_config_manager_workflows.clients.config_store import ConfigStoreClient, ConfigStoreType
+from nv_config_manager_workflows.clients.render import RenderClient
 
 if TYPE_CHECKING:
     import nats.aio.client

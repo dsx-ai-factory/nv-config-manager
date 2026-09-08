@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 
 from nv_config_manager.common.config import get_internal_auth_headers
 from nv_config_manager.ztp.device import DeviceData
+from nv_config_manager_workflows.clients.config_store import ConfigStoreType
 
 
 def test_config_store_client():
@@ -36,7 +37,7 @@ def test_config_store_client():
         config_store_instance="https://config-manager.example.com/",
     )
 
-    with patch("nv_config_manager.ztp.device.ConfigStoreClient") as mock_client:
+    with patch("nv_config_manager.common.config.ConfigStoreClient") as mock_client:
         mock_client_instance = MagicMock()
         mock_client.return_value = mock_client_instance
 
@@ -46,7 +47,7 @@ def test_config_store_client():
         mock_client.assert_called_once()
         settings = mock_client.call_args.kwargs
         assert settings["target"] == "http://config-store-api.example.local:8080"
-        assert settings["file_type"] == "intended"
+        assert settings["file_type"] == ConfigStoreType.INTENDED
         assert settings["verify"] is False  # No SSL verification for internal HTTP
         assert settings["client_certificate"] is None  # No mTLS for internal communication
         assert settings["headers"] is get_internal_auth_headers
@@ -87,6 +88,6 @@ tls_client_key_path = /etc/tls-client/tls.key
         mock_client.assert_called_once()
         settings = mock_client.call_args.kwargs
         assert settings["target"] == "https://config-store.config-manager.example.com"
-        assert settings["file_type"] == "intended"
+        assert settings["file_type"] == ConfigStoreType.INTENDED
         assert settings["verify"] is True
         assert client == mock_client_instance

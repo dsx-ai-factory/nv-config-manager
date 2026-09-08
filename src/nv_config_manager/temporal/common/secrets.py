@@ -37,7 +37,7 @@ from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager_workflows.secrets import (
     CredentialConfig,
     CredentialSection,
-    get_site_slug,
+    get_site_slug,  # noqa: F401  # re-exported for callers of this module
 )
 from nv_config_manager_workflows.secrets import (
     get_credential as _get_credential,
@@ -234,4 +234,3 @@ def get_credential(
         site,
         default,
     )
-
