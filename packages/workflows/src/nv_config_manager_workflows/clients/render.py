@@ -12,23 +12,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Render Service Client."""
+"""Configuration-independent Render Service client."""
 
 from __future__ import annotations
 
+import logging
 import ssl
 from collections.abc import Callable
-from configparser import ConfigParser
-from typing import Any
+from typing import TypedDict, cast
 
 from aiohttp import ClientTimeout, TCPConnector
 from aiohttp_retry import ExponentialRetry
 from pydantic import BaseModel
 
-from nv_config_manager.common.client._mixins import _WhoamiViaRetryClientMixin
-from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager_workflows.clients._http import (
+    _WhoamiViaRetryClientMixin,
+)
 
-logger = get_logger(__name__, category=LogCategory.RENDER)
+logger = logging.getLogger(__name__)
 
 
 class FileCommit(BaseModel):
@@ -36,6 +37,10 @@ class FileCommit(BaseModel):
 
     filename: str
     commit: str
+
+
+class _RenderResponse(TypedDict):
+    updated_files: list[dict[str, object]]
 
 
 class RenderClientException(Exception):
@@ -58,57 +63,27 @@ class RenderClient(_WhoamiViaRetryClientMixin):
             client_certificate: Tuple of (cert_file, key_file) for mTLS, or None for internal endpoints
             headers: Static dict or callable returning fresh headers per-request
         """
-        self.base_url = base_url.rstrip("/")
-        self._headers = headers
-
         if client_certificate:
             ssl_ctx = ssl.create_default_context()
             ssl_ctx.load_cert_chain(client_certificate[0], client_certificate[1])
             ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_3
-            self.connector = TCPConnector(ssl=ssl_ctx)
+            connector = TCPConnector(ssl=ssl_ctx)
         else:
-            self.connector = TCPConnector()
+            connector = TCPConnector()
 
-        self.timeout = ClientTimeout(total=30)
-        self.retry_options = ExponentialRetry(
-            attempts=5,
-            start_timeout=1.0,
-            max_timeout=10.0,
-            factor=2.0,
-            statuses={409, 500, 502, 503, 504},
+        super().__init__(
+            base_url=base_url.rstrip("/"),
+            connector=connector,
+            timeout=ClientTimeout(total=30),
+            retry_options=ExponentialRetry(
+                attempts=5,
+                start_timeout=1.0,
+                max_timeout=10.0,
+                factor=2.0,
+                statuses={409, 500, 502, 503, 504},
+            ),
+            headers=headers,
         )
-
-    @classmethod
-    def from_config(
-        cls,
-        config: ConfigParser,
-        section: str = "render",
-    ) -> RenderClient:
-        """Create RenderClient from INI configuration.
-
-        Args:
-            config: ConfigParser with render section
-            section: Config section name
-
-        Returns:
-            Configured RenderClient instance
-        """
-        from nv_config_manager.common.config import get_internal_auth_headers, get_mtls_cert_paths
-
-        render_config = config[section]
-        use_internal = render_config.getboolean("use_internal_endpoint", fallback=False)
-
-        if use_internal:
-            return cls(
-                base_url=render_config["api_service"],
-                client_certificate=None,
-                headers=get_internal_auth_headers,
-            )
-        else:
-            return cls(
-                base_url=render_config["api_url"],
-                client_certificate=get_mtls_cert_paths(config),
-            )
 
     async def execute_render(self, device_id: str, workflow_id: str) -> list[FileCommit]:
         """Execute a fresh render for a device.
@@ -131,9 +106,9 @@ class RenderClient(_WhoamiViaRetryClientMixin):
             async with self._new_session() as session:
                 async with session.post(url, json=payload) as response:
                     response.raise_for_status()
-                    data: dict[str, Any] = await response.json()
+                    data = cast("_RenderResponse", await response.json())
                     raw_commits = data.get("updated_files", [])
-                    return [FileCommit(**fc) for fc in raw_commits]
+                    return [FileCommit.model_validate(fc) for fc in raw_commits]
         except Exception as exc:
             logger.exception("Failed to render device %s: %s", device_id, str(exc))
             raise RenderClientException(f"Failed to render device: {exc}") from exc

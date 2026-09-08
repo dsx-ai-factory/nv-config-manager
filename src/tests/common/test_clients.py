@@ -20,8 +20,8 @@ from unittest.mock import patch
 
 import pytest
 
-from nv_config_manager.common.client import RenderClient, TemporalClient, ZTPClient
-
+from nv_config_manager.common.client import TemporalClient, ZTPClient
+from nv_config_manager_workflows.clients.render import RenderClient
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -36,7 +36,7 @@ async def test_retry_client_does_not_own_shared_connector(client_cls, base_url):
     client = client_cls(base_url=base_url)
 
     try:
-        with patch("nv_config_manager.common.client._mixins.RetryClient") as retry_client:
+        with patch("nv_config_manager_workflows.clients._http.RetryClient") as retry_client:
             client._new_session()
 
         retry_client.assert_called_once()
@@ -113,38 +113,6 @@ class TestRenderClientInternalAuth:
         )
         assert client.base_url == "http://render-service:9000"
         assert client._headers == headers
-
-    @pytest.mark.asyncio
-    async def test_from_config_internal_endpoint(self):
-        """Test from_config with internal endpoint uses callable headers."""
-        config = ConfigParser()
-        config.add_section("render")
-        config.set("render", "api_service", "http://internal-render:9000")
-        config.set("render", "api_url", "https://external-render.example.com")
-        config.set("render", "use_internal_endpoint", "true")
-
-        with patch.dict(os.environ, {"HOSTNAME": "nv-config-manager-worker-5f8d9c7b6-abc12"}):
-            client = RenderClient.from_config(config)
-
-        assert client.base_url == "http://internal-render:9000"
-        assert callable(client._headers)
-        resolved = client._headers()
-        assert "X-Auth-Request-Email" in resolved
-
-    @pytest.mark.asyncio
-    async def test_from_config_external_endpoint(self):
-        """Test from_config with external endpoint does not include auth headers."""
-        config = ConfigParser()
-        config.add_section("render")
-        config.add_section("mtls")
-        config.set("render", "api_service", "http://internal-render:9000")
-        config.set("render", "api_url", "https://external-render.example.com")
-        config.set("render", "use_internal_endpoint", "false")
-
-        client = RenderClient.from_config(config)
-
-        assert client.base_url == "https://external-render.example.com"
-        assert client._headers is None
 
 
 class TestTemporalClientInternalAuth:

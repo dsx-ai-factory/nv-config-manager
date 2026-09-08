@@ -18,11 +18,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from nv_config_manager.common.client import (
-    ConfigStoreClient,
-    ConfigStoreFileNotFound,
-)
-from nv_config_manager.common.config import get_internal_auth_headers, load_config
+from nv_config_manager_workflows.clients.config_store import ConfigStoreClient, ConfigStoreFileNotFound
+from nv_config_manager.common.config import config_store_client as create_config_store_client
 from nv_config_manager.dcim.models import ZTPDevice
 
 
@@ -44,51 +41,7 @@ class DeviceData:  # pylint: disable=too-many-instance-attributes
 
     def config_store_client(self) -> ConfigStoreClient:
         """Return the appropriate async config store client."""
-        app_config = load_config()
-        use_internal = app_config.getboolean(
-            "config_store.client", "use_internal_endpoint", fallback=False
-        )
-        ui_url = app_config.get("config_store.client", "ui_url")
-
-        if use_internal:
-            # Internal HTTP cluster communication - no mTLS needed
-            api_endpoint = app_config.get("config_store.client", "api_service")
-            return ConfigStoreClient(
-                api_endpoint,
-                "intended",
-                ui_url,
-                verify=False,
-                client_certificate=None,
-                headers=get_internal_auth_headers,
-            )
-        else:
-            # External mTLS communication
-            api_endpoint = app_config.get("config_store.client", "api_url")
-
-            client_cert_path = None
-            if app_config.get("mtls", "tls_client_cert_path") and app_config.get(
-                "mtls", "tls_client_key_path"
-            ):
-                cert_path = app_config.get("mtls", "tls_client_cert_path")
-                key_path = app_config.get("mtls", "tls_client_key_path")
-                client_cert_path = (cert_path, key_path)
-
-            # Parse verify parameter - can be bool or path to CA cert
-            verify: bool | str = True
-            if app_config.get("config_store.client", "verify"):
-                try:
-                    verify = app_config.getboolean("config_store.client", "verify")
-                except ValueError:
-                    # Path to custom CA certificate
-                    verify = str(app_config.get("config_store.client", "verify"))
-
-            return ConfigStoreClient(
-                api_endpoint,
-                "intended",
-                ui_url,
-                verify=verify,
-                client_certificate=client_cert_path,
-            )
+        return create_config_store_client()
 
     async def load_file(self, filename: str) -> str:
         """Return file content for the given device."""

@@ -16,9 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from configparser import ConfigParser
-from typing import TYPE_CHECKING, TypedDict
 
 from nv_config_manager.common.config import (
     get_internal_auth_headers,
@@ -26,22 +24,10 @@ from nv_config_manager.common.config import (
     parse_verify_param,
 )
 from nv_config_manager.temporal.factories._config import resolve_config
-
-if TYPE_CHECKING:
-    from nv_config_manager.common.config import ConfigStoreType
-
-type HeaderProvider = dict[str, str] | Callable[[], dict[str, str]] | None
-
-
-class ConfigStoreClientSettings(TypedDict):
-    """Constructor settings for the config-store client."""
-
-    target: str
-    file_type: str
-    ui_url: str
-    verify: bool | str
-    client_certificate: tuple[str, str] | None
-    headers: HeaderProvider
+from nv_config_manager_workflows.clients.config_store import (
+    ConfigStoreClientSettings,
+    ConfigStoreType,
+)
 
 
 def config_store_client_settings(
@@ -54,11 +40,12 @@ def config_store_client_settings(
     resolved = resolve_config(config)
     config_section = resolved[section]
     file_type_value = file_type if isinstance(file_type, str) else file_type.value
+    ui_url = config_section["ui_url"]
     if config_section.getboolean("use_internal_endpoint", fallback=False):
         return {
             "target": config_section["api_service"],
             "file_type": file_type_value,
-            "ui_url": config_section["ui_url"],
+            "ui_url": ui_url,
             "verify": False,
             "client_certificate": None,
             "headers": get_internal_auth_headers,
@@ -66,7 +53,7 @@ def config_store_client_settings(
     return {
         "target": config_section["api_url"],
         "file_type": file_type_value,
-        "ui_url": config_section["ui_url"],
+        "ui_url": ui_url,
         "verify": parse_verify_param(config_section),
         "client_certificate": get_mtls_cert_paths(resolved),
         "headers": None,

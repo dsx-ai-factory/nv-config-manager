@@ -14,6 +14,37 @@
 # limitations under the License.
 """Reusable clients used by workflow activities."""
 
+from nv_config_manager_workflows.clients._http import HeaderProvider, WhoamiResult
+from nv_config_manager_workflows.clients.config_store import (
+    ConfigFile,
+    ConfigFileMetadata,
+    ConfigStoreClient,
+    ConfigStoreClientSettings,
+    ConfigStoreException,
+    ConfigStoreFileNotFound,
+    ConfigStoreType,
+)
 from nv_config_manager_workflows.clients.redis import RedisClient, RedisSettings, async_result
+from nv_config_manager_workflows.clients.render import (
+    FileCommit,
+    RenderClient,
+    RenderClientException,
+)
 
-__all__ = ["RedisClient", "RedisSettings", "async_result"]
+__all__ = [
+    "ConfigFile",
+    "ConfigFileMetadata",
+    "ConfigStoreClient",
+    "ConfigStoreClientSettings",
+    "ConfigStoreException",
+    "ConfigStoreFileNotFound",
+    "ConfigStoreType",
+    "FileCommit",
+    "HeaderProvider",
+    "RedisClient",
+    "RedisSettings",
+    "RenderClient",
+    "RenderClientException",
+    "WhoamiResult",
+    "async_result",
+]

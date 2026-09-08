@@ -12,29 +12,47 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""NVIDIA Config Manager Config Store Service API Client (Async)."""
+"""Configuration-independent Config Store Service API client."""
 
 from __future__ import annotations
 
+import logging
 import re
 import ssl
 import types
 from collections.abc import Callable
-from configparser import ConfigParser
-from typing import TYPE_CHECKING
+from enum import Enum
+from typing import NotRequired, TypedDict, cast
 from urllib.parse import quote
 
 import aiohttp
-from aiohttp_retry import ExponentialRetry, RetryClient
+from aiohttp_retry import ExponentialRetry
 from pydantic import BaseModel
 
-from nv_config_manager.common.client._mixins import _WhoamiViaRetryClientMixin
-from nv_config_manager.common.log import LogCategory, get_logger
-
-if TYPE_CHECKING:
-    from nv_config_manager.common.config import ConfigStoreType
+from nv_config_manager_workflows.clients._http import (
+    HeaderProvider,
+    _WhoamiViaRetryClientMixin,
+)
 
 _FILE_TYPE_UNSET = object()
+
+
+class ConfigStoreType(Enum):
+    """Config Store file types."""
+
+    BACKUP = "backup"
+    INTENDED = "intended"
+
+
+class ConfigStoreClientSettings(TypedDict):
+    """Explicit constructor settings for :class:`ConfigStoreClient`."""
+
+    target: str
+    file_type: ConfigStoreType | str
+    ui_url: str
+    verify: NotRequired[bool | str]
+    client_certificate: NotRequired[tuple[str, str] | None]
+    headers: NotRequired[HeaderProvider]
 
 
 class ConfigStoreException(Exception):
@@ -62,12 +80,12 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
     This client interfaces with the nv-config-manager-config-store-service API using async/await.
     """
 
-    logger = get_logger(__name__, category=LogCategory.CONFIG_STORE)
+    logger: logging.Logger = logging.getLogger(__name__)
 
     def __init__(
         self,
         target: str,
-        file_type: str,
+        file_type: ConfigStoreType | str,
         ui_url: str,
         verify: bool | str = True,
         client_certificate: tuple[str, str] | None = None,
@@ -83,74 +101,28 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
             client_certificate: Tuple of (cert_file, key_file) for mTLS
             headers: Static dict or callable returning fresh headers per-request
         """
-        if file_type not in ["intended", "backup"]:
+        file_type_value = file_type.value if isinstance(file_type, ConfigStoreType) else file_type
+        if file_type_value not in ["intended", "backup"]:
             raise ValueError(f"Invalid file_type: {file_type}, must be 'intended' or 'backup'")
 
-        self.base_url = target.rstrip("/")
-        self.target = self.base_url
-        self.file_type = file_type
-        self.config_url = f"{self.base_url}/v1/config"
-        self._ui_url = ui_url.rstrip("/")
-        self._headers = headers
-        self._verify = verify
-        self._client_certificate = client_certificate
-        self.connector = self._create_connector(verify, client_certificate)
-        self.timeout = aiohttp.ClientTimeout(total=30, connect=10)
-        self.retry_options = ExponentialRetry(
-            attempts=5,
-            start_timeout=1.0,
-            statuses={429, 500, 502, 503, 504},
+        base_url = target.rstrip("/")
+        super().__init__(
+            base_url=base_url,
+            connector=self._create_connector(verify, client_certificate),
+            timeout=aiohttp.ClientTimeout(total=30, connect=10),
+            retry_options=ExponentialRetry(
+                attempts=5,
+                start_timeout=1.0,
+                statuses={429, 500, 502, 503, 504},
+            ),
+            headers=headers,
         )
-
-    @classmethod
-    def from_config(
-        cls,
-        config: ConfigParser,
-        file_type: ConfigStoreType | str = "intended",
-        section: str = "config_store.client",
-    ) -> ConfigStoreClient:
-        """Create ConfigStoreClient from INI configuration.
-
-        Args:
-            config: ConfigParser with config_store.client section
-            file_type: File type - ConfigStoreType enum or "intended"/"backup" string
-            section: Config section name
-
-        Returns:
-            Configured ConfigStoreClient instance
-        """
-        from nv_config_manager.common.config import (
-            get_internal_auth_headers,
-            get_mtls_cert_paths,
-            parse_verify_param,
-        )
-
-        if hasattr(file_type, "value"):
-            file_type_str = str(file_type.value)
-        else:
-            file_type_str = str(file_type)
-
-        config_section = config[section]
-        use_internal = config_section.getboolean("use_internal_endpoint", fallback=False)
-        ui_url = config_section["ui_url"]
-
-        if use_internal:
-            return cls(
-                target=config_section["api_service"],
-                file_type=file_type_str,
-                ui_url=ui_url,
-                verify=False,
-                client_certificate=None,
-                headers=get_internal_auth_headers,
-            )
-        else:
-            return cls(
-                target=config_section["api_url"],
-                file_type=file_type_str,
-                ui_url=ui_url,
-                verify=parse_verify_param(config_section),
-                client_certificate=get_mtls_cert_paths(config),
-            )
+        self.target: str = base_url
+        self.file_type: str = file_type_value
+        self.config_url: str = f"{base_url}/v1/config"
+        self._ui_url: str = ui_url.rstrip("/")
+        self._verify: bool | str = verify
+        self._client_certificate: tuple[str, str] | None = client_certificate
 
     @classmethod
     def for_mcp(
@@ -162,13 +134,9 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
         verify: bool | str = True,
     ) -> ConfigStoreClient:
         """Create a Config Store client for MCP with explicit caller-scoped headers."""
-        if hasattr(file_type, "value"):
-            file_type_str = str(file_type.value)
-        else:
-            file_type_str = str(file_type)
         return cls(
             target=target,
-            file_type=file_type_str,
+            file_type=file_type,
             ui_url=ui_url or target,
             verify=verify,
             client_certificate=None,
@@ -215,22 +183,6 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
             f"{self.ui_target}/device/{device_uuid}/{filename}/history?file_type={self.file_type}"
         )
 
-    def _resolve_headers(self) -> dict[str, str] | None:
-        """Return headers for the current request."""
-        if callable(self._headers):
-            return self._headers()  # type: ignore[ty:call-top-callable]  # ty can't narrow dict|Callable union
-        return self._headers
-
-    def _new_session(self) -> RetryClient:
-        """Create a RetryClient that does not close the shared connector."""
-        return RetryClient(
-            connector=self.connector,
-            connector_owner=False,
-            timeout=self.timeout,
-            retry_options=self.retry_options,
-            headers=self._resolve_headers(),
-        )
-
     async def load_file(self, device_uuid: str, filename: str) -> ConfigFile:
         """Load a file from the Config Store."""
         try:
@@ -240,14 +192,14 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
                     params={"file_type": self.file_type},
                 ) as rsp:
                     rsp.raise_for_status()
-                    data = await rsp.json()
+                    data = cast("dict[str, object]", await rsp.json())
 
                     return ConfigFile(
-                        content=data["content"],
+                        content=cast("str", data["content"]),
                         commit=str(data["version"]),
                         filename=filename,
-                        sha=data["content_hash"],
-                        created_at=data.get("created_at"),
+                        sha=cast("str", data["content_hash"]),
+                        created_at=cast("str | None", data.get("created_at")),
                     )
         except aiohttp.ClientResponseError as e:
             if e.status == 404:
@@ -271,8 +223,7 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
                     params=self._file_type_params(file_type),
                 ) as rsp:
                     rsp.raise_for_status()
-                    data: list[dict[str, object]] = await rsp.json()
-                    return data
+                    return cast("list[dict[str, object]]", await rsp.json())
         except aiohttp.ClientResponseError as exc:
             raise ConfigStoreException(
                 f"Failed to list configs for {device_uuid}: {exc.status} {exc.message}"
@@ -298,8 +249,7 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
                     params=params,
                 ) as rsp:
                     rsp.raise_for_status()
-                    data: dict[str, object] = await rsp.json()
-                    return data
+                    return cast("dict[str, object]", await rsp.json())
         except aiohttp.ClientResponseError as exc:
             if exc.status == 404:
                 raise ConfigStoreFileNotFound(
@@ -330,8 +280,7 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
                     params=params,
                 ) as rsp:
                     rsp.raise_for_status()
-                    data: dict[str, object] = await rsp.json()
-                    return data
+                    return cast("dict[str, object]", await rsp.json())
         except aiohttp.ClientResponseError as exc:
             raise ConfigStoreException(
                 f"Failed to list versions for {device_uuid}/{filename}: {exc.status} {exc.message}"
@@ -360,8 +309,7 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
                     params=params,
                 ) as rsp:
                     rsp.raise_for_status()
-                    data: dict[str, object] = await rsp.json()
-                    return data
+                    return cast("dict[str, object]", await rsp.json())
         except aiohttp.ClientResponseError as exc:
             raise ConfigStoreException(
                 f"Failed to diff {device_uuid}/{filename}: {exc.status} {exc.message}"
@@ -391,7 +339,7 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
         """
         author_email = f"{user}@{user_domain}"
 
-        filtered_items = []
+        filtered_items: list[dict[str, str]] = []
         for filename, content in files.items():
             clean_filename = filename.replace(".j2", "")
             try:
@@ -422,18 +370,19 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
                     json={"files": filtered_items},
                 ) as rsp:
                     rsp.raise_for_status()
-                    result = await rsp.json()
+                    result = cast("dict[str, object]", await rsp.json())
                     created = result.get("created", [])
 
-                    if not created:
+                    if not isinstance(created, list) or not created:
                         return None
 
+                    created_items = cast("list[object]", created)
                     return [
                         ConfigFileMetadata(
-                            commit=str(item["version"]),
+                            commit=str(cast("dict[str, object]", item)["version"]),
                             filename=filtered_items[i]["filename"],
                         )
-                        for i, item in enumerate(created)
+                        for i, item in enumerate(created_items)
                     ]
         except aiohttp.ClientResponseError as exc:
             raise ConfigStoreException(
@@ -466,3 +415,4 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
     ) -> None:
         """Async context manager exit."""
         await self.close()
+
