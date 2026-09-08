@@ -94,6 +94,7 @@ class InfinibandCableValidationWorkflow(WorkflowMetadataMixin, StageMixin):
         "Validate Infiniband cable connections against intended topology using UFM data"
     )
     workflow_input_class = InfinibandCableValidationInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/infiniband_cable_validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True

@@ -373,7 +373,7 @@ def mock_update_dpu_data(
 
 @pytest.mark.asyncio
 @patch("asyncio.sleep", new_callable=AsyncMock)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_redfish_provisioning_workflow(mock_time, mock_sleep, env):
     task_queue_name = str(uuid.uuid4())
     mock_power_on_host = activity.defn(

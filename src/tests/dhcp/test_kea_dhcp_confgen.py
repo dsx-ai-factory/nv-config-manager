@@ -26,6 +26,7 @@ from testcontainers.core.container import DockerContainer
 from nv_config_manager.dhcp.kea import KeaClient
 from nv_config_manager.dhcp.kea_dhcp_confgen import (
     DhcpConfigGenerationError,
+    _format_options_for_kea,
     generate_config,
     inject_lease_db_config,
 )
@@ -1450,6 +1451,45 @@ async def test_override_router_option_error():
             MockRedisClient(),
             version=4,
         )
+
+
+def test_format_options_for_kea_includes_vendor_space():
+    """Option 43 suboptions carry space so Kea does not emit them as dhcp4."""
+    site_option_defs = {
+        "cumulus-provision-url": {
+            "name": "cumulus-provision-url",
+            "code": 239,
+            "space": "dhcp4",
+        },
+        "config-file-name": {
+            "name": "config-file-name",
+            "code": 1,
+            "space": "vendor-encapsulated-options-space",
+        },
+        "transfer-mode": {
+            "name": "transfer-mode",
+            "code": 3,
+            "space": "vendor-encapsulated-options-space",
+        },
+    }
+
+    option_data = _format_options_for_kea(
+        {
+            "cumulus-provision-url": "http://ztp.example/boot-script",
+            "transfer-mode": "http",
+            "config-file-name": "http://ztp.example/config/full-config",
+            "hostname": "switch-01",
+        },
+        site_option_defs,
+    )
+
+    by_name = {entry["name"]: entry for entry in option_data}
+    assert by_name["cumulus-provision-url"]["code"] == 239
+    assert "space" not in by_name["cumulus-provision-url"]
+    assert by_name["transfer-mode"]["space"] == "vendor-encapsulated-options-space"
+    assert by_name["transfer-mode"]["code"] == 3
+    assert by_name["config-file-name"]["space"] == "vendor-encapsulated-options-space"
+    assert "code" not in by_name["hostname"]
 
 
 @pytest.mark.asyncio

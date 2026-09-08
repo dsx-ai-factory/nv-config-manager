@@ -264,6 +264,17 @@ uv run --project installer ruff format --check installer/src/ installer/tests/
 uv run --project installer ruff check installer/src/ installer/tests/
 ```
 
+Lists where order is insignificant (a registry or lookup table where entries
+are read by name, not by position — e.g. `REGISTERED_WORKFLOWS` in
+`src/nv_config_manager/temporal/ngc/workflows/__init__.py`) should stay
+alphabetically ordered for readability. Wrap those in `# keep-sorted start` /
+`# keep-sorted end` comments, enforced by
+[keep-sorted](https://github.com/google/keep-sorted), pinned via
+`KEEP_SORTED_VERSION` in the root `Makefile`. `make lint` checks the order;
+`make format` fixes it. Do not add these markers to lists where order carries
+meaning (execution order, priority, migration sequence, etc.) — sorting those
+would silently change behavior.
+
 ### TypeScript/JavaScript (UI)
 
 - Follow the ESLint configuration in the project

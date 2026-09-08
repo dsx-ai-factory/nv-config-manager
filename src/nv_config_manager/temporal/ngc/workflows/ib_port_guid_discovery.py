@@ -95,6 +95,7 @@ class IBPortGuidDiscoveryWorkflow(WorkflowMetadataMixin, StageMixin):
         "Discover InfiniBand port GUIDs from UFM and sync them onto the matching DCIM interfaces."
     )
     workflow_input_class = IBPortGuidDiscoveryInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/ib_port_guid_discovery"
     workflow_namespace = "ngc"
 

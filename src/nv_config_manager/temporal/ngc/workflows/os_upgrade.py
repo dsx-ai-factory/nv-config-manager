@@ -69,7 +69,7 @@ DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(
     non_retryable_error_types=["FirmwareUpgradeException"],
 )
 
-SUPPORTED_PLATFORMS = [Platform.CUMULUS_LINUX]
+SUPPORTED_PLATFORMS = [Platform.CUMULUS_LINUX, Platform.JUNIPER_JUNOS]
 
 
 class SwitchOSUpgradeInput(BaseModel):
@@ -88,6 +88,7 @@ class SwitchOSUpgradeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Ar
         "Upgrade network switch operating system with approval and validation workflow"
     )
     workflow_input_class = SwitchOSUpgradeInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/switch_os_upgrade"
     workflow_namespace = "ngc"
 

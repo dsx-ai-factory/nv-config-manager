@@ -291,6 +291,7 @@ class DiagnosticsWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
         "Run diagnostic commands against network devices and attach results to a ticketing issue"
     )
     workflow_input_class = DiagnosticsWorkflowInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/diagnostics"
     workflow_namespace = "ngc"
 

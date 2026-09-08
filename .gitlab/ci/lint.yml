@@ -1,5 +1,5 @@
 .network-template-paths: &network-template-paths
-  - "components/network-templates/**/*"
+  - "packages/templates/**/*"
   - pyproject.toml
   - uv.lock
 
@@ -33,6 +33,8 @@ lint-mr-py:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
         - "src/**/*.py"
+        - "packages/**/*.py"
+        - "plugins/**/*.py"
         - pyproject.toml
       when: always
   image: $NVCM_CI_IMAGE_PYTHON_313
@@ -41,11 +43,11 @@ lint-mr-py:
     - pip install uv
     - uv sync --frozen
   script:
-    - uv run ruff format --check src/
-    - uv run ruff check src/
-    - uv run ty check src/nv_config_manager
+    - uv run ruff format --check src/ packages/ plugins/
+    - uv run ruff check src/ packages/ plugins/
+    - uv run ty check src/nv_config_manager packages/dcim/src
     # ty doesn't have full coverage of mypy yet
-    - uv run mypy src/nv_config_manager
+    - uv run mypy src/nv_config_manager packages/dcim/src
 
 # Installer linting for merge requests
 lint-mr-installer:
@@ -162,8 +164,8 @@ lint-mr-network-templates:
     - pip install uv
     - uv sync --frozen
   script:
-    - uv run ruff format --check components/network-templates/src components/network-templates/tests
-    - uv run ruff check components/network-templates/src components/network-templates/tests
+    - uv run ruff format --check packages/templates/src packages/templates/tests
+    - uv run ruff check packages/templates/src packages/templates/tests
 
 # SPDX license header check for merge requests
 lint-mr-spdx:
@@ -186,7 +188,7 @@ lint-mr-spdx:
     - |
       SPDX_ID="SPDX-License-Identifier: Apache-2.0"
       LICENSE_TEXT="Licensed under the Apache License"
-      CHECK_DIRS="src/ ui/src/ ui/tests/ components/ db/migrations/ scripts/ development/ installer/src/"
+      CHECK_DIRS="src/ ui/src/ ui/tests/ packages/ plugins/ components/ db/migrations/ scripts/ development/ installer/src/"
       EXTENSIONS="py ts tsx go"
       FAILED=0
       for dir in $CHECK_DIRS; do

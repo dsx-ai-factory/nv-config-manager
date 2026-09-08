@@ -124,6 +124,7 @@ class IBPKeyMemberAddWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageMixi
     workflow_name = "InfiniBand PKey Member Add"
     workflow_description = "Add device interfaces to an existing InfiniBand PKey partition"
     workflow_input_class = IBPKeyMemberAddInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/ib_pkey_member_add"
     workflow_namespace = "ngc"
     workflow_lock = WorkflowLockSpec(key_fields=["host", "pkey"])

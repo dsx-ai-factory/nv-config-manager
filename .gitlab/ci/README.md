@@ -125,105 +125,77 @@ scan time, and applies the configured internal policy file fetched from
 `NVCM_CONTAINER_SCAN_POLICY_PROJECT`. The matrix also scans the exact pinned
 upstream oauth2-proxy image shipped by the Helm chart on both architectures.
 
-## Downstream Deployments
-
-| Variable | Purpose |
-| -------- | ------- |
-| `NV_CONFIG_MANAGER_VALUES_PUSH_TOKEN` | Token with write access to the downstream values repository |
-| `NVCM_VALUES_REPO_PATH` | Downstream values repository path |
-| `NV_CONFIG_MANAGER_VALUES_REPO_URL` | Optional full downstream values repo override |
-| `NVCM_TEST_NAMESPACE` | First test deployment namespace |
-| `NVCM_TEST_VALUES_FILE_PATH` | Values file path for the first test environment |
-| `NVCM_TEST_VALUES_BRANCH` | Values branch for the first test environment |
-| `NVCM_TEST_CHART_BRANCH` | Source repo chart branch for the first test environment |
-| `NVCM_TEST01_NAMESPACE` | Second test deployment namespace |
-| `NVCM_TEST01_VALUES_FILE_PATH` | Values file path for the second test environment |
-| `NVCM_TEST01_VALUES_BRANCH` | Values branch for the second test environment |
-| `NVCM_TEST01_CHART_BRANCH` | Source repo chart branch for the second test environment |
-
-For the `kiwi-test` migration, keep Argo CD on the existing app and branch names:
-
-```text
-NVCM_VALUES_REPO_PATH=example/nv-config-manager-values
-NV_CONFIG_MANAGER_VALUES_REPO_URL=<unset>
-
-NVCM_TEST_NAMESPACE=kiwi-test
-NVCM_TEST_VALUES_FILE_PATH=cfa/values/nv-config-manager/values-aws-test.yaml
-NVCM_TEST_VALUES_BRANCH=nvcm-kiwi-platform-test
-NVCM_TEST_CHART_BRANCH=kiwi-test-deployment
-```
-
-The `kiwi-platform-test` ApplicationSet entry must reconcile `spec.sources`
-during this cutover; do not keep `/spec/sources` in
-`ignoreApplicationDifferences` while expecting the chart repo/value path change
-to propagate.
-
-The migration values file should set the old release/resource compatibility
-names:
-
-```yaml
-nameOverride: kiwi-platform
-fullnameOverride: kiwi-platform-test
-secrets:
-  vault:
-    secretStoreName: vault-secretstore-kiwi
-    networkSecretStoreName: vault-secretstore-kiwi-network
-externalServices:
-  nats:
-    user: kiwi
-    secretName: nats-kiwi
-    externalSecretName: nats-kiwi-eso
-temporal:
-  configManagerWorker:
-    nameSuffix: kiwi-worker
-```
-
-`kiwi-test01` is not migrated by this first cutover. Leave it on the old values
-path and current appset branch names until its ApplicationSet element is pointed
-at the `nv-config-manager` chart repository:
-
-```text
-NVCM_TEST01_NAMESPACE=kiwi-test01
-NVCM_TEST01_VALUES_FILE_PATH=cfa/values/kiwi-platform/values-aws-test01.yaml
-NVCM_TEST01_VALUES_BRANCH=kiwi-platform-test01
-NVCM_TEST01_CHART_BRANCH=kiwi-test01-deployment
-```
-
 ## Test-Environment Promote Pipeline (test / test01)
 
-The GitOps promote flow (`pr-build.yml` + `promote-test-envs.yml`) replaces the
-legacy `deploy-to-test*` jobs. It builds a PR once into immutable artifacts (a
-versioned OCI Helm chart plus images referenced by digest) and promotes them by
-committing a machine-written `deploy-state.yaml` to the environment's branch in
-the downstream ArgoCD values repository. It targets ONLY the shared test
-environments; production stays on the tag-driven release flow.
+The GitOps promote flow (`pr-build.yml` + `promote-test-envs.yml`) builds a PR
+once into immutable artifacts (a versioned OCI Helm chart plus images referenced
+by digest) and promotes them by committing a machine-written `deploy-state.yaml`
+to the environment's branch in the downstream ArgoCD values repository. It
+targets ONLY the shared test environments; production stays on the tag-driven
+release flow.
 
-Security model: the image build runs in a separate pipeline on the unprotected
-`pull-request/<n>` mirror ref with no secrets (no registry login; images are
-handed over as job artifacts). The promote pipeline runs on protected `main`,
-holds the protected variables, and only operates on the finished artifacts.
-Because of that split, **every secret CI/CD variable in this project and its
-groups must be flagged Protected** - unprotected variables are visible to the
-untrusted `pull-request/*` builds. Never protect `pull-request/*` refs.
+Security model: after copy-pr-bot's `/ok to test` gate, the image build runs
+automatically on the unprotected `pull-request/<n>` mirror ref with no secrets
+(no registry login; images are handed over as job artifacts). A push webhook
+independently creates a request pipeline from the protected `main`
+configuration; no credential is handed to PR-controlled YAML. The environment
+buttons and credentialed promote jobs run only from that trusted configuration
+and only operate on the finished artifacts. Because of that split, **every
+secret CI/CD variable in this project and its groups must be flagged
+Protected** - unprotected variables are visible to the untrusted
+`pull-request/*` builds. Never protect `pull-request/*` refs.
 
 | Variable | Purpose |
 | -------- | ------- |
-| `NVCM_MIRROR_API_TOKEN` | Project access token (Reporter, `read_api`) used to poll build pipelines and list jobs; protected + masked |
-| `NVCM_BUILD_TRIGGER_TOKEN` | Starts the secret-free build on `pull-request/<n>`. Two steps: create a token under **Settings → CI/CD → Pipeline triggers**, then store its value as this variable under **Settings → CI/CD → Variables** with protected + masked set, expand off. A job token cannot trigger a pipeline in its own project (GitLab returns HTTP 422), and a trigger token can only start pipelines, nothing else |
-| `NVCM_TEST_ENV_TARGETS` | One record per env: `env\|env_branch\|namespace\|release_name\|baseline_values\|state_dir` (see `scripts/test_env_config.sh`) |
+| `NV_CONFIG_MANAGER_VALUES_PUSH_TOKEN` | Token with write access to the downstream values repository; protected + masked |
+| `NVCM_VALUES_REPO_PATH` | Downstream values repository path |
+| `NV_CONFIG_MANAGER_VALUES_REPO_URL` | Optional full downstream values repo override |
+| `NVCM_MIRROR_API_TOKEN` | Project access token (Reporter, `read_api`) used to verify the source pipeline/job and artifact jobs; protected + masked |
+| `NVCM_TEST_ENV_TARGETS` | One record per env: `env\|env_branch\|namespace\|release_name\|baseline_values\|state_dir\|argocd_application` (see `scripts/test_env_config.sh`) |
 | `NVCM_CHART_REPO` | Helm repo URL ArgoCD reads the promoted chart from, e.g. `https://helm.ngc.nvidia.com/nvidian/cfa` (must match the `ngc` target in `NVCM_CHART_TARGETS`); written into deploy-state as `chartRepo` |
+| `NVCM_ARGOCD_SERVER` | ArgoCD API base URL used by the post-deployment health gate |
+| `NVCM_ARGOCD_AUTH_TOKEN` | Protected, masked, and hidden token for a read-only ArgoCD role allowed to `get` only the shared test Applications; disable **Expand variable reference** and confirm the saved variable remains masked |
+| `NVCM_ARGOCD_APPLICATION_NAMESPACE` | Optional namespace containing the shared test Applications; uses the deployment default when unset |
+| `NVCM_ARGOCD_PROJECT` | Required ArgoCD project containing the shared test Applications |
+| `NVCM_ARGOCD_SYNC_TIMEOUT` / `NVCM_ARGOCD_POLL_INTERVAL` | Optional health-gate tuning in seconds; defaults to 1800 / 10. The sync timeout may be lowered but must not exceed 1800, preserving headroom under the job's 35-minute timeout; the poll interval must be greater than zero |
 | `NVCM_UPSTREAM_GITHUB_REPO` | Optional override for the upstream GitHub repo checked by the stale-HEAD guard (default `dsx-ai-factory/nv-config-manager`) |
-| `NVCM_BUILD_POLL_INTERVAL` / `NVCM_BUILD_POLL_TIMEOUT` | Optional build-pipeline poll tuning (seconds; defaults 30 / 5400) |
 
-Runbooks (run pipeline on the default branch):
+The ArgoCD token should come from a project role with only this policy:
 
-- **Deploy a PR**: set `NVCM_PROMOTE_PR=<PR number>` and
-  `NVCM_PROMOTE_ENV=test|test01`. The pipeline resolves the **vetted copy-pr-bot
-  snapshot** (`pull-request/<n>`) from the mirror, reuses or triggers the
-  no-secrets build, pushes images (capturing digests), publishes the chart as
-  `0.0.0-pr<n>.<sha>`, validates the render against the env's baseline +
-  overrides, and commits the deploy-state. Set `NVCM_PROMOTE_REUSE_BUILD=false`
-  to force a rebuild.
+```text
+p, proj:<project>:nvcm-promoter, applications, get, <project>/<test-application>, allow
+```
+
+Add the policy line once for each shared test Application, substituting
+the deployment's project and Application names.
+
+The observer cannot start or terminate an ArgoCD operation. Keep its token
+available only to the protected promotion pipeline; never expose it to a PR
+build job. The target Application must use multiple sources and automated sync;
+the observer only reports convergence and never starts the rollout itself.
+
+Runbooks:
+
+- **Deploy a PR**: a vetted `pull-request/<n>` mirror sync automatically starts
+  the no-secrets build and a protected `main` request pipeline named for the
+  PR. Select **promote-to-test** or **promote-to-test01**; there is no separate
+  **Run pipeline** step and no variables to enter. The runnerless button creates
+  a same-project child pipeline, which waits for the build if necessary. The
+  request validator does not occupy a runner while the PR build runs, and the
+  child is intentionally triggered without a status-mirroring strategy so a
+  promotion failure does not replace the default branch's ref status. The
+  small request validator still fails visibly for a malformed or superseded
+  webhook event; the newer sync creates the later request pipeline. The
+  protected promotion verifies
+  the webhook payload, original build pipeline, PR SHA, trusted button job,
+  and environment, then pushes images (capturing digests) and publishes the
+  chart as
+  `0.0.0-pr<n>.<sha>`, validates the render against the environment's baseline
+  + overrides, commits the deploy-state, and succeeds only after ArgoCD reports
+  that exact chart and env-branch commit as `Synced` and `Healthy` following a
+  successful operation. The gate is read-only; if rollout does not converge,
+  it reports the last observed state for investigation in ArgoCD or Kubernetes.
+  Re-vet and sync a newer PR snapshot when a fresh build is needed.
   - What deploys is the *vetted snapshot*, which can lag the PR's live HEAD
     (untrusted authors re-copy only on `/ok to test`). If they differ, the run
     warns and proceeds; to deploy newer commits, re-vet them first. Set
@@ -232,13 +204,15 @@ Runbooks (run pipeline on the default branch):
   - The run refuses a closed PR, and **fails closed if GitHub can't be reached**
     to confirm the PR is open. Set `NVCM_PROMOTE_ALLOW_UNVERIFIED_PR_STATE=true`
     to override during a GitHub outage.
-- **Rollback**: set only `NVCM_PROMOTE_ENV`, start `test-rollback-env`. Without
+- **Rollback** (run a pipeline on the default branch): set only
+  `NVCM_PROMOTE_ENV`, start `test-rollback-env`. Without
   `NVCM_ROLLBACK_TO` it lists recent deploy-states and fails; re-run with
   `NVCM_ROLLBACK_TO=<env-branch commit sha>` to restore that exact snapshot -
   chart version, digests, and the baseline values that state was rendered
   against. Both the deploy-state and the baseline snapshot are taken from that
   one commit, so the restore does not depend on the values repo's `main`.
-- **Free a slot**: set only `NVCM_PROMOTE_ENV`, start `test-release-env`. It
+- **Free a slot** (run a pipeline on the default branch): set only
+  `NVCM_PROMOTE_ENV`, start `test-release-env`. It
   resets the env's deploy-state, overrides and baseline snapshot to the
   canonicals on the values repo's `main`.
 
@@ -266,6 +240,16 @@ Project settings required (GitLab UI):
 - Maximum artifacts size ≥ 1.5 GB (the build hands images over as artifacts).
 - Pull mirroring must replicate `pull-request/*` branches.
 - Only `main` and release-tag patterns protected; `pull-request/*` unprotected.
+- Create a pipeline trigger token whose owner can run pipelines on protected
+  `main`. Store it only in a **Push events** project webhook with URL
+  `https://<gitlab>/api/v4/projects/<project-id>/ref/main/trigger/pipeline?token=<token>`.
+  Select **Wildcard pattern** with `pull-request/*`; do not enable pipeline
+  events. No trigger token is exposed as a CI/CD variable.
+- On GitLab Self-Managed, the administrator must allow webhook requests to the
+  instance's own hostname (Settings > Network > Outbound requests), or add that
+  hostname to the local-request allowlist.
+- Protect the `test` and `test01` GitLab environments and grant deploy access
+  only to the people or groups allowed to use the promotion buttons.
 - The **values repo** (`NVCM_VALUES_REPO_PATH`) must allow this project in its
   inbound **job token allowlist**. `test-promote-chart` reads the baseline and
   overrides with `CI_JOB_TOKEN` rather than the push token, since it only reads;

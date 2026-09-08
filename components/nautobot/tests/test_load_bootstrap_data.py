@@ -705,6 +705,45 @@ class TestLoadConfigContexts:
 
         assert firmware_contexts == []
 
+    def test_bundled_dhcp_option_defs_include_junos_option_43(self):
+        data_path = Path(__file__).resolve().parents[1] / "nv_config_manager_jobs/data/config_contexts.yaml"
+        with data_path.open() as f:
+            config_contexts = yaml.safe_load(f)
+
+        option_context = next(
+            context for context in config_contexts if context["name"] == "NVIDIA Config Manager DHCP Custom Options"
+        )
+        option_names = {entry["name"] for entry in option_context["data"]["Dhcp4"]["option-def"]}
+        assert "cumulus-provision-url" in option_names
+        assert {
+            "image-file-name",
+            "config-file-name",
+            "image-file-type",
+            "transfer-mode",
+            "alt-image-file-name",
+            "http-port",
+        } <= option_names
+
+    def test_bundled_juniper_ztp_context_targets_junos_and_full_config(self):
+        data_path = Path(__file__).resolve().parents[1] / "nv_config_manager_jobs/data/config_contexts.yaml"
+        with data_path.open() as f:
+            config_contexts = yaml.safe_load(f)
+
+        ztp_context = next(
+            context for context in config_contexts if context["name"] == "Juniper Junos ZTP DHCP Options"
+        )
+        assert ztp_context["platforms"] == ["Juniper Junos"]
+        reservation = ztp_context["data"]["dhcp"]["options"]["interface_names"]["fxp0"]["reservation_options"]
+        assert reservation["transfer-mode"] == "http"
+        assert "/firmware" in reservation["image-file-name"]
+        assert "/config/full-config" in reservation["config-file-name"]
+        assert set(ztp_context["data"]["dhcp"]["options"]["interface_names"]) == {
+            "fxp0",
+            "em0",
+            "vme",
+            "re0:mgmt-0",
+        }
+
     def test_creates_config_context_with_roles_and_platforms(self, tmp_path):
         mod = _import_module()
         from nautobot.dcim.models import Platform

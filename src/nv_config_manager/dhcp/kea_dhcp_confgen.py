@@ -43,6 +43,15 @@ class DhcpConfigGenerationError(Exception):
     """DHCP Configuration Generation Error."""
 
 
+_DHCP4_OPTION_SPACE = "dhcp4"
+SiteOptionDefs = dict[str, dict[str, Any]]
+
+
+def _site_option_defs(site_dhcp_options: list[dict[str, Any]]) -> SiteOptionDefs:
+    """Index site option-def entries by option name."""
+    return {opt["name"]: opt for opt in site_dhcp_options}
+
+
 def _normalize_reservation_id(reservation_id: str) -> str:
     try:
         return str(macaddress.MAC(reservation_id))
@@ -213,7 +222,7 @@ def _filter_pool_reservation_overlaps(subnet_data: dict[str, Any]) -> None:
 def _process_subnet_reservations(
     subnet_data: dict[str, Any],
     dhcp_contexts: dict[str, dict[str, Any]],
-    site_option_codes: dict[str, int],
+    site_option_codes: SiteOptionDefs,
     options: dict[str, Any],
     config: dict[str, Any],
     reservations: list[dict[str, Any]],
@@ -247,7 +256,7 @@ def _process_subnet_reservations(
 def _process_option_candidates(
     subnet_data: dict[str, Any],
     dhcp_contexts: dict[str, dict[str, Any]],
-    site_option_codes: dict[str, int],
+    site_option_codes: SiteOptionDefs,
     options: dict[str, Any],
     config: dict[str, Any],
     conflicts: list[str],
@@ -286,7 +295,7 @@ def _process_option_candidates(
 def _build_subnet_config(
     subnet_data: dict[str, Any],
     options: dict[str, Any],
-    site_option_codes: dict[str, int],
+    site_option_codes: SiteOptionDefs,
     subnet_option_reservations: list[dict[str, Any]],
     config: dict[str, Any],
 ) -> dict[str, Any]:
@@ -333,7 +342,7 @@ async def _generate_automatic_dhcp_subnets_and_reservations(
     for subnet_data in dhcp_subnets:
         options: dict[str, Any] = {}
         config: dict[str, Any] = {}
-        site_option_codes = {opt["name"]: opt["code"] for opt in site_dhcp_options}
+        site_option_codes = _site_option_defs(site_dhcp_options)
 
         _filter_pool_reservation_overlaps(subnet_data)
         _process_subnet_reservations(
@@ -437,15 +446,23 @@ def _merge_options_and_config(
 
 def _format_options_for_kea(
     reservation_options: dict[str, str],
-    site_option_codes: dict[str, int],
+    site_option_codes: SiteOptionDefs,
 ) -> list[dict[str, Any]]:
     """Convert reservation_options dict to Kea option-data format."""
-    return [
-        {"name": opt, "data": value, "code": site_option_codes[opt]}
-        if opt in site_option_codes
-        else {"name": opt, "data": value}
-        for opt, value in reservation_options.items()
-    ]
+    option_data: list[dict[str, Any]] = []
+    for opt, value in reservation_options.items():
+        entry: dict[str, Any] = {"name": opt, "data": value}
+        option_def = site_option_codes.get(opt)
+        if option_def is None:
+            option_data.append(entry)
+            continue
+        if "code" in option_def:
+            entry["code"] = option_def["code"]
+        space = option_def.get("space")
+        if space and space != _DHCP4_OPTION_SPACE:
+            entry["space"] = space
+        option_data.append(entry)
+    return option_data
 
 
 def _add_reservation_identifier(

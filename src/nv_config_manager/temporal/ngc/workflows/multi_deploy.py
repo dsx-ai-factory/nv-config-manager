@@ -585,6 +585,7 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
         "Deploy configurations to multiple devices by role with batching and approval workflow"
     )
     workflow_input_class = MultiDeployInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/multi_deploy"
     workflow_namespace = "ngc"
 

@@ -45,12 +45,14 @@ ARG TEMPLATE_ENGINE_VERSION=""
 COPY pyproject.toml uv.lock README.md /code/nv-config-manager/
 COPY src/nv_config_manager/ /code/nv-config-manager/src/nv_config_manager/
 COPY src/tests/ /code/nv-config-manager/src/tests/
-COPY components/dcim/pyproject.toml components/dcim/README.md /code/nv-config-manager/components/dcim/
-COPY components/dcim/src/ /code/nv-config-manager/components/dcim/src/
-COPY components/dcim-nautobot-2x/pyproject.toml components/dcim-nautobot-2x/README.md /code/nv-config-manager/components/dcim-nautobot-2x/
-COPY components/dcim-nautobot-2x/src/ /code/nv-config-manager/components/dcim-nautobot-2x/src/
-COPY components/network-templates/pyproject.toml components/network-templates/README.md /code/nv-config-manager/components/network-templates/
-COPY components/network-templates/src/ /code/nv-config-manager/components/network-templates/src/
+COPY packages/dcim/pyproject.toml packages/dcim/README.md /code/nv-config-manager/packages/dcim/
+COPY packages/dcim/src/ /code/nv-config-manager/packages/dcim/src/
+COPY plugins/dcim/nautobot-2x/pyproject.toml plugins/dcim/nautobot-2x/README.md /code/nv-config-manager/plugins/dcim/nautobot-2x/
+COPY plugins/dcim/nautobot-2x/src/ /code/nv-config-manager/plugins/dcim/nautobot-2x/src/
+COPY packages/templates/pyproject.toml packages/templates/README.md /code/nv-config-manager/packages/templates/
+COPY packages/templates/src/ /code/nv-config-manager/packages/templates/src/
+COPY packages/workflows/pyproject.toml packages/workflows/README.md /code/nv-config-manager/packages/workflows/
+COPY packages/workflows/src/ /code/nv-config-manager/packages/workflows/src/
 COPY db/migrations/ /code/nv-config-manager/db/migrations/
 COPY db/alembic.ini /code/nv-config-manager/db/
 

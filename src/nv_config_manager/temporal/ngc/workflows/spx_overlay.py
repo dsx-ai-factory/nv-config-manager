@@ -141,6 +141,7 @@ class SpXOverlayCreationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin
         "Create a SpX Overlay with route distinguisher assignment and VRF/VXLAN provisioning"
     )
     workflow_input_class = SpXOverlayCreationInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_creation"
     workflow_namespace = "ngc"
 
@@ -291,6 +292,7 @@ class SpXOverlayDeletionWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin
         "Delete a SpX Overlay and its associated VRFs/VXLANs with validation checks"
     )
     workflow_input_class = SpXOverlayDeletionInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_deletion"
     workflow_namespace = "ngc"
 
@@ -471,6 +473,7 @@ class SpXOverlayAssignmentWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
     workflow_name = "SpX Overlay Assignment"
     workflow_description = "Change or remove a SpX Overlay/VRF assignment on device ports"
     workflow_input_class = SpXOverlayAssignmentInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_assignment"
     workflow_namespace = "ngc"
 
@@ -831,6 +834,7 @@ class SpXOverlayTenantChangeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
         "Change or remove a SpX Overlay assignment and deploy tenant configuration"
     )
     workflow_input_class = SpXOverlayTenantChangeInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_tenant_change"
     workflow_namespace = "ngc"
 

@@ -209,7 +209,7 @@ async def mock_create_consolidated_excel_export(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.cumulus_hardware_validation.DEFAULT_ACTIVITY_RETRY_POLICY",
     return_value=TEST_RETRY_POLICY,
@@ -367,7 +367,7 @@ async def mock_create_consolidated_excel_export_empty(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.cumulus_hardware_validation.DEFAULT_ACTIVITY_RETRY_POLICY",
     return_value=TEST_RETRY_POLICY,
@@ -441,7 +441,7 @@ async def test_cumulus_hardware_validation_workflow_no_devices(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.cumulus_hardware_validation.DEFAULT_ACTIVITY_RETRY_POLICY",
     return_value=TEST_RETRY_POLICY,

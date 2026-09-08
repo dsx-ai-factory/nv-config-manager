@@ -150,7 +150,7 @@ async def mock_publish_nats(activity_input: PublishNatsInput) -> None:
 async def test_check_drift_suppresses_slack_notification() -> None:
     device = await mock_get_network_device(GetNetworkDeviceInput(device_id="mock_device_uuid"))
     with patch(
-        "nv_config_manager.temporal.common.mixins.stage.workflow.time",
+        "nv_config_manager_workflows.stage.mixin.workflow.time",
         return_value=0.0,
     ):
         workflow_instance = BackupWorkflow()
@@ -188,7 +188,7 @@ async def test_check_drift_suppresses_slack_notification() -> None:
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.backup.DEFAULT_ACTIVITY_RETRY_POLICY",
     return_value=TEST_RETRY_POLICY,
@@ -406,7 +406,7 @@ async def mock_load_running_configuration_with_secret(device_data: NetworkDevice
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.backup.DEFAULT_ACTIVITY_RETRY_POLICY",
     return_value=TEST_RETRY_POLICY,
@@ -467,7 +467,7 @@ async def test_execute_workflow_persists_and_displays_already_redacted_running_c
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.backup.DEFAULT_ACTIVITY_RETRY_POLICY",
     return_value=TEST_RETRY_POLICY,
@@ -525,7 +525,7 @@ async def test_execute_workflow_redacts_secrets_in_drift_diff(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.backup.DEFAULT_ACTIVITY_RETRY_POLICY",
     return_value=TEST_RETRY_POLICY,

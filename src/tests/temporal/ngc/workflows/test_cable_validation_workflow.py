@@ -476,7 +476,7 @@ def mock_validate_hostname_mismatch(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_device_cable_validation_workflow_dpu_mac_offset(_, env):
     """Test DPU MAC offset validation where actual MAC is expected MAC + 0x10."""
 
@@ -621,7 +621,7 @@ async def test_execute_device_cable_validation_workflow_dpu_mac_offset(_, env):
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.ngc.activities.cable_validation.create_dcim_client")
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_cable_validation_workflow_all_valid(_, mock_nb_client, env):
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -693,7 +693,7 @@ EXPECTED_CABLE_TABLE = (
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_cable_validation_workflow_some_invalid(_, env):
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -733,7 +733,7 @@ async def test_cable_validation_workflow_some_invalid(_, env):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_cable_validation_workflow_hostname_mismatch(_, env):
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -1673,7 +1673,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_device_cable_validation_workflow_valid(_, env):
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -2179,7 +2179,7 @@ async def test_execute_device_cable_validation_workflow_invalid(env):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_device_cable_validation_workflow_mac_validation_all_valid(
     _,
     env,
@@ -2376,7 +2376,7 @@ async def test_execute_device_cable_validation_workflow_mac_validation_all_valid
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_device_cable_validation_workflow_hostname_mismatch(_, env):
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -2424,7 +2424,7 @@ async def test_execute_device_cable_validation_workflow_hostname_mismatch(_, env
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_site_cable_validation_no_devices_found(_, env):
     task_queue_name = str(uuid.uuid4())
     async with Worker(

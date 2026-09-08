@@ -98,7 +98,7 @@ The renderer determines which entrypoint templates to use based on device attrib
 
 ## template-cli
 
-`template-cli` is a local template development command, not a command exposed by a running Config Manager deployment or by the installer on the target host. It is installed into any Python environment that installs the `nv-config-manager-templates` package; from the Config Manager source tree, run it with `uv run template-cli` from `components/network-templates`.
+`template-cli` is a local template development command, not a command exposed by a running Config Manager deployment or by the installer on the target host. It is installed into any Python environment that installs the `nv-config-manager-templates` package; from the Config Manager source tree, run it with `uv run template-cli` from `packages/templates`.
 
 Use `template-cli` to iterate on built-in templates or external template plugins before packaging them for the render service. Deployed environments use the same render engine through the Config Manager UI, render API, event consumers, and staged template plugin content.
 

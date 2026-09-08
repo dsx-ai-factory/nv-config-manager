@@ -634,6 +634,24 @@ Gateway, TLS, database backups, monitoring, and load balancer configuration.
 | Enable TLS | Self-signed TLS certificates for public endpoints |
 | CNPG S3 Backup | Enable CloudNativePG Postgres backups to S3 |
 | Monitoring | Enable PodMonitors and monitoring resources |
+| Redis metrics | Run the exporter for bundled Redis; unavailable when external Redis is configured |
+
+`infrastructure.monitoring.redis_metrics_enabled` stores the explicit Redis
+metrics preference. For bundled Redis, it enables the Redis exporter _even when
+monitoring is disabled_. When monitoring is enabled, the installer also enables
+the Redis PodMonitor. The local observability stack automatically enables both
+without changing the explicit preference. External Redis suppresses both
+generated settings.
+For a headless local deployment that runs only the exporter:
+
+```yaml
+cluster:
+  environment: local
+infrastructure:
+  monitoring:
+    enabled: false
+    redis_metrics_enabled: true
+```
 
 **Load Balancer** — Select the provider for ZTP/DHCP device-facing services:
 

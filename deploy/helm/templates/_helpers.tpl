@@ -1197,6 +1197,24 @@ Result depends on configuration:
 {{- end }}
 
 {{/*
+Generate a chart-owned CNPG PodMonitor name.
+
+Short names remain readable. If the release + cluster name exceeds the DNS
+label limit, reserve space for a hash of the complete identity so truncation
+cannot collapse monitors for different releases or clusters onto one name.
+*/}}
+{{- define "nv-config-manager.cnpgPodMonitorName" -}}
+{{- $fullname := include "nv-config-manager.fullname" .root -}}
+{{- $name := printf "%s-cnpg-%s" $fullname .clusterName -}}
+{{- if gt (len $name) 63 -}}
+{{- $hash := sha256sum (printf "%s/%s" $fullname .clusterName) | trunc 10 -}}
+{{- printf "%s-%s" ($name | trunc 52 | trimSuffix "-") $hash -}}
+{{- else -}}
+{{- $name -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Address of the Prometheus this release deploys, for KEDA's render-autoscaling
 trigger -- empty unless that in-cluster Prometheus is actually what KEDA will
 query.

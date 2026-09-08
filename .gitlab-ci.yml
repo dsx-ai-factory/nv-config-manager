@@ -7,9 +7,11 @@ include:
   # Secret-free pull-request builds and protected test-env promote pipelines
   # have deliberately narrow job sets. Do not include unrelated Pulse or
   # airgapped jobs (including their tracking/manual placeholders) in them.
+  # Trigger variables are untrusted until a validator job runs, so triggered
+  # pipelines are excluded using GitLab's pipeline source + protected ref.
   - local: .gitlab/ci/pulse.yml
     rules: &exclude-special-pipeline-fragments
-      - if: $CI_COMMIT_BRANCH =~ /^pull-request\// || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/)
+      - if: $CI_COMMIT_BRANCH =~ /^pull-request\// || (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/)
         when: never
       - when: always
   - local: .gitlab/ci/sonar.yml

@@ -179,6 +179,7 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
         "Validate cable connections for all devices in a site against intended topology"
     )
     workflow_input_class = SiteCableValidationInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/site_cable_validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
@@ -481,6 +482,7 @@ class DeviceCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
         "Validate cable connections for a specific device against intended topology"
     )
     workflow_input_class = DeviceCableValidationInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/device_cable_validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True

@@ -16,7 +16,7 @@
 
 import json
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 import responses
@@ -24,6 +24,7 @@ from nv_config_manager_dcim.workflow_models import OSImageVersions
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from nv_config_manager.common.client import ConfigStoreFileNotFound
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
 from nv_config_manager.temporal.ngc.activities.os import (
     ExecuteZTPInput,
@@ -51,6 +52,7 @@ from nv_config_manager.temporal.ngc.activities.render import (
     ValidateRenderedImageChangeInput,
     validate_rendered_image_change,
 )
+from nv_config_manager.ztp.storage import ObjectStorageNotFoundException
 
 
 @pytest.fixture
@@ -691,3 +693,169 @@ async def test_validate_rendered_image_change_unsupported_platform():
         )
 
     assert "Platform arista-eos not supported" in str(exc_info.value)
+
+
+@pytest.fixture
+def juniper_device_data():
+    """Juniper device used by image-render validation tests."""
+    return NetworkDeviceData(
+        id="juniper-device",
+        name="juniper-device",
+        platform=Platform.JUNIPER_JUNOS,
+        role="wan",
+        site="test_site",
+        device_type="mx204",
+        primary_ip4="192.0.2.10",
+        primary_ip6=None,
+    )
+
+
+@pytest.mark.asyncio
+@patch("nv_config_manager.temporal.ngc.activities.render.asyncio.sleep", new_callable=AsyncMock)
+@patch("nv_config_manager.temporal.ngc.activities.render.activity.heartbeat")
+async def test_validate_rendered_image_change_juniper_success(
+    mock_heartbeat, mock_sleep, juniper_device_data
+):
+    """Juniper validation succeeds when firmware and full-config are both present."""
+    mock_file = MagicMock()
+    mock_config_client = AsyncMock()
+    mock_config_client.__aenter__ = AsyncMock(return_value=mock_config_client)
+    mock_config_client.__aexit__ = AsyncMock(return_value=None)
+    mock_config_client.load_file = AsyncMock(return_value=mock_file)
+
+    mock_storage_client = AsyncMock()
+    mock_storage_client.__aenter__ = AsyncMock(return_value=mock_storage_client)
+    mock_storage_client.__aexit__ = AsyncMock(return_value=None)
+    mock_storage_client.get_firmware_checksum = AsyncMock(return_value="abc123")
+
+    with (
+        patch(
+            "nv_config_manager.temporal.ngc.activities.render.config_store_client",
+            return_value=mock_config_client,
+        ),
+        patch(
+            "nv_config_manager.temporal.ngc.activities.render.get_storage_client",
+            return_value=mock_storage_client,
+        ),
+        patch("nv_config_manager.temporal.ngc.activities.render.datetime") as mock_datetime,
+    ):
+        mock_now = MagicMock()
+        mock_now.__sub__ = MagicMock(return_value=timedelta(seconds=0))
+        mock_datetime.now.return_value = mock_now
+
+        result = await validate_rendered_image_change(
+            ValidateRenderedImageChangeInput(
+                device_data=juniper_device_data, desired_image="24.4R2"
+            )
+        )
+
+    assert result is True
+    mock_storage_client.get_firmware_checksum.assert_called_once_with("juniper-junos", "24.4R2")
+    mock_config_client.load_file.assert_called_once_with(
+        device_uuid="juniper-device", filename="full-config"
+    )
+
+
+@pytest.mark.asyncio
+@patch("nv_config_manager.temporal.ngc.activities.render.asyncio.sleep", new_callable=AsyncMock)
+@patch("nv_config_manager.temporal.ngc.activities.render.activity.heartbeat")
+async def test_validate_rendered_image_change_juniper_timeout(
+    mock_heartbeat, mock_sleep, juniper_device_data
+):
+    """Juniper validation times out when firmware is missing from ZTP storage."""
+    mock_file = MagicMock()
+    mock_config_client = AsyncMock()
+    mock_config_client.__aenter__ = AsyncMock(return_value=mock_config_client)
+    mock_config_client.__aexit__ = AsyncMock(return_value=None)
+    mock_config_client.load_file = AsyncMock(return_value=mock_file)
+
+    mock_storage_client = AsyncMock()
+    mock_storage_client.__aenter__ = AsyncMock(return_value=mock_storage_client)
+    mock_storage_client.__aexit__ = AsyncMock(return_value=None)
+    mock_storage_client.get_firmware_checksum = AsyncMock(
+        side_effect=ObjectStorageNotFoundException("missing")
+    )
+
+    start_time = datetime.now()
+    timeout = timedelta(minutes=5)
+
+    with (
+        patch(
+            "nv_config_manager.temporal.ngc.activities.render.config_store_client",
+            return_value=mock_config_client,
+        ),
+        patch(
+            "nv_config_manager.temporal.ngc.activities.render.get_storage_client",
+            return_value=mock_storage_client,
+        ),
+        patch("nv_config_manager.temporal.ngc.activities.render.datetime") as mock_datetime,
+    ):
+        call_count = 0
+
+        def mock_now():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return start_time
+            return start_time + timeout + timedelta(seconds=1)
+
+        mock_datetime.now.side_effect = mock_now
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await validate_rendered_image_change(
+                ValidateRenderedImageChangeInput(
+                    device_data=juniper_device_data, desired_image="24.4R2"
+                )
+            )
+
+    assert "Timeout waiting for Juniper firmware 24.4R2" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+@patch("nv_config_manager.temporal.ngc.activities.render.asyncio.sleep", new_callable=AsyncMock)
+@patch("nv_config_manager.temporal.ngc.activities.render.activity.heartbeat")
+async def test_validate_rendered_image_change_juniper_waits_for_full_config(
+    mock_heartbeat, mock_sleep, juniper_device_data
+):
+    """Missing full-config is treated as not-ready, not as a hard error."""
+    mock_config_client = AsyncMock()
+    mock_config_client.__aenter__ = AsyncMock(return_value=mock_config_client)
+    mock_config_client.__aexit__ = AsyncMock(return_value=None)
+    mock_config_client.load_file = AsyncMock(side_effect=ConfigStoreFileNotFound("missing"))
+
+    mock_storage_client = AsyncMock()
+    mock_storage_client.__aenter__ = AsyncMock(return_value=mock_storage_client)
+    mock_storage_client.__aexit__ = AsyncMock(return_value=None)
+    mock_storage_client.get_firmware_checksum = AsyncMock(return_value="abc123")
+
+    start_time = datetime.now()
+    timeout = timedelta(minutes=5)
+
+    with (
+        patch(
+            "nv_config_manager.temporal.ngc.activities.render.config_store_client",
+            return_value=mock_config_client,
+        ),
+        patch(
+            "nv_config_manager.temporal.ngc.activities.render.get_storage_client",
+            return_value=mock_storage_client,
+        ),
+        patch("nv_config_manager.temporal.ngc.activities.render.datetime") as mock_datetime,
+    ):
+        call_count = 0
+
+        def mock_now():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return start_time
+            return start_time + timeout + timedelta(seconds=1)
+
+        mock_datetime.now.side_effect = mock_now
+
+        with pytest.raises(ApplicationError, match="full-config"):
+            await validate_rendered_image_change(
+                ValidateRenderedImageChangeInput(
+                    device_data=juniper_device_data, desired_image="24.4R2"
+                )
+            )

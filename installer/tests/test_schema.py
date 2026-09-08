@@ -41,6 +41,7 @@ from nv_config_manager_installer.schema import (
     InfrastructureConfig,
     LBProvider,
     LoadBalancerConfig,
+    MonitoringConfig,
     NetworkSecretEntry,
     NVConfigManagerInstallConfig,
     RedfishConfig,
@@ -72,6 +73,7 @@ class TestNVConfigManagerInstallConfig:
         assert config.secrets.config_manager_service_username == "nv-config-manager"
         assert config.services.render is True
         assert config.dcim.provider == "nautobot-2x"
+        assert config.infrastructure.monitoring.redis_metrics_enabled is False
 
     def test_external_temporal_mtls_requires_address_and_secret(self):
         with pytest.raises(ValueError, match="requires an address"):
@@ -170,6 +172,25 @@ class TestNVConfigManagerInstallConfig:
         text = config.to_yaml_str()
         assert "h.test" in text
         assert "version:" in text
+
+    def test_redis_metrics_enabled_yaml_roundtrip(self, tmp_path: Path):
+        path = tmp_path / "config.yaml"
+        config = NVConfigManagerInstallConfig(
+            infrastructure=InfrastructureConfig(
+                monitoring=MonitoringConfig(redis_metrics_enabled=True),
+            ),
+        )
+
+        config.to_yaml(path)
+        loaded = NVConfigManagerInstallConfig.from_yaml(path)
+
+        assert loaded.infrastructure.monitoring.redis_metrics_enabled is True
+        assert (
+            yaml.safe_load(path.read_text())["infrastructure"]["monitoring"][
+                "redis_metrics_enabled"
+            ]
+            is True
+        )
 
     def test_yaml_prunes_inactive_secret_backend(self):
         config = NVConfigManagerInstallConfig(secrets=SecretsConfig(method=SecretsMethod.ESO))

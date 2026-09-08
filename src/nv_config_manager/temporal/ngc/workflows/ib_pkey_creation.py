@@ -137,6 +137,7 @@ class IBPKeyCreationWorkflow(
     workflow_name = "InfiniBand PKey Creation"
     workflow_description = "Create an InfiniBand PKey partition on UFM for multi-tenant isolation"
     workflow_input_class = IBPKeyCreationInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/ib_pkey_creation"
     workflow_namespace = "ngc"
 

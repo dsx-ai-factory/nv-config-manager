@@ -103,6 +103,7 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
         "Backup network device configuration to the Config Store and NVIDIA Config Manager plugin"
     )
     workflow_input_class = BackupInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/backup"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True

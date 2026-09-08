@@ -63,7 +63,7 @@ environment:
 
 ```bash
 uv run --no-project \
-  --with ../nv-config-manager/components/dcim \
+  --with ../nv-config-manager/packages/dcim \
   --with-editable . \
   python -c "from nv_config_manager_dcim import discover_dcim_providers; print(discover_dcim_providers())"
 ```
@@ -139,7 +139,7 @@ uses.
 
 <Tip>
 The code fragment intentionally omits the large client implementation. Start
-from `components/dcim-nautobot-2x` for its package layout, error mapping, lifecycle
+from `plugins/dcim/nautobot-2x` for its package layout, error mapping, lifecycle
 handling, and tests, but replace its Nautobot-specific transport and schemas.
 </Tip>
 

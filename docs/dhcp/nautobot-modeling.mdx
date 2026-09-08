@@ -260,6 +260,7 @@ DHCP options applied to **individual reservations** only. These appear in the re
 **Common use cases**:
 
 - Boot scripts for ZTP: `cumulus-provision-url`, `boot-file-name`
+- Junos HTTP ZTP: `transfer-mode`, `image-file-name`, `config-file-name` (DHCP option 43 suboptions)
 - Device-specific settings: `hostname`, `domain-name`
 
 **Jinja2 variables**:
@@ -357,6 +358,37 @@ This config context:
 - Adds ZTP boot script URL to reservations on `eth0`
 - Sets DNS servers for the entire subnet
 - Enables global and in-subnet reservations
+
+### Example: Juniper Junos Switch
+
+Junos factory ZTP reads DHCP option 43, not `cumulus-provision-url`. The bundled `Juniper Junos ZTP DHCP Options` context targets platform `Juniper Junos` and applies these reservation options on common management interface names (`fxp0`, `em0`, `vme`, `re0:mgmt-0`):
+
+```json
+{
+  "dhcp": {
+    "options": {
+      "interface_names": {
+        "fxp0": {
+          "reservation_options": {
+            "transfer-mode": "http",
+            "image-file-name": "http://{{ ztp_server }}/v1/device/{{ device_id }}/firmware",
+            "config-file-name": "http://{{ ztp_server }}/v1/device/{{ device_id }}/config/full-config"
+          }
+        }
+      }
+    }
+  },
+  "ztp": {
+    "ipv4": ["10.1.200.10", "10.1.200.11"]
+  }
+}
+```
+
+`{{ ztp_server }}` is rendered from the merged `ztp.ipv4` (or `ztp.ipv6`) list. Put that list in this context, or in another context that applies to the same device (typically a site-level context). Config generation fails if a reservation uses `{{ ztp_server }}` and no list is present.
+
+Custom option-def entries for those names must use Kea space `vendor-encapsulated-options-space` so they pack into DHCP option 43. The bundled `NVIDIA Config Manager DHCP Custom Options` context defines them.
+
+`config-file-name` points at the intended `full-config` file. Supply that file through operator or plugin templates; a missing file returns 404 from the ZTP API. Add other management interface names in a site context if needed.
 
 ## Flags
 

@@ -109,6 +109,7 @@ class IBPKeyMemberDeleteWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
     workflow_name = "InfiniBand PKey Member Delete"
     workflow_description = "Remove device interfaces from an existing InfiniBand PKey partition"
     workflow_input_class = IBPKeyMemberDeleteInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/ib_pkey_member_delete"
     workflow_namespace = "ngc"
     workflow_lock = WorkflowLockSpec(key_fields=["host", "pkey"])

@@ -108,6 +108,7 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
     workflow_name = "Configuration Deploy"
     workflow_description = "Deploy intended configuration to network device with approval workflow"
     workflow_input_class = DeployInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/deploy"
     workflow_namespace = "ngc"
 

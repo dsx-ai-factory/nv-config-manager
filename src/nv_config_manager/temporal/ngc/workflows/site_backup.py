@@ -132,6 +132,7 @@ class SiteBackupWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin):
         "Back up running configurations for in-scope devices at a site to the Config Store"
     )
     workflow_input_class = SiteBackupInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/site_backup"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True

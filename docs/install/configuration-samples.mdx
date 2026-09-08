@@ -88,6 +88,28 @@ mapped to `images.registry`. To use a different installer image, configure
 `images.overrides.dcimProviderInstaller` so it follows the same registry and
 airgap handling as other third-party images.
 
+## Local Redis exporter without monitoring
+
+Set `redis_metrics_enabled` under `infrastructure.monitoring` for headless
+deployments. This example enables the bundled Redis exporter without creating
+a Redis PodMonitor:
+
+```yaml
+version: "1"
+cluster:
+  hostname: nv-config-manager.local
+  environment: local
+infrastructure:
+  monitoring:
+    enabled: false
+    redis_metrics_enabled: true
+```
+
+When monitoring is enabled, the Redis PodMonitor is enabled too. Local
+observability automatically enables both settings without changing the saved
+`redis_metrics_enabled` preference. Configuring external Redis suppresses the
+exporter and PodMonitor.
+
 ## File storage with OS images
 
 ```yaml

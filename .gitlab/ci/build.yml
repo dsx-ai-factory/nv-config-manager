@@ -214,9 +214,10 @@ docker-build-main-amd64:
     - linux/amd64
     - docker
   rules:
-    # Test-env promote pipelines run on the default branch with rules:changes
-    # evaluating true (non-push pipeline); don't rebuild main as a side effect.
-    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/
+    # Trigger variables are untrusted until validation runs. Skip every
+    # default-branch triggered pipeline so it cannot rebuild main as a side
+    # effect; the dedicated promote rules select its narrow job set.
+    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/)
       when: never
     - if: $CI_COMMIT_TAG
       when: always
@@ -242,8 +243,8 @@ docker-build-main-arm64:
     - linux/arm64
     - docker
   rules:
-    # See docker-build-main-amd64: skip during test-env promote pipelines.
-    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/
+    # See docker-build-main-amd64: skip default-branch triggered pipelines.
+    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/)
       when: never
     - if: $CI_COMMIT_TAG
       when: always
@@ -277,8 +278,8 @@ docker-manifest-main:
       alias: docker
       command: ["--tls=false"]
   rules:
-    # See docker-build-main-amd64: skip during test-env promote pipelines.
-    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/
+    # See docker-build-main-amd64: skip default-branch triggered pipelines.
+    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/)
       when: never
     - if: $CI_COMMIT_TAG
       when: on_success

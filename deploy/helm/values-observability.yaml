@@ -61,6 +61,16 @@ global:
     include_in_slo: "true"
 
 # -----------------------------------------------------------------------------
+# Redis metrics exporter
+# -----------------------------------------------------------------------------
+# Exercise the bundled Redis exporter and its PodMonitor in local-dev and
+# observability-enabled CI deployments.
+externalServices:
+  redis:
+    metricsExport:
+      enabled: true
+
+# -----------------------------------------------------------------------------
 # Blackbox probes
 # -----------------------------------------------------------------------------
 # The installer flips monitoring.{enabled,podMonitors.enabled,
@@ -77,6 +87,10 @@ global:
 # points this at its own blackbox-exporter Service.
 monitoring:
   grafanaUrl: 'http://localhost:3000/d/nv-config-manager-overview?var-namespace={{ .Values.global.namespace }}'
+  podMonitors:
+    enabled: true
+    redis:
+      enabled: true
   probes:
     enabled: true
     blackboxExporterUrl: "blackbox-exporter:9115"

@@ -27,7 +27,11 @@ from nv_config_manager_installer.deployer import Deployer, DeployOptions, Deploy
 from nv_config_manager_installer.schema import (
     BUILT_IN_NAUTOBOT_PROVIDER,
     ClusterConfig,
+    ExternalRedisConfig,
+    ExternalServicesConfig,
     ImageSource,
+    InfrastructureConfig,
+    MonitoringConfig,
     NATSAuthMethod,
     NetworkSecretEntry,
     NVConfigManagerInstallConfig,
@@ -154,6 +158,75 @@ async def test_collect_config():
     async with app.run_test():
         app.collect_config()
         assert app.config.cluster.environment == "local"
+
+
+@pytest.mark.asyncio
+async def test_infrastructure_loads_explicit_redis_metrics_preference():
+    config = NVConfigManagerInstallConfig(
+        infrastructure=InfrastructureConfig(
+            monitoring=MonitoringConfig(redis_metrics_enabled=True),
+        ),
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("infrastructure")
+
+        switch = app._screens["infrastructure"].query_one(
+            "#monitoring-redis-metrics-enabled", LabeledSwitch
+        )
+        assert switch.value is True
+        assert switch.disabled is False
+        switch.value = False
+        app.collect_config()
+        assert app.config.infrastructure.monitoring.redis_metrics_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_infrastructure_preserves_explicit_redis_metrics_preference_with_observability():
+    config = NVConfigManagerInstallConfig(
+        infrastructure=InfrastructureConfig(
+            monitoring=MonitoringConfig(
+                observability_enabled=True,
+                redis_metrics_enabled=False,
+            ),
+        ),
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("infrastructure")
+        switch = app._screens["infrastructure"].query_one(
+            "#monitoring-redis-metrics-enabled", LabeledSwitch
+        )
+
+        assert switch.value is False
+        app.collect_config()
+        assert app.config.infrastructure.monitoring.redis_metrics_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_infrastructure_disables_redis_metrics_for_external_redis():
+    config = NVConfigManagerInstallConfig(
+        external_services=ExternalServicesConfig(
+            redis=ExternalRedisConfig(enabled=True, host="redis.example.com"),
+        ),
+        infrastructure=InfrastructureConfig(
+            monitoring=MonitoringConfig(redis_metrics_enabled=True),
+        ),
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("infrastructure")
+        switch = app._screens["infrastructure"].query_one(
+            "#monitoring-redis-metrics-enabled", LabeledSwitch
+        )
+
+        assert switch.disabled is True
+        assert switch.value is True
+        app.collect_config()
+        assert app.config.infrastructure.monitoring.redis_metrics_enabled is True
 
 
 @pytest.mark.asyncio

@@ -194,6 +194,7 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
     workflow_name = "InfiniBand PKey Member Update"
     workflow_description = "Reconcile InfiniBand PKey membership to a desired interface list"
     workflow_input_class = IBPKeyMemberUpdateInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/ib_pkey_member_update"
     workflow_namespace = "ngc"
     workflow_lock = WorkflowLockSpec(key_fields=["host", "pkey"])

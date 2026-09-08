@@ -8,13 +8,13 @@
 # Usage: eval "$(test_env_config.sh <env>)"
 #
 # NVCM_TEST_ENV_TARGETS holds one record per line:
-#   env|env_branch|namespace|release_name|baseline_values|state_dir
+#   env|env_branch|namespace|release_name|baseline_values|state_dir|argocd_application
 # Example:
-#   test|nvcm-test|kiwi-test|kiwi-platform-test|cfa/values/nv-config-manager/values-aws-test.yaml|cfa/values/nv-config-manager/test
-#   test01|nvcm-test01|kiwi-test01|kiwi-platform-test01|cfa/values/nv-config-manager/values-aws-test01.yaml|cfa/values/nv-config-manager/test01
+#   test|<env-branch>|<namespace>|<release>|<baseline-values>|<state-dir>|<argocd-application>
 #
 # Exports: NVCM_ENV, NVCM_ENV_BRANCH, NVCM_ENV_NAMESPACE,
-#          NVCM_ENV_RELEASE_NAME, NVCM_ENV_BASELINE_VALUES, NVCM_ENV_STATE_DIR
+#          NVCM_ENV_RELEASE_NAME, NVCM_ENV_BASELINE_VALUES,
+#          NVCM_ENV_STATE_DIR, NVCM_ENV_ARGOCD_APPLICATION
 set -euo pipefail
 
 trim() {
@@ -65,7 +65,12 @@ while IFS= read -r raw_record; do
   record="$(trim "$raw_record")"
   [[ -z "$record" || "$record" == \#* ]] && continue
 
-  IFS='|' read -r env env_branch namespace release_name baseline_values state_dir <<< "$record"
+  separators="${record//[!|]/}"
+  if (( ${#separators} != 6 )); then
+    echo "NVCM_TEST_ENV_TARGETS record must contain exactly seven fields." >&2
+    exit 1
+  fi
+  IFS='|' read -r env env_branch namespace release_name baseline_values state_dir argocd_application <<< "$record"
   env="$(trim "$env")"
   [[ "$env" == "$requested_env" ]] || continue
 
@@ -74,7 +79,8 @@ while IFS= read -r raw_record; do
   release_name="$(trim "$release_name")"
   baseline_values="$(trim "$baseline_values")"
   state_dir="$(trim "$state_dir")"
-  for field in env_branch namespace release_name baseline_values state_dir; do
+  argocd_application="$(trim "${argocd_application:-}")"
+  for field in env_branch namespace release_name baseline_values state_dir argocd_application; do
     if [[ -z "${!field}" ]]; then
       echo "NVCM_TEST_ENV_TARGETS record for '${env}' is missing field '${field}'." >&2
       exit 1
@@ -87,6 +93,7 @@ while IFS= read -r raw_record; do
   shell_export NVCM_ENV_RELEASE_NAME "$release_name"
   shell_export NVCM_ENV_BASELINE_VALUES "$baseline_values"
   shell_export NVCM_ENV_STATE_DIR "$state_dir"
+  shell_export NVCM_ENV_ARGOCD_APPLICATION "$argocd_application"
   exit 0
 done <<< "$records"
 

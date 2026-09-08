@@ -62,6 +62,10 @@ spec:
         - protocol: TCP
           port: {{ .Values.nautobotNats.metrics.port | default 7777 }}  # bundled NATS exporter
         {{- end }}
+        {{- if and .Values.externalServices.redis.local .Values.externalServices.redis.metricsExport.enabled }}
+        - protocol: TCP
+          port: {{ .Values.externalServices.redis.metricsExport.port }}  # bundled Redis exporter
+        {{- end }}
     {{- end }}
     {{- if and .Values.renderService.enabled .Values.renderService.autoscaling.enabled (include "nv-config-manager.inClusterPrometheusAddress" .) }}
     # Allow KEDA to read the render-consumer trigger metric from the Prometheus

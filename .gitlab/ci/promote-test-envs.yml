@@ -8,11 +8,11 @@
 # rule requires NVCM_PROMOTE_ENV to be exactly "test" or "test01" (prod stays
 # on the tag-driven release flow in release.yml).
 #
-# How to deploy a PR (single action):
-#   Run pipeline on the default branch with:
-#     NVCM_PROMOTE_PR  = <GitHub PR number>
-#     NVCM_PROMOTE_ENV = test | test01
-#   Optional: NVCM_PROMOTE_REUSE_BUILD=false to force a fresh build.
+# How to deploy a PR:
+#   A push webhook for the vetted pull-request/<n> mirror sync creates a trusted
+#   default-branch request pipeline. Start promote-to-test or
+#   promote-to-test01 there; its child pipeline waits for the PR build if
+#   necessary, and no variables are entered.
 #
 # How to rollback / free a test env (manual jobs):
 #   Run pipeline on the default branch with only NVCM_PROMOTE_ENV set, then
@@ -27,13 +27,27 @@
 #
 # Required protected CI/CD variables (see .gitlab/ci/README.md):
 #   NVCM_MIRROR_API_TOKEN, NVCM_TEST_ENV_TARGETS, NVCM_CHART_REPO,
+#   NVCM_ARGOCD_SERVER, NVCM_ARGOCD_AUTH_TOKEN, NVCM_ARGOCD_PROJECT,
 #   NV_CONFIG_MANAGER_VALUES_PUSH_TOKEN, NVCM_VALUES_REPO_PATH,
 #   plus the existing image/chart target variables.
 # =============================================================================
 
 .test-promote-rules: &test-promote-rules
-  - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_PR && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/
+  - if: $CI_PIPELINE_SOURCE == "parent_pipeline" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_PR && $NVCM_PROMOTE_PR_SHA && $NVCM_PROMOTE_BUILD_PIPELINE_ID && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/ && $NVCM_PROMOTE_SOURCE_PIPELINE_ID && $NVCM_PROMOTE_SOURCE_REF && $NVCM_PROMOTE_SOURCE_SHA
     when: always
+  - when: never
+
+.test-promote-request-rules: &test-promote-request-rules
+  # CI_PIPELINE_TRIGGERED is redundant for source=trigger today, but retaining
+  # both assertions makes the intended webhook provenance explicit.
+  - if: $CI_PIPELINE_SOURCE == "trigger" && $CI_PIPELINE_TRIGGERED == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    when: always
+  - when: never
+
+.test-promote-button-rules: &test-promote-button-rules
+  - if: $CI_PIPELINE_SOURCE == "trigger" && $CI_PIPELINE_TRIGGERED == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    when: manual
+    allow_failure: true
   - when: never
 
 .test-env-ops-rules: &test-env-ops-rules
@@ -60,8 +74,70 @@
       - runner_system_failure
       - stuck_or_timeout_failure
 
+# Verify the automatic PR pipeline before exposing its identity to the trusted
+# buttons. The buttons read the resulting file directly because trigger
+# variables have higher precedence than dotenv variables.
+test-promote-request-validate:
+  stage: deploy
+  <<: *test-promote-runner
+  needs: []
+  image: $NVCM_CI_IMAGE_ALPINE
+  timeout: 5m
+  rules: *test-promote-request-rules
+  before_script:
+    - apk add --no-cache bash curl jq
+  script:
+    - bash .gitlab/ci/scripts/validate_promote_source_pipeline.sh
+  artifacts:
+    reports:
+      dotenv: promote-request.env
+    paths:
+      - promote-request.env
+    expire_in: 3 days
+
+# Fixed-target buttons run only from the protected default-branch
+# configuration. Each is a runnerless parent-child trigger, so no API token is
+# needed and untrusted pull-request pipelines never receive an operator token.
+.promote-request-button:
+  stage: deploy
+  inherit:
+    variables: false
+  needs:
+    - job: test-promote-request-validate
+      artifacts: true
+  variables:
+    NVCM_PROMOTE_PR: $VERIFIED_PROMOTE_PR
+    NVCM_PROMOTE_PR_SHA: $VERIFIED_PROMOTE_PR_SHA
+    NVCM_PROMOTE_BUILD_PIPELINE_ID: $VERIFIED_PROMOTE_BUILD_PIPELINE_ID
+    NVCM_PROMOTE_SOURCE_PIPELINE_ID: $CI_PIPELINE_ID
+    NVCM_PROMOTE_SOURCE_REF: $CI_COMMIT_REF_NAME
+    NVCM_PROMOTE_SOURCE_SHA: $CI_COMMIT_SHA
+  rules: *test-promote-button-rules
+  trigger:
+    include:
+      - local: .gitlab/ci/promote-test-envs-child.yml
+    forward:
+      yaml_variables: true
+      pipeline_variables: false
+
+promote-to-test:
+  extends: .promote-request-button
+  variables:
+    NVCM_PROMOTE_ENV: test
+  environment:
+    name: test
+    action: prepare
+
+promote-to-test01:
+  extends: .promote-request-button
+  variables:
+    NVCM_PROMOTE_ENV: test01
+  environment:
+    name: test01
+    action: prepare
+
 # -----------------------------------------------------------------------------
-# 1) Resolve PR HEAD; reuse or trigger the no-secrets build pipeline; wait.
+# 1) Resolve PR HEAD and consume its automatic no-secrets build pipeline.
 # -----------------------------------------------------------------------------
 test-promote-build:
   stage: deploy
@@ -69,10 +145,11 @@ test-promote-build:
   needs: []
   image: $NVCM_CI_IMAGE_ALPINE
   rules: *test-promote-rules
-  timeout: 2h
+  timeout: 2h 15m
   before_script:
     - apk add --no-cache bash curl git jq coreutils
   script:
+    - bash .gitlab/ci/scripts/validate_promote_request.sh
     - bash .gitlab/ci/scripts/promote_build_pipeline.sh
   artifacts:
     reports:
@@ -91,7 +168,7 @@ test-promote-build:
 test-promote-push-images:
   stage: deploy
   <<: *test-promote-runner
-  image: $NVCM_CI_IMAGE_DOCKER
+  image: $NVCM_CI_IMAGE_DOCKER_DIND
   services:
     - name: $NVCM_CI_IMAGE_DOCKER_DIND
       alias: docker
@@ -360,12 +437,16 @@ test-promote-chart:
     expire_in: 1 week
 
 # -----------------------------------------------------------------------------
-# 4) Commit the deployment-state to the env branch. ArgoCD does the rest.
+# 4) Commit deployment-state, then hold the environment lock until ArgoCD has
+#    synced and health-checked the exact chart + values-repository revisions.
 # -----------------------------------------------------------------------------
 test-promote-deploy-state:
   stage: deploy
   <<: *test-promote-runner
   image: $NVCM_CI_IMAGE_ALPINE
+  # The convergence gate defaults to 30 minutes; leave time for setup and
+  # timeout diagnostics while making its hold on the environment lock explicit.
+  timeout: 35m
   rules: *test-promote-rules
   needs:
     - job: test-promote-build
@@ -380,7 +461,7 @@ test-promote-deploy-state:
   # concurrent runs can't race on the same nvcm-<env> branch.
   resource_group: nvcm-env-$NVCM_PROMOTE_ENV
   before_script:
-    - apk add --no-cache bash git yq curl coreutils
+    - apk add --no-cache bash git yq python3 py3-requests coreutils
     - git config --global user.email "${CI_PUSH_EMAIL:-ci@nv-config-manager}"
     - git config --global user.name "NVIDIA Config Manager CI"
   script:
@@ -397,6 +478,7 @@ test-promote-deploy-state:
       env_config="$(bash .gitlab/ci/scripts/test_env_config.sh "$NVCM_PROMOTE_ENV")" || exit $?
       eval "$env_config"
     - bash .gitlab/ci/scripts/write_deploy_state.sh
+    - python3 "${CI_PROJECT_DIR}/.gitlab/ci/scripts/wait_for_argocd.py"
 
 # -----------------------------------------------------------------------------
 # Rollback: restore a prior known-good deploy-state from env-branch history.

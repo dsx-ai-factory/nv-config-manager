@@ -79,6 +79,7 @@ class ConfigDiffWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archive
         "Compare the intended configuration against the live device without applying any changes"
     )
     workflow_input_class = ConfigDiffInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/config_diff"
     workflow_namespace = "ngc"
 

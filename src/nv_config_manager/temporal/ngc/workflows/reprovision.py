@@ -78,6 +78,7 @@ class ReprovisionWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
     workflow_name = "Reprovision"
     workflow_description = "Reprovision a network device using pre- and post-ZTP backups"
     workflow_input_class = ReprovisionInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/reprovision"
     workflow_namespace = "ngc"
 

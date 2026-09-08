@@ -121,6 +121,7 @@ class SitePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
         "Rotate passwords across all devices in a site with coordinated deployment"
     )
     workflow_input_class = SitePasswordRotationInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/site_password_rotation"
     workflow_namespace = "ngc"
 

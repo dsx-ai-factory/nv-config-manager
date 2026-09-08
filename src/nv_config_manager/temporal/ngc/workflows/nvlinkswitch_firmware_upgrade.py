@@ -121,6 +121,7 @@ class NVLinkSwitchFirmwareUpgradeWorkflow(
     workflow_name = "NVLink Switch Firmware Upgrade"
     workflow_description = "Upgrade firmware on NVLink switches with validation"
     workflow_input_class = NVLinkSwitchFirmwareUpgradeInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/nvlinkswitch_firmware_upgrade"
     workflow_namespace = "ngc"
 

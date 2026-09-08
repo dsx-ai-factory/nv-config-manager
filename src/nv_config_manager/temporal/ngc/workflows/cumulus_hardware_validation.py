@@ -301,6 +301,7 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
         "Validate hardware components (fans, PSUs, LEDs, voltage) across network devices"
     )
     workflow_input_class = ValidateHardwareInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/cumulus_hardware_validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True

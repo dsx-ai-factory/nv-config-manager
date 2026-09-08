@@ -78,6 +78,13 @@ Key dependencies include:
 - nats.go (Apache-2.0 License) - https://github.com/nats-io/nats.go
 - zerolog (MIT License) - https://github.com/rs/zerolog
 
+Runtime Dependencies
+---------------
+
+Key dependencies include:
+
+- Redis Exporter (MIT License) - https://github.com/oliver006/redis_exporter
+
 ===============================================================================
 NVIDIA TRADEMARKS
 ===============================================================================
