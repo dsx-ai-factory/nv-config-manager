@@ -1775,11 +1775,11 @@ nv set system hostname disallowed-change
                 if validate_stage and validate_stage["state"] == "FAILED":
                     break
                 await asyncio.sleep(0.1)
-            else:
-                pytest.fail(
-                    "validate_configuration_diff did not fail before the poll "
-                    f"deadline; stages={stages!r}"
-                )
+
+            assert validate_stage and validate_stage["state"] == "FAILED", (
+                "validate_configuration_diff did not fail before the poll deadline; "
+                f"stages={stages!r}"
+            )
 
             load_stage = next(s for s in stages if s["name"] == "load_tenant_configuration")
             assert load_stage["output"]["commit_id"] == "7"
