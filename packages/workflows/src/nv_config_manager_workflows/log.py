@@ -31,9 +31,12 @@ from __future__ import annotations
 import logging
 
 WORKFLOW_LOG_CATEGORY = "temporal.workflow"
+AUTH_LOG_CATEGORY = "auth"
 
 
-def get_workflow_logger(name: str) -> logging.LoggerAdapter[logging.Logger]:
+def get_logger(
+    name: str, category: str = WORKFLOW_LOG_CATEGORY
+) -> logging.LoggerAdapter[logging.Logger]:
     """Return a logger whose records carry the workflow log category.
 
     Args:
@@ -45,6 +48,6 @@ def get_workflow_logger(name: str) -> logging.LoggerAdapter[logging.Logger]:
     """
     return logging.LoggerAdapter(
         logging.getLogger(name),
-        extra={"category": WORKFLOW_LOG_CATEGORY},
+        extra={"category": category},
         merge_extra=True,
     )
