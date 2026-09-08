@@ -189,10 +189,10 @@ The following packages are dependencies of the Nautobot component (`components/n
 | Package | License | URL |
 |---------|---------|-----|
 | nautobot | Apache-2.0 | https://github.com/nautobot/nautobot |
-| nautobot-fsus | Apache-2.0 | https://github.com/nautobot/nautobot-app-fsus |
+| nautobot-fsus | Apache-2.0 | https://github.com/NVIDIA/nautobot-app-fsus |
 | nautobot-firewall-models | Apache-2.0 | https://github.com/nautobot/nautobot-app-firewall-models |
 | nautobot-design-builder | Apache-2.0 | https://github.com/nautobot/nautobot-app-design-builder |
-| nautobot-bgp-models | Apache-2.0 | https://github.com/nautobot/nautobot-plugin-bgp-models |
+| nautobot-bgp-models | Apache-2.0 | https://github.com/nautobot/nautobot-app-bgp-models |
 | pyasn1 | BSD-2-Clause | https://github.com/pyasn1/pyasn1 |
 
 ---
