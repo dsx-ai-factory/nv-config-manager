@@ -129,10 +129,10 @@ export default function ConfigHistoryPage({
     // If clicking on an already selected version, unselect it
     if (selectedVersions[0] === version) {
       // If second version is selected, move it to first slot
-      if (selectedVersions[1] !== null) {
-        setSelectedVersions([selectedVersions[1], null]);
-      } else {
+      if (selectedVersions[1] === null) {
         setSelectedVersions([null, null]);
+      } else {
+        setSelectedVersions([selectedVersions[1], null]);
       }
     } else if (selectedVersions[1] === version) {
       setSelectedVersions([selectedVersions[0], null]);

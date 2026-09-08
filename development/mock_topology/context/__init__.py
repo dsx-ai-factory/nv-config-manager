@@ -605,7 +605,6 @@ class BaseContext(Context):
         # Device Roles
         "WAN",
         "TAN-BBR",
-        "NSV Device",
         "CIN-Core",
         "CIN-Spine",
         "CIN-Leaf",

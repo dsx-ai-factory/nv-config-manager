@@ -1,0 +1,5 @@
+query ($id: ID!) {
+  device(id: $id) {
+    __FIELDS__
+  }
+}

@@ -42,10 +42,10 @@ export function shouldEnableMocks({
 }
 
 export function shouldEnableMocksFromGlobals(): boolean {
-  const hasWindow = typeof window !== "undefined";
+  const hasWindow = typeof globalThis.window !== "undefined";
   return shouldEnableMocks({
     hasWindow,
-    bypassWindowFlag: hasWindow ? Boolean(window.BYPASS_MSW) : false,
+    bypassWindowFlag: hasWindow ? Boolean(globalThis.window.BYPASS_MSW) : false,
     bypassEnvFlag: process.env.NEXT_PUBLIC_BYPASS_MSW,
     nodeEnv: process.env.NODE_ENV,
   });

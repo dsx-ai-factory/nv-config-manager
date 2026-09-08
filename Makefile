@@ -1,4 +1,4 @@
-.PHONY: help install dev test lint format clean docker-build docker-push ui-install ui-dev ui-build \
+.PHONY: help install dev test lint format sort-check sort-fix clean docker-build docker-push ui-install ui-dev ui-build \
         local-up local-down local-destroy local-status local-logs deploy kind-up kind-up-sec kind-up-sec-kgateway kind-up-secure kind-down topology install-cert workflow-perf-seed \
         openapi openapi-check go-bindings api-generate docs-assets docs-assets-check docs-format docs-lint docs-lint-fern docs-live docs-preview docs-publish docs-publish-in-ci docs-screenshots docs-air-sim-screenshots docs-ui-screenshots \
         obs-grafana obs-prometheus obs-loki obs-alloy obs-port-forward obs-port-forward-stop
@@ -31,6 +31,8 @@ endif
 WORKFLOW_PERF_COUNT ?= 100
 WORKFLOW_PERF_RUNNING_COUNT ?= 150
 WORKFLOW_PERF_FAILED_COUNT ?= 1
+# Pinned like the Ruff version in pyproject.toml. Bump deliberately.
+KEEP_SORTED_VERSION ?= v0.10.0
 
 # Generate unique image tag: SHA-TIMESTAMP (e.g., abc1234-1704067200)
 GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -263,14 +265,22 @@ docker-build-nb-test:
 		-f build/nautobot-test.Dockerfile build/
 	@echo "✅ Built $(NB_TEST_IMAGE)"
 
-lint:
-	uv run ruff check src/
-	uv run ty check src/nv_config_manager/
-	uv run mypy src/nv_config_manager --no-incremental
+lint: sort-check
+	uv run ruff check src/ packages/
+	uv run ty check src/nv_config_manager/ packages/
+	uv run mypy src/nv_config_manager packages --no-incremental
 
-format:
-	uv run ruff format src/
-	uv run ruff check --fix src/
+format: sort-fix
+	uv run ruff format src/ packages/
+	uv run ruff check --fix src/ packages/
+
+# Enforces alphabetical order for lists marked with `# keep-sorted start` /
+# `# keep-sorted end` comments (see src/nv_config_manager/temporal/ngc/workflows/__init__.py).
+sort-check:
+	find src -name '*.py' -print0 | xargs -0 go run github.com/google/keep-sorted@$(KEEP_SORTED_VERSION) --mode=lint
+
+sort-fix:
+	find src -name '*.py' -print0 | xargs -0 go run github.com/google/keep-sorted@$(KEEP_SORTED_VERSION) --mode=fix
 
 # OpenAPI spec generation
 openapi:

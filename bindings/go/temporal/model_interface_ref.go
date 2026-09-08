@@ -19,7 +19,7 @@ import (
 // checks if the InterfaceRef type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &InterfaceRef{}
 
-// InterfaceRef A device/interface name pair used to look up an interface in Nautobot.  “membership“ is an optional per-port override (\"full\"/\"limited\"); when unset the caller's workflow-level default is applied.
+// InterfaceRef A device/interface name pair used to look up an interface in the DCIM.  “membership“ is an optional per-port override (\"full\"/\"limited\"); when unset the caller's workflow-level default is applied.
 type InterfaceRef struct {
 	Device     string         `json:"device"`
 	Interface  string         `json:"interface"`

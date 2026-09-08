@@ -21,11 +21,27 @@ Before configuring devices for ZTP, ensure:
 
 ### DHCP Configuration
 
-Configure your DHCP server to provide the ZTP boot file URL in the `boot-file-name` option:
+How the DHCP server tells a device where to fetch ZTP artifacts depends on the NOS:
+
+**Cumulus Linux** — `cumulus-provision-url` (and often `boot-file-name`) pointing at the boot script:
 
 ```text
-option boot-file-name "http://ztp.example.com/v1/device/{device_uuid}/boot-script";
+option cumulus-provision-url "http://ztp.example.com/v1/device/{device_uuid}/boot-script";
 ```
+
+**NV-OS** — `boot-file-name` pointing at `ztp.json`:
+
+```text
+option boot-file-name "http://ztp.example.com/v1/device/{device_uuid}/config/ztp.json";
+```
+
+**Juniper Junos** — DHCP option 43 (vendor-encapsulated) with HTTP transfer-mode. The bundled platform context sets:
+
+- `transfer-mode`: `http`
+- `image-file-name`: `http://ztp.example.com/v1/device/{device_uuid}/firmware`
+- `config-file-name`: `http://ztp.example.com/v1/device/{device_uuid}/config/full-config`
+
+`full-config` is the intended Junos configuration rendered by operator or plugin templates. The ZTP API does not synthesize a placeholder file.
 
 Replace `ztp.example.com` with your ZTP server URL and `{device_uuid}` with the device UUID from the device management system.
 
@@ -98,7 +114,10 @@ curl https://ztp.example.com/v1/device/{device_uuid}/config/{configlet}
 
 Common configuration file names:
 
-- `boot-script`: Initial boot script
+- `boot-script`: Cumulus Linux initial boot script
+- `ztp.json`: NV-OS ZTP sequence
+- `full-config`: Junos hierarchical configuration (operator- or plugin-rendered)
+- `startup.yaml`: Cumulus / NV-OS intended configuration
 - `system.cfg`: System configuration
 - `interfaces.cfg`: Interface configuration
 

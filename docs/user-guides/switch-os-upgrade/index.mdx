@@ -4,7 +4,13 @@ sidebar-title: Switch OS Upgrade
 position: 10
 ---
 
-The Switch OS Upgrade workflow upgrades a single Cumulus Linux switch to a new firmware version. It computes the version delta against the device's intended firmware in Nautobot, pauses for a human to approve the upgrade, backs up the current configuration, updates device-context state, drives the image install + reboot + ZTP cycle, and validates that the device came back on the right version. Multiple short-circuit paths exit safely when no work is required.
+The Switch OS Upgrade workflow upgrades a single Cumulus Linux or Juniper Junos switch to a new firmware version. It computes the version delta against the device's intended firmware in Nautobot, pauses for a human to approve the upgrade, backs up the current configuration, updates device-context state, drives the image install + reboot + ZTP cycle, and validates that the device came back on the right version. Multiple short-circuit paths exit safely when no work is required.
+
+<Note>
+The workflow uses the selected DCIM provider's normalized firmware-intent and
+device-state operations. References to Nautobot on this page describe the
+bundled provider's data mapping, not a workflow dependency.
+</Note>
 
 For NVLink switches, use [NVLink Switch Firmware Upgrade](../nvlink-switch-firmware-upgrade/index.mdx) instead.
 
@@ -18,9 +24,10 @@ Before running, complete the pre-work that drives the upgrade. The workflow does
 Also confirm:
 
 - **Device exists in Nautobot** with a current intended configuration in the [Config Store](../../config-store/index.mdx).
-- **Device is on a supported platform** — Cumulus Linux only. Other platforms (NVOS for NVLink, vendor OSes) are rejected at runtime.
-- **Firmware image is uploaded** to the ZTP service for the target Cumulus Linux version and the device's platform. See [Upload Images to the ZTP Server](../../network-ztp/upload-images.mdx) for the upload procedure.
-- **Device is reachable** and credentials are current. The upgrade flow drives image install over the management network and waits for the device to ZTP back into Provisioned state.
+- **Device is on a supported platform** — Cumulus Linux or Juniper Junos. NV-OS (NVLink) is rejected at runtime; use [NVLink Switch Firmware Upgrade](../nvlink-switch-firmware-upgrade/index.mdx) instead.
+- **Firmware image is uploaded** to the ZTP service for the target OS version and the device's platform. See [Upload Images to the ZTP Server](../../network-ztp/upload-images.mdx) for the upload procedure.
+- **Juniper Junos:** operator- or plugin-supplied templates must render `full-config` into the intended config store. After factory reset the device fetches that file and the firmware image through DHCP option 43 (HTTP). There is no bundled Junos template tree.
+- **Device is reachable** and credentials are current. The upgrade flow drives image install over the management network and waits for the device to ZTP back into a reachable state.
 - **Approval to take the device offline.** The upgrade triggers a reboot — plan a maintenance window appropriate for the device's role in the fabric.
 
 ## Running the workflow
@@ -56,11 +63,11 @@ The workflow runs four stages in order. Only `approve_upgrade` requires approval
 
 1. **`update_device_configuration` — Refresh device context for the upgrade.**
 
-   Calls `validate_rendered_image_change` (6-minute start-to-close timeout, 2-minute heartbeat) to ensure the rendered configuration is consistent with the upgrade target, and updates Config Manager's internal state to track the new firmware.
+   Calls `validate_rendered_image_change` (6-minute start-to-close timeout, 2-minute heartbeat) to ensure upgrade artifacts match the target, and updates Config Manager's internal state to track the new firmware. Cumulus checks `VERSION_ID=` in the rendered `boot-script`. Junos checks that the image is on the ZTP server and that `full-config` exists in the intended config store.
 
 1. **`perform_upgrade` — Install the image and wait for the device to come back.**
 
-   Pushes the image to the device via the ZTP service and reboots. Two long-poll activities then wait for the device to converge:
+   Pushes the image to the device via the ZTP service and reboots. Cumulus uses NVUE factory-default; Junos uses `request system zeroize`. Two long-poll activities then wait for the device to converge:
 
    - `poll_image` — 35-minute timeout (30 + 5 buffer), 3-minute heartbeat. If the post-reboot image does not match the intended firmware, raises `ApplicationError`.
    - `poll_ztp_status` — 15-minute timeout (10 + 5 buffer). If ZTP does not complete in that window, raises `ApplicationError`.
@@ -74,17 +81,17 @@ The workflow returns `True` on full success, `False` on early-exit branches (no-
 After the workflow reports success, confirm:
 
 - **All four stages green** on the Config Manager run page (or `approve_upgrade` green and downstream UNREACHABLE for the short-circuit paths).
-- **`nv show platform`** on the device reports the intended firmware version.
-- **Nautobot device status** is back to Provisioned (or Active), and the device responds to a ZTP-completion verification command (`/etc/os-release`, or your environment's equivalent).
+- **Running image matches the intended version.** On Cumulus Linux, `nv show platform` (and `/etc/os-release`) report the target release. On Junos, `show version` reports the target Junos version and NETCONF is reachable.
+- **Nautobot device status** is back to Provisioned (or Active).
 - **A pre-upgrade backup** is in the Config Store, tagged with the commit SHA the workflow used.
 
 ## Rollback
 
-Cumulus Linux does not have a native one-shot OS rollback. The recovery options are:
+Neither Cumulus Linux nor Junos has a one-shot OS-image rollback in this workflow. Recovery options:
 
 - **Set the intended firmware back to the previous version in Nautobot**, re-render via the [Render Service](../../render/index.mdx), and re-run Switch OS Upgrade. The workflow will install the older image and reboot the device back onto it.
 - **Reprovision the device** via [Device Reprovision](../reprovision/index.mdx). The reprovision flow factory-resets and re-runs ZTP with whatever intended firmware is currently set in Nautobot — useful when the post-upgrade device state is unrecoverable.
-- **Use the pre-upgrade backup** from the Config Store to restore configuration after a successful rollback to the prior firmware.
+- **Use the pre-upgrade backup** from the Config Store to restore configuration after a successful rollback to the prior firmware. On Junos, numbered config rollback (`rollback 1`) loads the previous configuration into the candidate configuration. Validate and commit it to activate the configuration; this changes configuration only and does not revert the OS image.
 
 ## Common issues
 

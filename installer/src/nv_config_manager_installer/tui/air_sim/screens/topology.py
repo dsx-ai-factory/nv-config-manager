@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
@@ -25,19 +27,106 @@ from textual_fspicker import FileOpen, Filters, SelectDirectory
 
 from nv_config_manager_installer.air_sim.prebuilt_configs import (
     PREBUILT_CONFIGS,
+    PrebuiltConfig,
     load_prebuilt_config,
 )
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
 from nv_config_manager_installer.tui.widgets import LabeledSwitch
 
 
+class PopulationPanel(Container):
+    """Replaceable provider-owned simulation population controls."""
+
+    def __init__(self, config: SimConfig, **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        self._config = config
+
+    def write_to_config(self, config: SimConfig) -> None:
+        """Write provider-owned fields into the simulation config."""
+
+    def sync_from_config(self, config: SimConfig) -> None:
+        """Refresh provider-owned controls from the simulation config."""
+        self._config = config
+
+    def get_status(self, config: SimConfig) -> str:
+        """Return this panel's navigation status contribution."""
+        return "[*]"
+
+
+class NautobotPopulationPanel(PopulationPanel):
+    """Configure the bundled Nautobot mock-topology population job."""
+
+    def compose(self) -> ComposeResult:
+        yield Label("Nautobot", classes="subsection-label")
+        yield LabeledSwitch(
+            "Populate bundled Nautobot with the mock topology job",
+            value=self._config.run_mock_topology_job,
+            id="run-mock-topology-job",
+        )
+        with Vertical(id="nautobot-population-fields"):
+            yield Label("Mock Topology Job Path", classes="field-label")
+            yield Input(
+                value=self._config.mock_topology_path,
+                placeholder="development/mock_topology",
+                id="mock-topology-path",
+            )
+
+    def on_mount(self) -> None:
+        self._toggle_fields()
+
+    def on_labeled_switch_changed(self, event: LabeledSwitch.Changed) -> None:
+        if event.labeled_switch.id == "run-mock-topology-job":
+            self._toggle_fields()
+
+    def _toggle_fields(self) -> None:
+        self.query_one("#nautobot-population-fields").display = self.query_one(
+            "#run-mock-topology-job", LabeledSwitch
+        ).value
+
+    def write_to_config(self, config: SimConfig) -> None:
+        config.run_mock_topology_job = self.query_one("#run-mock-topology-job", LabeledSwitch).value
+        config.mock_topology_path = self.query_one("#mock-topology-path", Input).value.strip()
+
+    def sync_from_config(self, config: SimConfig) -> None:
+        super().sync_from_config(config)
+        self.query_one("#run-mock-topology-job", LabeledSwitch).value = config.run_mock_topology_job
+        self.query_one("#mock-topology-path", Input).value = config.mock_topology_path
+        self._toggle_fields()
+
+    def get_status(self, config: SimConfig) -> str:
+        if config.run_mock_topology_job and not config.mock_topology_path:
+            return "[!]"
+        return "[*]"
+
+
 class TopologyScreen(Container):
     """Select the topology YAML file, name, and server attachment mode."""
+
+    POPULATION_PANEL_CLASS: ClassVar[type[PopulationPanel]] = NautobotPopulationPanel
 
     def __init__(self, config: SimConfig, **kwargs: object) -> None:
         super().__init__(**kwargs)
         self._config = config
         self._syncing = False
+        self._population_panel: PopulationPanel | None = None
+
+    def create_population_panel(self) -> PopulationPanel:
+        """Construct provider-owned population controls for this simulation."""
+        return self.POPULATION_PANEL_CLASS(self._config, id="population-panel")
+
+    def prebuilt_configs(self) -> tuple[PrebuiltConfig, ...]:
+        """Return presets exposed by the containing AIR application."""
+        app = self.app
+        if hasattr(app, "prebuilt_configs"):
+            return app.prebuilt_configs()
+        return PREBUILT_CONFIGS
+
+    def load_prebuilt_config(self, config_id: str) -> SimConfig:
+        """Load a preset through the containing AIR application."""
+        app = self.app
+        if hasattr(app, "load_prebuilt_config"):
+            return app.load_prebuilt_config(config_id)
+        return load_prebuilt_config(config_id, type(self._config))
 
     def compose(self) -> ComposeResult:
         yield Label("Topology", classes="section-title")
@@ -45,7 +134,7 @@ class TopologyScreen(Container):
 
         yield Label("Pre-built Config", classes="field-label")
         yield Select(
-            [(config.label, config.id) for config in PREBUILT_CONFIGS],
+            [(config.label, config.id) for config in self.prebuilt_configs()],
             prompt="Custom / manual",
             allow_blank=True,
             id="prebuilt-config",
@@ -59,8 +148,8 @@ class TopologyScreen(Container):
         yield Label("Mock Topology", classes="subsection-label")
         yield LabeledSwitch(
             "Build DSX Air topology from development/mock_topology context",
-            value=self._config.run_mock_topology_job,
-            id="run-mock-topology-job",
+            value=self._config.use_mock_context_for_fabric,
+            id="generate-fabric-from-mock-context",
         )
         with Vertical(id="mock-topology-fields"):
             yield Label("Blueprint", classes="field-label")
@@ -75,13 +164,6 @@ class TopologyScreen(Container):
                 placeholder="demo",
                 id="deployment-name",
             )
-            yield Label("Mock Topology Path", classes="field-label")
-            yield Input(
-                value=self._config.mock_topology_path,
-                placeholder="development/mock_topology",
-                id="mock-topology-path",
-            )
-
         with Vertical(id="direct-topology-fields"):
             yield Label("DSX Air Topology YAML", classes="field-label")
             with Horizontal(classes="field-row"):
@@ -91,6 +173,10 @@ class TopologyScreen(Container):
                     id="topology-path",
                 )
                 yield Button("Browse", id="browse-topology", variant="default")
+
+        yield Label("─" * 40, classes="section-divider")
+        self._population_panel = self.create_population_panel()
+        yield self._population_panel
 
         yield Label("─" * 40, classes="section-divider")
         yield Label("Template Plugins", classes="subsection-label")
@@ -152,7 +238,7 @@ class TopologyScreen(Container):
             self._update_attach_fields()
 
     def on_labeled_switch_changed(self, event: LabeledSwitch.Changed) -> None:
-        if event.labeled_switch.id == "run-mock-topology-job":
+        if event.labeled_switch.id == "generate-fabric-from-mock-context":
             self._update_topology_fields()
 
     def on_select_changed(self, event: Select.Changed) -> None:
@@ -160,7 +246,7 @@ class TopologyScreen(Container):
             return
         if event.value == Select.BLANK:
             return
-        config = load_prebuilt_config(str(event.value))
+        config = self.load_prebuilt_config(str(event.value))
         app = self.app
         if hasattr(app, "apply_prebuilt_config"):
             app.apply_prebuilt_config(config)
@@ -171,7 +257,7 @@ class TopologyScreen(Container):
         self.query_one("#attach-fields").display = mode == "create-new"
 
     def _update_topology_fields(self) -> None:
-        use_mock = self.query_one("#run-mock-topology-job", LabeledSwitch).value
+        use_mock = self.query_one("#generate-fabric-from-mock-context", LabeledSwitch).value
         self.query_one("#mock-topology-fields").display = use_mock
         self.query_one("#direct-topology-fields").display = not use_mock
 
@@ -250,10 +336,13 @@ class TopologyScreen(Container):
     def write_to_config(self, config: SimConfig) -> None:
         self._collect_template_plugins()
         config.topology_path = self.query_one("#topology-path", Input).value.strip()
-        config.run_mock_topology_job = self.query_one("#run-mock-topology-job", LabeledSwitch).value
+        config.generate_fabric_from_mock_context = self.query_one(
+            "#generate-fabric-from-mock-context", LabeledSwitch
+        ).value
         config.mock_blueprint = self.query_one("#mock-blueprint", Input).value.strip()
         config.deployment_name = self.query_one("#deployment-name", Input).value.strip()
-        config.mock_topology_path = self.query_one("#mock-topology-path", Input).value.strip()
+        if self._population_panel is not None:
+            self._population_panel.write_to_config(config)
         config.template_plugin_paths = list(self._config.template_plugin_paths)
         config.simulation_name = self.query_one("#sim-name", Input).value.strip()
         config.oob_server_name = self.query_one("#oob-server-name", Input).value.strip()
@@ -268,11 +357,12 @@ class TopologyScreen(Container):
         try:
             self.query_one("#topology-path", Input).value = config.topology_path
             self.query_one(
-                "#run-mock-topology-job", LabeledSwitch
-            ).value = config.run_mock_topology_job
+                "#generate-fabric-from-mock-context", LabeledSwitch
+            ).value = config.use_mock_context_for_fabric
             self.query_one("#mock-blueprint", Input).value = config.mock_blueprint
             self.query_one("#deployment-name", Input).value = config.deployment_name
-            self.query_one("#mock-topology-path", Input).value = config.mock_topology_path
+            if self._population_panel is not None:
+                self._population_panel.sync_from_config(config)
             self._config.template_plugin_paths = list(config.template_plugin_paths)
             self._rebuild_template_plugins()
             self.query_one("#sim-name", Input).value = config.simulation_name
@@ -289,10 +379,12 @@ class TopologyScreen(Container):
         self._update_topology_fields()
 
     def get_status(self, config: SimConfig) -> str:
-        if config.run_mock_topology_job:
-            if config.mock_blueprint and config.deployment_name and config.mock_topology_path:
-                return "[*]"
-            return "[!]"
-        if config.topology_path:
-            return "[*]"
-        return "[!]"
+        fabric_is_configured = (
+            bool(config.mock_blueprint and config.deployment_name)
+            if config.use_mock_context_for_fabric
+            else bool(config.topology_path)
+        )
+        population_is_configured = (
+            self._population_panel is None or self._population_panel.get_status(config) != "[!]"
+        )
+        return "[*]" if fabric_is_configured and population_is_configured else "[!]"

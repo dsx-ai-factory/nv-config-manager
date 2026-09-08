@@ -46,16 +46,16 @@ with workflow.unsafe.imports_passed_through():
     )
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin
-    from nv_config_manager.temporal.ngc.activities.device import (
-        get_device_actual_neighbors,
-        get_device_mac_table,
-    )
-    from nv_config_manager.temporal.ngc.activities.nautobot import (
+    from nv_config_manager.temporal.ngc.activities.dcim import (
         GetNetworkDeviceInput,
         HostData,
         get_host_data_by_macs,
         get_host_data_by_names,
         get_network_device,
+    )
+    from nv_config_manager.temporal.ngc.activities.device import (
+        get_device_actual_neighbors,
+        get_device_mac_table,
     )
 
 
@@ -113,6 +113,7 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
         "Discover and analyze connected hosts via MAC table and LLDP neighbor data"
     )
     workflow_input_class = ConnectedHostWorkflowInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/connected_host_metadata"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
@@ -134,7 +135,7 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
         )
         self.define_stage(
             name="get_connected_host_data",
-            description="Get the host data from Nautobot",
+            description="Get the host data from the DCIM",
             requires_approval=False,
             depends_on=["get_device_mac_table", "get_device_neighbors"],
         )
@@ -275,7 +276,7 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
         """Get metadata for connected hosts."""
         mac_addresses = set(stage_input.mac_table.by_mac.keys())
 
-        # Add neighbor MACs in case LLDP hostnames don't match nautobot
+        # Add neighbor MACs in case LLDP hostnames don't match the DCIM
         for neighbor in stage_input.neighbor_data.neighbors.values():
             if neighbor.name and is_mac_address(neighbor.name):
                 mac_addresses.add(neighbor.name)

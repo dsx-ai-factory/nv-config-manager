@@ -45,7 +45,9 @@ export async function mockRuntimeConfigEndpoint(page: Page) {
       json: {
         workflowApiUrl: 'http://localhost:9000',
         configStoreApiUrl: 'http://localhost:9001',
-        nautobotUrl: 'https://nautobot.example.com',
+        dcimUrl: 'https://nautobot.example.com',
+        dcimProvider: 'nautobot',
+        dcimDisplayName: 'Nautobot',
         renderServiceUrl: 'http://localhost:9002',
         ztpUrl: 'http://localhost:9003',
         dhcpUrl: 'http://localhost:9004',

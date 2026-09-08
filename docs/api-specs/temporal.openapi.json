@@ -276,10 +276,11 @@
             "type": "array"
           },
           "device_ids": {
-            "description": "Nautobot identifiers of the devices to diagnose.",
+            "description": "DCIM identifiers of the devices to diagnose.",
             "items": {
               "type": "string"
             },
+            "maxItems": 1000,
             "title": "Device Ids",
             "type": "array"
           },
@@ -362,7 +363,7 @@
         "type": "object"
       },
       "IBPKeyCreationInput": {
-        "description": "InfiniBand PKey Creation Workflow Input.\n\nBy default, auto-assigns the next available PKey. Pass an explicit\n``pkey`` value only when a specific partition key is required.\n\n``site`` is optional. When omitted, the workflow resolves the device's\nSite-typed Nautobot location from ``host`` and uses that as the UFM\ncredential lookup key. Pass ``site`` explicitly to override the\nauto-resolved value (e.g. for API callers that want to skip the\nNautobot round-trip).",
+        "description": "InfiniBand PKey Creation Workflow Input.\n\nBy default, auto-assigns the next available PKey. Pass an explicit\n``pkey`` value only when a specific partition key is required.\n\n``site`` is optional. When omitted, the workflow resolves the device's\nSite-typed DCIM location from ``host`` and uses that as the UFM\ncredential lookup key. Pass ``site`` explicitly to override the\nauto-resolved value (e.g. for API callers that want to skip the\nDCIM round-trip).",
         "properties": {
           "host": {
             "description": "Hostname of the UFM server managing the InfiniBand fabric.",
@@ -446,7 +447,7 @@
           },
           "interfaces": {
             "default": [],
-            "description": "Nautobot interfaces to resolve to InfiniBand port GUIDs.",
+            "description": "DCIM interfaces to resolve to InfiniBand port GUIDs.",
             "items": {
               "$ref": "#/components/schemas/InterfaceRef"
             },
@@ -479,7 +480,7 @@
         "type": "object"
       },
       "IBPKeyMemberDeleteInput": {
-        "description": "InfiniBand PKey Member Delete Workflow Input.\n\nProvide either ``interfaces`` (resolved to GUIDs via Nautobot) or\n``guids`` directly, but not both. Site and Overlay are resolved\nserver-side from ``host`` and ``pkey``.",
+        "description": "InfiniBand PKey Member Delete Workflow Input.\n\nProvide either ``interfaces`` (resolved to GUIDs via the DCIM) or\n``guids`` directly, but not both. Site and Overlay are resolved\nserver-side from ``host`` and ``pkey``.",
         "properties": {
           "guids": {
             "default": [],
@@ -497,7 +498,7 @@
           },
           "interfaces": {
             "default": [],
-            "description": "Nautobot interfaces to resolve to InfiniBand port GUIDs.",
+            "description": "DCIM interfaces to resolve to InfiniBand port GUIDs.",
             "items": {
               "$ref": "#/components/schemas/InterfaceRef"
             },
@@ -545,7 +546,7 @@
           },
           "interfaces": {
             "default": [],
-            "description": "Nautobot interfaces to resolve to InfiniBand port GUIDs.",
+            "description": "DCIM interfaces to resolve to InfiniBand port GUIDs.",
             "items": {
               "$ref": "#/components/schemas/InterfaceRef"
             },
@@ -582,7 +583,7 @@
         "properties": {
           "dry_run": {
             "default": true,
-            "description": "Whether to report changes without updating Nautobot.",
+            "description": "Whether to report changes without updating the DCIM.",
             "title": "Dry Run",
             "type": "boolean"
           },
@@ -591,6 +592,7 @@
             "items": {
               "type": "string"
             },
+            "maxItems": 1000,
             "title": "Switch Device Ids",
             "type": "array"
           },
@@ -615,6 +617,7 @@
             "items": {
               "type": "string"
             },
+            "maxItems": 1000,
             "title": "Switch Device Ids",
             "type": "array"
           },
@@ -662,7 +665,7 @@
         "type": "object"
       },
       "InterfaceRef": {
-        "description": "A device/interface name pair used to look up an interface in Nautobot.\n\n``membership`` is an optional per-port override (\"full\"/\"limited\"); when unset\nthe caller's workflow-level default is applied.",
+        "description": "A device/interface name pair used to look up an interface in the DCIM.\n\n``membership`` is an optional per-port override (\"full\"/\"limited\"); when unset\nthe caller's workflow-level default is applied.",
         "properties": {
           "device": {
             "title": "Device",
@@ -798,24 +801,12 @@
         "type": "object"
       },
       "NetworkDeviceData": {
-        "description": "Network device data.",
+        "description": "Normalized network-device inventory and configuration intent.",
         "properties": {
           "backup_enabled": {
             "default": false,
             "title": "Backup Enabled",
             "type": "boolean"
-          },
-          "config_context": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Config Context"
           },
           "deploy_enabled": {
             "default": false,
@@ -829,6 +820,18 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
           },
           "name": {
             "title": "Name",
@@ -933,12 +936,13 @@
         "type": "object"
       },
       "Platform": {
-        "description": "Network device platform types.",
+        "description": "Network device platform types understood by the workflow services.",
         "enum": [
           "arista-eos",
           "cumulus-linux",
           "nv-os",
           "mlnx-os",
+          "juniper-junos",
           "ufm"
         ],
         "title": "Platform",
@@ -2700,7 +2704,7 @@
     },
     "/v1/parameter/device/{device_id}/password_users": {
       "get": {
-        "description": "Get available password users from device config context password_mappings.\n\nArgs:\n    device_id: The UUID of the device.\n\nReturns:\n    List of password users with their secret names from password_mappings.",
+        "description": "Get available password users and their secret names for a device.\n\nArgs:\n    device_id: The UUID of the device.\n\nReturns:\n    List of password users with their provider-normalized secret names.",
         "operationId": "get_device_password_users_v1_parameter_device__device_id__password_users_get",
         "parameters": [
           {
@@ -2752,7 +2756,7 @@
     },
     "/v1/parameter/device/{device_id}/secret_types": {
       "get": {
-        "description": "Get available secret types from device config context.\n\nArgs: device_id: The UUID of the device.\n\nReturns:\n    List of secret types plus versions from config context.",
+        "description": "Get available secret types from the configured DCIM provider.\n\nArgs: device_id: The UUID of the device.\n\nReturns:\n    List of secret types plus versions from config context.",
         "operationId": "get_device_users_with_versions_v1_parameter_device__device_id__secret_types_get",
         "parameters": [
           {
@@ -2804,7 +2808,7 @@
     },
     "/v1/parameter/device/{device_id}/secrets": {
       "get": {
-        "description": "Return a list of secrets available in device config context.\n\nArgs:\n    device_id: The UUID of the device to fetch secrets from\n\nReturns:\n    List of secrets found in the device's config context",
+        "description": "Return a list of secrets available for a device.\n\nArgs:\n    device_id: The UUID of the device to fetch secrets from\n\nReturns:\n    List of secrets returned by the configured DCIM provider",
         "operationId": "get_device_secrets_v1_parameter_device__device_id__secrets_get",
         "parameters": [
           {
@@ -2980,7 +2984,7 @@
     },
     "/v1/parameter/namespace-tag": {
       "get": {
-        "description": "Return a list of tags used by Nautobot namespaces.",
+        "description": "Return the configured DCIM provider's namespace tag choices.",
         "operationId": "get_namespace_tags_v1_parameter_namespace_tag_get",
         "parameters": [
           {
@@ -4276,7 +4280,7 @@
     },
     "/v1/workflow/ngc/ib_port_guid_discovery": {
       "post": {
-        "description": "Discover InfiniBand port GUIDs from UFM and sync them onto the matching Nautobot interfaces.",
+        "description": "Discover InfiniBand port GUIDs from UFM and sync them onto the matching DCIM interfaces.",
         "operationId": "ibportguiddiscoveryworkflow_endpoint_v1_workflow_ngc_ib_port_guid_discovery_post",
         "requestBody": {
           "content": {

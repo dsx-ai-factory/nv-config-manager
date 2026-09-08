@@ -23,7 +23,7 @@ import subprocess
 
 import pytest
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.dcim_provider("nautobot-2x")]
 
 
 def _get_nautobot_pod(namespace: str) -> str | None:

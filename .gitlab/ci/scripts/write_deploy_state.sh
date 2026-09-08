@@ -13,7 +13,8 @@
 #          BASELINE_REVISION, ENV_BRANCH_REVISION), and digests.env from
 #          test-promote-push-images (DIGEST_<IMAGE> x9)
 # Requires (eval of test_env_config.sh): NVCM_ENV, NVCM_ENV_BRANCH,
-#          NVCM_ENV_NAMESPACE, NVCM_ENV_RELEASE_NAME, NVCM_ENV_STATE_DIR
+#          NVCM_ENV_NAMESPACE, NVCM_ENV_RELEASE_NAME, NVCM_ENV_STATE_DIR,
+#          NVCM_ENV_ARGOCD_APPLICATION
 # Requires (protected variables): NV_CONFIG_MANAGER_VALUES_PUSH_TOKEN,
 #          NVCM_VALUES_REPO_PATH (or NV_CONFIG_MANAGER_VALUES_REPO_URL),
 #          NVCM_CHART_REPO (Helm repo URL ArgoCD reads the chart from, e.g.
@@ -25,6 +26,7 @@ set -euo pipefail
 : "${NVCM_ENV_NAMESPACE:?eval test_env_config.sh first}"
 : "${NVCM_ENV_RELEASE_NAME:?eval test_env_config.sh first}"
 : "${NVCM_ENV_STATE_DIR:?eval test_env_config.sh first}"
+: "${NVCM_ENV_ARGOCD_APPLICATION:?eval test_env_config.sh first}"
 : "${NVCM_CHART_REPO:?Set NVCM_CHART_REPO to the Helm repo URL ArgoCD reads the chart from}"
 
 # ---------------------------------------------------------------------------
@@ -84,6 +86,16 @@ fi
 
 state_file="${NVCM_ENV_STATE_DIR}/deploy-state.yaml"
 occupant="${GITLAB_USER_LOGIN:-${GITLAB_USER_NAME:-ci}}"
+deploy_attest="${CI_PROJECT_DIR}/deploy.env"
+
+write_deploy_attestation() {
+    local git_revision="$1"
+    {
+        printf 'ARGOCD_APPLICATION=%s\n' "$NVCM_ENV_ARGOCD_APPLICATION"
+        printf 'ARGOCD_EXPECTED_CHART_REVISION=%s\n' "$PROMOTE_VERSION"
+        printf 'ARGOCD_EXPECTED_GIT_REVISION=%s\n' "$git_revision"
+    } > "$deploy_attest"
+}
 
 echo "Committing deploy-state for env '${NVCM_ENV}' to ${values_repo_display}@${NVCM_ENV_BRANCH}:${state_file}"
 
@@ -182,15 +194,40 @@ yq -n '
 mv "${state_file}.merged" "$state_file"
 rm -f "${state_file}.new"
 
-if git diff --quiet "$state_file"; then
-    echo "No deploy-state changes; ${NVCM_ENV} is already at ${PROMOTE_VERSION}."
+# Snapshot the blessed baseline onto the env branch, in this same commit.
+#
+# ArgoCD renders every value file for this env from ONE revision of the values
+# repository - it rejects a multi-source Application referencing one repo at two
+# revisions, so the appset cannot read the baseline from main while reading the
+# overrides from the env branch. The baseline therefore has to BE on the branch.
+#
+# Committing it here, alongside deploy-state.yaml, is what keeps rollback exact:
+# re-committing a prior deploy-state also restores the baseline it was rendered
+# against, with no dependency on main's history. baseline_rev stays in
+# deploy-state as provenance recording where this snapshot came from.
+baseline_file="${NVCM_ENV_BASELINE_VALUES}"
+if ! git cat-file -e "${baseline_rev}:${baseline_file}" 2>/dev/null; then
+    echo "ERROR: ${baseline_rev} does not contain ${baseline_file}." >&2
+    echo "The render gate validated against a baseline this commit lacks - refusing"
+    echo "to deploy a baseline that was never validated."
+    exit 1
+fi
+git show "${baseline_rev}:${baseline_file}" > "$baseline_file"
+
+if git diff --quiet "$state_file" "$baseline_file"; then
+    echo "No deploy-state or baseline changes; ${NVCM_ENV} is already at ${PROMOTE_VERSION}."
+    write_deploy_attestation "$(git rev-parse HEAD)"
     exit 0
 fi
 
 echo "Deploy-state diff:"
 git diff "$state_file"
+if ! git diff --quiet "$baseline_file"; then
+    echo "Baseline snapshot diff (from main @ ${baseline_rev}):"
+    git diff --stat "$baseline_file"
+fi
 
-git add "$state_file"
+git add "$state_file" "$baseline_file"
 git commit -m "[nvcm CI] Promote PR #${PR_NUM} (${PROMOTE_VERSION}) to ${NVCM_ENV}
 
 Source commit: ${PR_SHA}
@@ -198,9 +235,10 @@ Baseline: ${baseline_rev}
 Triggered by: ${occupant}
 Pipeline: ${CI_PIPELINE_URL}"
 git push origin "HEAD:refs/heads/${NVCM_ENV_BRANCH}"
+write_deploy_attestation "$(git rev-parse HEAD)"
 
 echo ""
-echo "Deploy-state committed. ArgoCD will sync ${NVCM_ENV} to chart ${PROMOTE_VERSION} with digest-pinned images."
+echo "Deploy-state committed. Waiting for ArgoCD to sync ${NVCM_ENV} to chart ${PROMOTE_VERSION} with digest-pinned images."
 # Only build the web view URL from a known project path - a full-URL override
 # has no clean path and could otherwise produce a malformed/credential URL.
 if [[ -n "$values_repo_path" ]]; then

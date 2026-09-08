@@ -53,6 +53,7 @@ spec:
       labels:
         app.kubernetes.io/name: {{ $redisName }}
         app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "nv-config-manager.customPodLabels" . | nindent 8 }}
     spec:
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -112,6 +113,27 @@ spec:
           volumeMounts:
             - name: {{ $redisName }}-data
               mountPath: /data
+        {{- if .Values.externalServices.redis.metricsExport.enabled }}
+        - name: redis-exporter
+          image: "{{ .Values.global.images.redisExporter.repository }}:{{ .Values.global.images.redisExporter.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
+          {{- include "nv-config-manager.containerSecurityContext" . | nindent 10 }}
+          env:
+            - name: REDIS_ADDR
+              value: redis://localhost:6379
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-password
+                  key: password
+            - name: REDIS_EXPORTER_WEB_LISTEN_ADDRESS
+              value: ":{{ .Values.externalServices.redis.metricsExport.port }}"
+          ports:
+            - containerPort: {{ .Values.externalServices.redis.metricsExport.port }}
+              name: redis-metrics
+          resources:
+            {{- toYaml .Values.externalServices.redis.metricsExport.resources | nindent 12 }}
+        {{- end }}
       volumes:
         - name: {{ $redisName }}-data
           {{- if .Values.externalServices.redis.persistence.enabled }}

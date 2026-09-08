@@ -14,13 +14,17 @@
 # limitations under the License.
 """Tests for nv_config_manager.common.log."""
 
+import io
+import json
 import logging
 from unittest import mock
 
 import pytest
+from pythonjsonlogger.json import JsonFormatter
 
 from nv_config_manager.common import log
-from nv_config_manager.common.log import escape_log_newlines, get_logger
+from nv_config_manager.common.log import EscapingFilter, escape_log_newlines, get_logger
+from nv_config_manager_workflows.log import WORKFLOW_LOG_CATEGORY
 
 # W3C trace-context example IDs.
 _TRACE_ID = 0x4BF92F3577B34DA6A3CE929D0E0E4736
@@ -183,6 +187,62 @@ def test_logger_adapter_recursively_escapes_collection_arguments(
     assert caplog.messages[-1] == (
         r"nested={'bad\\n\\x1bkey': ['before\\nafter', ('bad\\rvalue',)]}"
     )
+
+
+def test_workflow_package_category_matches_this_services_label() -> None:
+    """The workflows package cannot import LogCategory, so it declares the label itself.
+
+    Both definitions feed the same ``category`` field, so a rename on either side
+    would silently split one dashboard filter into two.
+    """
+    assert WORKFLOW_LOG_CATEGORY == log.LogCategory.TEMPORAL_WORKFLOW
+
+
+def _emit_through_escaping_filter(msg: object, *args: object) -> str:
+    """Log one record through a handler carrying the filter, as configured services do."""
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(JsonFormatter("%(message)s"))
+    handler.addFilter(EscapingFilter())
+
+    logger = logging.getLogger("test.escaping-filter")
+    logger.handlers = [handler]
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.info(msg, *args)
+
+    return stream.getvalue().strip()
+
+
+def test_escaping_filter_escapes_plain_messages() -> None:
+    """Packages using a stdlib logger get the same sanitizing as the adapter."""
+    emitted = json.loads(_emit_through_escaping_filter("stage=%s", "render\nERROR forged"))
+
+    assert emitted["message"] == r"stage=render\nERROR forged"
+
+
+def test_escaping_filter_preserves_a_structured_message() -> None:
+    """A mapping message is merged into JSON as fields, so it must not be stringified."""
+    emitted = json.loads(_emit_through_escaping_filter({"event": "deploy", "device": "leaf01"}))
+
+    assert emitted["event"] == "deploy"
+    assert emitted["device"] == "leaf01"
+
+
+def test_escaping_filter_escapes_inside_a_structured_message() -> None:
+    """Keeping the structure must not let a value forge a log line."""
+    emitted = json.loads(
+        _emit_through_escaping_filter({"devices": [{"name": "leaf01\nERROR forged"}]})
+    )
+
+    assert emitted["devices"] == [{"name": r"leaf01\nERROR forged"}]
+
+
+def test_escaping_filter_preserves_numeric_arguments() -> None:
+    """Stringifying a number here would break %d formatting downstream."""
+    emitted = json.loads(_emit_through_escaping_filter("count=%d", 42))
+
+    assert emitted["message"] == "count=42"
 
 
 def test_logger_adapter_merges_per_call_structured_fields(

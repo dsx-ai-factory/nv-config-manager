@@ -64,7 +64,7 @@ async def main() -> None:
         runtime=runtime,
     )
 
-    # Combine activity lists - registered activities are lists of callables
+    # Every core workflow is relevant to every supported DCIM provider.
     all_activities = [
         *NGC_REGISTERED_ACTIVITIES,
         *HELLO_WORLD_REGISTERED_ACTIVITIES,

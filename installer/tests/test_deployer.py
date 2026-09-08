@@ -42,12 +42,14 @@ from nv_config_manager_installer.deployer import (
     _RerunState,
     _run_logged_parallel,
     _unready_pod_summary_lines,
+    find_project_root,
 )
 from nv_config_manager_installer.k8s import LOADER_POD_IMAGE
 from nv_config_manager_installer.nautobot_jobs import NautobotJobRunner
 from nv_config_manager_installer.schema import (
     ClusterConfig,
     ContentConfig,
+    DCIMConfig,
     GatewayType,
     GitTokenEntry,
     ImagePullSecret,
@@ -189,6 +191,17 @@ class RecordingCallback:
         self.completed.append((success, endpoints))
 
 
+def test_project_root_defaults_to_installer_source_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unrelated repository in cwd cannot capture installer path resolution."""
+    (tmp_path / "Makefile").write_text("wrapper repository\n")
+    monkeypatch.chdir(tmp_path)
+
+    assert find_project_root() == Path(__file__).resolve().parents[2]
+    assert find_project_root(tmp_path) == tmp_path.resolve()
+
+
 class TestDeployerInit:
     def test_steps_initialized(self):
         config = _make_config()
@@ -205,6 +218,7 @@ class TestDeployerInit:
     def test_revalidates_tui_config_before_deployment(self):
         config = _make_config()
         config.services.nautobot = False
+        config.services.external_nautobot_url = "https://nb.example.com"
         config.content.run_after_deploy = [PostDeployJob(job="jobs.bootstrap.SiteBootstrap")]
 
         with pytest.raises(ValueError, match="post-deploy jobs require a local Nautobot"):
@@ -264,6 +278,53 @@ class TestGatewayClassReuse:
 
 
 class TestStepSequencing:
+    def test_derived_provider_hooks_wrap_helm_install(self, monkeypatch, tmp_path):
+        calls: list[str] = []
+
+        class ProviderDeployer(Deployer):
+            def _run_provider_pre_helm_install(self) -> None:
+                calls.append("provider-pre")
+
+            def _helm_install(self) -> None:
+                calls.append("helm")
+
+            def _run_provider_post_helm_install(self) -> None:
+                calls.append("provider-post")
+
+        deployer = ProviderDeployer(_make_config(), DeployOptions(), RecordingCallback())
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer.find_project_root", lambda _explicit: tmp_path
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer.pin_kubeconfig_to_current_context", lambda: None
+        )
+        monkeypatch.setattr(deployer, "_validate_project_paths", lambda _root: None)
+        for method_name in (
+            "_check_prerequisites",
+            "_detect_existing_state",
+            "_build_images",
+            "_load_kind",
+            "_install_crds",
+            "_create_namespace",
+            "_create_secrets",
+            "_populate_vault",
+            "_setup_jobs_pvc",
+            "_setup_templates_pvc",
+            "_setup_ztp_pvc",
+            "_generate_values",
+            "_patch_gateway",
+            "_restart_nautobot",
+            "_restart_render_service",
+            "_run_post_deploy_jobs",
+            "_refresh_caches",
+            "_run_integration_tests",
+        ):
+            monkeypatch.setattr(deployer, method_name, lambda: None)
+        monkeypatch.setattr(deployer, "_collect_endpoints", lambda: [])
+
+        assert deployer.run() is True
+        assert calls == ["provider-pre", "helm", "provider-post"]
+
     @patch("nv_config_manager_installer.deployer.shutil.which", return_value=None)
     def test_prereqs_fail_when_kubectl_missing(self, mock_which):
         config = _make_config()
@@ -853,6 +914,49 @@ class TestImageBuilds:
 
 
 class TestKindImageLoading:
+    def test_external_dcim_excludes_nautobot_from_local_images(self):
+        config = _make_config()
+        config.services.nautobot = False
+        config.dcim = DCIMConfig(provider="synthetic", server="https://synthetic.example")
+        deployer = Deployer(config, DeployOptions(), RecordingCallback())
+
+        image_names = {build[0] for build in deployer._local_image_builds()}
+
+        assert "nv-config-manager-nautobot" not in image_names
+        assert len(image_names) == 8
+
+    def test_external_dcim_does_not_load_nautobot_image(self, monkeypatch):
+        logged_commands: list[list[str]] = []
+        config = _make_config()
+        config.services.nautobot = False
+        config.dcim = DCIMConfig(provider="synthetic", server="https://synthetic.example")
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._run_logged",
+            lambda cmd, *_args, **_kwargs: logged_commands.append(cmd),
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._docker_server_platform",
+            lambda: "linux/amd64",
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._kind_preload_images", lambda _config: []
+        )
+        deployer = Deployer(
+            config,
+            DeployOptions(load_kind=True, kind_cluster="test-cluster"),
+            RecordingCallback(),
+        )
+
+        deployer._load_kind()
+
+        loaded_images = {
+            command[3]
+            for command in logged_commands
+            if command[:3] == ["kind", "load", "docker-image"]
+        }
+        assert "nv-config-manager-nautobot:local" not in loaded_images
+        assert len(loaded_images) == 8
+
     def test_kind_preload_images_include_defaults_config_and_env(self, monkeypatch):
         config = _make_config()
         config.images.kind_preload_images = [
@@ -1527,6 +1631,38 @@ class TestK8sClientIntegration:
             if call.args[0] == "nautobot-token"
         )
         assert "read-only-token" not in nautobot_token_call.args[2]
+
+    @patch("nv_config_manager_installer.deployer._run_logged")
+    @patch("nv_config_manager_installer.deployer._run")
+    @patch("nv_config_manager_installer.deployer.K8sClient")
+    @patch("nv_config_manager_installer.deployer.shutil.which", return_value="/usr/bin/kubectl")
+    def test_external_dcim_creates_the_configured_token_secret(
+        self, mock_which, mock_k8s_cls, mock_run, mock_run_logged
+    ):
+        mock_k8s = _mock_k8s()
+        mock_k8s_cls.return_value = mock_k8s
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run_logged.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        config = _make_config()
+        config.dcim = DCIMConfig(
+            provider="synthetic",
+            server="https://synthetic.example",
+            token_secret_name="synthetic-dcim-token",
+            token_secret_key="access-token",
+        )
+        config.services = ServicesConfig(nautobot=False)
+
+        Deployer(config, DeployOptions(dry_run=True), RecordingCallback()).run()
+
+        token_call = next(
+            call
+            for call in mock_k8s.apply_secret.call_args_list
+            if call.args[0] == "synthetic-dcim-token"
+        )
+        assert token_call.args[2]["access-token"]
+        secret_names = [call.args[0] for call in mock_k8s.apply_secret.call_args_list]
+        assert "nautobot-admin" not in secret_names
+        assert {"nats-sys", "nats-nv-config-manager", "nats-nautobot"}.issubset(secret_names)
 
     @patch("nv_config_manager_installer.deployer._run_logged")
     @patch("nv_config_manager_installer.deployer._run")

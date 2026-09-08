@@ -1,0 +1,74 @@
+fragment DHCPInterface on InterfaceType {
+  name
+  mac_address
+  role {
+    name
+  }
+  device {
+    id
+    name
+    serial
+    platform {
+      name
+    }
+    status {
+      name
+    }
+    configmanagerdevicestatus {
+      ztp_enabled
+      is_aggregate_managed
+    }
+  }
+}
+
+query site_dhcp_options {
+  config_contexts(schema: "nv-config-manager-site-dhcp-option-def", is_active: true) {
+    data
+  }
+}
+
+query dhcp_contexts($is_aggregate_managed: Boolean) {
+  config_manager_devices(ztp_enabled: true, is_aggregate_managed: $is_aggregate_managed) {
+    device {
+      id
+      config_context
+    }
+  }
+}
+
+query static_data {
+  config_contexts(schema: "nv-config-manager-kea-static-data", is_active: true) {
+    data
+  }
+}
+
+query auto_dhcp_subnets {
+  prefixes(tags: ["dhcp-subnet"]) {
+    id
+    prefix
+    ip_version
+    rel_prefix_to_gateway {
+      address
+    }
+  }
+  pool_ips: ip_addresses(tags: ["dhcp-pool"]) {
+    address
+    ip_version
+    parent {
+      id
+    }
+    interfaces {
+      ...DHCPInterface
+    }
+  }
+  reserved_ips: ip_addresses(tags: ["dhcp-reserve"]) {
+    address
+    ip_version
+    parent {
+      id
+    }
+    interfaces {
+      ...DHCPInterface
+    }
+  }
+}

@@ -23,7 +23,7 @@ flowchart LR
     Leaf -->|"5"| Fabric["Rest of Fabric"]
 ```
 
-The Mgmt switches provision via Front Panel Ports (FPP) first, then the rest of the network comes up from there. Since the MAC address of FPPs is usually not available ahead of time (for example, by inspecting a chassis label) DHCP cannot rely on a MAC address-based reservation, so a DHCP pool of size 1 is used on the /31 downlink to ensure the switch gets the expected IP configured in Nautobot. Non-Mgmt switches should have known mgmt port MAC addresses that can be used to create their DHCP reservations. See the [DHCP guide](../dhcp/nautobot-modeling.mdx) for more information on how to configure DHCP in Nautobot.
+The Mgmt switches provision via Front Panel Ports (FPP) first, then the rest of the network comes up from there. Since the MAC address of FPPs is usually not available ahead of time (for example, by inspecting a chassis label) DHCP cannot rely on a MAC address-based reservation, so a DHCP pool of size 1 is used on the /31 downlink to ensure the switch gets the expected IP configured in the selected DCIM provider. Non-Mgmt switches should have known mgmt port MAC addresses that can be used to create their DHCP reservations. The [DHCP Modeling in Nautobot](../dhcp/nautobot-modeling.mdx) guide describes the bundled provider's equivalent data model.
 
 1. **OOB Switch** — directly connected to the Config Manager cluster; provides the first hop for DHCP relay.
 1. **Mgmt Core Switch** — receives DHCP relay from the OOB-Switch and forwards toward Config Manager (relay target points to the Config Manager DHCP VIP or cloud address).
@@ -40,7 +40,7 @@ The Mgmt switches provision via Front Panel Ports (FPP) first, then the rest of 
 
 ## DHCP relay chain
 
-The Config Manager DHCP service generates ISC Kea configurations from Nautobot data. For ZTP to work, the network must provide a DHCP relay path from every managed switch back to the Config Manager DHCP service:
+The Config Manager DHCP service generates ISC Kea configurations from selected-provider data. For ZTP to work, the network must provide a DHCP relay path from every managed switch back to the Config Manager DHCP service:
 
 1. **Switch boots** with factory defaults and sends a DHCP discover on its management interface.
 1. **Nearest relay agent** (typically a Mgmt Leaf or Mgmt Core) forwards the request toward the Config Manager DHCP VIP.

@@ -32,7 +32,7 @@ from nv_config_manager.temporal.ngc.workflows._ib_pkey_lock import UFMHostLockMi
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
-    from nv_config_manager.temporal.ngc.activities.ib_nautobot import (
+    from nv_config_manager.temporal.ngc.activities.ib_dcim import (
         InterfaceRef,
         RecordPKeyAssignmentsInput,
         RecordPKeyAssignmentsOutput,
@@ -69,7 +69,7 @@ class IBPKeyMemberAddInput(BaseModel):
     host: str = Field(description="Hostname of the UFM server managing the InfiniBand fabric.")
     pkey: str = Field(description="Partition key whose membership will be expanded.")
     interfaces: list[InterfaceRef] = Field(
-        default=[], description="Nautobot interfaces to resolve to InfiniBand port GUIDs."
+        default=[], description="DCIM interfaces to resolve to InfiniBand port GUIDs."
     )
     guids: list[str] = Field(
         default=[], description="InfiniBand port GUIDs to add directly to the partition."
@@ -124,6 +124,7 @@ class IBPKeyMemberAddWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageMixi
     workflow_name = "InfiniBand PKey Member Add"
     workflow_description = "Add device interfaces to an existing InfiniBand PKey partition"
     workflow_input_class = IBPKeyMemberAddInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/ib_pkey_member_add"
     workflow_namespace = "ngc"
     workflow_lock = WorkflowLockSpec(key_fields=["host", "pkey"])
@@ -133,13 +134,13 @@ class IBPKeyMemberAddWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageMixi
         StageMixin.__init__(self)
         self.define_stage(
             name="resolve_context",
-            description="Resolve site, overlay, and canonical pkey from Nautobot",
+            description="Resolve site, overlay, and canonical pkey from the DCIM",
             requires_approval=False,
             depends_on=[],
         )
         self.define_stage(
             name="resolve_guids",
-            description="Resolve IB GUIDs for interfaces from Nautobot",
+            description="Resolve IB GUIDs for interfaces from the DCIM",
             requires_approval=False,
             depends_on=["resolve_context"],
         )
@@ -157,13 +158,13 @@ class IBPKeyMemberAddWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageMixi
         )
         self.define_stage(
             name="record_assignments",
-            description="Record OverlayAssignment entries in Nautobot",
+            description="Record OverlayAssignment entries in the DCIM",
             requires_approval=False,
             depends_on=["verify_members"],
         )
 
     # ------------------------------------------------------------------
-    # Stage 0: Resolve site / overlay / canonical pkey from Nautobot
+    # Stage 0: Resolve site / overlay / canonical pkey from the DCIM
     # ------------------------------------------------------------------
 
     class ResolveContextStageInput(StageInput):
@@ -187,10 +188,10 @@ class IBPKeyMemberAddWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageMixi
     async def resolve_context(
         self, stage_input: ResolveContextStageInput
     ) -> ResolveContextStageOutput:
-        """Resolve site/overlay from Nautobot and canonicalize pkey.
+        """Resolve site/overlay from the DCIM and canonicalize pkey.
 
         Uses the add-specific resolver which lazily creates an Overlay at the
-        device's Site when only an orphan PKey row exists in Nautobot.
+        device's Site when only an orphan PKey row exists in the DCIM.
         """
         resolved = await call_resolve_ib_context_for_add(stage_input.host, stage_input.pkey)
 
@@ -209,7 +210,7 @@ class IBPKeyMemberAddWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageMixi
         )
 
     # ------------------------------------------------------------------
-    # Stage 1: Resolve GUIDs from Nautobot
+    # Stage 1: Resolve GUIDs from the DCIM
     # ------------------------------------------------------------------
 
     class ResolveGuidsStageInput(StageInput):
@@ -227,7 +228,7 @@ class IBPKeyMemberAddWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageMixi
 
     @stage_executor("resolve_guids")
     async def resolve_guids(self, stage_input: ResolveGuidsStageInput) -> ResolveGuidsStageOutput:
-        """Resolve members from interfaces or GUIDs into Nautobot interface records."""
+        """Resolve members from interfaces or GUIDs into DCIM interface records."""
         resolved, display = await resolve_members(
             stage_input.interfaces,
             stage_input.guids,
@@ -321,7 +322,7 @@ class IBPKeyMemberAddWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageMixi
         )
 
     # ------------------------------------------------------------------
-    # Stage 4: Record OverlayAssignments in Nautobot
+    # Stage 4: Record overlay assignments in the DCIM
     # ------------------------------------------------------------------
 
     class RecordAssignmentsStageInput(StageInput):
@@ -340,7 +341,7 @@ class IBPKeyMemberAddWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageMixi
     async def record_assignments(
         self, stage_input: RecordAssignmentsStageInput
     ) -> RecordAssignmentsStageOutput:
-        """Create OverlayAssignment records in Nautobot for each interface."""
+        """Create overlay assignment records in the DCIM for each interface."""
         result: RecordPKeyAssignmentsOutput = await workflow.execute_activity(
             record_pkey_assignments,
             RecordPKeyAssignmentsInput(

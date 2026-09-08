@@ -20,14 +20,14 @@ type ConsumerType string
 
 // List of ConsumerType
 const (
-	NAUTOBOT ConsumerType = "nautobot"
+	DCIM     ConsumerType = "dcim"
 	DEVICE   ConsumerType = "device"
 	TEMPLATE ConsumerType = "template"
 )
 
 // All allowed values of ConsumerType enum
 var AllowedConsumerTypeEnumValues = []ConsumerType{
-	"nautobot",
+	"dcim",
 	"device",
 	"template",
 }

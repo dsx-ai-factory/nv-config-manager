@@ -39,14 +39,10 @@ from nv_config_manager.temporal.common.workflow_references import (
 )
 
 with workflow.unsafe.imports_passed_through():
-    from nv_config_manager.temporal.client.nautobot import DeviceVrfInfo
+    from nv_config_manager.dcim import DeviceVRF
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin, NetworkDeviceData
-    from nv_config_manager.temporal.ngc.activities.deploy import (
-        WaitForTenantRenderInput,
-        wait_for_tenant_render,
-    )
-    from nv_config_manager.temporal.ngc.activities.nautobot import (
+    from nv_config_manager.temporal.ngc.activities.dcim import (
         AssignVrfToDeviceInput,
         AssignVrfToInterfaceInput,
         CheckRecordedConfigDriftInput,
@@ -75,6 +71,10 @@ with workflow.unsafe.imports_passed_through():
         provision_vrf,
         reconcile_spx_overlay_assignments,
         remove_unmapped_device_vrfs,
+    )
+    from nv_config_manager.temporal.ngc.activities.deploy import (
+        WaitForTenantRenderInput,
+        wait_for_tenant_render,
     )
     from nv_config_manager.temporal.ngc.activities.render import (
         ExecuteRenderInput,
@@ -141,6 +141,7 @@ class SpXOverlayCreationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin
         "Create a SpX Overlay with route distinguisher assignment and VRF/VXLAN provisioning"
     )
     workflow_input_class = SpXOverlayCreationInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_creation"
     workflow_namespace = "ngc"
 
@@ -291,6 +292,7 @@ class SpXOverlayDeletionWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin
         "Delete a SpX Overlay and its associated VRFs/VXLANs with validation checks"
     )
     workflow_input_class = SpXOverlayDeletionInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_deletion"
     workflow_namespace = "ngc"
 
@@ -299,7 +301,7 @@ class SpXOverlayDeletionWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin
         StageMixin.__init__(self)
         self.define_stage(
             name="delete_spx_overlay",
-            description="Validate and delete Nautobot VRFs tied to the VPC.",
+            description="Validate and delete DCIM VRFs tied to the VPC.",
             requires_approval=False,
             depends_on=[],
         )
@@ -460,7 +462,7 @@ class SpXOverlayAssignmentWorkflowOutput(BaseModel):
     overlay_assignments_created: int
     overlay_assignments_removed: int
     overlay_reconciliation_changed: bool = False
-    vrf: DeviceVrfInfo | None
+    vrf: DeviceVRF | None
 
 
 @workflow.defn
@@ -471,6 +473,7 @@ class SpXOverlayAssignmentWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
     workflow_name = "SpX Overlay Assignment"
     workflow_description = "Change or remove a SpX Overlay/VRF assignment on device ports"
     workflow_input_class = SpXOverlayAssignmentInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_assignment"
     workflow_namespace = "ngc"
 
@@ -479,7 +482,7 @@ class SpXOverlayAssignmentWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
         StageMixin.__init__(self)
         self.define_stage(
             name="get_device_and_vrf",
-            description="Get device and VRF information from Nautobot.",
+            description="Get device and VRF information from the DCIM.",
             requires_approval=False,
             depends_on=[],
         )
@@ -775,7 +778,7 @@ class SpXOverlayAssignmentWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
             overlay_assignments_removed=ports_output.overlay_assignments_removed,
             overlay_reconciliation_changed=ports_output.overlay_reconciliation_changed,
             vrf=(
-                DeviceVrfInfo(
+                DeviceVRF(
                     vrf_id=device_vrf_output.vrf.id,
                     vrf_name=device_vrf_output.vrf.name,
                 )
@@ -818,7 +821,7 @@ class SpXOverlayTenantChangeWorkflowOutput(BaseModel):
     removed_vrf_ids: list[str]
     overlay_assignments_created: int
     overlay_assignments_removed: int
-    vrf: DeviceVrfInfo | None
+    vrf: DeviceVRF | None
     device_deployed: str | None
 
 
@@ -831,6 +834,7 @@ class SpXOverlayTenantChangeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
         "Change or remove a SpX Overlay assignment and deploy tenant configuration"
     )
     workflow_input_class = SpXOverlayTenantChangeInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_tenant_change"
     workflow_namespace = "ngc"
 
@@ -839,7 +843,7 @@ class SpXOverlayTenantChangeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
         StageMixin.__init__(self)
         self.define_stage(
             name="get_device",
-            description="Get device information from Nautobot",
+            description="Get device information from the DCIM",
             requires_approval=False,
             depends_on=[],
         )
@@ -891,7 +895,7 @@ class SpXOverlayTenantChangeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
 
     @stage_executor("get_device")
     async def get_device_stage(self, stage_input: GetDeviceStageInput) -> GetDeviceStageOutput:
-        """Get device information from Nautobot."""
+        """Get device information from the configured DCIM."""
         device_output = await workflow.execute_activity(
             get_network_device,
             GetNetworkDeviceInput(device_id=stage_input.device_id),
@@ -922,7 +926,7 @@ class SpXOverlayTenantChangeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
         overlay_assignments_created: int
         overlay_assignments_removed: int
         overlay_reconciliation_changed: bool = False
-        vrf: DeviceVrfInfo | None
+        vrf: DeviceVRF | None
         overlay_name: str | None
         vxlan_name: str | None
         error: str | None = None
@@ -1039,7 +1043,7 @@ class SpXOverlayTenantChangeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
         if stage_input.assignment_changed:
             return self.DetermineDeploymentActionStageOutput(
                 deploy_required=True,
-                display="Nautobot assignment changed; tenant render and deploy are required.",
+                display="DCIM assignment changed; tenant render and deploy are required.",
             )
 
         has_pending_deployment = await workflow.execute_activity(
@@ -1053,14 +1057,14 @@ class SpXOverlayTenantChangeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
                 deploy_required=True,
                 use_latest_render=True,
                 display=(
-                    "Nautobot assignment was already complete, but the device has a pending "
+                    "DCIM assignment was already complete, but the device has a pending "
                     "deployment; deploying the latest rendered tenant configuration."
                 ),
             )
 
         return self.DetermineDeploymentActionStageOutput(
             deploy_required=False,
-            display="Nautobot assignment is already complete and no deployment is pending.",
+            display="DCIM assignment is already complete and no deployment is pending.",
         )
 
     class RenderStageInput(StageInput):

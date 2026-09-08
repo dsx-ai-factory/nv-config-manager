@@ -27,7 +27,7 @@ type IBPKeyMemberUpdateInput struct {
 	Guids []string `json:"guids,omitempty"`
 	// Hostname of the UFM server managing the InfiniBand fabric.
 	Host string `json:"host"`
-	// Nautobot interfaces to resolve to InfiniBand port GUIDs.
+	// DCIM interfaces to resolve to InfiniBand port GUIDs.
 	Interfaces []InterfaceRef `json:"interfaces,omitempty"`
 	// IP over InfiniBand setting used when the partition does not already exist.
 	IpOverIb *bool `json:"ip_over_ib,omitempty"`

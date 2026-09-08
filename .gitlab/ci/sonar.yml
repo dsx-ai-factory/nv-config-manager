@@ -8,6 +8,8 @@
   - ".gitlab/**/*"
   - "build/**/*"
   - "components/**/*"
+  - "packages/**/*"
+  - "plugins/**/*"
   - "db/**/*"
   - "deploy/**/*"
   - "development/**/*"
@@ -65,7 +67,7 @@ sonar-scanner:
         for report in \
           coverage.xml \
           components/nautobot/coverage.xml \
-          components/network-templates/coverage.xml \
+          packages/templates/coverage.xml \
           installer/coverage.xml; do
           if [ ! -s "$report" ]; then
             echo "Missing required Sonar coverage report: $report" >&2
@@ -78,9 +80,9 @@ sonar-scanner:
   # The internal mirror is post-merge reporting, not an upstream merge gate.
   allow_failure: true
   rules:
-    # Skip during test-env promote pipelines (web pipelines on the default
-    # branch with $NVCM_PROMOTE_ENV set).
-    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/
+    # Skip default-branch triggered pipelines without trusting their supplied
+    # variables; the promote validators authorize their dedicated jobs.
+    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/)
       when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes: *sonar-change-paths
@@ -116,8 +118,8 @@ sonarqube-vulnerability-report:
     - 'jq -e ''.version and (.vulnerabilities | type == "array")'' gl-sast-sonar-report.json >/dev/null'
   allow_failure: true
   rules:
-    # Skip during test-env promote pipelines (see sonar-scanner).
-    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/
+    # Skip default-branch triggered pipelines (see sonar-scanner).
+    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/)
       when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes: *sonar-change-paths

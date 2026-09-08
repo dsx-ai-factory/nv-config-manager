@@ -1,0 +1,350 @@
+---
+title: Contribute a DCIM Provider
+sidebar-title: Contribute a DCIM Provider
+---
+
+NVIDIA Config Manager (NVCM) separates its service code from the network
+source of truth through the `nv-config-manager-dcim` SDK. A DCIM provider is a
+separately installable Python package that translates one DCIM's native API,
+data model, and events into the SDK's provider-neutral contracts.
+
+The bundled Nautobot package is the reference implementation, not a
+requirement. A provider may use REST, GraphQL, a client library, event
+subscriptions, or a combination of those mechanisms. Do not model a new
+provider after Nautobot's GraphQL schema; model it after the SDK contracts.
+
+## What belongs in a provider
+
+A provider owns all backend-specific work:
+
+- Connection settings validation and client construction.
+- Native API calls and schema translation.
+- Pydantic SDK models returned by `DCIMClient` operations.
+- The `RenderData` payload for template rendering.
+- Native change-event normalization and the logic that identifies which
+  devices an event affects.
+- Provider-specific intent reads and writes used by ZTP, DHCP, configuration
+  backup, and Temporal workflows.
+
+NVCM services own deployment configuration parsing, secret delivery, logging
+policy, metrics, retries, queues, and workflow behavior. A provider must not
+import `nv_config_manager` service modules or use service-specific models.
+Likewise, services must not import the provider's client class or native data
+types. Both sides meet only through `nv_config_manager_dcim`.
+
+All existing workflows are provider agnostic. Do not add provider-name checks
+or a Nautobot fallback to a workflow to make a provider work. Implement the
+corresponding SDK operation instead. If an operation genuinely is unavailable
+from a DCIM, raise `DCIMOperationNotSupportedError` with a useful explanation.
+
+## Package and discovery contract
+
+Use a separate distribution for each provider. The package depends on the
+standalone SDK and publishes one entry point in the
+`nv_config_manager.dcim` group. The entry-point name and
+`DCIMProviderMetadata.name` must be identical and are the provider name used
+in deployment configuration.
+
+```toml
+[project]
+name = "example-dcim-provider"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = ["nv-config-manager-dcim"]
+
+[project.entry-points."nv_config_manager.dcim"]
+example = "example_dcim.provider:ExampleProvider"
+```
+
+Packages are currently installed from Git or sibling checkouts while the
+publishing story is finalized. For local provider development from a checkout
+next to this repository, install the SDK and provider into the same
+environment:
+
+```bash
+uv run --no-project \
+  --with ../nv-config-manager/packages/dcim \
+  --with-editable . \
+  python -c "from nv_config_manager_dcim import discover_dcim_providers; print(discover_dcim_providers())"
+```
+
+An NVCM deployment receives a provider wheel through its provider-package
+image configuration. The package must be installed in every service image
+that creates a DCIM client, so its entry point is visible to Python package
+discovery. See the [external provider configuration sample](../install/configuration-samples.mdx#external-dcim-provider).
+
+The NVCM chart owns its NATS deployment and JetStream setup independently of
+the selected DCIM. Set `externalServices.nats.local=true` to use the bundled
+NATS resources while leaving `nautobot.enabled=false`. An external provider
+team only needs to deploy its DCIM application and event publisher; it does
+not need to package or maintain a second NATS chart. Set
+`externalServices.nats.local=false` only when the installation supplies a
+separately managed NATS service.
+
+## Implement the factory and client
+
+The provider factory has two required methods: `validate_settings()` and
+`create_client()`. Keep application configuration out of the factory: it
+receives only a plain settings mapping that a service or local tool has already
+assembled.
+
+```python
+from nv_config_manager_dcim import (
+    DCIM_PROVIDER_API_VERSION,
+    DCIMClient,
+    DCIMProviderConfigurationError,
+    DCIMProviderMetadata,
+    ProviderSettings,
+)
+
+
+class ExampleProvider:
+    metadata = DCIMProviderMetadata(
+        name="example",
+        display_name="Example DCIM",
+        provider_version="0.1.0",
+        supported_api_versions=(DCIM_PROVIDER_API_VERSION,),
+    )
+
+    def validate_settings(self, settings: ProviderSettings) -> None:
+        if not str(settings.get("endpoint", "")).strip():
+            raise DCIMProviderConfigurationError(
+                'DCIM provider "example" requires endpoint'
+            )
+
+    def create_client(self, settings: ProviderSettings) -> DCIMClient:
+        self.validate_settings(settings)
+        return ExampleDCIMClient(dict(settings))
+```
+
+`ExampleDCIMClient` implements the broad async `DCIMClient` protocol. Its
+methods take and return SDK types, never native resource objects. Add a new
+Pydantic model to `nv-config-manager-dcim` when an operation needs a concept
+the SDK does not yet represent; do not leak a backend client object or a raw
+provider response across the service boundary.
+
+Each provider owns its identifier format. Implement `is_valid_device_id()` and
+`is_valid_location_id()` as local shape checks (for example, UUIDs in Nautobot
+or integer strings in NetBox). Workflow reference validation then uses the
+direct `get_device_metadata()` and `get_location_metadata()` operations as both
+the existence check and the source of search attributes. These operations must
+perform indexed single-record lookups; do not implement them by listing all
+devices or locations and searching in application memory.
+
+The SDK validates provider metadata during discovery. It rejects duplicate
+entry-point names, a metadata-name mismatch, and providers that do not support
+the SDK's current major API version. Call `create_dcim_client(provider_name,
+settings)` in standalone tests to exercise the same discovery path that NVCM
+uses.
+
+<Tip>
+The code fragment intentionally omits the large client implementation. Start
+from `plugins/dcim/nautobot-2x` for its package layout, error mapping, lifecycle
+handling, and tests, but replace its Nautobot-specific transport and schemas.
+</Tip>
+
+## Models and error semantics
+
+The SDK public models are Pydantic models. Construct and validate those models
+at the provider boundary so services, workflow payloads, and caches have stable
+data independent of a DCIM's REST or GraphQL representation.
+
+Map expected backend failures to SDK errors:
+
+| Backend condition | SDK error |
+| :--- | :--- |
+| Authentication fails | `DCIMAuthenticationError` |
+| Caller is not permitted | `DCIMAuthorizationError` |
+| Timeout or unavailable backend | `DCIMConnectivityError` |
+| Requested object is absent | `DCIMNotFoundError` |
+| A write conflicts with current state | `DCIMConflictError` |
+| Backend data cannot satisfy the contract | `DCIMInvalidDataError` |
+| The DCIM cannot offer an SDK operation | `DCIMOperationNotSupportedError` |
+
+Do not turn incorrect data into a default value. Workflows intentionally leave
+their retry signal available after a data failure so an operator can correct
+the DCIM record—for example an IP address or platform setting—and retry the
+same run.
+
+## Render data and templates
+
+`DCIMClient.get_render_data()` receives a `RenderDataRequest` and returns one
+SDK `RenderData` object. Built-in filters consume typed, stable concepts—not a
+native API response. The primary device sections are `identity`, `interfaces`,
+`network`, `routing`, `overlays`, `firmware`, `services`, and `access`; the
+location sections are `location`, `routing`, `address_space`, and `topology`.
+
+Use the narrowest existing Pydantic model for each value. For example, put a
+firmware target in `RenderFirmwareData.desired_version`, BGP data in
+`RenderRoutingData`, and service endpoints in `RenderServicesData`. Do not add
+a provider-shaped dictionary as a shortcut. If a general template concept is
+missing, add a typed SDK model and update the providers that support it.
+
+```python
+from nv_config_manager_dcim import (
+    DeviceRenderData,
+    LocationRenderData,
+    RenderData,
+    RenderDataRequest,
+    RenderDeviceIdentity,
+    RenderFirmwareData,
+    RenderLocation,
+)
+
+async def get_render_data(self, request: RenderDataRequest) -> RenderData:
+    location = RenderLocation(id="site-1", name="site-1", kind="Site")
+    return RenderData(
+        device=DeviceRenderData(
+            identity=RenderDeviceIdentity(
+                id=request.device_id,
+                name="leaf-1",
+                platform="Cumulus Linux",
+                role="Leaf",
+                model="SN5600",
+                location=location,
+            ),
+            interfaces=(),
+            firmware=RenderFirmwareData(desired_version="5.16.1"),
+        ),
+        location=LocationRenderData(location=location),
+    )
+```
+
+The provider decides which native requests are necessary to build this object.
+For the Nautobot provider that happens to be two GraphQL queries; another
+provider may make several REST requests, one GraphQL request, or no GraphQL
+requests at all. The template engine and `template-cli` never choose those
+requests.
+
+The typed `device` and `location` sections, plus `plugin_data`, are
+template-facing contract data. Do not expose a provider's native response
+format as an accidental public API. Preserve the stable concepts that built-in
+filters and installed template plugins use, then put provider-specific shape
+conversion in the provider. Template fixtures use only the portable
+`RenderData` cache envelope.
+
+Required values must fail at the boundary with `DCIMInvalidDataError` and a
+provider/object/field-specific message. Values that are optional in the SDK
+remain optional; a filter that requires one raises `FilterException` naming the
+typed field. This gives operators a useful correction path without making a
+workflow retry opaque validation failures.
+
+When a template plugin needs extension data, it declares provider-neutral
+render-data requirements with `get_render_data_requirements()`. A deployment's
+selected provider is responsible for obtaining and normalizing the requested
+extension data into `RenderData.plugin_data`; each value uses the namespaced,
+versioned `RenderDataExtension` envelope. A template plugin must not issue
+native DCIM calls or embed a GraphQL query. The renderer exposes the envelope's
+`data` value under the requirement name, preserving the template-facing
+`plugin_data["requirement"]` mapping while retaining schema/version metadata in
+the provider cache. See [Template and Plugin Expansion](../render/template-expansion.mdx).
+
+## Change events and affected devices
+
+The render service owns the dispatcher and queue. The provider owns the
+semantics of its events and registers the handlers that identify affected
+devices. This is important: a cable, prefix, relationship, or policy change
+can have very different fan-out rules in different DCIMs.
+
+Implement the optional `DCIMRenderEventProvider` capability when the backend
+emits change events:
+
+```python
+from nv_config_manager_dcim import DCIMRenderEventRegistry, RenderEventRequest
+
+
+class ExampleProvider:
+    # Required metadata, validate_settings(), and create_client() omitted.
+
+    def register_render_event_handlers(self, registry: DCIMRenderEventRegistry) -> None:
+        registry.register_render_event_handler("example.device", self._device_changed)
+
+    async def _device_changed(self, event, client) -> list[RenderEventRequest]:
+        return [
+            RenderEventRequest(
+                device_id=event.object_id,
+                commit_message=f"Rendered after {event.object_type} changed",
+            )
+        ]
+```
+
+For a legacy native event envelope, also implement `DCIMEventProvider` and
+normalize it to `DCIMChangeEvent`. New publishers should emit the normalized
+event model directly. Do not add provider object-type conditionals to the core
+dispatcher.
+
+Providers without an event source can omit these optional capabilities. Manual
+renders and template-version renders continue to use the common service path;
+automatic render-on-change requires the provider's event integration.
+
+## Optional Nautobot MCP capability
+
+The remote MCP server has common Config Manager tools for every provider. Its
+read-only Nautobot GraphQL and REST tools are deliberately not generic. Only a
+provider that implements `NautobotMCPProvider` exposes them, which is normally
+the Nautobot provider. Do not emulate or register Nautobot MCP tools for a
+different DCIM; provide provider-agnostic MCP capabilities through the normal
+service surface instead.
+
+## Configuration boundaries
+
+In an NVCM service configuration, `[dcim] provider` chooses the entry-point
+name. NVCM assembles provider settings from `[dcim]`, `[dcim.options]`, and
+`[dcim.<provider>]`, with later portable or provider-specific values taking
+precedence, then passes a plain mapping into the SDK. Keep names, endpoint and non-secret provider options in the
+application configuration; keep tokens and other sensitive values in the
+deployment's secret mechanism.
+
+`template-cli` is distributed with `nv-config-manager-templates` and talks to
+the SDK directly. Its provider config is intentionally service-level TOML, so
+template-plugin authors can test without installing NVCM core:
+
+```toml
+[provider]
+name = "example"
+
+[provider.settings]
+endpoint = "https://dcim.example"
+token = "<token>"
+```
+
+Run `template-cli cache-query --provider-config example-provider.toml` to
+write a portable render-data fixture, then render it with
+`--cached-render-data`. The full CLI workflow is documented in the
+[template-rendering guide](../render/index.mdx#template-cli).
+
+## Test before proposing a provider
+
+At a minimum, include tests that:
+
+1. Discover the package through the real entry point and construct its client.
+1. Validate required settings and map native failures to the SDK error types.
+1. Cover every SDK method the provider supports with provider-native API
+   fixtures or a test server.
+1. Validate every returned SDK Pydantic model and at least one portable
+   `RenderData` cache round trip.
+1. Exercise event normalization and affected-device handlers for each native
+   event type the provider registers.
+1. Render representative built-in and plugin templates from provider-neutral
+   fixtures.
+
+Run the SDK, provider, and template-library tests from their own projects with
+`uv run`. For an NVCM deployment integration, install the provider package into
+the service images, select it through `dcim.provider`, and run the integration
+suite. A successful render, DHCP refresh, ZTP lookup, and representative
+workflow run provide the best cross-service coverage.
+
+## Contribution checklist
+
+- [ ] Separate package depending only on `nv-config-manager-dcim`.
+- [ ] Unique `nv_config_manager.dcim` entry point and matching metadata name.
+- [ ] Pydantic SDK contracts at every service boundary.
+- [ ] Broad `DCIMClient` implementation, with explicit unsupported-operation
+      errors where necessary.
+- [ ] Provider-owned render data, native event normalization, and event
+      affected-device logic.
+- [ ] No `nv_config_manager` service imports, configuration parsing, or
+      service-specific telemetry in the SDK/provider boundary.
+- [ ] Provider, template, and deployment integration tests.
+- [ ] Provider documentation covering settings, required DCIM permissions,
+      supported operations, event delivery, and template-data mapping.

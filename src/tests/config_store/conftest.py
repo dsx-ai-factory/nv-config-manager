@@ -16,6 +16,8 @@
 
 import os
 import tempfile
+from unittest.mock import MagicMock
+from uuid import UUID
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -117,6 +119,18 @@ async def client(db_session):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    provider_client = MagicMock()
+
+    def is_valid_device_id(value: str) -> bool:
+        try:
+            UUID(value)
+        except ValueError:
+            return False
+        return True
+
+    provider_client.is_valid_device_id.side_effect = is_valid_device_id
+    app.state.dcim_client = provider_client
+    app.state.cache_service = None
 
     transport = ASGITransport(app=app)
     async with AsyncClient(
@@ -127,3 +141,5 @@ async def client(db_session):
         yield ac
 
     app.dependency_overrides.clear()
+    app.state.dcim_client = None
+    app.state.cache_service = None

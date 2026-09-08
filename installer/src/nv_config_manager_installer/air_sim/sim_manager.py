@@ -965,6 +965,8 @@ class AirSimulationManager:
         self,
         host: str,
         port: int,
+        *,
+        additional_hostnames: tuple[str, ...] = (),
     ) -> bool:
         """Add /etc/hosts entries pointing nvcm.air to the gateway MetalLB IP.
 
@@ -999,12 +1001,28 @@ class AirSimulationManager:
                 LOG.warning("Could not discover gateway MetalLB IP; falling back to 127.0.0.1")
                 gateway_ip = "127.0.0.1"
 
-            hosts_line = f"{gateway_ip} {self._NVCM_HOSTS}"
-            add_cmd = (
-                f"grep -q '{CONFIG_MANAGER_HOSTNAME}' /etc/hosts"
-                f" || echo '{hosts_line}'"
-                f" | sudo tee -a /etc/hosts > /dev/null"
-            )
+            invalid_hostnames = [
+                name
+                for name in additional_hostnames
+                if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?", name)
+            ]
+            if invalid_hostnames:
+                raise ValueError(
+                    "Invalid additional gateway hostname(s): " + ", ".join(invalid_hostnames)
+                )
+
+            hosts_line = shlex.quote(f"{gateway_ip} {self._NVCM_HOSTS}")
+            add_commands = [
+                f"grep -Fqw -- {shlex.quote(CONFIG_MANAGER_HOSTNAME)} /etc/hosts"
+                f" || echo {hosts_line} | sudo tee -a /etc/hosts > /dev/null"
+            ]
+            for hostname in additional_hostnames:
+                provider_line = shlex.quote(f"{gateway_ip} {hostname}")
+                add_commands.append(
+                    f"grep -Fqw -- {shlex.quote(hostname)} /etc/hosts"
+                    f" || echo {provider_line} | sudo tee -a /etc/hosts > /dev/null"
+                )
+            add_cmd = "; ".join(add_commands)
             subprocess.run(
                 [*ssh_base, add_cmd],
                 capture_output=True,

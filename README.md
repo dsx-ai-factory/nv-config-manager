@@ -1,9 +1,9 @@
 # NVIDIA Config Manager
 
-[![Latest stable release](https://img.shields.io/github/v/release/NVIDIA/nv-config-manager?display_name=tag&label=stable&sort=semver)](https://github.com/NVIDIA/nv-config-manager/releases/latest)
-[![Latest release candidate](https://img.shields.io/github/v/tag/NVIDIA/nv-config-manager?filter=*-rc.*&label=rc&sort=date&color=orange)](https://github.com/NVIDIA/nv-config-manager/tags)
+[![Latest stable release](https://img.shields.io/github/v/release/dsx-ai-factory/nv-config-manager?display_name=tag&label=stable&sort=semver)](https://github.com/dsx-ai-factory/nv-config-manager/releases/latest)
+[![Latest release candidate](https://img.shields.io/github/v/tag/dsx-ai-factory/nv-config-manager?filter=*-rc.*&label=rc&sort=date&color=orange)](https://github.com/dsx-ai-factory/nv-config-manager/tags)
 
-NVIDIA Config Manager (NVCM) is an open-source network automation and configuration management platform for large-scale datacenter operations. It combines Nautobot inventory, event-driven rendering, ZTP, DHCP, workflow automation, and configuration storage behind a single Helm deployment.
+NVIDIA Config Manager (NVCM) is an open-source network automation and configuration management platform for large-scale datacenter operations. It combines a pluggable DCIM provider, event-driven rendering, ZTP, DHCP, workflow automation, and configuration storage behind a single Helm deployment. [Nautobot](https://github.com/nautobot/nautobot) is the bundled reference provider and default deployment, not a core-service dependency.
 
 NVCM is currently in Developer Preview and is not recommended for production use.
 
@@ -12,12 +12,12 @@ NVCM is currently in Developer Preview and is not recommended for production use
 | Service | Description |
 | :------ | :---------- |
 | **[ZTP](https://docs.nvidia.com/switch-infrastructure/config-manager/services/network-ztp/overview)** | Zero Touch Provisioning, boot scripts, OS image delivery, and provisioning status updates |
-| **[DHCP](https://docs.nvidia.com/switch-infrastructure/config-manager/services/dhcp/overview)** | Kea DHCP configuration generation from Nautobot data |
+| **[DHCP](https://docs.nvidia.com/switch-infrastructure/config-manager/services/dhcp/overview)** | Kea DHCP configuration generation from selected DCIM-provider data |
 | **[Temporal](https://docs.nvidia.com/switch-infrastructure/config-manager/services/temporal/overview)** | Long-running network operations and approval workflows |
-| **[Render](https://docs.nvidia.com/switch-infrastructure/config-manager/services/render/overview)** | Template rendering and event processing from Nautobot and workflow events |
+| **[Render](https://docs.nvidia.com/switch-infrastructure/config-manager/services/render/overview)** | Template rendering from provider-neutral render data and provider-owned change events |
 | **[Config Store](https://docs.nvidia.com/switch-infrastructure/config-manager/services/config-store/overview)** | PostgreSQL-backed rendered, intended, and backup configuration storage |
 | **[UI](https://docs.nvidia.com/switch-infrastructure/config-manager/getting-started/which-interface-should-i-use)** | React/Next.js interface for workflows and configuration browsing |
-| **[Nautobot](https://docs.nvidia.com/switch-infrastructure/config-manager/config-manager/nautobot)** | Network source of truth, custom jobs, and event publication |
+| **[Nautobot](https://docs.nvidia.com/switch-infrastructure/config-manager/config-manager/nautobot)** | Bundled DCIM provider, custom jobs, and event publication |
 
 ## Installer
 
@@ -291,7 +291,9 @@ nv-config-manager/
 ├── src/nv_config_manager/       # Python services and shared libraries
 ├── src/tests/                   # Python test suites
 ├── ui/                          # React/Next.js UI
-├── components/                  # Nautobot image assets and helper containers
+├── packages/                    # Public, independently installable libraries
+├── plugins/                     # Installable extension implementations
+├── components/                  # Separately built or deployed infrastructure components
 ├── development/mock_topology/   # Local development topology job data
 ├── installer/                   # Interactive and headless installer package
 ├── deploy/helm/                 # Helm chart and values overlays
@@ -314,10 +316,10 @@ Envoy Gateway / Ingress
   |-- Config Store API
   |-- ZTP and DHCP device-facing services
 
-Nautobot -- NATS JetStream --> Render and workflow consumers
+Selected DCIM provider -- provider-owned events --> NATS JetStream --> Render consumers
 Render --> Config Store
-ZTP and DHCP --> Nautobot and Config Store
-Temporal workers --> Nautobot, Render, Config Store, and managed devices
+ZTP and DHCP --> selected DCIM provider and Config Store
+Temporal workers --> selected DCIM provider, Render, Config Store, and managed devices
 ```
 
 ## Testing
@@ -352,6 +354,11 @@ uv run pytest src/tests/integration/ -v \
 ## Configuration
 
 Runtime service configuration is delivered through the `nv-config-manager-ini` Kubernetes secret. The installer generates the secret content from `nv-config-manager-install.yaml`, selected size profile overlays, and generated or user-supplied secrets.
+
+The selected DCIM provider is configured with `dcim.provider`; its package is
+discovered through the `nv_config_manager.dcim` Python entry-point group. NVCM
+parses deployment configuration and passes a provider-owned settings mapping to
+the SDK. See [Contribute a DCIM Provider](docs/development/contributing-dcim-provider.mdx) for the provider contract and [Configuration Samples](docs/install/configuration-samples.mdx#external-dcim-provider) for deployment wiring.
 
 OpenAPI specs live in [docs/api-specs](docs/api-specs/README.md). Run `make openapi-check` before changing API handlers.
 
@@ -429,11 +436,15 @@ The `svc-*` hostnames, such as `svc-workflow.<base-hostname>`, accept bearer tok
 - [Observability](docs/overview/observability.mdx)
 - [Local Development Quick Start](docs/getting-started/local-development-quick-start.mdx)
 - [Air-Gapped Installation](docs/install/install-airgapped.mdx)
+- [Contribute a DCIM Provider](docs/development/contributing-dcim-provider.mdx)
 
-## External Dependencies
+## Separately Installable Components
 
-These packages are published separately:
+These components are consumed from this repository by Git or sibling checkout
+until the publishing story is finalized:
 
+- `nv-config-manager-dcim`: Provider-neutral SDK for DCIM integrations
+- `nv-config-manager-dcim-nautobot-2x`: Nautobot reference implementation
 - `nv-config-manager-templates`: Network configuration Jinja2 templates
 - `nautobot-plugin-nv-config-manager`: Nautobot plugin for NVIDIA Config Manager integration
 - `nautobot-broker-nats`: NATS event broker for Nautobot

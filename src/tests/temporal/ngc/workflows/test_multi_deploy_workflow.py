@@ -159,7 +159,7 @@ def _large_device_diffs(count: int, config_size: int = 30_000) -> list[DeviceDif
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=0.0)
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=0.0)
 async def test_group_and_batch_creates_batch_subsets(_):
     """Group matching diffs and split their devices into bounded batches."""
     workflow_instance = MultiDeployWorkflow()
@@ -218,7 +218,7 @@ def test_batch_deploy_input_supports_legacy_and_canonical_device_fields():
     assert len(json.dumps(serialized).encode()) < 250_000
 
 
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=0.0)
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=0.0)
 def test_parent_stage_serialization_excludes_operational_device_payloads(_):
     """Keep intended configurations out of the parent stages query."""
     workflow_instance = MultiDeployWorkflow()
@@ -275,7 +275,7 @@ def test_parent_stage_serialization_excludes_operational_device_payloads(_):
     assert len(serialized_stages.encode()) < 50_000
 
 
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=0.0)
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=0.0)
 def test_child_stage_serialization_excludes_operational_device_payloads(_):
     """Keep intended configurations out of the child stages query."""
     workflow_instance = BatchDeployWorkflow()
@@ -305,7 +305,7 @@ def test_child_stage_serialization_excludes_operational_device_payloads(_):
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_basic_flow(
     _,
     mock_nats_client,
@@ -464,7 +464,7 @@ def test_format_batch_status_with_backup_failure():
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_no_devices(
     _,
     mock_nats_client,
@@ -528,7 +528,7 @@ async def test_multi_deploy_workflow_no_devices(
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_no_diffs(
     _,
     mock_nats_client,
@@ -589,7 +589,7 @@ async def test_multi_deploy_workflow_no_diffs(
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_grouping_logic(
     _,
     mock_nats_client,
@@ -659,7 +659,7 @@ async def test_multi_deploy_workflow_grouping_logic(
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_batch_deploy_workflow_directly(
     _,
     mock_nats_client,

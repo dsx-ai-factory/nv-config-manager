@@ -12,7 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from unittest.mock import patch
+from types import MappingProxyType
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from aioresponses import aioresponses
 from fastapi.testclient import TestClient
@@ -38,8 +39,16 @@ DEVICES = {
 DEVICE_INTERFACES = {
     "data": {
         "interfaces": [
-            {"id": "interface-2", "name": "swp2"},
-            {"id": "interface-1", "name": "swp1"},
+            {
+                "id": "interface-2",
+                "name": "swp2",
+                "device": {"id": "device-1", "name": "leaf-1"},
+            },
+            {
+                "id": "interface-1",
+                "name": "swp1",
+                "device": {"id": "device-1", "name": "leaf-1"},
+            },
         ]
     }
 }
@@ -116,6 +125,25 @@ SPX_OVERLAYS = {
         {"id": "overlay-uuid-1", "name": "overlay-a"},
     ],
 }
+
+
+def test_device_secrets_accepts_mapping() -> None:
+    """Provider implementations may return any read-only Mapping."""
+    dcim_client = MagicMock()
+    dcim_client.__aenter__ = AsyncMock(return_value=dcim_client)
+    dcim_client.__aexit__ = AsyncMock(return_value=None)
+    dcim_client.get_device_secret_versions = AsyncMock(
+        return_value=MappingProxyType({"tacacs_key": "r1"})
+    )
+
+    with patch(
+        "nv_config_manager.temporal.api.parameter_v1.create_dcim_client",
+        return_value=dcim_client,
+    ):
+        response = TestClient(app).get("/v1/parameter/device/device-1/secrets")
+
+    assert response.status_code == 200
+    assert response.json() == [{"name": "tacacs_key_r1", "description": "tacacs_key version r1"}]
 
 
 def test_site_v2():
@@ -357,7 +385,7 @@ def test_namespace_tag():
 
 
 def test_namespace_tag_graphql_error():
-    """Test the namespace tag endpoint handles Nautobot GraphQL errors."""
+    """Test the namespace tag endpoint handles provider query errors."""
     with aioresponses() as m:
         m.post(
             "https://nautobot.example.com/api/graphql/",
@@ -367,11 +395,11 @@ def test_namespace_tag_graphql_error():
         client = TestClient(app)
         rsp = client.get("/v1/parameter/namespace-tag")
         assert rsp.status_code == 500
-        assert rsp.json() == {"detail": "Failed to query Nautobot namespace tags."}
+        assert rsp.json() == {"detail": "Failed to query DCIM namespace tags."}
 
 
 def test_namespace_tag_malformed_response():
-    """Test the namespace tag endpoint handles malformed Nautobot responses."""
+    """Test the namespace tag endpoint handles malformed provider responses."""
     with aioresponses() as m:
         m.post(
             "https://nautobot.example.com/api/graphql/",
@@ -381,7 +409,7 @@ def test_namespace_tag_malformed_response():
         client = TestClient(app)
         rsp = client.get("/v1/parameter/namespace-tag")
         assert rsp.status_code == 500
-        assert rsp.json() == {"detail": "Malformed Nautobot namespace tag response."}
+        assert rsp.json() == {"detail": "Malformed DCIM namespace tag response."}
 
 
 def test_overlays_with_filters():
@@ -402,7 +430,7 @@ def test_overlays_with_filters():
 
 
 def test_overlay_query_failure_is_logged():
-    """Log the underlying Nautobot failure while preserving the generic API response."""
+    """Log the underlying provider failure while preserving the generic API response."""
     with (
         aioresponses() as m,
         patch("nv_config_manager.temporal.api.parameter_v1.logger.exception") as log_exception,
@@ -416,7 +444,7 @@ def test_overlay_query_failure_is_logged():
         rsp = client.get("/v1/parameter/overlay")
 
     assert rsp.status_code == 500
-    assert rsp.json() == {"detail": "Failed to query Nautobot overlays."}
+    assert rsp.json() == {"detail": "Failed to query DCIM overlays."}
     log_exception.assert_called_once()
     assert isinstance(log_exception.call_args.kwargs["exc_info"], Exception)
 

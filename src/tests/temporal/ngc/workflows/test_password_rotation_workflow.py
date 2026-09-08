@@ -20,7 +20,10 @@ from pydantic import ValidationError
 from temporalio import workflow
 
 with workflow.unsafe.imports_passed_through():
-    from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
+    from nv_config_manager_dcim_nautobot_2x.workflow_models import (
+        network_device_from_nautobot_graphql,
+    )
+
     from nv_config_manager.temporal.ngc.workflows.site_password_rotation import (
         PasswordRotationResultData,
         SitePasswordRotationInput,
@@ -67,7 +70,7 @@ class TestPasswordRotationResultData:
 
     def test_password_rotation_result_data_success(self):
         """Test successful password rotation result."""
-        device = NetworkDeviceData.from_nautobot_graphql(TEST_DEVICE_DATA)
+        device = network_device_from_nautobot_graphql(TEST_DEVICE_DATA)
         result = PasswordRotationResultData(
             device=device,
             success=True,
@@ -80,7 +83,7 @@ class TestPasswordRotationResultData:
 
     def test_password_rotation_result_data_failure(self):
         """Test failed password rotation result."""
-        device = NetworkDeviceData.from_nautobot_graphql(TEST_DEVICE_DATA)
+        device = network_device_from_nautobot_graphql(TEST_DEVICE_DATA)
         result = PasswordRotationResultData(
             device=device,
             success=False,

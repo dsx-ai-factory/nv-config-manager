@@ -164,9 +164,9 @@ export default function HomePage() {
     },
     // External Services
     {
-      name: "Nautobot",
+      name: config.dcimDisplayName,
       description: "Network Source of Truth",
-      url: config.nautobotUrl,
+      url: config.dcimUrl,
       icon: <Database className="h-6 w-6" />,
       type: "external",
     },

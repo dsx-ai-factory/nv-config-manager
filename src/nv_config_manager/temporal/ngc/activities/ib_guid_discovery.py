@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.temporal.client.nautobot import NautobotClient
+from nv_config_manager.dcim import create_dcim_client
 from nv_config_manager.temporal.client.ufm import UFMClient
 from nv_config_manager.temporal.common.mixins.stage import StageOutput
 
@@ -32,7 +32,7 @@ IB_GUID_CF_KEY = "ib_guid"
 
 
 class IBGuidMapping(BaseModel):
-    """One UFM port -> Nautobot interface mapping with the desired GUID action."""
+    """One UFM port -> DCIM interface mapping with the desired GUID action."""
 
     ufm_system_name: str
     ufm_port: str
@@ -102,7 +102,7 @@ class IBGuidMapping(BaseModel):
         device_name: str,
         interface_name: str,
     ) -> Self:
-        """Cable topology points at a device/interface not present in Nautobot."""
+        """Cable topology points at a device/interface not present in the DCIM."""
         return cls(
             ufm_system_name=system_name,
             ufm_port=ufm_port,
@@ -112,7 +112,7 @@ class IBGuidMapping(BaseModel):
             device_name=device_name,
             interface_name=interface_name,
             action="skip",
-            reason=f"Nautobot interface {device_name}/{interface_name} not found.",
+            reason=f"DCIM interface {device_name}/{interface_name} not found.",
         )
 
     @classmethod
@@ -129,7 +129,7 @@ class IBGuidMapping(BaseModel):
         interface_id: str,
         current_guid: str,
     ) -> Self:
-        """Mapping with a resolved Nautobot interface and classified sync action."""
+        """Mapping with a resolved DCIM interface and classified sync action."""
         return cls(
             ufm_system_name=system_name,
             ufm_port=ufm_port,
@@ -320,23 +320,6 @@ def _compute_guid_mappings(
     return mappings
 
 
-_SWITCH_NEIGHBORS_GRAPHQL = """
-    query ($device_ids: [String]) {
-      devices(id: $device_ids) {
-        id
-        name
-        interfaces {
-          name
-          connected_interface {
-            name
-            device { name }
-          }
-        }
-      }
-    }
-"""
-
-
 def _intended_neighbor_from_interface(interface: Any) -> tuple[str, dict[str, str]] | None:
     """Parse one interface node into (local_port_name, neighbor record) or None."""
     iface: dict[str, Any] = interface if isinstance(interface, dict) else {}
@@ -365,82 +348,6 @@ def _neighbors_for_switch_device(device: dict[str, Any]) -> dict[str, dict[str, 
     return neighbors
 
 
-async def _fetch_switches_and_intended_neighbors(
-    client: NautobotClient,
-    switch_device_ids: list[str],
-) -> tuple[dict[str, str], dict[str, dict[str, dict[str, str]]]]:
-    """Bulk-fetch switch names and intended neighbors.
-
-    Returns:
-        (switch_id_to_name, neighbors_by_switch_id)
-    """
-    data = await client.graphql_query(
-        _SWITCH_NEIGHBORS_GRAPHQL,
-        {"device_ids": switch_device_ids},
-    )
-
-    switch_id_to_name: dict[str, str] = {}
-    neighbors_by_switch_id: dict[str, dict[str, dict[str, str]]] = {}
-
-    for device in (data.get("data") or {}).get("devices") or []:
-        device_id = str(device.get("id") or "")
-        if not device_id:
-            continue
-
-        switch_id_to_name[device_id] = str(device.get("name") or "")
-        neighbors_by_switch_id[device_id] = _neighbors_for_switch_device(device)
-
-    return switch_id_to_name, neighbors_by_switch_id
-
-
-async def _resolve_nautobot_interfaces(
-    client: NautobotClient,
-    dev_iface_pairs: set[tuple[str, str]],
-) -> dict[tuple[str, str], dict[str, str]]:
-    """Fetch id and current ib_guid for a set of (device_name, iface_name) pairs.
-
-    Args:
-        client: NautobotClient instance.
-        dev_iface_pairs: set of (device_name, iface_name) pairs.
-
-    Returns:
-        A dictionary of (device_name, iface_name) pairs to their id and ib_guid.
-    """
-    if not dev_iface_pairs:
-        return {}
-
-    device_names = sorted({dev for dev, _ in dev_iface_pairs})
-
-    query = """
-        query ($device_names: [String]) {
-          devices(name: $device_names) {
-            name
-            interfaces {
-              id
-              name
-              cf_ib_guid
-            }
-          }
-        }
-    """
-    data = await client.graphql_query(query, {"device_names": device_names})
-
-    resolved: dict[tuple[str, str], dict[str, str]] = {}
-    for device in (data.get("data") or {}).get("devices") or []:
-        dev_name = device.get("name") or ""
-        if not dev_name:
-            continue
-        for iface in device.get("interfaces") or []:
-            iface_name = iface.get("name") or ""
-            if not iface_name:
-                continue
-            resolved[(dev_name.lower(), iface_name)] = {
-                "id": iface.get("id", ""),
-                "ib_guid": iface.get("cf_ib_guid") or "",
-            }
-    return resolved
-
-
 @activity.defn
 async def discover_ib_port_guids(
     input: DiscoverIBPortGuidsInput,
@@ -456,20 +363,33 @@ async def discover_ib_port_guids(
             non_retryable=True,
         )
 
-    client = NautobotClient()
+    client = create_dcim_client()
     async with client:
-        switch_id_to_name, neighbors_by_switch_id = await _fetch_switches_and_intended_neighbors(
-            client,
-            input.switch_device_ids,
-        )
+        topology = await client.get_ib_switch_topology(input.switch_device_ids)
+        switch_id_to_name = dict(topology.switch_names)
+        neighbors_by_switch_id = {
+            switch_id: {
+                interface_name: {
+                    "device_name": neighbor.device_name,
+                    "name": neighbor.interface_name,
+                }
+                for interface_name, neighbor in neighbors.items()
+            }
+            for switch_id, neighbors in topology.intended_neighbors.items()
+        }
 
         neighbor_index = _build_switch_neighbor_index(switch_id_to_name, neighbors_by_switch_id)
         dev_iface_pairs: set[tuple[str, str]] = {
             (entry["device_name"], entry["interface_name"]) for entry in neighbor_index.values()
         }
-        nautobot_interface_by_dev_iface = await _resolve_nautobot_interfaces(
-            client, dev_iface_pairs
-        )
+        interfaces = await client.get_ib_interface_guids(dev_iface_pairs)
+        nautobot_interface_by_dev_iface = {
+            (interface.device_name.lower(), interface.interface_name): {
+                "id": interface.interface_id,
+                "ib_guid": interface.guid,
+            }
+            for interface in interfaces
+        }
 
     mappings = _compute_guid_mappings(
         ib_ports=ib_ports,
@@ -509,11 +429,12 @@ async def sync_ib_guid_on_interface(input: SyncIBGuidInput) -> SyncIBGuidOutput:
     if not input.guid:
         raise ApplicationError("guid is required", non_retryable=True)
 
-    client = NautobotClient()
+    client = create_dcim_client()
     async with client:
-        current = await client.get(f"dcim/interfaces/{input.interface_id}/")
-        previous_guid = (current.get("custom_fields") or {}).get(IB_GUID_CF_KEY) or ""
-        device_name, interface_name = _extract_iface_display_names(current)
+        current = await client.get_ib_interface_guid(input.interface_id)
+        previous_guid = current.guid
+        device_name = current.device_name
+        interface_name = current.interface_name
 
         if previous_guid.lower() == input.guid.lower():
             return SyncIBGuidOutput(
@@ -539,10 +460,7 @@ async def sync_ib_guid_on_interface(input: SyncIBGuidInput) -> SyncIBGuidOutput:
                 reason="dry_run=True; no write performed",
             )
 
-        await client.patch(
-            f"dcim/interfaces/{input.interface_id}/",
-            data={"custom_fields": {IB_GUID_CF_KEY: input.guid}},
-        )
+        await client.set_ib_interface_guid(input.interface_id, input.guid)
         log.info(
             "Synced ib_guid on interface %s (%s/%s): '%s' -> '%s'",
             input.interface_id,

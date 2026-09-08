@@ -18,6 +18,7 @@ from configparser import ConfigParser
 
 import pytest
 
+from nv_config_manager.mcp import settings as mcp_settings
 from nv_config_manager.mcp.settings import MCPOAuthSettings, MCPSettings
 
 
@@ -41,7 +42,8 @@ def _config(nautobot_server: str, auth_mode: str = "auto") -> ConfigParser:
         "api_service": "http://dhcp:9000",
         "api_url": "https://dhcp.example.test",
     }
-    config["nautobot"] = {
+    config["dcim"] = {
+        "provider": "nautobot-2x",
         "server": nautobot_server,
         "token": "rw-token",
         "verify": "true",
@@ -52,6 +54,7 @@ def _config(nautobot_server: str, auth_mode: str = "auto") -> ConfigParser:
 def test_nautobot_auth_auto_uses_jwt_for_local_nautobot() -> None:
     settings = MCPSettings.from_config(_config("http://nv-config-manager-nautobot"))
 
+    assert settings.nautobot_mcp_enabled is True
     assert settings.nautobot_auth_mode == "jwt"
     assert settings.workflow_ui_url == "https://config-manager.example.test"
 
@@ -77,6 +80,55 @@ def test_nautobot_auth_explicit_override() -> None:
     settings = MCPSettings.from_config(_config("https://nautobot.example.test", auth_mode="jwt"))
 
     assert settings.nautobot_auth_mode == "jwt"
+
+
+def test_mcp_tracks_the_selected_dcim_provider() -> None:
+    config = _config("https://nautobot.example.test")
+    config["dcim"] = {"provider": "synthetic"}
+
+    settings = MCPSettings.from_config(config)
+
+    assert settings.dcim_provider_name == "synthetic"
+
+
+def test_non_nautobot_provider_does_not_require_nautobot_settings() -> None:
+    """Generic MCP tools remain available when no Nautobot connection exists."""
+    config = _config("https://nautobot.example.test")
+    config["dcim"] = {"provider": "synthetic"}
+
+    settings = MCPSettings.from_config(config)
+
+    assert settings.dcim_provider_name == "synthetic"
+    assert settings.nautobot_mcp_enabled is False
+    assert settings.nautobot_url == ""
+
+
+def test_nautobot_mcp_settings_follow_provider_capability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A versioned provider name alone does not enable Nautobot MCP settings."""
+    config = _config("https://nautobot.example.test")
+    config["dcim"]["provider"] = "nautobot-3x"
+    monkeypatch.setattr(mcp_settings, "supports_nautobot_mcp", lambda _config: False)
+
+    settings = MCPSettings.from_config(config)
+
+    assert settings.nautobot_mcp_enabled is False
+    assert settings.nautobot_url == ""
+
+
+def test_nautobot_mcp_settings_support_a_capable_nautobot_3x_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nautobot 3.x receives the same MCP auth settings through the protocol."""
+    config = _config("https://nautobot.example.test")
+    config["dcim"]["provider"] = "nautobot-3x"
+    monkeypatch.setattr(mcp_settings, "supports_nautobot_mcp", lambda _config: True)
+
+    settings = MCPSettings.from_config(config)
+
+    assert settings.nautobot_mcp_enabled is True
+    assert settings.nautobot_url == "https://nautobot.example.test"
 
 
 def test_workflow_ui_url_falls_back_to_base_hostname() -> None:

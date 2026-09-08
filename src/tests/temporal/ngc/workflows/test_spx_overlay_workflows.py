@@ -129,7 +129,7 @@ async def mock_delete_overlay(input: DeleteOverlayInput) -> DeleteOverlayOutput:
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_creation_workflow(
     mock_time,
     mock_nats_client,
@@ -364,7 +364,7 @@ async def test_spx_overlay_creation_workflow(
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_deletion_workflow(
     mock_time,
     mock_nats_client,
@@ -415,7 +415,7 @@ async def test_spx_overlay_deletion_workflow(
                 "approvers": [],
                 "child_workflows": [],
                 "depends_on": [],
-                "description": "Validate and delete Nautobot VRFs tied to the VPC.",
+                "description": "Validate and delete DCIM VRFs tied to the VPC.",
                 "execution_time": 0.0,
                 "input": {
                     "namespace_tag": "mock_tag",
@@ -470,7 +470,7 @@ async def test_spx_overlay_deletion_workflow(
                 "approvers": [],
                 "child_workflows": [],
                 "depends_on": [],
-                "description": "Validate and delete Nautobot VRFs tied to the VPC.",
+                "description": "Validate and delete DCIM VRFs tied to the VPC.",
                 "execution_time": 0.0,
                 "input": {
                     "namespace_tag": "mock_tag",
@@ -542,7 +542,7 @@ async def test_spx_overlay_deletion_workflow(
                 "approvers": [],
                 "child_workflows": [],
                 "depends_on": [],
-                "description": "Validate and delete Nautobot VRFs tied to the VPC.",
+                "description": "Validate and delete DCIM VRFs tied to the VPC.",
                 "execution_time": 0.0,
                 "input": {
                     "namespace_tag": "mock_tag",

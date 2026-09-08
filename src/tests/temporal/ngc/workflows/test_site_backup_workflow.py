@@ -69,7 +69,7 @@ TEST_DEVICES = [
         deploy_enabled=True,
         backup_enabled=True,
         ztp_enabled=False,
-        config_context=None,
+        intent=None,
     ),
     NetworkDeviceData(
         id="device-2-uuid",
@@ -86,7 +86,7 @@ TEST_DEVICES = [
         deploy_enabled=True,
         backup_enabled=True,
         ztp_enabled=False,
-        config_context=None,
+        intent=None,
     ),
 ]
 
@@ -209,7 +209,7 @@ class TestBackupResultData:
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.site_backup.DEFAULT_ACTIVITY_RETRY_POLICY",
     new=TEST_RETRY_POLICY,
@@ -271,7 +271,7 @@ async def test_execute_site_backup_workflow(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.site_backup.DEFAULT_ACTIVITY_RETRY_POLICY",
     new=TEST_RETRY_POLICY,
@@ -330,7 +330,7 @@ async def test_execute_site_backup_workflow_without_ui_base_url(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.site_backup.DEFAULT_ACTIVITY_RETRY_POLICY",
     new=TEST_RETRY_POLICY,

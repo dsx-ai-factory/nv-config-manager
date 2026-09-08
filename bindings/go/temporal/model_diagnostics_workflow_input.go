@@ -23,7 +23,7 @@ var _ MappedNullable = &DiagnosticsWorkflowInput{}
 type DiagnosticsWorkflowInput struct {
 	// Diagnostic command catalog names to run on each device.
 	Commands []string `json:"commands"`
-	// Nautobot identifiers of the devices to diagnose.
+	// DCIM identifiers of the devices to diagnose.
 	DeviceIds []string `json:"device_ids"`
 	// Whether to collect a technical-support bundle from each device.
 	IncludeTechSupport *bool `json:"include_tech_support,omitempty"`

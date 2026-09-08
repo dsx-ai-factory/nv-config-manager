@@ -19,10 +19,9 @@ from unittest.mock import patch
 
 import pytest
 from aioresponses import aioresponses
+from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient, NautobotException
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.common.client.nautobot import NautobotException
-from nv_config_manager.temporal.client.nautobot import NautobotClient
 from nv_config_manager.temporal.ngc.activities.nautobot import (
     DeleteOverlayInput,
     GetAvailableRouteDistinguishersInput,
@@ -302,7 +301,7 @@ async def test_reconcile_spx_overlay_assignments_keeps_old_assignment_if_create_
             status=204,
         )
 
-        with pytest.raises(NautobotException, match="replacement rejected"):
+        with pytest.raises(ApplicationError, match="replacement rejected"):
             await reconcile_spx_overlay_assignments(
                 ReconcileSpXOverlayAssignmentsInput(
                     overlay_id="Panda",
@@ -443,7 +442,7 @@ async def test_reconcile_spx_overlay_assignments_retry_removes_remaining_device_
             status=204,
         )
 
-        with pytest.raises(NautobotException, match="temporary failure"):
+        with pytest.raises(ApplicationError, match="temporary failure"):
             await reconcile_spx_overlay_assignments(activity_input)
 
         result = await reconcile_spx_overlay_assignments(activity_input)
@@ -500,7 +499,7 @@ async def test_reconcile_spx_overlay_assignments_retry_retains_completed_change_
                 payload={"results": []},
             )
 
-        with pytest.raises(NautobotException, match="temporary failure"):
+        with pytest.raises(ApplicationError, match="temporary failure"):
             await reconcile_spx_overlay_assignments(activity_input)
 
         with patch(
@@ -625,7 +624,7 @@ async def test_remove_unmapped_device_vrfs_retry_retains_prior_removed_ids():
             status=204,
         )
 
-        with pytest.raises(NautobotException, match="temporary failure"):
+        with pytest.raises(ApplicationError, match="temporary failure"):
             await remove_unmapped_device_vrfs(activity_input)
 
         result = await remove_unmapped_device_vrfs(activity_input)

@@ -36,6 +36,10 @@ from tests.temporal.ngc.workflows.test_cable_validation_data import (
 )
 
 with workflow.unsafe.imports_passed_through():
+    from nv_config_manager_dcim_nautobot_2x.workflow_models import (
+        network_device_from_nautobot_graphql,
+    )
+
     from nv_config_manager.temporal.client.device import DeviceArpTable, DeviceMacTable
     from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
     from nv_config_manager.temporal.common.mixins.device import InterfaceData, NetworkDeviceData
@@ -84,7 +88,7 @@ async def mock_get_network_devices(
 ) -> GetNetworkDevicesOutput:
     return GetNetworkDevicesOutput(
         devices=[
-            NetworkDeviceData.from_nautobot_graphql(device)
+            network_device_from_nautobot_graphql(device)
             for device in DEVICE_CONNECTION_DATA_VALID.values()
             if device["location"]["name"] == activity_input.site
         ]
@@ -97,7 +101,7 @@ async def mock_get_network_devices_hostname_mismatch(
 ) -> GetNetworkDevicesOutput:
     return GetNetworkDevicesOutput(
         devices=[
-            NetworkDeviceData.from_nautobot_graphql(device)
+            network_device_from_nautobot_graphql(device)
             for device in DEVICE_CONNECTION_DATA_VALID.values()
             if device["location"]["name"] == activity_input.site
         ]
@@ -119,7 +123,7 @@ async def mock_get_network_devices_hostname_mismatch(
                 deploy_enabled=True,
                 backup_enabled=True,
                 ztp_enabled=True,
-                config_context=None,
+                intent=None,
             )
         ]
     )
@@ -472,7 +476,7 @@ def mock_validate_hostname_mismatch(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_device_cable_validation_workflow_dpu_mac_offset(_, env):
     """Test DPU MAC offset validation where actual MAC is expected MAC + 0x10."""
 
@@ -564,7 +568,7 @@ async def test_execute_device_cable_validation_workflow_dpu_mac_offset(_, env):
         activity_executor=ThreadPoolExecutor(5),
     ):
         workflow_input = DeviceCableValidationInput(
-            device=NetworkDeviceData.from_nautobot_graphql(
+            device=network_device_from_nautobot_graphql(
                 DEVICE_CONNECTION_DATA_INVALID["mock_device1"]
             ),
             device_id=DEVICE_CONNECTION_DATA_INVALID["mock_device1"]["id"],
@@ -616,8 +620,8 @@ async def test_execute_device_cable_validation_workflow_dpu_mac_offset(_, env):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.cable_validation.NautobotClient")
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager.temporal.ngc.activities.cable_validation.create_dcim_client")
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_cable_validation_workflow_all_valid(_, mock_nb_client, env):
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -689,7 +693,7 @@ EXPECTED_CABLE_TABLE = (
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_cable_validation_workflow_some_invalid(_, env):
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -729,7 +733,7 @@ async def test_cable_validation_workflow_some_invalid(_, env):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_cable_validation_workflow_hostname_mismatch(_, env):
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -813,7 +817,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
                             "tenant_config_file": "tenant.yaml",
                             "tenant_config_path": "c2c2b006-d4f6-4645-8ac8-a4a968050273/tenant.yaml",
                             "ztp_enabled": True,
-                            "config_context": None,
+                            "intent": None,
                         },
                         {
                             "backup_enabled": True,
@@ -837,7 +841,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
                             "tenant_config_file": "tenant.yaml",
                             "tenant_config_path": "c2c2b006-d4f6-4645-8ac8-a4a968050232/tenant.yaml",
                             "ztp_enabled": True,
-                            "config_context": None,
+                            "intent": None,
                         },
                         {
                             "backup_enabled": True,
@@ -861,7 +865,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
                             "tenant_config_file": "",
                             "tenant_config_path": "",
                             "ztp_enabled": True,
-                            "config_context": None,
+                            "intent": None,
                         },
                         {
                             "backup_enabled": True,
@@ -885,7 +889,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
                             "tenant_config_file": "tenant.yaml",
                             "tenant_config_path": "c2c2b006-d4f6-4645-8ac8-a4a968050273/tenant.yaml",
                             "ztp_enabled": True,
-                            "config_context": None,
+                            "intent": None,
                         },
                     ],
                     "display": ANY,  # Until we add a cleaner to_markdown method to device data
@@ -938,7 +942,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
                             "tenant_config_file": "tenant.yaml",
                             "tenant_config_path": "c2c2b006-d4f6-4645-8ac8-a4a968050273/tenant.yaml",
                             "ztp_enabled": True,
-                            "config_context": None,
+                            "intent": None,
                         },
                         {
                             "backup_enabled": True,
@@ -962,7 +966,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
                             "tenant_config_file": "tenant.yaml",
                             "tenant_config_path": "c2c2b006-d4f6-4645-8ac8-a4a968050232/tenant.yaml",
                             "ztp_enabled": True,
-                            "config_context": None,
+                            "intent": None,
                         },
                         {
                             "backup_enabled": True,
@@ -986,7 +990,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
                             "tenant_config_file": "",
                             "tenant_config_path": "",
                             "ztp_enabled": True,
-                            "config_context": None,
+                            "intent": None,
                         },
                         {
                             "backup_enabled": True,
@@ -1010,7 +1014,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
                             "tenant_config_file": "tenant.yaml",
                             "tenant_config_path": "c2c2b006-d4f6-4645-8ac8-a4a968050273/tenant.yaml",
                             "ztp_enabled": True,
-                            "config_context": None,
+                            "intent": None,
                         },
                     ],
                     "legacy_site": False,
@@ -1041,7 +1045,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
                                 "tenant_config_file": "tenant.yaml",
                                 "tenant_config_path": "c2c2b006-d4f6-4645-8ac8-a4a968050273/tenant.yaml",
                                 "ztp_enabled": True,
-                                "config_context": None,
+                                "intent": None,
                             },
                             "interfaces": {
                                 "swp0": {
@@ -1141,7 +1145,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
                                 "tenant_config_file": "tenant.yaml",
                                 "tenant_config_path": "c2c2b006-d4f6-4645-8ac8-a4a968050232/tenant.yaml",
                                 "ztp_enabled": True,
-                                "config_context": None,
+                                "intent": None,
                             },
                             "interfaces": {
                                 "swp9": {
@@ -1220,7 +1224,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
                                 "tenant_config_file": "",
                                 "tenant_config_path": "",
                                 "ztp_enabled": True,
-                                "config_context": None,
+                                "intent": None,
                             },
                             "interfaces": {
                                 "swp0": {
@@ -1365,7 +1369,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
                                 "tenant_config_file": "tenant.yaml",
                                 "tenant_config_path": "c2c2b006-d4f6-4645-8ac8-a4a968050273/tenant.yaml",
                                 "ztp_enabled": True,
-                                "config_context": None,
+                                "intent": None,
                             },
                             "interfaces": {
                                 "swp0": {
@@ -1465,7 +1469,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
                                 "tenant_config_file": "tenant.yaml",
                                 "tenant_config_path": "c2c2b006-d4f6-4645-8ac8-a4a968050232/tenant.yaml",
                                 "ztp_enabled": True,
-                                "config_context": None,
+                                "intent": None,
                             },
                             "interfaces": {
                                 "swp9": {
@@ -1544,7 +1548,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
                                 "tenant_config_file": "",
                                 "tenant_config_path": "",
                                 "ztp_enabled": True,
-                                "config_context": None,
+                                "intent": None,
                             },
                             "interfaces": {
                                 "swp0": {
@@ -1669,7 +1673,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_device_cable_validation_workflow_valid(_, env):
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -1690,7 +1694,7 @@ async def test_execute_device_cable_validation_workflow_valid(_, env):
         activity_executor=ThreadPoolExecutor(5),
     ):
         workflow_input = DeviceCableValidationInput(
-            device=NetworkDeviceData.from_nautobot_graphql(
+            device=network_device_from_nautobot_graphql(
                 DEVICE_CONNECTION_DATA_INVALID["mock_device1"]
             ),
             device_id=DEVICE_CONNECTION_DATA_INVALID["mock_device1"]["id"],
@@ -1748,7 +1752,7 @@ async def test_execute_device_cable_validation_workflow_valid(_, env):
         )
 
         workflow_input = DeviceCableValidationInput(
-            device=NetworkDeviceData.from_nautobot_graphql(
+            device=network_device_from_nautobot_graphql(
                 DEVICE_CONNECTION_DATA_VALID["MOCK-LEAF-04"]
             ),
             device_id=DEVICE_CONNECTION_DATA_VALID["MOCK-LEAF-04"]["id"],
@@ -1984,11 +1988,11 @@ async def test_execute_device_cable_validation_workflow_invalid(env):
         ),
     ]
 
-    async def _mock_get_interfaces_by_mac(*args, **kwargs):
+    async def _mock_get_interface_hosts_by_mac(*args, **kwargs):
         return mock_interfaces
 
     mock_nb_instance = AsyncMock()
-    mock_nb_instance.get_interfaces_by_mac = _mock_get_interfaces_by_mac
+    mock_nb_instance.get_interface_hosts_by_mac = _mock_get_interface_hosts_by_mac
     mock_nb_instance.__aenter__ = AsyncMock(return_value=mock_nb_instance)
     mock_nb_instance.__aexit__ = AsyncMock(return_value=None)
     mock_nb_class = MagicMock(return_value=mock_nb_instance)
@@ -1996,7 +2000,7 @@ async def test_execute_device_cable_validation_workflow_invalid(env):
     @activity.defn(name="decorate_result")
     async def _decorate_result_with_mock(activity_input: DecorateResultActivityInput):
         with patch(
-            "nv_config_manager.temporal.ngc.activities.cable_validation.NautobotClient",
+            "nv_config_manager.temporal.ngc.activities.cable_validation.create_dcim_client",
             mock_nb_class,
         ):
             return await decorate_result(activity_input)
@@ -2020,7 +2024,7 @@ async def test_execute_device_cable_validation_workflow_invalid(env):
         activity_executor=ThreadPoolExecutor(5),
     ):
         workflow_input = DeviceCableValidationInput(
-            device=NetworkDeviceData.from_nautobot_graphql(
+            device=network_device_from_nautobot_graphql(
                 DEVICE_CONNECTION_DATA_INVALID["mock_device1"]
             ),
             device_id=DEVICE_CONNECTION_DATA_INVALID["mock_device1"]["id"],
@@ -2175,7 +2179,7 @@ async def test_execute_device_cable_validation_workflow_invalid(env):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_device_cable_validation_workflow_mac_validation_all_valid(
     _,
     env,
@@ -2317,7 +2321,7 @@ async def test_execute_device_cable_validation_workflow_mac_validation_all_valid
         activity_executor=ThreadPoolExecutor(5),
     ):
         workflow_input = DeviceCableValidationInput(
-            device=NetworkDeviceData.from_nautobot_graphql(
+            device=network_device_from_nautobot_graphql(
                 DEVICE_CONNECTION_DATA_MAC_VALIDATION["MOCK-IPMITOR-01"]
             ),
             device_id=DEVICE_CONNECTION_DATA_MAC_VALIDATION["MOCK-IPMITOR-01"]["id"],
@@ -2372,7 +2376,7 @@ async def test_execute_device_cable_validation_workflow_mac_validation_all_valid
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_device_cable_validation_workflow_hostname_mismatch(_, env):
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -2391,7 +2395,7 @@ async def test_execute_device_cable_validation_workflow_hostname_mismatch(_, env
         activity_executor=ThreadPoolExecutor(2),
     ):
         workflow_input = DeviceCableValidationInput(
-            device=NetworkDeviceData.from_nautobot_graphql(
+            device=network_device_from_nautobot_graphql(
                 DEVICE_CONNECTION_DATA_MAC_VALIDATION["MOCK-IPMITOR-01"]
             ),
             device_id=DEVICE_CONNECTION_DATA_MAC_VALIDATION["MOCK-IPMITOR-01"]["id"],
@@ -2420,7 +2424,7 @@ async def test_execute_device_cable_validation_workflow_hostname_mismatch(_, env
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_site_cable_validation_no_devices_found(_, env):
     task_queue_name = str(uuid.uuid4())
     async with Worker(

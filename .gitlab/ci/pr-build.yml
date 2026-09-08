@@ -11,19 +11,17 @@
 #     withholds all Protected variables (registry tokens, push tokens, ...)
 #   - it never logs in to a registry and never pushes; images are written to
 #     local tarballs via DOCKER_BUILD_OUTPUT and uploaded as job artifacts
-#   - it is created only by a deliberate trigger (the promote pipeline's API
-#     call, or a manual run) - mirror pushes never start it (see the
-#     workflow rules in common.yml)
+#   - a vetted pull-request/<n> mirror sync starts it automatically; diagnostic
+#     rebuilds can also be created manually or through the API
 # The protected promote pipeline (promote-test-envs.yml) downloads the
 # artifacts, retags, pushes, and captures digests with credentials that this
 # pipeline never sees.
 #
-# amd64 only: the shared test envs deploy amd64, matching the existing
-# deploy-to-test flow's ${CI_COMMIT_SHORT_SHA}-amd64 convention.
+# amd64 only: the shared test environments deploy on amd64.
 # =============================================================================
 
 .pr-build-rules: &pr-build-rules
-  - if: $CI_COMMIT_BRANCH =~ /^pull-request\// && ($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger" || $CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "web")
+  - if: $CI_COMMIT_BRANCH =~ /^pull-request\/[0-9]+$/ && ($CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger" || $CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "web")
     when: always
   - when: never
 
@@ -36,9 +34,9 @@ pr-build-image:
     - docker
     - linux/amd64
   needs: []
-  image: $NVCM_CI_IMAGE_DOCKER
+  image: $NVCM_PR_IMAGE_DOCKER_DIND
   services:
-    - name: $NVCM_CI_IMAGE_DOCKER_DIND
+    - name: $NVCM_PR_IMAGE_DOCKER_DIND
       alias: docker
       command: ["--tls=false"]
   variables:
@@ -131,7 +129,7 @@ pr-build-chart:
     - docker
     - linux/amd64
   needs: []
-  image: $NVCM_CI_IMAGE_ALPINE
+  image: $NVCM_PR_IMAGE_ALPINE
   # Same registry-proxy flakiness as pr-build-image; retry system failures.
   retry:
     max: 2

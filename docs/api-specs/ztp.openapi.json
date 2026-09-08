@@ -269,7 +269,7 @@
     },
     "/v1/device/{device_uuid}/boot-script": {
       "get": {
-        "description": "Load the bootscript for the given nautobot device UUID.",
+        "description": "Load the bootscript for the given DCIM device ID.",
         "operationId": "load_bootscript_v1_device__device_uuid__boot_script_get",
         "parameters": [
           {
@@ -321,7 +321,7 @@
     },
     "/v1/device/{device_uuid}/config/{configlet}": {
       "get": {
-        "description": "Load the specified configuration file for the given nautobot device UUID.",
+        "description": "Load the specified configuration file for the given DCIM device ID.",
         "operationId": "load_configuration_v1_device__device_uuid__config__configlet__get",
         "parameters": [
           {
@@ -584,7 +584,7 @@
     },
     "/v1/device/{device_uuid}/validate_serial": {
       "post": {
-        "description": "Validate the device serial number matches nautobot.",
+        "description": "Validate the device serial number matches the selected DCIM.",
         "operationId": "validate_serial_v1_device__device_uuid__validate_serial_post",
         "parameters": [
           {

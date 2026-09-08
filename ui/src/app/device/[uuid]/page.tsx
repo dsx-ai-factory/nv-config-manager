@@ -25,6 +25,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { formatRelativeTime } from "@/lib/utils";
+import { useRuntimeConfig } from "@/config/runtime";
 import { downloadConfigsAsZip } from "@/lib/download-config";
 import { FileText, ExternalLink, History, Download } from "lucide-react";
 import Link from "next/link";
@@ -37,8 +38,11 @@ export default function DevicePage({ params }: Readonly<{ params: Promise<{ uuid
   const [fileType, setFileType] = useState<"intended" | "backup">(initialFileType);
   const [isDownloading, setIsDownloading] = useState(false);
   const { data: configs, error, isLoading } = useDeviceConfigs(uuid, fileType);
+  const { config: runtimeConfig } = useRuntimeConfig();
 
   const device = configs?.[0]?.device;
+  const deviceUrl = device?.device_url ?? device?.nautobot_url;
+  const dcimDisplayName = runtimeConfig?.dcimDisplayName ?? "DCIM";
   const handleDownloadAll = async () => {
     if (!configs?.length) return;
     setIsDownloading(true);
@@ -109,16 +113,16 @@ export default function DevicePage({ params }: Readonly<{ params: Promise<{ uuid
                 </div>
               )}
             </div>
-            {device?.nautobot_url && (
+            {deviceUrl && (
               <Button variant="outline" asChild>
                 <a
-                  href={device.nautobot_url}
+                  href={deviceUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="no-underline"
                 >
                   <ExternalLink className="mr-2 h-4 w-4" />
-                  View in Nautobot
+                  View in {dcimDisplayName}
                 </a>
               </Button>
             )}

@@ -30,6 +30,86 @@ services:
   nautobot: true
 ```
 
+## External DCIM provider
+
+The provider package is owned separately from Config Manager. Until the
+publishing story is finalized, install it from Git or a sibling checkout and
+ship it in the deployment's provider-package image.
+This example uses the deliberately neutral `synthetic` provider name; replace
+every `synthetic` value with the provider's documented name, endpoint, token,
+and OCI wheel image. Installing a package does not certify that provider for
+every Config Manager capability. The provider must implement the normalized
+operations used by the universal Config Manager workflow surface; workflows
+are not enabled or disabled by provider name.
+
+For the SDK and package contract, including provider-owned event handling and
+render data, see [Contribute a DCIM Provider](../development/contributing-dcim-provider.mdx).
+
+```yaml
+version: "1"
+cluster:
+  hostname: config-manager.example.com
+  environment: test
+  namespace: nv-config-manager
+secrets:
+  method: kubernetes
+  k8s:
+    dcim:
+      values:
+        token: "<synthetic-provider-token>"
+dcim:
+  provider: synthetic
+  server: https://synthetic-dcim.example
+  public_url: https://synthetic-dcim.example
+  display_name: Synthetic DCIM
+  event_stream: synthetic-dcim
+  event_subject: synthetic.change
+  options:
+    tenant: lab
+  provider_packages:
+    - name: synthetic
+      image: registry.example.com/synthetic-dcim-provider:1.0
+services:
+  nautobot: false
+sites:
+  - name: dc01
+```
+
+For `secrets.method: eso`, enable `secrets.vault.paths.dcim` and configure its
+path and token key. Provider-specific sensitive settings belong in the
+provider's documented secret references, not in `dcim.options`.
+
+For an airgapped deployment, the image in each `provider_packages` entry must
+be included in the bundle. Pass a file containing that OCI image reference to
+`create-airgapped.sh --extra-images-file`; the bundle builder cannot infer
+site-specific provider packages from an installer configuration. The standard
+provider-wheel installer image is included in the bundle and is automatically
+mapped to `images.registry`. To use a different installer image, configure
+`images.overrides.dcimProviderInstaller` so it follows the same registry and
+airgap handling as other third-party images.
+
+## Local Redis exporter without monitoring
+
+Set `redis_metrics_enabled` under `infrastructure.monitoring` for headless
+deployments. This example enables the bundled Redis exporter without creating
+a Redis PodMonitor:
+
+```yaml
+version: "1"
+cluster:
+  hostname: nv-config-manager.local
+  environment: local
+infrastructure:
+  monitoring:
+    enabled: false
+    redis_metrics_enabled: true
+```
+
+When monitoring is enabled, the Redis PodMonitor is enabled too. Local
+observability automatically enables both settings without changing the saved
+`redis_metrics_enabled` preference. Configuring external Redis suppresses the
+exporter and PodMonitor.
+
 ## File storage with OS images
 
 ```yaml

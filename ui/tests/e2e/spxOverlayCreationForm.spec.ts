@@ -237,7 +237,7 @@ test.describe("New SpX Overlay Creation Workflow - URL Parameters", () => {
         exact: true,
       })
       .click();
-    await page.getByRole("dialog").getByText(TENANT_LIST.nsv).click();
+    await page.getByRole("dialog").getByText(TENANT_LIST.tenant_a).click();
 
     // Change the namespace tag
     await page.getByRole("button", { name: VPC_DATA.namespace_tag }).click();
@@ -263,7 +263,7 @@ test.describe("New SpX Overlay Creation Workflow - URL Parameters", () => {
     expect(requestData).toEqual({
       site: SITES_LIST.rno1,
       overlay_id: "modified-vpc",
-      tenant: TENANT_LIST.nsv,
+      tenant: TENANT_LIST.tenant_a,
       namespace_tag: "tenant-a",
       rd_min: 61000,
       rd_max: 64000,

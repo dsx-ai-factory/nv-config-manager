@@ -64,16 +64,22 @@ To use an existing Nautobot instance, configure it on the [External Services](#3
 
 ## 3. External Services
 
-Connect Config Manager to existing Nautobot, Redis, Slack, or PostgreSQL services. Leave a service disabled to use the default in-cluster deployment.
+Connect Config Manager to a selected DCIM provider, Redis, Slack, or PostgreSQL services. Leave a service disabled to use the default in-cluster deployment.
 
 | Service | Fields |
 | :------ | :----- |
-| Nautobot | Use external Nautobot, Nautobot URL |
+| DCIM provider | Provider name, use external DCIM, DCIM endpoint. The bundled provider is `nautobot-2x`; external providers require `services.nautobot: false`. |
 | Redis | Use external Redis, host, port, TLS, password authentication |
 | Slack | Configure a Slack channel for notifications |
 | PostgreSQL | Use external PostgreSQL, port, Temporal host, Temporal Visibility host, Config Store host, DHCP host, Nautobot host |
 
 ![External Services section screen](../assets/images/installer/03-external-services.svg)
+
+An external provider is a separately packaged SDK implementation, not an
+alternate service mode. Its wheel image belongs in `dcim.provider_packages`,
+its name must match its Python entry point, and its non-secret settings belong
+in `dcim.options`. See [Contribute a DCIM Provider](../development/contributing-dcim-provider.mdx)
+for the provider-side contract.
 
 ## 4. App Secrets
 
@@ -270,6 +276,12 @@ Configure gateway behavior, TLS, database backups, monitoring resources, and loa
 | Monitoring | PodMonitors and monitoring resources |
 | Prometheus namespace | Namespace allowed through network policy for Prometheus scraping (defaults to `monitoring`) |
 | Enable local observability stack | Enable Grafana and Loki for local development |
+| Enable local Redis metrics exporter | Export metrics from bundled Redis; disabled when external Redis is configured |
+
+The Redis metrics switch stores only the explicit preference to enable the metrics exporter on the bundled Redis instance.
+Turning on local monitoring automatically enables both the Redis metrics exporter and the Redis PodMonitor without changing that preference.
+Turning off local monitoring causes the Redis metrics exporter to be installed without creating a Redis PodMonitor.
+Using external Redis suppresses both the Redis metrics exporter and the Redis PodMonitor.
 
 Load balancer providers include None, MetalLB, Cilium, and AWS NLB. MetalLB and Cilium use static IPs and optional DNS names for ZTP and DHCP. AWS NLB can be configured separately for Gateway, ZTP, and DHCP.
 

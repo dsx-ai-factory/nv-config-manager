@@ -30,6 +30,14 @@ spec:
   {{- if $.Values.cnpg.imageName }}
   imageName: {{ $.Values.cnpg.imageName | quote }}
   {{- end }}
+
+  {{- /* Propagate global.customLabels onto instance pods so chart PodMonitors
+       can promote them via podTargetLabels (see monitoring.yaml). */}}
+  {{- with $.Values.global.customLabels }}
+  inheritedMetadata:
+    labels:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
   
   postgresql:
     parameters:
@@ -69,9 +77,9 @@ spec:
     topologyKey: {{ $config.affinity.topologyKey }}
     {{- end }}
   {{- end }}
-  
-  monitoring:
-    enablePodMonitor: {{ $.Values.cnpg.monitoring.enabled | default false }}
+
+  {{- /* PodMonitors are chart-managed in monitoring.yaml (enablePodMonitor is
+       deprecated upstream). Leave operator PodMonitor creation off. */}}
   
   {{- if $config.backup.enabled }}
   backup:
@@ -141,6 +149,12 @@ spec:
   {{- if .Values.cnpg.imageName }}
   imageName: {{ .Values.cnpg.imageName | quote }}
   {{- end }}
+
+  {{- with .Values.global.customLabels }}
+  inheritedMetadata:
+    labels:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
   
   postgresql:
     parameters:
@@ -180,9 +194,6 @@ spec:
     topologyKey: {{ $nautobotConfig.affinity.topologyKey }}
     {{- end }}
   {{- end }}
-  
-  monitoring:
-    enablePodMonitor: {{ .Values.cnpg.monitoring.enabled | default false }}
   
   {{- if $nautobotConfig.backup.enabled }}
   backup:

@@ -1,0 +1,56 @@
+# import "../fragments/device.graphql"
+
+query GetZTPDevice($id: ID!) {
+  config_manager_device(id: $id) {
+    intended_config {
+      config_store_instance
+      path
+    }
+    device {
+      ...DeviceIdentity
+      platform { name }
+      config_context
+      interfaces: interfaces(has_ip_addresses: true) {
+        ip_addresses { host }
+      }
+    }
+  }
+}
+
+query GetRenderDeviceStatus($id: ID!) {
+  config_manager_device(id: $id) {
+    render_enabled
+    is_aggregate_managed
+  }
+}
+
+query ListRenderEnabledDevices($is_aggregate_managed: Boolean) {
+  config_manager_devices(render_enabled: true, is_aggregate_managed: $is_aggregate_managed) {
+    id
+  }
+}
+
+query ListRenderTemplateVersions {
+  config_manager_devices {
+    device { id }
+    intended_config { template_version }
+  }
+}
+
+query GetDeviceMetadata($id: ID!) {
+  device(id: $id) {
+    ...DeviceMetadata
+  }
+}
+
+query ListManagedDeviceMetadata($limit: Int!, $offset: Int!) {
+  config_manager_devices(limit: $limit, offset: $offset) {
+    device {
+      ...DeviceMetadata
+    }
+  }
+}
+
+query GetDeviceSerial($id: ID!) {
+  device(id: $id) { serial }
+}

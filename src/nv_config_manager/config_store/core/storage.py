@@ -17,7 +17,6 @@
 import gzip
 from datetime import datetime
 from hashlib import sha256
-from uuid import UUID
 
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select, text
@@ -67,12 +66,12 @@ def calculate_content_hash(content: str) -> str:
     return sha256(content.encode("utf-8")).hexdigest()
 
 
-def get_lock_id(device_uuid: UUID, filename: str, file_type: FileType) -> int:
+def get_lock_id(device_uuid: str, filename: str, file_type: FileType) -> int:
     """
     Generate consistent lock ID for device_uuid + filename + file_type combination.
 
     Args:
-        device_uuid: Device UUID
+        device_uuid: DCIM provider device identifier
         filename: File name
         file_type: File type (intended or backup)
 
@@ -87,7 +86,7 @@ def get_lock_id(device_uuid: UUID, filename: str, file_type: FileType) -> int:
 
 
 async def acquire_file_lock(
-    session: AsyncSession, device_uuid: UUID, filename: str, file_type: FileType
+    session: AsyncSession, device_uuid: str, filename: str, file_type: FileType
 ) -> None:
     """
     Acquire advisory lock for device_uuid + filename + file_type combination.
@@ -98,7 +97,7 @@ async def acquire_file_lock(
 
     Args:
         session: Database session
-        device_uuid: Device UUID
+        device_uuid: DCIM provider device identifier
         filename: File name
         file_type: File type (intended or backup)
     """
@@ -112,14 +111,14 @@ async def acquire_file_lock(
 
 
 async def get_latest_version(
-    session: AsyncSession, device_uuid: UUID, filename: str, file_type: FileType
+    session: AsyncSession, device_uuid: str, filename: str, file_type: FileType
 ) -> ConfigFileModel | None:
     """
     Get the latest version of a config file.
 
     Args:
         session: Database session
-        device_uuid: Device UUID
+        device_uuid: DCIM provider device identifier
         filename: File name
         file_type: File type (intended or backup)
 
@@ -140,14 +139,14 @@ async def get_latest_version(
 
 
 async def get_specific_version(
-    session: AsyncSession, device_uuid: UUID, filename: str, file_type: FileType, version: int
+    session: AsyncSession, device_uuid: str, filename: str, file_type: FileType, version: int
 ) -> ConfigFileModel | None:
     """
     Get a specific version of a config file.
 
     Args:
         session: Database session
-        device_uuid: Device UUID
+        device_uuid: DCIM provider device identifier
         filename: File name
         file_type: File type (intended or backup)
         version: Version number
@@ -168,7 +167,7 @@ async def get_specific_version(
 
 async def create_or_update_config(
     session: AsyncSession,
-    device_uuid: UUID,
+    device_uuid: str,
     filename: str,
     content: str,
     author: str,
@@ -189,7 +188,7 @@ async def create_or_update_config(
 
     Args:
         session: Database session (must be in a transaction)
-        device_uuid: Device UUID
+        device_uuid: DCIM provider device identifier
         filename: File name
         content: Uncompressed content
         author: Author email
@@ -249,14 +248,14 @@ async def create_or_update_config(
 
 
 async def get_version_history(
-    session: AsyncSession, device_uuid: UUID, filename: str, file_type: FileType, limit: int = 100
+    session: AsyncSession, device_uuid: str, filename: str, file_type: FileType, limit: int = 100
 ) -> list[ConfigFileModel]:
     """
     Get version history for a config file.
 
     Args:
         session: Database session
-        device_uuid: Device UUID
+        device_uuid: DCIM provider device identifier
         filename: File name
         file_type: File type (intended or backup)
         limit: Maximum number of versions to return
@@ -277,12 +276,12 @@ async def get_version_history(
     return list(result.scalars().all())
 
 
-async def delete_device_configs(session: AsyncSession, device_uuid: UUID) -> int:
+async def delete_device_configs(session: AsyncSession, device_uuid: str) -> int:
     """Delete all config file versions for a device.
 
     Args:
         session: Database session
-        device_uuid: Device UUID
+        device_uuid: DCIM provider device identifier
 
     Returns:
         Number of rows deleted
@@ -305,14 +304,14 @@ async def delete_device_configs(session: AsyncSession, device_uuid: UUID) -> int
 
 
 async def get_all_device_configs(
-    session: AsyncSession, device_uuid: UUID, file_type: FileType | None = None
+    session: AsyncSession, device_uuid: str, file_type: FileType | None = None
 ) -> list[ConfigFileModel]:
     """
     Get latest version of all configs for a device.
 
     Args:
         session: Database session
-        device_uuid: Device UUID
+        device_uuid: DCIM provider device identifier
         file_type: Optional file type filter (intended or backup)
 
     Returns:

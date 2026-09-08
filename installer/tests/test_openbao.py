@@ -28,12 +28,14 @@ from nv_config_manager_installer.openbao import (
 )
 from nv_config_manager_installer.schema import (
     ClusterConfig,
+    DCIMConfig,
     GitTokenEntry,
     NetworkSecretEntry,
     NVConfigManagerInstallConfig,
     PasswordSource,
     SecretsConfig,
     SecretsMethod,
+    ServicesConfig,
     SiteConfig,
     SSOConfig,
     VaultConfig,
@@ -181,6 +183,18 @@ class TestOpenBaoPopulator:
         site_data = client.data[("secrets", "prod/site/dc01/config_secrets")]
         assert site_data["root_password_r1"]
         assert site_data["api_user_key_r1"]
+
+    def test_populates_external_dcim_token_without_nautobot_secrets(self):
+        config = self._config()
+        config.dcim = DCIMConfig(provider="synthetic", server="https://synthetic.example")
+        config.services = ServicesConfig(nautobot=False)
+        config.secrets.vault.paths.dcim = VaultPathConfig(enabled=True)
+        client = InMemoryOpenBaoClient()
+
+        OpenBaoPopulator(config, client).populate()
+
+        assert "token" in client.data[("nv-config-manager", "prod/dcim")]
+        assert ("nv-config-manager", "prod/nautobot") not in client.data
 
     def test_rejects_existing_mismatched_nautobot_tokens(self):
         config = self._config()

@@ -87,8 +87,14 @@ instrumentator.expose(app, include_in_schema=False)
 
 
 @app.get("/healthcheck")
-def healthcheck() -> str:
+async def healthcheck() -> str:
     """Execute healthcheck."""
+    # Async so the probe completes in a single event-loop callback. A sync
+    # handler is dispatched to the anyio threadpool and needs a second trip
+    # through the ready queue to deliver its result, which measures at ~2x the
+    # latency of an async one under load -- enough to blow the probe timeout and
+    # trigger a spurious liveness kill. Note this only halves the probe's own
+    # latency; it does not address the queueing that makes the loop slow.
     return "OK"
 
 
