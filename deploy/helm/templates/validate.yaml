@@ -55,7 +55,15 @@
   {{- if and (not ($vaultPki.allowInsecure | default false)) (not (hasPrefix "https://" $vaultPki.address)) -}}
     {{- fail "networkZtp.certificates.vault.address must use HTTPS unless allowInsecure is explicitly enabled" -}}
   {{- end -}}
-  {{- if and (hasKey $vaultPki "verify") (kindIs "bool" $vaultPki.verify) (not $vaultPki.verify) (not ($vaultPki.allowInsecure | default false)) -}}
+  {{- $verifyDisabled := false -}}
+  {{- if hasKey $vaultPki "verify" -}}
+    {{- if kindIs "bool" $vaultPki.verify -}}
+      {{- $verifyDisabled = not $vaultPki.verify -}}
+    {{- else if kindIs "string" $vaultPki.verify -}}
+      {{- $verifyDisabled = has (lower $vaultPki.verify) (list "false" "no" "0" "off") -}}
+    {{- end -}}
+  {{- end -}}
+  {{- if and $verifyDisabled (not ($vaultPki.allowInsecure | default false)) -}}
     {{- fail "networkZtp.certificates.vault.verify may be false only when allowInsecure is explicitly enabled" -}}
   {{- end -}}
 {{- end -}}

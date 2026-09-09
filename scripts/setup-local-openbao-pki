@@ -138,6 +138,21 @@ if [[ "$INSTALL_OPENBAO" == "true" ]]; then
     # The OpenBao chart uses an OnDelete StatefulSet. If Helm changed the pod
     # template (including the dev root token), explicitly recycle the disposable
     # dev pod so its in-memory server matches the persisted local token.
+    statefulset_observed=false
+    for _ in {1..60}; do
+        read -r generation observed_generation <<<"$(kubectl_cmd \
+            -n "$OPENBAO_NAMESPACE" get statefulset "$OPENBAO_RELEASE" \
+            -o jsonpath='{.metadata.generation} {.status.observedGeneration}')"
+        if [[ -n "$generation" && "$observed_generation" == "$generation" ]]; then
+            statefulset_observed=true
+            break
+        fi
+        sleep 1
+    done
+    if [[ "$statefulset_observed" != "true" ]]; then
+        echo "OpenBao StatefulSet did not observe its latest generation within 60 seconds" >&2
+        exit 1
+    fi
     current_revision="$(kubectl_cmd -n "$OPENBAO_NAMESPACE" get statefulset \
         "$OPENBAO_RELEASE" -o jsonpath='{.status.currentRevision}')"
     update_revision="$(kubectl_cmd -n "$OPENBAO_NAMESPACE" get statefulset \
@@ -166,6 +181,8 @@ kubectl_cmd -n "$OPENBAO_NAMESPACE" wait \
 echo "Ensuring application service account exists..."
 kubectl_cmd create namespace "$APP_NAMESPACE" --dry-run=client -o yaml | \
     kubectl_cmd apply -f - >/dev/null
+kubectl_cmd -n "$APP_NAMESPACE" wait --for=create \
+    serviceaccount/default --timeout=60s >/dev/null
 kubectl_cmd -n "$APP_NAMESPACE" create serviceaccount "$SERVICE_ACCOUNT" \
     --dry-run=client -o yaml | kubectl_cmd apply -f - >/dev/null
 
