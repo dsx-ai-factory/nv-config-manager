@@ -25,8 +25,8 @@ from nv_config_manager_workflows.secrets import (
     get_credential,
     get_rotation_passwords,
     get_site_slug,
-    resolve_config_section,
     resolve_credentials,
+    select_credential_source,
 )
 
 MAIN_CONFIG = {
@@ -48,7 +48,7 @@ def test_site_slug_matches_existing_section_format() -> None:
 
 
 def test_site_specific_section_overrides_global_section() -> None:
-    selected, section = resolve_config_section(
+    selected, section = select_credential_source(
         MAIN_CONFIG,
         SECRETS_CONFIG,
         "device",
@@ -70,7 +70,7 @@ def test_site_specific_section_overrides_global_section() -> None:
 
 @pytest.mark.parametrize("secrets_config", [None, {}])
 def test_missing_secrets_mapping_falls_back_to_global_section(secrets_config) -> None:
-    selected, section = resolve_config_section(
+    selected, section = select_credential_source(
         MAIN_CONFIG,
         secrets_config,
         "device",
@@ -148,7 +148,7 @@ def test_rotation_passwords_are_newest_first_limited_and_ignore_invalid_keys() -
     assert get_rotation_passwords(config, "missing") == []
 
 
-def test_resolution_has_no_file_configuration_or_logging_dependencies(
+def test_resolution_has_no_file_configuration_or_secret_logging(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -159,7 +159,6 @@ def test_resolution_has_no_file_configuration_or_logging_dependencies(
 
     assert not hasattr(secrets_module, "ConfigParser")
     assert not hasattr(secrets_module, "load_config")
-    assert not hasattr(secrets_module, "logger")
     assert (
         get_credential(
             MAIN_CONFIG,

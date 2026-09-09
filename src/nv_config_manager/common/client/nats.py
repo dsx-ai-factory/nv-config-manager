@@ -24,7 +24,7 @@ import logging
 import signal
 import ssl
 from collections.abc import Awaitable, Callable
-from configparser import ConfigParser, SectionProxy
+from configparser import ConfigParser
 from typing import Any, cast
 
 import certifi
@@ -36,6 +36,10 @@ from nats.js import JetStreamContext
 from nats.js.api import AckPolicy, ConsumerConfig, ConsumerInfo, DeliverPolicy, StreamInfo
 from nats.js.errors import NotFoundError
 
+from nv_config_manager.common.http_config import (
+    DEFAULT_NATS_API_PREFIX,
+    config_manager_api_prefix,
+)
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.common.nats_admin import (
     CONSUMER_ACK_WAIT_SECONDS,
@@ -44,19 +48,6 @@ from nv_config_manager.common.nats_admin import (
 )
 
 logger = get_logger(__name__, category=LogCategory.NATS)
-
-# Defined here rather than in common.config because that module imports this
-# package; common.config re-exports it as the public name.
-DEFAULT_NATS_API_PREFIX = "$JS.API"
-
-
-def config_manager_api_prefix(nats_config: SectionProxy) -> str:
-    """Return the JetStream API prefix for the stream owned by the config-manager account.
-
-    A JetStream API prefix identifies the NATS account hosting a stream, so it is a
-    property of the stream rather than of any individual subject on it.
-    """
-    return nats_config.get("config_manager_api_prefix", DEFAULT_NATS_API_PREFIX)
 
 
 class NatsClient:

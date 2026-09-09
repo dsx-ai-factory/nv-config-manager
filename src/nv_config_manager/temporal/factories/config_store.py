@@ -18,12 +18,12 @@ from __future__ import annotations
 
 from configparser import ConfigParser
 
-from nv_config_manager.common.config import (
+from nv_config_manager.common.config_loader import resolve_config
+from nv_config_manager.common.http_config import (
     get_internal_auth_headers,
     get_mtls_cert_paths,
     parse_verify_param,
 )
-from nv_config_manager.temporal.factories._config import resolve_config
 from nv_config_manager_workflows.clients.config_store import (
     ConfigStoreClientSettings,
     ConfigStoreType,

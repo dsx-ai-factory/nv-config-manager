@@ -23,7 +23,7 @@ import pytest
 from aiohttp import ClientResponse
 
 from nv_config_manager.common import auth as auth_mod
-from nv_config_manager.common.config import clear_config_cache
+from nv_config_manager.common.config_loader import clear_config_cache
 from nv_config_manager.temporal.runtime import configure_workflow_runtime
 from nv_config_manager_workflows import lock as workflow_lock_module
 from nv_config_manager_workflows import runtime as workflow_runtime_module

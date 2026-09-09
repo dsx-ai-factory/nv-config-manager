@@ -98,7 +98,7 @@ def mock_ufm_config():
 
 @pytest.fixture()
 def mock_nb_config():
-    with patch("nv_config_manager.common.config.load_config") as mock:
+    with patch("nv_config_manager.common.config_loader.load_config") as mock:
         mock.return_value = _nb_config()
         yield mock
 

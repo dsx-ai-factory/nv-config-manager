@@ -22,19 +22,15 @@ from unittest.mock import Mock
 
 import pytest
 
-from nv_config_manager.common.config import get_internal_auth_headers
-from nv_config_manager.temporal.factories import _config as config_module
+from nv_config_manager.common import config_loader as config_module
 from nv_config_manager.temporal.factories import (
-    config_store_client_settings,
     device_connection_settings,
     nats_client_settings,
     redfish_client_settings,
     redis_settings,
-    render_client_settings,
     ticketing_client_settings,
     ufm_client_settings,
 )
-from nv_config_manager_workflows.clients import ConfigStoreType
 
 
 @pytest.fixture
@@ -141,29 +137,6 @@ def test_redis_settings_match_current_constructor_values(client_config: ConfigPa
     }
 
 
-def test_render_client_settings_match_current_constructor_values(
-    client_config: ConfigParser,
-) -> None:
-    assert render_client_settings(client_config) == {
-        "base_url": "https://render.example",
-        "client_certificate": ("/certs/client.crt", "/certs/client.key"),
-        "headers": None,
-    }
-
-
-def test_config_store_client_settings_match_current_constructor_values(
-    client_config: ConfigParser,
-) -> None:
-    assert config_store_client_settings(client_config, file_type="backup") == {
-        "target": "http://config-store.internal:8080",
-        "file_type": ConfigStoreType.BACKUP,
-        "ui_url": "https://config-manager.example",
-        "verify": False,
-        "client_certificate": None,
-        "headers": get_internal_auth_headers,
-    }
-
-
 def test_nats_client_settings_match_current_constructor_values(
     client_config: ConfigParser,
 ) -> None:
@@ -214,30 +187,6 @@ def test_redfish_client_settings_match_current_constructor_values(
     }
 
 
-def test_internal_render_endpoint_settings(client_config: ConfigParser) -> None:
-    client_config.set("render", "use_internal_endpoint", "true")
-
-    assert render_client_settings(client_config) == {
-        "base_url": "http://render.internal:9000",
-        "client_certificate": None,
-        "headers": get_internal_auth_headers,
-    }
-
-
-def test_external_config_store_endpoint_settings(client_config: ConfigParser) -> None:
-    client_config.set("config_store.client", "use_internal_endpoint", "false")
-    client_config.set("config_store.client", "verify", "/certs/ca.crt")
-
-    assert config_store_client_settings(client_config) == {
-        "target": "https://config-store.example",
-        "file_type": ConfigStoreType.INTENDED,
-        "ui_url": "https://config-manager.example",
-        "verify": "/certs/ca.crt",
-        "client_certificate": ("/certs/client.crt", "/certs/client.key"),
-        "headers": None,
-    }
-
-
 def test_default_configuration_is_loaded_when_not_injected(
     client_config: ConfigParser,
     monkeypatch: pytest.MonkeyPatch,
@@ -256,11 +205,9 @@ def test_injected_configuration_does_not_load_global_config(
     load_config = Mock(side_effect=AssertionError("load_config should not be called"))
     monkeypatch.setattr(config_module, "load_config", load_config)
 
-    config_store_client_settings(client_config)
     device_connection_settings(client_config)
     nats_client_settings(client_config)
     redfish_client_settings(client_config, vendor="Lenovo")
-    render_client_settings(client_config)
     redis_settings(client_config)
     ticketing_client_settings(client_config, platform="jira")
     ufm_client_settings(client_config)

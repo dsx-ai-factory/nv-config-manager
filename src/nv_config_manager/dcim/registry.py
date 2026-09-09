@@ -46,6 +46,8 @@ from nv_config_manager_dcim import (
     get_dcim_provider as get_sdk_dcim_provider,
 )
 
+from nv_config_manager.common.config_loader import load_config
+
 DCIM_PROVIDER_ENTRY_POINT_GROUP = "nv_config_manager.dcim"
 DEFAULT_DCIM_PROVIDER = "nautobot-2x"
 
@@ -54,8 +56,6 @@ def _resolved_config(config: ConfigParser | None) -> ConfigParser:
     """Return an explicit config, loading the service config when omitted."""
     if config is not None:
         return config
-    from nv_config_manager.common.config import load_config  # avoid circular import
-
     return load_config()
 
 

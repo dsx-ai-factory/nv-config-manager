@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import assert_never
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.temporal.client.device.base import NetworkConnection
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
 

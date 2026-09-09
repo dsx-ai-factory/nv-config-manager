@@ -33,8 +33,8 @@ from nv_config_manager.common.client import (
 from nv_config_manager.common.client import (
     NatsProducer as BaseNatsProducer,
 )
-from nv_config_manager.common.client import config_manager_api_prefix
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
+from nv_config_manager.common.http_config import config_manager_api_prefix
 
 
 def _stream_subjects(raw_subjects: str) -> list[str]:

@@ -14,7 +14,6 @@
 # limitations under the License.
 """Server-side authentication and identity extraction for NVIDIA Config Manager services.
 
-All configuration is read from ``nv-config-manager.ini`` (via :func:`nv_config_manager.common.config.load_config`).
 
 INI sections::
 
@@ -103,7 +102,7 @@ from fastapi.responses import JSONResponse
 from jwt.types import Options as JWTDecodeOptions
 from pydantic import BaseModel
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
 
 logger = get_logger(__name__, category=LogCategory.AUTH)

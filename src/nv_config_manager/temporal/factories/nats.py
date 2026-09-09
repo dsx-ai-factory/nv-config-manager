@@ -19,8 +19,8 @@ from __future__ import annotations
 from configparser import ConfigParser
 from typing import TypedDict
 
-from nv_config_manager.common.client.nats import config_manager_api_prefix
-from nv_config_manager.temporal.factories._config import resolve_config
+from nv_config_manager.common.config_loader import resolve_config
+from nv_config_manager.common.http_config import config_manager_api_prefix
 
 
 class NatsClientSettings(TypedDict):

@@ -12,17 +12,60 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Backward-compatible imports for the relocated Config Store client."""
+"""Backward-compatible adapter for the relocated Config Store client."""
 
+from __future__ import annotations
+
+from configparser import ConfigParser
+
+from nv_config_manager.common.http_config import (
+    get_internal_auth_headers,
+    get_mtls_cert_paths,
+    parse_verify_param,
+)
 from nv_config_manager_workflows.clients.config_store import (
     ConfigFile,
     ConfigFileMetadata,
-    ConfigStoreClient,
     ConfigStoreClientSettings,
     ConfigStoreException,
     ConfigStoreFileNotFound,
     ConfigStoreType,
 )
+from nv_config_manager_workflows.clients.config_store import (
+    ConfigStoreClient as WorkflowConfigStoreClient,
+)
+
+
+class ConfigStoreClient(WorkflowConfigStoreClient):
+    """Legacy client surface with configuration-based construction."""
+
+    @classmethod
+    def from_config(
+        cls,
+        config: ConfigParser,
+        file_type: ConfigStoreType | str = "intended",
+        section: str = "config_store.client",
+    ) -> ConfigStoreClient:
+        """Create a client from the legacy INI configuration."""
+        config_section = config[section]
+        ui_url = config_section["ui_url"]
+        if config_section.getboolean("use_internal_endpoint", fallback=False):
+            return cls(
+                target=config_section["api_service"],
+                file_type=file_type,
+                ui_url=ui_url,
+                verify=False,
+                client_certificate=None,
+                headers=get_internal_auth_headers,
+            )
+        return cls(
+            target=config_section["api_url"],
+            file_type=file_type,
+            ui_url=ui_url,
+            verify=parse_verify_param(config_section),
+            client_certificate=get_mtls_cert_paths(config),
+        )
+
 
 __all__ = [
     "ConfigFile",

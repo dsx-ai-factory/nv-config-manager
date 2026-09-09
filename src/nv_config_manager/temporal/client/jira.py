@@ -38,7 +38,7 @@ from typing import Any, Self
 
 import aiohttp
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.temporal.client.ticketing import TICKETING_PROVIDERS, TicketingProvider
 from nv_config_manager.temporal.common.secrets import get_credential

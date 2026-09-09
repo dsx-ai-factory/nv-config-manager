@@ -47,7 +47,7 @@ from nv_config_manager.common.auth import (
     require_authenticated_identity,
     require_group,
 )
-from nv_config_manager.common.config import clear_config_cache
+from nv_config_manager.common.config_loader import clear_config_cache
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 

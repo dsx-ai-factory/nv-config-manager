@@ -23,6 +23,7 @@ from configparser import ConfigParser
 from aiohttp import ClientTimeout, TCPConnector
 from aiohttp_retry import ExponentialRetry
 
+from nv_config_manager.common.http_config import get_internal_auth_headers, get_mtls_cert_paths
 from nv_config_manager_workflows.clients._http import _WhoamiViaRetryClientMixin
 
 
@@ -81,8 +82,6 @@ class ZTPClient(_WhoamiViaRetryClientMixin):
         Returns:
             Configured ZTPClient instance
         """
-        from nv_config_manager.common.config import get_internal_auth_headers, get_mtls_cert_paths
-
         ztp_config = config[section]
         use_internal = ztp_config.getboolean("use_internal_endpoint", fallback=False)
 
