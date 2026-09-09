@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 
 _SAFE_REST_PATH = re.compile(r"[A-Za-z0-9._~/-]+")
 
+DEFAULT_TIMEOUT = 30
+"""Request budget used when the deployment does not configure one."""
+
 
 class NautobotException(DCIMError):
     """Backend-specific compatibility name for a public DCIM failure."""
@@ -56,7 +59,7 @@ class NautobotClient:
         nautobot_url: str,
         token: str = "",
         verify: bool | str = True,
-        timeout: int = 30,
+        timeout: int | None = None,
         headers: dict[str, str] | Callable[[], dict[str, str]] | None = None,
     ) -> None:
         """Initialize the Nautobot client.
@@ -65,14 +68,15 @@ class NautobotClient:
             nautobot_url: Base URL for Nautobot instance
             token: API token for authentication
             verify: SSL verification - True (default), False (disable), or str (path to CA cert)
-            timeout: Default request timeout in seconds
+            timeout: Default request timeout in seconds. ``None`` uses
+                :data:`DEFAULT_TIMEOUT`.
             headers: Static dict or callable returning fresh headers per-request.
                 If set, these headers take precedence over token auth.
         """
         self.nautobot_url = nautobot_url.rstrip("/") + "/"
         self.token = token
         self._verify = verify
-        self._timeout = timeout
+        self._timeout = DEFAULT_TIMEOUT if timeout is None else timeout
         self._headers = headers
         self.graphql_endpoint = f"{self.nautobot_url}api/graphql/"
         self.rest_endpoint = f"{self.nautobot_url}api/"
@@ -84,7 +88,7 @@ class NautobotClient:
         nautobot_url: str,
         headers: dict[str, str] | Callable[[], dict[str, str]],
         verify: bool | str = True,
-        timeout: int = 30,
+        timeout: int | None = None,
     ) -> Self:
         """Create a Nautobot client for MCP with explicit caller-scoped headers."""
         return cls(

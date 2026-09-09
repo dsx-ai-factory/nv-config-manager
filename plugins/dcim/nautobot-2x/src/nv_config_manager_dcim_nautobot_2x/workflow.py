@@ -163,6 +163,7 @@ class NautobotWorkflowClient(BaseNautobotClient):
             nautobot_url=str(connection_config["server"]),
             token=str(connection_config["token"]),
             verify=connection_config["verify"],
+            timeout=connection_config.get("timeout"),
             headers=connection_config.get("headers"),
         )
 
@@ -175,7 +176,7 @@ class NautobotWorkflowClient(BaseNautobotClient):
             query: GraphQL query string
             variables: Query variables
             timeout: Per-request timeout in seconds. ``None`` uses the
-                client budget.
+                configured client budget.
         """
         logger.info("Sending GraphQL query to Nautobot")
         try:

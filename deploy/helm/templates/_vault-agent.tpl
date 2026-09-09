@@ -308,6 +308,9 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           token = {{ include "nv-config-manager.vaultAgent.ctKv2Key" (dict "var" "dcim" "key" (include "nv-config-manager.vault.keyName" (dict "root" $root "secret" "dcim" "key" "token"))) }}
           {{- end }}
           verify = {{ include "nv-config-manager.dcimVerify" $root }}
+          {{- if $root.Values.dcim.timeout }}
+          timeout = {{ $root.Values.dcim.timeout }}
+          {{- end }}
           cache_refresh_interval = {{ include "nv-config-manager.dcimCacheRefreshInterval" $root }}
           cache_ttl = {{ include "nv-config-manager.dcimCacheTtl" $root }}
 
