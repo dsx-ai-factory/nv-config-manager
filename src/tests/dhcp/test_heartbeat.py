@@ -271,3 +271,56 @@ async def test_heartbeat_advances_while_waiting_for_initial_config(sync_env, moc
     assert at_first_apply["records"] == 0
     # Both reconciliations happen only once the config appears.
     assert sync_env.record.call_count == 2
+
+
+@pytest.fixture()
+def _startup_failure(mocker):
+    """Stop the sync loop at its second sleep: one startup retry, then the refresh sleep."""
+    sleeps = {"n": 0}
+
+    async def sleep(_seconds):
+        sleeps["n"] += 1
+        if sleeps["n"] > 1:
+            raise _StopLoop()
+
+    mocker.patch.object(cli.asyncio, "sleep", new=sleep)
+
+
+async def test_startup_survives_a_redis_outage(sync_env, _startup_failure) -> None:
+    """Redis being down before the first apply must not exit into CrashLoopBackOff."""
+    before = _error_count()
+    sync_env.redis.load_kea_config = AsyncMock(
+        side_effect=[ConnectionError("redis down"), CONFIG, CONFIG]
+    )
+
+    with pytest.raises(_StopLoop):
+        await cli._sync_kea_configuration_async(4, 10, False, sync_env.hb)
+
+    # The outage was counted as recoverable, and the loop went on to reconcile
+    # twice (initial apply plus one monitoring iteration) once Redis came back.
+    assert _error_count() == before + 1
+    assert sync_env.record.call_count == 2
+    # Seed + retry touch + post-apply + monitoring iteration.
+    assert sync_env.touch.call_count == 4
+
+
+async def test_startup_survives_a_hung_redis_call(sync_env, _startup_failure, mocker) -> None:
+    """The bounded loader's TimeoutError is recoverable on the startup path too."""
+    before = _error_count()
+    mocker.patch.object(cli, "REDIS_OP_TIMEOUT_SECONDS", 0.05)
+
+    calls = {"n": 0}
+
+    async def load(ip_version):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            await asyncio.Event().wait()
+        return CONFIG
+
+    sync_env.redis.load_kea_config = load
+
+    with pytest.raises(_StopLoop):
+        await cli._sync_kea_configuration_async(4, 10, False, sync_env.hb)
+
+    assert _error_count() == before + 1
+    assert sync_env.record.call_count == 2

@@ -294,14 +294,24 @@ async def _sync_kea_configuration_async(
         # otherwise a cold start with no published config restart-loops the
         # sidecar once the probe's grace period expires.
         touch_heartbeat(heartbeat_file)
-        config = await _load_kea_config_with_timeout(redis_client, ip_version)
+        config = None
         while config is None:
-            logger.info(
-                f"Waiting for KEA DHCP{ip_version} Configuration to be available in Redis..."
-            )
-            await asyncio.sleep(1)
-            config = await _load_kea_config_with_timeout(redis_client, ip_version)
-            touch_heartbeat(heartbeat_file)
+            try:
+                config = await _load_kea_config_with_timeout(redis_client, ip_version)
+            except Exception as exc:
+                # Startup follows the same contract as the monitoring loop: an
+                # unreachable or slow Redis (including the bounded-timeout
+                # TimeoutError) is recoverable. Letting it propagate would exit
+                # the sidecar into CrashLoopBackOff during exactly the kind of
+                # dependency outage this design is meant to ride out.
+                DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
+                logger.error(f"Error loading the initial KEA config from Redis: {exc}")
+            if config is None:
+                logger.info(
+                    f"Waiting for KEA DHCP{ip_version} Configuration to be available in Redis..."
+                )
+                touch_heartbeat(heartbeat_file)
+                await asyncio.sleep(1)
 
         # Inject Lease DB details after loading from Redis
         # so that secrets are not stored in the Redis cache
