@@ -24,6 +24,11 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
+from nv_config_manager.dcim import (
+    DCIMLocationIdentifier,
+    dcim_location_id,
+    dcim_location_reference,
+)
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager.temporal.common.mixins.stage import (
@@ -66,7 +71,7 @@ DEFAULT_HARDWARE_VALIDATION_STATUS = ["Active", "Provisioned"]
 
 
 def format_filter_summary(
-    site: str,
+    site: DCIMLocationIdentifier,
     roles: list[str],
     status: list[str],
     tenant: str | None,
@@ -272,6 +277,9 @@ class ValidateHardwareInput(BaseModel):
     site: LocationReference = Field(
         description="Site used to select network devices for validation."
     )
+    site_model: str | None = Field(
+        default=None, description="DCIM model that owns the site identifier."
+    )
     roles: list[str] = Field(
         default=[], description="Device roles used to filter the selected network devices."
     )
@@ -374,7 +382,7 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
     class GetDevicesToValidateStageInput(StageInput):
         """Get Devices to Validate Stage Input."""
 
-        site: str
+        site: DCIMLocationIdentifier
         roles: list[str]
         status: list[str]
         tenant: str | None
@@ -953,11 +961,13 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
     ) -> HardwareValidationResult:
         """Execute hardware validation workflow."""
         self.set_input(workflow_input)
-        upsert_missing_search_attributes({SITE_SEARCH_ATTRIBUTE: [workflow_input.site]})
+        upsert_missing_search_attributes(
+            {SITE_SEARCH_ATTRIBUTE: [dcim_location_id(workflow_input.site)]}
+        )
 
         devices_to_validate_output = await self.get_devices_to_validate(
             self.GetDevicesToValidateStageInput(
-                site=workflow_input.site,
+                site=dcim_location_reference(workflow_input.site, workflow_input.site_model),
                 roles=workflow_input.roles,
                 status=workflow_input.status,
                 tenant=workflow_input.tenant,

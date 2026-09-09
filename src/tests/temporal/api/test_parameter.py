@@ -21,7 +21,15 @@ from fastapi.testclient import TestClient
 from nv_config_manager.temporal.api.main import app
 
 V2_SITES = {
-    "data": {"locations": [{"id": "ddadde54-cbdd-4fa5-94ce-ca649b7e2aa8", "name": "SITEA"}]}
+    "data": {
+        "locations": [
+            {
+                "id": "ddadde54-cbdd-4fa5-94ce-ca649b7e2aa8",
+                "name": "SITEA",
+                "location_type": {"name": "Site"},
+            }
+        ]
+    }
 }
 
 DEVICES = {
@@ -154,14 +162,26 @@ def test_site_v2():
 
         client = TestClient(app)
         rsp = client.get("/v1/parameter/site")
-        assert rsp.json() == [{"id": "ddadde54-cbdd-4fa5-94ce-ca649b7e2aa8", "name": "SITEA"}]
+        assert rsp.json() == [
+            {
+                "id": "ddadde54-cbdd-4fa5-94ce-ca649b7e2aa8",
+                "name": "SITEA",
+                "model": "Site",
+            }
+        ]
 
     with aioresponses() as m:
         m.post("https://nautobot.example.com/api/graphql/", payload=V2_SITES)
 
         client = TestClient(app)
         rsp = client.get("/v1/parameter/site?location_type=Site")
-        assert rsp.json() == [{"id": "ddadde54-cbdd-4fa5-94ce-ca649b7e2aa8", "name": "SITEA"}]
+        assert rsp.json() == [
+            {
+                "id": "ddadde54-cbdd-4fa5-94ce-ca649b7e2aa8",
+                "name": "SITEA",
+                "model": "Site",
+            }
+        ]
 
 
 def test_device_v2():

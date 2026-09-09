@@ -24,6 +24,11 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ChildWorkflowError
 
+from nv_config_manager.dcim import (
+    DCIMLocationIdentifier,
+    dcim_location_id,
+    dcim_location_reference,
+)
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager.temporal.common.mixins.stage import (
@@ -137,6 +142,9 @@ class MultiDeployInput(BaseModel):
     )
     location: OptionalLocationReference = Field(
         default=None, description="Location used to filter the selected network devices."
+    )
+    location_model: str | None = Field(
+        default=None, description="DCIM model that owns the location identifier."
     )
     status: list[str] | None = Field(
         default=None, description="Device statuses used to filter the selected network devices."
@@ -624,7 +632,7 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
         """Discover Devices Stage Input."""
 
         role: str
-        location: str | None = None
+        location: DCIMLocationIdentifier | None = None
         status: list[str] | None = None
         tenant: str | None = None
 
@@ -1056,13 +1064,19 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
         """Execute multi-deploy workflow."""
         self.set_input(workflow_input)
         if workflow_input.location:
-            upsert_missing_search_attributes({SITE_SEARCH_ATTRIBUTE: [workflow_input.location]})
+            upsert_missing_search_attributes(
+                {SITE_SEARCH_ATTRIBUTE: [dcim_location_id(workflow_input.location)]}
+            )
 
         # Discover devices
         discover_output = await self.discover_devices(
             MultiDeployWorkflow.DiscoverDevicesStageInput(
                 role=workflow_input.role,
-                location=workflow_input.location,
+                location=(
+                    dcim_location_reference(workflow_input.location, workflow_input.location_model)
+                    if workflow_input.location
+                    else None
+                ),
                 status=workflow_input.status,
                 tenant=workflow_input.tenant,
             )

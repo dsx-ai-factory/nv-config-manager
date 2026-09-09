@@ -21,7 +21,13 @@ from typing import Any, cast
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from nv_config_manager.dcim import DCIMClient, DeviceMetadata, create_dcim_client
+from nv_config_manager.dcim import (
+    DCIMClient,
+    DCIMLocationIdentifier,
+    DCIMLocationReference,
+    DeviceMetadata,
+    create_dcim_client,
+)
 from nv_config_manager.temporal.common.search_attributes import (
     DEVICE_ID_SEARCH_ATTRIBUTE,
     DEVICE_NAME_SEARCH_ATTRIBUTE,
@@ -37,7 +43,7 @@ from nv_config_manager.temporal.common.workflow_references import (
 DEVICE_REFERENCE_LOOKUP_CONCURRENCY = 20
 
 
-def _reference_metadata(body: BaseModel) -> Iterable[tuple[WorkflowReference, Any]]:
+def _reference_metadata(body: BaseModel) -> Iterable[tuple[str, WorkflowReference, Any]]:
     """Yield explicitly annotated references and their values."""
     for field_name, field in type(body).model_fields.items():
         reference = next(
@@ -45,7 +51,7 @@ def _reference_metadata(body: BaseModel) -> Iterable[tuple[WorkflowReference, An
             None,
         )
         if reference is not None:
-            yield reference, getattr(body, field_name)
+            yield field_name, reference, getattr(body, field_name)
 
 
 def _slugify(value: Any) -> str:
@@ -55,12 +61,12 @@ def _slugify(value: Any) -> str:
 
 async def _resolve_devices(
     client: DCIMClient,
-    references: list[tuple[WorkflowReference, Any]],
+    references: list[tuple[str, WorkflowReference, Any]],
 ) -> dict[str, list[Any]]:
     """Validate device references with provider-owned indexed lookups."""
     referenced_ids: list[str] = []
     enriched_ids: list[str] = []
-    for reference, value in references:
+    for _, reference, value in references:
         values = value if reference.many else [value]
         for item in values:
             if item is None:
@@ -117,16 +123,17 @@ async def _resolve_devices(
     return attributes
 
 
-async def _resolve_location(client: DCIMClient, value: str) -> str:
+async def _resolve_location(client: DCIMClient, value: DCIMLocationIdentifier) -> str:
     """Validate one provider-owned location ID and return its canonical name."""
-    if not client.is_valid_location_id(value):
+    location_id = value.id if isinstance(value, DCIMLocationReference) else value
+    if not client.is_valid_location_id(location_id):
         raise HTTPException(
             status_code=422,
-            detail=f"Invalid location identifier for configured DCIM provider: {value}",
+            detail=f"Invalid location identifier for configured DCIM provider: {location_id}",
         )
     location = await client.get_location_metadata(value)
     if location is None:
-        raise HTTPException(status_code=422, detail=f"Unknown location: {value}")
+        raise HTTPException(status_code=422, detail=f"Unknown location: {location_id}")
     return location.name
 
 
@@ -134,10 +141,10 @@ async def resolve_workflow_references(body: BaseModel) -> dict[str, list[Any]]:
     """Validate annotated references and return canonical initial search attributes."""
     references = list(_reference_metadata(body))
     device_references = [
-        item for item in references if item[0].kind == WorkflowReferenceKind.DEVICE
+        item for item in references if item[1].kind == WorkflowReferenceKind.DEVICE
     ]
     location_references = [
-        item for item in references if item[0].kind == WorkflowReferenceKind.LOCATION
+        item for item in references if item[1].kind == WorkflowReferenceKind.LOCATION
     ]
     if not device_references and not location_references:
         return {}
@@ -145,7 +152,7 @@ async def resolve_workflow_references(body: BaseModel) -> dict[str, list[Any]]:
     client = create_dcim_client()
     async with client:
         attributes = await _resolve_devices(client, device_references)
-        for reference, value in location_references:
+        for field_name, reference, value in location_references:
             if reference.many:
                 raise RuntimeError("Location reference collections are not supported")
             if value is not None:
@@ -153,8 +160,12 @@ async def resolve_workflow_references(body: BaseModel) -> dict[str, list[Any]]:
                     validated_value = reference.validator(value)
                 except ValueError as error:
                     raise HTTPException(status_code=422, detail=str(error)) from error
+                model = getattr(body, f"{field_name}_model", None)
+                typed_value = (
+                    DCIMLocationReference(id=validated_value, model=model)
+                    if model
+                    else validated_value
+                )
                 # Explicit workflow scope takes precedence over device-derived metadata.
-                attributes[SITE_SEARCH_ATTRIBUTE] = [
-                    await _resolve_location(client, validated_value)
-                ]
+                attributes[SITE_SEARCH_ATTRIBUTE] = [await _resolve_location(client, typed_value)]
     return attributes

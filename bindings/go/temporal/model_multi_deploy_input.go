@@ -25,6 +25,8 @@ type MultiDeployInput struct {
 	CommitConfirm *bool `json:"commit_confirm,omitempty"`
 	// Location used to filter the selected network devices.
 	Location NullableString `json:"location,omitempty"`
+	// DCIM model that owns the location identifier.
+	LocationModel NullableString `json:"location_model,omitempty"`
 	// Maximum number of devices included in each deployment batch.
 	MaxBatchSize *int32 `json:"max_batch_size,omitempty"`
 	// Device role used to select network devices for deployment.
@@ -139,6 +141,51 @@ func (o *MultiDeployInput) SetLocationNil() {
 // UnsetLocation ensures that no value is present for Location, not even an explicit nil
 func (o *MultiDeployInput) UnsetLocation() {
 	o.Location.Unset()
+}
+
+// GetLocationModel returns the LocationModel field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *MultiDeployInput) GetLocationModel() string {
+	if o == nil || IsNil(o.LocationModel.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.LocationModel.Get()
+}
+
+// GetLocationModelOk returns a tuple with the LocationModel field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *MultiDeployInput) GetLocationModelOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.LocationModel.Get(), o.LocationModel.IsSet()
+}
+
+// HasLocationModel returns a boolean if a field has been set.
+func (o *MultiDeployInput) HasLocationModel() bool {
+	if o != nil && o.LocationModel.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetLocationModel gets a reference to the given NullableString and assigns it to the LocationModel field.
+func (o *MultiDeployInput) SetLocationModel(v string) {
+	o.LocationModel.Set(&v)
+}
+
+// SetLocationModelNil sets the value for LocationModel to be an explicit nil
+func (o *MultiDeployInput) SetLocationModelNil() {
+	o.LocationModel.Set(nil)
+}
+
+// UnsetLocationModel ensures that no value is present for LocationModel, not even an explicit nil
+func (o *MultiDeployInput) UnsetLocationModel() {
+	o.LocationModel.Unset()
 }
 
 // GetMaxBatchSize returns the MaxBatchSize field value if set, zero value otherwise.
@@ -291,6 +338,9 @@ func (o MultiDeployInput) ToMap() (map[string]interface{}, error) {
 	}
 	if o.Location.IsSet() {
 		toSerialize["location"] = o.Location.Get()
+	}
+	if o.LocationModel.IsSet() {
+		toSerialize["location_model"] = o.LocationModel.Get()
 	}
 	if !IsNil(o.MaxBatchSize) {
 		toSerialize["max_batch_size"] = o.MaxBatchSize

@@ -411,6 +411,18 @@
             ],
             "description": "Site used for UFM credential lookup; resolved from the host when omitted.",
             "title": "Site"
+          },
+          "site_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM model that owns the site identifier.",
+            "title": "Site Model"
           }
         },
         "required": [
@@ -701,6 +713,17 @@
             "title": "Id",
             "type": "string"
           },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -733,6 +756,18 @@
             ],
             "description": "Location used to filter the selected network devices.",
             "title": "Location"
+          },
+          "location_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM model that owns the location identifier.",
+            "title": "Location Model"
           },
           "max_batch_size": {
             "default": 10,
@@ -1099,6 +1134,18 @@
             "description": "Site containing the BMC network to provision.",
             "title": "Site",
             "type": "string"
+          },
+          "site_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM model that owns the site identifier.",
+            "title": "Site Model"
           }
         },
         "required": [
@@ -1212,6 +1259,18 @@
             "title": "Site",
             "type": "string"
           },
+          "site_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM model that owns the site identifier.",
+            "title": "Site Model"
+          },
           "status": {
             "default": [
               "Active",
@@ -1299,6 +1358,18 @@
             "title": "Site",
             "type": "string"
           },
+          "site_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM model that owns the site identifier.",
+            "title": "Site Model"
+          },
           "status": {
             "default": [
               "Active",
@@ -1338,6 +1409,18 @@
             "minLength": 1,
             "title": "Location",
             "type": "string"
+          },
+          "location_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM model that owns the location identifier.",
+            "title": "Location Model"
           },
           "roles": {
             "default": [],
@@ -1431,6 +1514,18 @@
             "description": "Site containing the target network device.",
             "title": "Site",
             "type": "string"
+          },
+          "site_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM model that owns the site identifier.",
+            "title": "Site Model"
           }
         },
         "required": [
@@ -1472,6 +1567,18 @@
             "title": "Site",
             "type": "string"
           },
+          "site_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM model that owns the site identifier.",
+            "title": "Site Model"
+          },
           "tenant": {
             "description": "Tenant that will own the SpX overlay.",
             "title": "Tenant",
@@ -1504,6 +1611,18 @@
             "description": "Site containing the SpX overlay to delete.",
             "title": "Site",
             "type": "string"
+          },
+          "site_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM model that owns the site identifier.",
+            "title": "Site Model"
           }
         },
         "required": [
@@ -1552,6 +1671,18 @@
             "description": "Site containing the target network device.",
             "title": "Site",
             "type": "string"
+          },
+          "site_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM model that owns the site identifier.",
+            "title": "Site Model"
           }
         },
         "required": [
@@ -1806,6 +1937,18 @@
             "description": "Site used to select network devices for validation.",
             "title": "Site",
             "type": "string"
+          },
+          "site_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM model that owns the site identifier.",
+            "title": "Site Model"
           },
           "status": {
             "default": [

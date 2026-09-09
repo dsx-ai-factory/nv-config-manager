@@ -23,6 +23,11 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError
 
+from nv_config_manager.dcim import (
+    DCIMLocationIdentifier,
+    dcim_location_id,
+    dcim_location_reference,
+)
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager.temporal.common.mixins.stage import (
@@ -86,6 +91,9 @@ class SiteBackupInput(BaseModel):
     site: LocationReference = Field(
         min_length=1,
         description="Site containing the network devices to back up.",
+    )
+    site_model: str | None = Field(
+        default=None, description="DCIM model that owns the site identifier."
     )
     roles: list[str] = Field(
         default=[],
@@ -162,7 +170,7 @@ class SiteBackupWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin):
     class GetDevicesStageInput(StageInput):
         """Get Devices Stage Input."""
 
-        site: str
+        site: DCIMLocationIdentifier
         roles: list[str]
         status: list[str]
         tenant: str | None
@@ -320,7 +328,7 @@ class SiteBackupWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin):
     class FormatResultStageInput(StageInput):
         """Format Result Stage Input."""
 
-        site: str
+        site: LocationReference
         successful_devices: dict[str, BackupResultData]
         failed_devices: dict[str, BackupResultData]
         total_devices: int
@@ -388,11 +396,13 @@ class SiteBackupWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin):
             raise ApplicationError("Missing user for backup attribution.")
 
         self.set_input(workflow_input)
-        upsert_missing_search_attributes({SITE_SEARCH_ATTRIBUTE: [workflow_input.site]})
+        upsert_missing_search_attributes(
+            {SITE_SEARCH_ATTRIBUTE: [dcim_location_id(workflow_input.site)]}
+        )
 
         devices_output = await self.get_devices(
             SiteBackupWorkflow.GetDevicesStageInput(
-                site=workflow_input.site,
+                site=dcim_location_reference(workflow_input.site, workflow_input.site_model),
                 roles=workflow_input.roles,
                 tenant=workflow_input.tenant,
                 status=workflow_input.status,

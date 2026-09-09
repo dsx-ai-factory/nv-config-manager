@@ -20,7 +20,11 @@ from configparser import ConfigParser
 from unittest.mock import AsyncMock
 
 import pytest
-from nv_config_manager_dcim import DCIMInvalidDataError, DCIMProviderConfigurationError
+from nv_config_manager_dcim import (
+    DCIMInvalidDataError,
+    DCIMLocationReference,
+    DCIMProviderConfigurationError,
+)
 from nv_config_manager_dcim import registry as sdk_registry
 from nv_config_manager_dcim_nautobot_2x.client import NautobotException
 from nv_config_manager_dcim_nautobot_2x.provider import NautobotDCIMClient, NautobotProvider
@@ -96,17 +100,79 @@ async def test_nautobot_location_metadata_uses_direct_id_lookup() -> None:
     location_id = "b6f4972a-c6ab-4be1-96ac-72f4efc4f328"
     client = NautobotDCIMClient("https://dcim.example", "token")
     client.graphql_query = AsyncMock(
-        return_value={"data": {"location": {"id": location_id, "name": "SJC01"}}}
+        return_value={
+            "data": {
+                "location": {
+                    "id": location_id,
+                    "name": "SJC01",
+                    "location_type": {"name": "Site"},
+                }
+            }
+        }
     )
 
-    location = await client.get_location_metadata(location_id)
+    reference = DCIMLocationReference(id=location_id, model="Site")
+    location = await client.get_location_metadata(reference)
 
     assert location is not None
     assert location.id == location_id
     assert location.name == "SJC01"
+    assert location.model == "Site"
     query, variables = client.graphql_query.await_args.args
     assert "query GetLocationById" in query
     assert variables == {"id": location_id}
+
+
+@pytest.mark.asyncio
+async def test_nautobot_location_choices_include_type_and_filter_at_source() -> None:
+    """Nautobot maps LocationType names to models and applies every requested type."""
+    client = NautobotDCIMClient("https://dcim.example", "token")
+    client.graphql_query = AsyncMock(
+        return_value={
+            "data": {
+                "locations": [
+                    {
+                        "id": "b6f4972a-c6ab-4be1-96ac-72f4efc4f328",
+                        "name": "SJC01",
+                        "location_type": {"name": "Site"},
+                    },
+                    {
+                        "id": "ed3e30d2-9078-4bc7-8676-f1dcaf3e29c8",
+                        "name": "Module 1",
+                        "location_type": {"name": "Module"},
+                    },
+                ]
+            }
+        }
+    )
+
+    locations = await client.list_locations(("Site", "Module"))
+
+    assert [(location.id, location.model) for location in locations] == [
+        ("b6f4972a-c6ab-4be1-96ac-72f4efc4f328", "Site"),
+        ("ed3e30d2-9078-4bc7-8676-f1dcaf3e29c8", "Module"),
+    ]
+    _, variables = client.graphql_query.await_args.args
+    assert variables == {"location_types": ["Site", "Module"]}
+
+
+def test_nautobot_device_filters_accept_typed_locations_as_legacy_ids() -> None:
+    """Typed location input does not change Nautobot's single UUID namespace."""
+    client = NautobotDCIMClient("https://dcim.example", "token")
+
+    variables = client._build_device_filter_variables(
+        site=DCIMLocationReference(id="location-id", model="Site"),
+        status=None,
+        role=None,
+        tenant=None,
+        device_type_id=None,
+        mac_address=None,
+        device_ids=None,
+        platform=None,
+        managed_only=None,
+    )
+
+    assert variables == {"site": ["location-id"]}
 
 
 @pytest.mark.asyncio

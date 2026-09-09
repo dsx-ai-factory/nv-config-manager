@@ -89,6 +89,37 @@ class DCIMSelection(DCIMModel):
 
     id: str
     name: str
+    model: str | None = None
+
+
+class DCIMLocationReference(DCIMModel):
+    """A provider-owned location identifier with an optional model discriminator."""
+
+    id: str
+    model: str | None = None
+
+    def __str__(self) -> str:
+        """Retain legacy identifier formatting in logs and display text."""
+        return self.id
+
+
+type DCIMLocationIdentifier = str | DCIMLocationReference
+"""A typed location reference or a legacy bare provider identifier."""
+
+
+def dcim_location_id(location: DCIMLocationIdentifier) -> str:
+    """Return the provider identifier from a typed or legacy location reference."""
+    return location.id if isinstance(location, DCIMLocationReference) else location
+
+
+def dcim_location_model(location: DCIMLocationIdentifier) -> str | None:
+    """Return the model discriminator from a typed location reference."""
+    return location.model if isinstance(location, DCIMLocationReference) else None
+
+
+def dcim_location_reference(location_id: str, model: str | None = None) -> DCIMLocationIdentifier:
+    """Build a typed reference when a location model discriminator is available."""
+    return DCIMLocationReference(id=location_id, model=model) if model else location_id
 
 
 class DCIMDeviceSelection(DCIMModel):
@@ -102,7 +133,7 @@ class DCIMDeviceSelection(DCIMModel):
 class DCIMDeviceSelectionFilter(DCIMModel):
     """Provider-neutral device constraints used to populate workflow forms."""
 
-    sites: tuple[str, ...] = ()
+    sites: tuple[DCIMLocationIdentifier, ...] = ()
     statuses: tuple[str, ...] = ()
     roles: tuple[str, ...] = ()
     tenants: tuple[str, ...] = ()

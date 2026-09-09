@@ -29,6 +29,7 @@ from typing import Any, cast
 from nv_config_manager_dcim import (
     ConfigurationBackupIntent,
     ConfigurationBackupMetadata,
+    DCIMLocationIdentifier,
     DeviceVRF,
     FirmwareBundle,
     FirmwareComponent,
@@ -45,6 +46,7 @@ from nv_config_manager_dcim import (
     NamespaceRouteDistinguisher,
     Platform,
     SpectrumXVRF,
+    dcim_location_id,
 )
 from nv_config_manager_dcim.errors import (
     DCIMConnectivityError,
@@ -437,7 +439,7 @@ class NautobotWorkflowClient(BaseNautobotClient):
 
     def _build_device_filter_variables(
         self,
-        site: str | list[str] | None,
+        site: DCIMLocationIdentifier | list[DCIMLocationIdentifier] | None,
         status: str | list[str] | None,
         role: str | list[str] | None,
         tenant: str | list[str] | None,
@@ -451,7 +453,8 @@ class NautobotWorkflowClient(BaseNautobotClient):
         variables: dict[str, list[str] | bool] = {}
 
         if site:
-            variables["site"] = self._normalize_to_list(site)
+            sites = site if isinstance(site, list) else [site]
+            variables["site"] = [dcim_location_id(item) for item in sites]
         if status:
             variables["status"] = self._normalize_to_list(status)
         if role:
@@ -499,7 +502,7 @@ class NautobotWorkflowClient(BaseNautobotClient):
     async def get_devices(  # pylint: disable=too-many-arguments
         self,
         fields: str,
-        site: str | list[str] | None = None,
+        site: DCIMLocationIdentifier | list[DCIMLocationIdentifier] | None = None,
         status: str | list[str] | None = None,
         role: str | list[str] | None = None,
         tenant: str | list[str] | None = None,
@@ -624,12 +627,12 @@ class NautobotWorkflowClient(BaseNautobotClient):
         ]
 
     async def get_namespace_route_distinguishers(
-        self, site: str, namespace_tag: str
+        self, site: DCIMLocationIdentifier, namespace_tag: str
     ) -> list[NamespaceRouteDistinguisher]:
         """Return route distinguisher state for namespaces selected by site and tag."""
         data = await self.graphql_query(
             load_graphql_query("workflow/operations.graphql", "GetNamespaceRouteDistinguishers"),
-            {"tag": namespace_tag, "location": site},
+            {"tag": namespace_tag, "location": dcim_location_id(site)},
         )
         return [
             NamespaceRouteDistinguisher(
@@ -865,12 +868,15 @@ class NautobotWorkflowClient(BaseNautobotClient):
         """Create an Overlay in the overlays plugin."""
         return await self.post(f"{OVERLAYS_PLUGIN_BASE}/overlays/", data=data)
 
-    async def find_overlay(self, name: str, location_id: str) -> dict[str, Any] | None:
+    async def find_overlay(
+        self, name: str, location: DCIMLocationIdentifier
+    ) -> dict[str, Any] | None:
         """Return an existing Overlay matching name + location, or None.
 
         Raises NautobotException if more than one overlay matches, to prevent
         silently binding to the wrong overlay.
         """
+        location_id = dcim_location_id(location)
         data = await self.get(
             f"{OVERLAYS_PLUGIN_BASE}/overlays/",
             params={"name": name, "location": location_id},
@@ -916,7 +922,10 @@ class NautobotWorkflowClient(BaseNautobotClient):
         await self.delete(f"{OVERLAYS_PLUGIN_BASE}/vxlans/{vxlan_id}/")
 
     async def get_spectrum_x_vrfs(
-        self, overlay_name: str, site: str, namespace: str | None = None
+        self,
+        overlay_name: str,
+        site: DCIMLocationIdentifier,
+        namespace: str | None = None,
     ) -> list[SpectrumXVRF]:
         """Read overlay VRFs without exposing Nautobot overlay-plugin resources."""
         overlay = await self.find_overlay(overlay_name, site)
@@ -960,7 +969,9 @@ class NautobotWorkflowClient(BaseNautobotClient):
             await self.delete(f"{OVERLAYS_PLUGIN_BASE}/overlay-assignments/{assignment['id']}/")
         await self.delete_vrf(vrf_id)
 
-    async def delete_spectrum_x_overlay_if_unused(self, overlay_name: str, site: str) -> bool:
+    async def delete_spectrum_x_overlay_if_unused(
+        self, overlay_name: str, site: DCIMLocationIdentifier
+    ) -> bool:
         """Delete a Spectrum-X overlay only after its VXLANs are gone."""
         overlay = await self.find_overlay(overlay_name, site)
         if not overlay:
@@ -1040,10 +1051,11 @@ class NautobotWorkflowClient(BaseNautobotClient):
         route_distinguisher: str,
         vnid: int,
         overlay_name: str,
-        site: str,
+        site: DCIMLocationIdentifier,
         tenant: str,
     ) -> None:
         """Provision Spectrum-X overlay, VRF, VXLAN, and VRF assignments."""
+        site_id = dcim_location_id(site)
         vrf_name = f"SpXTenant{vnid}"
         vrfs_created: list[dict[str, Any]] = []
         vxlans_created: list[dict[str, Any]] = []
@@ -1071,7 +1083,7 @@ class NautobotWorkflowClient(BaseNautobotClient):
             overlay = await self.create_overlay(
                 data={
                     "name": overlay_name,
-                    "location": site,
+                    "location": site_id,
                     "tenant": tenant_id,
                     "isolation_type": _SPECTRUM_X_ISOLATION_TYPE,
                     "status": status_id,
@@ -1142,7 +1154,7 @@ class NautobotWorkflowClient(BaseNautobotClient):
     async def reconcile_spectrum_x_overlay_assignments(
         self,
         overlay_name: str | None,
-        site: str,
+        site: DCIMLocationIdentifier,
         device_id: str,
         interface_ids: list[str],
         device_interface_ids: list[str],

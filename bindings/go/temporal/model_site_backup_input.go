@@ -27,6 +27,8 @@ type SiteBackupInput struct {
 	Roles []string `json:"roles,omitempty"`
 	// Site containing the network devices to back up.
 	Site string `json:"site"`
+	// DCIM model that owns the site identifier.
+	SiteModel NullableString `json:"site_model,omitempty"`
 	// Device statuses used to filter the selected network devices.
 	Status []string `json:"status,omitempty"`
 	// Tenant used to filter the selected network devices.
@@ -149,6 +151,51 @@ func (o *SiteBackupInput) GetSiteOk() (*string, bool) {
 // SetSite sets field value
 func (o *SiteBackupInput) SetSite(v string) {
 	o.Site = v
+}
+
+// GetSiteModel returns the SiteModel field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *SiteBackupInput) GetSiteModel() string {
+	if o == nil || IsNil(o.SiteModel.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.SiteModel.Get()
+}
+
+// GetSiteModelOk returns a tuple with the SiteModel field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *SiteBackupInput) GetSiteModelOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.SiteModel.Get(), o.SiteModel.IsSet()
+}
+
+// HasSiteModel returns a boolean if a field has been set.
+func (o *SiteBackupInput) HasSiteModel() bool {
+	if o != nil && o.SiteModel.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetSiteModel gets a reference to the given NullableString and assigns it to the SiteModel field.
+func (o *SiteBackupInput) SetSiteModel(v string) {
+	o.SiteModel.Set(&v)
+}
+
+// SetSiteModelNil sets the value for SiteModel to be an explicit nil
+func (o *SiteBackupInput) SetSiteModelNil() {
+	o.SiteModel.Set(nil)
+}
+
+// UnsetSiteModel ensures that no value is present for SiteModel, not even an explicit nil
+func (o *SiteBackupInput) UnsetSiteModel() {
+	o.SiteModel.Unset()
 }
 
 // GetStatus returns the Status field value if set, zero value otherwise.
@@ -336,6 +383,9 @@ func (o SiteBackupInput) ToMap() (map[string]interface{}, error) {
 		toSerialize["roles"] = o.Roles
 	}
 	toSerialize["site"] = o.Site
+	if o.SiteModel.IsSet() {
+		toSerialize["site_model"] = o.SiteModel.Get()
+	}
 	if !IsNil(o.Status) {
 		toSerialize["status"] = o.Status
 	}

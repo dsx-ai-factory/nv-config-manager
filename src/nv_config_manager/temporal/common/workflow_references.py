@@ -49,11 +49,11 @@ def validate_device_value(value: Any) -> Any:
     return value
 
 
-def validate_location_reference(value: str) -> str:
-    """Reject empty location references while preserving their original value."""
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError("Location reference must not be empty")
-    return value
+def validate_location_reference(value: Any) -> str:
+    """Reject empty location identifiers while preserving the string API contract."""
+    if isinstance(value, str) and value.strip():
+        return value
+    raise ValueError("Location reference must not be empty")
 
 
 DEVICE_REFERENCE = WorkflowReference(

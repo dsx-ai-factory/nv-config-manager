@@ -131,6 +131,21 @@ the existence check and the source of search attributes. These operations must
 perform indexed single-record lookups; do not implement them by listing all
 devices or locations and searching in application memory.
 
+Location identifiers are not assumed to share one provider-wide namespace.
+Return `DCIMSelection.model` from `list_locations()` and
+`get_location_metadata()` when the provider distinguishes location models.
+Nautobot uses `LocationType.name`; a NetBox provider uses the source model
+name, such as `Region`, `SiteGroup`, `Site`, or `Location`. Location-taking
+operations accept `DCIMLocationReference(id=..., model=...)` as well as legacy
+bare string IDs. Providers with a single identifier namespace may ignore an
+absent model, while providers with overlapping IDs use it to select the correct
+model. Apply the requested location types in `list_locations()` rather than filtering a
+partial result in the service.
+
+Workflow request fields remain bare strings for API compatibility. Optional companion
+fields such as `site_model` and `location_model` carry the discriminator when it is
+available; omitting them retains the legacy single-namespace behavior.
+
 The SDK validates provider metadata during discovery. It rejects duplicate
 entry-point names, a metadata-name mismatch, and providers that do not support
 the SDK's current major API version. Call `create_dcim_client(provider_name,

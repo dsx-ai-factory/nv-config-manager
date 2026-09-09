@@ -21,6 +21,11 @@ from pydantic import BaseModel, Field, model_validator
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
+from nv_config_manager.dcim import (
+    DCIMLocationIdentifier,
+    dcim_location_id,
+    dcim_location_reference,
+)
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager.temporal.common.mixins.stage import (
@@ -80,6 +85,9 @@ class IBPKeyCreationInput(BaseModel):
     site: OptionalLocationReference = Field(
         default=None,
         description="Site used for UFM credential lookup; resolved from the host when omitted.",
+    )
+    site_model: str | None = Field(
+        default=None, description="DCIM model that owns the site identifier."
     )
     pkey: str | None = Field(
         default=None, description="Partition key to create; automatically allocated when omitted."
@@ -182,12 +190,12 @@ class IBPKeyCreationWorkflow(
         """Resolve Context Stage Input."""
 
         host: str
-        site_override: str | None
+        site_override: DCIMLocationIdentifier | None
 
     class ResolveContextStageOutput(StageOutput):
         """Resolve Context Stage Output."""
 
-        effective_site: str | None
+        effective_site: DCIMLocationIdentifier | None
         resolved_site: str | None
 
     @stage_executor("resolve_context")
@@ -213,7 +221,7 @@ class IBPKeyCreationWorkflow(
         """Validate PKey Stage Input."""
 
         host: str
-        site: str | None
+        site: DCIMLocationIdentifier | None
         pkey: str | None
         pkey_min: int
         pkey_max: int
@@ -232,7 +240,7 @@ class IBPKeyCreationWorkflow(
             validate_pkey_available,
             ValidatePKeyInput(
                 host=stage_input.host,
-                site=stage_input.site,
+                site=dcim_location_id(stage_input.site) if stage_input.site else None,
                 pkey=stage_input.pkey,
                 pkey_min=stage_input.pkey_min,
                 pkey_max=stage_input.pkey_max,
@@ -251,7 +259,7 @@ class IBPKeyCreationWorkflow(
         """Create PKey Stage Input."""
 
         host: str
-        site: str | None
+        site: DCIMLocationIdentifier | None
         pkey: str
         ip_over_ib: bool
 
@@ -268,7 +276,7 @@ class IBPKeyCreationWorkflow(
             create_pkey_on_ufm,
             CreatePKeyInput(
                 host=stage_input.host,
-                site=stage_input.site,
+                site=dcim_location_id(stage_input.site) if stage_input.site else None,
                 pkey=stage_input.pkey,
                 ip_over_ib=stage_input.ip_over_ib,
             ),
@@ -285,7 +293,7 @@ class IBPKeyCreationWorkflow(
         """Verify PKey Stage Input."""
 
         host: str
-        site: str | None
+        site: DCIMLocationIdentifier | None
         pkey: str
 
     class VerifyPKeyStageOutput(StageOutput):
@@ -302,7 +310,7 @@ class IBPKeyCreationWorkflow(
             verify_pkey_created,
             VerifyPKeyInput(
                 host=stage_input.host,
-                site=stage_input.site,
+                site=dcim_location_id(stage_input.site) if stage_input.site else None,
                 pkey=stage_input.pkey,
             ),
             start_to_close_timeout=timedelta(minutes=2),
@@ -360,7 +368,11 @@ class IBPKeyCreationWorkflow(
         context_output = await self.resolve_context(
             self.ResolveContextStageInput(
                 host=workflow_input.host,
-                site_override=workflow_input.site,
+                site_override=(
+                    dcim_location_reference(workflow_input.site, workflow_input.site_model)
+                    if workflow_input.site
+                    else None
+                ),
             )
         )
         effective_site = context_output.effective_site

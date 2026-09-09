@@ -23,7 +23,12 @@ import pytest
 from fastapi import HTTPException
 from pydantic import BaseModel, ValidationError
 
-from nv_config_manager.dcim import DCIMSelection, DeviceMetadata
+from nv_config_manager.dcim import (
+    DCIMLocationReference,
+    DCIMSelection,
+    DeviceMetadata,
+    dcim_location_reference,
+)
 from nv_config_manager.temporal.api.workflow_submission import resolve_workflow_references
 from nv_config_manager.temporal.common.search_attributes import (
     DEVICE_ID_SEARCH_ATTRIBUTE,
@@ -37,8 +42,11 @@ from nv_config_manager.temporal.common.workflow_references import (
     DeviceReferences,
     LocationReference,
 )
+from nv_config_manager.temporal.ngc.activities.dcim import GetNetworkDevicesInput
 from nv_config_manager.temporal.ngc.workflows.cable_validation import (
     DeviceCableValidationInput,
+    SiteCableValidationInput,
+    SiteCableValidationWorkflow,
 )
 from nv_config_manager.temporal.ngc.workflows.config_diff import ConfigDiffInput
 from nv_config_manager.temporal.ngc.workflows.deploy import TenantDeployInput
@@ -64,6 +72,7 @@ class LocationAndDeviceInput(BaseModel):
     """Input whose explicit location controls the legacy Site search attribute."""
 
     location_scope: LocationReference
+    location_scope_model: str | None = None
     target_device: DeviceReference
 
 
@@ -275,6 +284,72 @@ async def test_explicit_location_takes_search_attribute_precedence() -> None:
 
     assert attributes[SITE_SEARCH_ATTRIBUTE] == ["Data Hall A"]
     assert attributes[DEVICE_ID_SEARCH_ATTRIBUTE] == [DEVICE_ID]
+
+
+@pytest.mark.asyncio
+async def test_location_model_is_preserved_for_provider_lookup() -> None:
+    """Providers receive the model alongside IDs so overlapping namespaces stay unambiguous."""
+    client = _client()
+    client.is_valid_location_id = MagicMock(return_value=True)
+    client.get_location_metadata = AsyncMock(
+        return_value=DCIMSelection(id="42", name="SJC01", model="Site")
+    )
+    body = LocationAndDeviceInput(
+        location_scope="42",
+        location_scope_model="Site",
+        target_device=DEVICE_ID,
+    )
+    client.get_devices.return_value = [
+        {
+            "id": DEVICE_ID,
+            "name": "LEAF01",
+            "role": None,
+            "platform": None,
+            "location": None,
+        }
+    ]
+
+    with patch(
+        "nv_config_manager.temporal.api.workflow_submission.create_dcim_client",
+        return_value=client,
+    ):
+        attributes = await resolve_workflow_references(body)
+
+    reference = DCIMLocationReference(id="42", model="Site")
+    assert body.location_scope == "42"
+    client.is_valid_location_id.assert_called_once_with("42")
+    client.get_location_metadata.assert_awaited_once_with(reference)
+    assert attributes[SITE_SEARCH_ATTRIBUTE] == ["SJC01"]
+
+
+def test_location_model_survives_workflow_and_activity_models() -> None:
+    """The location model remains available when workflows construct DCIM activities."""
+    body = SiteCableValidationInput(
+        site="42",
+        site_model="Site",
+        roles=[],
+        status=[],
+        tenant=None,
+    )
+    stage = SiteCableValidationWorkflow.GetDevicesStageInput(
+        site=dcim_location_reference(body.site, body.site_model),
+        roles=body.roles,
+        status=body.status,
+        tenant=body.tenant,
+        device_type_ids=body.device_type_ids,
+    )
+    activity_input = GetNetworkDevicesInput(site=stage.site)
+
+    assert activity_input.site == DCIMLocationReference(id="42", model="Site")
+
+
+def test_location_fields_retain_the_string_api_contract() -> None:
+    """The additive model discriminator does not change existing location field types."""
+    schema = SiteCableValidationInput.model_json_schema()
+
+    assert schema["properties"]["site"]["type"] == "string"
+    assert "site_model" not in schema["required"]
+    assert SiteCableValidationInput(site="42").site_model is None
 
 
 @pytest.mark.asyncio

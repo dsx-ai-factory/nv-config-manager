@@ -31,6 +31,8 @@ type SpXOverlayCreationInput struct {
 	RdMin *int32 `json:"rd_min,omitempty"`
 	// Site where the SpX overlay will be created.
 	Site string `json:"site"`
+	// DCIM model that owns the site identifier.
+	SiteModel NullableString `json:"site_model,omitempty"`
 	// Tenant that will own the SpX overlay.
 	Tenant string `json:"tenant"`
 }
@@ -216,6 +218,51 @@ func (o *SpXOverlayCreationInput) SetSite(v string) {
 	o.Site = v
 }
 
+// GetSiteModel returns the SiteModel field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *SpXOverlayCreationInput) GetSiteModel() string {
+	if o == nil || IsNil(o.SiteModel.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.SiteModel.Get()
+}
+
+// GetSiteModelOk returns a tuple with the SiteModel field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *SpXOverlayCreationInput) GetSiteModelOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.SiteModel.Get(), o.SiteModel.IsSet()
+}
+
+// HasSiteModel returns a boolean if a field has been set.
+func (o *SpXOverlayCreationInput) HasSiteModel() bool {
+	if o != nil && o.SiteModel.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetSiteModel gets a reference to the given NullableString and assigns it to the SiteModel field.
+func (o *SpXOverlayCreationInput) SetSiteModel(v string) {
+	o.SiteModel.Set(&v)
+}
+
+// SetSiteModelNil sets the value for SiteModel to be an explicit nil
+func (o *SpXOverlayCreationInput) SetSiteModelNil() {
+	o.SiteModel.Set(nil)
+}
+
+// UnsetSiteModel ensures that no value is present for SiteModel, not even an explicit nil
+func (o *SpXOverlayCreationInput) UnsetSiteModel() {
+	o.SiteModel.Unset()
+}
+
 // GetTenant returns the Tenant field value
 func (o *SpXOverlayCreationInput) GetTenant() string {
 	if o == nil {
@@ -261,6 +308,9 @@ func (o SpXOverlayCreationInput) ToMap() (map[string]interface{}, error) {
 		toSerialize["rd_min"] = o.RdMin
 	}
 	toSerialize["site"] = o.Site
+	if o.SiteModel.IsSet() {
+		toSerialize["site_model"] = o.SiteModel.Get()
+	}
 	toSerialize["tenant"] = o.Tenant
 	return toSerialize, nil
 }

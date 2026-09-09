@@ -22,6 +22,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ChildWorkflowError
 
+from nv_config_manager.dcim import DCIMLocationIdentifier, dcim_location_reference
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager.temporal.common.mixins.stage import (
@@ -84,6 +85,9 @@ class SitePasswordRotationInput(BaseModel):
     location: LocationReference = Field(
         min_length=1,
         description="Location containing the devices to update.",
+    )
+    location_model: str | None = Field(
+        default=None, description="DCIM model that owns the location identifier."
     )
     selected_secret: str = Field(
         description="Name of the managed secret containing the replacement password."
@@ -150,7 +154,7 @@ class SitePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
     class GetDevicesStageInput(StageInput):
         """Get Devices Stage Input."""
 
-        location: str
+        location: DCIMLocationIdentifier
         roles: list[str] = []
         tenant: str | None = DEFAULT_CONFIG_MANAGER_TENANT
         status: list[str] = DEFAULT_CONFIG_MANAGER_STATUS
@@ -357,7 +361,9 @@ class SitePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
 
         devices_output = await self.get_devices(
             SitePasswordRotationWorkflow.GetDevicesStageInput(
-                location=workflow_input.location,
+                location=dcim_location_reference(
+                    workflow_input.location, workflow_input.location_model
+                ),
                 roles=workflow_input.roles,
                 tenant=workflow_input.tenant,
                 status=workflow_input.status,

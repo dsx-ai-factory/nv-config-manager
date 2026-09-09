@@ -31,6 +31,8 @@ type SpXOverlayTenantChangeInput struct {
 	PortNames []string `json:"port_names"`
 	// Site containing the target network device.
 	Site string `json:"site"`
+	// DCIM model that owns the site identifier.
+	SiteModel NullableString `json:"site_model,omitempty"`
 }
 
 type _SpXOverlayTenantChangeInput SpXOverlayTenantChangeInput
@@ -209,6 +211,51 @@ func (o *SpXOverlayTenantChangeInput) SetSite(v string) {
 	o.Site = v
 }
 
+// GetSiteModel returns the SiteModel field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *SpXOverlayTenantChangeInput) GetSiteModel() string {
+	if o == nil || IsNil(o.SiteModel.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.SiteModel.Get()
+}
+
+// GetSiteModelOk returns a tuple with the SiteModel field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *SpXOverlayTenantChangeInput) GetSiteModelOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.SiteModel.Get(), o.SiteModel.IsSet()
+}
+
+// HasSiteModel returns a boolean if a field has been set.
+func (o *SpXOverlayTenantChangeInput) HasSiteModel() bool {
+	if o != nil && o.SiteModel.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetSiteModel gets a reference to the given NullableString and assigns it to the SiteModel field.
+func (o *SpXOverlayTenantChangeInput) SetSiteModel(v string) {
+	o.SiteModel.Set(&v)
+}
+
+// SetSiteModelNil sets the value for SiteModel to be an explicit nil
+func (o *SpXOverlayTenantChangeInput) SetSiteModelNil() {
+	o.SiteModel.Set(nil)
+}
+
+// UnsetSiteModel ensures that no value is present for SiteModel, not even an explicit nil
+func (o *SpXOverlayTenantChangeInput) UnsetSiteModel() {
+	o.SiteModel.Unset()
+}
+
 func (o SpXOverlayTenantChangeInput) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -228,6 +275,9 @@ func (o SpXOverlayTenantChangeInput) ToMap() (map[string]interface{}, error) {
 	}
 	toSerialize["port_names"] = o.PortNames
 	toSerialize["site"] = o.Site
+	if o.SiteModel.IsSet() {
+		toSerialize["site_model"] = o.SiteModel.Get()
+	}
 	return toSerialize, nil
 }
 
