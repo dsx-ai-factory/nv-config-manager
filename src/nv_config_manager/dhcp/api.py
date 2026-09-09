@@ -608,7 +608,7 @@ async def _assert_kea_online(client: KeaClient) -> None:
     status = await client.status(version=4)
     for process in status:
         if process["result"] != 0:
-            raise HTTPException(status_code=500, detail=status)
+            raise HTTPException(status_code=500, detail="Kea DHCPv4 is unavailable")
 
 
 def _assert_desired_config_applied(
