@@ -110,7 +110,7 @@ CACHE_LAST_REFRESH = Gauge(
 
 instrumentator = Instrumentator(
     should_group_status_codes=group_fastapi_status_codes(),
-    excluded_handlers=["/healthcheck", "/metrics"],
+    excluded_handlers=["/healthcheck", "/livez", "/metrics"],
 )
 instrumentator.add(
     instrumentator_metrics.default(
@@ -593,14 +593,19 @@ async def metrics() -> Response:
 
 
 async def _assert_kea_online(client: KeaClient) -> None:
-    """Raise 500 unless the Kea DHCP process/control channel is alive.
+    """Raise 500 unless the Kea DHCPv4 server itself is alive.
 
-    This is the *liveness* signal: it only reflects whether Kea itself is
-    running and answering on its control channel. It deliberately says nothing
-    about whether the desired configuration has been applied, so a config
-    mismatch never restarts a live Kea.
+    This is the *liveness* signal: it only reflects whether kea-dhcp4 is running
+    and reachable over the control channel. It deliberately says nothing about
+    whether the desired configuration has been applied, so a config mismatch
+    never restarts a live Kea.
+
+    The status command is scoped to ``dhcp4`` because an unscoped ``status-get``
+    is answered by kea-ctrl-agent about itself. supervisord restarts kea-dhcp4
+    in place without recycling the container, so an unscoped check reports a
+    healthy control agent while the DHCP server is dead.
     """
-    status = await client.status()
+    status = await client.status(version=4)
     for process in status:
         if process["result"] != 0:
             raise HTTPException(status_code=500, detail=status)

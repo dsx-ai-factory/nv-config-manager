@@ -112,9 +112,17 @@ class KeaClient:
         """Async context manager exit."""
         await self.close()
 
-    async def status(self) -> Any:
-        """Return the status of the KEA server."""
-        data = {"command": "status-get"}
+    async def status(self, version: int | None = None) -> Any:
+        """Return the status of the KEA control agent, or of a DHCP server.
+
+        ``status-get`` without a ``service`` is answered by kea-ctrl-agent about
+        itself, so it stays ``result: 0`` even when kea-dhcp4 is dead. Pass
+        ``version`` to have the control agent forward the command to that DHCP
+        server instead; an unreachable server then returns a non-zero result.
+        """
+        data: dict[str, Any] = {"command": "status-get"}
+        if version is not None:
+            data["service"] = [f"dhcp{version}"]
         session = await self._get_session()
         try:
             async with session.post(self.url, json=data) as rsp:

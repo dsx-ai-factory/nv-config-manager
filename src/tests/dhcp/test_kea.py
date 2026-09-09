@@ -205,6 +205,43 @@ async def test_get_config_hash_raises_on_failure() -> None:
                 await client.get_config_hash(version=4)
 
 
+async def test_status_targets_the_control_agent_by_default() -> None:
+    """Without a version, status-get reports on kea-ctrl-agent itself."""
+    response = [{"result": 0, "arguments": {"pid": 7, "reload": 417029, "uptime": 417029}}]
+
+    with aioresponses() as mocked:
+        mocked.post("http://kea.example.com:8000/", payload=response)
+        async with KeaClient(host="kea.example.com", port=8000) as client:
+            result = await client.status()
+
+        request = mocked.requests[("POST", URL("http://kea.example.com:8000/"))][0]
+
+    assert result == response
+    assert request.kwargs["json"] == {"command": "status-get"}
+
+
+async def test_status_scopes_to_the_dhcp_service_when_given_a_version() -> None:
+    """A version makes the control agent forward status-get to that DHCP server.
+
+    This is what distinguishes a live kea-dhcp4 from a live control agent, so the
+    liveness probe can detect a dead DHCP server.
+    """
+    response = [{"result": 0, "arguments": {"pid": 62948, "sockets": {"status": "ready"}}}]
+
+    with aioresponses() as mocked:
+        mocked.post("http://kea.example.com:8000/", payload=response)
+        async with KeaClient(host="kea.example.com", port=8000) as client:
+            result = await client.status(version=4)
+
+        request = mocked.requests[("POST", URL("http://kea.example.com:8000/"))][0]
+
+    assert result == response
+    assert request.kwargs["json"] == {
+        "command": "status-get",
+        "service": ["dhcp4"],
+    }
+
+
 async def test_get_statistics_forwards_service_version() -> None:
     """Verify dashboard statistics target the requested KEA service."""
     response = [{"result": 0, "arguments": {"assigned-addresses": [[2, "timestamp"]]}}]
