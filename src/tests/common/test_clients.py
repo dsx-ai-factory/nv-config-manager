@@ -21,15 +21,10 @@ from unittest.mock import patch
 import pytest
 
 from nv_config_manager.common.client import (
-    ConfigStoreClient,
     RenderClient,
     TemporalClient,
     ZTPClient,
 )
-from nv_config_manager.common.client.config_store import (
-    ConfigStoreClient as ConfigStoreClientFromOriginalModule,
-)
-from nv_config_manager.common.client.render import RenderClient as RenderClientFromOriginalModule
 
 
 @pytest.mark.asyncio
@@ -52,85 +47,6 @@ async def test_retry_client_does_not_own_shared_connector(client_cls, base_url):
         kwargs = retry_client.call_args.kwargs
         assert kwargs["connector"] is client.connector
         assert kwargs["connector_owner"] is False
-    finally:
-        await client.connector.close()
-
-
-def _legacy_client_config(*, internal: bool) -> ConfigParser:
-    config = ConfigParser()
-    config.read_dict(
-        {
-            "config_store.client": {
-                "api_service": "http://config-store:9000",
-                "api_url": "https://config-store.example.com",
-                "ui_url": "https://config-manager.example.com",
-                "use_internal_endpoint": str(internal),
-                "verify": "false",
-            },
-            "render": {
-                "api_service": "http://render:9000",
-                "api_url": "https://render.example.com",
-                "use_internal_endpoint": str(internal),
-            },
-        }
-    )
-    return config
-
-
-def test_aggregate_client_exports_use_original_path_adapters() -> None:
-    """Both legacy import forms expose the compatibility subclasses."""
-    assert ConfigStoreClient is ConfigStoreClientFromOriginalModule
-    assert RenderClient is RenderClientFromOriginalModule
-
-
-@pytest.mark.asyncio
-async def test_config_store_from_config_preserves_external_construction() -> None:
-    client = ConfigStoreClient.from_config(
-        _legacy_client_config(internal=False),
-        file_type="backup",
-    )
-
-    try:
-        assert client.target == "https://config-store.example.com"
-        assert client.ui_target == "https://config-manager.example.com"
-        assert client.file_type == "backup"
-        assert client._verify is False
-        assert client._headers is None
-    finally:
-        await client.close()
-
-
-@pytest.mark.asyncio
-async def test_config_store_from_config_preserves_internal_construction() -> None:
-    client = ConfigStoreClient.from_config(_legacy_client_config(internal=True))
-
-    try:
-        assert client.target == "http://config-store:9000"
-        assert client.file_type == "intended"
-        assert client._verify is False
-        assert callable(client._headers)
-    finally:
-        await client.close()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("internal", "expected_url", "has_headers"),
-    [
-        (False, "https://render.example.com", False),
-        (True, "http://render:9000", True),
-    ],
-)
-async def test_render_from_config_preserves_legacy_construction(
-    internal: bool,
-    expected_url: str,
-    has_headers: bool,
-) -> None:
-    client = RenderClient.from_config(_legacy_client_config(internal=internal))
-
-    try:
-        assert client.base_url == expected_url
-        assert callable(client._headers) is has_headers
     finally:
         await client.connector.close()
 

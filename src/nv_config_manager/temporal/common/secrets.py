@@ -130,6 +130,7 @@ def resolve_credential_source(
     logger.debug("Using global [%s] section from main config", section)
     return main_config, section
 
+
 def resolve_credentials(
     main_config: ConfigParser,
     section: str,
