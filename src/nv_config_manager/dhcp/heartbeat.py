@@ -64,10 +64,15 @@ def touch_heartbeat(path: str = DEFAULT_HEARTBEAT_FILE) -> None:
 def heartbeat_age_seconds(
     path: str = DEFAULT_HEARTBEAT_FILE, now: float | None = None
 ) -> float | None:
-    """Return the heartbeat file's age in seconds, or ``None`` if it is missing."""
+    """Return the heartbeat file's age in seconds, or ``None`` if it cannot be read.
+
+    Any ``OSError`` counts as unreadable, not just a missing file: this backs an
+    exec livenessProbe, so a permission or path error must produce the same
+    clean unhealthy verdict as a missing heartbeat rather than a traceback.
+    """
     try:
         mtime = os.stat(path).st_mtime
-    except FileNotFoundError:
+    except OSError:
         return None
     if now is None:
         now = _now()

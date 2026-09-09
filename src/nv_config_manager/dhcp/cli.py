@@ -464,7 +464,7 @@ def check_sync_heartbeat(heartbeat_file: str, max_age_seconds: float) -> None:
     """
     age = heartbeat_age_seconds(heartbeat_file)
     if age is None:
-        click.echo(f"heartbeat missing: {heartbeat_file}", err=True)
+        click.echo(f"heartbeat missing or unreadable: {heartbeat_file}", err=True)
         sys.exit(1)
     if not age_is_fresh(age, max_age_seconds):
         click.echo(

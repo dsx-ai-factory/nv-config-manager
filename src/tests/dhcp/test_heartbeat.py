@@ -93,6 +93,22 @@ def test_future_dated_heartbeat_is_stale(tmp_path) -> None:
     assert "stale" in result.output
 
 
+def test_unreadable_heartbeat_path_is_not_fresh(tmp_path) -> None:
+    """A stat failure other than "missing" must not escape the liveness check."""
+    not_a_directory = tmp_path / "hb"
+    not_a_directory.write_text("")
+    hb = str(not_a_directory / "hb")  # ENOTDIR, not FileNotFoundError
+
+    assert heartbeat.heartbeat_age_seconds(hb) is None
+    assert heartbeat.heartbeat_is_fresh(hb, max_age=60) is False
+
+    result = CliRunner().invoke(
+        cli_group,
+        ["check-sync-heartbeat", "--heartbeat-file", hb, "--max-age", "60"],
+    )
+    assert result.exit_code == 1
+
+
 def test_record_successful_reconciliation_tracks_timestamp() -> None:
     heartbeat._last_successful_reconciliation = None
     assert heartbeat.last_successful_reconciliation() is None
