@@ -131,6 +131,7 @@ nv-config-manager-temporal-worker = "nv_config_manager.temporal.worker.main:cli_
 nv-config-manager-temporal-api = "nv_config_manager.temporal.api.main:main"
 nv-config-manager-temporal-archive = "nv_config_manager.temporal.archive.main:main"
 nv-config-manager-temporal-scheduler = "nv_config_manager.temporal.ngc.schedulers.backup:main"
+nv-config-manager-certificate-rotation-scheduler = "nv_config_manager.temporal.ngc.schedulers.certificate_rotation:main"
 workflow-cli = "nv_config_manager.temporal.cli:main"
 
 # Render Service

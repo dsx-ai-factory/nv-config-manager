@@ -667,6 +667,101 @@ spec:
       {{- /* SPIFFE volumes for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar.volumes" (dict "root" .) | nindent 6 }}
 {{- end }}
+{{- if and .Values.temporal.certificateRotationScheduler.enabled .Values.networkZtp.certificates.enabled }}
+---
+# NVIDIA Config Manager Certificate Rotation Scheduler Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $temporalName }}-certificate-scheduler
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: {{ $temporalName }}
+    component: certificate-rotation-scheduler
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 1800
+  selector:
+    matchLabels:
+      app: {{ $temporalName }}
+      component: certificate-rotation-scheduler
+  {{- include "nv-config-manager.deploymentStrategy" (dict "root" .) | nindent 2 }}
+  template:
+    metadata:
+      labels:
+        app: {{ $temporalName }}
+        component: certificate-rotation-scheduler
+        {{- include "nv-config-manager.spiffe.podLabels" . | nindent 8 }}
+        {{- include "nv-config-manager.customPodLabels" . | nindent 8 }}
+      annotations:
+        {{- include "nv-config-manager.authIniChecksum" . | nindent 8 }}
+        {{- if eq .Values.secrets.method "vault-agent" }}
+        {{- include "nv-config-manager.vaultAgent.injectorAnnotations" . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.rbac }}
+        checksum/rbac-config: {{ include "nv-config-manager.configmap.temporal-rbac" . | sha256sum }}
+        {{- end }}
+        {{- if include "nv-config-manager.spiffe.enabled" . }}
+        {{- include "nv-config-manager.spiffe.annotations" (dict "root" . "app" $temporalName) | nindent 8 }}
+        {{- end }}
+        {{- if .Values.observability.enabled }}
+        {{- include "nv-config-manager.otelOptOutAnnotations" . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range .Values.global.imagePullSecrets }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      {{- include "nv-config-manager.scheduling" .Values.temporal.certificateRotationScheduler | nindent 6 }}
+      initContainers:
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
+      {{- if eq (.Values.dcim.provider | default "nautobot-2x") "nautobot-2x" }}
+      {{- include "nv-config-manager.waitForNautobot" . | nindent 6 }}
+      {{- end }}
+      {{- if .Values.temporal.server.enabled }}
+      {{- include "nv-config-manager.waitForTemporalNamespace" . | nindent 6 }}
+      {{- end }}
+      containers:
+      - name: certificate-rotation-scheduler
+        image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
+        imagePullPolicy: {{ .Values.global.images.nvConfigManager.pullPolicy }}
+        command: ["nv-config-manager-certificate-rotation-scheduler"]
+        env:
+        - name: NV_CONFIG_MANAGER_INI
+          value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
+        - name: ENVIRONMENT
+          value: {{ .Values.global.environment }}
+        {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
+        {{- if .Values.observability.enabled }}
+        {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-certificate-rotation-scheduler") | nindent 8 }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.temporal.certificateRotationScheduler.resources | nindent 10 }}
+        volumeMounts:
+        {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
+        {{- include "nv-config-manager.temporalClientTLSVolumeMount" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
+        {{- if .Values.rbac }}
+        - name: rbac-config
+          mountPath: /etc/rbac
+          readOnly: true
+        {{- end }}
+      volumes:
+      {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
+      {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
+      {{- include "nv-config-manager.temporalClientTLSVolume" . | nindent 6 }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
+      {{- if .Values.rbac }}
+      - name: rbac-config
+        configMap:
+          name: {{ $temporalName }}-rbac-config
+      {{- end }}
+      {{- include "nv-config-manager.authSidecar.volumes" (dict "root" .) | nindent 6 }}
+{{- end }}
 ---
 # Archive Service (if enabled)
 {{- if .Values.temporal.archive.enabled }}

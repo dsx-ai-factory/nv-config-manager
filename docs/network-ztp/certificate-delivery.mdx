@@ -275,12 +275,14 @@ The stable IDs in this stanza must match the DCIM certificate assignments.
 
 ## Rotation behavior
 
-The schedule reconciler creates a daily certificate workflow for every device
-returned by the selected DCIM provider's certificate-enabled device query. It
-runs at 02:00 UTC with up to two hours of jitter. Each run reloads current DCIM
-intent and tells the Cumulus switch to fetch every assigned certificate from
-the SFTP proxy into the same stable NVUE ID. A failure for one ID is recorded
-without preventing the remaining assigned certificates from being attempted.
+The dedicated certificate rotation scheduler creates a daily certificate
+workflow for every device returned by the selected DCIM provider's
+certificate-enabled device query. It runs independently from the backup
+scheduler at 02:00 UTC with up to two hours of jitter. Each run reloads current
+DCIM intent and tells the Cumulus switch to fetch every assigned certificate
+from the SFTP proxy into the same stable NVUE ID. A failure for one ID is
+recorded without preventing the remaining assigned certificates from being
+attempted.
 
 Firewalls and security groups must allow the Config Manager cluster to reach
 the switch's NVUE API on TCP 8765 and allow the switch to reach the ZTP SFTP

@@ -1938,6 +1938,29 @@ temporal:
                     values:
                       - temporal-react-ui
               topologyKey: kubernetes.io/hostname
+  # Certificate rotation scheduler. This is a separate process so certificate
+  # reconciliation does not depend on backup scheduling or its DCIM queries.
+  # The Deployment is created only when networkZtp.certificates.enabled is true.
+  certificateRotationScheduler:
+    enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/component
+                    operator: In
+                    values:
+                      - certificate-rotation-scheduler
+              topologyKey: kubernetes.io/hostname
   # Archive service
   archive:
     enabled: false
