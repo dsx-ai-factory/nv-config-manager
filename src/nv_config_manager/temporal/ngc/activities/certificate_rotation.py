@@ -17,7 +17,7 @@
 from contextlib import closing
 from ipaddress import IPv4Address
 
-from nv_config_manager_dcim import ZTPDevice
+from nv_config_manager_dcim import CertificateKind, ZTPDevice
 from pydantic import BaseModel
 from requests import RequestException
 from temporalio import activity
@@ -79,12 +79,29 @@ def rotate_device_certificates(
                 f"sftp://ztp:ztp@{ztp_server}:2222/device/{ztp_device.device_id}/"
                 f"certificates/{certificate.id}"
             )
+            extension = "pem" if certificate.kind == CertificateKind.CA else "p12"
+            local_path = (
+                f"/tmp/nvcm-certificate-{ztp_device.device_id}-{certificate.id}.{extension}"
+            )
+            failed = False
             try:
-                connection.import_certificate(certificate.id, certificate.kind, uri)
+                connection.fetch_file(local_path, uri, ztp_device.ztp_vrf)
+                connection.import_certificate(
+                    certificate.id,
+                    certificate.kind,
+                    f"file://{local_path}",
+                )
             except (NetworkDeviceException, RequestException):
+                failed = True
+            finally:
+                try:
+                    connection.delete_file(local_path)
+                except (NetworkDeviceException, RequestException):
+                    failed = True
+            if failed:
                 failures.append(certificate.id)
-                continue
-            rotated.append(certificate.id)
+            else:
+                rotated.append(certificate.id)
     if failures:
         raise ApplicationError(
             f"Device {device.name} failed to rotate certificate IDs: {', '.join(failures)}"

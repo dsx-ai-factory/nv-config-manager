@@ -439,6 +439,14 @@ def ztp_servers(value: DeviceRenderData) -> list[str]:
     return _service_endpoints(value, value.services.ztp, "ZTP", optional=False)
 
 
+def ztp_vrf(value: DeviceRenderData) -> str:
+    """Return the VRF that reaches ZTP based on the routed management interface."""
+    eth0 = interface_by_name(value, "eth0", fail_if_missing=False)
+    if eth0 is not None and (eth0.primary_ipv4 or eth0.primary_ipv6):
+        return "mgmt"
+    return "default"
+
+
 def firmware_cache(value: DeviceRenderData) -> list[str]:
     """Return a list of firmware cache servers, fall back to ZTP servers."""
     if value.services.firmware_cache is None:

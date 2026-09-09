@@ -315,11 +315,59 @@ class CumulusConnection(NetworkConnection):
             resource = "certificate"
             parameters = {"uri-bundle": uri}
         payload = {"@import": {"state": "start", "parameters": parameters}}
-        response = self.post(
-            f"{self._base_url}system/security/{resource}/{certificate_id}",
-            json=payload,
-            timeout=timeout,
+        self._run_action(
+            f"system/security/{resource}/{certificate_id}",
+            payload,
+            f"certificate import {certificate_id}",
+            timeout,
         )
+
+    def fetch_file(
+        self,
+        path: str,
+        uri: str,
+        vrf: str,
+        file_permissions: int = 600,
+        timeout: int = 120,
+    ) -> None:
+        """Fetch a remote file through NVUE using an explicit routing instance."""
+        payload = {
+            "@fetch": {
+                "state": "start",
+                "parameters": {
+                    "path": path,
+                    "uri": uri,
+                    "file-permissions": file_permissions,
+                    "vrf": vrf,
+                },
+            }
+        }
+        self._run_action(
+            "system/file-path",
+            payload,
+            f"file fetch {path}",
+            timeout,
+        )
+
+    def delete_file(self, path: str, timeout: int = 120) -> None:
+        """Delete a local file through an NVUE action."""
+        payload = {"@delete": {"state": "start", "parameters": {"path": path}}}
+        self._run_action(
+            "system/file-path",
+            payload,
+            f"file delete {path}",
+            timeout,
+        )
+
+    def _run_action(
+        self,
+        resource: str,
+        payload: dict[str, Any],
+        description: str,
+        timeout: int,
+    ) -> None:
+        """Start an NVUE action and wait for its terminal state."""
+        response = self.post(f"{self._base_url}{resource}", json=payload, timeout=timeout)
         response.raise_for_status()
         action_id = response.json()
         deadline = time.monotonic() + timeout
@@ -330,13 +378,9 @@ class CumulusConnection(NetworkConnection):
                 return
             if state == "action_error":
                 detail = action.get("detail") or action.get("issue") or "unknown error"
-                raise NetworkDeviceException(
-                    f"NVUE certificate import {certificate_id} failed: {detail}"
-                )
+                raise NetworkDeviceException(f"NVUE {description} failed: {detail}")
             time.sleep(1)
-        raise NetworkDeviceException(
-            f"Timed out waiting for NVUE certificate import {certificate_id}"
-        )
+        raise NetworkDeviceException(f"Timed out waiting for NVUE {description}")
 
     def _get_diff(self, revision: str) -> str:
         # Need to diff in both directions

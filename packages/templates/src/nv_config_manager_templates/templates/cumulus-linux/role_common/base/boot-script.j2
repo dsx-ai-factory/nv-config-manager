@@ -141,11 +141,21 @@ http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/valid
 # proxy authorizes the request by the switch source IP, so certificate delivery
 # does not depend on DNS, an HTTPS IP SAN, or preloaded ZTP CA trust.
 {% for certificate in device_data.certificates %}
+CERTIFICATE_PATH="/tmp/nvcm-certificate-{{ certificate.id }}{% if certificate.kind == "ca" %}.pem{% else %}.p12{% endif %}"
+rm -f "$CERTIFICATE_PATH"
+retry_command nv action fetch system file-path "$CERTIFICATE_PATH" \
+  uri sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/certificates/{{ certificate.id }} \
+  file-permissions 600 \
+  vrf {{ device_data|ztp_vrf }}
 {% if certificate.kind == "ca" %}
-nv action import system security ca-certificate {{ certificate.id }} uri sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/certificates/{{ certificate.id }}
+if ! retry_command nv action import system security ca-certificate {{ certificate.id }} uri "file://$CERTIFICATE_PATH"; then
 {% elif certificate.kind == "identity" %}
-nv action import system security certificate {{ certificate.id }} uri-bundle sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/certificates/{{ certificate.id }}
+if ! retry_command nv action import system security certificate {{ certificate.id }} uri-bundle "file://$CERTIFICATE_PATH"; then
 {% endif %}
+  rm -f "$CERTIFICATE_PATH"
+  false
+fi
+rm -f "$CERTIFICATE_PATH"
 {% endfor %}
 {% endif %}
 
@@ -156,7 +166,8 @@ nv action import system security certificate {{ certificate.id }} uri-bundle sft
 rm -f /tmp/startup.yaml
 retry_command nv action fetch system file-path /tmp/startup.yaml \
   uri sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/startup.yaml \
-  file-permissions 600
+  file-permissions 600 \
+  vrf {{ device_data|ztp_vrf }}
 nv config replace /tmp/startup.yaml
 nv config apply -y
 #Reload DHCP to workaround Cumulus 5.11.0 bug 4423269

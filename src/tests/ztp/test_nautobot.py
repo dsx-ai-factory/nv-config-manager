@@ -39,6 +39,23 @@ async def test_ztp_device_data(mock_device_data):
         assert device_data.config_store_instance == "https://config-manager.example.com/"
         assert device_data.certificates == ()
         assert device_data.ztp_servers == ("10.48.135.82", "10.48.135.100")
+        assert device_data.ztp_vrf == "mgmt"
+
+
+@pytest.mark.asyncio
+async def test_ztp_device_without_eth0_address_uses_default_vrf(mock_device_data):
+    """A switch without an addressed eth0 reaches ZTP through the default VRF."""
+    mock_device_data["data"]["config_manager_device"]["device"]["interfaces"][0]["name"] = "swp1"
+    with patch(
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+        new_callable=AsyncMock,
+        return_value=mock_device_data,
+    ):
+        nb = NautobotClient(nautobot_url="https://nautobot.example", token="token")
+        async with nb:
+            device_data = await nb.get_ztp_device(str(uuid4()))
+
+    assert device_data.ztp_vrf == "default"
 
 
 @pytest.mark.asyncio

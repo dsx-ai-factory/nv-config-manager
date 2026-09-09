@@ -564,6 +564,14 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                     for address in interface["ip_addresses"]
                 }
             )
+            ztp_vrf = (
+                "mgmt"
+                if any(
+                    interface.get("name", "").lower() == "eth0" and interface.get("ip_addresses")
+                    for interface in device["interfaces"]
+                )
+                else "default"
+            )
             config_context = device.get("config_context") or {}
             firmware_version = config_context.get("intended-firmware", {}).get("version")
             raw_ztp_servers = config_context.get("ztp", {}).get("ipv4", [])
@@ -612,6 +620,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 config_store_instance=config_store_instance,
                 certificates=certificates,
                 ztp_servers=tuple(ztp_servers),
+                ztp_vrf=ztp_vrf,
             )
         except (KeyError, TypeError, ValidationError) as exc:
             raise DCIMInvalidDataError(

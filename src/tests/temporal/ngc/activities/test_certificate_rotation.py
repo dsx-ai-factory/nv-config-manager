@@ -62,7 +62,9 @@ def _ztp_device() -> ZTPDevice:
 def test_rotation_reimports_each_assigned_certificate(mock_network_connection) -> None:
     """The nightly activity reuses stable IDs and the source-IP-authenticated endpoint."""
     connection = CumulusConnection.__new__(CumulusConnection)
+    connection.fetch_file = MagicMock()
     connection.import_certificate = MagicMock()
+    connection.delete_file = MagicMock()
     connection.close = MagicMock()
     mock_network_connection.from_device_data.return_value = connection
 
@@ -74,16 +76,23 @@ def test_rotation_reimports_each_assigned_certificate(mock_network_connection) -
     )
 
     base_uri = "sftp://ztp:ztp@192.0.2.10:2222/device/device-id/certificates"
+    ca_path = "/tmp/nvcm-certificate-device-id-otel-ca.pem"
+    client_path = "/tmp/nvcm-certificate-device-id-otel-client.p12"
+    assert connection.fetch_file.call_args_list == [
+        ((ca_path, f"{base_uri}/otel-ca", "mgmt"), {}),
+        ((client_path, f"{base_uri}/otel-client", "mgmt"), {}),
+    ]
     assert connection.import_certificate.call_args_list == [
         (
-            ("otel-ca", CertificateKind.CA, f"{base_uri}/otel-ca"),
+            ("otel-ca", CertificateKind.CA, f"file://{ca_path}"),
             {},
         ),
         (
-            ("otel-client", CertificateKind.IDENTITY, f"{base_uri}/otel-client"),
+            ("otel-client", CertificateKind.IDENTITY, f"file://{client_path}"),
             {},
         ),
     ]
+    assert connection.delete_file.call_args_list == [((ca_path,), {}), ((client_path,), {})]
     assert result.certificate_ids == ("otel-ca", "otel-client")
     connection.close.assert_called_once_with()
 
@@ -92,7 +101,9 @@ def test_rotation_reimports_each_assigned_certificate(mock_network_connection) -
 def test_rotation_attempts_later_certificates_after_one_fails(mock_network_connection) -> None:
     """One failed certificate must not prevent the remaining IDs from rotating."""
     connection = CumulusConnection.__new__(CumulusConnection)
+    connection.fetch_file = MagicMock()
     connection.import_certificate = MagicMock(side_effect=[NetworkDeviceException("failed"), None])
+    connection.delete_file = MagicMock()
     connection.close = MagicMock()
     mock_network_connection.from_device_data.return_value = connection
 

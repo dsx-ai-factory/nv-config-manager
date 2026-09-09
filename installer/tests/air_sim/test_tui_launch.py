@@ -16,8 +16,10 @@
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from textual.app import ComposeResult
@@ -36,9 +38,11 @@ from nv_config_manager_installer.tui.air_sim.screens.launch import (
     AirProviderStatus,
     LaunchScreen,
     _clean_dhcp_line,
+    _copy_text_to_clipboard,
     _create_deploy_log_path,
     _DeployStarted,
     _is_interesting_dhcp_line,
+    _is_interesting_ztp_line,
     _PodStatusWidget,
     _StreamTabsWidget,
     _TuiCallback,
@@ -74,6 +78,37 @@ class CallbackRecorder:
 
     def enqueue_log_line(self, line: str, stream: str = "deploy") -> None:
         self.entries.append((line, stream))
+
+
+def test_copy_text_to_clipboard_uses_x11_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = Mock()
+    run = Mock()
+    monkeypatch.setenv("DISPLAY", ":1")
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(
+        "nv_config_manager_installer.tui.air_sim.screens.launch.platform.system",
+        lambda: "Linux",
+    )
+    monkeypatch.setattr(
+        "nv_config_manager_installer.tui.air_sim.screens.launch.shutil.which",
+        lambda name: "/usr/bin/xclip" if name == "xclip" else None,
+    )
+    monkeypatch.setattr(
+        "nv_config_manager_installer.tui.air_sim.screens.launch.subprocess.run",
+        run,
+    )
+
+    assert _copy_text_to_clipboard(app, "ssh example")
+    app.copy_to_clipboard.assert_called_once_with("ssh example")
+    run.assert_called_once_with(
+        ["xclip", "-selection", "clipboard"],
+        input="ssh example",
+        text=True,
+        check=True,
+        timeout=3,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
     def on_step(self, step_id: str, status: object, message: str = "") -> None:
         pass
@@ -343,7 +378,17 @@ def test_dhcp_activity_helpers_include_refresh_and_config_events() -> None:
     assert _is_interesting_dhcp_line(clean_config)
 
 
-def test_service_log_snapshots_include_dhcp_refresh_logs(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ztp_activity_helpers_include_sftp_requests() -> None:
+    assert _is_interesting_ztp_line(
+        "Request for path: /device/device-1/startup.yaml from 10.120.1.10"
+    )
+    assert _is_interesting_ztp_line("Served certificate otel-client for device device-1 over SFTP")
+    assert not _is_interesting_ztp_line("Request for path: /healthcheck from 127.0.0.1")
+
+
+def test_service_log_snapshots_include_dhcp_and_both_ztp_transports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = AirSimulationManager.__new__(AirSimulationManager)
     commands: list[str] = []
 
@@ -371,6 +416,16 @@ def test_service_log_snapshots_include_dhcp_refresh_logs(monkeypatch: pytest.Mon
             )
         if sim_manager_module.CONFIG_MANAGER_DHCP_DEPLOYMENT in remote_command:
             return SimpleNamespace(returncode=0, stdout="DHCP4_LEASE_ALLOC allocated lease\n")
+        if " -c http-lb " in remote_command:
+            return SimpleNamespace(
+                returncode=0,
+                stdout='10.120.1.10:12345 - "GET /v1/device/device-1/boot-script HTTP/1.1" 200\n',
+            )
+        if " -c sftp " in remote_command:
+            return SimpleNamespace(
+                returncode=0,
+                stdout="Request for path: /device/device-1/startup.yaml from 10.120.1.10\n",
+            )
         return SimpleNamespace(returncode=0, stdout="")
 
     monkeypatch.setattr(manager, "_ssh_cmd", fake_ssh_cmd)
@@ -381,9 +436,15 @@ def test_service_log_snapshots_include_dhcp_refresh_logs(monkeypatch: pytest.Mon
     assert any(
         sim_manager_module.CONFIG_MANAGER_DHCP_REFRESH_DEPLOYMENT in command for command in commands
     )
+    assert any(" -c http-lb " in command for command in commands)
+    assert any(" -c sftp " in command for command in commands)
     assert snapshots["dhcp"] == [
         "DHCP4_LEASE_ALLOC allocated lease",
         '{"message": "KEA DHCP4 Configuration Refresh Complete."}',
+    ]
+    assert snapshots["ztp"] == [
+        '10.120.1.10:12345 - "GET /v1/device/device-1/boot-script HTTP/1.1" 200',
+        "Request for path: /device/device-1/startup.yaml from 10.120.1.10",
     ]
 
 

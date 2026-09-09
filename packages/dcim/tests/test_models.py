@@ -113,6 +113,7 @@ def test_ztp_device_certificate_intent_is_typed_and_unique() -> None:
     )
 
     assert device.certificates == (certificate,)
+    assert device.ztp_vrf == "mgmt"
     with pytest.raises(ValidationError, match="certificate IDs must be unique"):
         ZTPDevice(
             device_id="device-1",

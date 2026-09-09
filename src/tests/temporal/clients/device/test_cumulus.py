@@ -73,6 +73,63 @@ def test_import_certificate_uses_nvue_action_and_waits(_mock_sleep, kind, resour
     assert conn.get.call_count == 2
 
 
+@pytest.mark.parametrize(
+    ("method", "payload"),
+    [
+        (
+            "fetch_file",
+            {
+                "@fetch": {
+                    "state": "start",
+                    "parameters": {
+                        "path": "/tmp/nvcm-certificate.p12",
+                        "uri": "sftp://ztp:ztp@192.0.2.10/file",
+                        "file-permissions": 600,
+                        "vrf": "default",
+                    },
+                }
+            },
+        ),
+        (
+            "delete_file",
+            {
+                "@delete": {
+                    "state": "start",
+                    "parameters": {"path": "/tmp/nvcm-certificate.p12"},
+                }
+            },
+        ),
+    ],
+)
+@patch("nv_config_manager.temporal.client.device.cumulus.time.sleep")
+def test_file_actions_use_nvue_system_file_path(_mock_sleep, method, payload):
+    """Staged certificate files are managed entirely through NVUE REST actions."""
+    conn = CumulusConnection.__new__(CumulusConnection)
+    conn._base_url = "https://192.0.2.100:8765/nvue_v1/"
+    action_created = MagicMock()
+    action_created.json.return_value = 42
+    conn.post = MagicMock(return_value=action_created)
+    succeeded = MagicMock()
+    succeeded.json.return_value = {"state": "action_success"}
+    conn.get = MagicMock(return_value=succeeded)
+
+    if method == "fetch_file":
+        conn.fetch_file(
+            "/tmp/nvcm-certificate.p12",
+            "sftp://ztp:ztp@192.0.2.10/file",
+            "default",
+        )
+    else:
+        conn.delete_file("/tmp/nvcm-certificate.p12")
+
+    conn.post.assert_called_once_with(
+        f"{conn._base_url}system/file-path",
+        json=payload,
+        timeout=120,
+    )
+    action_created.raise_for_status.assert_called_once_with()
+
+
 def test_close_closes_nvue_session():
     """closing() must release the pooled requests session."""
     conn = CumulusConnection.__new__(CumulusConnection)

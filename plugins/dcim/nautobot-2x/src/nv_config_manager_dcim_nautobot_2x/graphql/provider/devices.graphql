@@ -11,6 +11,7 @@ query GetZTPDevice($id: ID!) {
       platform { name }
       config_context
       interfaces: interfaces(has_ip_addresses: true) {
+        name
         ip_addresses { host }
       }
     }

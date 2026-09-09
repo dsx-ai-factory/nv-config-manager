@@ -1933,7 +1933,7 @@ class AirSimulationManager:
         tail: int = 200,
         since: str = "30m",
     ) -> dict[str, list[str]]:
-        """Return recent DHCP and ZTP log lines without opening streaming tails."""
+        """Return recent DHCP, ZTP HTTP, and ZTP SFTP logs without streaming tails."""
         ssh_base = self._ssh_cmd(host, port)
         kube = "KUBECONFIG=/home/nvcm/.kube/config"
         commands = {
@@ -1954,6 +1954,11 @@ class AirSimulationManager:
                     f"sudo {kube} kubectl logs -n {namespace}"
                     f" deployment/{CONFIG_MANAGER_ZTP_DEPLOYMENT}"
                     f" -c http-lb --tail={tail} --since={since} 2>/dev/null"
+                ),
+                (
+                    f"sudo {kube} kubectl logs -n {namespace}"
+                    f" deployment/{CONFIG_MANAGER_ZTP_DEPLOYMENT}"
+                    f" -c sftp --tail={tail} --since={since} 2>/dev/null"
                 ),
             ),
         }
@@ -2018,6 +2023,12 @@ class AirSimulationManager:
             f" -c http-lb -n {CONFIG_MANAGER_NAMESPACE} 2>&1"
             " | grep --line-buffered -v health"
         )
+        ztp_sftp_cmd = (
+            "sudo KUBECONFIG=/home/nvcm/.kube/config"
+            f" kubectl logs -f deployment/{CONFIG_MANAGER_ZTP_DEPLOYMENT}"
+            f" -c sftp -n {CONFIG_MANAGER_NAMESPACE} 2>&1"
+            " | grep --line-buffered -v health"
+        )
 
         outer_stop = stop_event
         stop_event = threading.Event()
@@ -2058,10 +2069,18 @@ class AirSimulationManager:
                 text=True,
             )
             procs.append(ztp_proc)
+            ztp_sftp_proc = subprocess.Popen(
+                [*ssh_base, ztp_sftp_cmd],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            procs.append(ztp_sftp_proc)
 
             fds = {
                 dhcp_proc.stdout: "DHCP",
                 ztp_proc.stdout: "ZTP",
+                ztp_sftp_proc.stdout: "ZTP SFTP",
             }
             last_prov = -1
             while fds:

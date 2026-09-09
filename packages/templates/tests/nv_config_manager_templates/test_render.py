@@ -214,12 +214,16 @@ def test_cumulus_516_renders_certificate_imports_and_mtls_otel(
         "sftp://ztp:ztp@192.0.2.10:2222/device/c9e574df-2295-4258-b5b2-16247b6e3aa7/certificates"
     )
     assert (
-        "nv action import system security ca-certificate otel-ca uri "
-        f"{certificate_base_url}/otel-ca"
+        'nv action fetch system file-path "$CERTIFICATE_PATH" '
+        f"\\\n  uri {certificate_base_url}/otel-ca "
+        "\\\n  file-permissions 600 \\\n  vrf mgmt"
+    ) in boot_script
+    assert (
+        'nv action import system security ca-certificate otel-ca uri "file://$CERTIFICATE_PATH"'
     ) in boot_script
     assert (
         "nv action import system security certificate otel-client uri-bundle "
-        f"{certificate_base_url}/otel-client"
+        '"file://$CERTIFICATE_PATH"'
     ) in boot_script
     assert boot_script.index("ca-certificate otel-ca") < boot_script.index(
         "certificate otel-client"
@@ -229,7 +233,7 @@ def test_cumulus_516_renders_certificate_imports_and_mtls_otel(
         "retry_command nv action fetch system file-path /tmp/startup.yaml "
         "\\\n  uri sftp://ztp:ztp@192.0.2.10:2222/device/"
         "c9e574df-2295-4258-b5b2-16247b6e3aa7/startup.yaml "
-        "\\\n  file-permissions 600"
+        "\\\n  file-permissions 600 \\\n  vrf mgmt"
     ) in boot_script
 
     grpc = startup[0]["set"]["system"]["telemetry"]["export"]["otlp"]["grpc"]

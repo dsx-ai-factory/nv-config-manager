@@ -153,7 +153,8 @@ The OTLP destination address is an IP address and the default port is 4317.
 
 ## Bootstrap and transport security
 
-The boot script and nightly rotation use the ZTP SFTP proxy:
+The boot script and nightly rotation first fetch each certificate from the ZTP
+SFTP proxy into a mode-`0600` temporary file:
 
 ```text
 sftp://ztp:ztp@{ztp_ipv4}:2222/device/{device_uuid}/certificates/{certificate_id}
@@ -246,13 +247,23 @@ issuer. Neither choice affects switch certificate delivery over SFTP.
 The boot script uses these Cumulus Linux NVUE actions:
 
 ```bash
-nv action import system security ca-certificate <id> uri <url>
-nv action import system security certificate <id> uri-bundle <url>
-nv action fetch system file-path /tmp/startup.yaml uri <url> file-permissions 600
+nv action fetch system file-path <local-path> uri <sftp-url> file-permissions 600 vrf <vrf>
+nv action import system security ca-certificate <id> uri file://<local-path>
+nv action import system security certificate <id> uri-bundle file://<local-path>
+nv action delete system file-path <local-path>
 ```
 
-Cumulus Linux 5.16 documents SFTP as a supported transport for all three
-actions. Config Manager supplies the SFTP URLs shown above.
+Cumulus Linux 5.16 exposes a `vrf` parameter on the generic file fetch action,
+but not on the certificate import actions. Config Manager therefore fetches
+through the correct VRF, imports from the local file, and deletes the temporary
+file after either a successful import or an import failure. The same staged
+flow is used for ZTP and nightly rotation.
+
+The bundled Nautobot provider selects `mgmt` when `eth0` has an assigned IPv4
+or IPv6 address and `default` otherwise. Other DCIM providers return the
+provider-neutral `ztp_vrf` field with the same routing decision. This lets
+front-panel-provisioned switches reach SFTP without requiring SSH or relying
+on the certificate import action to support VRF selection.
 
 For Cumulus Linux 5.16.1, the rendered `startup.yaml` enables full OTLP mTLS:
 
@@ -280,9 +291,10 @@ workflow for every device returned by the selected DCIM provider's
 certificate-enabled device query. It runs independently from the backup
 scheduler at 02:00 UTC with up to two hours of jitter. Each run reloads current
 DCIM intent and tells the Cumulus switch to fetch every assigned certificate
-from the SFTP proxy into the same stable NVUE ID. A failure for one ID is
-recorded without preventing the remaining assigned certificates from being
-attempted.
+from the SFTP proxy into a temporary file using the device's ZTP VRF, import it
+into the same stable NVUE ID, and delete the temporary file. A failure for one
+ID is recorded without preventing the remaining assigned certificates from
+being attempted.
 
 Firewalls and security groups must allow the Config Manager cluster to reach
 the switch's NVUE API on TCP 8765 and allow the switch to reach the ZTP SFTP

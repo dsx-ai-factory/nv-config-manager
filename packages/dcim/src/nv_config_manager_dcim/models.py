@@ -154,6 +154,7 @@ class ZTPDevice(DCIMModel):
     config_store_instance: str | None
     certificates: tuple[DeviceCertificate, ...] = ()
     ztp_servers: tuple[str, ...] = ()
+    ztp_vrf: str = Field(default="mgmt", pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
     @model_validator(mode="after")
     def _certificate_ids_are_unique(self) -> ZTPDevice:

@@ -94,6 +94,7 @@ from nv_config_manager_templates.filters.device import (
     uuid,
     vni_mappings,
     ztp_servers,
+    ztp_vrf,
 )
 
 
@@ -368,9 +369,23 @@ def test_common_context_servers(public_leaf_data: dict) -> None:
     assert ntp_servers(public_leaf_data) == ["192.0.2.8", "192.0.2.9"]
     assert syslog_servers(public_leaf_data) == []
     assert ztp_servers(public_leaf_data) == ["192.0.2.10"]
+    assert ztp_vrf(public_leaf_data) == "mgmt"
     assert firmware_cache(public_leaf_data) == ["192.0.2.10"]
     assert default_gateways(public_leaf_data) == ["192.0.2.1"]
     assert loopback_prefix(public_leaf_data) == "10.254.254.0/26"
+
+
+def test_ztp_vrf_defaults_when_eth0_has_no_address(public_leaf_data: dict) -> None:
+    """ZTP actions use the default VRF when eth0 is not addressed."""
+    interfaces_without_eth0_address = tuple(
+        interface.model_copy(update={"addresses": ()})
+        if interface.name.lower() == "eth0"
+        else interface
+        for interface in public_leaf_data.interfaces
+    )
+    data = public_leaf_data.model_copy(update={"interfaces": interfaces_without_eth0_address})
+
+    assert ztp_vrf(data) == "default"
 
 
 def test_gni_context_helpers(public_leaf_data: dict) -> None:
