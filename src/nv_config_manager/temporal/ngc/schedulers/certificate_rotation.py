@@ -31,7 +31,11 @@ from temporalio.contrib.opentelemetry import TracingInterceptor
 
 from nv_config_manager.common.config import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
-from nv_config_manager.dcim import DCIMError, create_dcim_client
+from nv_config_manager.dcim import (
+    DCIMError,
+    DCIMOperationNotSupportedError,
+    create_dcim_client,
+)
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
 from nv_config_manager.temporal.common.rbac_config import RBACConfig
 from nv_config_manager.temporal.common.search_attributes import (
@@ -83,7 +87,17 @@ class CertificateRotationScheduler:
         async with client:
             operation = getattr(client, "get_certificate_enabled_device_ids", None)
             if operation is None:
-                return set()
+                provider_type = type(client).__name__
+                operation_name = "get_certificate_enabled_device_ids"
+                self.logger.warning(
+                    "DCIM provider %s does not support %s; leaving certificate "
+                    "rotation schedules unchanged.",
+                    provider_type,
+                    operation_name,
+                )
+                raise DCIMOperationNotSupportedError(
+                    f"DCIM provider {provider_type} does not support {operation_name}"
+                )
             return set(await operation(is_aggregate_env))
 
     async def scheduled_devices(self, temporal_client: Client) -> set[str]:

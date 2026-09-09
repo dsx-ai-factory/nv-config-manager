@@ -22,6 +22,7 @@ are reserved for tools without clean Python equivalents: ``helm``, ``docker``,
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import io
 import json
@@ -225,28 +226,29 @@ def _hash_content_dir(
     """
     h = hashlib.sha256()
     buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz", compresslevel=1) as tf:
-        for src in sorted(paths):
-            if not src.exists():
-                continue
-            if src.is_dir():
-                ignore = shutil.ignore_patterns(*ignore_patterns)
-                with tempfile.TemporaryDirectory() as tmp:
-                    staged = Path(tmp) / src.name
-                    shutil.copytree(src, staged, dirs_exist_ok=True, ignore=ignore)
-                    for f in sorted(staged.rglob("*")):
-                        if f.is_file():
-                            info = tarfile.TarInfo(name=str(f.relative_to(tmp)))
-                            info.size = f.stat().st_size
-                            info.mtime = 0
-                            with f.open("rb") as fh:
-                                tf.addfile(info, fh)
-            elif src.is_file():
-                info = tarfile.TarInfo(name=src.name)
-                info.size = src.stat().st_size
-                info.mtime = 0
-                with src.open("rb") as fh:
-                    tf.addfile(info, fh)
+    with gzip.GzipFile(fileobj=buf, mode="wb", compresslevel=1, mtime=0) as gz:
+        with tarfile.open(fileobj=gz, mode="w") as tf:
+            for src in sorted(paths):
+                if not src.exists():
+                    continue
+                if src.is_dir():
+                    ignore = shutil.ignore_patterns(*ignore_patterns)
+                    with tempfile.TemporaryDirectory() as tmp:
+                        staged = Path(tmp) / src.name
+                        shutil.copytree(src, staged, dirs_exist_ok=True, ignore=ignore)
+                        for f in sorted(staged.rglob("*")):
+                            if f.is_file():
+                                info = tarfile.TarInfo(name=str(f.relative_to(tmp)))
+                                info.size = f.stat().st_size
+                                info.mtime = 0
+                                with f.open("rb") as fh:
+                                    tf.addfile(info, fh)
+                elif src.is_file():
+                    info = tarfile.TarInfo(name=src.name)
+                    info.size = src.stat().st_size
+                    info.mtime = 0
+                    with src.open("rb") as fh:
+                        tf.addfile(info, fh)
     h.update(buf.getvalue())
     return h.hexdigest()
 

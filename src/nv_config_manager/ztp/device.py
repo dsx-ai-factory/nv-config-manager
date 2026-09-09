@@ -18,10 +18,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import cast
 
 from cryptography import x509
 from cryptography.hazmat.primitives.serialization import NoEncryption, load_pem_private_key
-from cryptography.hazmat.primitives.serialization.pkcs12 import serialize_key_and_certificates
+from cryptography.hazmat.primitives.serialization.pkcs12 import (
+    PKCS12PrivateKeyTypes,
+    serialize_key_and_certificates,
+)
 
 from nv_config_manager.common.client import (
     ConfigStoreClient,
@@ -179,7 +183,7 @@ def _pkcs12_bundle(certificate_id: str, issued: IssuedCertificate) -> bytes:
     ]
     return serialize_key_and_certificates(
         name=certificate_id.encode("ascii"),
-        key=private_key,
+        key=cast(PKCS12PrivateKeyTypes, private_key),
         cert=certificate,
         cas=ca_chain,
         encryption_algorithm=NoEncryption(),

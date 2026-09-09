@@ -691,6 +691,7 @@ spec:
       labels:
         app: {{ $temporalName }}
         component: certificate-rotation-scheduler
+        app.kubernetes.io/component: certificate-rotation-scheduler
         {{- include "nv-config-manager.spiffe.podLabels" . | nindent 8 }}
         {{- include "nv-config-manager.customPodLabels" . | nindent 8 }}
       annotations:

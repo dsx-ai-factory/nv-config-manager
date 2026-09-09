@@ -18,6 +18,7 @@ from unittest.mock import ANY, AsyncMock, Mock, patch
 
 import pytest
 
+from nv_config_manager.dcim import DCIMOperationNotSupportedError
 from nv_config_manager.temporal.ngc.schedulers.certificate_rotation import (
     CertificateRotationScheduler,
 )
@@ -30,8 +31,8 @@ def test_certificate_rotation_runs_nightly_utc() -> None:
 
 
 @pytest.mark.asyncio
-async def test_scheduling_is_optional_for_dcim_providers(monkeypatch) -> None:
-    """Providers without certificate enumeration reconcile no schedules."""
+async def test_scheduling_is_optional_for_dcim_providers(monkeypatch, caplog) -> None:
+    """Unsupported enumeration preserves existing schedules via the DCIM error path."""
 
     class ProviderWithoutCertificateScheduling:
         async def __aenter__(self):
@@ -54,7 +55,11 @@ async def test_scheduling_is_optional_for_dcim_providers(monkeypatch) -> None:
 
     scheduler = CertificateRotationScheduler()
 
-    assert await scheduler.devices_to_schedule() == set()
+    with pytest.raises(DCIMOperationNotSupportedError):
+        await scheduler.devices_to_schedule()
+
+    assert "ProviderWithoutCertificateScheduling" in caplog.text
+    assert "get_certificate_enabled_device_ids" in caplog.text
 
 
 @pytest.mark.asyncio

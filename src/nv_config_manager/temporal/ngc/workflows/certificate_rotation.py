@@ -56,7 +56,7 @@ class CertificateRotationWorkflow(WorkflowMetadataMixin, DeviceMixin):
     workflow_namespace = "ngc"
 
     @run_nv_config_manager_workflow
-    async def run(self, workflow_input: CertificateRotationInput) -> tuple[str, ...]:
+    async def run(self, workflow_input: CertificateRotationInput) -> tuple[str, ...]:  # type: ignore[override, ty:invalid-method-override]
         """Load fresh DCIM intent and rotate every certificate assigned to the device."""
         retry_policy = RetryPolicy(maximum_attempts=3)
         network_result, ztp_result = await asyncio.gather(
