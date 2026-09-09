@@ -16,22 +16,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from configparser import ConfigParser
-from typing import TypedDict
 
 from nv_config_manager.common.config_loader import resolve_config
 from nv_config_manager.common.http_config import get_internal_auth_headers, get_mtls_cert_paths
-
-type HeaderProvider = dict[str, str] | Callable[[], dict[str, str]] | None
-
-
-class RenderClientSettings(TypedDict):
-    """Constructor settings for the render client."""
-
-    base_url: str
-    client_certificate: tuple[str, str] | None
-    headers: HeaderProvider
+from nv_config_manager_workflows.clients.render import RenderClientSettings
 
 
 def render_client_settings(

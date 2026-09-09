@@ -47,6 +47,17 @@ class RenderClientException(Exception):
     """Exception raised for errors in the Render client."""
 
 
+type HeaderProvider = dict[str, str] | Callable[[], dict[str, str]] | None
+
+
+class RenderClientSettings(TypedDict):
+    """Constructor settings for the render client."""
+
+    base_url: str
+    client_certificate: tuple[str, str] | None
+    headers: HeaderProvider
+
+
 class RenderClient(_WhoamiViaRetryClientMixin):
     """Async client for interacting with the render service."""
 
@@ -54,7 +65,7 @@ class RenderClient(_WhoamiViaRetryClientMixin):
         self,
         base_url: str,
         client_certificate: tuple[str, str] | None = None,
-        headers: dict[str, str] | Callable[[], dict[str, str]] | None = None,
+        headers: HeaderProvider = None,
     ) -> None:
         """Initialize the render client.
 

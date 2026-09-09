@@ -34,8 +34,6 @@ import nats.js.errors
 # CLIENT IMPORTS
 # =============================================================================
 from nv_config_manager.common.client import (
-    ConfigStoreClient,
-    ConfigStoreType,
     DHCPClient,
     NatsClient,
     RedisClient,
@@ -90,6 +88,7 @@ from nv_config_manager.temporal.factories.render import render_client_settings
 from nv_config_manager.ztp.filestore import FileStoreClient
 from nv_config_manager.ztp.s3 import S3Client
 from nv_config_manager.ztp.storage import ObjectStorageClient
+from nv_config_manager_workflows.clients import ConfigStoreClient, ConfigStoreType
 
 if TYPE_CHECKING:
     import nats.aio.client

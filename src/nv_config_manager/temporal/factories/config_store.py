@@ -41,7 +41,9 @@ def config_store_client_settings(
     config_section = resolved[section]
     file_type_value = ConfigStoreType(file_type)
     ui_url = config_section["ui_url"]
-    if config_section.getboolean("use_internal_endpoint", fallback=False):
+    use_internal = config_section.getboolean("use_internal_endpoint", fallback=False)
+
+    if use_internal:
         return {
             "target": config_section["api_service"],
             "file_type": file_type_value,
