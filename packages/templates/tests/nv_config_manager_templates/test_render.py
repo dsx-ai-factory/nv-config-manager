@@ -226,7 +226,7 @@ def test_cumulus_516_renders_certificate_imports_and_mtls_otel(
     )
     assert boot_script.index("ca-certificate otel-ca") < boot_script.index("nv config replace")
     assert (
-        "nv action fetch system file-path /tmp/startup.yaml "
+        "retry_command nv action fetch system file-path /tmp/startup.yaml "
         "\\\n  uri sftp://ztp:ztp@192.0.2.10:2222/device/"
         "c9e574df-2295-4258-b5b2-16247b6e3aa7/startup.yaml "
         "\\\n  file-permissions 600"

@@ -38,6 +38,32 @@ function retry_curl() {
   return $exit_code
 }
 
+function retry_command() {
+  local max_attempts=5
+  local attempt=1
+  local exit_code=0
+  local retry_delay=5
+
+  while [ $attempt -le $max_attempts ]; do
+    echo "Attempt $attempt of $max_attempts: $*" >&2
+    if "$@"; then
+      return 0
+    else
+      exit_code=$?
+    fi
+
+    if [ $attempt -lt $max_attempts ]; then
+      echo "Command failed with exit code $exit_code; retrying in $retry_delay seconds..." >&2
+      sleep $retry_delay
+      retry_delay=$((retry_delay * 2))
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  echo "Command failed after $max_attempts attempts" >&2
+  return $exit_code
+}
+
 # Log all output from this script
 exec >> /var/log/autoprovision 2>&1
 date "+%FT%T ztp starting script $0"
@@ -128,7 +154,7 @@ nv action import system security certificate {{ certificate.id }} uri-bundle sft
 
 #Load configuration from ZTP server
 rm -f /tmp/startup.yaml
-nv action fetch system file-path /tmp/startup.yaml \
+retry_command nv action fetch system file-path /tmp/startup.yaml \
   uri sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/startup.yaml \
   file-permissions 600
 nv config replace /tmp/startup.yaml

@@ -35,6 +35,28 @@ function retry_curl() {
   echo "curl command failed after $max_attempts attempts" >&2
   return $exit_code
 }
+function retry_command() {
+  local max_attempts=5
+  local attempt=1
+  local exit_code=0
+  local retry_delay=5
+  while [ $attempt -le $max_attempts ]; do
+    echo "Attempt $attempt of $max_attempts: $*" >&2
+    if "$@"; then
+      return 0
+    else
+      exit_code=$?
+    fi
+    if [ $attempt -lt $max_attempts ]; then
+      echo "Command failed with exit code $exit_code; retrying in $retry_delay seconds..." >&2
+      sleep $retry_delay
+      retry_delay=$((retry_delay * 2))
+    fi
+    attempt=$((attempt + 1))
+  done
+  echo "Command failed after $max_attempts attempts" >&2
+  return $exit_code
+}
 # Log all output from this script
 exec >> /var/log/autoprovision 2>&1
 date "+%FT%T ztp starting script $0"
@@ -92,7 +114,7 @@ retry_curl --fail -H "Content-Type: application/json" -d "$JSON_PAYLOAD" \
 http://192.0.2.10/v1/device/833d1c59-47dc-4fe9-8f7d-245218caaa01/validate_serial
 #Load configuration from ZTP server
 rm -f /tmp/startup.yaml
-nv action fetch system file-path /tmp/startup.yaml \
+retry_command nv action fetch system file-path /tmp/startup.yaml \
   uri sftp://ztp:ztp@192.0.2.10:2222/device/833d1c59-47dc-4fe9-8f7d-245218caaa01/startup.yaml \
   file-permissions 600
 nv config replace /tmp/startup.yaml
