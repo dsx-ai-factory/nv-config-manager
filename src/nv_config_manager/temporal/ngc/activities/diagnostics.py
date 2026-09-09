@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from temporalio import activity
 
 from nv_config_manager.common.client.redis import redis_settings
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.temporal.client.device import NetworkConnection, NetworkDeviceData
 from nv_config_manager.temporal.common.mixins.device import Platform
 from nv_config_manager_workflows.activities.tech_support import (

@@ -18,7 +18,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nv_config_manager.common.config import load_config, nats_archive_config
+from nv_config_manager.common.config_loader import load_config
+from nv_config_manager.common.http_config import nats_archive_config
 from nv_config_manager_workflows.runtime import configure_runtime
 
 if TYPE_CHECKING:

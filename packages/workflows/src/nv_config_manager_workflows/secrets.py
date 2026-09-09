@@ -35,7 +35,7 @@ def get_site_slug(site: str) -> str:
     return site.lower().replace(" ", "-")
 
 
-def resolve_config_section(
+def select_credential_source(
     main_config: CredentialConfig,
     secrets_config: CredentialConfig | None,
     section: str,
@@ -56,7 +56,7 @@ def resolve_credentials(
     site: str | None = None,
 ) -> CredentialSection:
     """Return the selected credential section, or an empty mapping when absent."""
-    config, resolved_section = resolve_config_section(
+    config, resolved_section = select_credential_source(
         main_config,
         secrets_config,
         section,
@@ -74,7 +74,7 @@ def get_credential(
     default: str = "",
 ) -> str:
     """Return one credential with site-specific then global fallback semantics."""
-    config, resolved_section = resolve_config_section(
+    config, resolved_section = select_credential_source(
         main_config,
         secrets_config,
         section,

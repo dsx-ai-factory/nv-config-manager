@@ -20,7 +20,7 @@ import json
 from collections.abc import Callable
 from typing import Any, Self
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.temporal.client.device.exceptions import NetworkDeviceException
 from nv_config_manager.temporal.client.device.models import (
@@ -33,7 +33,7 @@ from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
 from nv_config_manager.temporal.common.secrets import (
     get_credential,
     get_rotation_passwords,
-    resolve_config_section,
+    resolve_credential_source,
 )
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
@@ -79,7 +79,7 @@ class NetworkConnection:
 
         # Determine which config and section to use for passwords
         # This checks the secrets config first, then falls back to main config
-        password_config, password_section = resolve_config_section(config, "device", site)
+        password_config, password_section = resolve_credential_source(config, "device", site)
         passwords = get_rotation_passwords(password_config, password_section)
 
         if passwords:

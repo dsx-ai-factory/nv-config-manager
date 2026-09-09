@@ -23,8 +23,7 @@ from __future__ import annotations
 import os
 import ssl
 from collections.abc import Awaitable, Callable
-from configparser import ConfigParser, SectionProxy
-from functools import lru_cache
+from configparser import ConfigParser
 from typing import TYPE_CHECKING, Any
 
 import certifi
@@ -35,336 +34,65 @@ import nats.js.errors
 # CLIENT IMPORTS
 # =============================================================================
 from nv_config_manager.common.client import (
-    DEFAULT_NATS_API_PREFIX,
+    ConfigStoreClient,
+    ConfigStoreType,
     DHCPClient,
     NatsClient,
     RedisClient,
+    RenderClient,
     TemporalClient,
     ZTPClient,
-    config_manager_api_prefix,
 )
 
 # =============================================================================
 # LOGGING (re-exported from nv_config_manager.common.log to avoid circular imports)
 # =============================================================================
-from nv_config_manager.common.ini import FileFingerprint, file_fingerprint
+from nv_config_manager.common.config_loader import (  # noqa: F401
+    _load_config,
+    clear_config_cache,
+    load_config,
+    reload_config,
+    resolve_config,
+    resolve_config_section,
+)
+from nv_config_manager.common.http_config import (  # noqa: F401
+    DEFAULT_CONFIG_MANAGER_ARCHIVE_SUBJECT,
+    DEFAULT_CONFIG_MANAGER_DEVICE_CHANGE_SUBJECT,
+    DEFAULT_CONFIG_MANAGER_NATS_STREAM,
+    DEFAULT_CONFIG_MANAGER_RENDER_CHANGE_SUBJECT,
+    DEFAULT_NATS_API_PREFIX,
+    DEFAULT_NAUTOBOT_NATS_STREAM,
+    DEFAULT_NAUTOBOT_NATS_SUBJECT,
+    _nats_section,
+    _read_spiffe_jwt,
+    config_manager_api_prefix,
+    get_internal_auth_headers,
+    get_mtls_cert_paths,
+    get_service_url,
+    nats_archive_config,
+    nats_config_manager_api_prefix,
+    nats_dcim_change_config,
+    nats_device_change_config,
+    nats_nautobot_api_prefix,
+    nats_nautobot_change_config,
+    nats_render_change_config,
+    parse_verify_param,
+    use_internal_endpoint,
+)
 from nv_config_manager.common.log import (  # noqa: F401, E402
     LogCategory,
     configure_logging,
     get_logger,
 )
 from nv_config_manager.dcim import DCIMClient, create_dcim_client
+from nv_config_manager.temporal.factories.config_store import config_store_client_settings
+from nv_config_manager.temporal.factories.render import render_client_settings
 from nv_config_manager.ztp.filestore import FileStoreClient
 from nv_config_manager.ztp.s3 import S3Client
 from nv_config_manager.ztp.storage import ObjectStorageClient
-from nv_config_manager_workflows.clients.config_store import ConfigStoreClient, ConfigStoreType
-from nv_config_manager_workflows.clients.render import RenderClient
 
 if TYPE_CHECKING:
     import nats.aio.client
-
-
-# =============================================================================
-# ENUMS
-# =============================================================================
-
-
-# =============================================================================
-# CONFIG LOADING
-# =============================================================================
-
-
-@lru_cache(maxsize=1)
-def _load_config(
-    config_path: str,
-    _fingerprint: FileFingerprint | None,
-) -> ConfigParser:
-    """Parse one version of the unified INI file."""
-    config = ConfigParser(interpolation=None, delimiters=("=",))
-    config.read(config_path)
-    return config
-
-
-def load_config() -> ConfigParser:
-    """Load the unified nv-config-manager.ini configuration.
-
-    All services use the same INI file. The path is determined by:
-    1. NV_CONFIG_MANAGER_INI environment variable
-    2. Default: /etc/vault/nv-config-manager.ini
-
-    The parsed result is reused while the file is unchanged. Direct writes and
-    Kubernetes Secret-volume symlink swaps invalidate the cache automatically.
-
-    Returns:
-        Loaded ConfigParser instance for the current file version
-    """
-    config_path = os.getenv("NV_CONFIG_MANAGER_INI", "/etc/vault/nv-config-manager.ini")
-    return _load_config(config_path, file_fingerprint(config_path))
-
-
-def clear_config_cache() -> None:
-    """Clear the parsed INI cache without reading the file again."""
-    _load_config.cache_clear()
-
-
-def reload_config() -> ConfigParser:
-    """Force reload the configuration (clears cache)."""
-    clear_config_cache()
-    return load_config()
-
-
-# =============================================================================
-# CONFIG HELPERS
-# =============================================================================
-
-
-DEFAULT_CONFIG_MANAGER_NATS_STREAM = "nv-config-manager"
-DEFAULT_CONFIG_MANAGER_RENDER_CHANGE_SUBJECT = "nv-config-manager.nautobotchange"
-DEFAULT_CONFIG_MANAGER_DEVICE_CHANGE_SUBJECT = "nv-config-manager.devicechange"
-DEFAULT_CONFIG_MANAGER_ARCHIVE_SUBJECT = "nv-config-manager.workflow.result"
-DEFAULT_NAUTOBOT_NATS_STREAM = "nautobot"
-DEFAULT_NAUTOBOT_NATS_SUBJECT = "nautobot"
-
-
-def _nats_section(config: ConfigParser | None = None) -> SectionProxy:
-    if config is None:
-        config = load_config()
-    return config["nats"]
-
-
-def nats_config_manager_api_prefix(config: ConfigParser | None = None) -> str:
-    """Return the JetStream API prefix for the config-manager-owned stream.
-
-    Render-change, device-change and archive events are subjects on this one stream,
-    so they share its prefix.
-    """
-    return config_manager_api_prefix(_nats_section(config))
-
-
-def nats_render_change_config(config: ConfigParser | None = None) -> tuple[str, str]:
-    """Return the configured stream and subject for render-triggering changes."""
-    nats_config = _nats_section(config)
-    stream = nats_config.get(
-        "render_change_stream",
-        nats_config.get("config_manager_stream", DEFAULT_CONFIG_MANAGER_NATS_STREAM),
-    )
-    subject = nats_config.get(
-        "render_change_subject",
-        DEFAULT_CONFIG_MANAGER_RENDER_CHANGE_SUBJECT,
-    )
-    return stream, subject
-
-
-def nats_device_change_config(config: ConfigParser | None = None) -> tuple[str, str]:
-    """Return the configured stream and subject for device-change notifications."""
-    nats_config = _nats_section(config)
-    stream = nats_config.get(
-        "device_change_stream",
-        nats_config.get("config_manager_stream", DEFAULT_CONFIG_MANAGER_NATS_STREAM),
-    )
-    subject = nats_config.get(
-        "device_change_subject",
-        DEFAULT_CONFIG_MANAGER_DEVICE_CHANGE_SUBJECT,
-    )
-    return stream, subject
-
-
-def nats_archive_config(config: ConfigParser | None = None) -> tuple[str, str]:
-    """Return the configured stream and subject for workflow archive events."""
-    nats_config = _nats_section(config)
-    stream = nats_config.get(
-        "archive_stream",
-        nats_config.get("config_manager_stream", DEFAULT_CONFIG_MANAGER_NATS_STREAM),
-    )
-    subject = nats_config.get(
-        "archive_subject",
-        DEFAULT_CONFIG_MANAGER_ARCHIVE_SUBJECT,
-    )
-    return stream, subject
-
-
-def nats_nautobot_change_config(config: ConfigParser | None = None) -> tuple[str, str]:
-    """Return the configured stream and subject for Nautobot changelog events."""
-    nats_config = _nats_section(config)
-    stream = nats_config.get("nautobot_stream", DEFAULT_NAUTOBOT_NATS_STREAM)
-    subject = nats_config.get("nautobot_subject", DEFAULT_NAUTOBOT_NATS_SUBJECT)
-    return stream, subject
-
-
-def nats_nautobot_api_prefix(config: ConfigParser | None = None) -> str:
-    """Return the JetStream API prefix for Nautobot changelog events."""
-    nats_config = _nats_section(config)
-    return nats_config.get("nautobot_api_prefix", DEFAULT_NATS_API_PREFIX)
-
-
-def nats_dcim_change_config(config: ConfigParser | None = None) -> tuple[str, str]:
-    """Return the stream and subject for provider-neutral DCIM change events.
-
-    The legacy Nautobot settings remain the fallback while its publisher is
-    upgraded. External providers should configure ``dcim_change_*`` directly.
-    """
-    nats_config = _nats_section(config)
-    stream = nats_config.get(
-        "dcim_change_stream",
-        nats_config.get("nautobot_stream", DEFAULT_NAUTOBOT_NATS_STREAM),
-    )
-    subject = nats_config.get(
-        "dcim_change_subject",
-        nats_config.get("nautobot_subject", DEFAULT_NAUTOBOT_NATS_SUBJECT),
-    )
-    return stream, subject
-
-
-def parse_verify_param(
-    config_section: SectionProxy,
-    key: str = "verify",
-    fallback: bool = True,
-) -> bool | str:
-    """Parse SSL verify parameter from config.
-
-    Handles boolean values ("true", "false", "yes", "no", "1", "0")
-    or string paths to CA certificate files.
-
-    Args:
-        config_section: Config section to read from
-        key: Key name for the verify parameter
-        fallback: Default value if key doesn't exist
-
-    Returns:
-        Boolean True/False or string path to CA cert file
-    """
-    try:
-        return config_section.getboolean(key, fallback=fallback)
-    except ValueError:
-        return config_section[key]
-
-
-def get_mtls_cert_paths(config: ConfigParser | None = None) -> tuple[str, str] | None:
-    """Get mTLS certificate paths from config.
-
-    Args:
-        config: ConfigParser instance (uses load_config() if None)
-
-    Returns:
-        Tuple of (cert_path, key_path) or None if not configured
-    """
-    if config is None:
-        config = load_config()
-
-    if not config.has_section("mtls"):
-        return None
-
-    mtls = config["mtls"]
-    cert_path = mtls.get("tls_client_cert_path")
-    key_path = mtls.get("tls_client_key_path")
-
-    if cert_path and key_path:
-        return (cert_path, key_path)
-    return None
-
-
-def use_internal_endpoint(section: str, config: ConfigParser | None = None) -> bool:
-    """Check if a service should use internal endpoints.
-
-    Args:
-        section: Config section name (e.g., "render", "temporal")
-        config: ConfigParser instance (uses load_config() if None)
-
-    Returns:
-        True if use_internal_endpoint is set, False otherwise
-    """
-    if config is None:
-        config = load_config()
-    return config[section].getboolean("use_internal_endpoint", fallback=False)
-
-
-def _read_spiffe_jwt() -> str | None:
-    """Read the current JWT-SVID from the file written by spiffe-helper.
-
-    The path is read from ``[auth.spiffe] jwt_svid_path`` in the INI.
-    Returns the raw JWT string, or None if SPIFFE is not configured or
-    the file is unavailable.
-    """
-    config = load_config()
-    jwt_path = config.get("auth.spiffe", "jwt_svid_path", fallback="")
-    if not jwt_path:
-        return None
-    try:
-        with open(jwt_path) as f:
-            token = f.read().strip()
-        return token or None
-    except OSError:
-        return None
-
-
-def get_internal_auth_headers(
-    service_name: str | None = None,
-    group: str = "nv-config-manager",
-) -> dict[str, str]:
-    """Get auth headers for internal service-to-service calls.
-
-    When SPIFFE is configured (``[auth.spiffe] jwt_svid_path`` is set),
-    reads the JWT-SVID from disk and returns an ``Authorization: Bearer``
-    header.  The receiving service validates the JWT against the Workload
-    API trust bundle.
-
-    When SPIFFE is not configured, falls back to ``X-Auth-Request-*``
-    headers for environments that trust the caller's identity headers
-    directly (the receiving service must have
-    ``[auth] accept_request_headers = true``).
-
-    Callers should invoke this function per-request (not cache the result)
-    because JWT-SVIDs have short TTLs and are refreshed on disk by
-    spiffe-helper.
-
-    Args:
-        service_name: Name of the calling service. If not provided, derives
-            from HOSTNAME (e.g., "nv-config-manager-ztp-6c98b9b6cb-xyz" -> "nv-config-manager-ztp")
-        group: RBAC group for authorization (default: "nv-config-manager")
-
-    Returns:
-        Dict of auth headers to include in HTTP requests
-    """
-    jwt = _read_spiffe_jwt()
-    if jwt:
-        return {"Authorization": f"Bearer {jwt}"}
-
-    if service_name:
-        caller = service_name
-    else:
-        caller = os.environ.get("HOSTNAME", "internal-service")
-    return {
-        "X-Auth-Request-Email": caller,
-        "X-Auth-Request-User": caller,
-        "X-Auth-Request-Groups": group,
-    }
-
-
-def get_service_url(
-    section: str,
-    internal_key: str = "api_service",
-    external_key: str = "api_url",
-    config: ConfigParser | None = None,
-) -> str:
-    """Get the appropriate service URL based on internal/external config.
-
-    Args:
-        section: Config section name
-        internal_key: Key for internal URL
-        external_key: Key for external URL
-        config: ConfigParser instance (uses load_config() if None)
-
-    Returns:
-        The appropriate URL for the current environment
-    """
-    if config is None:
-        config = load_config()
-
-    if use_internal_endpoint(section, config):
-        return config[section][internal_key]
-    return config[section][external_key]
-
-
 # =============================================================================
 # CLIENT FACTORIES
 # =============================================================================
@@ -383,10 +111,8 @@ def config_store_client(
     Returns:
         Configured ConfigStoreClient instance
     """
-    # Imported here because the service adapter imports helpers from this module.
-    from nv_config_manager.temporal.factories.config_store import config_store_client_settings
-
-    return ConfigStoreClient(**config_store_client_settings(config, file_type=file_type))
+    settings = config_store_client_settings(config, file_type=file_type)
+    return ConfigStoreClient(**settings)
 
 
 def config_store_ui_url(config: ConfigParser | None = None) -> str:
@@ -398,9 +124,7 @@ def config_store_ui_url(config: ConfigParser | None = None) -> str:
     Returns:
         The Config Store UI URL
     """
-    if config is None:
-        config = load_config()
-    return config["config_store.client"]["ui_url"]
+    return resolve_config_section("config_store.client", config)["ui_url"]
 
 
 def dhcp_client(config: ConfigParser | None = None) -> DHCPClient:
@@ -412,9 +136,7 @@ def dhcp_client(config: ConfigParser | None = None) -> DHCPClient:
     Returns:
         Configured DHCPClient instance
     """
-    if config is None:
-        config = load_config()
-    return DHCPClient.from_config(config)
+    return DHCPClient.from_config(resolve_config(config))
 
 
 def dcim_client(config: ConfigParser | None = None) -> DCIMClient:
@@ -424,9 +146,7 @@ def dcim_client(config: ConfigParser | None = None) -> DCIMClient:
     Nautobot provider. New services should use this factory instead of
     constructing a backend-specific client.
     """
-    if config is None:
-        config = load_config()
-    return create_dcim_client(config)
+    return create_dcim_client(resolve_config(config))
 
 
 def dcim_cache_ttl(config: ConfigParser | None = None, default: int = 86400) -> int:
@@ -435,12 +155,11 @@ def dcim_cache_ttl(config: ConfigParser | None = None, default: int = 86400) -> 
     ``[nautobot] cache_ttl`` remains the legacy fallback until the generic
     configuration rendering in the next implementation checkpoint is in place.
     """
-    if config is None:
-        config = load_config()
-    if config.has_option("dcim", "cache_ttl"):
-        return config.getint("dcim", "cache_ttl")
-    if config.has_option("nautobot", "cache_ttl"):
-        return config.getint("nautobot", "cache_ttl")
+    resolved = resolve_config(config)
+    if resolved.has_option("dcim", "cache_ttl"):
+        return resolved.getint("dcim", "cache_ttl")
+    if resolved.has_option("nautobot", "cache_ttl"):
+        return resolved.getint("nautobot", "cache_ttl")
     return default
 
 
@@ -457,9 +176,7 @@ def redis_client(
     Returns:
         Configured RedisClient instance
     """
-    if config is None:
-        config = load_config()
-    return RedisClient.from_config(config, db_key=db_key)
+    return RedisClient.from_config(resolve_config(config), db_key=db_key)
 
 
 def nats_client(config: ConfigParser | None = None) -> NatsClient:
@@ -471,9 +188,7 @@ def nats_client(config: ConfigParser | None = None) -> NatsClient:
     Returns:
         Configured NatsClient instance
     """
-    if config is None:
-        config = load_config()
-    return NatsClient.from_config(config)
+    return NatsClient.from_config(resolve_config(config))
 
 
 def render_client(config: ConfigParser | None = None) -> RenderClient:
@@ -485,10 +200,8 @@ def render_client(config: ConfigParser | None = None) -> RenderClient:
     Returns:
         Configured RenderClient instance
     """
-    # Imported here because the service adapter imports helpers from this module.
-    from nv_config_manager.temporal.factories.render import render_client_settings
-
-    return RenderClient(**render_client_settings(config))
+    settings = render_client_settings(config)
+    return RenderClient(**settings)
 
 
 def temporal_client(config: ConfigParser | None = None) -> TemporalClient:
@@ -500,9 +213,7 @@ def temporal_client(config: ConfigParser | None = None) -> TemporalClient:
     Returns:
         Configured TemporalClient instance
     """
-    if config is None:
-        config = load_config()
-    return TemporalClient.from_config(config)
+    return TemporalClient.from_config(resolve_config(config))
 
 
 def ztp_client(config: ConfigParser | None = None) -> ZTPClient:
@@ -514,9 +225,7 @@ def ztp_client(config: ConfigParser | None = None) -> ZTPClient:
     Returns:
         Configured ZTPClient instance
     """
-    if config is None:
-        config = load_config()
-    return ZTPClient.from_config(config)
+    return ZTPClient.from_config(resolve_config(config))
 
 
 # =============================================================================
@@ -570,11 +279,10 @@ async def nats_connection(
     Returns:
         Connected NATS client
     """
-    config = load_config()
     ssl_context = ssl.create_default_context()
     ssl_context.load_verify_locations(certifi.where())
 
-    nats_config = config["nats"]
+    nats_config = resolve_config_section("nats")
     servers = nats_config["server"]
     auth_method = nats_config.get("auth_method", "password")
 
@@ -670,8 +378,7 @@ def is_aggregate_environment(config: ConfigParser | None = None) -> bool:
     Returns:
         True if aggregate environment, False otherwise
     """
-    if config is None:
-        config = load_config()
+    config = resolve_config(config)
     if not config.has_section("aggregate"):
         return False
     return config["aggregate"].getboolean("is_aggregate_environment", False)

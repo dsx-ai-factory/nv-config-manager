@@ -38,18 +38,10 @@ from nv_config_manager_workflows.secrets import (
     CredentialConfig,
     CredentialSection,
     get_site_slug,  # noqa: F401  # re-exported for callers of this module
-)
-from nv_config_manager_workflows.secrets import (
-    get_credential as _get_credential,
+    select_credential_source,
 )
 from nv_config_manager_workflows.secrets import (
     get_rotation_passwords as _get_rotation_passwords,
-)
-from nv_config_manager_workflows.secrets import (
-    resolve_config_section as _resolve_config_section,
-)
-from nv_config_manager_workflows.secrets import (
-    resolve_credentials as _resolve_credentials,
 )
 
 logger = get_logger(__name__, category=LogCategory.AUTH)
@@ -101,35 +93,7 @@ def _as_credential_config(config: ConfigParser) -> CredentialConfig:
     return {section: dict(config[section]) for section in section_names}
 
 
-def _credential_sources(
-    main_config: ConfigParser,
-) -> tuple[CredentialConfig, ConfigParser, CredentialConfig | None]:
-    """Return plain main/secrets mappings plus the parsed secrets object."""
-    secrets_config, secrets_found = load_secrets_config()
-    secrets_mapping = _as_credential_config(secrets_config) if secrets_found else None
-    return _as_credential_config(main_config), secrets_config, secrets_mapping
-
-
-def _log_credential_source(
-    main_config: CredentialConfig,
-    secrets_config: CredentialConfig | None,
-    section: str,
-    site: str | None,
-) -> None:
-    """Log the selected section without logging any credential values."""
-    selected, resolved_section = _resolve_config_section(
-        main_config,
-        secrets_config,
-        section,
-        site,
-    )
-    if secrets_config is not None and selected is secrets_config:
-        logger.debug("Using site-specific secrets config section: [%s]", resolved_section)
-    else:
-        logger.debug("Using global [%s] section from main config", section)
-
-
-def resolve_config_section(
+def resolve_credential_source(
     main_config: ConfigParser,
     section: str,
     site: str | None = None,
@@ -149,19 +113,22 @@ def resolve_config_section(
     Returns:
         Tuple of (config_to_use, section_name) for credential lookup
     """
-    main_mapping, secrets_config, secrets_mapping = _credential_sources(main_config)
-    selected, resolved_section = _resolve_config_section(
+    secrets_config, secrets_found = load_secrets_config()
+    main_mapping = _as_credential_config(main_config)
+    secrets_mapping = _as_credential_config(secrets_config) if secrets_found else None
+    selected, resolved_section = select_credential_source(
         main_mapping,
         secrets_mapping,
         section,
         site,
     )
-    _log_credential_source(main_mapping, secrets_mapping, section, site)
+
     if secrets_mapping is not None and selected is secrets_mapping:
+        logger.debug("Using site-specific secrets config section: [%s]", resolved_section)
         return secrets_config, resolved_section
 
+    logger.debug("Using global [%s] section from main config", section)
     return main_config, section
-
 
 def resolve_credentials(
     main_config: ConfigParser,
@@ -169,9 +136,10 @@ def resolve_credentials(
     site: str | None = None,
 ) -> CredentialSection:
     """Return resolved credentials while preserving service-side file loading."""
-    main_mapping, _, secrets_mapping = _credential_sources(main_config)
-    _log_credential_source(main_mapping, secrets_mapping, section, site)
-    return _resolve_credentials(main_mapping, secrets_mapping, section, site)
+    selected, resolved_section = resolve_credential_source(main_config, section, site)
+    if selected.has_section(resolved_section):
+        return dict(selected[resolved_section])
+    return {}
 
 
 def get_rotation_passwords(
@@ -224,13 +192,12 @@ def get_credential(
     Returns:
         The credential value or default if not found
     """
-    main_mapping, _, secrets_mapping = _credential_sources(main_config)
-    _log_credential_source(main_mapping, secrets_mapping, section, site)
-    return _get_credential(
-        main_mapping,
-        secrets_mapping,
-        section,
-        key,
-        site,
-        default,
-    )
+    selected, resolved_section = resolve_credential_source(main_config, section, site)
+    if selected.has_section(resolved_section):
+        value = selected[resolved_section].get(key, "")
+        if value:
+            return value
+
+    if selected is not main_config and main_config.has_section(section):
+        return main_config[section].get(key, default)
+    return default

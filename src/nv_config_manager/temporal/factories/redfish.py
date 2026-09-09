@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from configparser import ConfigParser
 from typing import Literal, TypedDict
 
-from nv_config_manager.temporal.factories._config import resolve_config
+from nv_config_manager.common.config_loader import resolve_config
 
 type RedfishCredentialKind = Literal["default", "config_manager"]
 

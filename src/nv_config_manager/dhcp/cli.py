@@ -24,7 +24,7 @@ from typing import Any
 
 import click
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
 from nv_config_manager.dcim import DCIMClient, dcim_client_session
 from nv_config_manager.dhcp.kea import KeaClient, KeaException

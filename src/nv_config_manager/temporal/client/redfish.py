@@ -26,7 +26,7 @@ import requests
 from pydantic import BaseModel, field_validator
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)

@@ -17,17 +17,18 @@
 import logging
 import os
 from configparser import ConfigParser
+from unittest.mock import patch
 
+from nv_config_manager.temporal.common import secrets as secrets_module
 from nv_config_manager.temporal.common.secrets import (
     clear_secrets_cache,
     get_credential,
     get_rotation_passwords,
     get_site_slug,
     load_secrets_config,
-    resolve_config_section,
+    resolve_credential_source,
     resolve_credentials,
 )
-
 
 def test_secrets_config_reloads_after_file_update(monkeypatch, tmp_path):
     secrets_file = tmp_path / "config-secrets.ini"
@@ -91,7 +92,7 @@ def test_compatibility_functions_delegate_with_existing_signatures(monkeypatch, 
     main = ConfigParser()
     main.read_dict({"device": {"username": "global-user", "password": "fallback"}})
 
-    selected, section = resolve_config_section(main, "device", "Alpha Site")
+    selected, section = resolve_credential_source(main, "device", "Alpha Site")
 
     assert selected[section]["username"] == "site-user"
     assert section == "site.alpha-site"
@@ -111,11 +112,36 @@ def test_missing_secrets_file_uses_global_configuration(monkeypatch, tmp_path):
     main = ConfigParser()
     main.read_dict({"device": {"password": "fallback"}})
 
-    selected, section = resolve_config_section(main, "device", "Alpha Site")
+    selected, section = resolve_credential_source(main, "device", "Alpha Site")
 
     assert selected is main
     assert section == "device"
     assert get_credential(main, "device", "password", "Alpha Site") == "fallback"
+
+
+def test_each_lookup_selects_credential_source_once(monkeypatch, tmp_path):
+    monkeypatch.setenv(
+        "NV_CONFIG_MANAGER_CONFIG_SECRET_PATH",
+        str(tmp_path / "missing.ini"),
+    )
+    clear_secrets_cache()
+    main = ConfigParser()
+    main.read_dict({"device": {"password": "fallback"}})
+    original_select = secrets_module.select_credential_source
+    call_count = 0
+
+    def track_selection(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return original_select(*args, **kwargs)
+
+    monkeypatch.setattr(secrets_module, "select_credential_source", track_selection)
+
+    resolve_credential_source(main, "device", "Alpha Site")
+    resolve_credentials(main, "device", "Alpha Site")
+    get_credential(main, "device", "password", "Alpha Site")
+
+    assert call_count == 3
 
 
 def test_compatibility_shim_does_not_log_secret_values(monkeypatch, tmp_path, caplog):
@@ -131,3 +157,20 @@ def test_compatibility_shim_does_not_log_secret_values(monkeypatch, tmp_path, ca
 
     assert "do-not-log-me" not in caplog.text
     assert "also-secret" not in caplog.text
+
+
+def test_compatibility_shim_logs_selected_source(monkeypatch, tmp_path):
+    secrets_file = tmp_path / "config-secrets.ini"
+    secrets_file.write_text("[site.alpha-site]\npassword = secret\n")
+    monkeypatch.setenv("NV_CONFIG_MANAGER_CONFIG_SECRET_PATH", str(secrets_file))
+    clear_secrets_cache()
+    main = ConfigParser()
+    main.read_dict({"device": {"password": "fallback"}})
+
+    with patch.object(secrets_module.logger, "debug") as debug:
+        get_credential(main, "device", "password", "Alpha Site")
+
+    debug.assert_any_call(
+        "Using site-specific secrets config section: [%s]",
+        "site.alpha-site",
+    )

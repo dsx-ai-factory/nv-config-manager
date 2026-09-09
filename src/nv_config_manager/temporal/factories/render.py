@@ -20,8 +20,8 @@ from collections.abc import Callable
 from configparser import ConfigParser
 from typing import TypedDict
 
-from nv_config_manager.common.config import get_internal_auth_headers, get_mtls_cert_paths
-from nv_config_manager.temporal.factories._config import resolve_config
+from nv_config_manager.common.config_loader import resolve_config
+from nv_config_manager.common.http_config import get_internal_auth_headers, get_mtls_cert_paths
 
 type HeaderProvider = dict[str, str] | Callable[[], dict[str, str]] | None
 

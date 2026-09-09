@@ -12,12 +12,41 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Backward-compatible imports for the relocated Render client."""
+"""Backward-compatible adapter for the relocated Render client."""
 
+from __future__ import annotations
+
+from configparser import ConfigParser
+
+from nv_config_manager.common.http_config import get_internal_auth_headers, get_mtls_cert_paths
 from nv_config_manager_workflows.clients.render import (
     FileCommit,
-    RenderClient,
     RenderClientException,
 )
+from nv_config_manager_workflows.clients.render import RenderClient as BaseRenderClient
+
+
+class RenderClient(BaseRenderClient):
+    """Legacy client surface with configuration-based construction."""
+
+    @classmethod
+    def from_config(
+        cls,
+        config: ConfigParser,
+        section: str = "render",
+    ) -> RenderClient:
+        """Create a client from the legacy INI configuration."""
+        render_config = config[section]
+        if render_config.getboolean("use_internal_endpoint", fallback=False):
+            return cls(
+                base_url=render_config["api_service"],
+                client_certificate=None,
+                headers=get_internal_auth_headers,
+            )
+        return cls(
+            base_url=render_config["api_url"],
+            client_certificate=get_mtls_cert_paths(config),
+        )
+
 
 __all__ = ["FileCommit", "RenderClient", "RenderClientException"]

@@ -22,7 +22,7 @@ from typing import Any
 
 from temporalio.client import TLSConfig
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 
 _DEFAULT_ADDRESS = "localhost:7233"
 _DEFAULT_NAMESPACE = "default"

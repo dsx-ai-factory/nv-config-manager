@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from configparser import ConfigParser
 
-from nv_config_manager.temporal.factories._config import resolve_config
+from nv_config_manager.common.config_loader import resolve_config
 from nv_config_manager_workflows.clients.redis import RedisSettings
 
 

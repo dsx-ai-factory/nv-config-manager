@@ -16,7 +16,7 @@
 
 from sqlalchemy.engine import URL
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 
 
 class Settings:

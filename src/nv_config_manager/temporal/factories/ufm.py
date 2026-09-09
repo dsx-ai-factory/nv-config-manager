@@ -19,11 +19,11 @@ from __future__ import annotations
 from configparser import ConfigParser
 from typing import TypedDict
 
+from nv_config_manager.common.config_loader import resolve_config
 from nv_config_manager.temporal.common.secrets import (
     get_rotation_passwords,
-    resolve_config_section,
+    resolve_credential_source,
 )
-from nv_config_manager.temporal.factories._config import resolve_config
 
 
 class UFMClientSettings(TypedDict):
@@ -41,7 +41,7 @@ def ufm_client_settings(
 ) -> UFMClientSettings:
     """Translate UFM and site-specific credentials into plain settings."""
     resolved = resolve_config(config)
-    credential_config, section = resolve_config_section(resolved, "ufm", site)
+    credential_config, section = resolve_credential_source(resolved, "ufm", site)
     username = (
         credential_config[section].get("ufm_api_user", "")
         if credential_config.has_section(section)

@@ -24,10 +24,12 @@ from nats.js.errors import NotFoundError
 from pydantic import BaseModel
 
 from nv_config_manager.common.config import (
-    DEFAULT_NATS_API_PREFIX,
-    load_config,
-    nats_config_manager_api_prefix,
     nats_connection,
+)
+from nv_config_manager.common.config_loader import load_config
+from nv_config_manager.common.http_config import (
+    DEFAULT_NATS_API_PREFIX,
+    nats_config_manager_api_prefix,
     nats_dcim_change_config,
     nats_nautobot_api_prefix,
     nats_render_change_config,

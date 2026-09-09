@@ -25,7 +25,7 @@ from prometheus_fastapi_instrumentator import metrics as instrumentator_metrics
 from pydantic import BaseModel
 
 from nv_config_manager.common.auth import install_identity_probe
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
 from nv_config_manager.common.telemetry import (
     group_fastapi_status_codes,

@@ -19,12 +19,12 @@ from __future__ import annotations
 from configparser import ConfigParser
 from typing import TypedDict
 
+from nv_config_manager.common.config_loader import resolve_config
 from nv_config_manager.temporal.common.secrets import (
     get_credential,
     get_rotation_passwords,
-    resolve_config_section,
+    resolve_credential_source,
 )
-from nv_config_manager.temporal.factories._config import resolve_config
 
 
 class DeviceConnectionSettings(TypedDict):
@@ -42,7 +42,7 @@ def device_connection_settings(
 ) -> DeviceConnectionSettings:
     """Translate device and site-specific credentials into plain settings."""
     resolved = resolve_config(config)
-    password_config, password_section = resolve_config_section(resolved, "device", site)
+    password_config, password_section = resolve_credential_source(resolved, "device", site)
     passwords = get_rotation_passwords(password_config, password_section)
     if not passwords:
         fallback = get_credential(resolved, "device", "password", site)

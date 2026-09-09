@@ -72,7 +72,7 @@ def reset_secrets_cache():
 
 @pytest.fixture()
 def mock_nb_config():
-    with patch("nv_config_manager.common.config.load_config", return_value=_nb_config()):
+    with patch("nv_config_manager.common.config_loader.load_config", return_value=_nb_config()):
         yield
 
 

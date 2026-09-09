@@ -27,9 +27,12 @@ from typing import Any
 
 import aiohttp
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
-from nv_config_manager.temporal.common.secrets import get_rotation_passwords, resolve_config_section
+from nv_config_manager.temporal.common.secrets import (
+    get_rotation_passwords,
+    resolve_credential_source,
+)
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
 
@@ -95,14 +98,14 @@ class UFMClient:
     def _load_credentials(self) -> None:
         """Load credentials from config with site-specific fallback.
 
-        Lookup order (handled by resolve_config_section):
+        Lookup order (handled by resolve_credential_source):
         1. Secrets config: [site.{site_slug}] section (if site provided)
         2. Main config: [ufm] section (global fallback)
         """
         main_config = load_config()
 
         # Resolve config section - checks secrets config first, then main config
-        config, section = resolve_config_section(main_config, "ufm", self._site)
+        config, section = resolve_credential_source(main_config, "ufm", self._site)
 
         # Get username from resolved section
         if config.has_section(section):
