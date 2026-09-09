@@ -967,8 +967,8 @@ class InfrastructureConfig(BaseModel):
                 "Gateway AWS NLB configuration is supported only with Envoy Gateway; "
                 "kgateway service parameters do not yet support it"
             )
-        if self.ztp_certificates.enabled and not self.ztp_tls.enabled:
-            raise ValueError("ZTP certificate delivery requires ztp_tls.enabled")
+        if self.ztp_certificates.enabled and self.load_balancer.provider == LBProvider.NONE:
+            raise ValueError("ZTP certificate delivery requires a load balancer provider")
         if self.ztp_tls.enabled and self.load_balancer.provider == LBProvider.NONE:
             raise ValueError("ZTP TLS requires a configured load balancer provider")
         return self

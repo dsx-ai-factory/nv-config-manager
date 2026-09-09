@@ -17,13 +17,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+
+from cryptography import x509
+from cryptography.hazmat.primitives.serialization import NoEncryption, load_pem_private_key
+from cryptography.hazmat.primitives.serialization.pkcs12 import serialize_key_and_certificates
 
 from nv_config_manager.common.client import (
     ConfigStoreClient,
     ConfigStoreFileNotFound,
 )
 from nv_config_manager.common.config import get_internal_auth_headers, load_config
-from nv_config_manager.dcim.models import DeviceCertificate, ZTPDevice
+from nv_config_manager.dcim.models import CertificateKind, DeviceCertificate, ZTPDevice
+from nv_config_manager.pki import CertificateIssueRequest, IssuedCertificate, create_pki_client
+
+
+@dataclass(frozen=True)
+class CertificatePayload:
+    """Certificate bytes and issuance metadata shared by HTTP and SFTP delivery."""
+
+    assignment: DeviceCertificate
+    content: bytes
+    serial_number: str | None = None
+    expires_at: datetime | None = None
 
 
 @dataclass
@@ -101,6 +117,41 @@ class DeviceData:  # pylint: disable=too-many-instance-attributes
             config_file = await client.load_file(self.id, filename)
         return config_file.content
 
+    async def load_certificate(self, certificate_id: str) -> CertificatePayload:
+        """Load or issue one certificate explicitly assigned to this device."""
+        assignment = self.certificate_assignment(certificate_id)
+
+        client = create_pki_client()
+        async with client:
+            if assignment.kind == CertificateKind.CA:
+                ca_chain = await client.get_ca_chain(assignment.source)
+                content = ("\n".join(item.rstrip() for item in ca_chain) + "\n").encode()
+                return CertificatePayload(assignment=assignment, content=content)
+
+            issued = await client.issue_certificate(
+                CertificateIssueRequest(
+                    source=assignment.source,
+                    device_id=self.id,
+                    device_name=self.name,
+                )
+            )
+            return CertificatePayload(
+                assignment=assignment,
+                content=_pkcs12_bundle(assignment.id, issued),
+                serial_number=issued.serial_number,
+                expires_at=issued.expires_at,
+            )
+
+    def certificate_assignment(self, certificate_id: str) -> DeviceCertificate:
+        """Return a certificate assignment without loading sensitive material."""
+        assignment = next(
+            (certificate for certificate in self.certificates if certificate.id == certificate_id),
+            None,
+        )
+        if assignment is None:
+            raise FileNotFoundError("Certificate is not assigned to this device.")
+        return assignment
+
     @classmethod
     def from_dcim(cls, device: ZTPDevice) -> DeviceData:
         """Build the service model from the public DCIM ZTP contract."""
@@ -113,3 +164,23 @@ class DeviceData:  # pylint: disable=too-many-instance-attributes
             config_store_instance=device.config_store_instance,
             certificates=device.certificates,
         )
+
+
+def _pkcs12_bundle(certificate_id: str, issued: IssuedCertificate) -> bytes:
+    """Build the NVUE identity bundle entirely in memory."""
+    certificate = x509.load_pem_x509_certificate(issued.certificate_pem.encode("utf-8"))
+    private_key = load_pem_private_key(
+        issued.private_key_pem.encode("utf-8"),
+        password=None,
+    )
+    ca_chain = [
+        x509.load_pem_x509_certificate(certificate_pem.encode("utf-8"))
+        for certificate_pem in issued.ca_chain_pem
+    ]
+    return serialize_key_and_certificates(
+        name=certificate_id.encode("ascii"),
+        key=private_key,
+        cert=certificate,
+        cas=ca_chain,
+        encryption_algorithm=NoEncryption(),
+    )

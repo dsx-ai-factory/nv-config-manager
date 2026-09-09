@@ -1055,7 +1055,7 @@ class AirSimulationManager:
         mode) with DSX Air-specific additions for relay-return networks.
 
         1. DOCKER-USER  -- allow forwarding internal <-> Kind bridge
-        2. ZTP DNAT     -- TCP 80/443 from internal -> ZTP MetalLB IP
+        2. ZTP DNAT     -- TCP 80/443/2222 from internal -> ZTP MetalLB IP
                            (needed before switches have BGP routes)
         3. MASQUERADE   -- general to 172.18.0.0/16, with exemptions
                            for relay source IP (UDP 67) and per-rr_net
@@ -1124,7 +1124,7 @@ class AirSimulationManager:
                         f" sudo iptables -I DOCKER-USER 1 {direction} -j ACCEPT"
                     )
 
-            # -- 2. ZTP DNAT (TCP 80/443 from internal iface) -----------------
+            # -- 2. ZTP DNAT (TCP 80/443/2222 from internal iface) ------------
             # Before switches have BGP routes to the MetalLB prefix, ZTP
             # traffic arrives on the internal iface destined for the server IP.
             # DNAT redirects it to the ZTP service.  No DNAT for UDP 67 --
@@ -1138,6 +1138,10 @@ class AirSimulationManager:
             _ssh(
                 f"sudo iptables -t nat -A ZTP-FWD -p tcp --dport 80"
                 f" -j DNAT --to-destination {ztp_ip}:80"
+            )
+            _ssh(
+                f"sudo iptables -t nat -A ZTP-FWD -p tcp --dport 2222"
+                f" -j DNAT --to-destination {ztp_ip}:2222"
             )
             _ssh(
                 f"sudo iptables -t nat -D PREROUTING -i {internal_iface}"
@@ -1222,7 +1226,7 @@ class AirSimulationManager:
             LOG.info(
                 "Forwarding + routing configured:"
                 "\n  DOCKER-USER:     %s <-> Kind bridge (ACCEPT)"
-                "\n  ZTP DNAT:        %s TCP 80/443 -> %s"
+                "\n  ZTP DNAT:        %s TCP 80/443/2222 -> %s"
                 "\n  MASQUERADE skip: -s %s -d %s (ZTP client IP preserved)"
                 "\n  MASQUERADE skip: -d 172.18.0.0/16 UDP 67 (relay source)"
                 "\n  MASQUERADE:      -d 172.18.0.0/16 (general Kind traffic)"

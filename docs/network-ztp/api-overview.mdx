@@ -6,7 +6,7 @@ position: 10
 
 ## Overview
 
-The NVIDIA Config Manager ZTP Server provides REST API endpoints for network device Zero Touch Provisioning (ZTP). The API serves boot scripts, rendered configurations, firmware images, and manages the provisioning workflow.
+The NVIDIA Config Manager ZTP Server provides REST API endpoints for network device Zero Touch Provisioning (ZTP). The API serves boot scripts, rendered configurations, firmware images, assigned certificates, and provisioning state.
 
 API endpoints are organized into three main endpoint groups, detailed below. Refer to the [API Reference](api:ztp-api) for complete endpoint reference.
 
@@ -18,6 +18,7 @@ Device-specific endpoints for boot scripts, configurations, firmware, and provis
 - `GET /v1/device/{device_uuid}/config/{configlet}` - Retrieve configuration file
 - `GET /v1/device/{device_uuid}/firmware` - Download firmware image
 - `GET /v1/device/{device_uuid}/firmware/checksum` - Get firmware checksum
+- `GET /v1/device/{device_uuid}/certificates/{certificate_id}` - Retrieve an assigned CA or issue an identity certificate
 - `POST /v1/device/{device_uuid}/provisioned` - Mark device as provisioned
 - `POST /v1/device/{device_uuid}/validate_serial` - Validate device serial number
 
@@ -46,10 +47,17 @@ Contact your system administrator for the ZTP server URL for your environment.
 
 ### Device Endpoints
 
-The device-specific endpoints listed above accept either a device-originated request or an authenticated user request:
+Most device-specific endpoints listed above accept either a device-originated request or an authenticated user request:
 
 - Device-originated requests must come from an IP address associated with the device in the selected DCIM provider
 - User-originated requests must come through the Envoy gateway as an authenticated user when SSO is enabled for the deployment
+
+The certificate endpoint is device-only and always checks the request source IP.
+CA responses are PEM chains. Identity responses are in-memory PKCS#12 bundles
+and require the dedicated device-facing HTTPS listener; an HTTP request returns
+`426 Upgrade Required`. See [Certificate Delivery and Rotation](certificate-delivery.mdx).
+The supported Cumulus provisioning and rotation flow retrieves the same
+material from the encrypted ZTP SFTP proxy instead of this HTTP endpoint.
 
 ### Admin Endpoints
 
@@ -62,6 +70,9 @@ All endpoints may return standard HTTP error codes:
 - `400 Bad Request`: Invalid request parameters or body
 - `403 Forbidden`: Authorization failure
 - `404 Not Found`: Resource not found
+- `426 Upgrade Required`: HTTP identity request did not use the direct ZTP LoadBalancer HTTPS listener; Gateway API proxy access is unsupported
+- `502 Bad Gateway`: PKI provider returned invalid certificate material
+- `503 Service Unavailable`: Certificate service configuration or provider access failed
 - `500 Internal Server Error`: Server error
 
 Error responses include a JSON body with error details:

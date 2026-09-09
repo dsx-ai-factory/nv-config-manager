@@ -1358,10 +1358,10 @@ networkZtp:
       # - name: switch-telemetry
       #   issueRole: nv-config-manager-switch-telemetry
       #   ttl: 168h
-      #   commonNameTemplate: "switch-{device_id}"
+      #   commonNameTemplate: "{device_name}.switches.example.com"
       # CA-only example:
       # - name: switch-telemetry-ca
-      #   caPath: pki/dev-dsx-nvidia-com/ca/pem
+      #   caPath: pki/switches/ca/pem
   # Gateway routing - subdomain based
   gateway:
     # Hostname: ztp.<baseHostname> (OIDC+JWT, browser access)
@@ -1399,8 +1399,8 @@ networkZtp:
           # valid DNS name. Use a private issuer for private-IP SANs.
           name: letsencrypt-prod
         dnsNames: []
-        # Required when switches address the endpoint by IP. Private IP SANs
-        # require a private issuer whose CA is bootstrapped by the ZTP script.
+        # Private IP SANs require a private issuer. Cumulus certificate delivery
+        # uses SFTP and does not depend on this listener or its trust chain.
         ipAddresses: []
         duration: 2160h
         renewBefore: 720h

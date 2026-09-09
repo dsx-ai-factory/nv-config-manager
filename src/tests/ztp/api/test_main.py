@@ -37,7 +37,7 @@ from nv_config_manager.ztp.storage import (
     ObjectStorageRangeNotSatisfiableException,
 )
 
-SSO_HEADERS = {"X-Auth-Request-Email": "test@nvidia.com"}
+SSO_HEADERS = {"X-Auth-Request-Email": "user@example.com"}
 
 
 @pytest.fixture
@@ -741,7 +741,7 @@ def test_v1_files_list(client):
 
 def test_v1_files_upload_file(client):
     """Test upload_file endpoint."""
-    sso_headers = {"X-Auth-Request-Email": "test@nvidia.com"}
+    sso_headers = {"X-Auth-Request-Email": "user@example.com"}
 
     # File created successfully - mock S3Client with async context manager
     mock_s3_class = MagicMock()

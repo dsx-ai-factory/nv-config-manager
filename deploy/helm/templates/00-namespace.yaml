@@ -28,4 +28,3 @@ metadata:
     eks.amazonaws.com/role-arn: {{ .Values.global.serviceAccountEksRole }}
     {{- end }}
 {{- end }}
-

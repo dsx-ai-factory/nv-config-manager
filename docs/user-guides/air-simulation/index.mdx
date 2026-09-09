@@ -386,7 +386,11 @@ Reprovision intentionally takes the selected switch offline and wipes its runnin
 1. Confirm the workflow completes after ZTP succeeds and the post-ZTP backup child workflow finishes.
 1. In Nautobot, confirm the device status returns to **Provisioned**.
 
-You can also watch the TUI **Activity** panel or the ZTP service logs if the switch stalls. For the full production workflow details, see [Device Reprovision](../reprovision/index.mdx).
+You can also watch the TUI **Activity** panel or correlate the ZTP `http-lb`
+and `sftp` container logs if the switch stalls. The boot request appears in
+`http-lb`; default rendered-configuration and certificate transfers appear in
+`sftp`. For the full production workflow details, see
+[Device Reprovision](../reprovision/index.mdx).
 
 ## Other Useful Exercises
 

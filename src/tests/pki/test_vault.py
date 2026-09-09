@@ -42,11 +42,11 @@ def _client(tmp_path) -> VaultPKIClient:
     token_path.write_text("workload-jwt", encoding="utf-8")
     return VaultPKIClient(
         address="https://vault.example",
-        namespace="dgxc-dsx",
+        namespace="network/platform",
         auth_mount="jwt/k8s/test-cluster",
         auth_role="nv-config-manager-switch-certificate-issuer",
         token_path=str(token_path),
-        pki_mount="pki/dev-dsx-nvidia-com",
+        pki_mount="pki/switches",
         sources={
             "telemetry-client": VaultPKISource(
                 issue_role="switch-client",
@@ -54,7 +54,7 @@ def _client(tmp_path) -> VaultPKIClient:
                 common_name_template="device-{device_id}.switches.example.com",
             ),
             "telemetry-ca": VaultPKISource(
-                ca_path="pki/dev-dsx-nvidia-com/ca/pem",
+                ca_path="pki/switches/ca/pem",
             ),
         },
     )
@@ -70,7 +70,7 @@ async def test_issue_certificate_uses_jwt_login_and_source_role(tmp_path) -> Non
             payload={"auth": {"client_token": "vault-token", "lease_duration": 3600}},
         )
         mocked.post(
-            "https://vault.example/v1/pki/dev-dsx-nvidia-com/issue/switch-client",
+            "https://vault.example/v1/pki/switches/issue/switch-client",
             payload={
                 "data": {
                     "certificate": _CERTIFICATE,
@@ -102,7 +102,7 @@ async def test_issue_certificate_uses_jwt_login_and_source_role(tmp_path) -> Non
         if "/login" in str(key[1])
         for request in requests
     )
-    assert login_request.kwargs["headers"]["X-Vault-Namespace"] == "dgxc-dsx"
+    assert login_request.kwargs["headers"]["X-Vault-Namespace"] == "network/platform"
     assert login_request.kwargs["json"] == {
         "role": "nv-config-manager-switch-certificate-issuer",
         "jwt": "workload-jwt",
@@ -129,13 +129,13 @@ async def test_get_ca_chain_reuses_login_token(tmp_path) -> None:
             payload={"auth": {"client_token": "vault-token", "lease_duration": 3600}},
         )
         mocked.get(
-            "https://vault.example/v1/pki/dev-dsx-nvidia-com/ca/pem",
+            "https://vault.example/v1/pki/switches/ca/pem",
             body=f"{_CA}\n{_CERTIFICATE}\n",
             content_type="application/x-pem-file",
         )
         first = await client.get_ca_chain("telemetry-ca")
         mocked.get(
-            "https://vault.example/v1/pki/dev-dsx-nvidia-com/ca/pem",
+            "https://vault.example/v1/pki/switches/ca/pem",
             body=f"{_CA}\n",
             content_type="application/x-pem-file",
         )
@@ -172,6 +172,12 @@ def test_common_name_template_rejects_attribute_access() -> None:
         )
 
 
+def test_common_name_template_defaults_to_device_name() -> None:
+    source = VaultPKISource(issue_role="role")
+
+    assert source.common_name_template == "{device_name}"
+
+
 def test_factory_builds_registered_vault_provider(tmp_path) -> None:
     token_path = tmp_path / "token"
     config = ConfigParser(interpolation=None)
@@ -185,7 +191,7 @@ address = http://openbao.openbao.svc.cluster.local:8200
 auth_mount = jwt/k8s/nv-config-manager-local
 auth_role = issuer
 token_path = {token_path}
-pki_mount = pki/dev-dsx-nvidia-com
+pki_mount = pki/switches
 verify = false
 allow_insecure = true
 
@@ -249,7 +255,7 @@ async def test_authenticated_request_refuses_redirects(tmp_path, status) -> None
             payload={"auth": {"client_token": "vault-token", "lease_duration": 3600}},
         )
         mocked.get(
-            "https://vault.example/v1/pki/dev-dsx-nvidia-com/ca/pem",
+            "https://vault.example/v1/pki/switches/ca/pem",
             status=status,
             headers={"Location": "https://attacker.example/ca"},
         )
@@ -267,7 +273,7 @@ async def test_ca_chain_rejects_non_mapping_data(tmp_path) -> None:
             payload={"auth": {"client_token": "vault-token", "lease_duration": 3600}},
         )
         mocked.get(
-            "https://vault.example/v1/pki/dev-dsx-nvidia-com/ca/pem",
+            "https://vault.example/v1/pki/switches/ca/pem",
             payload={"data": None},
         )
         with pytest.raises(PKIProviderError, match="invalid response"):
@@ -285,7 +291,7 @@ async def test_ca_chain_rejects_malformed_json_certificate_data(tmp_path, ca_cha
             payload={"auth": {"client_token": "vault-token", "lease_duration": 3600}},
         )
         mocked.get(
-            "https://vault.example/v1/pki/dev-dsx-nvidia-com/ca/pem",
+            "https://vault.example/v1/pki/switches/ca/pem",
             payload={"data": {"ca_chain": ca_chain}},
         )
         with pytest.raises(PKIProviderError):

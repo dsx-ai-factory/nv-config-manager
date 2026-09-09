@@ -19,10 +19,12 @@ from ipaddress import IPv4Address
 
 from nv_config_manager_dcim import ZTPDevice
 from pydantic import BaseModel
+from requests import RequestException
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.temporal.client.device import CumulusConnection, NetworkConnection
+from nv_config_manager.temporal.client.device.exceptions import NetworkDeviceException
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
 
 
@@ -64,7 +66,8 @@ def rotate_device_certificates(
             non_retryable=True,
         ) from exc
 
-    rotated = []
+    rotated: list[str] = []
+    failures: list[str] = []
     with closing(NetworkConnection.from_device_data(device)) as connection:
         if not isinstance(connection, CumulusConnection):
             raise ApplicationError(
@@ -73,9 +76,17 @@ def rotate_device_certificates(
             )
         for certificate in ztp_device.certificates:
             uri = (
-                f"https://{ztp_server}/v1/device/{ztp_device.device_id}/certificates/"
-                f"{certificate.id}"
+                f"sftp://ztp:ztp@{ztp_server}:2222/device/{ztp_device.device_id}/"
+                f"certificates/{certificate.id}"
             )
-            connection.import_certificate(certificate.id, certificate.kind, uri)
+            try:
+                connection.import_certificate(certificate.id, certificate.kind, uri)
+            except (NetworkDeviceException, RequestException):
+                failures.append(certificate.id)
+                continue
             rotated.append(certificate.id)
+    if failures:
+        raise ApplicationError(
+            f"Device {device.name} failed to rotate certificate IDs: {', '.join(failures)}"
+        )
     return RotateDeviceCertificatesOutput(certificate_ids=tuple(rotated))

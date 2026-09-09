@@ -55,7 +55,7 @@ class VaultPKISource:
     issue_role: str | None = None
     ca_path: str | None = None
     ttl: str = "168h"
-    common_name_template: str = "device-{device_id}.switches.dev.dsx.nvidia.com"
+    common_name_template: str = "{device_name}"
 
     def __post_init__(self) -> None:
         fields = {

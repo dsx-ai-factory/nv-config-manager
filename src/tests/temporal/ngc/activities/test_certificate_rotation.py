@@ -16,9 +16,12 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from nv_config_manager_dcim import CertificateKind, DeviceCertificate, ZTPDevice
+from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.temporal.client.device import CumulusConnection
+from nv_config_manager.temporal.client.device.exceptions import NetworkDeviceException
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
 from nv_config_manager.temporal.ngc.activities.certificate_rotation import (
     RotateDeviceCertificatesInput,
@@ -70,7 +73,7 @@ def test_rotation_reimports_each_assigned_certificate(mock_network_connection) -
         )
     )
 
-    base_uri = "https://192.0.2.10/v1/device/device-id/certificates"
+    base_uri = "sftp://ztp:ztp@192.0.2.10:2222/device/device-id/certificates"
     assert connection.import_certificate.call_args_list == [
         (
             ("otel-ca", CertificateKind.CA, f"{base_uri}/otel-ca"),
@@ -82,4 +85,24 @@ def test_rotation_reimports_each_assigned_certificate(mock_network_connection) -
         ),
     ]
     assert result.certificate_ids == ("otel-ca", "otel-client")
+    connection.close.assert_called_once_with()
+
+
+@patch("nv_config_manager.temporal.ngc.activities.certificate_rotation.NetworkConnection")
+def test_rotation_attempts_later_certificates_after_one_fails(mock_network_connection) -> None:
+    """One failed certificate must not prevent the remaining IDs from rotating."""
+    connection = CumulusConnection.__new__(CumulusConnection)
+    connection.import_certificate = MagicMock(side_effect=[NetworkDeviceException("failed"), None])
+    connection.close = MagicMock()
+    mock_network_connection.from_device_data.return_value = connection
+
+    with pytest.raises(ApplicationError, match="otel-ca"):
+        rotate_device_certificates(
+            RotateDeviceCertificatesInput(
+                device_data=_network_device(),
+                ztp_device=_ztp_device(),
+            )
+        )
+
+    assert connection.import_certificate.call_count == 2
     connection.close.assert_called_once_with()

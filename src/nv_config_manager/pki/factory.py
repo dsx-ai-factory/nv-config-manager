@@ -67,7 +67,7 @@ def _vault_client(config: ConfigParser) -> PKIClient:
             ttl=section.get("ttl", "168h").strip(),
             common_name_template=section.get(
                 "common_name_template",
-                "device-{device_id}.switches.dev.dsx.nvidia.com",
+                "{device_name}",
             ).strip(),
         )
     if not sources:

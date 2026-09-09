@@ -91,7 +91,10 @@ JSON_PAYLOAD=$(SERIAL="$SERIAL" python3 -c 'import json, os; print(json.dumps({"
 retry_curl --fail -H "Content-Type: application/json" -d "$JSON_PAYLOAD" \
 http://192.0.2.10/v1/device/16e65652-12f0-4b89-b7d7-4d8fd8bca0b5/validate_serial
 #Load configuration from ZTP server
-retry_curl --fail http://192.0.2.10/v1/device/16e65652-12f0-4b89-b7d7-4d8fd8bca0b5/config/startup.yaml -o /tmp/startup.yaml
+rm -f /tmp/startup.yaml
+nv action fetch system file-path /tmp/startup.yaml \
+  uri sftp://ztp:ztp@192.0.2.10:2222/device/16e65652-12f0-4b89-b7d7-4d8fd8bca0b5/startup.yaml \
+  file-permissions 600
 nv config replace /tmp/startup.yaml
 nv config apply -y
 #Reload DHCP to workaround Cumulus 5.11.0 bug 4423269

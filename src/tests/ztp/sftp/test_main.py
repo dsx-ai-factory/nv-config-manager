@@ -21,6 +21,8 @@ from paramiko.common import AUTH_SUCCESSFUL, OPEN_FAILED_ADMINISTRATIVELY_PROHIB
 from paramiko.sftp import SFTP_OK
 
 from nv_config_manager.dcim import ZTPDevice
+from nv_config_manager.dcim.models import CertificateKind, DeviceCertificate
+from nv_config_manager.ztp.device import CertificatePayload
 from nv_config_manager.ztp.sftp.main import (
     ObjectStorageRangeReader,
     ZTPServer,
@@ -120,6 +122,114 @@ def test_load_ztp_file(sftp_server):
 
     assert isinstance(result, io.BytesIO)
     assert result.getvalue() == b"test config"
+
+
+def test_load_certificate(sftp_server):
+    """The SFTP certificate route returns bytes after device IP authorization."""
+    assignment = DeviceCertificate(
+        id="otel-client",
+        source="telemetry",
+        kind=CertificateKind.IDENTITY,
+    )
+    dcim_device = ZTPDevice(
+        device_id="device1",
+        name="device-1",
+        addresses=["192.168.1.1"],
+        platform_name="Cumulus Linux",
+        firmware_version=None,
+        config_store_instance=None,
+        certificates=(assignment,),
+    )
+    with (
+        patch(
+            "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.get_ztp_device",
+            new_callable=AsyncMock,
+            return_value=dcim_device,
+        ),
+        patch(
+            "nv_config_manager.ztp.device.DeviceData.load_certificate",
+            new_callable=AsyncMock,
+            return_value=CertificatePayload(assignment=assignment, content=b"pkcs12"),
+        ),
+    ):
+        result = sftp_server._load_path("/device/device1/certificates/otel-client")
+
+    assert result.getvalue() == b"pkcs12"
+
+
+def test_load_certificate_rejects_unassociated_source_ip(sftp_server):
+    """SFTP certificate delivery cannot bypass device source-IP authorization."""
+    dcim_device = ZTPDevice(
+        device_id="device1",
+        name="device-1",
+        addresses=["192.0.2.99"],
+        platform_name="Cumulus Linux",
+        firmware_version=None,
+        config_store_instance=None,
+    )
+    with patch(
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.get_ztp_device",
+        new_callable=AsyncMock,
+        return_value=dcim_device,
+    ):
+        with pytest.raises(PermissionError, match="192.168.1.1"):
+            sftp_server._load_path("/device/device1/certificates/otel-client")
+
+
+def test_load_certificate_rejects_unassociated_loopback_source():
+    """Loopback and port-forwarded clients cannot bypass certificate authorization."""
+    sftp_server = ZTPSFTPServer(ZTPServer(), client_addr="127.0.0.1")
+    dcim_device = ZTPDevice(
+        device_id="device1",
+        name="device-1",
+        addresses=["192.0.2.99"],
+        platform_name="Cumulus Linux",
+        firmware_version=None,
+        config_store_instance=None,
+    )
+    with patch(
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.get_ztp_device",
+        new_callable=AsyncMock,
+        return_value=dcim_device,
+    ):
+        with pytest.raises(PermissionError, match="127.0.0.1"):
+            sftp_server._load_path("/device/device1/certificates/otel-client")
+
+
+def test_certificate_cache_returns_fresh_streams(sftp_server):
+    """Closing one certificate handle does not invalidate the session cache."""
+    assignment = DeviceCertificate(
+        id="otel-client",
+        source="telemetry",
+        kind=CertificateKind.IDENTITY,
+    )
+    dcim_device = ZTPDevice(
+        device_id="device1",
+        name="device-1",
+        addresses=["192.168.1.1"],
+        platform_name="Cumulus Linux",
+        firmware_version=None,
+        config_store_instance=None,
+        certificates=(assignment,),
+    )
+    with (
+        patch(
+            "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.get_ztp_device",
+            new_callable=AsyncMock,
+            return_value=dcim_device,
+        ),
+        patch(
+            "nv_config_manager.ztp.device.DeviceData.load_certificate",
+            new_callable=AsyncMock,
+            return_value=CertificatePayload(assignment=assignment, content=b"pkcs12"),
+        ) as load_certificate,
+    ):
+        first = sftp_server._load_path("/device/device1/certificates/otel-client")
+        first.close()
+        second = sftp_server._load_path("/device/device1/certificates/otel-client")
+
+    assert second.getvalue() == b"pkcs12"
+    load_certificate.assert_awaited_once_with("otel-client")
 
 
 def test_object_storage_range_reader_fetches_bounded_ranges(sftp_server):

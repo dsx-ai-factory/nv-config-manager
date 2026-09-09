@@ -204,7 +204,7 @@ async def test_serves_assigned_ca_with_no_store_headers() -> None:
             "nv_config_manager.ztp.api.device_v1._get_device_data",
             new=AsyncMock(return_value=_device()),
         ),
-        patch("nv_config_manager.ztp.api.device_v1.create_pki_client", return_value=fake),
+        patch("nv_config_manager.ztp.device.create_pki_client", return_value=fake),
     ):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
@@ -233,7 +233,7 @@ async def test_issues_assigned_identity_as_unencrypted_pkcs12() -> None:
             "nv_config_manager.ztp.api.device_v1._get_device_data",
             new=AsyncMock(return_value=_device()),
         ),
-        patch("nv_config_manager.ztp.api.device_v1.create_pki_client", return_value=fake),
+        patch("nv_config_manager.ztp.device.create_pki_client", return_value=fake),
     ):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="https://testserver"
@@ -268,7 +268,7 @@ async def test_rejects_identity_certificate_over_http() -> None:
             "nv_config_manager.ztp.api.device_v1._get_device_data",
             new=AsyncMock(return_value=_device()),
         ),
-        patch("nv_config_manager.ztp.api.device_v1.create_pki_client", return_value=fake),
+        patch("nv_config_manager.ztp.device.create_pki_client", return_value=fake),
     ):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
@@ -277,6 +277,11 @@ async def test_rejects_identity_certificate_over_http() -> None:
 
     assert response.status_code == 426
     assert response.headers["upgrade"] == "TLS/1.2"
+    assert response.json()["detail"] == (
+        "HTTP certificate downloads require the direct ZTP LoadBalancer HTTPS "
+        "listener; access through a Gateway API proxy is not supported. Use the ZTP "
+        "SFTP endpoint for device provisioning and rotation."
+    )
     assert fake.issue_requests == []
     assert not fake.closed
 
@@ -293,7 +298,7 @@ async def test_rejects_certificate_not_assigned_to_device() -> None:
             "nv_config_manager.ztp.api.device_v1._get_device_data",
             new=AsyncMock(return_value=_device()),
         ),
-        patch("nv_config_manager.ztp.api.device_v1.create_pki_client", return_value=fake),
+        patch("nv_config_manager.ztp.device.create_pki_client", return_value=fake),
     ):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"

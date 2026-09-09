@@ -109,20 +109,16 @@ http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/valid
 
 {% if device_data.certificates %}
 # Import device certificates before applying startup.yaml, which can reference
-# their stable NVUE IDs. The HTTPS listener authorizes the request by the switch
-# source IP; identity responses are generated as in-memory PKCS#12 bundles.
-# A CA assigned to the ztp service in Nautobot is public bootstrap material and
-# may be fetched over the source-IP-authorized HTTP endpoint before HTTPS works.
+# their stable NVUE IDs. NVUE fetches every certificate through the encrypted
+# ZTP SFTP proxy, which authorizes the request by the switch source IP. Identity
+# responses are generated as in-memory PKCS#12 bundles. The
+# proxy authorizes the request by the switch source IP, so certificate delivery
+# does not depend on DNS, an HTTPS IP SAN, or preloaded ZTP CA trust.
 {% for certificate in device_data.certificates %}
-{% if certificate.kind == "ca" and "ztp" in certificate.services %}
-nv action import system security ca-certificate {{ certificate.id }} uri http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/certificates/{{ certificate.id }}
-{% endif %}
-{% endfor %}
-{% for certificate in device_data.certificates %}
-{% if certificate.kind == "ca" and "ztp" not in certificate.services %}
-nv action import system security ca-certificate {{ certificate.id }} uri https://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/certificates/{{ certificate.id }}
+{% if certificate.kind == "ca" %}
+nv action import system security ca-certificate {{ certificate.id }} uri sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/certificates/{{ certificate.id }}
 {% elif certificate.kind == "identity" %}
-nv action import system security certificate {{ certificate.id }} uri-bundle https://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/certificates/{{ certificate.id }}
+nv action import system security certificate {{ certificate.id }} uri-bundle sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/certificates/{{ certificate.id }}
 {% endif %}
 {% endfor %}
 {% endif %}
@@ -131,7 +127,10 @@ nv action import system security certificate {{ certificate.id }} uri-bundle htt
 {% block ar_profile_custom %}{% endblock %}
 
 #Load configuration from ZTP server
-retry_curl --fail http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/config/startup.yaml -o /tmp/startup.yaml
+rm -f /tmp/startup.yaml
+nv action fetch system file-path /tmp/startup.yaml \
+  uri sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/startup.yaml \
+  file-permissions 600
 nv config replace /tmp/startup.yaml
 nv config apply -y
 #Reload DHCP to workaround Cumulus 5.11.0 bug 4423269

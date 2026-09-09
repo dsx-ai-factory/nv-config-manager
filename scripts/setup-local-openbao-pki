@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Configure a local OpenBao PKI and Kubernetes JWT/JWKS authentication for
-# switch certificate development. The defaults intentionally mirror the DSX
-# Vault path and auth conventions while keeping the local CA disposable.
+# switch certificate development. The defaults use generic paths and names
+# while keeping the local CA disposable.
 
 set -euo pipefail
 
@@ -18,9 +18,9 @@ APP_NAMESPACE="${APP_NAMESPACE:-nv-config-manager}"
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-vault-access-sa}"
 AUTH_MOUNT="${AUTH_MOUNT:-jwt/k8s/nv-config-manager-local}"
 AUTH_ROLE="${AUTH_ROLE:-nv-config-manager-switch-certificate-issuer}"
-PKI_MOUNT="${PKI_MOUNT:-pki/dev-dsx-nvidia-com}"
+PKI_MOUNT="${PKI_MOUNT:-pki/switches}"
 PKI_ROLE="${PKI_ROLE:-nv-config-manager-switch-telemetry}"
-PKI_DOMAIN="${PKI_DOMAIN:-switches.dev.dsx.nvidia.com}"
+PKI_DOMAIN="${PKI_DOMAIN:-switches.example.com}"
 PKI_TTL="${PKI_TTL:-168h}"
 PKI_MAX_TTL="${PKI_MAX_TTL:-168h}"
 PKI_MOUNT_MAX_TTL="${PKI_MOUNT_MAX_TTL:-87600h}"
@@ -191,7 +191,7 @@ if ! jq -e --arg mount "$PKI_MOUNT/" 'has($mount)' <<<"$mounts_json" >/dev/null;
         key_type=rsa \
         key_bits=4096 \
         exclude_cn_from_sans=true \
-        organization=NVIDIA \
+        organization="NV Config Manager" \
         ou="NV Config Manager" >/dev/null
 else
     bao_root secrets tune -max-lease-ttl="$PKI_MOUNT_MAX_TTL" "$PKI_MOUNT" >/dev/null
@@ -319,4 +319,4 @@ echo "  Bound subject:  $bound_subject"
 echo "  Audience:       $JWT_AUDIENCE"
 echo "  Smoke serial:   $serial_number"
 echo "  Smoke expiry:   $expiration"
-echo "  Vault namespace: empty locally; production uses the separate DSX namespace"
+echo "  Vault namespace: empty locally; configure one for a namespaced Vault deployment"

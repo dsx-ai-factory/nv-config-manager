@@ -155,14 +155,14 @@ class TestGenerateHelmValues:
                     enabled=True,
                     vault=ZTPVaultPKIConfig(
                         address="https://vault.example.com",
-                        namespace="prod/dsx",
+                        namespace="network/platform",
                         auth_mount="jwt/k8s/prod",
                         auth_role="switch-certificate-issuer",
-                        pki_mount="pki/dev-dsx-nvidia-com",
+                        pki_mount="pki/switches",
                         verify=True,
-                        ca_secret_name="dsx-vault-ca",
+                        ca_secret_name="vault-pki-ca",
                         ca_secret_key="tls-ca.pem",
-                        ca_mount_path="/etc/nv-config-manager/vault-pki-ca/dsx.pem",
+                        ca_mount_path="/etc/nv-config-manager/vault-pki-ca/ca.pem",
                     ),
                     sources=[
                         ZTPPKISourceConfig(
@@ -173,7 +173,7 @@ class TestGenerateHelmValues:
                         ),
                         ZTPPKISourceConfig(
                             name="otel-ca",
-                            ca_path="pki/dev-dsx-nvidia-com/ca/pem",
+                            ca_path="pki/switches/ca/pem",
                         ),
                     ],
                 ),
@@ -202,17 +202,17 @@ class TestGenerateHelmValues:
             "provider": "vault",
             "vault": {
                 "address": "https://vault.example.com",
-                "namespace": "prod/dsx",
+                "namespace": "network/platform",
                 "authMount": "jwt/k8s/prod",
                 "authRole": "switch-certificate-issuer",
                 "audience": "vault",
-                "pkiMount": "pki/dev-dsx-nvidia-com",
+                "pkiMount": "pki/switches",
                 "verify": True,
                 "allowInsecure": False,
                 "caSecret": {
-                    "name": "dsx-vault-ca",
+                    "name": "vault-pki-ca",
                     "key": "tls-ca.pem",
-                    "mountPath": "/etc/nv-config-manager/vault-pki-ca/dsx.pem",
+                    "mountPath": "/etc/nv-config-manager/vault-pki-ca/ca.pem",
                 },
                 "timeoutSeconds": 30,
             },
@@ -227,7 +227,7 @@ class TestGenerateHelmValues:
                 {
                     "name": "otel-ca",
                     "issueRole": "",
-                    "caPath": "pki/dev-dsx-nvidia-com/ca/pem",
+                    "caPath": "pki/switches/ca/pem",
                     "ttl": "168h",
                     "commonNameTemplate": "{device_name}",
                 },
@@ -237,6 +237,27 @@ class TestGenerateHelmValues:
     def test_ztp_tls_requires_existing_secret_when_certificate_is_unmanaged(self):
         with pytest.raises(ValueError, match="requires secret_name"):
             ZTPTLSConfig(enabled=True)
+
+    def test_ztp_certificates_do_not_require_https_listener(self):
+        infrastructure = InfrastructureConfig(
+            load_balancer=LoadBalancerConfig(
+                provider=LBProvider.METALLB,
+                ztp_lb_ip="192.0.2.10",
+            ),
+            ztp_certificates=ZTPCertificatesConfig(
+                enabled=True,
+                vault=ZTPVaultPKIConfig(
+                    address="https://vault.example.com",
+                    auth_mount="jwt",
+                    auth_role="ztp",
+                    pki_mount="pki",
+                ),
+                sources=[ZTPPKISourceConfig(name="identity", issue_role="switch")],
+            ),
+        )
+
+        assert infrastructure.ztp_certificates.enabled is True
+        assert infrastructure.ztp_tls.enabled is False
 
     @pytest.mark.parametrize(
         "kwargs",

@@ -14,9 +14,6 @@
 # limitations under the License.
 """V1 Device API Endpoints."""
 
-from cryptography import x509
-from cryptography.hazmat.primitives.serialization import NoEncryption, load_pem_private_key
-from cryptography.hazmat.primitives.serialization.pkcs12 import serialize_key_and_certificates
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 from pydantic import BaseModel
@@ -30,13 +27,8 @@ from nv_config_manager.common.client import ConfigStoreException, ConfigStoreFil
 from nv_config_manager.common.config import get_storage_client, temporal_client
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMNotFoundError, dcim_client_session
-from nv_config_manager.dcim.models import CertificateKind, DeviceCertificate
-from nv_config_manager.pki import (
-    CertificateIssueRequest,
-    IssuedCertificate,
-    PKIError,
-    create_pki_client,
-)
+from nv_config_manager.dcim.models import CertificateKind
+from nv_config_manager.pki import PKIError
 from nv_config_manager.ztp.api.schemas import ChecksumResponse
 from nv_config_manager.ztp.api.streaming import create_object_storage_streaming_response
 from nv_config_manager.ztp.device import DeviceData
@@ -137,39 +129,6 @@ async def load_configuration(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-def _assigned_certificate(device_data: DeviceData, certificate_id: str) -> DeviceCertificate:
-    for certificate in device_data.certificates:
-        if certificate.id == certificate_id:
-            return certificate
-    raise HTTPException(status_code=404, detail="Certificate is not assigned to this device.")
-
-
-def _pkcs12_bundle(certificate_id: str, issued: IssuedCertificate) -> bytes:
-    """Build the NVUE identity bundle entirely in memory."""
-    try:
-        certificate = x509.load_pem_x509_certificate(issued.certificate_pem.encode("utf-8"))
-        private_key = load_pem_private_key(
-            issued.private_key_pem.encode("utf-8"),
-            password=None,
-        )
-        ca_chain = [
-            x509.load_pem_x509_certificate(certificate_pem.encode("utf-8"))
-            for certificate_pem in issued.ca_chain_pem
-        ]
-        return serialize_key_and_certificates(
-            name=certificate_id.encode("ascii"),
-            key=private_key,
-            cert=certificate,
-            cas=ca_chain,
-            encryption_algorithm=NoEncryption(),
-        )
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="The PKI provider returned invalid certificate material.",
-        ) from exc
-
-
 @router.get("/{device_uuid}/certificates/{certificate_id}", response_class=Response)
 async def load_certificate(
     device_uuid: str,
@@ -184,60 +143,60 @@ async def load_certificate(
     )
     if device_data is None:  # Defensive: device-only authorization always returns data.
         raise HTTPException(status_code=403, detail="Device authorization is required.")
-    certificate = _assigned_certificate(device_data, certificate_id)
-    if certificate.kind == CertificateKind.IDENTITY and request.url.scheme != "https":
-        raise HTTPException(
-            status_code=426,
-            detail="Device identity certificates are available only over HTTPS.",
-            headers={"Upgrade": "TLS/1.2"},
-        )
-
     try:
-        client = create_pki_client()
-        async with client:
-            if certificate.kind == CertificateKind.CA:
-                ca_chain = await client.get_ca_chain(certificate.source)
-                content = "\n".join(item.rstrip() for item in ca_chain) + "\n"
-                logger.info(
-                    "Served CA certificate %s for device %s from source %s",
-                    certificate.id,
-                    device_uuid,
-                    certificate.source,
-                )
-                return Response(
-                    content=content.encode("utf-8"),
-                    media_type="application/x-pem-file",
-                    headers={
-                        **_CERTIFICATE_RESPONSE_HEADERS,
-                        "Content-Disposition": f'attachment; filename="{certificate.id}.pem"',
-                    },
-                )
-
-            issued = await client.issue_certificate(
-                CertificateIssueRequest(
-                    source=certificate.source,
-                    device_id=device_data.id,
-                    device_name=device_data.name,
-                )
+        certificate = device_data.certificate_assignment(certificate_id)
+        if certificate.kind == CertificateKind.IDENTITY and request.url.scheme != "https":
+            raise HTTPException(
+                status_code=426,
+                detail=(
+                    "HTTP certificate downloads require the direct ZTP LoadBalancer "
+                    "HTTPS listener; access through a Gateway API proxy is not supported. "
+                    "Use the ZTP SFTP endpoint for device provisioning and rotation."
+                ),
+                headers={"Upgrade": "TLS/1.2"},
             )
-            bundle = _pkcs12_bundle(certificate.id, issued)
+        payload = await device_data.load_certificate(certificate_id)
+        if certificate.kind == CertificateKind.CA:
             logger.info(
-                "Issued identity certificate %s for device %s from source %s; serial=%s; "
-                "expires_at=%s",
+                "Served CA certificate %s for device %s from source %s",
                 certificate.id,
                 device_uuid,
                 certificate.source,
-                issued.serial_number,
-                issued.expires_at.isoformat(),
             )
             return Response(
-                content=bundle,
-                media_type="application/x-pkcs12",
+                content=payload.content,
+                media_type="application/x-pem-file",
                 headers={
                     **_CERTIFICATE_RESPONSE_HEADERS,
-                    "Content-Disposition": f'attachment; filename="{certificate.id}.p12"',
+                    "Content-Disposition": f'attachment; filename="{certificate.id}.pem"',
                 },
             )
+
+        if payload.serial_number is None or payload.expires_at is None:
+            raise ValueError("identity certificate response has no issuance metadata")
+        logger.info(
+            "Issued identity certificate %s for device %s from source %s; serial=%s; expires_at=%s",
+            certificate.id,
+            device_uuid,
+            certificate.source,
+            payload.serial_number,
+            payload.expires_at.isoformat(),
+        )
+        return Response(
+            content=payload.content,
+            media_type="application/x-pkcs12",
+            headers={
+                **_CERTIFICATE_RESPONSE_HEADERS,
+                "Content-Disposition": f'attachment; filename="{certificate.id}.p12"',
+            },
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="The PKI provider returned invalid certificate material.",
+        ) from exc
     except PKIError as exc:
         logger.error(
             "Certificate service failed for device %s certificate %s: %s",

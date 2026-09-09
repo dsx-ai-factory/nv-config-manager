@@ -210,6 +210,8 @@ navigation:
         path: ../network-ztp/architecture.mdx
       - page: Configuration
         path: ../network-ztp/configuration.mdx
+      - page: Certificate Delivery and Rotation
+        path: ../network-ztp/certificate-delivery.mdx
       - page: Upload Images
         path: ../network-ztp/upload-images.mdx
       - api: ZTP API

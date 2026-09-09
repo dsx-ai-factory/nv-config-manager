@@ -211,12 +211,11 @@ def test_cumulus_516_renders_certificate_imports_and_mtls_otel(
     startup = yaml.safe_load(renderer.render(startup_template, render_data))
 
     certificate_base_url = (
-        "https://192.0.2.10/v1/device/c9e574df-2295-4258-b5b2-16247b6e3aa7/certificates"
+        "sftp://ztp:ztp@192.0.2.10:2222/device/c9e574df-2295-4258-b5b2-16247b6e3aa7/certificates"
     )
     assert (
         "nv action import system security ca-certificate otel-ca uri "
-        "http://192.0.2.10/v1/device/"
-        "c9e574df-2295-4258-b5b2-16247b6e3aa7/certificates/otel-ca"
+        f"{certificate_base_url}/otel-ca"
     ) in boot_script
     assert (
         "nv action import system security certificate otel-client uri-bundle "
@@ -226,6 +225,12 @@ def test_cumulus_516_renders_certificate_imports_and_mtls_otel(
         "certificate otel-client"
     )
     assert boot_script.index("ca-certificate otel-ca") < boot_script.index("nv config replace")
+    assert (
+        "nv action fetch system file-path /tmp/startup.yaml "
+        "\\\n  uri sftp://ztp:ztp@192.0.2.10:2222/device/"
+        "c9e574df-2295-4258-b5b2-16247b6e3aa7/startup.yaml "
+        "\\\n  file-permissions 600"
+    ) in boot_script
 
     grpc = startup[0]["set"]["system"]["telemetry"]["export"]["otlp"]["grpc"]
     assert grpc["insecure"] == "disabled"

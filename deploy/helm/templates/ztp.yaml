@@ -298,13 +298,23 @@ spec:
           name: sftp-metrics
         resources:
           {{- toYaml .Values.networkZtp.resources.sftp | nindent 10 }}
-        {{- if or $ztpConfigVolume $ztpFileStorage .Values.dcim.providerPackages.enabled }}
+        {{- if or $ztpConfigVolume $ztpFileStorage $ztpPkiJwt .Values.dcim.providerPackages.enabled }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
         {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if $ztpFileStorage }}
         - name: os-images
           mountPath: {{ .Values.networkZtp.storage.file.mountPath | default "/mnt/images" }}
+          readOnly: true
+        {{- end }}
+        {{- if $ztpPkiJwt }}
+        - name: pki-jwt
+          mountPath: {{ dir (.Values.networkZtp.certificates.vault.tokenPath | default "/var/run/secrets/nv-config-manager-pki/token") }}
+          readOnly: true
+        {{- end }}
+        {{- if $ztpPkiCA }}
+        - name: pki-vault-ca
+          mountPath: {{ dir ($ztpPkiCASecret.mountPath | required "networkZtp.certificates.vault.caSecret.mountPath is required") }}
           readOnly: true
         {{- end }}
         {{- end }}

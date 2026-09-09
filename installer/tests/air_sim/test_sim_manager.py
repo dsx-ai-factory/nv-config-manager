@@ -155,6 +155,10 @@ def test_configure_nat_rules_enables_dhcp_relay(monkeypatch: pytest.MonkeyPatch)
     assert 'INTERFACES="eth1 br-a0016a226683"' in relay_config
     assert "sudo systemctl enable isc-dhcp-relay" in commands
     assert "sudo systemctl restart isc-dhcp-relay" in commands
+    assert (
+        "sudo iptables -t nat -A ZTP-FWD -p tcp --dport 2222"
+        " -j DNAT --to-destination 172.18.255.201:2222"
+    ) in commands
     assert not any("disable --now isc-dhcp-relay" in command for command in commands)
 
 
