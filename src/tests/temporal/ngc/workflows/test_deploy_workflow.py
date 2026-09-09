@@ -1763,30 +1763,36 @@ nv set system hostname disallowed-change
                 run_timeout=timedelta(minutes=10),
             )
 
-            deadline = asyncio.get_running_loop().time() + 15
-            stages: list[dict[str, Any]] = []
-            validate_stage = None
-            while asyncio.get_running_loop().time() < deadline:
-                stages = await handle.query("stages")
-                validate_stage = next(
-                    (s for s in stages if s["name"] == "validate_configuration_diff"),
-                    None,
+            try:
+                deadline = asyncio.get_running_loop().time() + 15
+                stages: list[dict[str, Any]] = []
+                validate_stage = None
+                while asyncio.get_running_loop().time() < deadline:
+                    stages = await handle.query("stages")
+                    validate_stage = next(
+                        (s for s in stages if s["name"] == "validate_configuration_diff"),
+                        None,
+                    )
+                    if validate_stage and validate_stage["state"] == "FAILED":
+                        break
+                    await asyncio.sleep(0.1)
+
+                assert validate_stage and validate_stage["state"] == "FAILED", (
+                    "validate_configuration_diff did not fail before the poll deadline; "
+                    f"stages={stages!r}"
                 )
-                if validate_stage and validate_stage["state"] == "FAILED":
-                    break
-                await asyncio.sleep(0.1)
 
-            assert validate_stage and validate_stage["state"] == "FAILED", (
-                "validate_configuration_diff did not fail before the poll deadline; "
-                f"stages={stages!r}"
-            )
-
-            load_stage = next(s for s in stages if s["name"] == "load_tenant_configuration")
-            assert load_stage["output"]["commit_id"] == "7"
-            assert load_stage["output"]["intended_config_commit_id"] == "11"
-            traceback = validate_stage["traceback"] or ""
-            assert "Invalid diff" in traceback
-            assert "nv set system hostname disallowed-change" in traceback
+                load_stage = next(s for s in stages if s["name"] == "load_tenant_configuration")
+                assert load_stage["output"]["commit_id"] == "7"
+                assert load_stage["output"]["intended_config_commit_id"] == "11"
+                traceback = validate_stage["traceback"] or ""
+                assert "Invalid diff" in traceback
+                assert "nv set system hostname disallowed-change" in traceback
+            finally:
+                # The failed stage parks on a retry signal that never arrives, and
+                # the env fixture is session-scoped, so an untouched workflow would
+                # stay RUNNING for the whole session.
+                await handle.terminate()
     finally:
         _newer_commit_mock_state["use_newer_commit"] = False
         _newer_commit_mock_state["newer_commit_allowed"] = True
