@@ -501,19 +501,28 @@ async def _sync_kea_configuration_async(
     redis_client = RedisClient.from_config(ini_config)
 
     try:
-        config = await _track_sync_operation(
-            SyncOperation.REDIS_READ, ip_version, redis_client.load_kea_config(ip_version)
-        )
+        # Startup gets the monitoring loop's contract: an unreachable Redis is
+        # recoverable, so it is counted and retried rather than allowed to exit
+        # the sidecar into CrashLoopBackOff over an outage a restart cannot fix.
+        config = None
         while config is None:
-            _log_sync_state(
-                SyncState.WAITING_FOR_INITIAL_REDIS_CONFIG,
-                f"Waiting for KEA DHCP{ip_version} Configuration to be available in Redis...",
-                ip_version,
-            )
-            await asyncio.sleep(1)
-            config = await _track_sync_operation(
-                SyncOperation.REDIS_READ, ip_version, redis_client.load_kea_config(ip_version)
-            )
+            try:
+                config = await _track_sync_operation(
+                    SyncOperation.REDIS_READ, ip_version, redis_client.load_kea_config(ip_version)
+                )
+            except Exception as exc:
+                DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
+                logger.error(
+                    "Error loading the initial KEA config from Redis: %s",
+                    _safe_error_text(exc),
+                )
+            if config is None:
+                _log_sync_state(
+                    SyncState.WAITING_FOR_INITIAL_REDIS_CONFIG,
+                    f"Waiting for KEA DHCP{ip_version} Configuration to be available in Redis...",
+                    ip_version,
+                )
+                await asyncio.sleep(1)
 
         # Inject Lease DB details after loading from Redis
         # so that secrets are not stored in the Redis cache. The lease DB is a
@@ -522,13 +531,27 @@ async def _sync_kea_configuration_async(
 
         # Run once. The startup path always applies the desired Redis config and
         # captures a fresh effective hash, which keeps a config-sync restart safe.
+        # Kea shares this pod and may still be binding its control socket, so a
+        # connection error or timeout here is retried for the same reason the
+        # Redis read above is.
         _log_sync_state(
             SyncState.APPLYING,
             f"Setting initial KEA DHCPv{ip_version} Configuration from Redis.",
             ip_version,
             desired_hash=_config_fingerprint(config),
         )
-        expected_hash = await _apply_and_verify_kea_config(kea_client, config, ip_version)
+        expected_hash: str | None = None
+        while True:
+            try:
+                expected_hash = await _apply_and_verify_kea_config(kea_client, config, ip_version)
+                break
+            except Exception as exc:
+                DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
+                logger.error(
+                    "Error applying the initial KEA config: %s",
+                    _safe_error_text(exc),
+                )
+                await asyncio.sleep(1)
         if expected_hash is not None:
             _mark_verified_sync(ip_version, expected_hash, recovered=False)
 

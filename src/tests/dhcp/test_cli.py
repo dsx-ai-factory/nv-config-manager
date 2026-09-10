@@ -205,8 +205,13 @@ async def test_redis_changed_reapplies_new_config(mocker: Any) -> None:
     ]
 
 
-async def test_config_set_failure_propagates(mocker: Any) -> None:
-    """A failed initial config-set aborts the sync loop with a KeaException."""
+async def test_config_set_failure_does_not_abort_sync(mocker: Any) -> None:
+    """A failed initial config-set is retried instead of exiting the sidecar.
+
+    Kea shares the pod with this process and may not be listening yet, so the
+    first apply is a dependency call like any other. Letting it propagate would
+    CrashLoopBackOff the container over an outage a restart cannot fix.
+    """
     load_kea_config = AsyncMock(return_value=DESIRED_CONFIG)
     set_config = AsyncMock(side_effect=KeaException("Failed to set configuration: boom"))
     get_config_hash = AsyncMock(return_value="HASH_A")
@@ -217,11 +222,19 @@ async def test_config_set_failure_propagates(mocker: Any) -> None:
         get_config_hash=get_config_hash,
     )
     _patch_sleep_to_break(mocker)
+    config_set_before = _counter_value(
+        DHCP_SYNC_FAILURES, operation=SyncOperation.CONFIG_SET, ip_version="4"
+    )
 
-    with pytest.raises(KeaException, match="Failed to set configuration: boom"):
+    # Reaching the retry sleep proves the failure was absorbed, not raised.
+    with pytest.raises(_StopLoop):
         await cli._sync_kea_configuration_async(ip_version=4, refresh_interval=5, debug=False)
 
     get_config_hash.assert_not_awaited()
+    assert (
+        _counter_value(DHCP_SYNC_FAILURES, operation=SyncOperation.CONFIG_SET, ip_version="4")
+        == config_set_before + 1
+    )
     kea_client.close.assert_awaited_once()
     redis_client.close.assert_awaited_once()
 
@@ -473,6 +486,96 @@ async def test_sync_loop_records_config_set_failure() -> None:
         _counter_value(DHCP_SYNC_FAILURES, operation=SyncOperation.CONFIG_SET, ip_version="4")
         == before + 1
     )
+
+
+def _patch_sleep_after_one_retry(mocker: Any) -> None:
+    """Allow a single startup retry, then break out at the loop's tail sleep."""
+    sleeps = {"n": 0}
+
+    async def sleep(_seconds: float) -> None:
+        sleeps["n"] += 1
+        if sleeps["n"] > 1:
+            raise _StopLoop()
+
+    mocker.patch.object(cli.asyncio, "sleep", new=sleep)
+
+
+async def test_startup_survives_a_redis_outage(mocker: Any) -> None:
+    """Redis being down before the first apply must not exit the sidecar."""
+    config = {"Dhcp4": {"subnet4": []}}
+    kea_client, redis_client = _make_clients(
+        load_side_effect=[ConnectionError("redis down"), config, config],
+    )
+    before = _counter_value(DHCP_SYNC_FAILURES, operation=SyncOperation.REDIS_READ, ip_version="4")
+    _patch_sleep_after_one_retry(mocker)
+
+    with (
+        patch.object(cli.KeaClient, "from_config", return_value=kea_client),
+        patch.object(cli.RedisClient, "from_config", return_value=redis_client),
+        pytest.raises(_StopLoop),
+    ):
+        await cli._sync_kea_configuration_async(4, 1, False)
+
+    # The outage was counted, and the loop went on to apply once Redis returned.
+    assert (
+        _counter_value(DHCP_SYNC_FAILURES, operation=SyncOperation.REDIS_READ, ip_version="4")
+        == before + 1
+    )
+    kea_client.set_config.assert_awaited_once()
+
+
+async def test_startup_survives_a_kea_outage(mocker: Any) -> None:
+    """Kea not yet listening before the first apply must not exit the sidecar."""
+    config = {"Dhcp4": {"subnet4": []}}
+    kea_client, redis_client = _make_clients(
+        load_side_effect=[config, config],
+        set_config_side_effect=[ConnectionError("kea down"), "verified-hash"],
+    )
+    before = _counter_value(DHCP_SYNC_FAILURES, operation=SyncOperation.CONFIG_SET, ip_version="4")
+    _patch_sleep_after_one_retry(mocker)
+
+    with (
+        patch.object(cli.KeaClient, "from_config", return_value=kea_client),
+        patch.object(cli.RedisClient, "from_config", return_value=redis_client),
+        pytest.raises(_StopLoop),
+    ):
+        await cli._sync_kea_configuration_async(4, 1, False)
+
+    assert (
+        _counter_value(DHCP_SYNC_FAILURES, operation=SyncOperation.CONFIG_SET, ip_version="4")
+        == before + 1
+    )
+    # The apply was retried, not abandoned.
+    assert kea_client.set_config.await_count == 2
+
+
+async def test_startup_apply_error_log_redacts_redis_password(
+    mocker: Any,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The startup retry's error log must not leak a DSN password."""
+    config = {"Dhcp4": {"subnet4": []}}
+    kea_client, redis_client = _make_clients(
+        load_side_effect=[config, config],
+        set_config_side_effect=[
+            RuntimeError(f"postgresql://kea:{_SECRET_PASSWORD}@lease-db:5432/kea"),
+            "verified-hash",
+        ],
+    )
+    _patch_sleep_after_one_retry(mocker)
+
+    with caplog.at_level(logging.ERROR):
+        with (
+            patch.object(cli.KeaClient, "from_config", return_value=kea_client),
+            patch.object(cli.RedisClient, "from_config", return_value=redis_client),
+            pytest.raises(_StopLoop),
+        ):
+            await cli._sync_kea_configuration_async(4, 1, False)
+
+    blob = _log_blob(caplog)
+    assert _SECRET_PASSWORD not in blob
+    assert ":<redacted>@" in blob
+    assert "Error applying the initial KEA config:" in caplog.text
 
 
 async def test_desired_config_update_is_not_counted_as_drift(
