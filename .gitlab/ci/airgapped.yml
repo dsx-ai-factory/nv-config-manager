@@ -144,7 +144,6 @@ build:airgapped:
 # Build for release tags (MANUAL - click play button to trigger)
 build:airgapped-release:
   extends: build:airgapped
-  interruptible: false
   variables:
     <<: *airgapped-variables
     AIRGAPPED_VERSION: "${CI_COMMIT_TAG}"
@@ -415,7 +414,6 @@ test:airgapped-load-images:
 # Upload to S3 (both amd64 and arm64 tarballs)
 publish:airgapped-s3:
   stage: build-airgapped
-  interruptible: false
   timeout: 1h
   tags:
     - dca
@@ -496,7 +494,6 @@ publish:airgapped-s3:
 # Prepare release information
 prepare:airgapped-release-info:
   stage: publish-airgapped
-  interruptible: false
   timeout: 15m
   tags:
     - dca
@@ -536,7 +533,6 @@ prepare:airgapped-release-info:
 # Upload to S3 for release tags
 publish:airgapped-s3-release:
   stage: publish-airgapped
-  interruptible: false
   timeout: 1h
   tags:
     - dca
@@ -599,7 +595,6 @@ publish:airgapped-s3-release:
 # Print S3 download links without creating Git tags in the mirror.
 publish:airgapped-release:
   stage: publish-airgapped
-  interruptible: false
   timeout: 15m
   tags:
     - dca

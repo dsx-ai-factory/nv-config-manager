@@ -1,129 +1,15 @@
 ---
-# =============================================================================
-# Artifact-affecting paths - used to skip builds for non-artifact changes
-# =============================================================================
-# These paths affect the published artifacts (images and charts):
-#   - build/**          - Dockerfiles and build configurations
-#   - components/**     - Go code (nats-ready), Nautobot config
-#   - packages/**       - Public Python libraries
-#   - plugins/**        - Installable extension implementations
-#   - db/**             - Database migrations
-#   - deploy/helm/**    - Helm charts
-#   - src/**            - Python source code
-#   - ui/**             - Frontend code
-#   - pyproject.toml    - Python dependencies
-#   - uv.lock           - Python lock file
-# =============================================================================
-
-.artifact-paths: &artifact-paths
-  - "build/**/*"
-  - "components/**/*"
-  - "packages/**/*"
-  - "plugins/**/*"
-  - "db/**/*"
-  - "deploy/helm/**/*"
-  - "src/**/*"
-  - "ui/**/*"
-  - pyproject.toml
-  - uv.lock
-
-.release-job-policy: &release-job-policy
-  interruptible: false
+.release-job-timeout: &release-job-timeout
   timeout: 1h
 
 # =============================================================================
 # Release Stage
 # =============================================================================
 
-# Publish Helm chart to GitLab and configured external targets for merge requests
-helm-publish-mr:
-  <<: *release-job-policy
-  stage: release
-  tags:
-    - dca
-    - linux/amd64
-    - docker
-  image:
-    name: $NVCM_CI_IMAGE_UBUNTU
-    entrypoint: ['']
-  before_script:
-    - |
-      set -e  # Exit on error
-      apt update
-      apt install -y curl gpg apt-transport-https
-      curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL https://packages.buildkite.com/helm-linux/helm-debian/gpgkey | gpg --dearmor | tee /usr/share/keyrings/helm.gpg > /dev/null
-      echo "deb [signed-by=/usr/share/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main" | tee /etc/apt/sources.list.d/helm-stable-debian.list
-      apt update
-      apt install -y helm git wget unzip
-      # Install Go version of yq (not Python version from apt)
-      wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-      chmod +x /usr/local/bin/yq
-    - wget --content-disposition https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/4.8.2/files/ngccli_linux.zip -O ngccli_linux.zip
-    - unzip ngccli_linux.zip
-    - chmod u+x ngc-cli/ngc
-  script:
-    - |
-      set -e  # Exit on error
-      
-      # Update image repositories/tags to match MR-built images.
-      image_target_exports="$(bash .gitlab/ci/scripts/image_target_env.sh "${NVCM_VALUES_IMAGE_TARGET:-}")" || exit $?
-      eval "$image_target_exports"
-      echo "📝 Updating image repositories to ${NVCM_IMAGE_REPOSITORY} and tags to ${CI_COMMIT_SHORT_SHA}..."
-      bash .gitlab/ci/scripts/update_helm_image_values.sh deploy/helm/values.yaml "$NVCM_IMAGE_REPOSITORY" "$CI_COMMIT_SHORT_SHA"
-      echo "✅ Image repositories and tags updated"
-      
-      CHART_PATH="deploy/helm"
-      
-      OLD_VERSION=$(yq -r '.version' ${CHART_PATH}/Chart.yaml)
-      NEW_VERSION="${OLD_VERSION}-mr-${CI_COMMIT_SHORT_SHA}"
-      CHART_NAME=$(yq -r '.name' ${CHART_PATH}/Chart.yaml)
-
-      # Fetch subchart .tgz files into ${CHART_PATH}/charts/. They are
-      # gitignored (.gitignore: deploy/helm/charts/, deploy/helm/*.tgz) so
-      # `helm package` would otherwise fail with "found in Chart.yaml, but
-      # missing in charts/ directory: ...". Register the upstream repos by
-      # name first — `helm dependency build` resolves Chart.yaml URLs against
-      # the local repo registry, not directly.
-      echo "📥 Fetching helm subchart dependencies..."
-      helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-      helm repo add grafana https://grafana.github.io/helm-charts
-      helm repo update
-      helm dependency build "${CHART_PATH}"
-
-      echo "📦 Packaging Helm chart ${CHART_NAME} with version ${NEW_VERSION}..."
-      helm package "${CHART_PATH}" --version "${NEW_VERSION}"
-      
-      filename="${CHART_NAME}-${NEW_VERSION}.tgz"
-      
-      if [ ! -f "$filename" ]; then
-        echo "❌ Error: Expected file $filename not found"
-        exit 1
-      fi
-      
-      echo "📦 Pushing to GitLab package registry..."
-      curl --retry 3 --retry-delay 5 --retry-connrefused --fail --request POST \
-            --form "chart=@$filename" \
-            --user "\$oauth2:$CI_PUSH_TOKEN" \
-            "${CI_API_V4_URL}/projects/$CI_PROJECT_ID/packages/helm/api/merge_request/charts"
-      echo "✅ Pushed $filename to GitLab"
-      
-      bash .gitlab/ci/scripts/publish_chart_targets.sh "$filename" "$NEW_VERSION" "$CHART_NAME"
-      rm -f "$filename"
-      echo "🧹 Cleaned up $filename"
-      echo "🎉 Chart published successfully!"
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: *artifact-paths
-      when: on_success
-    - when: never
-  needs:
-    - job: lint-mr-helm
-      optional: true
-
 # Validate the mirrored upstream tag and expose it under the existing release
 # variable names used by publish jobs.
 release-version:
-  <<: *release-job-policy
+  <<: *release-job-timeout
   stage: deploy
   tags:
     - dca
@@ -155,7 +41,7 @@ release-version:
 
 # Publish Helm chart to GitLab and configured external targets for upstream tags.
 helm-publish-release:
-  <<: *release-job-policy
+  <<: *release-job-timeout
   stage: release
   tags:
     - dca
@@ -190,9 +76,9 @@ helm-publish-release:
       yq -i '.appVersion = "'${NEW_VERSION}'"' "${CHART_PATH}/Chart.yaml"
       CHART_NAME=$(yq -r '.name' ${CHART_PATH}/Chart.yaml)
 
-      # See note on the MR job: subchart .tgz files are gitignored, so we
-      # must materialize them via `helm dependency build` before packaging,
-      # and that requires the repo URLs to be registered by name.
+      # Subchart .tgz files are gitignored, so materialize them via
+      # `helm dependency build` before packaging. The repository URLs must be
+      # registered by name for dependency resolution.
       echo "📥 Fetching helm subchart dependencies..."
       helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
       helm repo add grafana https://grafana.github.io/helm-charts
@@ -236,7 +122,7 @@ helm-publish-release:
 
 # Tag and push Docker images with the mirrored upstream release tag (multi-arch)
 update-version:
-  <<: *release-job-policy
+  <<: *release-job-timeout
   stage: release
   tags:
     - dca
@@ -316,7 +202,7 @@ update-version:
 
 # Record the release artifact version without creating Git tags in the mirror.
 make-release:
-  <<: *release-job-policy
+  <<: *release-job-timeout
   stage: release
   tags:
     - dca
@@ -337,7 +223,7 @@ make-release:
 
 # Publish network template engine/reference package from the tagged mirrored commit.
 publish-network-templates-release:
-  <<: *release-job-policy
+  <<: *release-job-timeout
   stage: release
   tags:
     - dca
@@ -366,7 +252,7 @@ publish-network-templates-release:
 
 # Publish the bundled Nautobot overlays app from the tagged mirrored commit.
 publish-nautobot-app-overlays-release:
-  <<: *release-job-policy
+  <<: *release-job-timeout
   stage: release
   tags:
     - dca
@@ -397,7 +283,7 @@ publish-nautobot-app-overlays-release:
 
 # Publish the bundled Nautobot NVIDIA Config Manager app from the tagged mirrored commit.
 publish-nautobot-nv-config-manager-release:
-  <<: *release-job-policy
+  <<: *release-job-timeout
   stage: release
   tags:
     - dca

@@ -29,8 +29,6 @@
     - linux/amd64
     - docker
   needs: &pulse-scan-needs
-    - job: docker-manifest-mr
-      optional: true
     - job: docker-manifest-main
       optional: true
   rules: &pulse-scan-rules
@@ -40,10 +38,7 @@
       when: never
     - if: $CI_COMMIT_TAG
       when: on_success
-    - if: $FORCE_PULSE_SCAN == "true" && ($CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH)
-      when: on_success
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: *artifact-paths
+    - if: $FORCE_PULSE_SCAN == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: on_success
     - if: $GITLAB_USER_EMAIL == $CI_PUSH_EMAIL
       when: never
