@@ -299,9 +299,7 @@ def test_healthcheck_status_error():
             mock_load_kea.return_value = {"some": "data"}
             rsp = client.get("/healthcheck")
             assert rsp.status_code == 500
-            assert rsp.json() == {
-                "detail": [{"arguments": {"pid": 9, "reload": 63173, "uptime": 63173}, "result": 1}]
-            }
+            assert rsp.json() == {"detail": "Kea DHCPv4 is unavailable"}
 
 
 def test_healthcheck_http_error():
@@ -438,7 +436,7 @@ def test_livez_fails_when_kea_process_offline():
         rsp = client.get("/livez")
 
     assert rsp.status_code == 500
-    assert rsp.json() == {"detail": [{"arguments": {"pid": 9}, "result": 1}]}
+    assert rsp.json() == {"detail": "Kea DHCPv4 is unavailable"}
 
 
 def test_livez_scopes_the_status_check_to_the_dhcp4_service():
@@ -480,7 +478,7 @@ def test_livez_fails_when_the_control_agent_cannot_reach_dhcp4():
         rsp = client.get("/livez")
 
     assert rsp.status_code == 500
-    assert rsp.json() == {"detail": unreachable}
+    assert rsp.json() == {"detail": "Kea DHCPv4 is unavailable"}
 
 
 def test_livez_reports_timeout():
