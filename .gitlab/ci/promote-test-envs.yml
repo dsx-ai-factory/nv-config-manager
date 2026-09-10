@@ -64,7 +64,6 @@
 # holds protected variables, so it belongs on the same pool as the other
 # default-branch jobs (build.yml and release.yml).
 .test-promote-runner: &test-promote-runner
-  interruptible: false
   timeout: 45m
   tags:
     - dca
