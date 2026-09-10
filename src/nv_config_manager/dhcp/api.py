@@ -63,6 +63,7 @@ from nv_config_manager.dhcp.lease_dashboard import (
     lease_page_details,
 )
 from nv_config_manager.dhcp.redis import RedisClient
+from nv_config_manager.temporal.factories.redis import redis_settings
 
 configure_logging(service="dhcp")
 setup_tracing("dhcp")
@@ -555,8 +556,7 @@ async def get_summary(
 @app.delete("/admin/cache")
 async def flush_cache(request: Request, ip_version: int = 4) -> dict[str, str]:
     """Flush the cached KEA DHCP configuration from Redis."""
-    app_config = load_config()
-    redis_client = RedisClient.from_config(app_config)
+    redis_client = RedisClient(**redis_settings())
     try:
         deleted = await redis_client.flush_kea_config(ip_version)
         if not deleted:
@@ -577,8 +577,7 @@ async def metrics() -> Response:
     because we need async Redis reads to update the cache refresh gauge before
     generating the response.
     """
-    app_config = load_config()
-    redis_client = RedisClient.from_config(app_config)
+    redis_client = RedisClient(**redis_settings())
     try:
         for ip_version in (4, 6):
             timestamp = await redis_client.load_refresh_timestamp(ip_version)

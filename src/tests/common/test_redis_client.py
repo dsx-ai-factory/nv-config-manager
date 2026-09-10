@@ -16,7 +16,7 @@
 
 from configparser import ConfigParser
 
-from nv_config_manager.common.client.redis import redis_settings
+from nv_config_manager.temporal.factories.redis import redis_settings
 
 
 def test_redis_settings_translates_application_config():

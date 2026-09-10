@@ -31,6 +31,7 @@ from nv_config_manager.dhcp.kea import KeaClient, KeaException
 from nv_config_manager.dhcp.kea_dhcp_confgen import generate_config, inject_lease_db_config
 from nv_config_manager.dhcp.metrics import DHCP_CACHE_REFRESH_ERRORS
 from nv_config_manager.dhcp.redis import RedisClient
+from nv_config_manager.temporal.factories.redis import redis_settings
 
 configure_logging(service="dhcp")
 logger = get_logger(__name__, category=LogCategory.DHCP)
@@ -146,7 +147,7 @@ async def _refresh_loop_async(
     """Async loop for configuration refresh."""
     config = load_config()
     kea_client = KeaClient.from_config(config)
-    redis_client = RedisClient.from_config(config)
+    redis_client = RedisClient(**redis_settings(config))
 
     try:
         async with dcim_client_session(config) as dcim_client:
@@ -252,7 +253,7 @@ async def _sync_kea_configuration_async(
     # Connect to the KEA server running in the same pod
     ini_config = load_config()
     kea_client = KeaClient.from_config(ini_config, attached=True)
-    redis_client = RedisClient.from_config(ini_config)
+    redis_client = RedisClient(**redis_settings(ini_config))
 
     try:
         config = await redis_client.load_kea_config(ip_version)

@@ -18,8 +18,6 @@ import os
 from configparser import ConfigParser
 from unittest.mock import patch
 
-from nv_config_manager.common import config as legacy_config
-from nv_config_manager.common import config_loader, http_config
 from nv_config_manager.common.config import config_store_client, dcim_client, render_client
 from nv_config_manager.common.config_loader import (
     clear_config_cache,

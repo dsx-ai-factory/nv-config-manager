@@ -36,8 +36,6 @@ import nats.js.errors
 from nv_config_manager.common.client import (
     DHCPClient,
     NatsClient,
-    RedisClient,
-    RenderClient,
     TemporalClient,
     ZTPClient,
 )
@@ -83,12 +81,18 @@ from nv_config_manager.common.log import (  # noqa: F401, E402
     get_logger,
 )
 from nv_config_manager.dcim import DCIMClient, create_dcim_client
+from nv_config_manager.temporal.factories import redis_settings
 from nv_config_manager.temporal.factories.config_store import config_store_client_settings
 from nv_config_manager.temporal.factories.render import render_client_settings
 from nv_config_manager.ztp.filestore import FileStoreClient
 from nv_config_manager.ztp.s3 import S3Client
 from nv_config_manager.ztp.storage import ObjectStorageClient
-from nv_config_manager_workflows.clients import ConfigStoreClient, ConfigStoreType
+from nv_config_manager_workflows.clients import (
+    ConfigStoreClient,
+    ConfigStoreType,
+    RedisClient,
+    RenderClient,
+)
 
 if TYPE_CHECKING:
     import nats.aio.client
@@ -175,7 +179,8 @@ def redis_client(
     Returns:
         Configured RedisClient instance
     """
-    return RedisClient.from_config(resolve_config(config), db_key=db_key)
+    settings = redis_settings(config, db_key=db_key)
+    return RedisClient(**settings)
 
 
 def nats_client(config: ConfigParser | None = None) -> NatsClient:

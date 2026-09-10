@@ -51,6 +51,15 @@ from nv_config_manager.temporal.hello_world.workflows.hello_world_workflow impor
 from nv_config_manager.temporal.ngc.workflows.deploy import DeployInput, DeployWorkflow
 
 TEMPORAL_UI_WORKFLOW_BASE = "https://temporal-ui.example.com/namespaces/default/workflows"
+REDIS_CLIENT_SETTINGS = {
+    "host": "redis.example.com",
+    "port": 6379,
+    "db": 0,
+    "ssl": False,
+    "password": None,
+    "socket_timeout": 5,
+    "socket_connect_timeout": 5,
+}
 
 
 class LocationWorkflowInput(BaseModel):
@@ -323,17 +332,21 @@ async def test_start_workflow(mock_rbac_config, mock_uuid, mock_connect, mock_ca
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.api.workflow_v1.load_config")
+@patch(
+    "nv_config_manager.temporal.api.workflow_v1.redis_settings",
+    return_value=REDIS_CLIENT_SETTINGS,
+)
 @patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
-async def test_cache_workflow_input(mock_redis, mock_load_config):
+async def test_cache_workflow_input(mock_redis, mock_redis_settings):
     """Verify workflow input is cached in list-safe JSON form."""
-    cache = mock_redis.from_config.return_value
+    cache = mock_redis.return_value
     cache.cache_query = AsyncMock()
     body = HelloWorldInput(name="test")
 
     await cache_workflow_input("workflow-id", body)
 
-    mock_redis.from_config.assert_called_once_with(mock_load_config.return_value)
+    mock_redis_settings.assert_called_once_with()
+    mock_redis.assert_called_once_with(**REDIS_CLIENT_SETTINGS)
     cache.cache_query.assert_awaited_once_with("workflow-id", "input", {"name": "test"})
 
 
@@ -482,11 +495,15 @@ async def test_retry(mock_signal):
 
 
 @pytest.mark.asyncio
+@patch(
+    "nv_config_manager.temporal.api.workflow_v1.redis_settings",
+    return_value=REDIS_CLIENT_SETTINGS,
+)
 @patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
 @patch("nv_config_manager.temporal.api.workflow_v1.get_client")
-async def test_terminate_success(mock_client, mock_redis):
+async def test_terminate_success(mock_client, mock_redis, mock_redis_settings):
     """Test the terminate workflow API when workflow is running and user is authorized."""
-    mock_redis.from_config.return_value.delete_cached_query = AsyncMock()
+    mock_redis.return_value.delete_cached_query = AsyncMock()
     workflow_id = str(uuid4())
     mock_handle = MagicMock()
 
@@ -519,12 +536,9 @@ async def test_terminate_success(mock_client, mock_redis):
         "href": f"{TEMPORAL_UI_WORKFLOW_BASE}/{workflow_id}",
     }
     mock_handle.terminate.assert_called_once()
-    mock_redis.from_config.return_value.delete_cached_query.assert_any_await(
-        workflow_id, "pending_approval"
-    )
-    mock_redis.from_config.return_value.delete_cached_query.assert_any_await(
-        workflow_id, "compressed_stages"
-    )
+    mock_redis.return_value.delete_cached_query.assert_any_await(workflow_id, "pending_approval")
+    mock_redis.return_value.delete_cached_query.assert_any_await(workflow_id, "compressed_stages")
+    mock_redis_settings.assert_called_once_with()
 
 
 @pytest.mark.asyncio
@@ -632,14 +646,18 @@ async def test_terminate_forbidden(mock_client):
 
 
 @pytest.mark.asyncio
+@patch(
+    "nv_config_manager.temporal.api.workflow_v1.redis_settings",
+    return_value=REDIS_CLIENT_SETTINGS,
+)
 @patch("nv_config_manager.temporal.api.workflow_v1.get_client")
 @patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
-async def test_workflow_detail(mock_redis, mock_client):
+async def test_workflow_detail(mock_redis, mock_client, _mock_redis_settings):
     """Verify HelloWorld Workflow API."""
     # Mock to always cache miss
     mock_redis.return_value.get_cached_result.return_value = None
-    mock_redis.from_config.return_value.get_cached_query = AsyncMock(return_value=None)
-    mock_redis.from_config.return_value.cache_query = AsyncMock()
+    mock_redis.return_value.get_cached_query = AsyncMock(return_value=None)
+    mock_redis.return_value.cache_query = AsyncMock()
 
     class MockHandle(WorkflowHandle):
         _id = "mockid"
@@ -851,11 +869,14 @@ async def test_workflow_detail(mock_redis, mock_client):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.api.workflow_v1.load_config")
+@patch(
+    "nv_config_manager.temporal.api.workflow_v1.redis_settings",
+    return_value=REDIS_CLIENT_SETTINGS,
+)
 @patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
-async def test_active_workflow_queries_use_durable_cache(mock_redis, mock_load_config):
+async def test_active_workflow_queries_use_durable_cache(mock_redis, mock_redis_settings):
     """Verify active workflows read list-safe query data from the durable cache."""
-    cache = mock_redis.from_config.return_value
+    cache = mock_redis.return_value
     cache.get_cached_query = AsyncMock(side_effect=[True, {"user": "cached"}])
     cache.cache_query = AsyncMock()
 
@@ -873,15 +894,19 @@ async def test_active_workflow_queries_use_durable_cache(mock_redis, mock_load_c
     assert result == {"pending_approval": True, "input": {"user": "cached"}}
     handle.query.assert_not_awaited()
     cache.cache_query.assert_not_awaited()
-    mock_redis.from_config.assert_called_once_with(mock_load_config.return_value)
+    mock_redis_settings.assert_called_once_with()
+    mock_redis.assert_called_once_with(**REDIS_CLIENT_SETTINGS)
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.api.workflow_v1.load_config")
+@patch(
+    "nv_config_manager.temporal.api.workflow_v1.redis_settings",
+    return_value=REDIS_CLIENT_SETTINGS,
+)
 @patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
-async def test_active_workflow_query_miss_uses_durable_cache(mock_redis, mock_load_config):
+async def test_active_workflow_query_miss_uses_durable_cache(mock_redis, mock_redis_settings):
     """Verify active workflow cache misses populate durable query cache selectively."""
-    cache = mock_redis.from_config.return_value
+    cache = mock_redis.return_value
     cache.get_cached_query = AsyncMock(return_value=None)
     cache.cache_query = AsyncMock()
 
@@ -899,7 +924,8 @@ async def test_active_workflow_query_miss_uses_durable_cache(mock_redis, mock_lo
     assert result == {"pending_approval": True, "input": {"user": "live"}}
     cache.cache_query.assert_any_await("active-workflow", "pending_approval", True)
     cache.cache_query.assert_any_await("active-workflow", "input", {"user": "live"})
-    mock_redis.from_config.assert_called_once_with(mock_load_config.return_value)
+    mock_redis_settings.assert_called_once_with()
+    mock_redis.assert_called_once_with(**REDIS_CLIENT_SETTINGS)
 
 
 @pytest.mark.asyncio
@@ -907,11 +933,16 @@ async def test_active_workflow_query_miss_uses_durable_cache(mock_redis, mock_lo
     "nv_config_manager.temporal.api.workflow_v1._WORKFLOW_LIST_QUERY_TIMEOUT_SECONDS",
     0.01,
 )
-@patch("nv_config_manager.temporal.api.workflow_v1.load_config")
+@patch(
+    "nv_config_manager.temporal.api.workflow_v1.redis_settings",
+    return_value=REDIS_CLIENT_SETTINGS,
+)
 @patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
-async def test_active_workflow_query_timeout_does_not_block_summary(mock_redis, mock_load_config):
+async def test_active_workflow_query_timeout_does_not_block_summary(
+    mock_redis, mock_redis_settings
+):
     """A workerless workflow cannot block list enrichment or cached query data."""
-    cache = mock_redis.from_config.return_value
+    cache = mock_redis.return_value
     cache.get_cached_query = AsyncMock(side_effect=[None, {"user": "cached"}])
     cache.cache_query = AsyncMock()
 
@@ -937,15 +968,19 @@ async def test_active_workflow_query_timeout_does_not_block_summary(mock_redis, 
     assert result.workflow_input == {"user": "cached"}
     handle.query.assert_awaited_once_with("pending_approval")
     cache.cache_query.assert_not_awaited()
-    mock_redis.from_config.assert_called_once_with(mock_load_config.return_value)
+    mock_redis_settings.assert_called_once_with()
+    mock_redis.assert_called_once_with(**REDIS_CLIENT_SETTINGS)
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.api.workflow_v1.load_config")
+@patch(
+    "nv_config_manager.temporal.api.workflow_v1.redis_settings",
+    return_value=REDIS_CLIENT_SETTINGS,
+)
 @patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
-async def test_active_workflow_pending_false_is_not_cached(mock_redis, mock_load_config):
+async def test_active_workflow_pending_false_is_not_cached(mock_redis, mock_redis_settings):
     """Verify active pending_approval=False is not cached durably."""
-    cache = mock_redis.from_config.return_value
+    cache = mock_redis.return_value
     cache.get_cached_query = AsyncMock(return_value=None)
     cache.cache_query = AsyncMock()
 
@@ -962,17 +997,21 @@ async def test_active_workflow_pending_false_is_not_cached(mock_redis, mock_load
 
     assert result == {"pending_approval": False, "input": {"user": "live"}}
     cache.cache_query.assert_awaited_once_with("active-workflow", "input", {"user": "live"})
-    mock_redis.from_config.assert_called_once_with(mock_load_config.return_value)
+    mock_redis_settings.assert_called_once_with()
+    mock_redis.assert_called_once_with(**REDIS_CLIENT_SETTINGS)
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.api.workflow_v1.load_config")
+@patch(
+    "nv_config_manager.temporal.api.workflow_v1.redis_settings",
+    return_value=REDIS_CLIENT_SETTINGS,
+)
 @patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
 async def test_running_workflow_with_failed_stage_exposes_failed_stage_flag(
-    mock_redis, mock_load_config
+    mock_redis, mock_redis_settings
 ):
     """Verify failed-stage workflows expose the failed-stage flag."""
-    cache = mock_redis.from_config.return_value
+    cache = mock_redis.return_value
     cache.get_cached_query = AsyncMock(return_value={"user": "cached"})
     cache.cache_query = AsyncMock()
 
@@ -1000,7 +1039,8 @@ async def test_running_workflow_with_failed_stage_exposes_failed_stage_flag(
     assert result.workflow_input == {"user": "cached"}
     handle.query.assert_not_awaited()
     cache.cache_query.assert_not_awaited()
-    mock_redis.from_config.assert_called_once_with(mock_load_config.return_value)
+    mock_redis_settings.assert_called_once_with()
+    mock_redis.assert_called_once_with(**REDIS_CLIENT_SETTINGS)
 
 
 @pytest.mark.asyncio
@@ -1029,12 +1069,15 @@ async def test_workflow_detail_not_found(mock_client):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.api.workflow_v1.load_config")
+@patch(
+    "nv_config_manager.temporal.api.workflow_v1.redis_settings",
+    return_value=REDIS_CLIENT_SETTINGS,
+)
 @patch("nv_config_manager.temporal.api.workflow_v1.RBACConfig")
 @patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
 @patch("nv_config_manager.temporal.api.workflow_v1.get_client")
 async def test_signal_workflow_invalidates_stage_query_cache(
-    mock_client, mock_redis, mock_rbac_config, mock_load_config
+    mock_client, mock_redis, mock_rbac_config, mock_redis_settings
 ):
     """Verify stage-changing signals invalidate cached stage query data."""
     workflow_id = str(uuid4())
@@ -1063,7 +1106,7 @@ async def test_signal_workflow_invalidates_stage_query_cache(
     mock_client_instance.get_workflow_handle.return_value = mock_handle
     mock_client.return_value = mock_client_instance
 
-    cache = mock_redis.from_config.return_value
+    cache = mock_redis.return_value
     cache.delete_cached_query = AsyncMock()
 
     signal_input = ReviewSignalInput(stage_name="prompt", user="test")
@@ -1072,7 +1115,8 @@ async def test_signal_workflow_invalidates_stage_query_cache(
     mock_handle.signal.assert_awaited_once_with("approve", signal_input)
     cache.delete_cached_query.assert_any_await(workflow_id, "pending_approval")
     cache.delete_cached_query.assert_any_await(workflow_id, "compressed_stages")
-    mock_redis.from_config.assert_called_once_with(mock_load_config.return_value)
+    mock_redis_settings.assert_called_once_with()
+    mock_redis.assert_called_once_with(**REDIS_CLIENT_SETTINGS)
 
 
 @pytest.mark.asyncio
@@ -1104,15 +1148,19 @@ async def test_approve_workflow_not_found(mock_client):
 
 
 @pytest.mark.asyncio
+@patch(
+    "nv_config_manager.temporal.api.workflow_v1.redis_settings",
+    return_value=REDIS_CLIENT_SETTINGS,
+)
 @patch("nv_config_manager.temporal.api.workflow_v1.get_client")
 @patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
 @patch("nv_config_manager.temporal.api.workflow_v1.RBACConfig")
-async def test_workflows(mock_rbac_config, mock_redis, mock_client):
+async def test_workflows(mock_rbac_config, mock_redis, mock_client, _mock_redis_settings):
     """Verify HelloWorld Workflow API."""
     # Mock to always cache miss
     mock_redis.return_value.get_cached_result.return_value = None
-    mock_redis.from_config.return_value.get_cached_query = AsyncMock(return_value=None)
-    mock_redis.from_config.return_value.cache_query = AsyncMock()
+    mock_redis.return_value.get_cached_query = AsyncMock(return_value=None)
+    mock_redis.return_value.cache_query = AsyncMock()
 
     mock_rbac_instance = MagicMock()
     mock_rbac_instance.get_admin_roles.return_value = {"ngc-cfa"}
@@ -1459,15 +1507,19 @@ async def test_workflows_zero_count_has_zero_pages(mock_rbac_config, mock_client
 
 
 @pytest.mark.asyncio
+@patch(
+    "nv_config_manager.temporal.api.workflow_v1.redis_settings",
+    return_value=REDIS_CLIENT_SETTINGS,
+)
 @patch("nv_config_manager.temporal.api.workflow_v1.get_client")
 @patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
 @patch("nv_config_manager.temporal.api.workflow_v1.RBACConfig")
 async def test_workflows_pending_approval_filter_uses_search_attribute(
-    mock_rbac_config, mock_redis, mock_client
+    mock_rbac_config, mock_redis, mock_client, _mock_redis_settings
 ):
     """Verify pending approval filtering is pushed into Temporal visibility."""
-    mock_redis.from_config.return_value.get_cached_query = AsyncMock(return_value=None)
-    mock_redis.from_config.return_value.cache_query = AsyncMock()
+    mock_redis.return_value.get_cached_query = AsyncMock(return_value=None)
+    mock_redis.return_value.cache_query = AsyncMock()
 
     mock_rbac_instance = MagicMock()
     mock_rbac_instance.get_admin_roles.return_value = {"ngc-cfa"}
