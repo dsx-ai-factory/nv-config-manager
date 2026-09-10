@@ -286,9 +286,18 @@ class VaultPKIClient(PKIClient):
         payload = self._decode_json(content, "Vault PKI issuance")
         try:
             data = payload["data"]
+            if not isinstance(data, dict):
+                raise TypeError
             certificate = str(data["certificate"])
             private_key = str(data["private_key"])
-            ca_chain = tuple(str(item) for item in data["ca_chain"])
+            raw_ca_chain = data.get("ca_chain")
+            if raw_ca_chain is None or raw_ca_chain == []:
+                raw_ca_chain = [data["issuing_ca"]]
+            if not isinstance(raw_ca_chain, list) or not all(
+                isinstance(item, str) for item in raw_ca_chain
+            ):
+                raise TypeError
+            ca_chain = tuple(raw_ca_chain)
             serial_number = str(data["serial_number"])
             expires_at = datetime.fromtimestamp(int(data["expiration"]), tz=UTC)
         except (KeyError, TypeError, ValueError) as exc:

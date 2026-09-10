@@ -121,6 +121,40 @@ async def test_issue_certificate_uses_jwt_login_and_source_role(tmp_path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_issue_certificate_uses_issuing_ca_when_ca_chain_is_omitted(tmp_path) -> None:
+    client = _client(tmp_path)
+    expiration = 1_800_000_000
+    with aioresponses() as mocked:
+        mocked.post(
+            "https://vault.example/v1/auth/jwt/k8s/test-cluster/login",
+            payload={"auth": {"client_token": "vault-token", "lease_duration": 3600}},
+        )
+        mocked.post(
+            "https://vault.example/v1/pki/switches/issue/switch-client",
+            payload={
+                "data": {
+                    "certificate": _CERTIFICATE,
+                    "private_key": _PRIVATE_KEY,
+                    "issuing_ca": _CA,
+                    "private_key_type": "rsa",
+                    "serial_number": "01:02",
+                    "expiration": expiration,
+                }
+            },
+        )
+        issued = await client.issue_certificate(
+            CertificateIssueRequest(
+                source="telemetry-client",
+                device_id="1234",
+                device_name="leaf-1",
+            )
+        )
+
+    await client.close()
+    assert issued.ca_chain_pem == (_CA,)
+
+
+@pytest.mark.asyncio
 async def test_get_ca_chain_reuses_login_token(tmp_path) -> None:
     client = _client(tmp_path)
     with aioresponses() as mocked:
