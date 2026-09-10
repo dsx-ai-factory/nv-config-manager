@@ -49,7 +49,7 @@ from nv_config_manager.common.config_loader import (  # noqa: F401
     load_config,
     reload_config,
     resolve_config,
-    resolve_config_section,
+    resolve_section,
 )
 from nv_config_manager.common.http_config import (  # noqa: F401
     DEFAULT_CONFIG_MANAGER_ARCHIVE_SUBJECT,
@@ -127,7 +127,7 @@ def config_store_ui_url(config: ConfigParser | None = None) -> str:
     Returns:
         The Config Store UI URL
     """
-    return resolve_config_section("config_store.client", config)["ui_url"]
+    return resolve_section("config_store.client", config)["ui_url"]
 
 
 def dhcp_client(config: ConfigParser | None = None) -> DHCPClient:
@@ -286,7 +286,7 @@ async def nats_connection(
     ssl_context = ssl.create_default_context()
     ssl_context.load_verify_locations(certifi.where())
 
-    nats_config = resolve_config_section("nats")
+    nats_config = resolve_section("nats")
     servers = nats_config["server"]
     auth_method = nats_config.get("auth_method", "password")
 

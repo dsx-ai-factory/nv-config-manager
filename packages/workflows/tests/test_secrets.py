@@ -25,7 +25,6 @@ from nv_config_manager_workflows.secrets import (
     get_credential,
     get_rotation_passwords,
     get_site_slug,
-    resolve_credentials,
     select_credential_source,
 )
 
@@ -57,15 +56,6 @@ def test_site_specific_section_overrides_global_section() -> None:
 
     assert selected is SECRETS_CONFIG
     assert section == "site.alpha-site"
-    assert (
-        resolve_credentials(
-            MAIN_CONFIG,
-            SECRETS_CONFIG,
-            "device",
-            "Alpha Site",
-        )
-        == SECRETS_CONFIG["site.alpha-site"]
-    )
 
 
 @pytest.mark.parametrize("secrets_config", [None, {}])
@@ -79,27 +69,8 @@ def test_missing_secrets_mapping_falls_back_to_global_section(secrets_config) ->
 
     assert selected is MAIN_CONFIG
     assert section == "device"
-    assert (
-        resolve_credentials(
-            MAIN_CONFIG,
-            secrets_config,
-            "device",
-            "Alpha Site",
-        )
-        == MAIN_CONFIG["device"]
-    )
 
 
-def test_unknown_site_falls_back_to_global_section() -> None:
-    assert (
-        resolve_credentials(
-            MAIN_CONFIG,
-            SECRETS_CONFIG,
-            "device",
-            "Unknown Site",
-        )
-        == MAIN_CONFIG["device"]
-    )
 
 
 def test_missing_site_key_falls_back_to_global_value() -> None:

@@ -21,7 +21,7 @@ from configparser import ConfigParser, SectionProxy
 from nv_config_manager.common.config_loader import (
     load_config,
     resolve_config,
-    resolve_config_section,
+    resolve_section,
 )
 
 DEFAULT_NATS_API_PREFIX = "$JS.API"
@@ -39,7 +39,7 @@ def config_manager_api_prefix(nats_config: SectionProxy) -> str:
 
 
 def _nats_section(config: ConfigParser | None = None) -> SectionProxy:
-    return resolve_config_section("nats", config)
+    return resolve_section("nats", config)
 
 
 def nats_config_manager_api_prefix(config: ConfigParser | None = None) -> str:
@@ -182,7 +182,7 @@ def use_internal_endpoint(section: str, config: ConfigParser | None = None) -> b
     Returns:
         True if use_internal_endpoint is set, False otherwise
     """
-    config_section = resolve_config_section(section, config)
+    config_section = resolve_section(section, config)
     return config_section.getboolean("use_internal_endpoint", fallback=False)
 
 

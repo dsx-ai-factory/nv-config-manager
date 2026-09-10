@@ -19,6 +19,8 @@ import os
 from configparser import ConfigParser
 from unittest.mock import patch
 
+import pytest
+
 from nv_config_manager.temporal.common import secrets as secrets_module
 from nv_config_manager.temporal.common.secrets import (
     clear_secrets_cache,
@@ -27,8 +29,8 @@ from nv_config_manager.temporal.common.secrets import (
     get_site_slug,
     load_secrets_config,
     resolve_credential_source,
-    resolve_credentials,
 )
+from nv_config_manager_workflows import secrets as workflow_secrets_module
 
 
 def test_secrets_config_reloads_after_file_update(monkeypatch, tmp_path):
@@ -98,7 +100,6 @@ def test_compatibility_functions_delegate_with_existing_signatures(monkeypatch, 
     assert selected[section]["username"] == "site-user"
     assert section == "site.alpha-site"
     assert get_site_slug("Alpha Site") == "alpha-site"
-    assert resolve_credentials(main, "device", "Alpha Site")["username"] == "site-user"
     assert get_credential(main, "device", "username", "Alpha Site") == "site-user"
     assert get_credential(main, "device", "password", "Alpha Site") == "fallback"
     assert get_rotation_passwords(selected, section) == ["newer", "older"]
@@ -137,12 +138,12 @@ def test_each_lookup_selects_credential_source_once(monkeypatch, tmp_path):
         return original_select(*args, **kwargs)
 
     monkeypatch.setattr(secrets_module, "select_credential_source", track_selection)
+    monkeypatch.setattr(workflow_secrets_module, "select_credential_source", track_selection)
 
     resolve_credential_source(main, "device", "Alpha Site")
-    resolve_credentials(main, "device", "Alpha Site")
     get_credential(main, "device", "password", "Alpha Site")
 
-    assert call_count == 3
+    assert call_count == 2
 
 
 def test_compatibility_shim_does_not_log_secret_values(monkeypatch, tmp_path, caplog):
@@ -168,10 +169,60 @@ def test_compatibility_shim_logs_selected_source(monkeypatch, tmp_path):
     main = ConfigParser()
     main.read_dict({"device": {"password": "fallback"}})
 
-    with patch.object(secrets_module.logger, "debug") as debug:
+    with patch.object(workflow_secrets_module.logger, "debug") as debug:
         get_credential(main, "device", "password", "Alpha Site")
 
     debug.assert_any_call(
         "Using site-specific secrets config section: [%s]",
         "site.alpha-site",
     )
+
+
+@pytest.mark.parametrize(
+    ("section", "site_values", "global_values", "expected"),
+    [
+        ("device", {"password": "site-value"}, {"password": "global-value"}, "site-value"),
+        ("device", {}, {"password": "global-value"}, "global-value"),
+        ("device", {"password": ""}, {"password": "global-value"}, "global-value"),
+        ("device", {}, {"password": ""}, ""),
+        ("device", {}, {}, "fallback"),
+        ("device", None, {"password": ""}, "fallback"),
+        ("site.foo", None, {"password": ""}, ""),
+    ],
+)
+def test_credential_fallback_with_nonempty_default(
+    monkeypatch, section, site_values, global_values, expected
+):
+    main = ConfigParser(interpolation=None)
+    main.read_dict({section: global_values})
+    secrets = ConfigParser(interpolation=None)
+    if site_values is not None:
+        secrets.read_dict({"site.alpha-site": site_values})
+    monkeypatch.setattr(secrets_module, "load_secrets_config", lambda: (secrets, True))
+
+    assert get_credential(main, section, "password", "Alpha Site", "fallback") == expected
+
+
+@pytest.mark.parametrize("default_section", ["DEFAULT", "custom-defaults"])
+def test_credentials_preserve_default_inheritance(monkeypatch, default_section):
+    main = ConfigParser(interpolation=None, default_section=default_section)
+    main.read_dict({default_section: {"password": "inherited-value"}, "device": {}})
+    secrets = ConfigParser(interpolation=None)
+    monkeypatch.setattr(secrets_module, "load_secrets_config", lambda: (secrets, True))
+
+    assert get_credential(main, "device", "password") == "inherited-value"
+
+
+@pytest.mark.parametrize("default_section", ["DEFAULT", "custom-defaults"])
+def test_rotation_passwords_preserve_default_inheritance(default_section):
+    config = ConfigParser(interpolation=None, default_section=default_section)
+    config.read_dict(
+        {
+            default_section: {"api_user_key_r1": "older"},
+            "device": {"api_user_key_r2": "newer"},
+        }
+    )
+
+    assert get_rotation_passwords(config, "missing") == []
+    assert get_rotation_passwords(config, "device") == ["newer", "older"]
+    assert get_rotation_passwords(config, "device", max_passwords=1) == ["newer"]

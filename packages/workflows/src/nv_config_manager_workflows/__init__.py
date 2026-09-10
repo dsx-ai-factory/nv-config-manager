@@ -43,7 +43,6 @@ from nv_config_manager_workflows.secrets import (
     get_credential,
     get_rotation_passwords,
     get_site_slug,
-    resolve_credentials,
     select_credential_source,
 )
 from nv_config_manager_workflows.workflow_references import (
@@ -85,7 +84,6 @@ __all__ = [
     "get_rotation_passwords",
     "get_site_slug",
     "select_credential_source",
-    "resolve_credentials",
     # workflow_references
     "DeviceReferences",
     "LocationReference",

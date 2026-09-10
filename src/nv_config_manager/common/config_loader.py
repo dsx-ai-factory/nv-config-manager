@@ -66,6 +66,6 @@ def resolve_config(config: ConfigParser | None) -> ConfigParser:
     return config if config is not None else load_config()
 
 
-def resolve_config_section(section: str, config: ConfigParser | None = None) -> SectionProxy:
+def resolve_section(section: str, config: ConfigParser | None = None) -> SectionProxy:
     """Return the configuration section from the resolved configuration."""
     return resolve_config(config)[section]
