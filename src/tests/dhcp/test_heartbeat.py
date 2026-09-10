@@ -33,6 +33,7 @@ from click.testing import CliRunner
 
 from nv_config_manager.dhcp import cli, heartbeat
 from nv_config_manager.dhcp.cli import cli as cli_group
+from nv_config_manager.dhcp.kea import KeaException
 from nv_config_manager.dhcp.metrics import DHCP_CACHE_REFRESH_ERRORS
 
 CONFIG = {"Dhcp4": {}}
@@ -357,6 +358,37 @@ async def test_startup_survives_a_kea_outage(sync_env, _startup_failure) -> None
     assert sync_env.record.call_count == 2
     # Seed + retry touch + post-apply + monitoring iteration.
     assert sync_env.touch.call_count == 4
+
+
+@pytest.mark.parametrize(
+    "verification_error",
+    [
+        KeaException("Failed to get configuration hash: down"),
+        TimeoutError("KEA Request timed out"),
+    ],
+    ids=["kea_exception", "timeout"],
+)
+async def test_unverified_startup_apply_is_not_a_successful_reconciliation(
+    sync_env, verification_error
+) -> None:
+    """An apply whose verification read failed must not record success.
+
+    config-set succeeded, so the config is applied and the sidecar keeps going,
+    but nothing has confirmed KEA is running it. Recording success here would
+    freshen the staleness gauge on an unverified apply. The monitoring loop's
+    drift check reapplies and re-verifies, and only that counts.
+    """
+    sync_env.redis.load_kea_config = AsyncMock(side_effect=[CONFIG, CONFIG])
+    # Startup verification fails; the reapply and its verification then succeed.
+    sync_env.kea.get_config_hash = AsyncMock(side_effect=[verification_error, "HASH", "HASH"])
+
+    with pytest.raises(_StopLoop):
+        await cli._sync_kea_configuration_async(4, 10, False, sync_env.hb)
+
+    # Startup apply plus the reapply triggered by the unverified hash.
+    assert sync_env.kea.set_config.await_count == 2
+    # Only the verified reconcile in the monitoring loop counted.
+    assert sync_env.record.call_count == 1
 
 
 async def test_startup_survives_a_hung_kea_call(sync_env, _startup_failure, mocker) -> None:

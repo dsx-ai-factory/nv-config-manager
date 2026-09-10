@@ -237,15 +237,19 @@ async def _apply_and_verify_kea_config(
     kea_client: KeaClient,
     config: dict[str, Any],
     ip_version: int,
-) -> str | None:
-    """Apply the desired configuration to KEA and return its verified hash.
+) -> tuple[str | None, bool]:
+    """Apply the desired configuration to KEA and return its hash and verification.
 
     KEA (2.4+) returns the SHA-256 hash of the effective configuration from
     ``config-set``. Before treating the sync as successful, the running
     configuration is confirmed against that hash via ``config-hash-get`` so a
     configuration that was rolled back or only partially applied surfaces as an
-    error rather than being silently trusted. The verified effective hash is
-    returned to track for subsequent drift detection.
+    error rather than being silently trusted.
+
+    Returns ``(effective_hash, verified)``. ``verified`` is False only when the
+    verification read itself failed, which is distinct from a hash of ``None``:
+    KEA versions without ``config-hash-get`` support report no digest at all, so
+    they verify trivially and drift detection degrades to a no-op for them.
 
     Both Kea calls are bounded so a hung control channel cannot freeze the
     heartbeat (and therefore the exec livenessProbe).
@@ -262,17 +266,19 @@ async def _apply_and_verify_kea_config(
         # persisted -- only the verification read failed. get_config_hash
         # re-raises TimeoutError (it does not wrap it in KeaException), and the
         # refresh loop already swallows both. Aborting here would crash-loop
-        # the sidecar over a config that is actually applied. Returning None
-        # leaves the next drift check to reapply and re-verify.
+        # the sidecar over a config that is actually applied, and reapplying it
+        # on a retry would hammer Kea for a config it is already running, so the
+        # apply stands as unverified: the caller must not report a successful
+        # reconciliation, and the next drift check reapplies and re-verifies.
         logger.warning(f"Could not verify the applied KEA configuration hash: {exc}")
-        return None
+        return None, False
     if applied_hash is not None and effective_hash != applied_hash:
         raise KeaException(
             f"KEA effective configuration hash ({effective_hash}) does not match "
             f"the hash returned by config-set ({applied_hash}); "
             "the configuration was not applied cleanly."
         )
-    return effective_hash
+    return effective_hash, True
 
 
 async def _sync_kea_configuration_async(
@@ -322,16 +328,23 @@ async def _sync_kea_configuration_async(
         # sidecar -- same recoverable contract as the Redis wait above.
         logger.info(f"Setting initial KEA DHCPv{ip_version} Configuration from Redis.")
         expected_hash: str | None = None
+        verified = False
         while True:
             try:
-                expected_hash = await _apply_and_verify_kea_config(kea_client, config, ip_version)
+                expected_hash, verified = await _apply_and_verify_kea_config(
+                    kea_client, config, ip_version
+                )
                 break
             except Exception as exc:
                 DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
                 logger.error(f"Error applying the initial KEA config: {exc}")
                 touch_heartbeat(heartbeat_file)
                 await asyncio.sleep(1)
-        record_successful_reconciliation()
+        if verified:
+            # An apply whose verification read failed is not a successful
+            # reconciliation: the config is applied but unconfirmed, so the
+            # marker waits for the monitoring loop to re-verify it.
+            record_successful_reconciliation()
         # Seed the heartbeat immediately so the liveness probe has a fresh
         # marker before the first monitoring iteration completes.
         touch_heartbeat(heartbeat_file)
@@ -365,10 +378,11 @@ async def _sync_kea_configuration_async(
                     DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
                     logger.error(f"Error loading the desired KEA config from Redis: {exc}")
 
+                verified = False
                 try:
                     if desired_config_is_published and desired_config != previous_config:
                         logger.info("Configuration changed, updating KEA DHCP Configuration.")
-                        expected_hash = await _apply_and_verify_kea_config(
+                        expected_hash, verified = await _apply_and_verify_kea_config(
                             kea_client, desired_config, ip_version
                         )
                         previous_config = desired_config
@@ -390,18 +404,21 @@ async def _sync_kea_configuration_async(
                                 running_hash,
                                 expected_hash,
                             )
-                            expected_hash = await _apply_and_verify_kea_config(
+                            expected_hash, verified = await _apply_and_verify_kea_config(
                                 kea_client, previous_config, ip_version
                             )
-                        elif debug:
-                            logger.info("No configuration changes detected.")
-                    if desired_config_is_published:
-                        # Only a completed reconcile against *published* desired
-                        # state counts as a successful reconciliation (distinct from
-                        # the loop-progress heartbeat below). Repairing drift from
-                        # the cached config keeps DHCP serving, but it cannot confirm
-                        # agreement with Redis, so the staleness gauge must keep
-                        # ageing and alerting for the duration of the outage.
+                        else:
+                            verified = True
+                            if debug:
+                                logger.info("No configuration changes detected.")
+                    if desired_config_is_published and verified:
+                        # A successful reconciliation means *verified* agreement
+                        # with *published* desired state (distinct from the
+                        # loop-progress heartbeat below). An unverified apply, or
+                        # drift repaired from the cached config while Redis is
+                        # down, keeps DHCP serving but confirms neither, so the
+                        # staleness gauge keeps ageing and alerting until a full
+                        # reconcile succeeds.
                         record_successful_reconciliation()
                 except Exception as exc:
                     # Recoverable dependency errors (PostgreSQL/Kea, including
