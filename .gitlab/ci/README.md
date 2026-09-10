@@ -17,6 +17,16 @@ Release tags must be Docker-compatible semver such as `1.2.3` or
 `1.2.3-rc.1`; tags with a `v` prefix or `+build` metadata are rejected by the
 release pipeline.
 
+## Job Lifecycle
+
+Redundant pipelines use `workflow:auto_cancel:on_new_commit: interruptible`.
+Lint and test jobs are interruptible so superseded validation stops consuming
+runners. Release, artifact-publishing, and test-environment deployment jobs are
+explicitly non-interruptible so a newer commit cannot leave external state
+partially updated. Every runner-backed job also has a job-level timeout suited
+to its workload; runnerless child-pipeline trigger jobs complete immediately
+and do not support the `timeout` keyword.
+
 Configure sensitive variables as masked and protected where possible. Configure
 non-secret internal names as protected variables if they should not appear in
 the public repository.
