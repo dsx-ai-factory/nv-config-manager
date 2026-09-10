@@ -16,34 +16,6 @@
 
 from __future__ import annotations
 
-from configparser import ConfigParser
-from typing import Self
+from nv_config_manager_workflows.clients import RedisClient, RedisSettings
 
-from nv_config_manager_workflows.clients import RedisClient as BaseRedisClient
-from nv_config_manager_workflows.clients import RedisSettings
-
-
-def redis_settings(config: ConfigParser, db_key: str = "db") -> RedisSettings:
-    """Translate the application's Redis INI section into constructor settings."""
-    return {
-        "host": config.get("redis", "host"),
-        "port": config.getint("redis", "port", fallback=6379),
-        "db": config.getint("redis", db_key, fallback=0),
-        "ssl": config.getboolean("redis", "ssl", fallback=False),
-        "password": config.get("redis", "password", fallback=None),
-        "socket_timeout": config.getint("redis", "socket_timeout", fallback=5),
-        "socket_connect_timeout": config.getint("redis", "socket_connect_timeout", fallback=5),
-    }
-
-
-class RedisClient(BaseRedisClient):
-    """Reusable Redis client with an application-specific INI constructor."""
-
-    @classmethod
-    def from_config(
-        cls,
-        config: ConfigParser,
-        db_key: str = "db",
-    ) -> Self:
-        """Create a client from the application's Redis INI section."""
-        return cls(**redis_settings(config, db_key))
+__all__ = ["RedisClient", "RedisSettings"]

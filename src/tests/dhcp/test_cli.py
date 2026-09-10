@@ -48,7 +48,8 @@ def _patch_clients(
     redis_client.close = AsyncMock()
 
     mocker.patch.object(cli.KeaClient, "from_config", return_value=kea_client)
-    mocker.patch.object(cli.RedisClient, "from_config", return_value=redis_client)
+    mocker.patch.object(cli, "redis_settings", return_value={"host": "redis.example.com"})
+    mocker.patch.object(cli, "RedisClient", return_value=redis_client)
     # Keep configs comparable: skip lease-db secret injection.
     mocker.patch.object(cli, "inject_lease_db_config", side_effect=lambda cfg, ver: cfg)
     return kea_client, redis_client

@@ -32,10 +32,10 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 import nv_config_manager.temporal.client.jira  # noqa: F401 — registers JiraTicketingProvider
-from nv_config_manager.common.client.redis import redis_settings
 from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.temporal.client.jira import JiraClientError
 from nv_config_manager.temporal.client.ticketing import get_ticketing_provider
+from nv_config_manager.temporal.factories.redis import redis_settings
 from nv_config_manager_workflows.clients import RedisClient
 
 # =============================================================================

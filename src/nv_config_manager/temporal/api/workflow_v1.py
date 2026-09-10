@@ -38,7 +38,6 @@ from temporalio.common import SearchAttributes
 from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.service import RPCError, RPCStatusCode
 
-from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.temporal.api.dynamic_endpoints import (
     get_registered_workflows_info,
@@ -70,6 +69,7 @@ from nv_config_manager.temporal.common.search_attributes import (
     USER_SEARCH_ATTRIBUTE,
 )
 from nv_config_manager.temporal.converter import get_data_converter
+from nv_config_manager.temporal.factories.redis import redis_settings
 from nv_config_manager.temporal.hello_world.workflows import (
     REGISTERED_WORKFLOWS as HELLO_WORLD_REGISTERED_WORKFLOWS,
 )
@@ -278,7 +278,7 @@ class WorkflowSummaryResponse(WorkflowResponse):
         query_timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         is_active = description.status in WorkflowSummaryResponse._ACTIVE_WORKFLOW_STATUSES
-        cache = RedisClient.from_config(load_config())
+        cache = RedisClient(**redis_settings())
         results = {}
 
         for query in queries:
@@ -455,7 +455,7 @@ class WorkflowDetailResponse(WorkflowSummaryResponse):
 
         result = None
         if description.status == WorkflowExecutionStatus.COMPLETED:
-            cache = RedisClient.from_config(load_config())
+            cache = RedisClient(**redis_settings())
             result = await cache.get_cached_result(handle.id)
             if result is None:
                 result = await handle.result()
@@ -500,7 +500,7 @@ def get_user_info(request: Request) -> tuple[str, set[str]]:
 
 async def cache_workflow_input(workflow_id: str, body: BaseModel) -> None:
     """Cache workflow input immediately after workflow creation."""
-    cache = RedisClient.from_config(load_config())
+    cache = RedisClient(**redis_settings())
     await cache.cache_query(workflow_id, "input", body.model_dump(mode="json"))
 
 
@@ -627,7 +627,7 @@ async def signal_workflow(request: Request, workflow_id: str, signal_name: str, 
 
 async def invalidate_workflow_stage_query_cache(workflow_id: str) -> None:
     """Invalidate cached workflow query data that changes when stages change."""
-    cache = RedisClient.from_config(load_config())
+    cache = RedisClient(**redis_settings())
     try:
         await asyncio.gather(
             *(
@@ -865,7 +865,7 @@ async def download_tech_support(workflow_id: str, device_name: str, request: Req
         raise HTTPException(status_code=403, detail="Forbidden")
 
     redis_key = tech_support_bundle_key(workflow_id, device_name)
-    cache = RedisClient.from_config(load_config())
+    cache = RedisClient(**redis_settings())
     content: bytes | None = await cache.get(redis_key, deserialize=False)
     if content is None:
         raise HTTPException(

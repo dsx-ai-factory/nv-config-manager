@@ -30,6 +30,7 @@ from nv_config_manager.temporal.common.secrets import (
     resolve_credentials,
 )
 
+
 def test_secrets_config_reloads_after_file_update(monkeypatch, tmp_path):
     secrets_file = tmp_path / "config-secrets.ini"
     secrets_file.write_text("[site.test]\napi_user_key_r1 = old-secret\n")
