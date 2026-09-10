@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Scheduled device certificate rotation workflow."""
+"""Device certificate rotation workflow."""
 
 import asyncio
 from datetime import timedelta
@@ -40,7 +40,7 @@ with workflow.unsafe.imports_passed_through():
 
 
 class CertificateRotationInput(BaseModel):
-    """One device selected by the nightly schedule reconciler."""
+    """One device selected for certificate rotation."""
 
     device_id: DeviceReference = Field(description="Device whose certificates are reissued.")
 
@@ -52,7 +52,8 @@ class CertificateRotationWorkflow(WorkflowMetadataMixin, DeviceMixin):
     workflow_name = "Certificate Rotation"
     workflow_description = "Reissue and replace device certificates from configured PKI sources"
     workflow_input_class = CertificateRotationInput
-    workflow_api_enabled = False
+    workflow_api_enabled = True
+    workflow_api_endpoint = "/ngc/certificate_rotation"
     workflow_namespace = "ngc"
 
     @run_nv_config_manager_workflow

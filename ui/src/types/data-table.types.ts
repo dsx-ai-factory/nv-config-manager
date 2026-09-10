@@ -43,6 +43,10 @@ export type ConfigDiffWorkflowInput = {
   device_id: string;
 };
 
+export type CertificateRotationWorkflowInput = {
+  device_id: string;
+};
+
 export type DevicePasswordRotationWorkflowInput = {
   device_id: string;
   selected_secret: string;

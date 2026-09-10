@@ -1554,7 +1554,9 @@ def test_workflow_types():
     # Assert some of our workflows are returned
     # dont want to have to update this test on every
     # workflow creation
-    assert {"BackupWorkflow", "DeployWorkflow"}.issubset(workflow_types)
+    assert {"BackupWorkflow", "CertificateRotationWorkflow", "DeployWorkflow"}.issubset(
+        workflow_types
+    )
     assert "HelloWorldRunning" not in workflow_types
     assert "TenantDeployWorkflow" in workflow_types
 
@@ -1588,6 +1590,15 @@ def test_workflow_metadata(mock_dynamic_rbac_config):
     assert backup_workflow["input_class"] == "BackupInput"
     assert backup_workflow["read_roles"] == ["BackupWorkflow", "reader"]
     assert backup_workflow["execute_roles"] == ["BackupWorkflow", "executor"]
+    certificate_workflow = workflows_by_name["CertificateRotationWorkflow"]
+    assert certificate_workflow["display_name"] == "Certificate Rotation"
+    assert certificate_workflow["endpoint"] == "/ngc/certificate_rotation"
+    assert certificate_workflow["input_class"] == "CertificateRotationInput"
+
+
+def test_certificate_rotation_endpoint_is_registered():
+    """Expose manual certificate rotation through the workflow REST API."""
+    assert "/v1/workflow/ngc/certificate_rotation" in app.openapi()["paths"]
 
 
 def test_tenant_deploy_endpoint_is_not_registered():

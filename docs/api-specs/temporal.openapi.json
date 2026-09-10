@@ -81,6 +81,21 @@
         "title": "BackupInput",
         "type": "object"
       },
+      "CertificateRotationInput": {
+        "description": "One device selected for certificate rotation.",
+        "properties": {
+          "device_id": {
+            "description": "Device whose certificates are reissued.",
+            "title": "Device Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id"
+        ],
+        "title": "CertificateRotationInput",
+        "type": "object"
+      },
       "CommandEntry": {
         "description": "A single command in the diagnostics catalog.",
         "properties": {
@@ -3756,6 +3771,53 @@
           }
         ],
         "summary": "Execute BackupWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/certificate_rotation": {
+      "post": {
+        "description": "Reissue and replace device certificates from configured PKI sources",
+        "operationId": "certificaterotationworkflow_endpoint_v1_workflow_ngc_certificate_rotation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CertificateRotationInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute CertificateRotationWorkflow",
         "tags": [
           "workflow"
         ]

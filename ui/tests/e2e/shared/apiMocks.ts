@@ -78,6 +78,7 @@ export async function setupApiMocks(page: Page) {
   await mockSpxOverlayCreationEndpoint(page);
   await mockSpxOverlayDeletionEndpoint(page);
   await mockBackupEndpoint(page);
+  await mockCertificateRotationEndpoint(page);
   await mockDeployEndpoint(page);
   await mockPortLLDPInfoEndpoint(page);
   await mockConnectedHostMetadataEndpoint(page);
@@ -652,6 +653,40 @@ export async function mockBackupEndpoint(page: Page) {
 
     await delay(100);
 
+    await route.fulfill({
+      status: 201,
+      json: {
+        id: body.device_id,
+        href: `https://url-to-temporal.com/namespaces/default/workflows/${body.device_id}`,
+        submitted_data: body,
+      },
+    });
+  });
+}
+
+export async function mockCertificateRotationEndpoint(page: Page) {
+  await page.route(`**/v1/workflow/ngc/certificate_rotation`, async (route) => {
+    const body = JSON.parse((await route.request().postData()) || "{}");
+
+    if (Object.values(FORBIDDEN_DEVICE_IDS).includes(body.device_id)) {
+      await route.fulfill({
+        status: 403,
+        json: {
+          error: "Forbidden: You do not have permission to run this workflow",
+        },
+      });
+      return;
+    }
+
+    if (!body.device_id) {
+      await route.fulfill({
+        status: 400,
+        json: { error: "Missing required fields" },
+      });
+      return;
+    }
+
+    await delay(100);
     await route.fulfill({
       status: 201,
       json: {
@@ -1331,6 +1366,7 @@ export async function mockPasswordUsersEndpoint(page: Page) {
 export async function mockWorkflowTypesEndpoint(page: Page) {
   const workflowTypes = [
     "BackupWorkflow",
+    "CertificateRotationWorkflow",
     "SiteBackupWorkflow",
     "ConnectedHostMetadataWorkflow",
     "DeployWorkflow",
@@ -1368,6 +1404,7 @@ export async function mockWorkflowTypesEndpoint(page: Page) {
 export async function mockWorkflowMetadataEndpoint(page: Page) {
   const workflowTypes = [
     "BackupWorkflow",
+    "CertificateRotationWorkflow",
     "SiteBackupWorkflow",
     "ConnectedHostMetadataWorkflow",
     "DeployWorkflow",
@@ -1395,6 +1432,7 @@ export async function mockWorkflowMetadataEndpoint(page: Page) {
   ];
   const workflowDisplayNames: Record<string, string> = {
     BackupWorkflow: "Configuration Backup",
+    CertificateRotationWorkflow: "Certificate Rotation",
     SiteBackupWorkflow: "Site Configuration Backup",
     ConnectedHostMetadataWorkflow: "Connected Host Metadata",
     DeployWorkflow: "Configuration Deploy",
@@ -1419,6 +1457,7 @@ export async function mockWorkflowMetadataEndpoint(page: Page) {
   };
   const workflowEndpoints: Record<string, string> = {
     BackupWorkflow: "/ngc/backup",
+    CertificateRotationWorkflow: "/ngc/certificate_rotation",
     SiteBackupWorkflow: "/ngc/site_backup",
     ConnectedHostMetadataWorkflow: "/ngc/connected_host_metadata",
     DeployWorkflow: "/ngc/deploy",

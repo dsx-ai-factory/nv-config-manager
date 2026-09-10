@@ -47,6 +47,12 @@ export const siteConfig = {
       enabled: true,
     },
     {
+      title: "Certificate Rotation",
+      workflowName: "CertificateRotationWorkflow",
+      slug: "certificaterotationworkflow",
+      enabled: true,
+    },
+    {
       title: "Connected Host Metadata",
       workflowName: "ConnectedHostMetadataWorkflow",
       slug: "connectedhostmetadataworkflow",
