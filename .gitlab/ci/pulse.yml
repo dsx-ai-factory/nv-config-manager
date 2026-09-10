@@ -137,6 +137,7 @@ include:
 # upload wins and the remaining jobs can safely reuse it on retry.
 pulse-scan-images:
   allow_failure: true
+  timeout: 1h
   retry:
     max: 1
     when:
@@ -146,5 +147,6 @@ pulse-scan-images:
 # repository checkout so they can still run after a merged source branch has
 # been deleted while its pipeline is queued.
 .track_template_usage:
+  timeout: 10m
   variables:
     GIT_STRATEGY: empty

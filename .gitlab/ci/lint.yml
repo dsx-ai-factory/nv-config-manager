@@ -16,6 +16,10 @@
   - "pyproject.toml"
   - "uv.lock"
 
+.lint-job-policy: &lint-job-policy
+  interruptible: true
+  timeout: 30m
+
 # Validate OpenAPI specs are up-to-date on merge requests
 # =============================================================================
 # Lint Stage
@@ -23,6 +27,7 @@
 
 # Python linting for merge requests (src/)
 lint-mr-py:
+  <<: *lint-job-policy
   stage: lint
   tags:
     - dca
@@ -51,6 +56,7 @@ lint-mr-py:
 
 # Installer linting for merge requests
 lint-mr-installer:
+  <<: *lint-job-policy
   stage: lint
   tags:
     - dca
@@ -75,6 +81,7 @@ lint-mr-installer:
 
 # Nautobot plugin linting for merge requests
 lint-mr-nautobot:
+  <<: *lint-job-policy
   stage: lint
   tags:
     - dca
@@ -98,6 +105,7 @@ lint-mr-nautobot:
 
 # Bundled Nautobot overlays app linting for merge requests
 lint-mr-nautobot-app-overlays:
+  <<: *lint-job-policy
   stage: lint
   tags:
     - dca
@@ -123,6 +131,7 @@ lint-mr-nautobot-app-overlays:
 
 # Bundled Nautobot NVIDIA Config Manager app linting for merge requests
 lint-mr-nautobot-nv-config-manager:
+  <<: *lint-job-policy
   stage: lint
   tags:
     - dca
@@ -148,6 +157,7 @@ lint-mr-nautobot-nv-config-manager:
 
 # Network template component linting for merge requests
 lint-mr-network-templates:
+  <<: *lint-job-policy
   stage: lint
   tags:
     - dca
@@ -169,6 +179,7 @@ lint-mr-network-templates:
 
 # SPDX license header check for merge requests
 lint-mr-spdx:
+  <<: *lint-job-policy
   stage: lint
   tags:
     - dca
@@ -213,6 +224,7 @@ lint-mr-spdx:
 
 # Go linting for merge requests (nats-ready)
 lint-mr-go:
+  <<: *lint-job-policy
   stage: lint
   tags:
     - dca
@@ -236,6 +248,7 @@ lint-mr-go:
 
 # Helm linting for merge requests
 lint-mr-helm:
+  <<: *lint-job-policy
   stage: lint
   tags:
     - dca
@@ -271,6 +284,7 @@ lint-mr-helm:
     - helm template nv-config-manager deploy/helm/ -f deploy/helm/values-ci.yaml > /dev/null
 
 lint-mr-ui:
+  <<: *lint-job-policy
   stage: lint
   tags:
     - dca
@@ -291,6 +305,7 @@ lint-mr-ui:
 
 # Validate OpenAPI specs are up-to-date on merge requests
 lint-mr-openapi:
+  <<: *lint-job-policy
   stage: lint
   tags:
     - dca
