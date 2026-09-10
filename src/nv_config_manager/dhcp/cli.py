@@ -343,27 +343,41 @@ async def _sync_kea_configuration_async(
             )
             previous_config = config
             while True:
+                # Reading the desired config is separate from reconciling it. The
+                # drift check below needs only previous_config/expected_hash, both
+                # held in memory, so an unreachable Redis must not skip it: a Kea
+                # container recycle during a Redis outage would otherwise leave
+                # this pod on bootstrap config -- unready and out of the external
+                # Service -- for the whole outage, with a valid desired config
+                # sitting right here.
+                desired_config = previous_config
+                desired_config_is_published = False
                 try:
                     new_config = await _load_kea_config_with_timeout(redis_client, ip_version)
                     if new_config is None:
                         logger.info(
                             "No configuration found in Redis, waiting for configuration to be available..."
                         )
-                        await asyncio.sleep(refresh_interval)
-                        continue
-                    new_config = inject_lease_db_config(new_config, ip_version)
-                    if new_config != previous_config:
+                    else:
+                        desired_config = inject_lease_db_config(new_config, ip_version)
+                        desired_config_is_published = True
+                except Exception as exc:
+                    DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
+                    logger.error(f"Error loading the desired KEA config from Redis: {exc}")
+
+                try:
+                    if desired_config_is_published and desired_config != previous_config:
                         logger.info("Configuration changed, updating KEA DHCP Configuration.")
                         expected_hash = await _apply_and_verify_kea_config(
-                            kea_client, new_config, ip_version
+                            kea_client, desired_config, ip_version
                         )
-                        previous_config = new_config
-                        record_successful_reconciliation()
+                        previous_config = desired_config
                     else:
-                        # Redis is unchanged, but KEA (e.g. the Kea container) may
-                        # have restarted from its bootstrap config while this
-                        # sidecar kept running. Compare KEA's effective config hash
-                        # against the last applied hash and reapply on drift.
+                        # KEA (e.g. the Kea container) may have restarted from its
+                        # bootstrap config while this sidecar kept running. Compare
+                        # KEA's effective config hash against the last applied hash
+                        # and reapply on drift. previous_config/expected_hash are
+                        # both in memory, so this runs whether or not Redis answered.
                         running_hash = await asyncio.wait_for(
                             kea_client.get_config_hash(version=ip_version),
                             timeout=KEA_OP_TIMEOUT_SECONDS,
@@ -381,16 +395,21 @@ async def _sync_kea_configuration_async(
                             )
                         elif debug:
                             logger.info("No configuration changes detected.")
-                        # Only a completed reconcile with config present counts
-                        # as a *successful* reconciliation (distinct from the
-                        # loop-progress heartbeat below).
+                    if desired_config_is_published:
+                        # Only a completed reconcile against *published* desired
+                        # state counts as a successful reconciliation (distinct from
+                        # the loop-progress heartbeat below). Repairing drift from
+                        # the cached config keeps DHCP serving, but it cannot confirm
+                        # agreement with Redis, so the staleness gauge must keep
+                        # ageing and alerting for the duration of the outage.
                         record_successful_reconciliation()
                 except Exception as exc:
-                    # Recoverable dependency errors (Redis/PostgreSQL/Kea,
-                    # including bounded-timeout TimeoutError) are logged and
-                    # counted but MUST NOT stop the heartbeat: the event loop
-                    # is still making progress, so kubelet should not restart us
-                    # just because a dependency is temporarily unreachable.
+                    # Recoverable dependency errors (PostgreSQL/Kea, including
+                    # bounded-timeout TimeoutError; Redis is handled above) are
+                    # logged and counted but MUST NOT stop the heartbeat: the
+                    # event loop is still making progress, so kubelet should not
+                    # restart us just because a dependency is temporarily
+                    # unreachable.
                     DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
                     logger.error(f"Error refreshing the KEA config: {exc}")
                 finally:

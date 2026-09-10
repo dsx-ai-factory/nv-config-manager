@@ -244,3 +244,92 @@ async def test_startup_hash_get_failure_does_not_abort_sync(
         call(DESIRED_CONFIG, version=4),
         call(DESIRED_CONFIG, version=4),
     ]
+
+
+async def test_redis_failure_still_recovers_kea_drift(mocker: Any) -> None:
+    """An unreachable Redis must not disable drift recovery.
+
+    The drift check needs only the last applied config and its hash, both held in
+    memory, so a Kea restart to bootstrap config during a Redis outage is still
+    repaired. Skipping it would leave the pod on bootstrap config -- unready, and
+    therefore out of the external DHCP Service -- until Redis came back.
+    """
+    load_kea_config = AsyncMock(side_effect=[DESIRED_CONFIG, ConnectionError("redis down")])
+    set_config = AsyncMock(return_value="DESIRED_HASH")
+    # startup verify -> bootstrap hash after Kea restart -> reapply verify
+    get_config_hash = AsyncMock(side_effect=["DESIRED_HASH", "BOOTSTRAP_HASH", "DESIRED_HASH"])
+    _patch_clients(
+        mocker,
+        load_kea_config=load_kea_config,
+        set_config=set_config,
+        get_config_hash=get_config_hash,
+    )
+    _patch_sleep_to_break(mocker)
+    metric = mocker.patch.object(cli, "DHCP_CACHE_REFRESH_ERRORS", MagicMock())
+    reconciled = mocker.patch.object(cli, "record_successful_reconciliation")
+
+    with pytest.raises(_StopLoop):
+        await cli._sync_kea_configuration_async(ip_version=4, refresh_interval=5, debug=False)
+
+    assert set_config.await_args_list == [
+        call(DESIRED_CONFIG, version=4),
+        call(DESIRED_CONFIG, version=4),
+    ]
+    metric.labels.return_value.inc.assert_called_once()
+    # Repairing from the cached config cannot confirm agreement with published
+    # desired state, so only the startup apply marks a successful reconciliation
+    # and the staleness gauge keeps ageing for the duration of the outage.
+    reconciled.assert_called_once()
+
+
+async def test_redis_failure_without_drift_does_not_reapply(mocker: Any) -> None:
+    """With Redis unreachable and KEA still in sync, nothing is reapplied."""
+    load_kea_config = AsyncMock(side_effect=[DESIRED_CONFIG, ConnectionError("redis down")])
+    set_config = AsyncMock(return_value="DESIRED_HASH")
+    get_config_hash = AsyncMock(side_effect=["DESIRED_HASH", "DESIRED_HASH"])
+    _patch_clients(
+        mocker,
+        load_kea_config=load_kea_config,
+        set_config=set_config,
+        get_config_hash=get_config_hash,
+    )
+    _patch_sleep_to_break(mocker)
+    metric = mocker.patch.object(cli, "DHCP_CACHE_REFRESH_ERRORS", MagicMock())
+    reconciled = mocker.patch.object(cli, "record_successful_reconciliation")
+
+    with pytest.raises(_StopLoop):
+        await cli._sync_kea_configuration_async(ip_version=4, refresh_interval=5, debug=False)
+
+    set_config.assert_awaited_once_with(DESIRED_CONFIG, version=4)
+    metric.labels.return_value.inc.assert_called_once()
+    reconciled.assert_called_once()
+
+
+async def test_empty_redis_still_recovers_kea_drift(mocker: Any) -> None:
+    """A missing Redis key is desired-state-unknown, not a reason to skip drift.
+
+    An empty read is not an error, so nothing is counted, but the cached config
+    is still reconciled against KEA's effective hash.
+    """
+    load_kea_config = AsyncMock(side_effect=[DESIRED_CONFIG, None])
+    set_config = AsyncMock(return_value="DESIRED_HASH")
+    get_config_hash = AsyncMock(side_effect=["DESIRED_HASH", "BOOTSTRAP_HASH", "DESIRED_HASH"])
+    _patch_clients(
+        mocker,
+        load_kea_config=load_kea_config,
+        set_config=set_config,
+        get_config_hash=get_config_hash,
+    )
+    _patch_sleep_to_break(mocker)
+    metric = mocker.patch.object(cli, "DHCP_CACHE_REFRESH_ERRORS", MagicMock())
+    reconciled = mocker.patch.object(cli, "record_successful_reconciliation")
+
+    with pytest.raises(_StopLoop):
+        await cli._sync_kea_configuration_async(ip_version=4, refresh_interval=5, debug=False)
+
+    assert set_config.await_args_list == [
+        call(DESIRED_CONFIG, version=4),
+        call(DESIRED_CONFIG, version=4),
+    ]
+    metric.labels.return_value.inc.assert_not_called()
+    reconciled.assert_called_once()
