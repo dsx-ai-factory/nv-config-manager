@@ -15,7 +15,6 @@ include:
         when: never
       - when: always
   - local: .gitlab/ci/sonar.yml
-  - local: .gitlab/ci/deploy.yml
   - local: .gitlab/ci/release.yml
   - local: .gitlab/ci/airgapped.yml
     rules: *exclude-special-pipeline-fragments

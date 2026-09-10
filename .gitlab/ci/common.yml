@@ -21,6 +21,8 @@ stages:
 # branches. A pull-request/<n> sync is different: it is the vetted snapshot for
 # the secret-free build and its webhook-created promotion buttons.
 workflow:
+  auto_cancel:
+    on_new_commit: interruptible
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     # Vetted copy-pr-bot refs may run only from a mirror sync or a deliberate
@@ -51,6 +53,8 @@ variables:
 # Prevents GitLab UI confusion when all other jobs are skipped
 pipeline-status:
   stage: lint
+  interruptible: true
+  timeout: 5m
   tags:
     - dca
     - linux/amd64

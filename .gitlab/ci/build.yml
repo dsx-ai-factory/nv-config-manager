@@ -29,6 +29,7 @@
 # Template for native Docker builds (no QEMU emulation)
 .docker-build-native-template:
   stage: build
+  timeout: 2h
   tags:
     - dca
     - linux/amd64
@@ -67,37 +68,6 @@
       template_engine_base="${template_engine_base/-rc/rc}"
       export TEMPLATE_ENGINE_VERSION="${template_engine_base}+g${CI_COMMIT_SHORT_SHA}"
       echo "Template engine version: ${TEMPLATE_ENGINE_VERSION}"
-
-# Template for QEMU-emulated cross-arch builds (kept for reference/future use)
-.docker-build-qemu-template:
-  stage: build
-  tags:
-    - dca
-    - linux/amd64
-    - docker
-  needs: []
-  image: $NVCM_CI_IMAGE_DOCKER
-  services:
-    - name: $NVCM_CI_IMAGE_DOCKER_DIND
-      alias: docker
-      command: ["--tls=false"]
-  variables:
-    DOCKER_HOST: tcp://docker:2375/
-    DOCKER_TLS_CERTDIR: ""
-    DOCKER_DRIVER: overlay2
-  before_script:
-    - apk add -q make bash git
-    - echo "Testing Docker connectivity..."
-    - docker info
-    - docker version
-    - echo "Setting up QEMU for cross-arch builds..."
-    - docker run --rm --privileged tonistiigi/binfmt --install all
-    - |
-      image_target_exports="$(bash .gitlab/ci/scripts/image_target_env.sh)" || exit $?
-      eval "$image_target_exports"
-    - image_token="$(printenv "$NVCM_IMAGE_TOKEN_VAR" || true)"
-    - test -n "$image_token" || (echo "Image target ${NVCM_IMAGE_TARGET_NAME} references ${NVCM_IMAGE_TOKEN_VAR}, but it is empty or unset" && exit 1)
-    - printf '%s' "$image_token" | docker login -u "$NVCM_IMAGE_USERNAME" --password-stdin "$NVCM_IMAGE_REGISTRY"
 
 # Build all images natively on amd64 runner (MR)
 docker-build-mr-amd64:
@@ -154,6 +124,7 @@ docker-build-mr-arm64:
 # Create multi-arch manifests from arch-specific images (MR)
 docker-manifest-mr:
   stage: build
+  timeout: 30m
   tags:
     - dca
     - linux/amd64
@@ -265,6 +236,7 @@ docker-build-main-arm64:
 # Create multi-arch manifests from arch-specific images (default branch and release tags)
 docker-manifest-main:
   stage: build
+  timeout: 30m
   tags:
     - dca
     - linux/amd64
