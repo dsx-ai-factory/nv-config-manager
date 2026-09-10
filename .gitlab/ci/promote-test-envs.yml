@@ -62,8 +62,10 @@
 # restricted pool exists to sandbox the *untrusted* PR build (pr-build.yml);
 # promote runs trusted code from the protected default branch and legitimately
 # holds protected variables, so it belongs on the same pool as the other
-# default-branch jobs (build.yml, deploy.yml, release.yml).
+# default-branch jobs (build.yml and release.yml).
 .test-promote-runner: &test-promote-runner
+  interruptible: false
+  timeout: 45m
   tags:
     - dca
     - linux/amd64

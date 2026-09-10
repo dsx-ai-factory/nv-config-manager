@@ -9,7 +9,12 @@
   uv run pytest tests/ -n auto --cov=nv_config_manager_auth --cov=nv_config_manager_jobs --cov-report=term
   uv run coverage xml --include='nv_config_manager_auth/*,nv_config_manager_jobs/*' -o coverage.xml
 
+.test-job-policy: &test-job-policy
+  interruptible: true
+  timeout: 1h
+
 test-mr-py:
+  <<: *test-job-policy
   stage: test
   tags:
     - dca
@@ -63,6 +68,7 @@ test-mr-py:
 
 # Network template component tests for merge requests
 test-mr-network-templates:
+  <<: *test-job-policy
   stage: test
   tags:
     - dca
@@ -94,6 +100,7 @@ test-mr-network-templates:
 
 # Validate the bundled Nautobot overlays app package can be built for merge requests
 test-mr-nautobot-app-overlays-package:
+  <<: *test-job-policy
   stage: test
   tags:
     - dca
@@ -118,6 +125,7 @@ test-mr-nautobot-app-overlays-package:
 
 # Validate the bundled Nautobot NVIDIA Config Manager app package can be built for merge requests
 test-mr-nautobot-nv-config-manager-package:
+  <<: *test-job-policy
   stage: test
   tags:
     - dca
@@ -142,6 +150,7 @@ test-mr-nautobot-nv-config-manager-package:
 
 # Installer tests for merge requests
 test-mr-installer:
+  <<: *test-job-policy
   stage: test
   tags:
     - dca
@@ -175,6 +184,7 @@ test-mr-installer:
 
 # Playwright E2E tests for UI merge requests
 test-mr-ui-e2e:
+  <<: *test-job-policy
   stage: test
   tags:
     - dca
@@ -238,6 +248,7 @@ test-mr-ui-e2e:
 # =============================================================================
 
 integration-test:
+  <<: *test-job-policy
   stage: test
   tags:
     - dca
@@ -410,6 +421,7 @@ integration-test:
 
 # Python tests for default branch and release tags
 test-main-py:
+  <<: *test-job-policy
   stage: test
   needs: []
   tags:
@@ -461,6 +473,7 @@ test-main-py:
 
 # Network template component tests for default branch and release tags
 test-main-network-templates:
+  <<: *test-job-policy
   stage: test
   needs: []
   tags:
@@ -496,6 +509,7 @@ test-main-network-templates:
 
 # Installer coverage for default-branch and release-tag Sonar analysis.
 test-main-installer:
+  <<: *test-job-policy
   stage: test
   needs: []
   tags:
@@ -532,6 +546,7 @@ test-main-installer:
 
 # Playwright E2E tests for UI default branch and release tags
 test-main-ui-e2e:
+  <<: *test-job-policy
   stage: test
   tags:
     - dca
