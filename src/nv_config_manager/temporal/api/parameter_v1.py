@@ -23,7 +23,9 @@ from pydantic import BaseModel
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import (
     DCIMDeviceSelectionFilter,
+    DCIMLocationModel,
     create_dcim_client,
+    dcim_location_reference,
 )
 from nv_config_manager.dcim.errors import DCIMConflictError, DCIMInvalidDataError, DCIMNotFoundError
 from nv_config_manager.temporal.common.mixins.device import Platform
@@ -52,7 +54,7 @@ class Location(BaseModel):
 
     id: str
     name: str
-    model: str | None = None
+    model: DCIMLocationModel | None = None
 
 
 class Secret(BaseModel):
@@ -146,13 +148,18 @@ async def get_namespace_tags(
     location: Annotated[
         str | None, Query(description="Limit to namespace tags at this location")
     ] = None,
+    location_model: Annotated[
+        DCIMLocationModel | None,
+        Query(description="DCIM model that owns the location identifier"),
+    ] = None,
 ) -> list[Tag]:
     """Return the configured DCIM provider's namespace tag choices."""
     client = create_dcim_client()
 
     try:
         async with client:
-            tag_names = await client.list_namespace_tags(location)
+            reference = dcim_location_reference(location, location_model) if location else None
+            tag_names = await client.list_namespace_tags(reference)
     except DCIMInvalidDataError as exc:
         raise HTTPException(
             status_code=500,
@@ -169,6 +176,10 @@ async def get_namespace_tags(
 @router.get("/overlay")
 async def get_overlays(
     location: Annotated[str | None, Query(description="Limit to overlays at this location")] = None,
+    location_model: Annotated[
+        DCIMLocationModel | None,
+        Query(description="DCIM model that owns the location identifier"),
+    ] = None,
     isolation_type: Annotated[
         str | None, Query(description="Limit to overlays with this isolation type")
     ] = None,
@@ -177,7 +188,8 @@ async def get_overlays(
     client = create_dcim_client()
     try:
         async with client:
-            overlays = await client.list_overlays(location, isolation_type)
+            reference = dcim_location_reference(location, location_model) if location else None
+            overlays = await client.list_overlays(reference, isolation_type)
     except DCIMInvalidDataError as exc:
         raise HTTPException(
             status_code=500,
@@ -217,6 +229,7 @@ async def get_statuses(
 @router.get("/device")
 async def get_devices(  # pylint: disable=R0913,R0914
     site: Annotated[list[str] | None, Query()] = None,
+    site_model: Annotated[list[DCIMLocationModel] | None, Query()] = None,
     status: Annotated[list[str] | None, Query()] = None,
     role: Annotated[list[str] | None, Query()] = None,
     tenant: Annotated[list[str] | None, Query()] = None,
@@ -228,8 +241,18 @@ async def get_devices(  # pylint: disable=R0913,R0914
     ] = False,
 ) -> list[Device]:
     """Return a list of filtered devices."""
+    sites = site or []
+    site_models = site_model or []
+    if site_models and len(site_models) != len(sites):
+        raise HTTPException(
+            status_code=422,
+            detail="site_model must contain one entry for each site",
+        )
     filters = DCIMDeviceSelectionFilter(
-        sites=tuple(site or ()),
+        sites=tuple(
+            dcim_location_reference(location_id, site_models[index]) if site_models else location_id
+            for index, location_id in enumerate(sites)
+        ),
         statuses=tuple(status or ()),
         roles=tuple(role or ()),
         tenants=tuple(tenant or ()),

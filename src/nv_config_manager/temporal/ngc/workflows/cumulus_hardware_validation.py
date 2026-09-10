@@ -26,6 +26,7 @@ from temporalio.exceptions import ActivityError
 
 from nv_config_manager.dcim import (
     DCIMLocationIdentifier,
+    DCIMLocationModel,
     dcim_location_id,
     dcim_location_reference,
 )
@@ -277,7 +278,7 @@ class ValidateHardwareInput(BaseModel):
     site: LocationReference = Field(
         description="Site used to select network devices for validation."
     )
-    site_model: str | None = Field(
+    site_model: DCIMLocationModel | None = Field(
         default=None, description="DCIM model that owns the site identifier."
     )
     roles: list[str] = Field(

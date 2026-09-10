@@ -27,6 +27,7 @@ from temporalio.exceptions import ChildWorkflowError
 
 from nv_config_manager.dcim import (
     DCIMLocationIdentifier,
+    DCIMLocationModel,
     dcim_location_id,
     dcim_location_reference,
 )
@@ -120,7 +121,7 @@ class SiteCableValidationInput(BaseModel):
     """Input for Site Cable Validation Workflow."""
 
     site: LocationReference = Field(description="Site containing the network devices to validate.")
-    site_model: str | None = Field(
+    site_model: DCIMLocationModel | None = Field(
         default=None, description="DCIM model that owns the site identifier."
     )
     roles: list[str] = Field(

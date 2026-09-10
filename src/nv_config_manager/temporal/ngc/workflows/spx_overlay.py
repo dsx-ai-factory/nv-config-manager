@@ -25,6 +25,7 @@ from temporalio.exceptions import ApplicationError, ChildWorkflowError
 
 from nv_config_manager.dcim import (
     DCIMLocationIdentifier,
+    DCIMLocationModel,
     dcim_location_id,
     dcim_location_model,
     dcim_location_reference,
@@ -110,7 +111,7 @@ class SpXOverlayCreationInput(BaseModel):
     """SpX Overlay Creation Workflow Input Definition."""
 
     site: LocationReference = Field(description="Site where the SpX overlay will be created.")
-    site_model: str | None = Field(
+    site_model: DCIMLocationModel | None = Field(
         default=None, description="DCIM model that owns the site identifier."
     )
     overlay_id: str = Field(
@@ -275,7 +276,7 @@ class SpXOverlayDeletionInput(BaseModel):
     """SpX Overlay Deletion Workflow Input Definition."""
 
     site: LocationReference = Field(description="Site containing the SpX overlay to delete.")
-    site_model: str | None = Field(
+    site_model: DCIMLocationModel | None = Field(
         default=None, description="DCIM model that owns the site identifier."
     )
     overlay_id: str = Field(
@@ -459,7 +460,7 @@ class SpXOverlayAssignmentInput(BaseModel):
         min_length=1, description="Names of the device interfaces to assign to the overlay."
     )
     site: LocationReference = Field(description="Site containing the target network device.")
-    site_model: str | None = Field(
+    site_model: DCIMLocationModel | None = Field(
         default=None, description="DCIM model that owns the site identifier."
     )
     namespace_tag: str = Field(
@@ -823,7 +824,7 @@ class SpXOverlayTenantChangeInput(BaseModel):
         min_length=1, description="Names of the device interfaces to assign to the overlay."
     )
     site: LocationReference = Field(description="Site containing the target network device.")
-    site_model: str | None = Field(
+    site_model: DCIMLocationModel | None = Field(
         default=None, description="DCIM model that owns the site identifier."
     )
     namespace_tag: str = Field(

@@ -137,7 +137,7 @@ Return `DCIMSelection.model` from `list_locations()` and
 Nautobot uses `LocationType.name`; a NetBox provider uses the source model
 name, such as `Region`, `SiteGroup`, `Site`, or `Location`. Location-taking
 operations accept `DCIMLocationReference(id=..., model=...)` as well as legacy
-bare string IDs. Providers with a single identifier namespace may ignore an
+bare string IDs. Providers with a single identifier namespace can ignore an
 absent model, while providers with overlapping IDs use it to select the correct
 model. Apply the requested location types in `list_locations()` rather than filtering a
 partial result in the service.

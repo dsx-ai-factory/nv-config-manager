@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from aioresponses import aioresponses
 from fastapi.testclient import TestClient
 
+from nv_config_manager.dcim import DCIMLocationReference
 from nv_config_manager.temporal.api.main import app
 
 V2_SITES = {
@@ -404,6 +405,27 @@ def test_namespace_tag():
         ]
 
 
+def test_namespace_tag_propagates_location_model() -> None:
+    """The parameter route preserves the provider location namespace."""
+    dcim_client = MagicMock()
+    dcim_client.__aenter__ = AsyncMock(return_value=dcim_client)
+    dcim_client.__aexit__ = AsyncMock(return_value=None)
+    dcim_client.list_namespace_tags = AsyncMock(return_value=[])
+
+    with patch(
+        "nv_config_manager.temporal.api.parameter_v1.create_dcim_client",
+        return_value=dcim_client,
+    ):
+        response = TestClient(app).get(
+            "/v1/parameter/namespace-tag?location=42&location_model=Site"
+        )
+
+    assert response.status_code == 200
+    dcim_client.list_namespace_tags.assert_awaited_once_with(
+        DCIMLocationReference(id="42", model="Site")
+    )
+
+
 def test_namespace_tag_graphql_error():
     """Test the namespace tag endpoint handles provider query errors."""
     with aioresponses() as m:
@@ -447,6 +469,55 @@ def test_overlays_with_filters():
             {"id": "overlay-uuid-1", "name": "overlay-a"},
             {"id": "overlay-uuid-2", "name": "overlay-b"},
         ]
+
+
+def test_overlay_propagates_location_model() -> None:
+    """Overlay filtering preserves the provider location namespace."""
+    dcim_client = MagicMock()
+    dcim_client.__aenter__ = AsyncMock(return_value=dcim_client)
+    dcim_client.__aexit__ = AsyncMock(return_value=None)
+    dcim_client.list_overlays = AsyncMock(return_value=[])
+
+    with patch(
+        "nv_config_manager.temporal.api.parameter_v1.create_dcim_client",
+        return_value=dcim_client,
+    ):
+        response = TestClient(app).get(
+            "/v1/parameter/overlay?location=42&location_model=Site&isolation_type=spectrum_x_vrf"
+        )
+
+    assert response.status_code == 200
+    dcim_client.list_overlays.assert_awaited_once_with(
+        DCIMLocationReference(id="42", model="Site"), "spectrum_x_vrf"
+    )
+
+
+def test_device_filter_propagates_site_models() -> None:
+    """Device filtering keeps each site ID paired with its DCIM model."""
+    dcim_client = MagicMock()
+    dcim_client.__aenter__ = AsyncMock(return_value=dcim_client)
+    dcim_client.__aexit__ = AsyncMock(return_value=None)
+    dcim_client.list_devices = AsyncMock(return_value=[])
+
+    with patch(
+        "nv_config_manager.temporal.api.parameter_v1.create_dcim_client",
+        return_value=dcim_client,
+    ):
+        response = TestClient(app).get(
+            "/v1/parameter/device?site=42&site_model=Site&managed_only=true"
+        )
+
+    assert response.status_code == 200
+    filters = dcim_client.list_devices.await_args.args[0]
+    assert filters.sites == (DCIMLocationReference(id="42", model="Site"),)
+
+
+def test_device_filter_rejects_unpaired_site_models() -> None:
+    """Parallel site query parameters cannot silently select the wrong model."""
+    response = TestClient(app).get("/v1/parameter/device?site=42&site=43&site_model=Site")
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "site_model must contain one entry for each site"}
 
 
 def test_overlay_query_failure_is_logged():

@@ -26,7 +26,11 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from nv_config_manager.common.log import LogCategory, get_logger
-from nv_config_manager.dcim import DCIMLocationIdentifier, dcim_location_reference
+from nv_config_manager.dcim import (
+    DCIMLocationIdentifier,
+    DCIMLocationModel,
+    dcim_location_reference,
+)
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager.temporal.common.mixins.stage import (
@@ -85,7 +89,7 @@ class RedfishProvisioningInput(BaseModel):
     """Input for Redfish provisioning workflow."""
 
     site: LocationReference = Field(description="Site containing the BMC network to provision.")
-    site_model: str | None = Field(
+    site_model: DCIMLocationModel | None = Field(
         default=None, description="DCIM model that owns the site identifier."
     )
     bmc_switch_roles: list[str] = Field(

@@ -23,6 +23,7 @@ from temporalio.common import RetryPolicy
 
 from nv_config_manager.dcim import (
     DCIMLocationIdentifier,
+    DCIMLocationModel,
     dcim_location_id,
     dcim_location_reference,
 )
@@ -86,7 +87,7 @@ class IBPKeyCreationInput(BaseModel):
         default=None,
         description="Site used for UFM credential lookup; resolved from the host when omitted.",
     )
-    site_model: str | None = Field(
+    site_model: DCIMLocationModel | None = Field(
         default=None, description="DCIM model that owns the site identifier."
     )
     pkey: str | None = Field(

@@ -26,6 +26,7 @@ from temporalio.exceptions import ChildWorkflowError
 
 from nv_config_manager.dcim import (
     DCIMLocationIdentifier,
+    DCIMLocationModel,
     dcim_location_id,
     dcim_location_reference,
 )
@@ -143,7 +144,7 @@ class MultiDeployInput(BaseModel):
     location: OptionalLocationReference = Field(
         default=None, description="Location used to filter the selected network devices."
     )
-    location_model: str | None = Field(
+    location_model: DCIMLocationModel | None = Field(
         default=None, description="DCIM model that owns the location identifier."
     )
     status: list[str] | None = Field(

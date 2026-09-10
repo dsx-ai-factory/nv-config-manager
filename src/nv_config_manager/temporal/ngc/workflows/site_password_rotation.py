@@ -22,7 +22,11 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ChildWorkflowError
 
-from nv_config_manager.dcim import DCIMLocationIdentifier, dcim_location_reference
+from nv_config_manager.dcim import (
+    DCIMLocationIdentifier,
+    DCIMLocationModel,
+    dcim_location_reference,
+)
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager.temporal.common.mixins.stage import (
@@ -86,7 +90,7 @@ class SitePasswordRotationInput(BaseModel):
         min_length=1,
         description="Location containing the devices to update.",
     )
-    location_model: str | None = Field(
+    location_model: DCIMLocationModel | None = Field(
         default=None, description="DCIM model that owns the location identifier."
     )
     selected_secret: str = Field(

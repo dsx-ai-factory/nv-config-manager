@@ -106,6 +106,9 @@ class DCIMLocationReference(DCIMModel):
 type DCIMLocationIdentifier = str | DCIMLocationReference
 """A typed location reference or a legacy bare provider identifier."""
 
+type DCIMLocationModel = str
+"""A provider-defined discriminator for a location identifier namespace."""
+
 
 def dcim_location_id(location: DCIMLocationIdentifier) -> str:
     """Return the provider identifier from a typed or legacy location reference."""

@@ -34,6 +34,10 @@ import {
 } from "@/hooks";
 import { WorkflowFormField } from "@/components/forms/formfield";
 import { getErrorMessage, startWorkflow } from "@/lib/utils";
+import {
+  resolveLocationFormValue,
+  resolveLocationOption,
+} from "@/lib/location-options";
 import { SpXOverlayDeletionWorkflowInput } from "@/types/data-table.types";
 
 const SpXOverlayDeletionFormSchema = z.object({
@@ -84,11 +88,11 @@ export const SpXOverlayDeletionWorkflowForm = () => {
 
   useEffect(() => {
     if (!siteIsLoading && sites && querySite) {
-      const siteExists = sites.some((site) => site.key === querySite);
-      if (siteExists) {
+      const siteValue = resolveLocationFormValue(sites, querySite);
+      if (siteValue) {
         // Set the site value if it exists and the form value is empty
         if (!form.getValues("site")) {
-          form.setValue("site", querySite);
+          form.setValue("site", siteValue);
         }
       } else {
         form.setValue("site", "");
@@ -126,8 +130,10 @@ export const SpXOverlayDeletionWorkflowForm = () => {
 
   const onSubmit = async (data: z.infer<typeof SpXOverlayDeletionFormSchema>) => {
     setIsSubmitting(true);
+    const location = resolveLocationOption(sites, data.site);
     const submissionData: SpXOverlayDeletionWorkflowInput = {
-      site: data.site,
+      site: location?.id ?? data.site,
+      site_model: location?.model,
       overlay_id: data.overlay_id,
       namespace_tag: data.namespace_tag,
     };

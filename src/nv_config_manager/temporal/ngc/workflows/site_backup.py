@@ -25,6 +25,7 @@ from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflow
 
 from nv_config_manager.dcim import (
     DCIMLocationIdentifier,
+    DCIMLocationModel,
     dcim_location_id,
     dcim_location_reference,
 )
@@ -92,7 +93,7 @@ class SiteBackupInput(BaseModel):
         min_length=1,
         description="Site containing the network devices to back up.",
     )
-    site_model: str | None = Field(
+    site_model: DCIMLocationModel | None = Field(
         default=None, description="DCIM model that owns the site identifier."
     )
     roles: list[str] = Field(

@@ -141,6 +141,9 @@
         "title": "ConnectedHostWorkflowInput",
         "type": "object"
       },
+      "DCIMLocationModel": {
+        "type": "string"
+      },
       "DeployInput": {
         "description": "Config Deployment Workflow Input Definiton.",
         "properties": {
@@ -415,14 +418,13 @@
           "site_model": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/DCIMLocationModel"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "DCIM model that owns the site identifier.",
-            "title": "Site Model"
+            "description": "DCIM model that owns the site identifier."
           }
         },
         "required": [
@@ -716,13 +718,12 @@
           "model": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/DCIMLocationModel"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Model"
+            ]
           },
           "name": {
             "title": "Name",
@@ -760,14 +761,13 @@
           "location_model": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/DCIMLocationModel"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "DCIM model that owns the location identifier.",
-            "title": "Location Model"
+            "description": "DCIM model that owns the location identifier."
           },
           "max_batch_size": {
             "default": 10,
@@ -1138,14 +1138,13 @@
           "site_model": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/DCIMLocationModel"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "DCIM model that owns the site identifier.",
-            "title": "Site Model"
+            "description": "DCIM model that owns the site identifier."
           }
         },
         "required": [
@@ -1262,14 +1261,13 @@
           "site_model": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/DCIMLocationModel"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "DCIM model that owns the site identifier.",
-            "title": "Site Model"
+            "description": "DCIM model that owns the site identifier."
           },
           "status": {
             "default": [
@@ -1361,14 +1359,13 @@
           "site_model": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/DCIMLocationModel"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "DCIM model that owns the site identifier.",
-            "title": "Site Model"
+            "description": "DCIM model that owns the site identifier."
           },
           "status": {
             "default": [
@@ -1413,14 +1410,13 @@
           "location_model": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/DCIMLocationModel"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "DCIM model that owns the location identifier.",
-            "title": "Location Model"
+            "description": "DCIM model that owns the location identifier."
           },
           "roles": {
             "default": [],
@@ -1518,14 +1514,13 @@
           "site_model": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/DCIMLocationModel"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "DCIM model that owns the site identifier.",
-            "title": "Site Model"
+            "description": "DCIM model that owns the site identifier."
           }
         },
         "required": [
@@ -1570,14 +1565,13 @@
           "site_model": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/DCIMLocationModel"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "DCIM model that owns the site identifier.",
-            "title": "Site Model"
+            "description": "DCIM model that owns the site identifier."
           },
           "tenant": {
             "description": "Tenant that will own the SpX overlay.",
@@ -1615,14 +1609,13 @@
           "site_model": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/DCIMLocationModel"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "DCIM model that owns the site identifier.",
-            "title": "Site Model"
+            "description": "DCIM model that owns the site identifier."
           }
         },
         "required": [
@@ -1675,14 +1668,13 @@
           "site_model": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/DCIMLocationModel"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "DCIM model that owns the site identifier.",
-            "title": "Site Model"
+            "description": "DCIM model that owns the site identifier."
           }
         },
         "required": [
@@ -1941,14 +1933,13 @@
           "site_model": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/DCIMLocationModel"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "DCIM model that owns the site identifier.",
-            "title": "Site Model"
+            "description": "DCIM model that owns the site identifier."
           },
           "status": {
             "default": [
@@ -2580,6 +2571,25 @@
           },
           {
             "in": "query",
+            "name": "site_model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/DCIMLocationModel"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Site Model"
+            }
+          },
+          {
+            "in": "query",
             "name": "status",
             "required": false,
             "schema": {
@@ -3147,6 +3157,24 @@
               "description": "Limit to namespace tags at this location",
               "title": "Location"
             }
+          },
+          {
+            "description": "DCIM model that owns the location identifier",
+            "in": "query",
+            "name": "location_model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DCIMLocationModel"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "DCIM model that owns the location identifier",
+              "title": "Location Model"
+            }
           }
         ],
         "responses": {
@@ -3207,6 +3235,24 @@
               ],
               "description": "Limit to overlays at this location",
               "title": "Location"
+            }
+          },
+          {
+            "description": "DCIM model that owns the location identifier",
+            "in": "query",
+            "name": "location_model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DCIMLocationModel"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "DCIM model that owns the location identifier",
+              "title": "Location Model"
             }
           },
           {

@@ -36,6 +36,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { WorkflowFormField } from "@/components/forms/formfield";
 import { useEnvData } from "@/hooks";
 import { startWorkflow } from "@/lib/utils";
+import {
+  resolveLocationFormValue,
+  resolveLocationOption,
+} from "@/lib/location-options";
 import { MultiDeployWorkflowInput } from "@/types/data-table.types";
 
 const multiDeployFormSchema = z.object({
@@ -113,7 +117,10 @@ export const MultiDeployWorkflowForm = () => {
   React.useEffect(() => {
     if (!isManualChange) {
       setSingleQueryValue(form, queryRole, envData.rolesData, "role");
-      setSingleQueryValue(form, queryLocation, envData.siteData, "location");
+      form.setValue(
+        "location",
+        resolveLocationFormValue(envData.siteData, queryLocation) ?? ""
+      );
       setMultiQueryValue(form, queryStatuses, envData.statusData, "status");
       setSingleQueryValue(form, queryTenant, envData.tenantsData, "tenant");
 
@@ -146,10 +153,12 @@ export const MultiDeployWorkflowForm = () => {
   const onSubmit = async (data: MultiDeployFormData) => {
     setIsSubmitting(true);
     const endpoint = "/v1/workflow/ngc/multi_deploy";
+    const location = resolveLocationOption(envData.siteData, data.location);
     const params: MultiDeployWorkflowInput = {
       role: data.role,
       max_batch_size: data.max_batch_size || 10,
-      location: data.location?.trim() || null,
+      location: location?.id ?? (data.location?.trim() || null),
+      location_model: location?.model,
       status: data.status && data.status.length > 0 ? data.status : null,
       tenant: data.tenant?.trim() || null,
       commit_confirm: data.commit_confirm ?? true,

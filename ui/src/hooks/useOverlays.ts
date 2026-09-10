@@ -20,6 +20,7 @@ import { fetcher } from "@/lib/fetcher";
 import { useRuntimeConfig } from "@/config/runtime";
 import { mapRoles, sanitizeUrl } from "@/lib/utils";
 import { Option } from "@/types/workflow-form.types";
+import { parseLocationValue } from "@/lib/location-options";
 
 interface UseOverlaysOptions {
   enabled?: boolean;
@@ -46,7 +47,11 @@ const useOverlays = ({
   const params = new URLSearchParams();
 
   if (location) {
-    params.set("location", location);
+    const reference = parseLocationValue(location);
+    if (reference) {
+      params.set("location", reference.id);
+      if (reference.model) params.set("location_model", reference.model);
+    }
   }
   if (isolationType) {
     params.set("isolation_type", isolationType);

@@ -33,7 +33,15 @@ import { DEFAULT_SITE_WORKFLOW_STATUSES } from "@/lib/workflow-defaults";
 import { useRuntimeConfig } from "@/config/runtime";
 import { WorkflowFormField } from "@/components/forms/formfield";
 import { fetcher } from "@/lib/fetcher";
-import type { DeviceOption, Option } from "@/types/workflow-form.types";
+import {
+  resolveLocationFormValue,
+  resolveLocationOption,
+} from "@/lib/location-options";
+import type {
+  DeviceOption,
+  LocationOption,
+  Option,
+} from "@/types/workflow-form.types";
 
 const SitePasswordRotationWorkflowFormSchema = z.object({
   location: z.string().trim().min(1, { message: "Location is required" }),
@@ -127,13 +135,14 @@ const syncQueryValues = (
   queryStatuses: string[],
   queryTenant: string | null,
   envData: {
-    siteData: QueryOption[];
+    siteData: LocationOption[];
     rolesData: QueryOption[];
     statusData: QueryOption[];
     tenantsData: QueryOption[];
   }
 ) => {
-  setSingleQueryValue(form, queryLocation, envData.siteData, "location");
+  const locationValue = resolveLocationFormValue(envData.siteData, queryLocation);
+  if (locationValue) form.setValue("location", locationValue);
   setMultiQueryValue(form, queryRoles, envData.rolesData, "roles");
   setMultiQueryValue(form, queryStatuses, envData.statusData, "status");
   setSingleQueryValue(form, queryTenant, envData.tenantsData, "tenant");
@@ -362,9 +371,11 @@ export const SitePasswordRotationWorkflowForm = () => {
 
   const onSubmit = async (data: SitePasswordRotationFormData) => {
     setIsSubmitting(true);
-    
+    const location = resolveLocationOption(envData.siteData, data.location);
+
     const workflowParams: SitePasswordRotationWorkflowInput = {
-      location: data.location,
+      location: location?.id ?? data.location,
+      location_model: location?.model,
       selected_secret: data.selected_secret,
       roles: data.roles,
       status: data.status,
