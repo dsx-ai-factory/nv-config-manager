@@ -14,6 +14,7 @@ dependencies = [
     "py-markdown-table>=1.1.0",
     "pydantic>=2.10.2",
     "redis[hiredis]>=5.2.1",
+    "requests>=2.33.0",
     "temporalio>=1.29.0,<1.32.0",
 ]
 

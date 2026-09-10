@@ -12,20 +12,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Compatibility exports for the relocated Redfish client."""
+"""Reusable Redfish models, connections, and vendor dispatch."""
 
-from nv_config_manager.temporal.factories.redfish import get_bmc_creds
-from nv_config_manager.temporal.factories.redfish import (
-    get_config_manager_connection as create_config_manager_connection,
-)
-from nv_config_manager.temporal.factories.redfish import (
-    get_default_connection as create_default_connection,
-)
-from nv_config_manager_workflows.clients.redfish import (
-    Bluefield3RedfishConnection,
-    DellRedfishConnection,
-    LenovoRedfishConnection,
+from nv_config_manager_workflows.clients.redfish.base import (
+    RedfishClientSettings,
     RedfishConnection,
+)
+from nv_config_manager_workflows.clients.redfish.bluefield import Bluefield3RedfishConnection
+from nv_config_manager_workflows.clients.redfish.dell import DellRedfishConnection
+from nv_config_manager_workflows.clients.redfish.dispatch import (
+    get_config_manager_connection,
+    get_default_connection,
+)
+from nv_config_manager_workflows.clients.redfish.lenovo import LenovoRedfishConnection
+from nv_config_manager_workflows.clients.redfish.models import (
     RedfishDpu,
     RedfishDpuPort,
     RedfishHost,
@@ -34,27 +34,11 @@ from nv_config_manager_workflows.clients.redfish import (
     RedfishVendor,
 )
 
-
-def get_default_connection(redfish_host: RedfishHost) -> RedfishConnection:
-    """Preserve the legacy service entry point for a default connection."""
-    return create_default_connection(
-        redfish_host,
-        bmc_credentials=get_bmc_creds(),
-    )
-
-
-def get_config_manager_connection(redfish_host: RedfishHost) -> RedfishConnection:
-    """Preserve the legacy service entry point for a managed connection."""
-    return create_config_manager_connection(
-        redfish_host,
-        bmc_credentials=get_bmc_creds(),
-    )
-
-
 __all__ = [
     "Bluefield3RedfishConnection",
     "DellRedfishConnection",
     "LenovoRedfishConnection",
+    "RedfishClientSettings",
     "RedfishConnection",
     "RedfishDpu",
     "RedfishDpuPort",
@@ -62,7 +46,6 @@ __all__ = [
     "RedfishNic",
     "RedfishServer",
     "RedfishVendor",
-    "get_bmc_creds",
     "get_config_manager_connection",
     "get_default_connection",
 ]

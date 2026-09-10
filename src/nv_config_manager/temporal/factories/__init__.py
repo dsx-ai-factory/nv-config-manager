@@ -32,6 +32,10 @@ from nv_config_manager.temporal.factories.ticketing import (
 )
 from nv_config_manager.temporal.factories.ufm import UFMClientSettings, ufm_client_settings
 
+
+from nv_config_manager.temporal.factories.config_store import config_store_client_settings
+from nv_config_manager.temporal.factories.render import render_client_settings
+
 __all__ = [
     "DeviceConnectionSettings",
     "NatsClientSettings",
@@ -44,4 +48,6 @@ __all__ = [
     "redis_settings",
     "ticketing_client_settings",
     "ufm_client_settings",
+    "config_store_client_settings",
+    "render_client_settings",
 ]
