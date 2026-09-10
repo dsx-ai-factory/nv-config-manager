@@ -26,9 +26,11 @@
   - when: never
 
 # One job per image: bounds each artifact's size, parallelizes the builds and
-# uploads, and lets the promote side download by job id.
+# uploads, and lets the promote side download by job id. These jobs mutate no
+# external state, so a newer vetted snapshot can safely cancel the old build.
 pr-build-image:
   stage: build
+  interruptible: true
   timeout: 2h
   tags:
     - dgxc-corp-restricted
@@ -120,9 +122,11 @@ pr-build-image:
 # `helm dependency build`, which fetches subcharts from PR-controlled Chart.yaml
 # URLs), so it must NOT run in the credentialed promote pipeline. Promote only
 # downloads this .tgz, validates its render, and publishes it - never rebuilds
-# from PR source.
+# from PR source. Like the image builds, this job only uploads an artifact and
+# is safe to cancel when a newer vetted snapshot arrives.
 pr-build-chart:
   stage: build
+  interruptible: true
   timeout: 30m
   # Restricted, isolated runners for untrusted PR builds (no privileged access
   # to the internal DCA fleet). Protected promote jobs stay on the dca runners.
