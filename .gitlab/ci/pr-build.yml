@@ -29,6 +29,7 @@
 # uploads, and lets the promote side download by job id.
 pr-build-image:
   stage: build
+  timeout: 2h
   tags:
     - dgxc-corp-restricted
     - docker
@@ -122,6 +123,7 @@ pr-build-image:
 # from PR source.
 pr-build-chart:
   stage: build
+  timeout: 30m
   # Restricted, isolated runners for untrusted PR builds (no privileged access
   # to the internal DCA fleet). Protected promote jobs stay on the dca runners.
   tags:

@@ -26,6 +26,7 @@
 # Template for airgapped jobs using containerd
 .airgapped-template:
   image: $NVCM_CI_IMAGE_UBUNTU
+  timeout: 3h
   variables:
     <<: *airgapped-variables
   before_script:
@@ -64,6 +65,8 @@
 check:airgapped-prerequisites:
   extends: .airgapped-template
   stage: prepare-airgapped
+  interruptible: true
+  timeout: 15m
   tags:
     - dca
     - linux/amd64
@@ -141,6 +144,7 @@ build:airgapped:
 # Build for release tags (MANUAL - click play button to trigger)
 build:airgapped-release:
   extends: build:airgapped
+  interruptible: false
   variables:
     <<: *airgapped-variables
     AIRGAPPED_VERSION: "${CI_COMMIT_TAG}"
@@ -153,6 +157,8 @@ build:airgapped-release:
 test:airgapped-extract:
   extends: .airgapped-template
   stage: test-airgapped
+  interruptible: true
+  timeout: 1h
   tags:
     - dca
     - linux/amd64
@@ -222,6 +228,8 @@ test:airgapped-extract:
 test:airgapped-checksum:
   extends: .airgapped-template
   stage: test-airgapped
+  interruptible: true
+  timeout: 30m
   tags:
     - dca
     - linux/amd64
@@ -247,6 +255,8 @@ test:airgapped-checksum:
 test:airgapped-helm-lint:
   extends: .airgapped-template
   stage: test-airgapped
+  interruptible: true
+  timeout: 30m
   tags:
     - dca
     - linux/amd64
@@ -301,6 +311,8 @@ test:airgapped-helm-lint:
 test:airgapped-load-images:
   extends: .airgapped-template
   stage: test-airgapped
+  interruptible: true
+  timeout: 1h
   tags:
     - dca
     - linux/amd64
@@ -403,6 +415,8 @@ test:airgapped-load-images:
 # Upload to S3 (both amd64 and arm64 tarballs)
 publish:airgapped-s3:
   stage: build-airgapped
+  interruptible: false
+  timeout: 1h
   tags:
     - dca
     - linux/amd64
@@ -482,6 +496,8 @@ publish:airgapped-s3:
 # Prepare release information
 prepare:airgapped-release-info:
   stage: publish-airgapped
+  interruptible: false
+  timeout: 15m
   tags:
     - dca
     - linux/amd64
@@ -520,6 +536,8 @@ prepare:airgapped-release-info:
 # Upload to S3 for release tags
 publish:airgapped-s3-release:
   stage: publish-airgapped
+  interruptible: false
+  timeout: 1h
   tags:
     - dca
     - linux/amd64
@@ -581,6 +599,8 @@ publish:airgapped-s3-release:
 # Print S3 download links without creating Git tags in the mirror.
 publish:airgapped-release:
   stage: publish-airgapped
+  interruptible: false
+  timeout: 15m
   tags:
     - dca
     - linux/amd64

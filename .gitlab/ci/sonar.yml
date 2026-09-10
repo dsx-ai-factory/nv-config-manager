@@ -24,6 +24,7 @@
 
 sonar-scanner:
   stage: sonar
+  timeout: 1h
   tags:
     - dca
     - linux/amd64
@@ -95,6 +96,7 @@ sonar-scanner:
 
 sonarqube-vulnerability-report:
   stage: sonar
+  timeout: 15m
   tags:
     - dca
     - linux/amd64
