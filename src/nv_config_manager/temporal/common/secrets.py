@@ -35,13 +35,12 @@ from functools import lru_cache
 from nv_config_manager.common.ini import FileFingerprint, file_fingerprint
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager_workflows.secrets import (
-    CredentialConfig,
-    CredentialSection,
-    get_site_slug,  # noqa: F401  # re-exported for callers of this module
-    select_credential_source,
+    get_credential as _get_credential,
 )
 from nv_config_manager_workflows.secrets import (
-    get_rotation_passwords as _get_rotation_passwords,
+    get_rotation_passwords,
+    get_site_slug,
+    select_credential_source,
 )
 
 logger = get_logger(__name__, category=LogCategory.AUTH)
@@ -87,12 +86,6 @@ def clear_secrets_cache() -> None:
     _load_secrets_config.cache_clear()
 
 
-def _as_credential_config(config: ConfigParser) -> CredentialConfig:
-    """Convert a parsed service configuration into nested plain mappings."""
-    section_names: list[str] = config.sections()
-    return {section: dict(config[section]) for section in section_names}
-
-
 def resolve_credential_source(
     main_config: ConfigParser,
     section: str,
@@ -114,60 +107,11 @@ def resolve_credential_source(
         Tuple of (config_to_use, section_name) for credential lookup
     """
     secrets_config, secrets_found = load_secrets_config()
-    main_mapping = _as_credential_config(main_config)
-    secrets_mapping = _as_credential_config(secrets_config) if secrets_found else None
-    selected, resolved_section = select_credential_source(
-        main_mapping,
-        secrets_mapping,
+    return select_credential_source(
+        main_config,
+        secrets_config if secrets_found else None,
         section,
         site,
-    )
-
-    if secrets_mapping is not None and selected is secrets_mapping:
-        logger.debug("Using site-specific secrets config section: [%s]", resolved_section)
-        return secrets_config, resolved_section
-
-    logger.debug("Using global [%s] section from main config", section)
-    return main_config, section
-
-
-def resolve_credentials(
-    main_config: ConfigParser,
-    section: str,
-    site: str | None = None,
-) -> CredentialSection:
-    """Return resolved credentials while preserving service-side file loading."""
-    selected, resolved_section = resolve_credential_source(main_config, section, site)
-    if selected.has_section(resolved_section):
-        return dict(selected[resolved_section])
-    return {}
-
-
-def get_rotation_passwords(
-    config: ConfigParser,
-    section: str,
-    key_prefix: str = "api_user_key_r",
-    max_passwords: int = 2,
-) -> list[str]:
-    """Get rotation passwords from a config section.
-
-    Parses keys matching the pattern {key_prefix}{revision_number} and returns
-    the passwords sorted by revision number (newest first).
-
-    Args:
-        config: Configuration object
-        section: The config section to read from
-        key_prefix: Prefix for rotation keys (default: "api_user_key_r")
-        max_passwords: Maximum number of passwords to return (default: 2)
-
-    Returns:
-        List of passwords sorted by revision (newest first), up to max_passwords
-    """
-    return _get_rotation_passwords(
-        _as_credential_config(config),
-        section,
-        key_prefix=key_prefix,
-        max_passwords=max_passwords,
     )
 
 
@@ -193,12 +137,20 @@ def get_credential(
     Returns:
         The credential value or default if not found
     """
-    selected, resolved_section = resolve_credential_source(main_config, section, site)
-    if selected.has_section(resolved_section):
-        value = selected[resolved_section].get(key, "")
-        if value:
-            return value
+    secrets_config, secrets_found = load_secrets_config()
+    return _get_credential(
+        main_config,
+        secrets_config if secrets_found else None,
+        section,
+        key,
+        site,
+        default,
+    )
 
-    if selected is not main_config and main_config.has_section(section):
-        return main_config[section].get(key, default)
-    return default
+
+__all__ = [
+    "get_credential",
+    "get_rotation_passwords",
+    "get_site_slug",
+    "resolve_credential_source",
+]

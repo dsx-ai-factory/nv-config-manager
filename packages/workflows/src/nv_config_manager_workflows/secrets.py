@@ -35,34 +35,22 @@ def get_site_slug(site: str) -> str:
     return site.lower().replace(" ", "-")
 
 
-def select_credential_source(
-    main_config: CredentialConfig,
-    secrets_config: CredentialConfig | None,
+def select_credential_source[T: CredentialConfig](
+    main_config: T,
+    secrets_config: T | None,
     section: str,
     site: str | None = None,
-) -> tuple[CredentialConfig, str]:
+) -> tuple[T, str]:
     """Select a site-specific secrets section or the global main section."""
-    if site and secrets_config is not None:
+    if site and secrets_config:
         site_section = f"site.{get_site_slug(site)}"
         if site_section in secrets_config:
+            logger.debug("Using site-specific secrets config section: [%s]", site_section)
             return secrets_config, site_section
+
+    # Fallback: main config section
+    logger.debug("Using global [%s] section from main config", section)
     return main_config, section
-
-
-def resolve_credentials(
-    main_config: CredentialConfig,
-    secrets_config: CredentialConfig | None,
-    section: str,
-    site: str | None = None,
-) -> CredentialSection:
-    """Return the selected credential section, or an empty mapping when absent."""
-    config, resolved_section = select_credential_source(
-        main_config,
-        secrets_config,
-        section,
-        site,
-    )
-    return config[resolved_section] if resolved_section in config else {}
 
 
 def get_credential(
@@ -85,9 +73,14 @@ def get_credential(
         if value:
             return value
 
+    # If we got a site-specific section but key wasn't there, try global section
     if site and resolved_section.startswith("site."):
-        global_section: CredentialSection = main_config[section] if section in main_config else {}
-        return global_section.get(key, default)
+        config, resolved_section = select_credential_source(
+            main_config, secrets_config, section, None
+        )
+        if resolved_section in config:
+            return config[resolved_section].get(key, default)
+
     return default
 
 
@@ -97,7 +90,20 @@ def get_rotation_passwords(
     key_prefix: str = "api_user_key_r",
     max_passwords: int = 2,
 ) -> list[str]:
-    """Return numbered rotation values ordered from newest to oldest."""
+    """Get rotation passwords from a config section.
+
+    Parses keys matching the pattern {key_prefix}{revision_number} and returns
+    the passwords sorted by revision number (newest first).
+
+    Args:
+        config: Configuration object
+        section: The config section to read from
+        key_prefix: Prefix for rotation keys (default: "api_user_key_r")
+        max_passwords: Maximum number of passwords to return (default: 2)
+
+    Returns:
+        List of passwords sorted by revision (newest first), up to max_passwords
+    """
     if section not in config:
         return []
 
@@ -109,7 +115,7 @@ def get_rotation_passwords(
             revision = int(key[len(key_prefix) :])
             logger.debug("Found rotation key: %s (revision %d) in [%s]", key, revision, section)
             rotations.append((revision, value))
-        except ValueError:
+        except (ValueError, IndexError):
             logger.debug("Skipping invalid rotation key: %s", key)
 
     # Sort by revision number (highest first = most recent)
