@@ -317,10 +317,20 @@ async def _sync_kea_configuration_async(
         # so that secrets are not stored in the Redis cache
         config = inject_lease_db_config(config, ip_version)
 
-        # Run once. The startup path always applies the desired Redis config and
-        # captures a fresh effective hash, which keeps a config-sync restart safe.
+        # Apply once Redis has a config. Kea in this pod may still be coming
+        # up, so a connection error or bounded timeout must not exit the
+        # sidecar -- same recoverable contract as the Redis wait above.
         logger.info(f"Setting initial KEA DHCPv{ip_version} Configuration from Redis.")
-        expected_hash = await _apply_and_verify_kea_config(kea_client, config, ip_version)
+        expected_hash: str | None = None
+        while True:
+            try:
+                expected_hash = await _apply_and_verify_kea_config(kea_client, config, ip_version)
+                break
+            except Exception as exc:
+                DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
+                logger.error(f"Error applying the initial KEA config: {exc}")
+                touch_heartbeat(heartbeat_file)
+                await asyncio.sleep(1)
         record_successful_reconciliation()
         # Seed the heartbeat immediately so the liveness probe has a fresh
         # marker before the first monitoring iteration completes.

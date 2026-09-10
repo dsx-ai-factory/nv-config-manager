@@ -340,3 +340,43 @@ async def test_startup_survives_a_hung_redis_call(sync_env, _startup_failure, mo
 
     assert _error_count() == before + 1
     assert sync_env.record.call_count == 2
+
+
+async def test_startup_survives_a_kea_outage(sync_env, _startup_failure) -> None:
+    """Kea being down before the first apply must not exit into CrashLoopBackOff."""
+    before = _error_count()
+    sync_env.redis.load_kea_config = AsyncMock(side_effect=[CONFIG, CONFIG])
+    sync_env.kea.set_config = AsyncMock(side_effect=[ConnectionError("kea down"), "HASH"])
+
+    with pytest.raises(_StopLoop):
+        await cli._sync_kea_configuration_async(4, 10, False, sync_env.hb)
+
+    # The outage was counted as recoverable, and the loop went on to reconcile
+    # twice (initial apply plus one monitoring iteration) once Kea came up.
+    assert _error_count() == before + 1
+    assert sync_env.record.call_count == 2
+    # Seed + retry touch + post-apply + monitoring iteration.
+    assert sync_env.touch.call_count == 4
+
+
+async def test_startup_survives_a_hung_kea_call(sync_env, _startup_failure, mocker) -> None:
+    """The bounded apply's TimeoutError is recoverable on the startup path too."""
+    before = _error_count()
+    mocker.patch.object(cli, "KEA_OP_TIMEOUT_SECONDS", 0.05)
+    sync_env.redis.load_kea_config = AsyncMock(side_effect=[CONFIG, CONFIG])
+
+    calls = {"n": 0}
+
+    async def set_config(*_args, **_kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            await asyncio.Event().wait()
+        return "HASH"
+
+    sync_env.kea.set_config = set_config
+
+    with pytest.raises(_StopLoop):
+        await cli._sync_kea_configuration_async(4, 10, False, sync_env.hb)
+
+    assert _error_count() == before + 1
+    assert sync_env.record.call_count == 2

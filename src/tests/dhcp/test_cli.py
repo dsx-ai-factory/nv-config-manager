@@ -153,8 +153,8 @@ async def test_redis_changed_reapplies_new_config(mocker: Any) -> None:
     ]
 
 
-async def test_config_set_failure_propagates(mocker: Any) -> None:
-    """A failed initial config-set aborts the sync loop with a KeaException."""
+async def test_config_set_failure_does_not_abort_sync(mocker: Any) -> None:
+    """A failed initial config-set is retried instead of crashing the sidecar."""
     load_kea_config = AsyncMock(return_value=DESIRED_CONFIG)
     set_config = AsyncMock(side_effect=KeaException("Failed to set configuration: boom"))
     get_config_hash = AsyncMock(return_value="HASH_A")
@@ -165,11 +165,15 @@ async def test_config_set_failure_propagates(mocker: Any) -> None:
         get_config_hash=get_config_hash,
     )
     _patch_sleep_to_break(mocker)
+    metric = mocker.patch.object(cli, "DHCP_CACHE_REFRESH_ERRORS", MagicMock())
 
-    with pytest.raises(KeaException, match="Failed to set configuration: boom"):
+    # Reaching the retry sleep proves the exception was swallowed.
+    with pytest.raises(_StopLoop):
         await cli._sync_kea_configuration_async(ip_version=4, refresh_interval=5, debug=False)
 
     get_config_hash.assert_not_awaited()
+    metric.labels.assert_called_once_with(ip_version="4")
+    metric.labels.return_value.inc.assert_called_once()
     kea_client.close.assert_awaited_once()
     redis_client.close.assert_awaited_once()
 
