@@ -24,6 +24,7 @@ from nv_config_manager.temporal.common.secrets import (
     get_rotation_passwords,
     resolve_credential_source,
 )
+from nv_config_manager_workflows.clients.ufm import UFMSSL, UFMClient
 
 
 class UFMClientSettings(TypedDict):
@@ -54,3 +55,27 @@ def ufm_client_settings(
         max_passwords=max_passwords,
     )
     return {"username": username, "passwords": passwords}
+
+
+def create_ufm_client(
+    host: str,
+    config: ConfigParser | None = None,
+    *,
+    site: str | None = None,
+    max_passwords: int = 2,
+    ssl: UFMSSL = False,
+    timeout_seconds: int = 30,
+) -> UFMClient:
+    """Construct a reusable UFM client from service-owned configuration."""
+    settings = ufm_client_settings(
+        config,
+        site=site,
+        max_passwords=max_passwords,
+    )
+    return UFMClient(
+        base_url=f"https://{host}/ufmRest",
+        username=settings["username"],
+        passwords=settings["passwords"],
+        ssl=ssl,
+        timeout_seconds=timeout_seconds,
+    )
