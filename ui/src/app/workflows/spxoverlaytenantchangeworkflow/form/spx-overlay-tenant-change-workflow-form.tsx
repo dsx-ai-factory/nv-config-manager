@@ -131,7 +131,11 @@ export const SpXOverlayTenantChangeWorkflowForm = () => {
     if (!siteIsLoading && querySite) {
       const siteValue = resolveLocationFormValue(sites, querySite);
       if (siteValue) {
-        if (!form.getValues("site")) {
+        const currentSite = form.getValues("site");
+        if (
+          currentSite !== siteValue &&
+          (!currentSite || currentSite === querySite)
+        ) {
           form.setValue("site", siteValue);
         }
       } else {

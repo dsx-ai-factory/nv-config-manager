@@ -98,8 +98,11 @@ export const SpXOverlayCreationWorkflowForm = () => {
     if (!siteIsLoading && sites && querySite) {
       const siteValue = resolveLocationFormValue(sites, querySite);
       if (siteValue) {
-        // Set the site value if it exists and the form value is empty
-        if (!form.getValues("site")) {
+        const currentSite = form.getValues("site");
+        if (
+          currentSite !== siteValue &&
+          (!currentSite || currentSite === querySite)
+        ) {
           form.setValue("site", siteValue);
         }
       } else {
