@@ -14,6 +14,7 @@
 # limitations under the License.
 """Activities that reissue and replace device certificates by stable NVUE ID."""
 
+import re
 from contextlib import closing
 from ipaddress import IPv4Address
 
@@ -26,6 +27,18 @@ from temporalio.exceptions import ApplicationError
 from nv_config_manager.temporal.client.device import CumulusConnection, NetworkConnection
 from nv_config_manager.temporal.client.device.exceptions import NetworkDeviceException
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
+
+_MINIMUM_CERTIFICATE_ROTATION_VERSION = (5, 16, 0)
+
+
+def _supports_certificate_rotation(version: str | None) -> bool:
+    """Return whether a Cumulus release supports the required NVUE actions."""
+    if version is None:
+        return False
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version.strip())
+    if match is None:
+        return False
+    return tuple(int(part) for part in match.groups()) >= _MINIMUM_CERTIFICATE_ROTATION_VERSION
 
 
 class RotateDeviceCertificatesInput(BaseModel):
@@ -51,6 +64,13 @@ def rotate_device_certificates(
     if device.platform != Platform.CUMULUS_LINUX:
         raise ApplicationError(
             f"Certificate rotation is not implemented for platform {device.platform}",
+            non_retryable=True,
+        )
+    if not _supports_certificate_rotation(ztp_device.firmware_version):
+        version = ztp_device.firmware_version or "unknown"
+        raise ApplicationError(
+            f"Certificate rotation requires Cumulus Linux 5.16.0 or newer; "
+            f"device {device.name} targets {version}",
             non_retryable=True,
         )
     if not ztp_device.ztp_servers:

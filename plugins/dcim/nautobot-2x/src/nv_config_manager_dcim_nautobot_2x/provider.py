@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable, Mapping
 from ipaddress import IPv4Address
 from typing import Any, Self
@@ -59,6 +60,19 @@ from nv_config_manager_dcim_nautobot_2x.render import build_render_data
 from nv_config_manager_dcim_nautobot_2x.workflow import NautobotWorkflowClient
 
 logger = logging.getLogger(__name__)
+
+_MINIMUM_CERTIFICATE_ROTATION_VERSION = (5, 16, 0)
+
+
+def _supports_certificate_rotation(version: object) -> bool:
+    """Return whether a Cumulus version supports the certificate rotation actions."""
+    if not isinstance(version, str):
+        return False
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version.strip())
+    if match is None:
+        return False
+    return tuple(int(part) for part in match.groups()) >= _MINIMUM_CERTIFICATE_ROTATION_VERSION
+
 
 _ZTP_DEVICE_QUERY = load_graphql_query("provider/devices.graphql", "GetZTPDevice")
 _RENDER_DEVICE_STATUS_QUERY = load_graphql_query(
@@ -735,6 +749,9 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 if certificates:
                     if not isinstance(certificates, list):
                         raise TypeError("certificates must be a list")
+                    firmware = context.get("intended-firmware") or {}
+                    if not _supports_certificate_rotation(firmware.get("version")):
+                        continue
                     certificate_device_ids.add(str(device["id"]))
         except (AttributeError, KeyError, TypeError) as exc:
             raise DCIMInvalidDataError(

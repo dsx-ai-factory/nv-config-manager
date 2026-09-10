@@ -114,10 +114,11 @@ retry_curl --fail -H "Content-Type: application/json" -d "$JSON_PAYLOAD" \
 http://192.0.2.10/v1/device/696e142c-ff53-4b3a-9724-3d509a1eb73b/validate_serial
 #Load configuration from ZTP server
 rm -f /tmp/startup.yaml
-retry_command nv action fetch system file-path /tmp/startup.yaml \
-  uri sftp://ztp:ztp@192.0.2.10:2222/device/696e142c-ff53-4b3a-9724-3d509a1eb73b/startup.yaml \
-  file-permissions 600 \
-  vrf mgmt
+retry_command ip vrf exec mgmt curl --fail --silent --show-error --insecure \
+  --user ztp:ztp \
+  --output /tmp/startup.yaml \
+  sftp://192.0.2.10:2222/device/696e142c-ff53-4b3a-9724-3d509a1eb73b/startup.yaml
+chmod 600 /tmp/startup.yaml
 nv config replace /tmp/startup.yaml
 nv config apply -y
 #Reload DHCP to workaround Cumulus 5.11.0 bug 4423269

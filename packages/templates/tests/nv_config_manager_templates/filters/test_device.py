@@ -89,6 +89,7 @@ from nv_config_manager_templates.filters.device import (
     router_id,
     site_name,
     spx_subnets,
+    supports_nvue_file_fetch,
     syslog_servers,
     users,
     uuid,
@@ -386,6 +387,25 @@ def test_ztp_vrf_defaults_when_eth0_has_no_address(public_leaf_data: dict) -> No
     data = public_leaf_data.model_copy(update={"interfaces": interfaces_without_eth0_address})
 
     assert ztp_vrf(data) == "default"
+
+
+@pytest.mark.parametrize(
+    ("firmware_version", "supported"),
+    [("5.14.0", False), ("5.15.1", False), ("5.16.0", True), ("5.16.1", True)],
+)
+def test_nvue_file_fetch_version_support(
+    public_leaf_data: dict, firmware_version: str, supported: bool
+) -> None:
+    """VRF-aware NVUE file fetches are rendered only for supported releases."""
+    data = public_leaf_data.model_copy(
+        update={
+            "firmware": public_leaf_data.firmware.model_copy(
+                update={"desired_version": firmware_version}
+            )
+        }
+    )
+
+    assert supports_nvue_file_fetch(data) is supported
 
 
 def test_gni_context_helpers(public_leaf_data: dict) -> None:

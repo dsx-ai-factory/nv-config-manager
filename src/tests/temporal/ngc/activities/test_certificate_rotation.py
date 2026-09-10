@@ -58,8 +58,11 @@ def _ztp_device() -> ZTPDevice:
     )
 
 
+@pytest.mark.parametrize("firmware_version", ["5.16.0", "5.16.1"])
 @patch("nv_config_manager.temporal.ngc.activities.certificate_rotation.NetworkConnection")
-def test_rotation_reimports_each_assigned_certificate(mock_network_connection) -> None:
+def test_rotation_reimports_each_assigned_certificate(
+    mock_network_connection, firmware_version
+) -> None:
     """The nightly activity reuses stable IDs and the source-IP-authenticated endpoint."""
     connection = CumulusConnection.__new__(CumulusConnection)
     connection.fetch_file = MagicMock()
@@ -71,7 +74,7 @@ def test_rotation_reimports_each_assigned_certificate(mock_network_connection) -
     result = rotate_device_certificates(
         RotateDeviceCertificatesInput(
             device_data=_network_device(),
-            ztp_device=_ztp_device(),
+            ztp_device=_ztp_device().model_copy(update={"firmware_version": firmware_version}),
         )
     )
 
@@ -95,6 +98,25 @@ def test_rotation_reimports_each_assigned_certificate(mock_network_connection) -
     assert connection.delete_file.call_args_list == [((ca_path,), {}), ((client_path,), {})]
     assert result.certificate_ids == ("otel-ca", "otel-client")
     connection.close.assert_called_once_with()
+
+
+@pytest.mark.parametrize("firmware_version", [None, "5.14.0", "5.15.1", "invalid"])
+@patch("nv_config_manager.temporal.ngc.activities.certificate_rotation.NetworkConnection")
+def test_rotation_rejects_unsupported_cumulus_versions(
+    mock_network_connection, firmware_version
+) -> None:
+    """Rotation must not send file actions to unsupported Cumulus releases."""
+    ztp_device = _ztp_device().model_copy(update={"firmware_version": firmware_version})
+
+    with pytest.raises(ApplicationError, match="requires Cumulus Linux 5.16.0 or newer"):
+        rotate_device_certificates(
+            RotateDeviceCertificatesInput(
+                device_data=_network_device(),
+                ztp_device=ztp_device,
+            )
+        )
+
+    mock_network_connection.from_device_data.assert_not_called()
 
 
 @patch("nv_config_manager.temporal.ngc.activities.certificate_rotation.NetworkConnection")

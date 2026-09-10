@@ -173,13 +173,15 @@ that device-facing load balancer, but does not require its optional TCP 443
 listener or a ZTP TLS certificate.
 
 The default Cumulus boot script also stages `startup.yaml` through SFTP with
-mode `0600` before applying it, and the default NVOS ZTP manifests use SFTP for
-rendered commands and configuration. This protects embedded BGP, RADIUS,
-TACACS+, and other configuration secrets that were previously retrieved over
-HTTP. The Cumulus boot script itself remains available over private-network
-HTTP for zero-trust bootstrap compatibility and contains the salted
-`sha512-crypt` verifier for the temporary breakglass account, not its plaintext
-password.
+mode `0600` before applying it. Cumulus 5.16 and later use the VRF-aware NVUE
+file fetch action. Earlier releases use `curl`'s SFTP transport under
+`ip vrf exec` because their NVUE file action does not support this operation.
+The default NVOS ZTP manifests also use SFTP for rendered commands and
+configuration. This protects embedded BGP, RADIUS, TACACS+, and other
+configuration secrets that were previously retrieved over HTTP. The Cumulus
+boot script itself remains available over private-network HTTP for zero-trust
+bootstrap compatibility and contains the salted `sha512-crypt` verifier for
+the temporary breakglass account, not its plaintext password.
 
 The HTTP API also exposes this device endpoint:
 
@@ -257,7 +259,8 @@ Cumulus Linux 5.16 exposes a `vrf` parameter on the generic file fetch action,
 but not on the certificate import actions. Config Manager therefore fetches
 through the correct VRF, imports from the local file, and deletes the temporary
 file after either a successful import or an import failure. The same staged
-flow is used for ZTP and nightly rotation.
+flow is used for ZTP and nightly rotation. Version 5.16.0 is the API capability
+floor; Config Manager's end-to-end qualification uses 5.16.1.
 
 The bundled Nautobot provider selects `mgmt` when `eth0` has an assigned IPv4
 or IPv6 address and `default` otherwise. Other DCIM providers return the
@@ -287,14 +290,17 @@ The stable IDs in this stanza must match the DCIM certificate assignments.
 ## Rotation behavior
 
 The dedicated certificate rotation scheduler creates a daily certificate
-workflow for every device returned by the selected DCIM provider's
-certificate-enabled device query. It runs independently from the backup
-scheduler at 02:00 UTC with up to two hours of jitter. Each run reloads current
-DCIM intent and tells the Cumulus switch to fetch every assigned certificate
-from the SFTP proxy into a temporary file using the device's ZTP VRF, import it
-into the same stable NVUE ID, and delete the temporary file. A failure for one
-ID is recorded without preventing the remaining assigned certificates from
-being attempted.
+workflow for every Cumulus 5.16-or-newer device returned by the selected DCIM
+provider's certificate-enabled device query. It runs independently from the
+backup scheduler at 02:00 UTC with up to two hours of jitter. Each run reloads
+current DCIM intent and validates the firmware capability before telling the
+switch to fetch every assigned certificate from the SFTP proxy into a temporary
+file using the device's ZTP VRF, import it into the same stable NVUE ID, and
+delete the temporary file. A failure for one ID is recorded without preventing
+the remaining assigned certificates from being attempted. Cumulus releases
+before 5.16 are not scheduled and are rejected by the activity's defensive
+validation because neither the required certificate workflow nor OTLP export is
+supported there.
 
 Firewalls and security groups must allow the Config Manager cluster to reach
 the switch's NVUE API on TCP 8765 and allow the switch to reach the ZTP SFTP

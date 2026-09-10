@@ -115,9 +115,20 @@ async def test_certificate_enabled_devices_are_selected_from_context():
                         "id": "with-cert",
                         "platform": {"name": "Cumulus Linux"},
                         "config_context": {
+                            "intended-firmware": {"version": "5.16.0"},
                             "certificates": [
                                 {"id": "otel-client", "source": "telemetry", "kind": "identity"}
-                            ]
+                            ],
+                        },
+                    }
+                },
+                {
+                    "device": {
+                        "id": "old-cumulus",
+                        "platform": {"name": "Cumulus Linux"},
+                        "config_context": {
+                            "intended-firmware": {"version": "5.14.0"},
+                            "certificates": [{"id": "client", "source": "pki", "kind": "identity"}],
                         },
                     }
                 },
