@@ -24,8 +24,7 @@ Code under test:
 HTTP responses are intercepted via aioresponses — no real connections are made.
 """
 
-from configparser import ConfigParser
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from aioresponses import aioresponses
@@ -76,27 +75,14 @@ def test_attachment_size_limit_is_ten_mebibytes():
 
 
 def test_from_config_resolves_jira_credentials():
-    """The legacy constructor resolves both Jira settings from service config."""
-    config = ConfigParser()
-    config.add_section("jira")
-
-    with (
-        patch(
-            "nv_config_manager.temporal.client.jira.load_config",
-            return_value=config,
-        ) as load_config,
-        patch(
-            "nv_config_manager.temporal.client.jira.get_credential",
-            side_effect=[BASE_URL, API_TOKEN],
-        ) as get_credential,
-    ):
+    """The legacy constructor delegates configuration to the service adapter."""
+    with patch(
+        "nv_config_manager.temporal.client.jira.ticketing_client_settings",
+        return_value={"base_url": BASE_URL, "api_token": API_TOKEN},
+    ) as ticketing_client_settings:
         provider = JiraTicketingProvider.from_config()
 
-    load_config.assert_called_once_with()
-    assert get_credential.call_args_list == [
-        call(config, "jira", "base_url"),
-        call(config, "jira", "api_token"),
-    ]
+    ticketing_client_settings.assert_called_once_with(platform="jira")
     assert provider._base_url == BASE_URL
     assert provider._headers["Authorization"] == f"Bearer {API_TOKEN}"
 
@@ -107,7 +93,7 @@ async def test_session_uses_current_timeout_contract():
     session.close = AsyncMock()
 
     with patch(
-        "nv_config_manager.temporal.client.jira.aiohttp.ClientSession",
+        "nv_config_manager_workflows.clients.ticketing.jira.aiohttp.ClientSession",
         return_value=session,
     ) as client_session:
         async with _make_provider() as provider:
