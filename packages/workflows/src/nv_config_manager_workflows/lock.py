@@ -17,13 +17,11 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
+from redis.asyncio import Redis
 from redis.asyncio.lock import Lock as AsyncRedisLock
 from redis.exceptions import LockError, LockNotOwnedError
-
-if TYPE_CHECKING:
-    from redis.asyncio import Redis
 
 log = logging.getLogger(__name__)
 

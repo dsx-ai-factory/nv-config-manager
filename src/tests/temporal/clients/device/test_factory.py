@@ -16,8 +16,8 @@
 from configparser import ConfigParser
 from unittest.mock import patch
 
-from nv_config_manager_dcim.workflow_models import Platform
 import pytest
+from nv_config_manager_dcim.workflow_models import Platform
 
 from nv_config_manager.temporal.client.device import (
     CumulusConnection,
