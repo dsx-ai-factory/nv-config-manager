@@ -258,6 +258,32 @@ async def test_dcim_persistence_keeps_report_visible_until_complete():
 
 
 @pytest.mark.asyncio
+async def test_dcim_persistence_failure_preserves_report_and_propagates_error():
+    pending = UpdateCableStatusesInput(
+        device_id="device-1", cable_statuses={"p": CableStatus.CONNECTED}, workflow_id="workflow-1"
+    )
+    markdown = "| Device | Issue |\n| --- | --- |\n| leaf-1 | Link down |\n\n[Excel](report.xlsx)"
+    report = SiteCableValidationWorkflow.FormatResultStageOutput(display=markdown)
+    instance = MagicMock(spec=SiteCableValidationWorkflow)
+    error = ApplicationError("DCIM unavailable")
+    instance.persist_cable_statuses = AsyncMock(side_effect=error)
+
+    with pytest.raises(ApplicationError) as raised:
+        await SiteCableValidationWorkflow.persist_cable_statuses_after_report(
+            instance, "format_result", report, [pending]
+        )
+
+    assert raised.value is error
+    stage_name, output = instance.set_stage_output.call_args.args
+    assert stage_name == "format_result"
+    assert output.display.startswith(markdown)
+    assert "persistence failed" in output.display
+    assert "partially updated" in output.display
+    assert "still running" not in output.display
+    assert report.display == markdown
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("timeout_enabled", [False, True])
 async def test_site_records_child_timeout_and_continues(timeout_enabled):
     device = NetworkDeviceData.model_construct(id="device-1", name="leaf-1")

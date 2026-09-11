@@ -208,7 +208,21 @@ class CableStatusPersistenceMixin(StageMixin):
                 update={"display": report_output.display + DCIM_PERSISTENCE_PENDING_MESSAGE}
             ),
         )
-        await self.persist_cable_statuses(updates)
+        try:
+            await self.persist_cable_statuses(updates)
+        except Exception:
+            self.set_stage_output(
+                stage_name,
+                report_output.model_copy(
+                    update={
+                        "display": report_output.display
+                        + "\n\n> **DCIM cable status persistence failed. The validation report "
+                        "is still available, but cable statuses may only be partially updated. "
+                        "Resolve the DCIM error and rerun cable validation.**"
+                    }
+                ),
+            )
+            raise
         self.set_stage_output(stage_name, report_output)
 
 
