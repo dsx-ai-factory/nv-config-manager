@@ -20,7 +20,7 @@ import json
 import logging
 from collections.abc import Sequence
 from ssl import SSLContext
-from typing import Any
+from typing import Any, Self
 from urllib.parse import urlsplit
 
 import aiohttp
@@ -88,7 +88,7 @@ class UFMClient:
         timeout = aiohttp.ClientTimeout(total=self._timeout_seconds)
         return aiohttp.ClientSession(auth=auth, timeout=timeout)
 
-    async def __aenter__(self) -> UFMClient:
+    async def __aenter__(self) -> Self:
         """Enter the asynchronous context manager."""
         return self
 
