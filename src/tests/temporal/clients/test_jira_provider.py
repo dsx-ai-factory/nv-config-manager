@@ -24,6 +24,9 @@ Code under test:
 HTTP responses are intercepted via aioresponses — no real connections are made.
 """
 
+from configparser import ConfigParser
+from unittest.mock import AsyncMock, MagicMock, call, patch
+
 import pytest
 from aioresponses import aioresponses
 from temporalio import workflow
@@ -65,6 +68,59 @@ def test_init_sets_bearer_auth_header():
     """Authorization header uses Bearer scheme with the provided token."""
     provider = JiraTicketingProvider(base_url=BASE_URL, api_token="my-token")
     assert provider._headers["Authorization"] == "Bearer my-token"
+
+
+def test_attachment_size_limit_is_ten_mebibytes():
+    """The activity reports this limit and rejects larger bundles."""
+    assert JiraTicketingProvider.max_attachment_size == 10 * 1024 * 1024
+
+
+def test_from_config_resolves_jira_credentials():
+    """The legacy constructor resolves both Jira settings from service config."""
+    config = ConfigParser()
+    config.add_section("jira")
+
+    with (
+        patch(
+            "nv_config_manager.temporal.client.jira.load_config",
+            return_value=config,
+        ) as load_config,
+        patch(
+            "nv_config_manager.temporal.client.jira.get_credential",
+            side_effect=[BASE_URL, API_TOKEN],
+        ) as get_credential,
+    ):
+        provider = JiraTicketingProvider.from_config()
+
+    load_config.assert_called_once_with()
+    assert get_credential.call_args_list == [
+        call(config, "jira", "base_url"),
+        call(config, "jira", "api_token"),
+    ]
+    assert provider._base_url == BASE_URL
+    assert provider._headers["Authorization"] == f"Bearer {API_TOKEN}"
+
+
+async def test_session_uses_current_timeout_contract():
+    """Jira requests retain the current total and connection timeouts."""
+    session = MagicMock()
+    session.close = AsyncMock()
+
+    with patch(
+        "nv_config_manager.temporal.client.jira.aiohttp.ClientSession",
+        return_value=session,
+    ) as client_session:
+        async with _make_provider() as provider:
+            assert provider._session is session
+
+    timeout = client_session.call_args.kwargs["timeout"]
+    assert timeout.total == 60
+    assert timeout.connect == 10
+    assert client_session.call_args.kwargs["headers"] == {
+        "Authorization": f"Bearer {API_TOKEN}",
+        "Accept": "application/json",
+    }
+    session.close.assert_awaited_once_with()
 
 
 # =============================================================================
