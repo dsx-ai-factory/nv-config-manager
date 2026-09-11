@@ -69,22 +69,23 @@ async def test_update_cable_status_patches_attached_cable() -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_cable_status_is_idempotent() -> None:
+@pytest.mark.parametrize("status", list(CableStatus))
+async def test_unchanged_cable_status_skips_notes(status: CableStatus) -> None:
     client = _client()
     client.get = AsyncMock(
         side_effect=[
             {"results": [{"id": "interface-1", "cable": {"id": "cable-1"}}]},
-            {"id": "cable-1", "status": {"name": "Connected"}},
-            {"results": [{"id": "note-1"}]},
+            {"id": "cable-1", "status": {"name": status.value}},
         ]
     )
     client.patch = AsyncMock()
     client.post = AsyncMock()
 
-    await client.update_cable_status(_update(CableStatus.CONNECTED))
+    await client.update_cable_status(_update(status))
 
     client.patch.assert_not_awaited()
     client.get.assert_any_await("dcim/cables/cable-1/", params={"depth": 1})
+    assert client.get.await_count == 2
     client.post.assert_not_awaited()
 
 
