@@ -224,7 +224,7 @@ class DCIMClient(Protocol):
         self,
         pkey: str,
         partition_name: str,
-        location_name: str,
+        location_name: DCIMLocationIdentifier,
         tenant_name: str | None,
         membership_type: str,
     ) -> IBPKeyPartition: ...

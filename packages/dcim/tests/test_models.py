@@ -75,15 +75,15 @@ def test_sdk_contract_models_are_pydantic_and_immutable() -> None:
         DCIMDeviceSelection(id="device-1", name="leaf-1", provider_field="not portable")
 
 
-def test_location_references_and_selections_carry_an_optional_model() -> None:
+def test_location_references_and_selections_carry_an_optional_discriminator() -> None:
     """Location identity can include a provider-neutral namespace discriminator."""
     typed = DCIMLocationReference(id="42", model="Site")
     legacy_selection = DCIMSelection(id="location-1", name="site-1")
-    typed_selection = DCIMSelection(id="42", name="site-1", model="Site")
+    typed_selection = DCIMSelection(id="42", name="site-1", location_type="Site")
 
     assert typed.model_dump() == {"id": "42", "model": "Site"}
-    assert legacy_selection.model is None
-    assert typed_selection.model == "Site"
+    assert legacy_selection.location_type is None
+    assert typed_selection.location_type == "Site"
 
 
 def test_device_metadata_preserves_mutable_url_and_legacy_alias() -> None:

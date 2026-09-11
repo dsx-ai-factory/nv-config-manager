@@ -30,6 +30,7 @@ from nv_config_manager_dcim import (
     ConfigurationBackupIntent,
     ConfigurationBackupMetadata,
     DCIMLocationIdentifier,
+    DCIMLocationReference,
     DeviceVRF,
     FirmwareBundle,
     FirmwareComponent,
@@ -1276,17 +1277,20 @@ class NautobotWorkflowClient(BaseNautobotClient):
         self,
         pkey: str,
         partition_name: str,
-        location_name: str,
+        location_name: DCIMLocationIdentifier,
         tenant_name: str | None,
         membership_type: str,
     ) -> IBPKeyPartition:
         """Create or reuse a Nautobot overlay and its InfiniBand PKey record."""
-        location_id = await self._require_id_by_name(
-            "dcim/locations/",
-            location_name,
-            f"Location '{location_name}' not found in DCIM",
-            non_retryable=True,
-        )
+        if isinstance(location_name, DCIMLocationReference):
+            location_id = location_name.id
+        else:
+            location_id = await self._require_id_by_name(
+                "dcim/locations/",
+                location_name,
+                f"Location '{location_name}' not found in DCIM",
+                non_retryable=True,
+            )
 
         tenant_id: str | None = None
         if tenant_name:
@@ -1650,6 +1654,7 @@ class NautobotWorkflowClient(BaseNautobotClient):
             device_primary_ip=(device.get("primary_ip4") or {}).get("host"),
             site_id=str(site["id"]),
             site_name=str(site["name"]),
+            site_model=(site.get("location_type") or {}).get("name"),
         )
 
     async def canonicalize_ib_host(self, host: str) -> str:

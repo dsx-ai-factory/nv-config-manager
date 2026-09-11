@@ -213,7 +213,7 @@ class IBPKeyCreationWorkflow(
 
         resolved = await call_resolve_ib_site_for_host(stage_input.host)
         return self.ResolveContextStageOutput(
-            effective_site=resolved.location_name,
+            effective_site=dcim_location_reference(resolved.location_id, resolved.location_model),
             resolved_site=resolved.location_name,
             display=f"Resolved site for {stage_input.host} -> {resolved.location_name!r}",
         )

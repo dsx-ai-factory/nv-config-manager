@@ -292,7 +292,7 @@ async def test_location_model_is_preserved_for_provider_lookup() -> None:
     client = _client()
     client.is_valid_location_id = MagicMock(return_value=True)
     client.get_location_metadata = AsyncMock(
-        return_value=DCIMSelection(id="42", name="SJC01", model="Site")
+        return_value=DCIMSelection(id="42", name="SJC01", location_type="Site")
     )
     body = LocationAndDeviceInput(
         location_scope="42",

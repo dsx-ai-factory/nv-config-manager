@@ -54,7 +54,7 @@ class Location(BaseModel):
 
     id: str
     name: str
-    model: DCIMLocationModel | None = None
+    location_type: DCIMLocationModel | None = None
 
 
 class Secret(BaseModel):
@@ -74,7 +74,9 @@ async def get_sites() -> list[Location]:
     async with client:
         sites = await client.list_locations(("Site",))
 
-    return [Location(id=site.id, name=site.name, model=site.model) for site in sites]
+    return [
+        Location(id=site.id, name=site.name, location_type=site.location_type) for site in sites
+    ]
 
 
 @router.get("/location")
@@ -87,7 +89,12 @@ async def get_locations(
         locations = await client.list_locations(tuple(location_type or ()))
 
     return [
-        Location(id=location.id, name=location.name, model=location.model) for location in locations
+        Location(
+            id=location.id,
+            name=location.name,
+            location_type=location.location_type,
+        )
+        for location in locations
     ]
 
 

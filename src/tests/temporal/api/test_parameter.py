@@ -167,7 +167,7 @@ def test_site_v2():
             {
                 "id": "ddadde54-cbdd-4fa5-94ce-ca649b7e2aa8",
                 "name": "SITEA",
-                "model": "Site",
+                "location_type": "Site",
             }
         ]
 
@@ -180,7 +180,7 @@ def test_site_v2():
             {
                 "id": "ddadde54-cbdd-4fa5-94ce-ca649b7e2aa8",
                 "name": "SITEA",
-                "model": "Site",
+                "location_type": "Site",
             }
         ]
 

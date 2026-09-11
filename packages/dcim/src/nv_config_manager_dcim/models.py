@@ -89,7 +89,7 @@ class DCIMSelection(DCIMModel):
 
     id: str
     name: str
-    model: str | None = None
+    location_type: str | None = None
 
 
 class DCIMLocationReference(DCIMModel):
@@ -339,6 +339,7 @@ class IBHostSite(DCIMModel):
     device_primary_ip: str | None
     site_id: str
     site_name: str
+    site_model: DCIMLocationModel | None = None
 
 
 class IBPKeyContext(DCIMModel):

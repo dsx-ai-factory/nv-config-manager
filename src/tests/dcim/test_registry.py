@@ -117,7 +117,7 @@ async def test_nautobot_location_metadata_uses_direct_id_lookup() -> None:
     assert location is not None
     assert location.id == location_id
     assert location.name == "SJC01"
-    assert location.model == "Site"
+    assert location.location_type == "Site"
     query, variables = client.graphql_query.await_args.args
     assert "query GetLocationById" in query
     assert variables == {"id": location_id}
@@ -148,7 +148,7 @@ async def test_nautobot_location_choices_include_type_and_filter_at_source() -> 
 
     locations = await client.list_locations(("Site", "Module"))
 
-    assert [(location.id, location.model) for location in locations] == [
+    assert [(location.id, location.location_type) for location in locations] == [
         ("b6f4972a-c6ab-4be1-96ac-72f4efc4f328", "Site"),
         ("ed3e30d2-9078-4bc7-8676-f1dcaf3e29c8", "Module"),
     ]

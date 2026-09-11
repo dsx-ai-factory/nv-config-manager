@@ -715,7 +715,7 @@
             "title": "Id",
             "type": "string"
           },
-          "model": {
+          "location_type": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/DCIMLocationModel"

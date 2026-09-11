@@ -260,7 +260,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         if location_data is None:
             return None
         selections = self._parameter_selections(
-            [location_data], "location", include_location_model=True
+            [location_data], "location", include_location_type=True
         )
         return selections[0]
 
@@ -337,7 +337,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
 
     @staticmethod
     def _parameter_selections(
-        data: object, label: str, *, include_location_model: bool = False
+        data: object, label: str, *, include_location_type: bool = False
     ) -> list[DCIMSelection]:
         """Validate a provider list response and normalize its form options."""
         if not isinstance(data, list):
@@ -350,16 +350,22 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 or not isinstance(item.get("name"), str)
             ):
                 raise DCIMInvalidDataError(f"Nautobot returned invalid {label} data")
-            model: str | None = None
-            if include_location_model:
+            location_type_name: str | None = None
+            if include_location_type:
                 location_type = item.get("location_type")
                 if location_type is not None:
                     if not isinstance(location_type, dict) or not isinstance(
                         location_type.get("name"), str
                     ):
                         raise DCIMInvalidDataError(f"Nautobot returned invalid {label} data")
-                    model = location_type["name"]
-            selections.append(DCIMSelection(id=item["id"], name=item["name"], model=model))
+                    location_type_name = location_type["name"]
+            selections.append(
+                DCIMSelection(
+                    id=item["id"],
+                    name=item["name"],
+                    location_type=location_type_name,
+                )
+            )
         return selections
 
     async def list_locations(self, location_types: tuple[str, ...] = ()) -> list[DCIMSelection]:
@@ -371,7 +377,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         return self._parameter_selections(
             (result.get("data") or {}).get("locations"),
             "location",
-            include_location_model=True,
+            include_location_type=True,
         )
 
     async def _list_managed_choices(self, field: str) -> list[DCIMSelection]:

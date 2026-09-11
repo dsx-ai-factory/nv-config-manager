@@ -22,6 +22,7 @@ import pytest
 from aioresponses import aioresponses
 from temporalio.exceptions import ApplicationError
 
+from nv_config_manager.dcim import DCIMLocationReference
 from nv_config_manager.temporal.ngc.activities.ib_nautobot import (
     CleanupEmptyPartitionInput,
     CreatePartitionInNautobotInput,
@@ -93,6 +94,25 @@ class TestCreatePartitionInNautobot:
             assert result.partition_name == "ib-pkey-0x0005"
             assert result.pkey_id == PKEY_UUID
             assert result.pkey == "0x0005"
+
+    @pytest.mark.asyncio
+    async def test_typed_location_uses_provider_id(self, mock_nb_config):
+        """A typed site bypasses the legacy location-name lookup."""
+        with aioresponses() as m:
+            m.get(_NB_STATUSES, payload={"results": [{"id": STATUS_UUID, "name": "Active"}]})
+            m.get(_NB_OVERLAYS, payload={"results": []})
+            m.post(f"{PLUGIN}/overlays/", payload={"id": OVERLAY_UUID, "name": "ib-pkey-0x0005"})
+            m.get(_NB_PKEYS, payload={"results": []})
+            m.post(f"{PLUGIN}/pkeys/", payload={"id": PKEY_UUID, "pkey": "0x0005"})
+
+            result = await create_partition_in_nautobot(
+                CreatePartitionInNautobotInput(
+                    pkey="0x0005",
+                    location_name=DCIMLocationReference(id=LOCATION_UUID, model="Site"),
+                )
+            )
+
+            assert result.partition_id == OVERLAY_UUID
 
     @pytest.mark.asyncio
     async def test_custom_partition_name(self, mock_nb_config):

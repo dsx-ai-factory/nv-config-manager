@@ -72,7 +72,7 @@ export type DeviceResult = {
 export type SiteResult = {
   name: string;
   id: string;
-  model?: string | null;
+  location_type?: string | null;
 };
 
 export type LocationResult = SiteResult;

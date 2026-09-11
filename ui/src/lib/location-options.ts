@@ -19,7 +19,7 @@ import { LocationOption, LocationResult } from "@/types/workflow-form.types";
 const LOCATION_OPTION_PREFIX = "dcim-location:";
 
 const encodeLocationOption = (location: LocationResult): string =>
-  `${LOCATION_OPTION_PREFIX}${JSON.stringify([location.model, location.id])}`;
+  `${LOCATION_OPTION_PREFIX}${JSON.stringify([location.location_type, location.id])}`;
 
 /** Convert API locations into selectable options without collapsing colliding IDs. */
 export const mapLocationOptions = (
@@ -29,9 +29,9 @@ export const mapLocationOptions = (
 
   return locations.map((location) => ({
     key: location.name,
-    value: location.model ? encodeLocationOption(location) : location.id,
+    value: location.location_type ? encodeLocationOption(location) : location.id,
     id: location.id,
-    model: location.model ?? undefined,
+    model: location.location_type ?? undefined,
   }));
 };
 

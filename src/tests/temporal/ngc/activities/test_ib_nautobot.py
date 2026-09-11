@@ -292,6 +292,7 @@ class TestResolveIBContextByName:
         assert result.ufm_device_name == DEVICE_NAME
         assert result.location_id == LOCATION_ID
         assert result.location_name == LOCATION_NAME
+        assert result.location_model == "Site"
         assert result.overlay_id == OVERLAY_ID
         assert result.overlay_name == OVERLAY_NAME
         assert result.pkey_id == PKEY_ID
@@ -445,6 +446,7 @@ class TestResolveIBSiteForHost:
         assert result.ufm_device_primary_ip == DEVICE_IP
         assert result.location_id == LOCATION_ID
         assert result.location_name == LOCATION_NAME
+        assert result.location_model == "Site"
 
     async def test_happy_path_by_ip(self, mock_nb_config: Any) -> None:
         payload = {

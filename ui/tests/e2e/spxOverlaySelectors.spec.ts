@@ -25,8 +25,8 @@ test("tenant change preserves the model from a legacy site link", async ({
     await route.fulfill({
       status: 200,
       json: [
-        { id: "42", name: "SJC01", model: "Site" },
-        { id: "42", name: "Module 1", model: "Module" },
+        { id: "42", name: "SJC01", location_type: "Site" },
+        { id: "42", name: "Module 1", location_type: "Module" },
       ],
     });
   });
