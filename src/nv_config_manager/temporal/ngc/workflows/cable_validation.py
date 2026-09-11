@@ -486,6 +486,7 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, CableStatusPersistenceM
         devices: dict[str, CableValidationResultData]
         legacy_site: bool = False
         failed_devices: dict[str, str] = {}
+        cable_status_updates: list[UpdateCableStatusesInput] = []
 
     class FormatResultStageOutput(StageOutput):
         """Format result stage output."""
@@ -504,7 +505,12 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, CableStatusPersistenceM
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=ACTIVITY_NO_RETRY_POLICY,
         )
-        return self.FormatResultStageOutput(display=results)
+        output = self.FormatResultStageOutput(display=results)
+        if workflow.patched(CABLE_STATUS_UPDATE_PATCH_ID):
+            await self.persist_cable_statuses_after_report(
+                "format_result", output, stage_input.cable_status_updates
+            )
+        return output
 
     @run_nv_config_manager_workflow
     async def run(  # type: ignore[override, ty:invalid-method-override]
@@ -541,13 +547,9 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, CableStatusPersistenceM
             self.FormatResultStageInput(
                 devices=validation_output.devices,
                 failed_devices=validation_output.failed_devices,
+                cable_status_updates=validation_output.cable_status_updates,
             )
         )
-
-        if workflow.patched(CABLE_STATUS_UPDATE_PATCH_ID):
-            await self.persist_cable_statuses_after_report(
-                "format_result", output, validation_output.cable_status_updates
-            )
 
         await self.archive_results()
 
@@ -769,6 +771,7 @@ class DeviceCableValidationWorkflow(
         mac_table: DeviceMacTable
         arp_table: DeviceArpTable
         ignore_no_neighbor: bool = False
+        defer_cable_status_updates: bool = False
 
     class ValidateConnectionsStageOutput(StageOutput):
         """Validate Connections Stage Output."""
@@ -822,9 +825,25 @@ class DeviceCableValidationWorkflow(
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
 
-        return DeviceCableValidationWorkflow.ValidateConnectionsStageOutput(
+        output = DeviceCableValidationWorkflow.ValidateConnectionsStageOutput(
             validation_result=decorated_result, display=display
         )
+        if (
+            workflow.patched(CABLE_STATUS_UPDATE_PATCH_ID)
+            and not stage_input.defer_cable_status_updates
+        ):
+            await self.persist_cable_statuses_after_report(
+                "validate_connections",
+                output,
+                [
+                    UpdateCableStatusesInput(
+                        device_id=stage_input.device.id,
+                        cable_statuses=decorated_result.cable_statuses,
+                        workflow_id=workflow.info().workflow_id,
+                    )
+                ],
+            )
+        return output
 
     @run_nv_config_manager_workflow
     async def run(  # type: ignore[override, ty:invalid-method-override]
@@ -875,6 +894,7 @@ class DeviceCableValidationWorkflow(
                 mac_table=mac_output.mac_table,
                 arp_table=mac_output.arp_table,
                 ignore_no_neighbor=workflow_input.ignore_no_neighbor,
+                defer_cable_status_updates=workflow_input.defer_cable_status_updates,
             )
         )
 
@@ -885,10 +905,6 @@ class DeviceCableValidationWorkflow(
                 cable_statuses=validation_output.validation_result.cable_statuses,
                 workflow_id=workflow.info().workflow_id,
             )
-            if not workflow_input.defer_cable_status_updates:
-                await self.persist_cable_statuses_after_report(
-                    "validate_connections", validation_output, [pending_update]
-                )
 
         await self.archive_results()
 
