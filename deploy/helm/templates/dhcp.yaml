@@ -87,15 +87,21 @@ spec:
           name: stork-agent
         # supervisord (PID 1) doesn't exit when kea-dhcp4 enters FATAL state after
         # exhausting startretries, so kubelet has no way to detect a dead DHCP server
-        # without an explicit probe. Reuse the nv-config-manager-dhcp-api /healthcheck endpoint
-        # served by the healthcheck sidecar (same pod = shared network namespace,
-        # so 127.0.0.1:9090 reaches it). When kea-dhcp4 is dead, kea-ctrl-agent
-        # reports it offline, /healthcheck returns 500, and kubelet recycles the
-        # kea container so supervisord starts kea-dhcp4 fresh.
+        # without an explicit probe. Use the /livez endpoint served by the
+        # healthcheck sidecar (same pod = shared network namespace, so
+        # 127.0.0.1:9090 reaches it). /livez ONLY checks that the Kea DHCP
+        # process/control channel is alive: when kea-dhcp4 is dead, kea-ctrl-agent
+        # reports it offline, /livez returns 500, and kubelet recycles the kea
+        # container so supervisord starts kea-dhcp4 fresh.
+        #
+        # Liveness deliberately does NOT use the strict /healthcheck readiness
+        # endpoint -- a config mismatch (desired config not yet applied) must
+        # leave a live Kea running and only mark the pod unready for
+        # reconciliation, never trigger a restart of the Kea container.
         livenessProbe:
           failureThreshold: 10
           httpGet:
-            path: /healthcheck
+            path: /livez
             port: 9090
           initialDelaySeconds: 120
           periodSeconds: 10
@@ -119,14 +125,19 @@ spec:
         ports:
         - containerPort: 9090
           name: healthcheck
+        # Liveness only recycles this sidecar if Kea itself is dead (/livez); a
+        # config mismatch must not restart it.
         livenessProbe:
           failureThreshold: 10
           httpGet:
-            path: /healthcheck
+            path: /livez
             port: 9090
           initialDelaySeconds: 120
           periodSeconds: 10
           timeoutSeconds: 3
+        # Strict readiness: Kea online AND desired config applied. This is the
+        # endpoint the external DHCP NLB targets, so an unconfigured pod (no
+        # applied config) stays unready and never receives external DHCP traffic.
         readinessProbe:
           failureThreshold: 10
           httpGet:
@@ -161,14 +172,17 @@ spec:
         ports:
         - containerPort: 9000
           name: api
+        # Liveness only reflects Kea process health (/livez); config mismatches
+        # must not restart the api container.
         livenessProbe:
           failureThreshold: 10
           httpGet:
-            path: /healthcheck
+            path: /livez
             port: 9000
           initialDelaySeconds: 120
           periodSeconds: 10
           timeoutSeconds: 3
+        # Strict readiness: Kea online AND desired config applied.
         readinessProbe:
           failureThreshold: 10
           httpGet:
@@ -201,9 +215,14 @@ spec:
         # runs the unconditional "Run once" set_config() at startup --
         # heals the deadlock even if the in-loop check is broken.
         #
-        # Probes the healthcheck sidecar's endpoint (same pod, same network
-        # namespace, so kubelet reaches port 9090 regardless of which
+        # Probes the healthcheck sidecar's /livez endpoint (same pod, same
+        # network namespace, so kubelet reaches port 9090 regardless of which
         # container serves it -- same pattern as the kea container's probe).
+        #
+        # Uses /livez (Kea process alive), NOT the strict /healthcheck: the sync
+        # loop's job is to apply config, so a "config not yet applied" state must
+        # not restart this container in a loop while it is waiting on Redis. Only
+        # a genuinely dead Kea / wedged loop should recycle it.
         #
         # Thresholds are deliberately looser than the kea/healthcheck/api
         # probes (failureThreshold * periodSeconds = 300s of failure) so the
@@ -211,7 +230,7 @@ spec:
         # only recycle the sidecar if the loop itself is the problem.
         livenessProbe:
           httpGet:
-            path: /healthcheck
+            path: /livez
             port: 9090
           initialDelaySeconds: 180
           periodSeconds: 30
@@ -288,6 +307,17 @@ spec:
         - name: NV_CONFIG_MANAGER_INI
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathDhcp" . | quote }}
         {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
+        # This container runs in a SEPARATE pod from Kea and must reach Kea to
+        # run config-test / seed Redis BEFORE the DHCP pods become Ready. Point
+        # it at the internal Kea bootstrap/validation Service
+        # (publishNotReadyAddresses) instead of the Ready-only internal Service,
+        # so bootstrap works without relaxing the strict readiness gate. The
+        # bootstrap endpoint is internal-only and never exposed via the external
+        # DHCP Service.
+        - name: NV_CONFIG_MANAGER_KEA_SERVER
+          value: {{ $dhcpName }}-kea-bootstrap
+        - name: NV_CONFIG_MANAGER_KEA_PORT
+          value: "8000"
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         resources:
           {{- toYaml .Values.networkDhcp.resources.confgen | nindent 10 }}
@@ -310,6 +340,12 @@ spec:
 # Network DHCP Service (LoadBalancer for device access)
 # Exposes DHCP (UDP 67) and healthcheck (9090) to network devices on OOB network.
 # NOTE: API is NOT exposed here - use Ingress/Gateway for user access.
+# NOTE: This external Service intentionally does NOT set
+# publishNotReadyAddresses, so it selects ONLY Ready pods. Combined with the
+# strict /healthcheck readiness gate, an unconfigured pod can never become an
+# external DHCP target. The Kea control port 8000 is also intentionally NOT
+# exposed here -- bootstrap/config-test reaches Kea via the internal
+# *-kea-bootstrap Service only.
 # Only created when an LB provider is configured (nlb, cilium, or metallb).
 {{- if or .Values.networkDhcp.ingress.nlb .Values.networkDhcp.ingress.cilium .Values.networkDhcp.ingress.metallb }}
 apiVersion: v1
@@ -388,6 +424,9 @@ spec:
 {{- end }}
 ---
 # Network DHCP Internal Service
+# ClusterIP for in-cluster service-to-service traffic (api reads, stork-agent,
+# and the co-located Kea control port). Selects ONLY Ready pods -- it does NOT
+# set publishNotReadyAddresses -- so it must never be relied on for bootstrap.
 apiVersion: v1
 kind: Service
 metadata:
@@ -407,6 +446,36 @@ spec:
     targetPort: 9000
   - port: {{ .Values.networkDhcp.kea.storkAgentPort }}
     name: stork-agent
+  selector:
+    app: {{ $dhcpName }}
+---
+# Network DHCP Kea Bootstrap / Validation Service (INTERNAL ONLY)
+#
+# Narrowly-scoped ClusterIP that exposes ONLY the Kea control port (8000) and
+# sets publishNotReadyAddresses: true so it also resolves to pods that are NOT
+# yet Ready. This is what breaks the bootstrap deadlock: the config-refresh
+# deployment (a separate pod) uses this endpoint to run `config-test` against a
+# freshly started Kea and seed Redis, so a pod can become Ready via the strict
+# /healthcheck gate WITHOUT ever weakening readiness.
+#
+# It deliberately exposes neither the DHCP data port (67) nor the API/stork
+# ports, and it is never referenced by the external LoadBalancer Service, so it
+# cannot turn an unconfigured pod into an external DHCP target.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $dhcpName }}-kea-bootstrap
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: {{ $dhcpName }}
+    component: kea-bootstrap
+spec:
+  type: ClusterIP
+  publishNotReadyAddresses: true
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: kea
   selector:
     app: {{ $dhcpName }}
 {{- end }}
