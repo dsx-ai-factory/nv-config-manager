@@ -195,6 +195,12 @@
       "DeviceCableValidationInput": {
         "description": "Input for Device Cable Validation Workflow.",
         "properties": {
+          "defer_cable_status_updates": {
+            "default": false,
+            "description": "Return pending DCIM updates for a parent site workflow to apply after reporting.",
+            "title": "Defer Cable Status Updates",
+            "type": "boolean"
+          },
           "device": {
             "anyOf": [
               {
