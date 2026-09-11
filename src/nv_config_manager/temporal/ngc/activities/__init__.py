@@ -33,6 +33,7 @@ from nv_config_manager.temporal.ngc.activities.cable_validation import (
     decorate_result,
     format_device_validation_result,
     format_results,
+    update_cable_statuses,
     validate_device_neighbors,
 )
 from nv_config_manager.temporal.ngc.activities.config import get_ui_base_url
@@ -170,6 +171,7 @@ REGISTERED_ACTIVITIES = [
     get_device_actual_neighbors,
     get_device_mac_table,
     validate_device_neighbors,
+    update_cable_statuses,
     format_results,
     format_device_validation_result,
     load_intended_configuration,

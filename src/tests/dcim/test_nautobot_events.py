@@ -24,16 +24,22 @@ from nv_config_manager_dcim_nautobot_2x.provider import NautobotDCIMClient, Naut
 from nv_config_manager.dcim import DCIMChangeEvent, RenderEventRequest
 
 
-def _event(object_type: str, record: dict) -> DCIMChangeEvent:
+def _event(
+    object_type: str,
+    record: dict,
+    changed_fields: tuple[str, ...] = (),
+    operation: str = "update",
+) -> DCIMChangeEvent:
     """Build a representative normalized Nautobot changelog event."""
     return DCIMChangeEvent(
         provider="nautobot-2x",
-        operation="update",
+        operation=operation,
         object_type=object_type,
         object_id=str(record.get("id", "event-id")),
         timestamp="2026-07-20T00:00:00Z",
         actor="test-user",
         record=record,
+        changed_fields=changed_fields,
     )
 
 
@@ -83,6 +89,7 @@ async def test_cable_handler_resolves_compact_nautobot_terminations():
             "termination_a": {"id": "port-1", "url": "/api/dcim/interfaces/port-1/"},
             "termination_b": {"id": "port-2", "url": "/api/dcim/interfaces/port-2/"},
         },
+        operation="create",
     )
 
     requests = await cable(event, client)
@@ -90,14 +97,43 @@ async def test_cable_handler_resolves_compact_nautobot_terminations():
     assert requests == (
         RenderEventRequest(
             device_id="leaf-1",
-            commit_message="Triggered from nb dcim.cable update on uplink by test-user at 2026-07-20T00:00:00Z",
+            commit_message="Triggered from nb dcim.cable create on uplink by test-user at 2026-07-20T00:00:00Z",
         ),
         RenderEventRequest(
             device_id="leaf-2",
-            commit_message="Triggered from nb dcim.cable update on uplink by test-user at 2026-07-20T00:00:00Z",
+            commit_message="Triggered from nb dcim.cable create on uplink by test-user at 2026-07-20T00:00:00Z",
         ),
     )
     assert client.get_cable_termination_device_id.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_cable_handler_skips_all_updates():
+    """Nautobot cable updates cannot change immutable terminations."""
+    client = _client()
+    client.get_cable_termination_device_id = AsyncMock()
+    event = _event(
+        "dcim.cable",
+        {"id": "cable-1"},
+        changed_fields=("status", "label", "color"),
+    )
+
+    assert await cable(event, client) == ()
+    client.get_cable_termination_device_id.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cable_handler_renders_delete_events():
+    """Deleting a cable changes topology and renders both former endpoints."""
+    client = _client()
+    client.get_cable_termination_device_id = AsyncMock(side_effect=["leaf-1", "leaf-2"])
+    record = {
+        "id": "cable-1",
+        "termination_a": {"id": "port-1"},
+        "termination_b": {"id": "port-2"},
+    }
+
+    assert len(await cable(_event("dcim.cable", record, operation="delete"), client)) == 2
 
 
 @pytest.mark.asyncio

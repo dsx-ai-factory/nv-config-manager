@@ -34,6 +34,7 @@ from nv_config_manager_dcim.errors import (
     DCIMProviderConfigurationError,
 )
 from nv_config_manager_dcim.models import (
+    CableStatusUpdate,
     DCIMChangeEvent,
     DCIMDeviceSelection,
     DCIMDeviceSelectionFilter,
@@ -704,6 +705,88 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             f"plugins/nv-config-manager/intendedconfig/{device_id}/",
             {"template_version": template_version},
         )
+
+    async def update_cable_status(self, update: CableStatusUpdate) -> None:
+        """Update the cable attached to a Nautobot device interface."""
+        try:
+            response = await self.get(
+                "dcim/interfaces/",
+                params={"device_id": [update.device_id], "name": update.interface_name},
+            )
+            interfaces = response.get("results") if isinstance(response, Mapping) else None
+            if not isinstance(interfaces, list):
+                raise DCIMInvalidDataError("Nautobot returned invalid interface lookup data")
+            if not interfaces:
+                raise DCIMNotFoundError(
+                    f"No interface named '{update.interface_name}' found on device "
+                    f"'{update.device_id}'"
+                )
+            if len(interfaces) > 1:
+                raise DCIMConflictError(
+                    f"Multiple interfaces named '{update.interface_name}' found on device "
+                    f"'{update.device_id}'"
+                )
+
+            interface = interfaces[0]
+            cable_reference = interface.get("cable") if isinstance(interface, Mapping) else None
+            if not isinstance(cable_reference, Mapping) or not cable_reference.get("id"):
+                raise DCIMNotFoundError(
+                    f"Interface '{update.interface_name}' on device '{update.device_id}' "
+                    "has no cable"
+                )
+
+            cable_id = str(cable_reference["id"])
+            cable = await self.get(f"dcim/cables/{cable_id}/", params={"depth": 1})
+            if not isinstance(cable, Mapping):
+                raise DCIMInvalidDataError("Nautobot returned invalid cable data")
+            current_status = cable.get("status")
+            current_status_name = (
+                current_status.get("name")
+                if isinstance(current_status, Mapping)
+                else current_status
+            )
+            if current_status_name != update.status.value:
+                await self.patch(
+                    f"dcim/cables/{cable_id}/",
+                    {"status": update.status.value},
+                )
+
+            note = (
+                f"Cable validation workflow {update.workflow_id} "
+                f"set status to {update.status.value}."
+            )
+            notes_response = await self.get(
+                "extras/notes/",
+                params={
+                    "assigned_object_type": "dcim.cable",
+                    "assigned_object_id": cable_id,
+                    "note": note,
+                },
+            )
+            notes = notes_response.get("results") if isinstance(notes_response, Mapping) else None
+            if not isinstance(notes, list):
+                raise DCIMInvalidDataError("Nautobot returned invalid cable note data")
+            if not notes:
+                await self.post(
+                    "extras/notes/",
+                    {
+                        "assigned_object_type": "dcim.cable",
+                        "assigned_object_id": cable_id,
+                        "note": note,
+                    },
+                )
+        except NautobotException as exc:
+            message = (
+                f"Unable to update cable status for interface '{update.interface_name}' "
+                f"on device '{update.device_id}'"
+            )
+            if exc.status_code == 404:
+                raise DCIMNotFoundError(message) from exc
+            if exc.status_code == 409:
+                raise DCIMConflictError(message) from exc
+            if exc.status_code == 400:
+                raise DCIMInvalidDataError(message) from exc
+            raise
 
     async def get_render_enabled_devices_matching(self, filters: Mapping[str, Any]) -> list[str]:
         """Resolve Nautobot-managed devices matching a provider event filter."""

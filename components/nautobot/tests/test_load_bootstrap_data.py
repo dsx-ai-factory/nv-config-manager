@@ -601,6 +601,18 @@ class TestLoadNamespaces:
 
 
 class TestLoadStatuses:
+    def test_bootstrap_defines_cable_validation_statuses(self):
+        mod = _import_module()
+        statuses_path = Path(mod.__file__).parents[1] / "data" / "statuses.yaml"
+
+        statuses = {status["name"]: status for status in yaml.safe_load(statuses_path.read_text())}
+
+        for name in ("Connected", "Disconnected", "Invalid"):
+            assert statuses[name]["content_types"] == ["dcim.cable"]
+        assert statuses["Connected"]["color"] == "4caf50"
+        assert statuses["Disconnected"]["color"] == "f44336"
+        assert statuses["Invalid"]["color"] == "f44336"
+
     def test_creates_status(self, tmp_path):
         mod = _import_module()
         from nautobot.extras.models import Status
