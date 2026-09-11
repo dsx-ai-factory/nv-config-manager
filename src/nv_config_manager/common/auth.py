@@ -121,6 +121,7 @@ DEFAULT_UNAUTHENTICATED_PATHS = frozenset(
         "/healthz",
         "/ready",
         "/readyz",
+        "/livez",
         "/ping",
         "/healthcheck",
         "/metrics",
