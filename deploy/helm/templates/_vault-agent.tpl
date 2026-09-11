@@ -553,6 +553,7 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
 {{ include "nv-config-manager.networkZtpIniStorageConfig" $root | indent 10 }}
 {{ include "nv-config-manager.networkZtpIniDownloadConfig" $root | indent 10 }}
 {{ include "nv-config-manager.vaultAgent.ztpS3IniConfig" $root | indent 10 }}
+{{ include "nv-config-manager.networkZtpPkiIniConfig" $root | indent 10 }}
 
           {{- end }}
 

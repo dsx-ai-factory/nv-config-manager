@@ -8,7 +8,7 @@
 {% if has_firmware_bundle %}
 {% set seq = seq + 1 %}
     "0{{ seq }}-commands-list": {
-        "url": "http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/config/fwupdate-commands.txt",
+        "url": "sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/fwupdate-commands.txt",
         "clear-config": false,
         "ignore-result": false
     },
@@ -22,13 +22,13 @@
 {% endif %}
 {% set seq = seq + 1 %}
     "0{{ seq }}-commands-list": {
-      "url": "http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/config/pre-provisioning-commands.txt",
+      "url": "sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/pre-provisioning-commands.txt",
       "clear-config": true,
       "save-config": true
     },
 {% set seq = seq + 1 %}
     "0{{ seq }}-startup-file": {
-      "url": "http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/config/startup.yaml",
+      "url": "sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/startup.yaml",
       "clear-config": false,
       "restart-ztp-no-config": true,
       "save-config": true,
@@ -37,7 +37,7 @@
 {% if 'nmx-controller' in device_data|device_tags %}
 {% set seq = seq + 1 %}
     "0{{ seq }}-commands-list": {
-      "url": "http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/config/nmx-commands.txt",
+      "url": "sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/nmx-commands.txt",
       "clear-config": false,
       "save-config": true
     },
@@ -48,7 +48,7 @@
 {% if 'bypass-os-upgrade' in device_data|device_tags %}
         "ignore-result": true,
 {% endif %}
-        "url": "http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/config/provisioning-complete.sh",
+        "url": "sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/provisioning-complete.sh",
         "timeout" : 300
       }
   }

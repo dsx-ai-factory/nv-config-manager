@@ -12,10 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 from uuid import uuid4
 
 import pytest
+from nv_config_manager_dcim import DCIMInvalidDataError
 from nv_config_manager_dcim_nautobot_2x.provider import NautobotDCIMClient as NautobotClient
 
 
@@ -36,3 +37,128 @@ async def test_ztp_device_data(mock_device_data):
         assert device_data.platform_name == "Cumulus Linux"
         assert device_data.firmware_version == "5.7.0"
         assert device_data.config_store_instance == "https://config-manager.example.com/"
+        assert device_data.certificates == ()
+        assert device_data.ztp_servers == ("10.48.135.82", "10.48.135.100")
+        assert device_data.ztp_vrf == "mgmt"
+
+
+@pytest.mark.asyncio
+async def test_ztp_device_without_eth0_address_uses_default_vrf(mock_device_data):
+    """A switch without an addressed eth0 reaches ZTP through the default VRF."""
+    mock_device_data["data"]["config_manager_device"]["device"]["interfaces"][0]["name"] = "swp1"
+    with patch(
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+        new_callable=AsyncMock,
+        return_value=mock_device_data,
+    ):
+        nb = NautobotClient(nautobot_url="https://nautobot.example", token="token")
+        async with nb:
+            device_data = await nb.get_ztp_device(str(uuid4()))
+
+    assert device_data.ztp_vrf == "default"
+
+
+@pytest.mark.asyncio
+async def test_ztp_device_certificate_intent(mock_device_data):
+    mock_device_data["data"]["config_manager_device"]["device"]["config_context"][
+        "certificates"
+    ] = [
+        {
+            "id": "otel-ca",
+            "source": "telemetry-ca",
+            "kind": "ca",
+            "services": ["ztp"],
+        },
+        {"id": "otel-client", "source": "telemetry-client", "kind": "identity"},
+    ]
+    with patch(
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+        new_callable=AsyncMock,
+        return_value=mock_device_data,
+    ):
+        nb = NautobotClient(nautobot_url="https://nautobot.example", token="token")
+        async with nb:
+            device_data = await nb.get_ztp_device(str(uuid4()))
+
+    assert [certificate.id for certificate in device_data.certificates] == [
+        "otel-ca",
+        "otel-client",
+    ]
+    assert tuple(device_data.certificates[0].services) == ("ztp",)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_server", [None, 1234, {}, "not-an-ip", "2001:db8::1"])
+async def test_ztp_device_rejects_invalid_ipv4_server(mock_device_data, invalid_server):
+    mock_device_data["data"]["config_manager_device"]["device"]["config_context"]["ztp"]["ipv4"] = [
+        invalid_server
+    ]
+    with patch(
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+        new_callable=AsyncMock,
+        return_value=mock_device_data,
+    ):
+        nb = NautobotClient(nautobot_url="https://nautobot.example", token="token")
+        async with nb:
+            with pytest.raises(DCIMInvalidDataError, match="IPv4"):
+                await nb.get_ztp_device(str(uuid4()))
+
+
+@pytest.mark.asyncio
+async def test_certificate_enabled_devices_are_selected_from_context():
+    """The scheduler only creates rotations for render-enabled devices with assignments."""
+    response = {
+        "data": {
+            "config_manager_devices": [
+                {
+                    "device": {
+                        "id": "with-cert",
+                        "platform": {"name": "Cumulus Linux"},
+                        "config_context": {
+                            "intended-firmware": {"version": "5.16.0"},
+                            "certificates": [
+                                {"id": "otel-client", "source": "telemetry", "kind": "identity"}
+                            ],
+                        },
+                    }
+                },
+                {
+                    "device": {
+                        "id": "old-cumulus",
+                        "platform": {"name": "Cumulus Linux"},
+                        "config_context": {
+                            "intended-firmware": {"version": "5.14.0"},
+                            "certificates": [{"id": "client", "source": "pki", "kind": "identity"}],
+                        },
+                    }
+                },
+                {
+                    "device": {
+                        "id": "without-cert",
+                        "platform": {"name": "Cumulus Linux"},
+                        "config_context": {},
+                    }
+                },
+                {
+                    "device": {
+                        "id": "non-cumulus",
+                        "platform": {"name": "Arista EOS"},
+                        "config_context": {
+                            "certificates": [{"id": "client", "source": "pki", "kind": "identity"}]
+                        },
+                    }
+                },
+            ]
+        }
+    }
+    with patch(
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+        new_callable=AsyncMock,
+        return_value=response,
+    ) as graphql_query:
+        nb = NautobotClient(nautobot_url="https://nautobot.example", token="token")
+        async with nb:
+            devices = await nb.get_certificate_enabled_device_ids(False)
+
+    assert devices == {"with-cert"}
+    graphql_query.assert_awaited_once_with(ANY, {"is_aggregate_managed": False})

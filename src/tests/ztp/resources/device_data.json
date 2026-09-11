@@ -131,6 +131,7 @@
         },
         "interfaces": [
           {
+            "name": "eth0",
             "ip_addresses": [
               {
                 "host": "10.180.166.13"
@@ -138,6 +139,7 @@
             ]
           },
           {
+            "name": "lo",
             "ip_addresses": [
               {
                 "host": "10.180.166.130"

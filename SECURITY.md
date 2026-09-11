@@ -55,8 +55,15 @@ The primary trust boundary is the cluster network.
 - **Network devices use self-signed certificates.** Switches, BMCs, and other
   managed hardware typically ship with self-signed TLS certificates. TLS
   verification is intentionally disabled for device management connections.
-  Bootstrapping valid certificates onto network hardware is a future ZTP
-  roadmap item.
+  This remains separate from device identity and telemetry certificates, which
+  can be issued during ZTP and rotated nightly.
+- **Sensitive ZTP downloads default to SFTP.** The built-in Cumulus and NVOS
+  templates retrieve rendered configuration and device certificates through
+  the source-IP-authorized SFTP proxy. HTTP and HTTPS endpoints remain
+  available for compatibility, but the default templates do not retrieve
+  plaintext configuration secrets or private keys over HTTP. The Cumulus HTTP
+  bootstrap script still contains the salted `sha512-crypt` verifier for its
+  temporary breakglass account, not the plaintext breakglass password.
 
 ### Authentication Layers
 
@@ -103,8 +110,9 @@ The primary trust boundary is the cluster network.
 The following items were reviewed during the security audit and accepted:
 
 1. **TLS verification disabled for device management.** Network devices
-   (switches, BMCs) use self-signed certificates. Bootstrapping valid
-   certificates is a future ZTP roadmap item.
+   (switches, BMCs) use self-signed management certificates. ZTP can install
+   device identity and telemetry certificates, but does not yet replace every
+   platform's management-plane certificate and trust chain.
 
 2. **The Kea DHCP container runs as root.** DHCP requires binding UDP port 67.
    The kea-admin migration container runs as UID/GID 1000 and is not part of

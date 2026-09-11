@@ -68,6 +68,8 @@ navigation:
       collapsed-by-default: true
     - page: Contribute a DCIM Provider
       path: ../development/contributing-dcim-provider.mdx
+    - page: Local OpenBao PKI
+      path: ../development/local-openbao-pki.mdx
     - folder: ../nautobot
       title: Nautobot Overview
       collapsible: true
@@ -208,6 +210,8 @@ navigation:
         path: ../network-ztp/architecture.mdx
       - page: Configuration
         path: ../network-ztp/configuration.mdx
+      - page: Certificate Delivery and Rotation
+        path: ../network-ztp/certificate-delivery.mdx
       - page: Upload Images
         path: ../network-ztp/upload-images.mdx
       - api: ZTP API

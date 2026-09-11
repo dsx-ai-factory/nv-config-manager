@@ -16,6 +16,8 @@ Before configuring devices for ZTP, ensure:
 1. Device IP addresses are correctly configured in the device management system
 1. Firmware images are available for your device platform and version
 1. Configuration files are prepared and stored in the configuration store
+1. For certificate delivery, the PKI provider and device certificate context
+   are configured; Cumulus retrieves the material through the ZTP SFTP proxy
 
 ## Device Configuration
 
@@ -59,20 +61,25 @@ The ONIE installer will automatically append `.ztp` to the URL if it points to a
 Ensure devices can reach the ZTP server:
 
 - **DHCP traffic**: Devices must be able to exchange DHCP packets with the Config Manager DHCP service on UDP 67/68.
-- **ZTP service traffic**: Devices must be able to access the ZTP server on TCP 80 and/or TCP 443 for boot scripts, configuration, and firmware fetches.
+- **ZTP service traffic**: Devices must be able to access the ZTP server on TCP 80 for bootstrap and TCP 2222 for sensitive configuration and certificate delivery. TCP 443 is optional.
 - **DNS resolution**: Devices must be able to resolve the ZTP server hostname, which requires UDP/TCP 53 if hostnames are used.
 - **IP address registration**: Device IP addresses must be registered in the device management system.
+
+Cumulus certificate delivery uses SFTP on TCP 2222, so it does not require DNS,
+an HTTPS IP SAN, or preloaded trust for the ZTP TLS certificate. See
+[Certificate Delivery and Rotation](certificate-delivery.mdx).
 
 ## API Usage
 
 ### Authentication
 
-Device endpoints accept either a registered device request or an authenticated user request:
+Most device endpoints accept either a registered device request or an authenticated user request:
 
 - Device-originated requests must come from IP addresses registered for the device
 - Device-originated requests do not require additional authentication headers
 - User-originated requests must come through the Envoy gateway as authenticated users when SSO is enabled for the deployment
 - Admin endpoints require authenticated user access
+- The certificate endpoint accepts only a registered device request; user authentication does not bypass its source-IP check
 
 ### Request Headers
 
@@ -87,6 +94,9 @@ Handle common error responses:
 
 - **403 Forbidden**: Check that the device IP address is registered correctly
 - **404 Not Found**: Verify the device UUID and resource path are correct
+- **426 Upgrade Required**: Use the dedicated ZTP LoadBalancer HTTPS endpoint for identity certificates
+- **502 Bad Gateway**: Check that the PKI provider returned a valid certificate, private key, and CA chain
+- **503 Service Unavailable**: Check PKI source configuration, JWT authentication, and Vault connectivity
 - **500 Internal Server Error**: Contact system administrator
 
 ## Firmware Verification
@@ -185,10 +195,11 @@ Contact your system administrator for the specific configuration file names for 
 
 ### Security
 
-1. **Use HTTPS**: Always use HTTPS endpoints in production
+1. **Protect private material**: Use the encrypted ZTP SFTP certificate path; the optional HTTP identity endpoint requires HTTPS
+1. **Limit bootstrap HTTP**: Restrict HTTP to the private provisioning network and use it only for bootstrap artifacts, including a public ZTP CA when required
 1. **Verify Checksums**: Always verify firmware checksums before installation
 1. **Validate Serial Numbers**: Use the serial validation endpoint before provisioning
-1. **Monitor Provisioning**: Monitor device provisioning status and logs
+1. **Monitor Provisioning**: Correlate the ZTP `http-lb` and `sftp` container logs during provisioning; the default flow uses both transports
 
 ### Reliability
 

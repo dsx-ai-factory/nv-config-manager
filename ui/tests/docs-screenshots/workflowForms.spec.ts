@@ -35,6 +35,7 @@ const DEMO_VPC_ID = "vpc-demo-101";
 
 const DOC_WORKFLOW_DISPLAY_NAMES: Record<string, string> = {
   BackupWorkflow: "Configuration Backup",
+  CertificateRotationWorkflow: "Certificate Rotation",
   SiteBackupWorkflow: "Site Configuration Backup",
   ConnectedHostMetadataWorkflow: "Connected Host Metadata",
   DeployWorkflow: "Configuration Deploy",
@@ -63,6 +64,7 @@ const DOC_WORKFLOW_DISPLAY_NAMES: Record<string, string> = {
 
 const DOC_WORKFLOW_ENDPOINTS: Record<string, string> = {
   BackupWorkflow: "/ngc/backup",
+  CertificateRotationWorkflow: "/ngc/certificate_rotation",
   SiteBackupWorkflow: "/ngc/site_backup",
   ConnectedHostMetadataWorkflow: "/ngc/connected_host_metadata",
   DeployWorkflow: "/ngc/deploy",

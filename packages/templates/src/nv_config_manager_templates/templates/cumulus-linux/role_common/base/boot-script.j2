@@ -38,6 +38,32 @@ function retry_curl() {
   return $exit_code
 }
 
+function retry_command() {
+  local max_attempts=5
+  local attempt=1
+  local exit_code=0
+  local retry_delay=5
+
+  while [ $attempt -le $max_attempts ]; do
+    echo "Attempt $attempt of $max_attempts: $*" >&2
+    if "$@"; then
+      return 0
+    else
+      exit_code=$?
+    fi
+
+    if [ $attempt -lt $max_attempts ]; then
+      echo "Command failed with exit code $exit_code; retrying in $retry_delay seconds..." >&2
+      sleep $retry_delay
+      retry_delay=$((retry_delay * 2))
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  echo "Command failed after $max_attempts attempts" >&2
+  return $exit_code
+}
+
 # Log all output from this script
 exec >> /var/log/autoprovision 2>&1
 date "+%FT%T ztp starting script $0"
@@ -107,11 +133,49 @@ retry_curl --fail -H "Content-Type: application/json" -d "$JSON_PAYLOAD" \
 http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/validate_serial
 {% endblock %}
 
+{% if device_data.certificates and (device_data|supports_nvue_file_fetch) %}
+# Import device certificates before applying startup.yaml, which can reference
+# their stable NVUE IDs. NVUE fetches every certificate through the encrypted
+# ZTP SFTP proxy, which authorizes the request by the switch source IP. Identity
+# responses are generated as in-memory PKCS#12 bundles. The
+# proxy authorizes the request by the switch source IP, so certificate delivery
+# does not depend on DNS, an HTTPS IP SAN, or preloaded ZTP CA trust.
+{% for certificate in device_data.certificates %}
+CERTIFICATE_PATH="/tmp/nvcm-certificate-{{ certificate.id }}{% if certificate.kind == "ca" %}.pem{% else %}.p12{% endif %}"
+rm -f "$CERTIFICATE_PATH"
+retry_command nv action fetch system file-path "$CERTIFICATE_PATH" \
+  uri sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/certificates/{{ certificate.id }} \
+  file-permissions 600 \
+  vrf {{ device_data|ztp_vrf }}
+{% if certificate.kind == "ca" %}
+if ! retry_command nv action import system security ca-certificate {{ certificate.id }} uri "file://$CERTIFICATE_PATH"; then
+{% elif certificate.kind == "identity" %}
+if ! retry_command nv action import system security certificate {{ certificate.id }} uri-bundle "file://$CERTIFICATE_PATH"; then
+{% endif %}
+  rm -f "$CERTIFICATE_PATH"
+  false
+fi
+rm -f "$CERTIFICATE_PATH"
+{% endfor %}
+{% endif %}
+
 {# Optional Adaptive Routing profile config for CIN Leaf/Spine/Core switchs #}
 {% block ar_profile_custom %}{% endblock %}
 
 #Load configuration from ZTP server
-retry_curl --fail http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/config/startup.yaml -o /tmp/startup.yaml
+rm -f /tmp/startup.yaml
+{% if device_data|supports_nvue_file_fetch %}
+retry_command nv action fetch system file-path /tmp/startup.yaml \
+  uri sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/startup.yaml \
+  file-permissions 600 \
+  vrf {{ device_data|ztp_vrf }}
+{% else %}
+retry_command ip vrf exec {{ device_data|ztp_vrf }} curl --fail --silent --show-error --insecure \
+  --user ztp:ztp \
+  --output /tmp/startup.yaml \
+  sftp://{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/startup.yaml
+chmod 600 /tmp/startup.yaml
+{% endif %}
 nv config replace /tmp/startup.yaml
 nv config apply -y
 #Reload DHCP to workaround Cumulus 5.11.0 bug 4423269

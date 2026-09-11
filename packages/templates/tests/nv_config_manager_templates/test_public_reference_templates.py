@@ -74,3 +74,16 @@ def test_nv_os_nvswitch_reference_templates_are_present() -> None:
 
     assert (TEMPLATE_ROOT / "nv-os/role-common/base/ztp.json.j2").is_file()
     assert (TEMPLATE_ROOT / "nv-os/nvswitch/base/ztp.json.j2").is_file()
+
+
+def test_nv_os_ztp_templates_default_rendered_configuration_to_sftp() -> None:
+    """Default NVOS manifests must not retrieve rendered secrets over HTTP."""
+    for relative_path in (
+        "nv-os/role-common/base/ztp.json.j2",
+        "nv-os/nvswitch/base/ztp.json.j2",
+    ):
+        content = (TEMPLATE_ROOT / relative_path).read_text(encoding="utf-8")
+
+        assert "/config/" not in content
+        assert "sftp://ztp:ztp@" in content
+        assert ":2222/device/" in content

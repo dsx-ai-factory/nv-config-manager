@@ -85,11 +85,11 @@ class BackupScheduler:
             return await client.get_backup_enabled_device_ids(is_aggregate_env)  # type: ignore[attr-defined]
 
     async def scheduled_devices(self, temporal_client: Client) -> set[str]:
-        """Retrieve the set of currently scheduled devices."""
-        devices = set()
+        """Retrieve device IDs with an existing backup schedule."""
+        devices: set[str] = set()
         async for schedule in await temporal_client.list_schedules():
             if schedule.id.startswith(self.SCHEDULE_PREFIX):
-                devices.add(schedule.id.replace(self.SCHEDULE_PREFIX, ""))
+                devices.add(schedule.id.removeprefix(self.SCHEDULE_PREFIX))
         return devices
 
     async def schedule_device(self, device_uuid: str, temporal_client: Client) -> None:

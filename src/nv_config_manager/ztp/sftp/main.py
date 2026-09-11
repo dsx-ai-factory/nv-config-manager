@@ -388,7 +388,8 @@ class ZTPSFTPServer(SFTPServerInterface):
     def __init__(self, server: ServerInterface, *args: Any, **kwargs: Any) -> None:
         """Initialize the SFTP server with the given server instance and client address."""
         super().__init__(server)
-        self._path_cache: dict[str, io.StringIO | io.BytesIO] = {}  # Cache for resolved paths
+        # Cache immutable content so every open gets an independent stream.
+        self._path_cache: dict[str, bytes] = {}
         self._client_addr: str | None = kwargs.get("client_addr")
         self.logger = get_logger_for_addr((self._client_addr or "unknown", 0))
         self.logger.info("SFTP server initialized for client %s", self._client_addr)
@@ -402,18 +403,20 @@ class ZTPSFTPServer(SFTPServerInterface):
         """Load file content from the given path."""
         if path in self._path_cache:
             self.logger.debug("Cache hit for path: %s", path)
-            cached = self._path_cache[path]
-            if isinstance(cached, io.BytesIO):
-                return cached
-            # Convert StringIO to BytesIO if needed
-            return io.BytesIO(cached.getvalue().encode("utf-8"))
+            return io.BytesIO(self._path_cache[path])
 
         self.logger.info("Request for path: %s from %s", path, self._client_addr)
         path_parts = path.split("/")
         if path_parts[1] == "device":
-            content = self._load_ztp_file(path_parts[2], path_parts[3])
-            self._path_cache[path] = content
-            return content
+            if len(path_parts) == 5 and path_parts[3] == "certificates":
+                content = self._load_certificate(path_parts[2], path_parts[4])
+            elif len(path_parts) == 4:
+                content = self._load_ztp_file(path_parts[2], path_parts[3])
+            else:
+                raise FileNotFoundError("Unknown device path")
+            cached_content = content.getvalue()
+            self._path_cache[path] = cached_content
+            return io.BytesIO(cached_content)
         if path_parts[1] == "healthcheck":
             return io.BytesIO(b"OK")
 
@@ -450,6 +453,28 @@ class ZTPSFTPServer(SFTPServerInterface):
 
         # Convert string content to bytes
         return io.BytesIO(file_content.encode("utf-8"))
+
+    def _load_certificate(self, device_id: str, certificate_id: str) -> io.BytesIO:
+        """Issue or load a device-assigned certificate through encrypted SFTP."""
+
+        async def get_certificate() -> bytes:
+            async with dcim_client_session() as client:
+                device = DeviceData.from_dcim(await client.get_ztp_device(device_id))
+            if self._client_addr not in device.addresses:
+                raise PermissionError(
+                    f"Access denied. Expected IP(s): {device.addresses}, "
+                    f"Actual IP: {self._client_addr}"
+                )
+            payload = await device.load_certificate(certificate_id)
+            return payload.content
+
+        content = self._event_loop.run_until_complete(get_certificate())
+        self.logger.info(
+            "Served certificate %s for device %s over SFTP",
+            certificate_id,
+            device_id,
+        )
+        return io.BytesIO(content)
 
     def _open_s3_file(
         self, platform: str, version: str, filename: str, flags: int

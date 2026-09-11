@@ -1,0 +1,134 @@
+---
+title: Local OpenBao PKI
+description: Validate switch certificate issuance with a disposable OpenBao PKI and Kubernetes JWKS authentication.
+---
+
+Use the local OpenBao setup to develop and validate switch certificate delivery
+without connecting to an external Vault deployment. It exercises the same
+Vault-compatible PKI and Kubernetes JWT/JWKS integration used by the ZTP
+service, but creates a disposable local CA.
+
+For the deployment model, DCIM context, bootstrap sequence, and rotation
+behavior, see [Certificate Delivery and Rotation](../network-ztp/certificate-delivery.mdx).
+
+## What it configures
+
+Run:
+
+```bash
+make openbao-pki-local
+```
+
+The target installs OpenBao in dev mode and configures:
+
+- pinned OpenBao Helm chart version from `deploy/operator-versions.env`
+- PKI mount `pki/switches`
+- issue role `nv-config-manager-switch-telemetry`
+- seven-day, client-auth-only EC certificates for `switches.example.com`
+- `no_store=true` and `generate_lease=false`
+- policy access limited to the issue endpoint and CA-chain reads
+- JWT auth mount `jwt/k8s/nv-config-manager-local`
+- JWKS discovery from the Kubernetes API
+- a local-only binding that exposes Kubernetes' public OIDC discovery and JWKS
+  non-resource URLs to OpenBao's unauthenticated key fetcher
+- role binding to the service-account subject used by the ZTP deployment and
+  ESO: `system:serviceaccount:nv-config-manager:vault-access-sa`
+- audience `vault`
+
+The script finishes by requesting a projected service-account token, logging in
+through the JWT role, issuing a certificate, and verifying its validity,
+certificate chain, private-key response, and client-only extended key usage.
+
+OpenBao dev mode is ephemeral. The installer generates a random root token and
+stores it in the `openbao-dev-root-token` Secret for repeat setup runs. Supply
+`OPENBAO_ROOT_TOKEN` when configuring an existing release that lacks that
+Secret. Do not use this configuration in production. The issuer-discovery
+binding exposes only public signing metadata and keys; JWT issuer, audience,
+and exact subject validation still control authentication.
+
+## Match an external Vault deployment
+
+OpenBao does not implement Vault Enterprise namespaces. The local setup models
+isolation with a dedicated PKI mount, JWT auth mount, role, and policy while
+reusing the application's Kubernetes service account.
+
+Keep these settings configurable so local and external deployments differ only
+by configuration:
+
+| Setting | Local default | External deployment |
+| --- | --- | --- |
+| Vault address | `http://openbao.openbao.svc.cluster.local:8200` | Vault HTTPS address |
+| Vault namespace | empty | optional Vault Enterprise namespace |
+| JWT auth mount | `jwt/k8s/nv-config-manager-local` | cluster-specific JWT mount |
+| JWT role | `nv-config-manager-switch-certificate-issuer` | registered workload role |
+| PKI issue path | `pki/switches/issue/nv-config-manager-switch-telemetry` | approved issue path |
+
+Override the local values to validate another layout:
+
+```bash
+PKI_MOUNT=pki/example \
+PKI_ROLE=example-client-role \
+PKI_DOMAIN=switches.example.net \
+./scripts/setup-local-openbao-pki --install-openbao
+```
+
+The caller supplies only the device common name and requested TTL to the issue
+endpoint. It cannot choose a Vault path, PKI role, server-auth usage, IP SAN, or
+URI SAN.
+
+## Connect certificate delivery
+
+Enable the ZTP certificate service with paths that match the local setup:
+
+```yaml
+networkZtp:
+  certificates:
+    enabled: true
+    provider: vault
+    vault:
+      address: http://openbao.openbao.svc.cluster.local:8200
+      namespace: ""
+      authMount: jwt/k8s/nv-config-manager-local
+      authRole: nv-config-manager-switch-certificate-issuer
+      audience: vault
+      pkiMount: pki/switches
+      allowInsecure: true
+      verify: false
+    sources:
+      - name: telemetry-client
+        issueRole: nv-config-manager-switch-telemetry
+        ttl: 168h
+        commonNameTemplate: "{device_name}.switches.example.com"
+      - name: telemetry-ca
+        caPath: pki/switches/ca/pem
+```
+
+`allowInsecure` is a local-development exception for the disposable HTTP
+OpenBao service. Leave it disabled for external Vault deployments, which must
+use HTTPS and certificate verification.
+
+When Vault uses a private TLS issuer, create a Secret containing its CA bundle
+and configure the mount explicitly:
+
+```yaml
+networkZtp:
+  certificates:
+    vault:
+      verify: true
+      caSecret:
+        name: vault-pki-ca
+        key: ca.crt
+        mountPath: /etc/nv-config-manager/vault-pki-ca/ca.crt
+```
+
+The Secret must already exist in the Config Manager namespace. The chart mounts
+only the selected key into each ZTP API container and uses `mountPath` as the
+Vault client's verification bundle. The installer exposes the equivalent
+`ca_secret_name`, `ca_secret_key`, and `ca_mount_path` fields under
+`infrastructure.ztp_certificates.vault`.
+
+The projected PKI JWT uses the ZTP pod's existing global service account. ESO
+may use the same Kubernetes service account, but performs an independent token
+exchange. The target Vault namespace and JWT mount must register the exact
+subject `system:serviceaccount:<global.namespace>:<global.serviceAccountName>`
+with the configured audience and least-privilege PKI policy.

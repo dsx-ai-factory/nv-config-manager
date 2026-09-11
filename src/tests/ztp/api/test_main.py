@@ -37,7 +37,7 @@ from nv_config_manager.ztp.storage import (
     ObjectStorageRangeNotSatisfiableException,
 )
 
-SSO_HEADERS = {"X-Auth-Request-Email": "test@nvidia.com"}
+SSO_HEADERS = {"X-Auth-Request-Email": "user@example.com"}
 
 
 @pytest.fixture
@@ -160,13 +160,16 @@ def test_device_v1_config(mock_request_client, mock_device_data, mock_not_found_
 def test_device_v1_config_auth_disabled_bypasses_ip_check(
     mock_request_client, mock_device_data, client
 ):
-    """No-auth deployments should not enforce device IP checks."""
+    """The internal header-trusting listener preserves no-auth compatibility."""
     mock_request_client.host = "testclient2"
     mock_device_data["data"]["config_manager_device"]["device"]["interfaces"] = [
         {"ip_addresses": [{"host": "10.0.0.1"}]}
     ]
 
-    with patch("nv_config_manager.common.auth._auth_config", AuthConfig(required=False)):
+    with patch(
+        "nv_config_manager.common.auth._auth_config",
+        AuthConfig(required=False, accept_request_headers=True),
+    ):
         with patch(
             "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
             return_value=mock_device_data,
@@ -386,13 +389,16 @@ def test_device_v1_provisioned(mock_request_client, mock_device_data, client):
 def test_device_v1_provisioned_auth_disabled_bypasses_ip_check(
     mock_request_client, mock_device_data, client
 ):
-    """No-auth deployments should allow integration callers to mark provisioned."""
+    """The internal header-trusting listener allows no-auth integration callers."""
     mock_request_client.host = "testclient2"
     mock_device_data["data"]["config_manager_device"]["device"]["interfaces"] = [
         {"ip_addresses": [{"host": "10.0.0.1"}]}
     ]
 
-    with patch("nv_config_manager.common.auth._auth_config", AuthConfig(required=False)):
+    with patch(
+        "nv_config_manager.common.auth._auth_config",
+        AuthConfig(required=False, accept_request_headers=True),
+    ):
         with patch(
             "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
             new_callable=AsyncMock,
@@ -735,7 +741,7 @@ def test_v1_files_list(client):
 
 def test_v1_files_upload_file(client):
     """Test upload_file endpoint."""
-    sso_headers = {"X-Auth-Request-Email": "test@nvidia.com"}
+    sso_headers = {"X-Auth-Request-Email": "user@example.com"}
 
     # File created successfully - mock S3Client with async context manager
     mock_s3_class = MagicMock()

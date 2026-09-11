@@ -74,6 +74,7 @@ ENVIRONMENT_PATH="demo"  # Environment path prefix in Vault (default: demo)
 GATEWAY_API_VERSION="v1.4.1"
 ENVOY_GATEWAY_VERSION="v1.6.5"
 CERT_MANAGER_VERSION="v1.20.2"
+OPENBAO_CHART_VERSION="0.29.3"
 if [[ -f "$OPERATOR_VERSIONS_FILE" ]]; then
     # shellcheck disable=SC1090
     source "$OPERATOR_VERSIONS_FILE"
@@ -1407,6 +1408,7 @@ if [[ "$INSTALL_OPENBAO" == "true" ]]; then
     
     # Install OpenBao in dev mode (unsealed, root token = "root")
     helm upgrade --install openbao openbao/openbao \
+        --version "$OPENBAO_CHART_VERSION" \
         --namespace openbao \
         --create-namespace \
         --set server.dev.enabled=true \

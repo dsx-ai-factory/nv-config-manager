@@ -61,7 +61,7 @@ Config Manager streams DHCP (Kea), ZTP, and render-service logs to whatever obse
 Start from the Config Manager overview dashboard for the site and deployment under investigation:
 
 1. Open the **DHCP logs** panel and switch to the log explorer before filtering DHCP traffic. The dashboard panel itself is useful for a quick health check, but the explorer is better for following a single device and widening the time range.
-1. Open the **ZTP logs** panel and switch to the log explorer before filtering by device UUID.
+1. Open the **ZTP logs** panel and switch to the log explorer before filtering by device UUID. Include both the `http-lb` and `sftp` containers: provisioning starts over HTTP/HTTPS, then the default Cumulus and NVOS templates retrieve rendered configuration and certificates over SFTP.
 1. Use the **DHCP lease activity** dashboard in Config Manager to inspect active leases, reservations, and pools, or to clear a stale lease. This dashboard shows current Kea state; the log explorer shows the packet history.
 
 Do not use a generic application-log panel to decide that DHCP traffic is absent. Select the Kea container logs and confirm that the dashboard is scoped to the correct cluster and Config Manager namespace.
@@ -79,8 +79,8 @@ Use this sequence to avoid mixing results from nearby devices:
 | Kea sends an offer | Kea logs contain `DHCP4_PACKET_SEND` and `DHCPOFFER` for the same transaction | Kea selected a subnet and an address. Confirm that the return path reaches the device. |
 | Device installs the lease | The expected interface has a dynamic address and remaining lease lifetime | DHCP completed. Move to ZTP; repeated DHCP-client restart messages are not the root cause. |
 | Device downloads a boot script | The NOS provisioning log contains a recent script-start entry. On Cumulus Linux, this is `/var/log/autoprovision` with `ztp starting script`. | DHCP supplied usable ZTP options and the device started the script. |
-| ZTP serves the device | ZTP service logs contain the Nautobot device UUID | Follow the last endpoint and HTTP status to find the failed stage. |
-| Provisioning completes | ZTP logs show the device calling the `provisioned` endpoint and Nautobot shows **Provisioned** | ZTP completed. If the intended config is still wrong, inspect render logs and the current rendered configuration. |
+| ZTP serves the device | The `http-lb` or `sftp` ZTP container logs contain the Nautobot device UUID | Correlate both containers. An HTTP status diagnoses bootstrap requests; an SFTP path or transfer error diagnoses rendered configuration and certificate retrieval. |
+| Provisioning completes | The `http-lb` logs show the device calling the `provisioned` endpoint and Nautobot shows **Provisioned** | ZTP completed. If the intended config is still wrong, inspect the `sftp` and render-service logs and the current rendered configuration. |
 
 Record the device name, device UUID, serial number, relevant MAC, expected subnet, expected leased address, and DHCP transaction ID before searching. A client ID in Kea logs is commonly a leading type byte followed by the serial number encoded as colon-separated hexadecimal; decode it before attributing a lease to a device.
 
@@ -132,17 +132,24 @@ For a front-panel /31, Kea may log the relay-side or peer address rather than th
 
 ### ZTP logs by device ID
 
-Filter the ZTP service logs by the Nautobot device UUID:
+Filter both device-facing ZTP containers by the Nautobot device UUID. The
+`http-lb` container handles the boot script and HTTP/HTTPS callbacks; the
+`sftp` container handles the default rendered-configuration and certificate
+downloads. A complete provisioning trace can cross both containers.
 
 ```text
-{cluster="<cluster>", k8s_namespace_name="<config-manager-namespace>", k8s_container_name=~"ztp.*"} |= `<device-uuid>`
+{cluster="<cluster>", k8s_namespace_name="<config-manager-namespace>", k8s_container_name=~"http-lb|sftp"} |= `<device-uuid>`
 ```
 
 Or directly via `kubectl`:
 
 ```bash
 kubectl -n <config-manager-namespace> logs \
-  -l app.kubernetes.io/component=network-ztp --all-containers \
+  -l app.kubernetes.io/component=network-ztp -c http-lb \
+  --tail=-1 | grep '<device-uuid>'
+
+kubectl -n <config-manager-namespace> logs \
+  -l app.kubernetes.io/component=network-ztp -c sftp \
   --tail=-1 | grep '<device-uuid>'
 ```
 
@@ -179,7 +186,8 @@ Work from the first missing signal rather than resetting the device immediately:
 | Discover in Kea, no offer | Generated subnet/reservation/pool data, Kea allocation messages, and active leases |
 | Offer in Kea, no address on device | Return routing, relay behavior, packet loss, and device interface selection |
 | Address on device, no NOS provisioning log | DHCP ZTP options and HTTP/HTTPS reachability to the ZTP service |
-| Recent NOS provisioning failure | The final command and HTTP status in the vendor-specific provisioning log, then the matching ZTP service log by device UUID |
+| Boot script starts, then provisioning stalls | SFTP reachability on TCP 2222 and the ZTP `sftp` container logs; also check `http-lb` for the preceding bootstrap request and later callback |
+| Recent NOS provisioning failure | The final command and transport error in the vendor-specific provisioning log, then both the `http-lb` and `sftp` ZTP logs by device UUID |
 | ZTP succeeds, intended config absent | Render status, rendered configuration, and render-service logs |
 
 ### DHCP errors
@@ -263,7 +271,7 @@ The rendered configuration is failing to apply or has broken connectivity back t
 
 **Cumulus Linux: console reports that ZTP is in progress for hours**
 
-The banner or `nv show system ztp` state says that ZTP is enabled or incomplete; it does not prove that attempts are still occurring. Check the newest timestamp in `/var/log/autoprovision` and the ZTP service logs for the device UUID.
+The banner or `nv show system ztp` state says that ZTP is enabled or incomplete; it does not prove that attempts are still occurring. Check the newest timestamp in `/var/log/autoprovision` and both the `http-lb` and `sftp` ZTP container logs for the device UUID.
 
 - If `/var/log/autoprovision` does not exist, return to DHCP troubleshooting. The device has not received and started a boot script.
 - If the file exists, read the final command and error rather than only the final line. A recent `ztp starting script` entry proves that DHCP and boot-script delivery worked.

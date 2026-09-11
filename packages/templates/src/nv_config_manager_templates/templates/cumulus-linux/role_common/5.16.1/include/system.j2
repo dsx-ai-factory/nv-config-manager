@@ -58,5 +58,21 @@
 {% endif %}
 {% endblock ntp %}
 {% block system_forwarding %}{% endblock system_forwarding %}
-{% block system_telemetry %}{% endblock system_telemetry %}
+{% block system_telemetry %}
+{% if device_data.telemetry.otlp.destinations %}
+      telemetry:
+        export:
+          otlp:
+            state: enabled
+            grpc:
+              insecure: disabled
+              certificate: {{ device_data.telemetry.otlp.ca_certificate }}
+              destination:
+{% for destination in device_data.telemetry.otlp.destinations %}
+                '{{ destination.address }}':
+                  port: {{ destination.port }}
+                  client-certificate: {{ destination.client_certificate }}
+{% endfor %}
+{% endif %}
+{% endblock system_telemetry %}
 {% block system_reboot %}{% endblock system_reboot %}

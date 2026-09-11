@@ -1,0 +1,339 @@
+---
+title: Certificate Delivery and Rotation
+sidebar-title: Certificates
+position: 20
+---
+
+Config Manager can issue certificates for Cumulus Linux switches during ZTP
+and replace them automatically on a nightly schedule. The data model supports
+multiple stable certificate IDs per device and keeps provider-specific issuer
+paths out of DCIM configuration context.
+
+The built-in provider uses the Vault PKI API and is compatible with HashiCorp
+Vault and OpenBao. The internal PKI client interface is provider-neutral so
+additional implementations can be added without changing device assignments.
+Certificate import and scheduled rotation are currently implemented only for
+Cumulus Linux.
+
+## How the pieces fit together
+
+1. A deployment operator defines named PKI sources. Each source maps a stable
+   name to either a Vault issue role or a CA read path.
+1. A DCIM configuration context assigns one or more certificate IDs to a
+   device and references those source names.
+1. The Cumulus boot script imports the assigned certificates into their stable
+   NVUE IDs before it applies `startup.yaml`.
+1. `startup.yaml` references those IDs in the OTLP mTLS configuration.
+1. A Temporal schedule tells each certificate-enabled switch to fetch fresh
+   material into the same IDs every night.
+
+The source owns certificate naming policy. DCIM context selects an approved
+source but cannot choose a Vault mount, role, arbitrary certificate domain, or
+SAN.
+
+## Configure the PKI provider
+
+The Helm configuration below defines one identity source and one CA source:
+
+```yaml
+networkZtp:
+  certificates:
+    enabled: true
+    provider: vault
+    vault:
+      address: https://vault.example.com
+      namespace: network/platform
+      authMount: jwt/k8s/cluster-a
+      authRole: switch-certificate-issuer
+      audience: vault
+      pkiMount: pki/switches
+      verify: true
+      caSecret:
+        name: vault-pki-ca
+        key: ca.crt
+        mountPath: /etc/nv-config-manager/vault-pki-ca/ca.crt
+    sources:
+      - name: telemetry-client
+        issueRole: switch-telemetry
+        ttl: 168h
+        commonNameTemplate: "{device_name}.switches.example.com"
+      - name: telemetry-ca
+        caPath: pki/switches/ca/pem
+```
+
+Source names are part of the DCIM contract; keep them stable. An identity
+source requires `issueRole`, while a CA source requires `caPath`. A source may
+provide both capabilities when they share a logical identity. The default TTL
+and common-name template are `168h` and `{device_name}`. Explicit templates may
+use `{device_name}` and `{device_id}` only, and must match the names allowed by
+the issuer role.
+
+The equivalent installer configuration uses snake-case field names:
+
+```yaml
+infrastructure:
+  ztp_certificates:
+    enabled: true
+    provider: vault
+    vault:
+      address: https://vault.example.com
+      namespace: network/platform
+      auth_mount: jwt/k8s/cluster-a
+      auth_role: switch-certificate-issuer
+      audience: vault
+      pki_mount: pki/switches
+      verify: true
+      ca_secret_name: vault-pki-ca
+      ca_secret_key: ca.crt
+      ca_mount_path: /etc/nv-config-manager/vault-pki-ca/ca.crt
+    sources:
+      - name: telemetry-client
+        issue_role: switch-telemetry
+        ttl: 168h
+        common_name_template: "{device_name}.switches.example.com"
+      - name: telemetry-ca
+        ca_path: pki/switches/ca/pem
+```
+
+The Vault CA Secret must already exist in the Config Manager namespace. Set
+`namespace` to an empty string for OpenBao or a non-namespaced Vault deployment.
+Plain HTTP or `verify: false` is rejected unless `allow_insecure: true` is also
+set; that escape hatch is intended only for local development. This Secret
+establishes trust from the ZTP service to Vault and is separate from any CA
+delivered to a switch.
+
+### JWT authentication requirements
+
+Certificate delivery projects a short-lived JWT for the ZTP pod's existing
+global service account. In the target Vault namespace and JWT auth mount,
+register:
+
+- the exact subject
+  `system:serviceaccount:<global.namespace>:<global.serviceAccountName>`
+- the audience configured by `audience`
+- permission to `create` and `update` only the configured PKI issue paths
+- permission to `read` only the configured CA paths
+
+ESO can use the same Kubernetes service-account name for configuration secrets.
+The PKI client performs a separate JWT login against its own namespace, auth
+mount, role, audience, and policy; it does not replace or reuse ESO's Vault
+token.
+
+## Configure the device in DCIM
+
+Place certificate assignments and OTLP settings in effective device
+configuration context. Nautobot can inherit this context from a site or
+platform when all matching devices use the same policy.
+
+```yaml
+certificates:
+  - id: otel-ca
+    source: telemetry-ca
+    kind: ca
+  - id: otel-client
+    source: telemetry-client
+    kind: identity
+telemetry:
+  otlp:
+    ca_certificate: otel-ca
+    destinations:
+      - address: 192.0.2.40
+        port: 4317
+        client_certificate: otel-client
+```
+
+Each `id` must be unique for the device and is the stable NVUE object name.
+Each `source` must match a deployment source. Only CA assignments may declare
+`services`. Certificate delivery itself does not require a ZTP CA assignment;
+the switch uses the encrypted ZTP SFTP proxy rather than HTTPS.
+
+The OTLP destination address is an IP address and the default port is 4317.
+`ca_certificate` must reference an assigned CA certificate, and every
+`client_certificate` must reference an assigned identity certificate.
+
+## Bootstrap and transport security
+
+The boot script and nightly rotation first fetch each certificate from the ZTP
+SFTP proxy into a mode-`0600` temporary file:
+
+```text
+sftp://ztp:ztp@{ztp_ipv4}:2222/device/{device_uuid}/certificates/{certificate_id}
+```
+
+The username and password are nominal because the existing ZTP SFTP proxy
+authorizes every device path by the connection's source IP. Every possible
+switch source IP must therefore be associated with that device in the DCIM
+provider. SFTP encrypts the CA or PKCS#12 bundle without requiring DNS, an
+HTTPS IP SAN, or a preloaded ZTP CA. Certificate content is generated in memory
+and cached only for the lifetime of the SFTP session.
+
+Configure an NLB, Cilium, or MetalLB ZTP ingress provider so TCP 2222 reaches
+the SFTP proxy with the client IP preserved. Certificate delivery requires
+that device-facing load balancer, but does not require its optional TCP 443
+listener or a ZTP TLS certificate.
+
+The default Cumulus boot script also stages `startup.yaml` through SFTP with
+mode `0600` before applying it. Cumulus 5.16 and later use the VRF-aware NVUE
+file fetch action. Earlier releases use `curl`'s SFTP transport under
+`ip vrf exec` because their NVUE file action does not support this operation.
+The default NVOS ZTP manifests also use SFTP for rendered commands and
+configuration. This protects embedded BGP, RADIUS, TACACS+, and other
+configuration secrets that were previously retrieved over HTTP. The Cumulus
+boot script itself remains available over private-network HTTP for zero-trust
+bootstrap compatibility and contains the salted `sha512-crypt` verifier for
+the temporary breakglass account, not its plaintext password.
+
+The HTTP API also exposes this device endpoint:
+
+```text
+GET /v1/device/{device_uuid}/certificates/{certificate_id}
+```
+
+It authorizes only by the device's source IP; authenticated browser or gateway
+identity does not bypass this check. Every possible switch source IP must be
+associated with that device in the DCIM provider.
+
+An identity response currently contains an unencrypted PKCS#12 bundle. NVUE
+supports passphrase-protected imports, but Config Manager does not yet model or
+distribute a bundle passphrase. The bundle is protected in transit by SFTP,
+constructed in memory, and never persisted by Config Manager. When the HTTP API
+is used directly, identity material is served only on the HTTPS listener and an
+HTTP request returns `426 Upgrade Required`.
+
+Enable the dedicated device-facing TLS listener and LoadBalancer. NLB, Cilium,
+and MetalLB expose TCP 443 directly to the pod's 8443 TLS listener and preserve
+the client IP used for authorization. The ordinary Envoy user gateway is not a
+substitute: it terminates TLS before proxying to the HTTP listener, so the
+certificate endpoint correctly treats the backend request as HTTP.
+
+The HTTPS listener is optional for certificate delivery because the supported
+switch flow uses SFTP. It can still protect other direct ZTP HTTP endpoints.
+To enable it, use either an existing
+`kubernetes.io/tls` Secret:
+
+```yaml
+infrastructure:
+  load_balancer:
+    provider: metallb
+    ztp_lb_ip: 192.0.2.10
+  ztp_tls:
+    enabled: true
+    secret_name: ztp-server-tls
+```
+
+or let cert-manager create it:
+
+```yaml
+infrastructure:
+  load_balancer:
+    provider: metallb
+    ztp_lb_ip: 192.0.2.10
+  ztp_tls:
+    enabled: true
+    certificate:
+      create: true
+      issuer_kind: ClusterIssuer
+      issuer_name: ztp-private-ca
+      ip_addresses:
+        - 192.0.2.10
+      duration: 2160h
+      renew_before: 720h
+```
+
+A public ACME issuer can be used when clients connect through a valid DNS name
+covered by the certificate. Private-IP SANs require a private cert-manager
+issuer. Neither choice affects switch certificate delivery over SFTP.
+
+## Cumulus NVUE configuration
+
+The boot script uses these Cumulus Linux NVUE actions:
+
+```bash
+nv action fetch system file-path <local-path> uri <sftp-url> file-permissions 600 vrf <vrf>
+nv action import system security ca-certificate <id> uri file://<local-path>
+nv action import system security certificate <id> uri-bundle file://<local-path>
+nv action delete system file-path <local-path>
+```
+
+Cumulus Linux 5.16 exposes a `vrf` parameter on the generic file fetch action,
+but not on the certificate import actions. Config Manager therefore fetches
+through the correct VRF, imports from the local file, and deletes the temporary
+file after either a successful import or an import failure. The same staged
+flow is used for ZTP and nightly rotation. Version 5.16.0 is the API capability
+floor; Config Manager's end-to-end qualification uses 5.16.1.
+
+The bundled Nautobot provider selects `mgmt` when `eth0` has an assigned IPv4
+or IPv6 address and `default` otherwise. Other DCIM providers return the
+provider-neutral `ztp_vrf` field with the same routing decision. This lets
+front-panel-provisioned switches reach SFTP without requiring SSH or relying
+on the certificate import action to support VRF selection.
+
+For Cumulus Linux 5.16.1, the rendered `startup.yaml` enables full OTLP mTLS:
+
+```yaml
+system:
+  telemetry:
+    export:
+      otlp:
+        state: enabled
+        grpc:
+          insecure: disabled
+          certificate: otel-ca
+          destination:
+            '192.0.2.40':
+              port: 4317
+              client-certificate: otel-client
+```
+
+The stable IDs in this stanza must match the DCIM certificate assignments.
+
+## Rotation behavior
+
+The dedicated certificate rotation scheduler creates a daily certificate
+workflow for every Cumulus 5.16-or-newer device returned by the selected DCIM
+provider's certificate-enabled device query. It runs independently from the
+backup scheduler at 02:00 UTC with up to two hours of jitter. Each run reloads
+current DCIM intent and validates the firmware capability before telling the
+switch to fetch every assigned certificate from the SFTP proxy into a temporary
+file using the device's ZTP VRF, import it into the same stable NVUE ID, and
+delete the temporary file. A failure for one ID is recorded without preventing
+the remaining assigned certificates from being attempted. Cumulus releases
+before 5.16 are not scheduled and are rejected by the activity's defensive
+validation because neither the required certificate workflow nor OTLP export is
+supported there.
+
+Firewalls and security groups must allow the Config Manager cluster to reach
+the switch's NVUE API on TCP 8765 and allow the switch to reach the ZTP SFTP
+service on TCP 2222. Rotation requires both legs: Config Manager submits the
+NVUE action over 8765, and NVUE fetches the certificate over 2222.
+
+With the default seven-day certificate validity and nightly reissuance, several
+missed runs can be tolerated before expiry. The workflow retries failed
+activities up to three times. The rotation workflow never receives or persists
+the private key; the ZTP service constructs the response in memory when the
+switch downloads the newly issued bundle.
+
+Removing all certificate assignments removes the device's schedule during the
+next reconciliation. Other network operating systems can use the same DCIM and
+PKI models, but their import and rotation actions are not yet implemented.
+
+## Troubleshooting
+
+| Response | Meaning |
+| --- | --- |
+| `403 Forbidden` | The request source IP is not associated with the device, or the request tried to rely on user identity. |
+| `404 Not Found` | The device or certificate assignment does not exist. |
+| `426 Upgrade Required` | The HTTP compatibility request reached a Gateway API proxy or the ZTP HTTP listener. Use SFTP for device provisioning, or call the direct ZTP LoadBalancer HTTPS listener. |
+| `502 Bad Gateway` | The PKI provider returned invalid certificate or key material. |
+| `503 Service Unavailable` | PKI configuration, authentication, source lookup, or provider access failed. |
+
+SFTP reports an unavailable path for an unknown device or certificate, denies
+a source-IP mismatch, and returns a generic transfer failure for PKI errors.
+During provisioning, correlate the ZTP `sftp` container logs with `http-lb`:
+the boot script is served by `http-lb`, while the certificate and default
+rendered configuration downloads are served by `sftp`. Filter both by the
+device UUID to distinguish a bootstrap failure from an SFTP authorization,
+path, or PKI failure.
+
+For local validation with a disposable issuer, see
+[Local OpenBao PKI](../development/local-openbao-pki.mdx).

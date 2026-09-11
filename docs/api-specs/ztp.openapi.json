@@ -319,6 +319,60 @@
         ]
       }
     },
+    "/v1/device/{device_uuid}/certificates/{certificate_id}": {
+      "get": {
+        "description": "Issue or load one certificate explicitly assigned to the requesting device.",
+        "operationId": "load_certificate_v1_device__device_uuid__certificates__certificate_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_uuid",
+            "required": true,
+            "schema": {
+              "title": "Device Uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "certificate_id",
+            "required": true,
+            "schema": {
+              "title": "Certificate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {}
+        ],
+        "summary": "Load Certificate",
+        "tags": [
+          "device"
+        ]
+      }
+    },
     "/v1/device/{device_uuid}/config/{configlet}": {
       "get": {
         "description": "Load the specified configuration file for the given DCIM device ID.",

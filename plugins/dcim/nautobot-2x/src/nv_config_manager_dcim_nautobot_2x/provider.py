@@ -17,7 +17,9 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable, Mapping
+from ipaddress import IPv4Address
 from typing import Any, Self
 from uuid import UUID
 
@@ -38,6 +40,7 @@ from nv_config_manager_dcim.models import (
     DCIMDeviceSelection,
     DCIMDeviceSelectionFilter,
     DCIMSelection,
+    DeviceCertificate,
     DeviceMetadata,
     IntendedConfigurationUpdate,
     IntendedInterfaceNeighbor,
@@ -47,6 +50,7 @@ from nv_config_manager_dcim.models import (
     ZTPDevice,
 )
 from nv_config_manager_dcim.render import RenderData, RenderDataExtension, RenderDataRequest
+from pydantic import ValidationError
 
 from nv_config_manager_dcim_nautobot_2x.client import NautobotException
 from nv_config_manager_dcim_nautobot_2x.dhcp import NautobotDHCPOperations
@@ -57,12 +61,28 @@ from nv_config_manager_dcim_nautobot_2x.workflow import NautobotWorkflowClient
 
 logger = logging.getLogger(__name__)
 
+_MINIMUM_CERTIFICATE_ROTATION_VERSION = (5, 16, 0)
+
+
+def _supports_certificate_rotation(version: object) -> bool:
+    """Return whether a Cumulus version supports the certificate rotation actions."""
+    if not isinstance(version, str):
+        return False
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version.strip())
+    if match is None:
+        return False
+    return tuple(int(part) for part in match.groups()) >= _MINIMUM_CERTIFICATE_ROTATION_VERSION
+
+
 _ZTP_DEVICE_QUERY = load_graphql_query("provider/devices.graphql", "GetZTPDevice")
 _RENDER_DEVICE_STATUS_QUERY = load_graphql_query(
     "provider/devices.graphql", "GetRenderDeviceStatus"
 )
 _RENDER_ENABLED_DEVICES_QUERY = load_graphql_query(
     "provider/devices.graphql", "ListRenderEnabledDevices"
+)
+_CERTIFICATE_ENABLED_DEVICES_QUERY = load_graphql_query(
+    "provider/devices.graphql", "ListCertificateEnabledDevices"
 )
 _RENDER_TEMPLATE_VERSIONS_QUERY = load_graphql_query(
     "provider/devices.graphql", "ListRenderTemplateVersions"
@@ -558,8 +578,49 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                     for address in interface["ip_addresses"]
                 }
             )
+            ztp_vrf = (
+                "mgmt"
+                if any(
+                    interface.get("name", "").lower() == "eth0" and interface.get("ip_addresses")
+                    for interface in device["interfaces"]
+                )
+                else "default"
+            )
             config_context = device.get("config_context") or {}
             firmware_version = config_context.get("intended-firmware", {}).get("version")
+            raw_ztp_servers = config_context.get("ztp", {}).get("ipv4", [])
+            if not isinstance(raw_ztp_servers, list):
+                raise DCIMInvalidDataError(
+                    f"Nautobot device {device_id} config_context.ztp.ipv4 must be a list"
+                )
+            ztp_servers: list[str] = []
+            for server in raw_ztp_servers:
+                if not isinstance(server, str):
+                    raise DCIMInvalidDataError(
+                        f"Nautobot device {device_id} config_context.ztp.ipv4 entries "
+                        "must be IPv4 address strings"
+                    )
+                try:
+                    ztp_servers.append(str(IPv4Address(server)))
+                except ValueError as exc:
+                    raise DCIMInvalidDataError(
+                        f"Nautobot device {device_id} config_context.ztp.ipv4 contains "
+                        f"an invalid IPv4 address: {server!r}"
+                    ) from exc
+            certificate_data = config_context.get("certificates", [])
+            if not isinstance(certificate_data, list):
+                raise DCIMInvalidDataError(
+                    f"Nautobot device {device_id} config_context.certificates must be a list"
+                )
+            try:
+                certificates = tuple(
+                    DeviceCertificate.model_validate(certificate)
+                    for certificate in certificate_data
+                )
+            except ValidationError as exc:
+                raise DCIMInvalidDataError(
+                    f"Nautobot device {device_id} has invalid certificate intent: {exc}"
+                ) from exc
             intended_config = managed_device.get("intended_config")
             config_store_instance = (
                 intended_config["config_store_instance"] if intended_config else None
@@ -571,8 +632,11 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 platform_name=device["platform"]["name"],
                 firmware_version=firmware_version,
                 config_store_instance=config_store_instance,
+                certificates=certificates,
+                ztp_servers=tuple(ztp_servers),
+                ztp_vrf=ztp_vrf,
             )
-        except (KeyError, TypeError) as exc:
+        except (KeyError, TypeError, ValidationError) as exc:
             raise DCIMInvalidDataError(
                 f"Nautobot returned incomplete ZTP device data for {device_id}"
             ) from exc
@@ -662,6 +726,38 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         result = await self.graphql_query(_RENDER_ENABLED_DEVICES_QUERY, variables)
         devices = result.get("data", {}).get("config_manager_devices", [])
         return [str(device["id"]) for device in devices]
+
+    async def get_certificate_enabled_device_ids(
+        self, is_aggregate_managed: bool | None
+    ) -> set[str]:
+        """Return render-enabled devices with at least one certificate assignment."""
+        variables: dict[str, Any] = {}
+        if is_aggregate_managed is not None:
+            variables["is_aggregate_managed"] = is_aggregate_managed
+        result = await self.graphql_query(_CERTIFICATE_ENABLED_DEVICES_QUERY, variables)
+        managed_devices = result.get("data", {}).get("config_manager_devices", [])
+        certificate_device_ids = set()
+        try:
+            for managed_device in managed_devices:
+                device = managed_device.get("device")
+                if device is None:
+                    continue
+                if (device.get("platform") or {}).get("name") != "Cumulus Linux":
+                    continue
+                context = device.get("config_context") or {}
+                certificates = context.get("certificates", [])
+                if certificates:
+                    if not isinstance(certificates, list):
+                        raise TypeError("certificates must be a list")
+                    firmware = context.get("intended-firmware") or {}
+                    if not _supports_certificate_rotation(firmware.get("version")):
+                        continue
+                    certificate_device_ids.add(str(device["id"]))
+        except (AttributeError, KeyError, TypeError) as exc:
+            raise DCIMInvalidDataError(
+                "Nautobot returned invalid certificate-enabled device data"
+            ) from exc
+        return certificate_device_ids
 
     async def get_render_template_versions(self) -> list[RenderTemplateVersion]:
         """Return the render template version stored for every managed device."""

@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shlex
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -31,7 +33,7 @@ from typing import IO
 
 from rich.text import Text
 from textual import events, work
-from textual.app import ComposeResult
+from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.widgets import Button, Input, Label, Static, Tab, Tabs
@@ -96,7 +98,7 @@ _ZTP_SKIP_KEYWORDS = ("health", "metrics", "readiness", "livez")
 _STREAM_HINTS = {
     "deploy": "Deploy output streams here. The complete log is also written to the path above.",
     "dhcp": "DHCP events appear here after install completes.",
-    "ztp": "ZTP request events appear here after install completes.",
+    "ztp": "ZTP HTTP and SFTP request events appear here after install completes.",
     "access": "Direct SSH appears here after SSH is ready. Browser access appears after the provider is ready.",
 }
 _TAB_TO_STREAM = {
@@ -173,6 +175,46 @@ def _copy_button(
     return button
 
 
+def _copy_text_to_clipboard(app: App, text: str) -> bool:
+    """Copy through the local desktop when available, with OSC 52 as fallback."""
+    app.copy_to_clipboard(text)
+
+    command: list[str] | None = None
+    if platform.system() == "Darwin" and shutil.which("pbcopy"):
+        command = ["pbcopy"]
+    elif os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-copy"):
+        command = ["wl-copy"]
+    elif os.environ.get("DISPLAY") and shutil.which("xclip"):
+        command = ["xclip", "-selection", "clipboard"]
+
+    if command is None:
+        return False
+    try:
+        subprocess.run(
+            command,
+            input=text,
+            text=True,
+            check=True,
+            timeout=3,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return True
+
+
+def _notify_copy_result(app: App, copied_to_desktop: bool) -> None:
+    """Report whether the desktop clipboard bridge confirmed the copy."""
+    if copied_to_desktop:
+        app.notify("Copied to desktop clipboard")
+    else:
+        app.notify(
+            "Sent terminal clipboard request; select the displayed text if paste is unavailable",
+            severity="warning",
+        )
+
+
 def _clean_dhcp_line(line: str) -> str:
     """Extract the useful DHCP event text from Kea or refresh logs."""
     message = _json_log_message(line)
@@ -213,11 +255,18 @@ def _is_interesting_dhcp_line(line: str) -> bool:
 
 
 def _is_interesting_ztp_line(line: str) -> bool:
-    """Return true for ZTP access/API lines, excluding health/readiness noise."""
+    """Return true for ZTP HTTP or SFTP activity, excluding health/readiness noise."""
     lowered = line.lower()
     if any(keyword in lowered for keyword in _ZTP_SKIP_KEYWORDS):
         return False
-    return " /v1/" in line or "/v1/" in line or "error" in lowered or "failed" in lowered
+    return (
+        "/v1/" in line
+        or "request for path:" in lowered
+        or "served certificate" in lowered
+        or "opening range-backed object storage file:" in lowered
+        or "error" in lowered
+        or "failed" in lowered
+    )
 
 
 def _is_ready_pod(pod: dict[str, str]) -> bool:
@@ -701,10 +750,11 @@ class _CopyCommandPanel(Container):
             event.stop()
 
     def _copy_command(self) -> None:
-        self.app.copy_to_clipboard(self._command)
+        copied_to_desktop = _copy_text_to_clipboard(self.app, self._command)
         button = self.query_one(f"#{self._button_id}", Button)
-        button.label = _COPIED_ICON
-        self.app.notify("Copied to clipboard")
+        if copied_to_desktop:
+            button.label = _COPIED_ICON
+        _notify_copy_result(self.app, copied_to_desktop)
         self.set_timer(1.0, lambda: self._restore_copy_button(button))
 
     def _restore_copy_button(self, button: Button) -> None:
@@ -746,10 +796,11 @@ class _SshCommandBar(Horizontal):
     def _copy_command(self) -> None:
         if not self._command:
             return
-        self.app.copy_to_clipboard(self._command)
+        copied_to_desktop = _copy_text_to_clipboard(self.app, self._command)
         button = self.query_one("#copy-ssh", Button)
-        button.label = _COPIED_ICON
-        self.app.notify("Copied to clipboard")
+        if copied_to_desktop:
+            button.label = _COPIED_ICON
+        _notify_copy_result(self.app, copied_to_desktop)
         self.set_timer(1.0, lambda: self._restore_copy_button(button))
 
     def _restore_copy_button(self, button: Button) -> None:
@@ -791,10 +842,11 @@ class _AirLinkBar(Horizontal):
     def _copy_url(self) -> None:
         if not self._url:
             return
-        self.app.copy_to_clipboard(self._url)
+        copied_to_desktop = _copy_text_to_clipboard(self.app, self._url)
         button = self.query_one("#copy-air-link", Button)
-        button.label = _COPIED_ICON
-        self.app.notify("Copied to clipboard")
+        if copied_to_desktop:
+            button.label = _COPIED_ICON
+        _notify_copy_result(self.app, copied_to_desktop)
         self.set_timer(1.0, lambda: self._restore_copy_button(button))
 
     def _restore_copy_button(self, button: Button) -> None:

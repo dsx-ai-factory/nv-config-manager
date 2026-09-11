@@ -4,7 +4,7 @@ sidebar-title: Network ZTP
 position: 0
 ---
 
-The NVIDIA Config Manager Network ZTP service is a FastAPI app that serves boot scripts, rendered configurations, and firmware images for network devices during Zero Touch Provisioning (ZTP).
+The NVIDIA Config Manager Network ZTP service is a FastAPI app that serves boot scripts, rendered configurations, firmware images, and assigned certificates for network devices during Zero Touch Provisioning (ZTP).
 
 Zero Touch Provisioning (ZTP) is an automated method for configuring and deploying network devices without manual intervention. When a new device boots, it automatically retrieves its configuration, firmware, and boot scripts from a central server, enabling rapid deployment and consistent configuration across your network infrastructure.
 
@@ -13,6 +13,7 @@ The Config Manager Network ZTP Server is a REST API service that facilitates Zer
 - **Boot scripts** - Initialization scripts that guide the device through the provisioning process
 - **Configuration files** - Device-specific configurations rendered from templates
 - **Firmware images** - Platform-specific firmware versions required for device operation
+- **Certificates** - Provider-issued CA and identity material imported under stable device IDs
 
 The ZTP server obtains device identity, authorization data, intended firmware,
 and provisioning state from the selected DCIM provider. This ensures that only
@@ -31,7 +32,8 @@ properly tracked throughout provisioning.
 
 - **Device and user authorization** - Device requests must come from registered IP addresses; user requests must come through the Envoy gateway as authenticated users when SSO is enabled
 - **Serial number validation** - Devices must validate their serial numbers before provisioning
-- **Secure file transfers** - All transfers use HTTPS with checksum verification
+- **Protected certificate delivery** - Cumulus retrieves identity material through the encrypted SFTP proxy, authorized by registered device source IP
+- **Integrity verification** - Firmware and other large artifacts support SHA256 verification; private-network HTTP remains available for bootstrap artifacts and public CA trust
 
 **DCIM provider integration**:
 
@@ -94,16 +96,18 @@ Before using the ZTP server, ensure:
 1. **DHCP Response** - DHCP server provides the device with an IP address and the ZTP boot file URL
 1. **Boot Script Retrieval** - Device downloads its boot script from the ZTP server
 1. **Firmware Download** - Device downloads the appropriate firmware image for its platform
-1. **Configuration Loading** - Device retrieves and applies its configuration files
+1. **Certificate Import** - Cumulus devices import assigned CA and identity certificates before configuration references their stable NVUE IDs
+1. **Configuration Loading** - Default Cumulus and NVOS templates retrieve sensitive rendered configuration through the encrypted SFTP proxy and apply it
 1. **Serial Validation** - Device validates its serial number matches the selected provider's record
 1. **Provisioning Complete** - Device marks itself as provisioned, triggering backup workflows
 
 ### Authorization Model
 
-The ZTP server accepts device endpoint requests from registered devices and, when SSO is enabled, from authenticated users through the Envoy gateway:
+Most ZTP device endpoints accept requests from registered devices and, when SSO is enabled, authenticated users through the Envoy gateway:
 
 - Device-originated requests must come from IP addresses registered for the device in the selected provider
 - User-originated requests must come through the Envoy gateway as authenticated users when SSO is enabled for the deployment
+- The certificate endpoint is device-only: gateway or browser identity never bypasses source-IP authorization
 - Admin endpoints require authenticated user access
 
 ---
@@ -140,10 +144,12 @@ To update device configurations:
 
 1. **Read the API Documentation** - Understand available endpoints and how to use them
 1. **Review the Configuration Guide** - Learn how to set up devices for ZTP
+1. **Configure Certificates** - Set up PKI-backed delivery and rotation when devices require certificates
 1. **Explore the Architecture** - Understand how the system works internally
 1. **Start Provisioning** - Begin deploying devices using ZTP
 
 - [Configuration](configuration.mdx)
+- [Certificate Delivery and Rotation](certificate-delivery.mdx)
 - [Upload Images to the ZTP Server](upload-images.mdx)
 - [Architecture](architecture.mdx)
 - [API Reference](api:ztp-api)

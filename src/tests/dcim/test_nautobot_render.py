@@ -202,7 +202,34 @@ async def test_get_render_data_loads_provider_owned_queries():
                                 ],
                             }
                         ],
-                        "config_context": {"backbone": {"schema_version": 1}},
+                        "config_context": {
+                            "backbone": {"schema_version": 1},
+                            "certificates": [
+                                {
+                                    "id": "otel-ca",
+                                    "source": "telemetry-ca",
+                                    "kind": "ca",
+                                    "services": ["ztp"],
+                                },
+                                {
+                                    "id": "otel-client",
+                                    "source": "telemetry-client",
+                                    "kind": "identity",
+                                },
+                            ],
+                            "telemetry": {
+                                "otlp": {
+                                    "ca_certificate": "otel-ca",
+                                    "destinations": [
+                                        {
+                                            "address": "192.0.2.40",
+                                            "port": 4317,
+                                            "client_certificate": "otel-client",
+                                        }
+                                    ],
+                                }
+                            },
+                        },
                         "location": {
                             "name": "Rack 1",
                             "location_type": {"name": "Rack"},
@@ -252,6 +279,14 @@ async def test_get_render_data_loads_provider_owned_queries():
     assert render_data.plugin_data["custom_context"].data == {
         "config_context": {"backbone": {"schema_version": 1}}
     }
+    assert [certificate.id for certificate in render_data.device.certificates] == [
+        "otel-ca",
+        "otel-client",
+    ]
+    assert render_data.device.telemetry.otlp.ca_certificate == "otel-ca"
+    assert tuple(render_data.device.certificates[0].services) == ("ztp",)
+    assert str(render_data.device.telemetry.otlp.destinations[0].address) == "192.0.2.40"
+    assert render_data.device.telemetry.otlp.destinations[0].client_certificate == "otel-client"
     first_call, second_call, third_call = client.graphql_query.await_args_list
     assert first_call.args[1] == {"id": "device-id", "id_str": "device-id"}
     assert second_call.args[1] == {"location": "Site A"}

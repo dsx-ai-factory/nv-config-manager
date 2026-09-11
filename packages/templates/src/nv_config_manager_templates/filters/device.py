@@ -20,6 +20,7 @@ import re
 from typing import Any
 
 from nv_config_manager_dcim import DeviceRenderData, LocationRenderData
+from packaging.version import InvalidVersion, Version
 
 from nv_config_manager_templates.dataclasses.bgp import BGPLocalConfig, BGPPeer
 from nv_config_manager_templates.dataclasses.consoleport import ConsoleServerPort
@@ -437,6 +438,25 @@ def tacacs_servers(value: DeviceRenderData, optional: bool = True) -> list[str]:
 def ztp_servers(value: DeviceRenderData) -> list[str]:
     """Return a list of ZTP servers for the device."""
     return _service_endpoints(value, value.services.ztp, "ZTP", optional=False)
+
+
+def ztp_vrf(value: DeviceRenderData) -> str:
+    """Return the VRF that reaches ZTP based on the routed management interface."""
+    eth0 = interface_by_name(value, "eth0", fail_if_missing=False)
+    if eth0 is not None and (eth0.primary_ipv4 or eth0.primary_ipv6):
+        return "mgmt"
+    return "default"
+
+
+def supports_nvue_file_fetch(value: DeviceRenderData) -> bool:
+    """Return whether the target Cumulus release supports VRF-aware NVUE file fetches."""
+    firmware_version = desired_firmware(value)
+    try:
+        return Version(firmware_version) >= Version("5.16.0")
+    except InvalidVersion as exc:
+        raise FilterException(
+            f"Device {hostname(value)} has invalid desired firmware version '{firmware_version}'."
+        ) from exc
 
 
 def firmware_cache(value: DeviceRenderData) -> list[str]:

@@ -1,5 +1,5 @@
 .PHONY: help install dev test lint format sort-check sort-fix clean docker-build docker-push ui-install ui-dev ui-build \
-        local-up local-down local-destroy local-status local-logs deploy kind-up kind-up-sec kind-up-sec-kgateway kind-up-secure kind-down topology install-cert workflow-perf-seed \
+        local-up local-down local-destroy local-status local-logs deploy kind-up kind-up-sec kind-up-sec-kgateway kind-up-secure kind-down topology install-cert workflow-perf-seed openbao-pki-local \
         openapi openapi-check go-bindings api-generate docs-assets docs-assets-check docs-format docs-lint docs-lint-fern docs-live docs-preview docs-publish docs-publish-in-ci docs-screenshots docs-air-sim-screenshots docs-ui-screenshots \
         obs-grafana obs-prometheus obs-loki obs-alloy obs-port-forward obs-port-forward-stop
 
@@ -78,6 +78,7 @@ help:
 	@echo "  make local-status     - Show status of local deployment"
 	@echo "  make local-logs       - Tail logs from all services"
 	@echo "  make local-restart    - Restart all deployments"
+	@echo "  make openbao-pki-local - Install/configure local OpenBao PKI with Kubernetes JWKS auth"
 	@echo ""
 	@echo "Kind Cluster Management:"
 	@echo "  make kind-up                      - Create Kind cluster and deploy NVIDIA Config Manager (small sizing, 24GB)"
@@ -875,6 +876,11 @@ kind-up:
 		--install-cnpg-operator \
 		--install-cert-manager \
 		$(HELM_DEBUG_FLAG) --helm-timeout $(HELM_TIMEOUT)
+
+# Install a disposable local OpenBao instance and configure the switch-certificate
+# PKI role plus Kubernetes service-account JWT/JWKS authentication.
+openbao-pki-local:
+	./scripts/setup-local-openbao-pki --install-openbao
 
 # Deploy with Kind plus local Keycloak SSO, SPIRE SPIFFE, and workflow RBAC.
 kind-up-sec:

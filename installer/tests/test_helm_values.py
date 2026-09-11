@@ -66,11 +66,16 @@ from nv_config_manager_installer.schema import (
     VaultPathConfig,
     VaultPathsConfig,
     WorkflowRBACOverride,
+    ZTPCertificatesConfig,
+    ZTPPKISourceConfig,
     ZTPS3CephConfig,
     ZTPS3CephObjectBucketClaimConfig,
     ZTPS3CephObjectStoreUserConfig,
     ZTPStorageConfig,
     ZTPStorageType,
+    ZTPTLSCertificateConfig,
+    ZTPTLSConfig,
+    ZTPVaultPKIConfig,
     get_known_workflows,
 )
 
@@ -130,6 +135,165 @@ class TestGenerateHelmValues:
         assert ext["postgres"]["temporal"]["host"] == "cluster-temporal-rw"
         assert ext["postgres"]["configStore"]["host"] == "cluster-config-store-rw"
         assert values["mcp"]["enabled"] is True
+
+    def test_ztp_certificate_values(self):
+        config = _make_config(
+            infrastructure=InfrastructureConfig(
+                load_balancer=LoadBalancerConfig(
+                    provider=LBProvider.METALLB,
+                    ztp_lb_ip="192.0.2.10",
+                ),
+                ztp_tls=ZTPTLSConfig(
+                    enabled=True,
+                    certificate=ZTPTLSCertificateConfig(
+                        create=True,
+                        issuer_name="ztp-private-ca",
+                        ip_addresses=["192.0.2.10"],
+                    ),
+                ),
+                ztp_certificates=ZTPCertificatesConfig(
+                    enabled=True,
+                    vault=ZTPVaultPKIConfig(
+                        address="https://vault.example.com",
+                        namespace="network/platform",
+                        auth_mount="jwt/k8s/prod",
+                        auth_role="switch-certificate-issuer",
+                        pki_mount="pki/switches",
+                        verify=True,
+                        ca_secret_name="vault-pki-ca",
+                        ca_secret_key="tls-ca.pem",
+                        ca_mount_path="/etc/nv-config-manager/vault-pki-ca/ca.pem",
+                    ),
+                    sources=[
+                        ZTPPKISourceConfig(
+                            name="otel-client",
+                            issue_role="switch-telemetry",
+                            ttl="168h",
+                            common_name_template="switch-{device_id}",
+                        ),
+                        ZTPPKISourceConfig(
+                            name="otel-ca",
+                            ca_path="pki/switches/ca/pem",
+                        ),
+                    ],
+                ),
+            )
+        )
+
+        values = _gen(config)
+
+        assert values["networkZtp"]["ingress"]["metallb"]["staticIP"] == "192.0.2.10"
+        assert values["networkZtp"]["ingress"]["tls"] == {
+            "enabled": True,
+            "secretName": "",
+            "reloadIntervalSeconds": 30,
+            "certificate": {
+                "create": True,
+                "issuerRef": {"kind": "ClusterIssuer", "name": "ztp-private-ca"},
+                "dnsNames": [],
+                "ipAddresses": ["192.0.2.10"],
+                "duration": "2160h",
+                "renewBefore": "720h",
+            },
+        }
+
+        assert values["networkZtp"]["certificates"] == {
+            "enabled": True,
+            "provider": "vault",
+            "vault": {
+                "address": "https://vault.example.com",
+                "namespace": "network/platform",
+                "authMount": "jwt/k8s/prod",
+                "authRole": "switch-certificate-issuer",
+                "audience": "vault",
+                "pkiMount": "pki/switches",
+                "verify": True,
+                "allowInsecure": False,
+                "caSecret": {
+                    "name": "vault-pki-ca",
+                    "key": "tls-ca.pem",
+                    "mountPath": "/etc/nv-config-manager/vault-pki-ca/ca.pem",
+                },
+                "timeoutSeconds": 30,
+            },
+            "sources": [
+                {
+                    "name": "otel-client",
+                    "issueRole": "switch-telemetry",
+                    "caPath": "",
+                    "ttl": "168h",
+                    "commonNameTemplate": "switch-{device_id}",
+                },
+                {
+                    "name": "otel-ca",
+                    "issueRole": "",
+                    "caPath": "pki/switches/ca/pem",
+                    "ttl": "168h",
+                    "commonNameTemplate": "{device_name}",
+                },
+            ],
+        }
+
+    def test_ztp_tls_requires_existing_secret_when_certificate_is_unmanaged(self):
+        with pytest.raises(ValueError, match="requires secret_name"):
+            ZTPTLSConfig(enabled=True)
+
+    def test_ztp_certificates_do_not_require_https_listener(self):
+        infrastructure = InfrastructureConfig(
+            load_balancer=LoadBalancerConfig(
+                provider=LBProvider.METALLB,
+                ztp_lb_ip="192.0.2.10",
+            ),
+            ztp_certificates=ZTPCertificatesConfig(
+                enabled=True,
+                vault=ZTPVaultPKIConfig(
+                    address="https://vault.example.com",
+                    auth_mount="jwt",
+                    auth_role="ztp",
+                    pki_mount="pki",
+                ),
+                sources=[ZTPPKISourceConfig(name="identity", issue_role="switch")],
+            ),
+        )
+
+        assert infrastructure.ztp_certificates.enabled is True
+        assert infrastructure.ztp_tls.enabled is False
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"address": "http://vault.example"},
+            {"address": "https://vault.example", "verify": False},
+        ],
+    )
+    def test_ztp_vault_rejects_insecure_transport_without_opt_in(self, kwargs):
+        with pytest.raises(ValueError, match="allow_insecure"):
+            ZTPVaultPKIConfig(**kwargs)
+
+    def test_ztp_vault_allows_explicit_local_insecure_transport(self):
+        vault = ZTPVaultPKIConfig(
+            address="http://openbao.openbao.svc:8200",
+            verify=False,
+            allow_insecure=True,
+        )
+
+        assert vault.allow_insecure is True
+
+    def test_ztp_tls_requires_ztp_service(self):
+        with pytest.raises(ValueError, match="services.ztp must be true"):
+            _make_config(
+                services=ServicesConfig(ztp=False),
+                infrastructure=InfrastructureConfig(
+                    load_balancer=LoadBalancerConfig(
+                        provider=LBProvider.METALLB,
+                        ztp_lb_ip="192.0.2.10",
+                    ),
+                    ztp_tls=ZTPTLSConfig(
+                        enabled=True,
+                        secret_name="ztp-tls",
+                    ),
+                ),
+            )
 
     def test_s3_irsa_role_and_region(self):
         """S3 IRSA emits an annotated ServiceAccount without a credentials Secret."""

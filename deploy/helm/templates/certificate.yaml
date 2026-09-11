@@ -16,6 +16,7 @@ metadata:
 spec:
   selfSigned: {}
 {{- end }}
+
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -56,4 +57,38 @@ spec:
   {{- end }}
   duration: 2160h  # 90 days
   renewBefore: 720h  # 30 days
+{{- end }}
+
+{{- $ztpTLS := .Values.networkZtp.ingress.tls | default dict }}
+{{- $ztpCertificate := $ztpTLS.certificate | default dict }}
+{{- if and .Values.networkZtp.enabled ($ztpTLS.enabled | default false) ($ztpCertificate.create | default false) }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "nv-config-manager.componentName" (dict "root" . "component" "network-ztp-tls") }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "nv-config-manager.networkZtpTLSSecretName" . }}
+  issuerRef:
+    kind: {{ $ztpCertificate.issuerRef.kind | required "networkZtp.ingress.tls.certificate.issuerRef.kind is required" }}
+    name: {{ $ztpCertificate.issuerRef.name | required "networkZtp.ingress.tls.certificate.issuerRef.name is required" }}
+  {{- with $ztpCertificate.dnsNames }}
+  dnsNames:
+    {{- range . }}
+    - {{ tpl . $ | quote }}
+    {{- end }}
+  {{- end }}
+  {{- with $ztpCertificate.ipAddresses }}
+  ipAddresses:
+    {{- range . }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
+  duration: {{ $ztpCertificate.duration | default "2160h" }}
+  renewBefore: {{ $ztpCertificate.renewBefore | default "720h" }}
+  privateKey:
+    rotationPolicy: Always
 {{- end }}

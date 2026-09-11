@@ -35,6 +35,28 @@ function retry_curl() {
   echo "curl command failed after $max_attempts attempts" >&2
   return $exit_code
 }
+function retry_command() {
+  local max_attempts=5
+  local attempt=1
+  local exit_code=0
+  local retry_delay=5
+  while [ $attempt -le $max_attempts ]; do
+    echo "Attempt $attempt of $max_attempts: $*" >&2
+    if "$@"; then
+      return 0
+    else
+      exit_code=$?
+    fi
+    if [ $attempt -lt $max_attempts ]; then
+      echo "Command failed with exit code $exit_code; retrying in $retry_delay seconds..." >&2
+      sleep $retry_delay
+      retry_delay=$((retry_delay * 2))
+    fi
+    attempt=$((attempt + 1))
+  done
+  echo "Command failed after $max_attempts attempts" >&2
+  return $exit_code
+}
 # Log all output from this script
 exec >> /var/log/autoprovision 2>&1
 date "+%FT%T ztp starting script $0"
@@ -91,7 +113,12 @@ JSON_PAYLOAD=$(SERIAL="$SERIAL" python3 -c 'import json, os; print(json.dumps({"
 retry_curl --fail -H "Content-Type: application/json" -d "$JSON_PAYLOAD" \
 http://192.0.2.10/v1/device/faf21128-fc9d-4bf3-8bce-a293c1c27b05/validate_serial
 #Load configuration from ZTP server
-retry_curl --fail http://192.0.2.10/v1/device/faf21128-fc9d-4bf3-8bce-a293c1c27b05/config/startup.yaml -o /tmp/startup.yaml
+rm -f /tmp/startup.yaml
+retry_command ip vrf exec mgmt curl --fail --silent --show-error --insecure \
+  --user ztp:ztp \
+  --output /tmp/startup.yaml \
+  sftp://192.0.2.10:2222/device/faf21128-fc9d-4bf3-8bce-a293c1c27b05/startup.yaml
+chmod 600 /tmp/startup.yaml
 nv config replace /tmp/startup.yaml
 nv config apply -y
 #Reload DHCP to workaround Cumulus 5.11.0 bug 4423269

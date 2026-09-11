@@ -37,10 +37,11 @@ async def test_devices_to_schedule(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_scheduled_devices():
+async def test_scheduled_devices_ignores_other_schedule_types():
     schedules = [
         Mock(id="backup-device1"),
         Mock(id="backup-device2"),
+        Mock(id="certificate-rotation-device3"),
         Mock(id="other-schedule"),
     ]
 
@@ -51,9 +52,10 @@ async def test_scheduled_devices():
     mock_client.list_schedules.return_value = mock_list_schedules
 
     scheduler = BackupScheduler()
-    scheduled_devices = await scheduler.scheduled_devices(mock_client)
+    backup_devices = await scheduler.scheduled_devices(mock_client)
 
-    assert scheduled_devices == {"device1", "device2"}
+    assert backup_devices == {"device1", "device2"}
+    mock_client.list_schedules.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
