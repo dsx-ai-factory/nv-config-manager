@@ -30,6 +30,15 @@ from nv_config_manager_workflows.clients.render import (
     RenderClient,
     RenderClientException,
 )
+from nv_config_manager_workflows.clients.ticketing import (
+    TICKETING_PROVIDERS,
+    JiraClientError,
+    JiraSettings,
+    JiraTicketingProvider,
+    TicketingProvider,
+    TicketingSettings,
+    get_ticketing_provider,
+)
 
 __all__ = [
     "ConfigFile",
@@ -41,10 +50,17 @@ __all__ = [
     "ConfigStoreType",
     "FileCommit",
     "HeaderProvider",
+    "JiraClientError",
+    "JiraSettings",
+    "JiraTicketingProvider",
     "RedisClient",
     "RedisSettings",
     "RenderClient",
     "RenderClientException",
+    "TICKETING_PROVIDERS",
+    "TicketingProvider",
+    "TicketingSettings",
     "WhoamiResult",
     "async_result",
+    "get_ticketing_provider",
 ]
