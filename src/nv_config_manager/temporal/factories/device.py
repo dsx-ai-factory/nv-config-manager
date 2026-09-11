@@ -33,12 +33,14 @@ def device_connection_settings(
     site: str | None = None,
     username: str | None = None,
     password: str | None = None,
+    mock: bool | None = None,
 ) -> DeviceConnectionSettings:
     """Translate service configuration and legacy overrides into plain settings.
 
     Truthy explicit credentials take precedence, matching NetworkConnection.
     Site-specific secrets affect passwords only; username falls back to the
     main device section. Secret-file loading remains owned by the service.
+    An explicit mock flag lets direct constructors skip factory-only INI parsing.
     """
     resolved = resolve_config(config)
     resolved_username = username or resolved["device"]["username"]
@@ -54,5 +56,5 @@ def device_connection_settings(
     return {
         "username": resolved_username,
         "passwords": passwords,
-        "mock": resolved["device"].getboolean("mock", fallback=False),
+        "mock": mock if mock is not None else resolved["device"].getboolean("mock", fallback=False),
     }
