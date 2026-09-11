@@ -17,25 +17,10 @@
 from __future__ import annotations
 
 from configparser import ConfigParser
-from typing import TypedDict
 
 from nv_config_manager.common.config_loader import resolve_config
 from nv_config_manager.common.http_config import config_manager_api_prefix
-
-
-class NatsClientSettings(TypedDict):
-    """Constructor settings shared by NATS clients and producers."""
-
-    api_prefix: str
-    server: str
-    queue: str
-    local: bool
-    auth_method: str
-    user: str | None
-    password: str | None
-    creds_path: str | None
-    default_stream_name: str
-    default_stream_subjects: list[str]
+from nv_config_manager_workflows.clients.nats import NatsClientSettings
 
 
 def nats_client_settings(config: ConfigParser | None = None) -> NatsClientSettings:

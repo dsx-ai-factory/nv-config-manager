@@ -24,6 +24,12 @@ from nv_config_manager_workflows.clients.config_store import (
     ConfigStoreFileNotFound,
     ConfigStoreType,
 )
+from nv_config_manager_workflows.clients.nats import (
+    DEFAULT_NATS_API_PREFIX,
+    NatsClient,
+    NatsClientSettings,
+    NatsProducer,
+)
 from nv_config_manager_workflows.clients.redis import RedisClient, RedisSettings, async_result
 from nv_config_manager_workflows.clients.render import (
     FileCommit,
@@ -48,11 +54,15 @@ __all__ = [
     "ConfigStoreException",
     "ConfigStoreFileNotFound",
     "ConfigStoreType",
+    "DEFAULT_NATS_API_PREFIX",
     "FileCommit",
     "HeaderProvider",
     "JiraClientError",
     "JiraSettings",
     "JiraTicketingProvider",
+    "NatsClient",
+    "NatsClientSettings",
+    "NatsProducer",
     "RedisClient",
     "RedisSettings",
     "RenderClient",

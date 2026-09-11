@@ -59,6 +59,20 @@ def test_from_config_without_prefix_falls_back_to_default():
     assert NatsClient.from_config(_config()).api_prefix == DEFAULT_NATS_API_PREFIX
 
 
+def test_producer_compatibility_shim_retains_from_config():
+    """The common import path retains its configuration-backed constructor."""
+    producer = NatsProducer.from_config(
+        _config(
+            config_manager_api_prefix="$JS.CUSTOM.API",
+            config_manager_subjects="workflow.>, audit.event",
+        )
+    )
+
+    assert producer.server == TEST_SERVER
+    assert producer.api_prefix == "$JS.CUSTOM.API"
+    assert producer.default_stream_subjects == ["workflow.>", "audit.event"]
+
+
 @pytest.mark.asyncio
 async def test_external_connect_does_not_require_stream_info():
     """Externally managed streams can be used without stream administration permission."""
@@ -67,7 +81,8 @@ async def test_external_connect_does_not_require_stream_info():
 
     with (
         patch(
-            "nv_config_manager.common.client.nats.nats.connect", new=AsyncMock(return_value=conn)
+            "nv_config_manager_workflows.clients.nats.base.nats.connect",
+            new=AsyncMock(return_value=conn),
         ),
         patch.object(client, "_ensure_stream", new_callable=AsyncMock) as ensure_stream,
     ):
@@ -84,7 +99,8 @@ async def test_local_connect_keeps_stream_setup():
 
     with (
         patch(
-            "nv_config_manager.common.client.nats.nats.connect", new=AsyncMock(return_value=conn)
+            "nv_config_manager_workflows.clients.nats.base.nats.connect",
+            new=AsyncMock(return_value=conn),
         ),
         patch.object(client, "_ensure_stream", new_callable=AsyncMock) as ensure_stream,
     ):
@@ -105,7 +121,7 @@ async def test_connect_preserves_password_auth_and_tls_contract():
     conn = MagicMock(connected_url=TEST_SERVER)
 
     with patch(
-        "nv_config_manager.common.client.nats.nats.connect",
+        "nv_config_manager_workflows.clients.nats.base.nats.connect",
         new=AsyncMock(return_value=conn),
     ) as connect:
         await client.connect()
@@ -133,7 +149,7 @@ async def test_connect_preserves_jwt_auth_contract():
     conn = MagicMock(connected_url=TEST_SERVER)
 
     with patch(
-        "nv_config_manager.common.client.nats.nats.connect",
+        "nv_config_manager_workflows.clients.nats.base.nats.connect",
         new=AsyncMock(return_value=conn),
     ) as connect:
         await client.connect()
