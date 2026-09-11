@@ -21,7 +21,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 import pytest
 from temporalio import activity, workflow
@@ -72,6 +72,7 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.ngc.workflows.cable_validation import (
         CABLE_STATUS_UPDATE_PATCH_ID,
         CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID,
+        DCIM_PERSISTENCE_PENDING_MESSAGE,
         DeviceCableValidationInput,
         DeviceCableValidationResult,
         DeviceCableValidationWorkflow,
@@ -159,11 +160,13 @@ async def test_device_persistence_follows_completed_report(patch_enabled, defer)
         )
     )
 
-    async def persist(stage_input):
+    async def persist(stage_name, report_output, updates):
         instance.validate_connections.assert_awaited_once()
-        assert stage_input.updates[0].workflow_id == "workflow-1"
+        assert stage_name == "validate_connections"
+        assert report_output is instance.validate_connections.return_value
+        assert updates[0].workflow_id == "workflow-1"
 
-    instance.persist_cable_statuses = AsyncMock(side_effect=persist)
+    instance.persist_cable_statuses_after_report = AsyncMock(side_effect=persist)
     instance.archive_results = AsyncMock()
     with (
         patch("temporalio.workflow.patched", return_value=patch_enabled) as patched,
@@ -179,7 +182,9 @@ async def test_device_persistence_follows_completed_report(patch_enabled, defer)
             ),
         )
     patched.assert_called_once_with(CABLE_STATUS_UPDATE_PATCH_ID)
-    assert instance.persist_cable_statuses.await_count == int(patch_enabled and not defer)
+    assert instance.persist_cable_statuses_after_report.await_count == int(
+        patch_enabled and not defer
+    )
     assert (result.cable_status_update is not None) == (patch_enabled and defer)
 
 
@@ -197,11 +202,13 @@ async def test_site_persistence_follows_completed_report(patch_enabled):
     )
     instance.format_result = AsyncMock(return_value=SimpleNamespace(display="Report"))
 
-    async def persist(stage_input):
+    async def persist(stage_name, report_output, updates):
         instance.format_result.assert_awaited_once()
-        assert stage_input.updates == [pending]
+        assert stage_name == "format_result"
+        assert report_output is instance.format_result.return_value
+        assert updates == [pending]
 
-    instance.persist_cable_statuses = AsyncMock(side_effect=persist)
+    instance.persist_cable_statuses_after_report = AsyncMock(side_effect=persist)
     instance.archive_results = AsyncMock()
     with (
         patch("temporalio.workflow.patched", return_value=patch_enabled),
@@ -213,7 +220,41 @@ async def test_site_persistence_follows_completed_report(patch_enabled):
             instance, SiteCableValidationInput(site="site-1")
         )
     assert result.markdown == "Report"
-    assert instance.persist_cable_statuses.await_count == int(patch_enabled)
+    assert instance.persist_cable_statuses_after_report.await_count == int(patch_enabled)
+
+
+@pytest.mark.asyncio
+async def test_dcim_persistence_keeps_report_visible_until_complete():
+    pending = UpdateCableStatusesInput(
+        device_id="device-1", cable_statuses={"p": CableStatus.CONNECTED}, workflow_id="workflow-1"
+    )
+    report = SiteCableValidationWorkflow.FormatResultStageOutput(display="Report")
+    instance = MagicMock(spec=SiteCableValidationWorkflow)
+
+    async def persist(updates):
+        assert updates == [pending]
+        assert instance.set_stage_output.call_args == call(
+            "format_result",
+            SiteCableValidationWorkflow.FormatResultStageOutput(
+                display="Report" + DCIM_PERSISTENCE_PENDING_MESSAGE
+            ),
+        )
+
+    instance.persist_cable_statuses = AsyncMock(side_effect=persist)
+
+    await SiteCableValidationWorkflow.persist_cable_statuses_after_report(
+        instance, "format_result", report, [pending]
+    )
+
+    assert instance.set_stage_output.call_args_list == [
+        call(
+            "format_result",
+            SiteCableValidationWorkflow.FormatResultStageOutput(
+                display="Report" + DCIM_PERSISTENCE_PENDING_MESSAGE
+            ),
+        ),
+        call("format_result", report),
+    ]
 
 
 @pytest.mark.asyncio
@@ -966,11 +1007,6 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
         await handle.result()
 
         stages = await handle.query("stages")
-        update_stage = stages.pop()
-        assert update_stage["name"] == "update_cable_statuses"
-        assert update_stage["depends_on"] == ["format_result"]
-        assert update_stage["input"] == {"updates": []}
-        assert update_stage["state"] == "COMPLETE"
         assert stages[1]["output"].pop("cable_status_updates") == []
         assert stages == [
             {
