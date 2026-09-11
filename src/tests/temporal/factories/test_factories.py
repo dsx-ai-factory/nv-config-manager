@@ -26,6 +26,7 @@ from nv_config_manager.common import config_loader as config_module
 from nv_config_manager.temporal.factories import (
     device_connection_settings,
     nats_client_settings,
+    nats_consumer_settings,
     redfish_client_settings,
     redis_settings,
     ticketing_client_settings,
@@ -89,6 +90,8 @@ def client_config() -> ConfigParser:
                 "config_manager_stream": "archive",
                 "config_manager_subjects": "one, two , ,three",
                 "config_manager_api_prefix": "$JS.CUSTOM.API",
+                "archive_consumer_name": "workflow-archive",
+                "archive_deliver_subject": "workflow.archive.delivery",
             },
             "jira": {
                 "base_url": "https://jira.example",
@@ -155,6 +158,26 @@ def test_nats_client_settings_match_current_constructor_values(
     }
 
 
+def test_nats_consumer_settings_add_service_owned_values(
+    client_config: ConfigParser,
+) -> None:
+    assert nats_consumer_settings("archive", client_config) == {
+        **nats_client_settings(client_config),
+        "durable_name": "workflow-archive",
+        "deliver_subject": "workflow.archive.delivery",
+    }
+
+
+def test_nats_consumer_settings_preserve_legacy_defaults() -> None:
+    config = ConfigParser()
+    config.read_dict({"nats": {"server": "nats://nats.example:4222"}})
+
+    settings = nats_consumer_settings("archive", config)
+
+    assert settings["durable_name"] == "nv-config-manager-archive"
+    assert settings["deliver_subject"] == "nv-config-manager.archive.delivery"
+
+
 def test_ticketing_client_settings_match_current_constructor_values(
     client_config: ConfigParser,
 ) -> None:
@@ -208,6 +231,7 @@ def test_injected_configuration_does_not_load_global_config(
 
     device_connection_settings(client_config)
     nats_client_settings(client_config)
+    nats_consumer_settings("archive", client_config)
     redfish_client_settings(client_config, vendor=RedfishVendor.LENOVO)
     redis_settings(client_config)
     ticketing_client_settings(client_config, platform="jira")
@@ -223,6 +247,7 @@ def test_factories_do_not_log_credentials(
     with caplog.at_level(logging.DEBUG):
         device_connection_settings(client_config)
         nats_client_settings(client_config)
+        nats_consumer_settings("archive", client_config)
         redfish_client_settings(client_config, vendor=RedfishVendor.LENOVO)
         redis_settings(client_config)
         ticketing_client_settings(client_config, platform="jira")

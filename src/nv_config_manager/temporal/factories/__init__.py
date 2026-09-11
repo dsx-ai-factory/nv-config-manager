@@ -21,7 +21,12 @@ from nv_config_manager.temporal.factories.device import (
     DeviceConnectionSettings,
     device_connection_settings,
 )
-from nv_config_manager.temporal.factories.nats import NatsClientSettings, nats_client_settings
+from nv_config_manager.temporal.factories.nats import (
+    NatsClientSettings,
+    NatsConsumerSettings,
+    nats_client_settings,
+    nats_consumer_settings,
+)
 from nv_config_manager.temporal.factories.redfish import (
     RedfishClientSettings,
     redfish_client_settings,
@@ -37,11 +42,13 @@ from nv_config_manager.temporal.factories.ufm import UFMClientSettings, ufm_clie
 __all__ = [
     "DeviceConnectionSettings",
     "NatsClientSettings",
+    "NatsConsumerSettings",
     "RedfishClientSettings",
     "TicketingClientSettings",
     "UFMClientSettings",
     "device_connection_settings",
     "nats_client_settings",
+    "nats_consumer_settings",
     "redfish_client_settings",
     "redis_settings",
     "ticketing_client_settings",
