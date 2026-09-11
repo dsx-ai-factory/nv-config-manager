@@ -23,6 +23,13 @@ from nv_config_manager.common.http_config import config_manager_api_prefix
 from nv_config_manager_workflows.clients.nats import NatsClientSettings
 
 
+class NatsConsumerSettings(NatsClientSettings):
+    """Explicit settings added by the service-owned NATS consumer adapter."""
+
+    durable_name: str
+    deliver_subject: str
+
+
 def nats_client_settings(config: ConfigParser | None = None) -> NatsClientSettings:
     """Translate the NATS INI section into common constructor settings."""
     nats_config = resolve_config(config)["nats"]
@@ -42,4 +49,24 @@ def nats_client_settings(config: ConfigParser | None = None) -> NatsClientSettin
         "creds_path": nats_config.get("creds_path"),
         "default_stream_name": nats_config.get("config_manager_stream", "nv-config-manager"),
         "default_stream_subjects": subjects,
+    }
+
+
+def nats_consumer_settings(
+    queue_suffix: str,
+    config: ConfigParser | None = None,
+) -> NatsConsumerSettings:
+    """Translate INI settings for the service-owned durable NATS consumer."""
+    resolved = resolve_config(config)
+    nats_config = resolved["nats"]
+    return {
+        **nats_client_settings(resolved),
+        "durable_name": nats_config.get(
+            "archive_consumer_name",
+            f"nv-config-manager-{queue_suffix}",
+        ),
+        "deliver_subject": nats_config.get(
+            "archive_deliver_subject",
+            "nv-config-manager.archive.delivery",
+        ),
     }

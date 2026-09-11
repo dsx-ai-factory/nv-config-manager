@@ -14,10 +14,12 @@
 # limitations under the License.
 """Compatibility contracts for the configuration-backed Temporal NATS producer."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from nv_config_manager.common.client import NatsClient as CommonNatsClient
 from nv_config_manager.common.client import NatsProducer as CommonNatsProducer
+from nv_config_manager.temporal.client.nats import NatsClient as TemporalNatsClient
+from nv_config_manager.temporal.client.nats import NatsConsumer as TemporalNatsConsumer
 from nv_config_manager.temporal.client.nats import NatsProducer as TemporalNatsProducer
 from nv_config_manager_workflows.clients import NatsClient as WorkflowNatsClient
 from nv_config_manager_workflows.clients import NatsProducer as WorkflowNatsProducer
@@ -48,6 +50,12 @@ DEFAULT_NATS_SETTINGS = {
     "api_prefix": "$JS.API",
 }
 
+NATS_CONSUMER_SETTINGS = {
+    **NATS_SETTINGS,
+    "durable_name": "workflow-archive",
+    "deliver_subject": "workflow.archive.delivery",
+}
+
 
 def test_legacy_paths_delegate_to_the_workflows_producer() -> None:
     """Both retained import paths resolve to the reusable implementation."""
@@ -76,6 +84,41 @@ def test_zero_argument_producer_translates_all_service_settings() -> None:
     assert producer.default_stream_name == "workflow-events"
     assert producer.default_stream_subjects == ["workflow.>", "audit.event"]
     assert producer.api_prefix == "$JS.CUSTOM.API"
+
+
+def test_zero_argument_client_delegates_to_the_settings_adapter() -> None:
+    """The retained NATS client shim no longer parses configuration directly."""
+    with patch(
+        "nv_config_manager.temporal.client.nats.nats_client_settings",
+        return_value=NATS_SETTINGS,
+    ) as settings:
+        client = TemporalNatsClient()
+
+    settings.assert_called_once_with()
+    assert client.server == "nats://nats.example:4222"
+    assert client.default_stream_name == "workflow-events"
+    assert client.api_prefix == "$JS.CUSTOM.API"
+
+
+def test_consumer_delegates_to_the_consumer_settings_adapter() -> None:
+    """The consumer adds service policy without duplicating connection parsing."""
+    handler = AsyncMock()
+    with patch(
+        "nv_config_manager.temporal.client.nats.nats_consumer_settings",
+        return_value=NATS_CONSUMER_SETTINGS,
+    ) as settings:
+        consumer = TemporalNatsConsumer(
+            stream="workflow-events",
+            subject="workflow.result",
+            queue_suffix="archive",
+            handler=handler,
+        )
+
+    settings.assert_called_once_with("archive")
+    assert consumer.server == "nats://nats.example:4222"
+    assert consumer.full_queue_name == "workflow-archive"
+    assert consumer.deliver_subject == "workflow.archive.delivery"
+    assert consumer.handler is handler
 
 
 def test_zero_argument_producer_preserves_configuration_defaults() -> None:
