@@ -17,6 +17,8 @@ import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+# lxml.etree is a binary extension without installed type stubs.
+import lxml.etree as etree  # ty: ignore[unresolved-import]
 import pytest
 from jnpr.junos.exception import (
     CommitError,
@@ -27,7 +29,6 @@ from jnpr.junos.exception import (
     ProbeError,
     RpcError,
 )
-from lxml import etree
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager_workflows.clients.device import (
@@ -920,10 +921,15 @@ def test_get_mac_table_skips_entry_with_invalid_mac(juniper_conn):
     assert result.by_interface == {"ge-0/0/1": ["00-11-22-33-44-55"]}
 
 
+class _UnsupportedSwitchingTableError(Exception):
+    """Model the message attribute exposed by a Junos RPC error."""
+
+    message = "the l2-learning subsystem is not running"
+
+
 def _raise_unsupported_switching_table(*_args: object, **_kwargs: object) -> None:
     """Raise the RpcError Junos actually returns for a backbone router with no bridging."""
-    cause = Exception()
-    cause.message = "the l2-learning subsystem is not running"  # matches jnpr RpcError.message
+    cause = _UnsupportedSwitchingTableError()
     raise NetworkDeviceException("RPC get-ethernet-switching-table-information failed") from cause
 
 

@@ -25,6 +25,7 @@ from nv_config_manager_workflows.clients.device import (
 
 
 def _mellanox_connection(*, port: int = 22) -> MellanoxConnection:
+    """Return a connection with local state and no network session."""
     conn = MellanoxConnection.__new__(MellanoxConnection)
     conn._host = "192.0.2.1"
     conn._port = port
@@ -50,19 +51,19 @@ def test_connect_passes_configured_ssh_port(mock_connect_handler):
 def test_commit_preserves_diff_changed_exception():
     """A mismatched approved diff raises DiffChangedException, not a wrapped failure."""
     conn = _mellanox_connection()
-    conn.perform_candidate_diff = MagicMock(return_value="new-diff")
-
-    with pytest.raises(DiffChangedException, match="changed since approval"):
-        conn.commit_candidate_config("config", "old-diff")
+    with patch.object(conn, "perform_candidate_diff", return_value="new-diff"):
+        with pytest.raises(DiffChangedException, match="changed since approval"):
+            conn.commit_candidate_config("config", "old-diff")
 
 
 def test_commit_wraps_other_failures_as_network_device_exception():
     """Unexpected commit errors stay wrapped as NetworkDeviceException."""
     conn = _mellanox_connection()
-    conn.perform_candidate_diff = MagicMock(side_effect=RuntimeError("ssh dropped"))
-
-    with pytest.raises(NetworkDeviceException, match="Failed to commit candidate configuration"):
-        conn.commit_candidate_config("config", "old-diff")
+    with patch.object(conn, "perform_candidate_diff", side_effect=RuntimeError("ssh dropped")):
+        with pytest.raises(
+            NetworkDeviceException, match="Failed to commit candidate configuration"
+        ):
+            conn.commit_candidate_config("config", "old-diff")
 
 
 def test_close_disconnects_netmiko_client():

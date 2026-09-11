@@ -35,7 +35,6 @@ from nv_config_manager_workflows.clients.device.exceptions import (
     InvalidConfigException,
     NetworkDeviceException,
 )
-from nv_config_manager_workflows.clients.device.factory import from_device_data
 from nv_config_manager_workflows.clients.device.juniper import JuniperConnection
 from nv_config_manager_workflows.clients.device.mellanox import MellanoxConnection
 from nv_config_manager_workflows.clients.device.mock import MockNetworkConnection
@@ -58,7 +57,6 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 __all__ = [
     "DeviceConnectionSettings",
-    "from_device_data",
     "COMMIT_CONFIRM_ROLLBACK_SECONDS",
     "AristaConnection",
     "ConfigApplyFailureException",
