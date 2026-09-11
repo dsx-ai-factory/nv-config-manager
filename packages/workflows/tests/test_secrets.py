@@ -71,8 +71,6 @@ def test_missing_secrets_mapping_falls_back_to_global_section(secrets_config) ->
     assert section == "device"
 
 
-
-
 def test_missing_site_key_falls_back_to_global_value() -> None:
     site_without_password = {"site.alpha-site": {"username": "site-user"}}
 

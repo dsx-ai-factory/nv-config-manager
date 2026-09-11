@@ -27,7 +27,7 @@ type TicketingSettings = Mapping[str, object]
 class TicketingProvider(ABC):
     """Common interface implemented by ticketing backends."""
 
-    max_attachment_size: int | None = None # bytes; None = no size limit enforced
+    max_attachment_size: int | None = None  # bytes; None = no size limit enforced
 
     @classmethod
     @abstractmethod

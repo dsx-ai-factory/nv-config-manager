@@ -45,7 +45,7 @@ class JiraClientError(Exception):
 class JiraTicketingProvider(TicketingProvider):
     """Asynchronous Jira Data Center ticketing provider."""
 
-    max_attachment_size = 10 * 1024 * 1024 # 10 MB — Jira Data Center server-side limit
+    max_attachment_size = 10 * 1024 * 1024  # 10 MB — Jira Data Center server-side limit
 
     def __init__(self, base_url: str, api_token: str) -> None:
         """Initialize the provider from explicit connection settings."""
