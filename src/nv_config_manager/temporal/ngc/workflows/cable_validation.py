@@ -113,6 +113,9 @@ DEVICE_CABLE_VALIDATION_DEVICE_DESCRIPTION = (
 )
 CABLE_STATUS_UPDATE_PATCH_ID = "cable-validation-dcim-status-v1"
 CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID = "cable-validation-child-timeout-v1"
+DCIM_PERSISTENCE_PENDING_MESSAGE = (
+    "\n\n> **The report is ready. DCIM cable status persistence is still running.**"
+)
 
 
 class SiteCableValidationInput(BaseModel):
@@ -172,23 +175,14 @@ class DeviceCableValidationResult(BaseModel, validate_assignment=True):
     cable_status_update: UpdateCableStatusesInput | None = None
 
 
-class PersistCableStatusesStageInput(StageInput):
-    """Pending updates whose validation reports are already visible."""
+class CableStatusPersistenceMixin(StageMixin):
+    """Shared post-report persistence behavior for device and site validation."""
 
-    updates: list[UpdateCableStatusesInput]
-
-
-class CableStatusStageMixin(StageMixin):
-    """Shared post-report persistence stage for device and site validation."""
-
-    @stage_executor("update_cable_statuses")
-    async def persist_cable_statuses(
-        self, stage_input: PersistCableStatusesStageInput
-    ) -> StageOutput:
+    async def persist_cable_statuses(self, updates: list[UpdateCableStatusesInput]) -> None:
         """Update devices sequentially; each activity writes cables concurrently."""
         # Child workflows can complete together; sort before scheduling commands
         # so set iteration order cannot affect replay.
-        for update in sorted(stage_input.updates, key=lambda item: item.device_id):
+        for update in sorted(updates, key=lambda item: item.device_id):
             if not update.cable_statuses:
                 continue
             await workflow.execute_activity(
@@ -197,7 +191,25 @@ class CableStatusStageMixin(StageMixin):
                 start_to_close_timeout=timedelta(minutes=15),
                 retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
             )
-        return StageOutput(display="DCIM cable status updates complete.")
+
+    async def persist_cable_statuses_after_report(
+        self,
+        stage_name: str,
+        report_output: StageOutput,
+        updates: list[UpdateCableStatusesInput],
+    ) -> None:
+        """Keep the report visible while its DCIM updates are being persisted."""
+        if not any(update.cable_statuses for update in updates):
+            return
+
+        self.set_stage_output(
+            stage_name,
+            report_output.model_copy(
+                update={"display": report_output.display + DCIM_PERSISTENCE_PENDING_MESSAGE}
+            ),
+        )
+        await self.persist_cable_statuses(updates)
+        self.set_stage_output(stage_name, report_output)
 
 
 class SiteCableValidationResult(BaseModel):
@@ -207,7 +219,7 @@ class SiteCableValidationResult(BaseModel):
 
 
 @workflow.defn
-class SiteCableValidationWorkflow(WorkflowMetadataMixin, CableStatusStageMixin, ArchiveMixin):
+class SiteCableValidationWorkflow(WorkflowMetadataMixin, CableStatusPersistenceMixin, ArchiveMixin):
     """Site-wide cable validation workflow for network infrastructure."""
 
     # Workflow metadata
@@ -519,14 +531,8 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, CableStatusStageMixin, 
         )
 
         if workflow.patched(CABLE_STATUS_UPDATE_PATCH_ID):
-            self.define_stage(
-                name="update_cable_statuses",
-                description="Persist cable validation statuses to the DCIM",
-                requires_approval=False,
-                depends_on=["format_result"],
-            )
-            await self.persist_cable_statuses(
-                PersistCableStatusesStageInput(updates=validation_output.cable_status_updates)
+            await self.persist_cable_statuses_after_report(
+                "format_result", output, validation_output.cable_status_updates
             )
 
         await self.archive_results()
@@ -536,7 +542,7 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, CableStatusStageMixin, 
 
 @workflow.defn
 class DeviceCableValidationWorkflow(
-    WorkflowMetadataMixin, CableStatusStageMixin, DeviceMixin, ArchiveMixin
+    WorkflowMetadataMixin, CableStatusPersistenceMixin, DeviceMixin, ArchiveMixin
 ):
     """Single device cable validation workflow for network infrastructure."""
 
@@ -866,14 +872,8 @@ class DeviceCableValidationWorkflow(
                 workflow_id=workflow.info().workflow_id,
             )
             if not workflow_input.defer_cable_status_updates:
-                self.define_stage(
-                    name="update_cable_statuses",
-                    description="Persist cable validation statuses to the DCIM",
-                    requires_approval=False,
-                    depends_on=["validate_connections"],
-                )
-                await self.persist_cable_statuses(
-                    PersistCableStatusesStageInput(updates=[pending_update])
+                await self.persist_cable_statuses_after_report(
+                    "validate_connections", validation_output, [pending_update]
                 )
 
         await self.archive_results()
