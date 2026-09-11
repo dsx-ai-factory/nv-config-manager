@@ -13,6 +13,10 @@ Two variants are available:
 
 The site workflow runs the device workflow as a child workflow per device, so the issue categories and the underlying validation logic are identical between the two — only the scope and the report download format differ.
 
+Site-launched device validations have a ten-minute overall timeout, including retries and waits for manual stage retries. A timed-out device appears among the failed devices in the site report, allowing the remaining results to be reported. Standalone device validations retain their normal stage retry behavior.
+
+The report is available in the completed report stage before the separate DCIM status update stage finishes. Site workflows collect their children's results and generate the site report before applying cable statuses. Supported providers record `Connected`, `Disconnected`, or `Invalid`; ignored connections are left unchanged. Status updates run concurrently within each device, with a fifteen-minute activity timeout per device. Nautobot also records the validating device workflow ID in a cable note.
+
 Cable validation can detect:
 
 - Cable swaps

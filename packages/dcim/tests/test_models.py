@@ -20,6 +20,8 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from nv_config_manager_dcim import (
+    CableStatus,
+    CableStatusUpdate,
     DCIMDeviceSelection,
     DeviceMetadata,
     OSImageVersions,
@@ -90,3 +92,20 @@ def test_device_metadata_preserves_mutable_url_and_legacy_alias() -> None:
     metadata.nautobot_url = "https://dcim.example/devices/device-1/updated"
 
     assert metadata.device_url == "https://dcim.example/devices/device-1/updated"
+
+
+def test_cable_status_update_uses_portable_status_values() -> None:
+    """Cable mutations identify a provider-owned cable by its local interface."""
+    update = CableStatusUpdate(
+        device_id="device-1",
+        interface_name="Ethernet1/1",
+        status="Connected",
+        workflow_id="cable-validation-1",
+    )
+
+    assert update.status is CableStatus.CONNECTED
+    assert [status.value for status in CableStatus] == [
+        "Connected",
+        "Disconnected",
+        "Invalid",
+    ]

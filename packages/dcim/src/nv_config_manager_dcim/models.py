@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -243,6 +244,23 @@ class IntendedInterfaceNeighbor(DCIMModel):
     connected_interface_name: str | None = None
     connected_interface_mac: str | None = None
     connected_device: IntendedNeighborDevice | None = None
+
+
+class CableStatus(StrEnum):
+    """Provider-neutral cable-validation states persisted to a DCIM."""
+
+    CONNECTED = "Connected"
+    DISCONNECTED = "Disconnected"
+    INVALID = "Invalid"
+
+
+class CableStatusUpdate(DCIMModel):
+    """Request to update the cable attached to one device interface."""
+
+    device_id: str
+    interface_name: str
+    status: CableStatus
+    workflow_id: str
 
 
 class IBNeighbor(DCIMModel):

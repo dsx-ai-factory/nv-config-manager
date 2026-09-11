@@ -20,6 +20,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Protocol, runtime_checkable
 
 from nv_config_manager_dcim.models import (
+    CableStatusUpdate,
     ConfigurationBackupIntent,
     ConfigurationBackupMetadata,
     DCIMChangeEvent,
@@ -239,6 +240,19 @@ class DCIMClient(Protocol):
     async def cleanup_ib_pkey_partition(
         self, overlay_id: str, overlay_name: str, pkey_id: str, pkey: str, ufm_partition_empty: bool
     ) -> IBPKeyCleanup: ...
+
+
+@runtime_checkable
+class DCIMCableStatusClient(Protocol):
+    """Optional capability for providers with mutable cable objects."""
+
+    async def update_cable_status(self, update: CableStatusUpdate) -> None:
+        """Persist one cable-validation status.
+
+        Providers without a dedicated cable object omit this capability; callers
+        treat its absence as a no-op.
+        """
+        ...
 
 
 @runtime_checkable

@@ -26,6 +26,7 @@ from nv_config_manager_dcim import (
 
 from nv_config_manager.dcim.api import (
     DCIM_PROVIDER_API_VERSION,
+    DCIMCableStatusClient,
     DCIMClient,
     DCIMEventProvider,
     DCIMProvider,
@@ -56,6 +57,8 @@ from nv_config_manager.dcim.errors import (
 )
 from nv_config_manager.dcim.models import (
     DCIM_EVENT_CONTRACT_VERSION,
+    CableStatus,
+    CableStatusUpdate,
     ConfigurationBackupIntent,
     ConfigurationBackupMetadata,
     DCIMChangeEvent,
@@ -102,6 +105,9 @@ from nv_config_manager.dcim.registry import (
 
 __all__ = [
     "DCIM_PROVIDER_API_VERSION",
+    "CableStatus",
+    "CableStatusUpdate",
+    "DCIMCableStatusClient",
     "DCIM_EVENT_CONTRACT_VERSION",
     "DCIM_PROVIDER_ENTRY_POINT_GROUP",
     "DEFAULT_DCIM_PROVIDER",
