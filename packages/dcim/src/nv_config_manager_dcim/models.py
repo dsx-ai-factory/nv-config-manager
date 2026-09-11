@@ -89,6 +89,46 @@ class DCIMSelection(DCIMModel):
 
     id: str
     name: str
+    location_type: str | None = None
+
+
+class DCIMLocationReference(DCIMModel):
+    """A provider-owned location identifier with an optional location type."""
+
+    id: str
+    location_type: str | None = None
+
+    def __str__(self) -> str:
+        """Retain legacy identifier formatting in logs and display text."""
+        return self.id
+
+
+type DCIMLocationIdentifier = str | DCIMLocationReference
+"""A typed location reference or a legacy bare provider identifier."""
+
+type DCIMLocationType = str
+"""A provider-defined discriminator for a location identifier namespace."""
+
+
+def dcim_location_id(location: DCIMLocationIdentifier) -> str:
+    """Return the provider identifier from a typed or legacy location reference."""
+    return location.id if isinstance(location, DCIMLocationReference) else location
+
+
+def dcim_location_type(location: DCIMLocationIdentifier) -> str | None:
+    """Return the location type from a typed location reference."""
+    return location.location_type if isinstance(location, DCIMLocationReference) else None
+
+
+def dcim_location_reference(
+    location_id: str, location_type: str | None = None
+) -> DCIMLocationIdentifier:
+    """Build a typed reference when a location type is available."""
+    return (
+        DCIMLocationReference(id=location_id, location_type=location_type)
+        if location_type
+        else location_id
+    )
 
 
 class DCIMDeviceSelection(DCIMModel):
@@ -102,7 +142,7 @@ class DCIMDeviceSelection(DCIMModel):
 class DCIMDeviceSelectionFilter(DCIMModel):
     """Provider-neutral device constraints used to populate workflow forms."""
 
-    sites: tuple[str, ...] = ()
+    sites: tuple[DCIMLocationIdentifier, ...] = ()
     statuses: tuple[str, ...] = ()
     roles: tuple[str, ...] = ()
     tenants: tuple[str, ...] = ()
@@ -305,6 +345,7 @@ class IBHostSite(DCIMModel):
     device_primary_ip: str | None
     site_id: str
     site_name: str
+    site_type: DCIMLocationType | None = None
 
 
 class IBPKeyContext(DCIMModel):

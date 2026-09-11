@@ -27,7 +27,12 @@ from pydantic import BaseModel, field_validator
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.dcim import DCIMError, create_dcim_client
+from nv_config_manager.dcim import (
+    DCIMError,
+    DCIMLocationIdentifier,
+    DCIMLocationType,
+    create_dcim_client,
+)
 from nv_config_manager.temporal.common.mixins.stage import StageOutput
 
 log = logging.getLogger(__name__)
@@ -85,7 +90,7 @@ class CreatePartitionInDCIMInput(BaseModel):
 
     pkey: str
     partition_name: str | None = None
-    location_name: str
+    location_name: DCIMLocationIdentifier
     tenant_name: str | None = None
     membership_type: str = "full"
 
@@ -704,6 +709,7 @@ class ResolveIBSiteForHostOutput(StageOutput):
     ufm_device_primary_ip: str | None
     location_id: str
     location_name: str
+    location_type: DCIMLocationType | None = None
 
 
 class ResolveIBContextInput(BaseModel):
@@ -721,6 +727,7 @@ class ResolveIBContextOutput(StageOutput):
     ufm_device_primary_ip: str | None
     location_id: str
     location_name: str
+    location_type: DCIMLocationType | None = None
     overlay_id: str
     overlay_name: str
     pkey_id: str
@@ -979,6 +986,7 @@ async def resolve_ib_site_for_host(
         ufm_device_primary_ip=host_site.device_primary_ip,
         location_id=host_site.site_id,
         location_name=host_site.site_name,
+        location_type=host_site.site_type,
         display=f"Resolved {input.host} -> site {host_site.site_name}",
     )
 
@@ -1006,6 +1014,7 @@ async def resolve_ib_context(
         ufm_device_primary_ip=context.host_site.device_primary_ip,
         location_id=context.host_site.site_id,
         location_name=context.host_site.site_name,
+        location_type=context.host_site.site_type,
         overlay_id=context.overlay_id,
         overlay_name=context.overlay_name,
         pkey_id=context.pkey_id,
@@ -1040,6 +1049,7 @@ async def resolve_ib_context_for_add(
         ufm_device_primary_ip=context.host_site.device_primary_ip,
         location_id=context.host_site.site_id,
         location_name=context.host_site.site_name,
+        location_type=context.host_site.site_type,
         overlay_id=context.overlay_id,
         overlay_name=context.overlay_name,
         pkey_id=context.pkey_id,

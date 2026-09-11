@@ -21,8 +21,9 @@ var _ MappedNullable = &Location{}
 
 // Location Site data for dropdown population.
 type Location struct {
-	Id   string `json:"id"`
-	Name string `json:"name"`
+	Id           string         `json:"id"`
+	LocationType NullableString `json:"location_type,omitempty"`
+	Name         string         `json:"name"`
 }
 
 type _Location Location
@@ -70,6 +71,51 @@ func (o *Location) SetId(v string) {
 	o.Id = v
 }
 
+// GetLocationType returns the LocationType field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *Location) GetLocationType() string {
+	if o == nil || IsNil(o.LocationType.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.LocationType.Get()
+}
+
+// GetLocationTypeOk returns a tuple with the LocationType field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *Location) GetLocationTypeOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.LocationType.Get(), o.LocationType.IsSet()
+}
+
+// HasLocationType returns a boolean if a field has been set.
+func (o *Location) HasLocationType() bool {
+	if o != nil && o.LocationType.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetLocationType gets a reference to the given NullableString and assigns it to the LocationType field.
+func (o *Location) SetLocationType(v string) {
+	o.LocationType.Set(&v)
+}
+
+// SetLocationTypeNil sets the value for LocationType to be an explicit nil
+func (o *Location) SetLocationTypeNil() {
+	o.LocationType.Set(nil)
+}
+
+// UnsetLocationType ensures that no value is present for LocationType, not even an explicit nil
+func (o *Location) UnsetLocationType() {
+	o.LocationType.Unset()
+}
+
 // GetName returns the Name field value
 func (o *Location) GetName() string {
 	if o == nil {
@@ -105,6 +151,9 @@ func (o Location) MarshalJSON() ([]byte, error) {
 func (o Location) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["id"] = o.Id
+	if o.LocationType.IsSet() {
+		toSerialize["location_type"] = o.LocationType.Get()
+	}
 	toSerialize["name"] = o.Name
 	return toSerialize, nil
 }

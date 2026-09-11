@@ -22,6 +22,7 @@ from typing import Any, ClassVar, NamedTuple, assert_never
 from pydantic import BaseModel, computed_field
 
 from nv_config_manager_dcim.errors import DCIMInvalidDataError
+from nv_config_manager_dcim.models import DCIMLocationIdentifier
 
 
 class Platform(StrEnum):
@@ -147,7 +148,7 @@ class HostDeviceData(DeviceData):
 class DeviceInventoryFilter(BaseModel):
     """Provider-neutral criteria for selecting device inventory records."""
 
-    site: str | None = None
+    site: DCIMLocationIdentifier | None = None
     roles: list[str] | None = None
     statuses: list[str] | None = None
     tenant: str | None = None

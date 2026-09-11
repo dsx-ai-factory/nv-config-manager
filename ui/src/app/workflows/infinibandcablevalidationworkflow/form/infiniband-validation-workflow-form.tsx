@@ -27,6 +27,7 @@ import { Form } from "@/components/ui/form";
 import { useToast } from "@/components/ui/use-toast";
 import { useEnvData, useDevices } from "@/hooks";
 import { getErrorMessage, startWorkflow } from "@/lib/utils";
+import { resolveLocationFormValue } from "@/lib/location-options";
 import { WorkflowFormField } from "@/components/forms/formfield";
 import { InfinibandCableValidationWorkflowInput } from "@/types/data-table.types";
 import { DeviceOption } from "@/types/workflow-form.types";
@@ -82,8 +83,8 @@ export const InfinibandValidationWorkflowForm = () => {
 
   React.useEffect(() => {
     if (querySite && !isManualChange) {
-      const isSiteValid = sites.some((option) => option.key === querySite);
-      const siteId = sites.find((option) => option.key === querySite)?.value;
+      const siteId = resolveLocationFormValue(sites, querySite);
+      const isSiteValid = siteId !== undefined;
 
       if (isSiteValid) {
         if (siteId && form.getValues("site") !== siteId) {

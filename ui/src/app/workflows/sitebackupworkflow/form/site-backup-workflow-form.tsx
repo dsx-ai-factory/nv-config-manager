@@ -37,6 +37,10 @@ import { useToast } from "@/components/ui/use-toast";
 import { SiteBackupWorkflowInput } from "@/types/data-table.types";
 import { useEnvData } from "@/hooks";
 import { getErrorMessage, startWorkflow } from "@/lib/utils";
+import {
+  resolveLocationFormValue,
+  resolveLocationOption,
+} from "@/lib/location-options";
 import { DEFAULT_SITE_WORKFLOW_STATUSES } from "@/lib/workflow-defaults";
 import { WorkflowFormField } from "@/components/forms/formfield";
 
@@ -120,7 +124,10 @@ export const SiteBackupWorkflowForm = () => {
 
   React.useEffect(() => {
     if (!isManualChange) {
-      setSingleQueryValue(form, querySite, siteBackupData.siteData, "site");
+      form.setValue(
+        "site",
+        resolveLocationFormValue(siteBackupData.siteData, querySite) ?? ""
+      );
       setMultiQueryValue(form, queryRoles, siteBackupData.rolesData, "roles");
       setMultiQueryValue(
         form,
@@ -145,8 +152,10 @@ export const SiteBackupWorkflowForm = () => {
 
   const onSubmit = async (data: SiteBackupFormData) => {
     setIsSubmitting(true);
+    const location = resolveLocationOption(siteBackupData.siteData, data.site);
     const workflowParams: SiteBackupWorkflowInput = {
-      site: data.site,
+      site: location?.id ?? data.site,
+      site_type: location?.locationType,
       roles: data.roles,
       status: data.status,
       tenant: data.tenant || undefined,

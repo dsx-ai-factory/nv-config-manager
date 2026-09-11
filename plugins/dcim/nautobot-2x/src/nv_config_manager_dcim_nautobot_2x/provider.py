@@ -37,6 +37,7 @@ from nv_config_manager_dcim.models import (
     DCIMChangeEvent,
     DCIMDeviceSelection,
     DCIMDeviceSelectionFilter,
+    DCIMLocationIdentifier,
     DCIMSelection,
     DeviceMetadata,
     IntendedConfigurationUpdate,
@@ -45,6 +46,7 @@ from nv_config_manager_dcim.models import (
     RenderDeviceStatus,
     RenderTemplateVersion,
     ZTPDevice,
+    dcim_location_id,
 )
 from nv_config_manager_dcim.render import RenderData, RenderDataExtension, RenderDataRequest
 
@@ -247,16 +249,19 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         """Return whether a location identifier is a canonical Nautobot UUID."""
         return _is_canonical_uuid(value)
 
-    async def get_location_metadata(self, location_id: str) -> DCIMSelection | None:
+    async def get_location_metadata(self, location: DCIMLocationIdentifier) -> DCIMSelection | None:
         """Return normalized metadata for one location UUID."""
+        location_id = dcim_location_id(location)
         result = await self.graphql_query(_LOCATION_BY_ID_QUERY, {"id": location_id})
         if result.get("errors"):
             message = result["errors"][0].get("message", "Invalid location query")
             raise DCIMInvalidDataError(str(message))
-        location = (result.get("data") or {}).get("location")
-        if location is None:
+        location_data = (result.get("data") or {}).get("location")
+        if location_data is None:
             return None
-        selections = self._parameter_selections([location], "location")
+        selections = self._parameter_selections(
+            [location_data], "location", include_location_type=True
+        )
         return selections[0]
 
     async def get_device_metadata(self, device_id: str) -> DeviceMetadata | None:
@@ -331,7 +336,9 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         return normalized
 
     @staticmethod
-    def _parameter_selections(data: object, label: str) -> list[DCIMSelection]:
+    def _parameter_selections(
+        data: object, label: str, *, include_location_type: bool = False
+    ) -> list[DCIMSelection]:
         """Validate a provider list response and normalize its form options."""
         if not isinstance(data, list):
             raise DCIMInvalidDataError(f"Nautobot returned invalid {label} data")
@@ -343,7 +350,22 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 or not isinstance(item.get("name"), str)
             ):
                 raise DCIMInvalidDataError(f"Nautobot returned invalid {label} data")
-            selections.append(DCIMSelection(id=item["id"], name=item["name"]))
+            location_type_name: str | None = None
+            if include_location_type:
+                location_type = item.get("location_type")
+                if location_type is not None:
+                    if not isinstance(location_type, dict) or not isinstance(
+                        location_type.get("name"), str
+                    ):
+                        raise DCIMInvalidDataError(f"Nautobot returned invalid {label} data")
+                    location_type_name = location_type["name"]
+            selections.append(
+                DCIMSelection(
+                    id=item["id"],
+                    name=item["name"],
+                    location_type=location_type_name,
+                )
+            )
         return selections
 
     async def list_locations(self, location_types: tuple[str, ...] = ()) -> list[DCIMSelection]:
@@ -352,7 +374,11 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             _PARAMETER_LOCATIONS_QUERY,
             {"location_types": list(location_types) or None},
         )
-        return self._parameter_selections((result.get("data") or {}).get("locations"), "location")
+        return self._parameter_selections(
+            (result.get("data") or {}).get("locations"),
+            "location",
+            include_location_type=True,
+        )
 
     async def _list_managed_choices(self, field: str) -> list[DCIMSelection]:
         """Collect distinct managed-device tenant or role choices across all pages."""
@@ -396,9 +422,14 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         result = await self.graphql_query(_PARAMETER_ROLES_QUERY)
         return self._parameter_selections((result.get("data") or {}).get("roles"), "role")
 
-    async def list_namespace_tags(self, location: str | None = None) -> list[str]:
+    async def list_namespace_tags(
+        self, location: DCIMLocationIdentifier | None = None
+    ) -> list[str]:
         """Return the distinct namespace tag names at an optional location."""
-        result = await self.graphql_query(_PARAMETER_NAMESPACE_TAGS_QUERY, {"location": location})
+        result = await self.graphql_query(
+            _PARAMETER_NAMESPACE_TAGS_QUERY,
+            {"location": dcim_location_id(location) if location is not None else None},
+        )
         namespaces = (result.get("data") or {}).get("namespaces")
         if not isinstance(namespaces, list):
             raise DCIMInvalidDataError("Nautobot returned invalid namespace tag data")
@@ -415,12 +446,15 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         return sorted(tags)
 
     async def list_overlays(
-        self, location: str | None = None, isolation_type: str | None = None
+        self,
+        location: DCIMLocationIdentifier | None = None,
+        isolation_type: str | None = None,
     ) -> list[DCIMSelection]:
         """Return overlay form choices using the Nautobot overlays plugin."""
+        location_id = dcim_location_id(location) if location is not None else None
         params = {
             key: value
-            for key, value in {"location": location, "isolation_type": isolation_type}.items()
+            for key, value in {"location": location_id, "isolation_type": isolation_type}.items()
             if value
         }
         overlays = await self.get_all("plugins/overlays/overlays/", params=params)
@@ -440,7 +474,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         """Return device choices matching the normalized workflow form filters."""
         variables: dict[str, list[str] | bool] = {}
         field_values = {
-            "site": filters.sites,
+            "site": tuple(dcim_location_id(site) for site in filters.sites),
             "status": filters.statuses,
             "role": filters.roles,
             "tenant": filters.tenants,

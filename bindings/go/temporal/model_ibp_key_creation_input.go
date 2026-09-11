@@ -33,6 +33,8 @@ type IBPKeyCreationInput struct {
 	PkeyMin *int32 `json:"pkey_min,omitempty"`
 	// Site used for UFM credential lookup; resolved from the host when omitted.
 	Site NullableString `json:"site,omitempty"`
+	// DCIM location type for the site identifier.
+	SiteType NullableString `json:"site_type,omitempty"`
 }
 
 type _IBPKeyCreationInput IBPKeyCreationInput
@@ -280,6 +282,51 @@ func (o *IBPKeyCreationInput) UnsetSite() {
 	o.Site.Unset()
 }
 
+// GetSiteType returns the SiteType field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *IBPKeyCreationInput) GetSiteType() string {
+	if o == nil || IsNil(o.SiteType.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.SiteType.Get()
+}
+
+// GetSiteTypeOk returns a tuple with the SiteType field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *IBPKeyCreationInput) GetSiteTypeOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.SiteType.Get(), o.SiteType.IsSet()
+}
+
+// HasSiteType returns a boolean if a field has been set.
+func (o *IBPKeyCreationInput) HasSiteType() bool {
+	if o != nil && o.SiteType.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetSiteType gets a reference to the given NullableString and assigns it to the SiteType field.
+func (o *IBPKeyCreationInput) SetSiteType(v string) {
+	o.SiteType.Set(&v)
+}
+
+// SetSiteTypeNil sets the value for SiteType to be an explicit nil
+func (o *IBPKeyCreationInput) SetSiteTypeNil() {
+	o.SiteType.Set(nil)
+}
+
+// UnsetSiteType ensures that no value is present for SiteType, not even an explicit nil
+func (o *IBPKeyCreationInput) UnsetSiteType() {
+	o.SiteType.Unset()
+}
+
 func (o IBPKeyCreationInput) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -305,6 +352,9 @@ func (o IBPKeyCreationInput) ToMap() (map[string]interface{}, error) {
 	}
 	if o.Site.IsSet() {
 		toSerialize["site"] = o.Site.Get()
+	}
+	if o.SiteType.IsSet() {
+		toSerialize["site_type"] = o.SiteType.Get()
 	}
 	return toSerialize, nil
 }

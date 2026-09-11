@@ -18,6 +18,38 @@ import { expect } from "@playwright/test";
 import { DEVICES_LIST, SITES_LIST, SPX_OVERLAY_LIST } from "@/mocks/data";
 import { test, TEST_TIMEOUT } from "./shared/utils";
 
+test("tenant change preserves the location type from a legacy site link", async ({
+  page,
+}) => {
+  await page.route("**/v1/parameter/location*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      json: [
+        { id: "42", name: "SJC01", location_type: "Site" },
+        { id: "42", name: "Module 1", location_type: "Module" },
+      ],
+    });
+  });
+  const overlaysRequest = page.waitForRequest((request) =>
+    request.url().includes("/v1/parameter/overlay")
+  );
+
+  await page.goto(
+    "/workflows/spxoverlaytenantchangeworkflow/form?site=Module%201"
+  );
+
+  const request = await overlaysRequest;
+  const searchParams = new URL(request.url()).searchParams;
+  expect(searchParams.get("location")).toBe("42");
+  expect(searchParams.get("location_type")).toBe("Module");
+  await expect(
+    page.getByRole("button", {
+      name: "Module 1. Open options",
+      exact: true,
+    })
+  ).toBeVisible({ timeout: TEST_TIMEOUT });
+});
+
 test("tenant change selects from the site's Spectrum-X overlays", async ({
   page,
 }) => {

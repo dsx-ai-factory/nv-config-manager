@@ -33,6 +33,10 @@ import {
 } from "@/hooks";
 import { WorkflowFormField } from "@/components/forms/formfield";
 import { getErrorMessage, startWorkflow } from "@/lib/utils";
+import {
+  resolveLocationFormValue,
+  resolveLocationOption,
+} from "@/lib/location-options";
 import { SpXOverlayCreationWorkflowInput } from "@/types/data-table.types";
 
 const SpXOverlayCreationFormSchema = z
@@ -92,11 +96,14 @@ export const SpXOverlayCreationWorkflowForm = () => {
 
   useEffect(() => {
     if (!siteIsLoading && sites && querySite) {
-      const siteExists = sites.some((site) => site.key === querySite);
-      if (siteExists) {
-        // Set the site value if it exists and the form value is empty
-        if (!form.getValues("site")) {
-          form.setValue("site", querySite);
+      const siteValue = resolveLocationFormValue(sites, querySite);
+      if (siteValue) {
+        const currentSite = form.getValues("site");
+        if (
+          currentSite !== siteValue &&
+          (!currentSite || currentSite === querySite)
+        ) {
+          form.setValue("site", siteValue);
         }
       } else {
         form.setValue("site", "");
@@ -127,8 +134,10 @@ export const SpXOverlayCreationWorkflowForm = () => {
 
   const onSubmit = async (data: z.infer<typeof SpXOverlayCreationFormSchema>) => {
     setIsSubmitting(true);
+    const location = resolveLocationOption(sites, data.site);
     const submissionData: SpXOverlayCreationWorkflowInput = {
-      site: data.site,
+      site: location?.id ?? data.site,
+      site_type: location?.locationType,
       overlay_id: data.overlay_id,
       tenant: data.tenant,
       namespace_tag: data.namespace_tag,
