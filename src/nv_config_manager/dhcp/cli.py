@@ -51,6 +51,15 @@ logger = get_logger(__name__, category=LogCategory.DHCP)
 REDIS_OP_TIMEOUT_SECONDS = float(os.environ.get("CONFIG_SYNC_REDIS_TIMEOUT", "10"))
 KEA_OP_TIMEOUT_SECONDS = float(os.environ.get("CONFIG_SYNC_KEA_TIMEOUT", "15"))
 
+# The startup apply retries a fixed in-memory payload, so it must be bounded: a
+# config KEA deterministically rejects (config-set returns non-zero, surfacing
+# as KeaException) fails identically on every attempt, and an unbounded retry
+# would spin at 1Hz forever without ever re-reading Redis -- so even publishing
+# a corrected config could not recover it. On exhaustion the loop hands off to
+# the monitoring loop, which re-reads Redis every interval and therefore does
+# pick up a correction. Sized to cover a Kea container that is slow to start.
+STARTUP_APPLY_ATTEMPTS = int(os.environ.get("CONFIG_SYNC_STARTUP_APPLY_ATTEMPTS", "30"))
+
 
 def _set_config_path(ini_file: str) -> None:
     """Set NV_CONFIG_MANAGER_INI env var for consistent config loading."""
@@ -329,17 +338,44 @@ async def _sync_kea_configuration_async(
         logger.info(f"Setting initial KEA DHCPv{ip_version} Configuration from Redis.")
         expected_hash: str | None = None
         verified = False
-        while True:
+        applied_config: dict[str, Any] | None = None
+        for attempt in range(1, STARTUP_APPLY_ATTEMPTS + 1):
             try:
                 expected_hash, verified = await _apply_and_verify_kea_config(
                     kea_client, config, ip_version
                 )
+                applied_config = config
                 break
             except Exception as exc:
                 DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
-                logger.error(f"Error applying the initial KEA config: {exc}")
+                logger.error(
+                    f"Error applying the initial KEA config "
+                    f"(attempt {attempt}/{STARTUP_APPLY_ATTEMPTS}): {exc}"
+                )
                 touch_heartbeat(heartbeat_file)
                 await asyncio.sleep(1)
+
+        if applied_config is None:
+            # Attempts exhausted: retrying the same payload is not going to
+            # start working. Leaving applied_config None tells the monitoring
+            # loop nothing is applied yet, so it re-reads Redis every interval
+            # and reapplies -- a corrected config self-heals without a restart,
+            # at the refresh interval instead of 1Hz.
+            logger.error(
+                "Giving up on the initial KEA DHCPv%s apply after %s attempts. "
+                "Handing off to the monitoring loop; this pod stays unready "
+                "until an applicable configuration is published.",
+                ip_version,
+                STARTUP_APPLY_ATTEMPTS,
+            )
+            if not refresh_interval:
+                # Run-once mode has no monitoring loop to hand off to, so
+                # falling through would exit 0 and report success for a
+                # configuration that was never applied.
+                raise KeaException(
+                    f"Failed to apply the initial KEA DHCPv{ip_version} configuration "
+                    f"after {STARTUP_APPLY_ATTEMPTS} attempts."
+                )
         if verified:
             # An apply whose verification read failed is not a successful
             # reconciliation: the config is applied but unconfirmed, so the
@@ -354,7 +390,10 @@ async def _sync_kea_configuration_async(
                 f"Monitoring KEA DHCPv{ip_version} Configuration for changes every {refresh_interval}s, "
                 "only updates will be logged..."
             )
-            previous_config = config
+            # None when the startup apply never succeeded: there is no applied
+            # config to use as a drift baseline, so the first published config
+            # the loop reads counts as a change and gets applied.
+            previous_config = applied_config
             while True:
                 # Reading the desired config is separate from reconciling it. The
                 # drift check below needs only previous_config/expected_hash, both
@@ -363,8 +402,9 @@ async def _sync_kea_configuration_async(
                 # this pod on bootstrap config -- unready and out of the external
                 # Service -- for the whole outage, with a valid desired config
                 # sitting right here.
-                desired_config = previous_config
-                desired_config_is_published = False
+                # None means Redis did not hand us a desired config this
+                # iteration (absent, unreachable, or timed out).
+                published_config: dict[str, Any] | None = None
                 try:
                     new_config = await _load_kea_config_with_timeout(redis_client, ip_version)
                     if new_config is None:
@@ -372,20 +412,30 @@ async def _sync_kea_configuration_async(
                             "No configuration found in Redis, waiting for configuration to be available..."
                         )
                     else:
-                        desired_config = inject_lease_db_config(new_config, ip_version)
-                        desired_config_is_published = True
+                        published_config = inject_lease_db_config(new_config, ip_version)
                 except Exception as exc:
                     DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
                     logger.error(f"Error loading the desired KEA config from Redis: {exc}")
 
                 verified = False
                 try:
-                    if desired_config_is_published and desired_config != previous_config:
+                    if published_config is not None and published_config != previous_config:
                         logger.info("Configuration changed, updating KEA DHCP Configuration.")
                         expected_hash, verified = await _apply_and_verify_kea_config(
-                            kea_client, desired_config, ip_version
+                            kea_client, published_config, ip_version
                         )
-                        previous_config = desired_config
+                        previous_config = published_config
+                    elif previous_config is None:
+                        # Startup never applied anything and Redis has not
+                        # returned a config since, so there is no desired state
+                        # to reconcile and no baseline to detect drift against.
+                        # Wait for the next read rather than reapplying the
+                        # payload startup already exhausted its attempts on.
+                        logger.warning(
+                            "No KEA DHCPv%s configuration has been applied yet; "
+                            "waiting for an applicable configuration in Redis.",
+                            ip_version,
+                        )
                     else:
                         # KEA (e.g. the Kea container) may have restarted from its
                         # bootstrap config while this sidecar kept running. Compare
@@ -411,7 +461,7 @@ async def _sync_kea_configuration_async(
                             verified = True
                             if debug:
                                 logger.info("No configuration changes detected.")
-                    if desired_config_is_published and verified:
+                    if published_config is not None and verified:
                         # A successful reconciliation means *verified* agreement
                         # with *published* desired state (distinct from the
                         # loop-progress heartbeat below). An unverified apply, or

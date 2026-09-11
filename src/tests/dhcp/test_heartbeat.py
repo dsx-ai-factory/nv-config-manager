@@ -412,3 +412,110 @@ async def test_startup_survives_a_hung_kea_call(sync_env, _startup_failure, mock
 
     assert _error_count() == before + 1
     assert sync_env.record.call_count == 2
+
+
+# --------------------------------------------------------------------------- #
+# startup apply: deterministic rejections must not retry a fixed payload forever
+# --------------------------------------------------------------------------- #
+
+_BAD_CONFIG = {"Dhcp4": {"subnet4": "not-a-list"}}
+_REJECTED = KeaException("Failed to set configuration: not a valid subnet4 list")
+
+
+def _reject_only(bad_config):
+    """Fail set_config for ``bad_config``, succeed for anything else."""
+
+    async def set_config(configuration, *_args, **_kwargs):
+        if configuration == bad_config:
+            raise _REJECTED
+        return "HASH"
+
+    return set_config
+
+
+async def test_startup_apply_is_bounded_and_self_heals_on_a_corrected_config(
+    sync_env, mocker
+) -> None:
+    """A config KEA deterministically rejects must not spin at 1Hz forever.
+
+    The startup apply retries a payload held in memory, so a rejection that is
+    not going to start working (config-set returning non-zero) would otherwise
+    be retried indefinitely while the heartbeat stayed fresh -- a silent hang
+    that no restart and no corrected config could clear. Attempts are bounded
+    and the loop hands off to the monitoring loop, which re-reads Redis and so
+    picks up a correction.
+    """
+    mocker.patch.object(cli, "STARTUP_APPLY_ATTEMPTS", 3)
+    # The rejected config is published first, then corrected.
+    sync_env.redis.load_kea_config = AsyncMock(side_effect=[_BAD_CONFIG, CONFIG, CONFIG])
+    sync_env.kea.set_config = AsyncMock(side_effect=_reject_only(_BAD_CONFIG))
+
+    sleeps = {"n": 0}
+
+    async def sleep(_seconds):
+        sleeps["n"] += 1
+        # Let all three bounded startup retries run, then break at the
+        # monitoring loop's end-of-iteration sleep.
+        if sleeps["n"] > 3:
+            raise _StopLoop()
+
+    mocker.patch.object(cli.asyncio, "sleep", new=sleep)
+
+    with pytest.raises(_StopLoop):
+        await cli._sync_kea_configuration_async(4, 10, False, sync_env.hb)
+
+    # Exactly the bounded number of startup attempts, then the corrected config.
+    applied = [call.args[0] for call in sync_env.kea.set_config.await_args_list]
+    assert applied == [_BAD_CONFIG, _BAD_CONFIG, _BAD_CONFIG, CONFIG]
+    # Only the corrected apply counted; the rejected startup never did.
+    assert sync_env.record.call_count == 1
+
+
+async def test_rejected_startup_config_does_not_block_the_drift_check(sync_env, mocker) -> None:
+    """With nothing applied and Redis unavailable there is no baseline to drift from.
+
+    Handing off with no applied config means the monitoring loop must not treat
+    the exhausted payload as a drift baseline: reapplying it would resume the
+    same rejected apply, and there is no published desired state to reconcile.
+    """
+    mocker.patch.object(cli, "STARTUP_APPLY_ATTEMPTS", 1)
+    # Rejected config at startup, then Redis goes away.
+    sync_env.redis.load_kea_config = AsyncMock(
+        side_effect=[_BAD_CONFIG, ConnectionError("redis down")]
+    )
+    sync_env.kea.set_config = AsyncMock(side_effect=_reject_only(_BAD_CONFIG))
+
+    sleeps = {"n": 0}
+
+    async def sleep(_seconds):
+        sleeps["n"] += 1
+        if sleeps["n"] > 1:
+            raise _StopLoop()
+
+    mocker.patch.object(cli.asyncio, "sleep", new=sleep)
+
+    with pytest.raises(_StopLoop):
+        await cli._sync_kea_configuration_async(4, 10, False, sync_env.hb)
+
+    # Only the single bounded startup attempt -- the payload is not reapplied.
+    assert sync_env.kea.set_config.await_count == 1
+    # No baseline exists, so the drift check is skipped rather than comparing
+    # against a hash for a config that was never applied.
+    assert sync_env.kea.get_config_hash.await_count == 0
+    assert sync_env.record.call_count == 0
+    # The iteration still completed, so the heartbeat advanced.
+    assert sync_env.touch.called
+
+
+async def test_run_once_startup_apply_failure_is_fatal(sync_env, mocker) -> None:
+    """Run-once mode has no monitoring loop, so it must not exit 0 on a failed apply."""
+    mocker.patch.object(cli, "STARTUP_APPLY_ATTEMPTS", 2)
+    sync_env.redis.load_kea_config = AsyncMock(return_value=_BAD_CONFIG)
+    sync_env.kea.set_config = AsyncMock(side_effect=_reject_only(_BAD_CONFIG))
+    mocker.patch.object(cli.asyncio, "sleep", new=AsyncMock())
+
+    with pytest.raises(KeaException, match="after 2 attempts"):
+        await cli._sync_kea_configuration_async(4, 0, False, sync_env.hb)
+
+    assert sync_env.kea.set_config.await_count == 2
+    assert sync_env.record.call_count == 0
