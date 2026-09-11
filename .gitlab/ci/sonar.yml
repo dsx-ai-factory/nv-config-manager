@@ -3,42 +3,15 @@
 # Sonar Stage - Code Quality Analysis
 # =============================================================================
 
-.sonar-change-paths: &sonar-change-paths
-  - ".github/**/*"
-  - ".gitlab/**/*"
-  - "build/**/*"
-  - "components/**/*"
-  - "packages/**/*"
-  - "plugins/**/*"
-  - "db/**/*"
-  - "deploy/**/*"
-  - "development/**/*"
-  - "installer/**/*"
-  - "scripts/**/*"
-  - "src/**/*"
-  - "ui/**/*"
-  - .gitlab-ci.yml
-  - pyproject.toml
-  - sonar-project.properties
-  - uv.lock
-
 sonar-scanner:
   stage: sonar
+  timeout: 1h
   tags:
     - dca
     - linux/amd64
     - docker
   needs:
-    - job: test-mr-py
-      optional: true
-      artifacts: true
     - job: test-main-py
-      optional: true
-      artifacts: true
-    - job: test-mr-installer
-      optional: true
-      artifacts: true
-    - job: test-mr-network-templates
       optional: true
       artifacts: true
     - job: test-main-network-templates
@@ -84,9 +57,6 @@ sonar-scanner:
     # variables; the promote validators authorize their dedicated jobs.
     - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/)
       when: never
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: *sonar-change-paths
-      when: always
     # Pull-mirror updates arrive as default-branch pushes. Analyze every one,
     # including bot-authored commits and commits outside the source paths above.
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -95,6 +65,7 @@ sonar-scanner:
 
 sonarqube-vulnerability-report:
   stage: sonar
+  timeout: 15m
   tags:
     - dca
     - linux/amd64
@@ -114,16 +85,13 @@ sonarqube-vulnerability-report:
       chmod 600 "$auth_config"
       printf 'user = "%s:"\n' "$SONAR_TOKEN" > "$auth_config"
       sonar_host_url="${SONAR_HOST_URL%/}"
-      curl --fail-with-body --silent --show-error --retry 3 --retry-delay 5 --retry-connrefused --config "$auth_config" "${sonar_host_url}/api/issues/gitlab_sast_export?projectKey=${NVCM_SONAR_PROJECT_KEY}&branch=${CI_COMMIT_BRANCH}&pullRequest=${CI_MERGE_REQUEST_IID}" -o gl-sast-sonar-report.json
+      curl --fail-with-body --silent --show-error --retry 3 --retry-delay 5 --retry-connrefused --config "$auth_config" "${sonar_host_url}/api/issues/gitlab_sast_export?projectKey=${NVCM_SONAR_PROJECT_KEY}&branch=${CI_COMMIT_BRANCH}" -o gl-sast-sonar-report.json
     - 'jq -e ''.version and (.vulnerabilities | type == "array")'' gl-sast-sonar-report.json >/dev/null'
   allow_failure: true
   rules:
     # Skip default-branch triggered pipelines (see sonar-scanner).
     - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/)
       when: never
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: *sonar-change-paths
-      when: always
     # Keep the SAST export paired with every default-branch analysis.
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: always
