@@ -18,19 +18,20 @@ import logging
 from unittest.mock import Mock, patch
 
 import pytest
-from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
+from nv_config_manager_dcim.workflow_models import Platform
 
 from nv_config_manager_workflows.clients.device import (
     AristaConnection,
     CumulusConnection,
+    DeviceConnectionSettings,
     JuniperConnection,
     MellanoxConnection,
     MockNetworkConnection,
     NetworkConnection,
     NetworkDeviceException,
     NVOSConnection,
-    from_device_data,
 )
+from nv_config_manager_workflows.clients.device.factory import connection_class_for_platform
 
 
 @pytest.mark.parametrize(
@@ -43,24 +44,18 @@ from nv_config_manager_workflows.clients.device import (
         (Platform.JUNIPER_JUNOS, JuniperConnection, 830),
     ],
 )
-def test_factory_constructs_platform_from_explicit_settings(platform, connection_cls, port):
-    device = NetworkDeviceData.model_validate(
-        {
-            "id": "a1b2c3d4-1111-2222-3333-444455556666",
-            "name": "switch",
-            "role": "tor-switch",
-            "platform": platform,
-            "site": "Site A",
-            "device_type": "switch",
-            "primary_ip4": "192.0.2.10",
-            "primary_ip6": None,
-        }
-    )
-    settings = {"username": "user-sentinel", "passwords": ["new", "old"], "mock": False}
+def test_selected_platform_constructs_from_explicit_settings(platform, connection_cls, port):
+    settings: DeviceConnectionSettings = {
+        "username": "user-sentinel",
+        "passwords": ["new", "old"],
+        "mock": False,
+    }
+    selected_class = connection_class_for_platform(platform, mock=False)
+    assert selected_class is connection_cls
     with patch.object(AristaConnection, "_connect", return_value=Mock()):
-        connection = from_device_data(device, settings)
+        connection = selected_class("192.0.2.10", settings=settings)
     assert type(connection) is connection_cls
-    assert connection._host == device.host
+    assert connection._host == "192.0.2.10"
     assert connection._port == port
     assert connection._username == settings["username"]
     assert connection._passwords_to_try == settings["passwords"]
@@ -70,17 +65,12 @@ def test_factory_constructs_platform_from_explicit_settings(platform, connection
 
 @pytest.mark.parametrize("platform", list(Platform))
 def test_mock_selection_precedes_platform_dispatch(platform):
-    device = NetworkDeviceData.model_construct(platform=platform, primary_ip4="192.0.2.10")
-    connection = NetworkConnection.from_device_data(
-        device, {"username": "user", "passwords": [], "mock": True}
-    )
-    assert type(connection) is MockNetworkConnection
+    assert connection_class_for_platform(platform, mock=True) is MockNetworkConnection
 
 
 def test_ufm_preserves_unsupported_error():
-    device = NetworkDeviceData.model_construct(platform=Platform.UFM)
     with pytest.raises(NotImplementedError, match="use UFMClient"):
-        from_device_data(device, {"username": "user", "passwords": [], "mock": False})
+        connection_class_for_platform(Platform.UFM, mock=False)
 
 
 def test_rotation_caches_success_without_logging_credentials(caplog):

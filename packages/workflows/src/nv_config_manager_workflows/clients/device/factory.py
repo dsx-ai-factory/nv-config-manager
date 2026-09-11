@@ -12,13 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Platform dispatch and construction from explicit device settings."""
+"""Platform selection for device connections."""
 
 from __future__ import annotations
 
 from typing import Protocol, assert_never
 
-from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
+from nv_config_manager_dcim.workflow_models import Platform
 
 from nv_config_manager_workflows.clients.device.arista import AristaConnection
 from nv_config_manager_workflows.clients.device.base import NetworkConnection
@@ -58,11 +58,3 @@ def connection_class_for_platform(platform: Platform, *, mock: bool) -> DeviceCo
             )
         case _ as unreachable:
             assert_never(unreachable)
-
-
-def from_device_data(
-    device_data: NetworkDeviceData, settings: DeviceConnectionSettings
-) -> NetworkConnection:
-    """Construct a platform connection with already-resolved credentials."""
-    connection_cls = connection_class_for_platform(device_data.platform, mock=settings["mock"])
-    return connection_cls(device_data.host, settings=settings)

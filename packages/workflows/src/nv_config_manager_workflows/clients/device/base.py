@@ -21,8 +21,6 @@ import logging
 from collections.abc import Callable
 from typing import Any, Self
 
-from nv_config_manager_dcim.workflow_models import NetworkDeviceData
-
 from nv_config_manager_workflows.clients.device.exceptions import NetworkDeviceException
 from nv_config_manager_workflows.clients.device.models import (
     DeviceArpTable,
@@ -380,14 +378,3 @@ class NetworkConnection:
     def __exit__(self, *exc: object) -> None:
         """Close the connection when leaving the context."""
         self.close()
-
-    @staticmethod
-    def from_device_data(
-        device_data: NetworkDeviceData, settings: DeviceConnectionSettings
-    ) -> NetworkConnection:
-        """Return a NetworkConnection for a given device."""
-        from nv_config_manager_workflows.clients.device.factory import (
-            from_device_data as connection_from_device_data,
-        )  # avoid circular import
-
-        return connection_from_device_data(device_data, settings)

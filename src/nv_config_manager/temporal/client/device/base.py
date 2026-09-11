@@ -61,27 +61,22 @@ class NetworkConnection(WorkflowNetworkConnection):
         port: int | None = None,
         username: str | None = None,
         password: str | None = None,
-        site: str | None = None,
         *,
-        settings: DeviceConnectionSettings | None = None,
+        site: str | None = None,
     ) -> None:
         resolved_port = self.DEFAULT_PORT if port is None else port
         if resolved_port is None:
             raise TypeError("NetworkConnection requires a port")
-        if settings is None:
-            settings = legacy_settings(username, password, site)
+        settings = legacy_settings(username, password, site)
         super().__init__(host, resolved_port, settings=settings)
 
     @staticmethod
     def from_device_data(
         device_data: NetworkDeviceData,
-        settings: DeviceConnectionSettings | None = None,
         *,
         config: ConfigParser | None = None,
-    ) -> WorkflowNetworkConnection:
-        """Dispatch with explicit settings or service-owned configuration."""
-        if settings is not None:
-            return WorkflowNetworkConnection.from_device_data(device_data, settings)
+    ) -> NetworkConnection:
+        """Construct a service adapter using service-owned configuration."""
         resolved = config if config is not None else load_config()
         implementation = connection_class_for_platform(
             device_data.platform, mock=resolved["device"].getboolean("mock", fallback=False)

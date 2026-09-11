@@ -72,7 +72,7 @@ def test_settings_match_legacy_credential_selection(
     monkeypatch.setenv("NV_CONFIG_MANAGER_CONFIG_SECRET_PATH", str(secrets_path))
 
     with patch("nv_config_manager.temporal.client.device.base.load_config", return_value=config):
-        legacy = NetworkConnection("host", 22, username, password, "Site A")
+        legacy = NetworkConnection("host", 22, username, password, site="Site A")
 
     caplog.clear()
     with caplog.at_level(logging.DEBUG):
