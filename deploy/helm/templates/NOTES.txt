@@ -1,0 +1,27 @@
+{{- if and .Values.temporal.enabled .Values.temporal.server.enabled -}}
+{{- $temporalName := include "nv-config-manager.componentName" (dict "root" . "component" "temporal") -}}
+{{- $configMapName := printf "%s-config" $temporalName -}}
+{{- $existingConfigMap := lookup "v1" "ConfigMap" .Values.global.namespace $configMapName -}}
+{{- if $existingConfigMap -}}
+{{- $configTemplate := dig "data" "config_template.yaml" "" $existingConfigMap -}}
+{{- if $configTemplate -}}
+{{- $installedConfig := fromYaml $configTemplate -}}
+{{- $persistence := get $installedConfig "persistence" -}}
+{{- $installedShards := "" -}}
+{{- if kindIs "map" $persistence -}}
+{{- $installedShards = get $persistence "numHistoryShards" -}}
+{{- end -}}
+{{- $requestedShards := include "nv-config-manager.temporalShardCount" . -}}
+{{- if and (ne (toString $installedShards) "") (ne (toString $installedShards) $requestedShards) }}
+WARNING: Temporal history shard count change detected
+
+  Installed shard count: {{ $installedShards }}
+  Requested shard count: {{ $requestedShards }}
+
+Temporal ignores shard-count configuration changes after cluster initialization.
+Changing the Helm value does not re-shard the existing cluster. Follow an
+approved Temporal shard migration procedure before changing this value.
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

@@ -298,6 +298,8 @@ jobs:
           helm dependency build deploy/helm/
       - run: helm lint deploy/helm/ --values deploy/helm/values-ci.yaml
       - run: helm template test deploy/helm/ --values deploy/helm/values-ci.yaml >/tmp/nvcm-helm.yaml
+      - name: Temporal history shard render
+        run: bash deploy/helm/tests/temporal-history-shards.sh
       - name: CNPG PodMonitor ownership render
         run: |
           # A CloudNativePG operator may own/delete a PodMonitor whose name is

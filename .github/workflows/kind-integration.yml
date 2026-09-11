@@ -269,6 +269,8 @@ jobs:
           echo "REQUESTS_CA_BUNDLE=${kind_ca_bundle}" >>"${GITHUB_ENV}"
 
           kubectl get pods -n "${NV_CONFIG_MANAGER_NAMESPACE}" -o wide
+      - name: Temporal history shard warning
+        run: bash deploy/helm/tests/temporal-history-shard-warning.sh
       - name: Run integration tests
         timeout-minutes: 50
         env:
