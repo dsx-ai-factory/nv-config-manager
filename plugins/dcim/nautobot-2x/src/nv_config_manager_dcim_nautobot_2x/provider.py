@@ -745,11 +745,13 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 if isinstance(current_status, Mapping)
                 else current_status
             )
-            if current_status_name != update.status.value:
-                await self.patch(
-                    f"dcim/cables/{cable_id}/",
-                    {"status": update.status.value},
-                )
+            if current_status_name == update.status.value:
+                return
+
+            await self.patch(
+                f"dcim/cables/{cable_id}/",
+                {"status": update.status.value},
+            )
 
             note = (
                 f"Cable validation workflow {update.workflow_id} "
