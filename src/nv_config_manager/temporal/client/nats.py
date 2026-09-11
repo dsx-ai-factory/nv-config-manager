@@ -35,6 +35,7 @@ from nv_config_manager.common.client import (
 )
 from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.common.http_config import config_manager_api_prefix
+from nv_config_manager.temporal.factories.nats import nats_client_settings
 
 
 def _stream_subjects(raw_subjects: str) -> list[str]:
@@ -70,30 +71,11 @@ class NatsClient(BaseNatsClient):
 
 
 class NatsProducer(BaseNatsProducer):
-    """NATS Producer for Temporal workflows."""
+    """Compatibility adapter for the relocated NATS producer."""
 
     def __init__(self) -> None:
-        """Initialize the NATS producer from config."""
-        config = load_config()
-        nats_config = config["nats"]
-
-        local_str = nats_config.get("local", "false")
-        local = local_str.lower() == "true" if isinstance(local_str, str) else bool(local_str)
-
-        super().__init__(
-            api_prefix=config_manager_api_prefix(nats_config),
-            server=nats_config["server"],
-            queue=nats_config.get("queue", "nv-config-manager"),
-            local=local,
-            auth_method=nats_config.get("auth_method", "password"),
-            user=nats_config.get("user"),
-            password=nats_config.get("password"),
-            creds_path=nats_config.get("creds_path"),
-            default_stream_name=nats_config.get("config_manager_stream", "nv-config-manager"),
-            default_stream_subjects=_stream_subjects(
-                nats_config.get("config_manager_subjects", "nv-config-manager.>")
-            ),
-        )
+        """Initialize the reusable producer from service configuration."""
+        super().__init__(**nats_client_settings())
 
 
 class NatsConsumer(BaseNatsConsumer):
