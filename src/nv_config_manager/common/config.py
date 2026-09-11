@@ -24,10 +24,11 @@ import os
 import ssl
 from collections.abc import Awaitable, Callable
 from configparser import ConfigParser
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import certifi
 import nats
+import nats.aio.client
 import nats.js.errors
 
 # =============================================================================
@@ -94,8 +95,6 @@ from nv_config_manager_workflows.clients import (
     RenderClient,
 )
 
-if TYPE_CHECKING:
-    import nats.aio.client
 # =============================================================================
 # CLIENT FACTORIES
 # =============================================================================

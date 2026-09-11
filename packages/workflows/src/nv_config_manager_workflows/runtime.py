@@ -17,14 +17,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
+from redis.asyncio import Redis
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager_workflows.lock import configure_lock_backend
-
-if TYPE_CHECKING:
-    from redis.asyncio import Redis
 
 
 class RuntimeConfigurationError(ApplicationError):
