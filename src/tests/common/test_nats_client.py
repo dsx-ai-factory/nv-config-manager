@@ -21,7 +21,12 @@ import pytest
 from nats.js.api import AckPolicy, DeliverPolicy
 from nats.js.errors import NotFoundError
 
-from nv_config_manager.common.client import DEFAULT_NATS_API_PREFIX, NatsClient, NatsConsumer
+from nv_config_manager.common.client import (
+    DEFAULT_NATS_API_PREFIX,
+    NatsClient,
+    NatsConsumer,
+    NatsProducer,
+)
 
 TEST_SERVER = "nats://nats.example.local:4222"
 
@@ -89,6 +94,58 @@ async def test_local_connect_keeps_stream_setup():
 
 
 @pytest.mark.asyncio
+async def test_connect_preserves_password_auth_and_tls_contract():
+    """Password-authenticated connections pass credentials and the configured TLS context."""
+    client = NatsClient(
+        server=TEST_SERVER,
+        auth_method="password",
+        user="nats-user",
+        password="nats-password",
+    )
+    conn = MagicMock(connected_url=TEST_SERVER)
+
+    with patch(
+        "nv_config_manager.common.client.nats.nats.connect",
+        new=AsyncMock(return_value=conn),
+    ) as connect:
+        await client.connect()
+
+    connect.assert_awaited_once()
+    (server,) = connect.await_args.args
+    options = connect.await_args.kwargs
+    assert server == TEST_SERVER
+    assert options["user"] == "nats-user"
+    assert options["password"] == "nats-password"
+    assert options["tls"] is client.ssl_context
+    assert "user_credentials" not in options
+
+
+@pytest.mark.asyncio
+async def test_connect_preserves_jwt_auth_contract():
+    """JWT connections pass the credentials file instead of password fields."""
+    client = NatsClient(
+        server=TEST_SERVER,
+        auth_method="JWT",
+        user="ignored-user",
+        password="ignored-password",
+        creds_path="/secrets/nats.creds",
+    )
+    conn = MagicMock(connected_url=TEST_SERVER)
+
+    with patch(
+        "nv_config_manager.common.client.nats.nats.connect",
+        new=AsyncMock(return_value=conn),
+    ) as connect:
+        await client.connect()
+
+    options = connect.await_args.kwargs
+    assert options["user_credentials"] == "/secrets/nats.creds"
+    assert "user" not in options
+    assert "password" not in options
+    assert options["tls"] is client.ssl_context
+
+
+@pytest.mark.asyncio
 async def test_ensure_stream_uses_configured_api_prefix():
     """Stream lookups go through the account's rewritten API prefix."""
     client = NatsClient(server=TEST_SERVER, api_prefix="$JS.CUSTOM.API")
@@ -98,6 +155,76 @@ async def test_ensure_stream_uses_configured_api_prefix():
     await client._ensure_stream()
 
     client.conn.jetstream.assert_called_once_with(prefix="$JS.CUSTOM.API")
+
+
+@pytest.mark.asyncio
+async def test_local_client_creates_missing_default_stream():
+    """Local deployments retain automatic creation of the configured stream."""
+    client = NatsClient(
+        server=TEST_SERVER,
+        local=True,
+        default_stream_name="workflow-events",
+        default_stream_subjects=["workflow.>"],
+    )
+    client.conn = MagicMock()
+    jetstream = client.conn.jetstream.return_value
+    stream_info = MagicMock()
+    jetstream.stream_info = AsyncMock(side_effect=[NotFoundError, stream_info])
+    jetstream.add_stream = AsyncMock()
+
+    await client._ensure_stream()
+
+    jetstream.add_stream.assert_awaited_once_with(
+        name="workflow-events",
+        subjects=["workflow.>"],
+    )
+    assert jetstream.stream_info.await_count == 2
+    assert client.stream_info is stream_info
+
+
+@pytest.mark.asyncio
+async def test_producer_publishes_utf8_to_default_stream_and_api_prefix():
+    """Producer publishing freezes payload encoding, stream selection, and API prefix."""
+    producer = NatsProducer(
+        server=TEST_SERVER,
+        default_stream_name="workflow-events",
+        api_prefix="$JS.CUSTOM.API",
+    )
+    conn = MagicMock()
+    conn.__aenter__ = AsyncMock(return_value=conn)
+    conn.__aexit__ = AsyncMock(return_value=None)
+    jetstream = conn.jetstream.return_value
+    jetstream.publish = AsyncMock()
+
+    with patch.object(producer, "connect", new=AsyncMock(return_value=conn)):
+        await producer.publish("workflow.result", "café")
+
+    conn.jetstream.assert_called_once_with(prefix="$JS.CUSTOM.API")
+    jetstream.publish.assert_awaited_once_with(
+        subject="workflow.result",
+        payload="café".encode(),
+        stream="workflow-events",
+    )
+
+
+@pytest.mark.asyncio
+async def test_producer_allows_per_publish_stream_override():
+    """An explicit publish stream continues to override the configured default."""
+    producer = NatsProducer(server=TEST_SERVER, default_stream_name="default-stream")
+    conn = MagicMock()
+    conn.__aenter__ = AsyncMock(return_value=conn)
+    conn.__aexit__ = AsyncMock(return_value=None)
+    jetstream = conn.jetstream.return_value
+    jetstream.publish = AsyncMock()
+
+    with patch.object(producer, "connect", new=AsyncMock(return_value=conn)):
+        await producer.publish("workflow.result", "payload", stream="override-stream")
+
+    jetstream.publish.assert_awaited_once_with(
+        subject="workflow.result",
+        payload=b"payload",
+        stream="override-stream",
+    )
 
 
 @pytest.mark.asyncio
