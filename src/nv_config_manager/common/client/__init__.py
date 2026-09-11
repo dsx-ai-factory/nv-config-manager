@@ -21,6 +21,7 @@ from nv_config_manager.common.client.config_store import (
     ConfigStoreClient,
     ConfigStoreException,
     ConfigStoreFileNotFound,
+    ConfigStoreType,
 )
 
 # DHCP Client
@@ -70,6 +71,7 @@ __all__ = [
     "ConfigStoreClient",
     "ConfigStoreException",
     "ConfigStoreFileNotFound",
+    "ConfigStoreType",
     # DHCP
     "DHCPClient",
     "DHCPClientException",

@@ -31,10 +31,17 @@ from __future__ import annotations
 import os
 from configparser import ConfigParser
 from functools import lru_cache
-from typing import Any
 
 from nv_config_manager.common.ini import FileFingerprint, file_fingerprint
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager_workflows.secrets import (
+    get_credential as _get_credential,
+)
+from nv_config_manager_workflows.secrets import (
+    get_rotation_passwords,
+    get_site_slug,
+    select_credential_source,
+)
 
 logger = get_logger(__name__, category=LogCategory.AUTH)
 
@@ -48,7 +55,7 @@ def _load_secrets_config(
     secrets_config = ConfigParser(interpolation=None)
 
     if secrets_path and fingerprint is not None:
-        secrets_config.read(secrets_path)
+        _ = secrets_config.read(secrets_path)
         logger.debug("Loaded secrets config from: %s", secrets_path)
         return secrets_config, True
 
@@ -79,23 +86,11 @@ def clear_secrets_cache() -> None:
     _load_secrets_config.cache_clear()
 
 
-def get_site_slug(site: str) -> str:
-    """Convert a site name to a slug format.
-
-    Args:
-        site: Site name (e.g., "Site A", "My Data Center")
-
-    Returns:
-        Slugified site name (e.g., "site-a", "my-data-center")
-    """
-    return site.lower().replace(" ", "-")
-
-
-def resolve_config_section(
-    main_config: Any,
+def resolve_credential_source(
+    main_config: ConfigParser,
     section: str,
     site: str | None = None,
-) -> tuple[Any, str]:
+) -> tuple[ConfigParser, str]:
     """Determine the config object and section for credential lookup.
 
     Checks the secrets config file first for site-specific sections,
@@ -112,66 +107,16 @@ def resolve_config_section(
         Tuple of (config_to_use, section_name) for credential lookup
     """
     secrets_config, secrets_found = load_secrets_config()
-
-    if site and secrets_found:
-        site_slug = get_site_slug(site)
-        site_section = f"site.{site_slug}"
-        if secrets_config.has_section(site_section):
-            logger.debug("Using site-specific secrets config section: [%s]", site_section)
-            return secrets_config, site_section
-
-    # Fallback: main config section
-    logger.debug("Using global [%s] section from main config", section)
-    return main_config, section
-
-
-def get_rotation_passwords(
-    config: Any,
-    section: str,
-    key_prefix: str = "api_user_key_r",
-    max_passwords: int = 2,
-) -> list[str]:
-    """Get rotation passwords from a config section.
-
-    Parses keys matching the pattern {key_prefix}{revision_number} and returns
-    the passwords sorted by revision number (newest first).
-
-    Args:
-        config: Configuration object
-        section: The config section to read from
-        key_prefix: Prefix for rotation keys (default: "api_user_key_r")
-        max_passwords: Maximum number of passwords to return (default: 2)
-
-    Returns:
-        List of passwords sorted by revision (newest first), up to max_passwords
-    """
-    rotations: list[tuple[int, str]] = []
-
-    if not config.has_section(section):
-        return []
-
-    for key in config[section]:
-        if not key.startswith(key_prefix):
-            continue
-        try:
-            # Extract revision number from key like "api_user_key_r1" -> 1
-            revision_str = key[len(key_prefix) :]
-            revision_num = int(revision_str)
-            rotations.append((revision_num, config[section][key]))
-            logger.debug("Found rotation key: %s (revision %d) in [%s]", key, revision_num, section)
-        except (ValueError, IndexError):
-            logger.debug("Skipping invalid rotation key: %s", key)
-
-    if rotations:
-        # Sort by revision number (highest first = most recent)
-        rotations.sort(reverse=True, key=lambda x: x[0])
-        return [pw for _, pw in rotations[:max_passwords]]
-
-    return []
+    return select_credential_source(
+        main_config,
+        secrets_config if secrets_found else None,
+        section,
+        site,
+    )
 
 
 def get_credential(
-    main_config: Any,
+    main_config: ConfigParser,
     section: str,
     key: str,
     site: str | None = None,
@@ -192,18 +137,20 @@ def get_credential(
     Returns:
         The credential value or default if not found
     """
-    config, resolved_section = resolve_config_section(main_config, section, site)
+    secrets_config, secrets_found = load_secrets_config()
+    return _get_credential(
+        main_config,
+        secrets_config if secrets_found else None,
+        section,
+        key,
+        site,
+        default,
+    )
 
-    if config.has_section(resolved_section):
-        value: str = config[resolved_section].get(key, "")
-        if value:
-            return value
 
-    # If we got a site-specific section but key wasn't there, try global
-    if site and resolved_section.startswith("site."):
-        config, resolved_section = resolve_config_section(main_config, section, None)
-        if config.has_section(resolved_section):
-            result: str = config[resolved_section].get(key, default)
-            return result
-
-    return default
+__all__ = [
+    "get_credential",
+    "get_rotation_passwords",
+    "get_site_slug",
+    "resolve_credential_source",
+]

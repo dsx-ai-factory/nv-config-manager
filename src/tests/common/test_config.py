@@ -18,14 +18,14 @@ import os
 from configparser import ConfigParser
 from unittest.mock import patch
 
-from nv_config_manager.common.config import (
-    _read_spiffe_jwt,
+from nv_config_manager.common.config import config_store_client, dcim_client, render_client
+from nv_config_manager.common.config_loader import (
     clear_config_cache,
-    dcim_client,
-    get_internal_auth_headers,
     load_config,
     reload_config,
 )
+from nv_config_manager.common.http_config import _read_spiffe_jwt, get_internal_auth_headers
+from nv_config_manager_workflows.clients import ConfigStoreType
 
 
 def _config_with_spiffe_path(jwt_path: str) -> ConfigParser:
@@ -34,6 +34,88 @@ def _config_with_spiffe_path(jwt_path: str) -> ConfigParser:
     cp.add_section("auth.spiffe")
     cp.set("auth.spiffe", "jwt_svid_path", jwt_path)
     return cp
+
+
+def _service_client_config() -> ConfigParser:
+    """Return configuration for clients constructed by this module."""
+    config = ConfigParser()
+    config.read_dict(
+        {
+            "config_store.client": {
+                "api_url": "https://config-store.example",
+                "api_service": "http://config-store.internal:8080",
+                "ui_url": "https://config-manager.example",
+                "use_internal_endpoint": "false",
+                "verify": "/certs/ca.crt",
+            },
+            "render": {
+                "api_url": "https://render.example",
+                "api_service": "http://render.internal:9000",
+                "use_internal_endpoint": "false",
+            },
+            "mtls": {
+                "tls_client_cert_path": "/certs/client.crt",
+                "tls_client_key_path": "/certs/client.key",
+            },
+        }
+    )
+    return config
+
+
+class TestServiceClientFactories:
+    """Tests for clients configured directly by the common layer."""
+
+    def test_external_endpoints_use_mtls(self):
+        config = _service_client_config()
+
+        with (
+            patch("nv_config_manager.common.config.ConfigStoreClient") as config_store_type,
+            patch("nv_config_manager.common.config.RenderClient") as render_type,
+        ):
+            config_store = config_store_client(file_type="backup", config=config)
+            renderer = render_client(config)
+
+        assert config_store is config_store_type.return_value
+        config_store_type.assert_called_once_with(
+            target="https://config-store.example",
+            file_type=ConfigStoreType.BACKUP,
+            ui_url="https://config-manager.example",
+            verify="/certs/ca.crt",
+            client_certificate=("/certs/client.crt", "/certs/client.key"),
+            headers=None,
+        )
+        assert renderer is render_type.return_value
+        render_type.assert_called_once_with(
+            base_url="https://render.example",
+            client_certificate=("/certs/client.crt", "/certs/client.key"),
+            headers=None,
+        )
+
+    def test_internal_endpoints_use_internal_auth(self):
+        config = _service_client_config()
+        config.set("config_store.client", "use_internal_endpoint", "true")
+        config.set("render", "use_internal_endpoint", "true")
+
+        with (
+            patch("nv_config_manager.common.config.ConfigStoreClient") as config_store_type,
+            patch("nv_config_manager.common.config.RenderClient") as render_type,
+        ):
+            config_store_client(config=config)
+            render_client(config)
+
+        config_store_type.assert_called_once_with(
+            target="http://config-store.internal:8080",
+            file_type=ConfigStoreType.INTENDED,
+            ui_url="https://config-manager.example",
+            verify=False,
+            client_certificate=None,
+            headers=get_internal_auth_headers,
+        )
+        render_type.assert_called_once_with(
+            base_url="http://render.internal:9000",
+            client_certificate=None,
+            headers=get_internal_auth_headers,
+        )
 
 
 class TestLoadConfig:
@@ -142,7 +224,7 @@ class TestGetInternalAuthHeaders:
 
     def test_explicit_service_name(self):
         """Test with explicitly provided service name."""
-        with patch("nv_config_manager.common.config.load_config", return_value=ConfigParser()):
+        with patch("nv_config_manager.common.http_config.load_config", return_value=ConfigParser()):
             headers = get_internal_auth_headers(service_name="my-service")
         assert headers == {
             "X-Auth-Request-Email": "my-service",
@@ -152,7 +234,7 @@ class TestGetInternalAuthHeaders:
 
     def test_custom_group(self):
         """Test with custom group."""
-        with patch("nv_config_manager.common.config.load_config", return_value=ConfigParser()):
+        with patch("nv_config_manager.common.http_config.load_config", return_value=ConfigParser()):
             headers = get_internal_auth_headers(service_name="my-service", group="admin")
         assert headers == {
             "X-Auth-Request-Email": "my-service",
@@ -164,7 +246,7 @@ class TestGetInternalAuthHeaders:
         """Test fallback to HOSTNAME environment variable."""
         with (
             patch.dict(os.environ, {"HOSTNAME": "nv-config-manager-render-api-5f8d9c7b6-abc12"}),
-            patch("nv_config_manager.common.config.load_config", return_value=ConfigParser()),
+            patch("nv_config_manager.common.http_config.load_config", return_value=ConfigParser()),
         ):
             headers = get_internal_auth_headers()
             assert headers["X-Auth-Request-Email"] == "nv-config-manager-render-api-5f8d9c7b6-abc12"
@@ -176,7 +258,7 @@ class TestGetInternalAuthHeaders:
         env = {k: v for k, v in os.environ.items() if k != "HOSTNAME"}
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("nv_config_manager.common.config.load_config", return_value=ConfigParser()),
+            patch("nv_config_manager.common.http_config.load_config", return_value=ConfigParser()),
         ):
             headers = get_internal_auth_headers()
             assert headers["X-Auth-Request-Email"] == "internal-service"
@@ -187,7 +269,7 @@ class TestGetInternalAuthHeaders:
         """Test that explicit service_name overrides HOSTNAME."""
         with (
             patch.dict(os.environ, {"HOSTNAME": "nv-config-manager-ztp-abc123-xyz99"}),
-            patch("nv_config_manager.common.config.load_config", return_value=ConfigParser()),
+            patch("nv_config_manager.common.http_config.load_config", return_value=ConfigParser()),
         ):
             headers = get_internal_auth_headers(service_name="explicit-service")
             assert headers["X-Auth-Request-Email"] == "explicit-service"
@@ -202,7 +284,7 @@ class TestSpiffeJwtAuth:
         jwt_file.write_text("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.test.sig")
 
         cp = _config_with_spiffe_path(str(jwt_file))
-        with patch("nv_config_manager.common.config.load_config", return_value=cp):
+        with patch("nv_config_manager.common.http_config.load_config", return_value=cp):
             headers = get_internal_auth_headers()
 
         assert headers == {
@@ -215,7 +297,7 @@ class TestSpiffeJwtAuth:
         jwt_file.write_text("eyJ0b2tlbi5zcGlmZmU")
 
         cp = _config_with_spiffe_path(str(jwt_file))
-        with patch("nv_config_manager.common.config.load_config", return_value=cp):
+        with patch("nv_config_manager.common.http_config.load_config", return_value=cp):
             headers = get_internal_auth_headers(service_name="my-service")
 
         assert "Authorization" in headers
@@ -227,7 +309,7 @@ class TestSpiffeJwtAuth:
         jwt_file.write_text("")
 
         cp = _config_with_spiffe_path(str(jwt_file))
-        with patch("nv_config_manager.common.config.load_config", return_value=cp):
+        with patch("nv_config_manager.common.http_config.load_config", return_value=cp):
             headers = get_internal_auth_headers(service_name="my-service")
 
         assert "X-Auth-Request-Email" in headers
@@ -239,7 +321,7 @@ class TestSpiffeJwtAuth:
         jwt_file.write_text("   \n  ")
 
         cp = _config_with_spiffe_path(str(jwt_file))
-        with patch("nv_config_manager.common.config.load_config", return_value=cp):
+        with patch("nv_config_manager.common.http_config.load_config", return_value=cp):
             headers = get_internal_auth_headers(service_name="my-service")
 
         assert "X-Auth-Request-Email" in headers
@@ -250,7 +332,7 @@ class TestSpiffeJwtAuth:
         missing_path = str(tmp_path / "nonexistent" / "jwt-svid")
 
         cp = _config_with_spiffe_path(missing_path)
-        with patch("nv_config_manager.common.config.load_config", return_value=cp):
+        with patch("nv_config_manager.common.http_config.load_config", return_value=cp):
             headers = get_internal_auth_headers(service_name="my-service")
 
         assert "X-Auth-Request-Email" in headers
@@ -258,7 +340,7 @@ class TestSpiffeJwtAuth:
 
     def test_spiffe_jwt_not_configured_falls_back(self):
         """When [auth.spiffe] jwt_svid_path is missing, fall back to X-Auth-Request-*."""
-        with patch("nv_config_manager.common.config.load_config", return_value=ConfigParser()):
+        with patch("nv_config_manager.common.http_config.load_config", return_value=ConfigParser()):
             headers = get_internal_auth_headers(service_name="my-service")
 
         assert "X-Auth-Request-Email" in headers
@@ -270,7 +352,7 @@ class TestSpiffeJwtAuth:
         jwt_file.write_text("token-v1")
 
         cp = _config_with_spiffe_path(str(jwt_file))
-        with patch("nv_config_manager.common.config.load_config", return_value=cp):
+        with patch("nv_config_manager.common.http_config.load_config", return_value=cp):
             h1 = get_internal_auth_headers()
             assert h1["Authorization"] == "Bearer token-v1"
 
@@ -284,12 +366,12 @@ class TestSpiffeJwtAuth:
         jwt_file.write_text("  eyJhbGciOiJSUzI1NiJ9.payload.sig  \n")
 
         cp = _config_with_spiffe_path(str(jwt_file))
-        with patch("nv_config_manager.common.config.load_config", return_value=cp):
+        with patch("nv_config_manager.common.http_config.load_config", return_value=cp):
             token = _read_spiffe_jwt()
 
         assert token == "eyJhbGciOiJSUzI1NiJ9.payload.sig"
 
     def test_read_spiffe_jwt_returns_none_when_unset(self):
         """_read_spiffe_jwt returns None when no section is configured."""
-        with patch("nv_config_manager.common.config.load_config", return_value=ConfigParser()):
+        with patch("nv_config_manager.common.http_config.load_config", return_value=ConfigParser()):
             assert _read_spiffe_jwt() is None

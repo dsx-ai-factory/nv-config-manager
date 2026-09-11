@@ -14,10 +14,16 @@
 # limitations under the License.
 """Mixins for Temporal Workflows."""
 
+from nv_config_manager_workflows.mixins.archive import (
+    ArchiveMixin,
+    WorkflowResultLog,
+)
 from nv_config_manager_workflows.mixins.base import BaseMixin
 from nv_config_manager_workflows.mixins.device import DeviceMixin
 
 __all__ = [
+    "ArchiveMixin",
     "BaseMixin",
     "DeviceMixin",
+    "WorkflowResultLog",
 ]

@@ -53,6 +53,7 @@ logging.getLogger("paramiko").setLevel(logging.WARNING)
 # Suppress SSL warnings for network devices which typically use self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# Public device exports are maintained here; submodules retain compatibility imports.
 __all__ = [
     "COMMIT_CONFIRM_ROLLBACK_SECONDS",
     "AristaConnection",

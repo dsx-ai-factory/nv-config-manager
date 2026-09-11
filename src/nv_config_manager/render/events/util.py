@@ -30,10 +30,12 @@ from nv_config_manager.common.config import (
     get_logger,
     is_aggregate_environment,
     is_local_environment,
-    nats_config_manager_api_prefix,
     nats_connection,
-    nats_render_change_config,
     redis_client,
+)
+from nv_config_manager.common.http_config import (
+    nats_config_manager_api_prefix,
+    nats_render_change_config,
 )
 from nv_config_manager.dcim import DCIMClient, dcim_client_session
 

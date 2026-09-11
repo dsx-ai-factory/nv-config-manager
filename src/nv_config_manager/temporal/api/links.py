@@ -19,7 +19,7 @@ from __future__ import annotations
 from configparser import ConfigParser
 from urllib.parse import quote
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 
 
 def temporal_ui_workflow_href(workflow_id: str, config: ConfigParser | None = None) -> str:

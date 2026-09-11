@@ -1,0 +1,265 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Tests for service-owned INI-to-client-settings adapters."""
+
+from __future__ import annotations
+
+import logging
+from configparser import ConfigParser
+from unittest.mock import Mock
+
+import pytest
+
+from nv_config_manager.common import config_loader as config_module
+from nv_config_manager.temporal.factories import (
+    device_connection_settings,
+    nats_client_settings,
+    nats_consumer_settings,
+    redfish_client_settings,
+    redis_settings,
+    ticketing_client_settings,
+    ufm_client_settings,
+)
+from nv_config_manager_workflows.clients.redfish import RedfishVendor
+
+
+@pytest.fixture
+def client_config() -> ConfigParser:
+    """Return representative settings for every supported client family."""
+    config = ConfigParser()
+    config.read_dict(
+        {
+            "device": {
+                "username": "device-user",
+                "password": "device-fallback",
+                "api_user_key_r1": "device-old",
+                "api_user_key_r3": "device-new",
+                "mock": "true",
+            },
+            "ufm": {
+                "ufm_api_user": "ufm-user",
+                "ufm_api_token_r2": "ufm-old",
+                "ufm_api_token_r7": "ufm-new",
+            },
+            "redis": {
+                "host": "redis.example",
+                "port": "6380",
+                "db": "4",
+                "lock_db": "9",
+                "ssl": "true",
+                "password": "redis-secret",
+                "socket_timeout": "11",
+                "socket_connect_timeout": "12",
+            },
+            "render": {
+                "api_url": "https://render.example",
+                "api_service": "http://render.internal:9000",
+                "use_internal_endpoint": "false",
+            },
+            "config_store.client": {
+                "api_url": "https://config-store.example",
+                "api_service": "http://config-store.internal:8080",
+                "ui_url": "https://config-manager.example",
+                "use_internal_endpoint": "true",
+                "verify": "true",
+            },
+            "mtls": {
+                "tls_client_cert_path": "/certs/client.crt",
+                "tls_client_key_path": "/certs/client.key",
+            },
+            "nats": {
+                "server": "nats://nats.example:4222",
+                "queue": "workflow",
+                "local": "true",
+                "auth_method": "JWT",
+                "user": "nats-user",
+                "password": "nats-secret",
+                "creds_path": "/secrets/nats.creds",
+                "config_manager_stream": "archive",
+                "config_manager_subjects": "one, two , ,three",
+                "config_manager_api_prefix": "$JS.CUSTOM.API",
+                "archive_consumer_name": "workflow-archive",
+                "archive_deliver_subject": "workflow.archive.delivery",
+            },
+            "jira": {
+                "base_url": "https://jira.example",
+                "api_token": "jira-secret",
+            },
+            "redfish": {
+                "lenovo_default_user": "lenovo-user",
+                "lenovo_default_password": "lenovo-default",
+                "lenovo_config_manager_password": "lenovo-managed",
+                "bluefield_default_user": "bluefield-user",
+                "bluefield_default_password": "bluefield-default",
+                "bluefield_config_manager_password": "bluefield-managed",
+            },
+        }
+    )
+    return config
+
+
+def test_device_connection_settings_match_current_constructor_values(
+    client_config: ConfigParser,
+) -> None:
+    assert device_connection_settings(client_config) == {
+        "username": "device-user",
+        "passwords": ["device-new", "device-old"],
+        "mock": True,
+    }
+
+
+def test_ufm_client_settings_match_current_constructor_values(
+    client_config: ConfigParser,
+) -> None:
+    assert ufm_client_settings(client_config) == {
+        "username": "ufm-user",
+        "passwords": ["ufm-new", "ufm-old"],
+    }
+
+
+def test_redis_settings_match_current_constructor_values(client_config: ConfigParser) -> None:
+    assert redis_settings(client_config, db_key="lock_db") == {
+        "host": "redis.example",
+        "port": 6380,
+        "db": 9,
+        "ssl": True,
+        "password": "redis-secret",
+        "socket_timeout": 11,
+        "socket_connect_timeout": 12,
+    }
+
+
+def test_nats_client_settings_match_current_constructor_values(
+    client_config: ConfigParser,
+) -> None:
+    assert nats_client_settings(client_config) == {
+        "api_prefix": "$JS.CUSTOM.API",
+        "server": "nats://nats.example:4222",
+        "queue": "workflow",
+        "local": True,
+        "auth_method": "JWT",
+        "user": "nats-user",
+        "password": "nats-secret",
+        "creds_path": "/secrets/nats.creds",
+        "default_stream_name": "archive",
+        "default_stream_subjects": ["one", "two", "three"],
+    }
+
+
+def test_nats_consumer_settings_add_service_owned_values(
+    client_config: ConfigParser,
+) -> None:
+    assert nats_consumer_settings("archive", client_config) == {
+        **nats_client_settings(client_config),
+        "durable_name": "workflow-archive",
+        "deliver_subject": "workflow.archive.delivery",
+    }
+
+
+def test_nats_consumer_settings_preserve_legacy_defaults() -> None:
+    config = ConfigParser()
+    config.read_dict({"nats": {"server": "nats://nats.example:4222"}})
+
+    settings = nats_consumer_settings("archive", config)
+
+    assert settings["durable_name"] == "nv-config-manager-archive"
+    assert settings["deliver_subject"] == "nv-config-manager.archive.delivery"
+
+
+def test_ticketing_client_settings_match_current_constructor_values(
+    client_config: ConfigParser,
+) -> None:
+    assert ticketing_client_settings(client_config, platform="jira") == {
+        "base_url": "https://jira.example",
+        "api_token": "jira-secret",
+    }
+
+
+def test_redfish_client_settings_match_current_constructor_values(
+    client_config: ConfigParser,
+) -> None:
+    assert redfish_client_settings(client_config, vendor=RedfishVendor.LENOVO) == {
+        "username": "lenovo-user",
+        "password": "lenovo-default",
+        "config_manager_password": "lenovo-managed",
+    }
+    assert redfish_client_settings(
+        client_config,
+        vendor=RedfishVendor.BLUEFIELD,
+        credentials={
+            "default_user": "host-user",
+            "default_password": "host-default",
+            "config_manager_password": "host-managed",
+        },
+        credential_kind="config_manager",
+    ) == {
+        "username": "host-user",
+        "password": "host-managed",
+        "config_manager_password": "host-managed",
+    }
+
+
+def test_default_configuration_is_loaded_when_not_injected(
+    client_config: ConfigParser,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    load_config = Mock(return_value=client_config)
+    monkeypatch.setattr(config_module, "load_config", load_config)
+
+    assert redis_settings()["host"] == "redis.example"
+    load_config.assert_called_once_with()
+
+
+def test_injected_configuration_does_not_load_global_config(
+    client_config: ConfigParser,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    load_config = Mock(side_effect=AssertionError("load_config should not be called"))
+    monkeypatch.setattr(config_module, "load_config", load_config)
+
+    device_connection_settings(client_config)
+    nats_client_settings(client_config)
+    nats_consumer_settings("archive", client_config)
+    redfish_client_settings(client_config, vendor=RedfishVendor.LENOVO)
+    redis_settings(client_config)
+    ticketing_client_settings(client_config, platform="jira")
+    ufm_client_settings(client_config)
+
+    load_config.assert_not_called()
+
+
+def test_factories_do_not_log_credentials(
+    client_config: ConfigParser,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.DEBUG):
+        device_connection_settings(client_config)
+        nats_client_settings(client_config)
+        nats_consumer_settings("archive", client_config)
+        redfish_client_settings(client_config, vendor=RedfishVendor.LENOVO)
+        redis_settings(client_config)
+        ticketing_client_settings(client_config, platform="jira")
+        ufm_client_settings(client_config)
+
+    for secret in (
+        "device-new",
+        "ufm-new",
+        "redis-secret",
+        "nats-secret",
+        "jira-secret",
+        "lenovo-default",
+        "lenovo-managed",
+    ):
+        assert secret not in caplog.text

@@ -12,19 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Common activities shared across workflow families."""
+"""Common activity catalog."""
 
-from nv_config_manager.temporal.common.activities.lock import (
+from nv_config_manager_workflows.activities import (
+    REGISTERED_COMMON_ACTIVITIES,
     acquire_workflow_lock,
     release_workflow_lock,
     renew_workflow_lock,
 )
-
-REGISTERED_COMMON_ACTIVITIES = [
-    acquire_workflow_lock,
-    renew_workflow_lock,
-    release_workflow_lock,
-]
 
 __all__ = [
     "REGISTERED_COMMON_ACTIVITIES",

@@ -21,7 +21,7 @@ from configparser import ConfigParser
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.dcim import (
     DEFAULT_DCIM_PROVIDER,
     provider_settings,

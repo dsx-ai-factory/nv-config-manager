@@ -23,7 +23,7 @@ from typing import Any, Literal
 
 import aiohttp
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 
 # Per-container overrides for the Kea control endpoint. These let a container
 # that runs in a *different* pod than Kea (e.g. the config-refresh deployment)

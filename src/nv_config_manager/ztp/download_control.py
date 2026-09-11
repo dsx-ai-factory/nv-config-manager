@@ -22,7 +22,7 @@ from time import monotonic
 
 from prometheus_client import Gauge, Histogram
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 
 logger = logging.getLogger(__name__)
 

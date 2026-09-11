@@ -21,16 +21,15 @@ from pydantic import BaseModel, Field
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.common.client.config_store import ConfigStoreClient, ConfigStoreFileNotFound
 from nv_config_manager.common.client.render import FileCommit
-from nv_config_manager.common.config import (
-    ConfigStoreType,
-    config_store_client,
-    get_storage_client,
-    render_client,
-)
+from nv_config_manager.common.config import config_store_client, get_storage_client, render_client
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
 from nv_config_manager.ztp.storage import ObjectStorageClient, ObjectStorageNotFoundException
+from nv_config_manager_workflows.clients import ConfigStoreType
+from nv_config_manager_workflows.clients.config_store import (
+    ConfigStoreClient,
+    ConfigStoreFileNotFound,
+)
 
 
 class ExecuteRenderInput(BaseModel):

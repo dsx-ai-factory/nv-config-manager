@@ -12,28 +12,37 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the shared Redis-backed distributed lock."""
+"""Tests for the service-side distributed lock module.
+
+The token-based helpers now live in :mod:`nv_config_manager_workflows.lock` and
+are covered there; this file covers the service's shared lock backend.
+"""
 
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from redis.asyncio.lock import Lock as AsyncRedisLock
-from redis.exceptions import LockNotOwnedError
 
 from nv_config_manager.common import lock as lock_module
-from nv_config_manager.common.lock import (
-    _FakeLock,
-    acquire_lock,
-    create_lock,
-    release_lock,
-    renew_lock,
-)
+from nv_config_manager.common.lock import _FakeLock, create_lock, workflow_lock_backend
 
 
 @pytest.fixture(autouse=True)
 def _reset_lock_client(monkeypatch):
     """Clear the module-level Redis client cached between calls."""
     monkeypatch.setattr(lock_module, "_lock_redis_client", None)
+
+
+def test_token_helpers_are_not_exported_from_the_service_module() -> None:
+    for name in (
+        "acquire_lock",
+        "configure_lock_backend",
+        "configure_workflow_lock_backend",
+        "release_lock",
+        "renew_lock",
+    ):
+        assert not hasattr(lock_module, name)
 
 
 class TestFakeLock:
@@ -49,6 +58,35 @@ class TestFakeLock:
         async with _FakeLock():
             entered = True
         assert entered is True
+
+
+class TestWorkflowLockBackend:
+    def test_returns_none_in_local_environment(self, monkeypatch):
+        monkeypatch.setattr(lock_module, "is_local_environment", lambda: True)
+
+        assert workflow_lock_backend() is None
+
+    def test_returns_shared_redis_connection(self, monkeypatch):
+        connection = object()
+        monkeypatch.setattr(lock_module, "is_local_environment", lambda: False)
+        monkeypatch.setattr(
+            lock_module, "redis_client", lambda db_key: SimpleNamespace(redis=connection)
+        )
+
+        assert workflow_lock_backend() is connection
+
+    @pytest.mark.asyncio
+    async def test_create_lock_and_workflow_backend_share_connection(self, monkeypatch):
+        connection = Mock()
+        redis_client = Mock(return_value=SimpleNamespace(redis=connection))
+        monkeypatch.setattr(lock_module, "is_local_environment", lambda: False)
+        monkeypatch.setattr(lock_module, "redis_client", redis_client)
+
+        lock = await create_lock("resource-e")
+
+        assert isinstance(lock, AsyncRedisLock)
+        assert lock.redis is workflow_lock_backend()
+        redis_client.assert_called_once_with(db_key="lock_db")
 
 
 class TestCreateLock:
@@ -78,90 +116,6 @@ class TestCreateLock:
         first = await create_lock("resource-c")
         second = await create_lock("resource-d")
 
+        assert isinstance(first, AsyncRedisLock)
+        assert isinstance(second, AsyncRedisLock)
         assert first.redis is second.redis
-
-
-class TestTokenHelpersLocalNoop:
-    """Without a shared Redis, the token helpers are no-ops that report success."""
-
-    @pytest.fixture(autouse=True)
-    def _force_local(self, monkeypatch):
-        monkeypatch.setattr(lock_module, "is_local_environment", lambda: True)
-
-    @pytest.mark.asyncio
-    async def test_acquire_returns_true(self):
-        assert await acquire_lock("k", "token", timeout=30) is True
-
-    @pytest.mark.asyncio
-    async def test_renew_returns_true(self):
-        assert await renew_lock("k", "token", timeout=30) is True
-
-    @pytest.mark.asyncio
-    async def test_release_returns_true(self):
-        assert await release_lock("k", "token") is True
-
-
-class _FakeRedisLock:
-    """Minimal async Lock stand-in that models single-owner reentrancy."""
-
-    def __init__(self, owner: bytes | None = None) -> None:
-        self.local = SimpleNamespace(token=None)
-        self._owner = owner
-        self.blocking_waits: list[float | None] = []
-
-    async def acquire(
-        self,
-        token: bytes | None = None,
-        blocking: bool = True,
-        blocking_timeout: float | None = None,
-    ) -> bool:
-        if blocking:
-            self.blocking_waits.append(blocking_timeout)
-        if self._owner is None:
-            self._owner = token
-            return True
-        return False
-
-    async def reacquire(self) -> bool:
-        if self._owner is not None and self._owner == self.local.token:
-            return True
-        raise LockNotOwnedError("lock is not owned by this token")
-
-
-class TestAcquireLockReentrancy:
-    """acquire_lock is idempotent for a token and honors the blocking flag."""
-
-    @pytest.fixture
-    def use_fake(self, monkeypatch):
-        def _install(owner: bytes | None) -> _FakeRedisLock:
-            fake = _FakeRedisLock(owner=owner)
-            monkeypatch.setattr(lock_module, "_redis_lock", lambda name, timeout: fake)
-            return fake
-
-        return _install
-
-    @pytest.mark.asyncio
-    async def test_free_lock_is_acquired_without_blocking(self, use_fake):
-        fake = use_fake(owner=None)
-        assert await acquire_lock("k", "t", timeout=30, blocking_timeout=5) is True
-        assert fake.blocking_waits == []
-
-    @pytest.mark.asyncio
-    async def test_own_lock_is_refreshed_without_blocking(self, use_fake):
-        """A retried acquire whose result was lost refreshes its own lock."""
-        fake = use_fake(owner=b"t")
-        assert await acquire_lock("k", "t", timeout=30, blocking_timeout=5) is True
-        # Never waited out blocking_timeout on a lock we already hold.
-        assert fake.blocking_waits == []
-
-    @pytest.mark.asyncio
-    async def test_conflict_fails_fast_when_non_blocking(self, use_fake):
-        fake = use_fake(owner=b"other")
-        assert await acquire_lock("k", "t", timeout=30, blocking=False) is False
-        assert fake.blocking_waits == []
-
-    @pytest.mark.asyncio
-    async def test_conflict_waits_when_blocking(self, use_fake):
-        fake = use_fake(owner=b"other")
-        assert await acquire_lock("k", "t", timeout=30, blocking_timeout=3) is False
-        assert fake.blocking_waits == [3]

@@ -16,10 +16,8 @@
 
 import pytest
 
-from nv_config_manager.common.config import (
-    clear_config_cache,
-    get_storage_client,
-)
+from nv_config_manager.common.config import get_storage_client
+from nv_config_manager.common.config_loader import clear_config_cache
 from nv_config_manager.ztp.filestore import FileStoreClient
 from nv_config_manager.ztp.s3 import S3Client
 from nv_config_manager.ztp.storage import (
