@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import copy
 import csv
@@ -34,7 +35,12 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.common.log import LogCategory, get_logger
-from nv_config_manager.dcim import create_dcim_client
+from nv_config_manager.dcim import (
+    CableStatus,
+    CableStatusUpdate,
+    DCIMCableStatusClient,
+    create_dcim_client,
+)
 from nv_config_manager.temporal.client.device import (
     DeviceArpTable,
     DeviceMacTable,
@@ -46,6 +52,7 @@ from nv_config_manager.temporal.client.device import (
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
+CABLE_STATUS_UPDATE_CONCURRENCY = 10
 
 # Columns to exclude from CSV and markdown table output (alias/display names)
 CSV_EXCLUDE_COLUMNS: frozenset[str] = frozenset({"Troubleshooting Info"})
@@ -112,6 +119,7 @@ class ValidateDeviceNeighborsInput(BaseModel):
     actual: DeviceNeighborData
     mac_table: DeviceMacTable
     arp_table: DeviceArpTable
+    ignore_no_neighbor: bool = False
 
 
 class InvalidCable(BaseModel, validate_assignment=True):
@@ -126,6 +134,15 @@ class ValidateDeviceNeighborsResult(BaseModel, validate_assignment=True):
 
     # key is the interface name
     interfaces: dict[str, InvalidCable] = {}
+    cable_statuses: dict[str, CableStatus] = {}
+
+
+class UpdateCableStatusesInput(BaseModel):
+    """Cable statuses determined for one validated device."""
+
+    device_id: str
+    cable_statuses: dict[str, CableStatus]
+    workflow_id: str
 
 
 class CableValidationRow(BaseModel):
@@ -379,21 +396,22 @@ def _process_intended_interface(
     device: NetworkDeviceData,
     mac_table: DeviceMacTable,
     arp_table: DeviceArpTable,
-) -> InvalidCable | None:
-    """Process a single intended interface and return InvalidCable if invalid."""
+    ignore_no_neighbor: bool,
+) -> tuple[InvalidCable | None, CableStatus | None]:
+    """Process one intended interface and return its issue and cable status."""
     if intended_interface in intended.ignore:
-        return None
+        return None, None
 
     _validate_neighbor_has_required_fields(intended_neighbor, device)
 
     # Check link state
     link_state_result = _check_link_state(intended_interface, actual, intended_neighbor)
     if link_state_result:
-        return link_state_result
+        return link_state_result, CableStatus.DISCONNECTED
 
     # Skip further checks if link state only validation is requested
     if intended_interface in intended.link_state_only:
-        return None
+        return None, CableStatus.CONNECTED
 
     # Check LLDP and MAC validity
     lldp_valid = _check_lldp_validity(intended_interface, intended_neighbor, actual)
@@ -401,16 +419,23 @@ def _process_intended_interface(
 
     # If either is valid, the cable is valid
     if mac_valid or lldp_valid:
-        return None
+        return None, CableStatus.CONNECTED
 
     # Build error data
     actual_neighbor = _build_actual_neighbor_data(
         intended_interface, intended_neighbor, actual, mac_table, arp_table
     )
 
-    return InvalidCable(
-        intended=intended_neighbor,
-        actual=actual_neighbor,
+    status: CableStatus | None = CableStatus.INVALID
+    if ignore_no_neighbor and not actual_neighbor.name and not actual_neighbor.macs:
+        status = None
+
+    return (
+        InvalidCable(
+            intended=intended_neighbor,
+            actual=actual_neighbor,
+        ),
+        status,
     )
 
 
@@ -456,7 +481,7 @@ async def validate_device_neighbors(
     result = ValidateDeviceNeighborsResult()
 
     for intended_interface, intended_neighbor in intended.neighbors.items():
-        invalid_cable = _process_intended_interface(
+        invalid_cable, cable_status = _process_intended_interface(
             intended_interface,
             intended_neighbor,
             intended,
@@ -464,15 +489,56 @@ async def validate_device_neighbors(
             device,
             mac_table,
             arp_table,
+            activity_input.ignore_no_neighbor,
         )
         if invalid_cable:
             result.interfaces[intended_interface] = invalid_cable
+        if cable_status:
+            result.cable_statuses[intended_interface] = cable_status
 
     # Find unexpected neighbors (in actual but not in intended)
     unexpected = _find_unexpected_neighbors(intended, actual)
     result.interfaces.update(unexpected)
 
     return result
+
+
+@activity.defn
+async def update_cable_statuses(activity_input: UpdateCableStatusesInput) -> None:
+    """Persist cable statuses when the selected provider exposes that capability."""
+    client = create_dcim_client()
+    if not isinstance(client, DCIMCableStatusClient):
+        await client.close()
+        logger.info("Selected DCIM provider does not support cable status updates")
+        return
+
+    semaphore = asyncio.Semaphore(CABLE_STATUS_UPDATE_CONCURRENCY)
+
+    async def update_one(interface_name: str, status: CableStatus) -> None:
+        async with semaphore:
+            await client.update_cable_status(
+                CableStatusUpdate(
+                    device_id=activity_input.device_id,
+                    interface_name=interface_name,
+                    status=status,
+                    workflow_id=activity_input.workflow_id,
+                )
+            )
+
+    async with client:
+        results = await asyncio.gather(
+            *(
+                update_one(interface_name, status)
+                for interface_name, status in activity_input.cable_statuses.items()
+            ),
+            return_exceptions=True,
+        )
+
+    for result in results:
+        if isinstance(result, asyncio.CancelledError):
+            raise result
+        if isinstance(result, Exception):
+            raise result
 
 
 class CableValidationResultData(BaseModel):

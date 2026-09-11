@@ -277,6 +277,19 @@ Providers without an event source can omit these optional capabilities. Manual
 renders and template-version renders continue to use the common service path;
 automatic render-on-change requires the provider's event integration.
 
+## Optional cable-status capability
+
+Providers with a dedicated, mutable cable object can implement
+`DCIMCableStatusClient.update_cable_status()`. Cable validation supplies a
+`CableStatusUpdate` containing the local device ID, interface name, normalized
+status, and Temporal workflow ID. The normalized statuses are `Connected`,
+`Disconnected`, and `Invalid`.
+
+The provider owns resolving the attached cable and recording workflow
+provenance in the native DCIM. Updates must be idempotent because a Temporal
+activity can be retried. Providers without a cable object omit this optional
+capability; cable validation treats its absence as a no-op.
+
 ## Optional Nautobot MCP capability
 
 The remote MCP server has common Config Manager tools for every provider. Its

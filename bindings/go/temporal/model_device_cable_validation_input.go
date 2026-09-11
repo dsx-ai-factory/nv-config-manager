@@ -21,6 +21,8 @@ var _ MappedNullable = &DeviceCableValidationInput{}
 
 // DeviceCableValidationInput Input for Device Cable Validation Workflow.
 type DeviceCableValidationInput struct {
+	// Return pending DCIM updates for a parent site workflow to apply after reporting.
+	DeferCableStatusUpdates *bool `json:"defer_cable_status_updates,omitempty"`
 	// Preloaded data for the target network device, if available.
 	Device NullableNetworkDeviceData `json:"device,omitempty"`
 	// Identifier of the network device to validate.
@@ -37,6 +39,8 @@ type _DeviceCableValidationInput DeviceCableValidationInput
 // will change when the set of required properties is changed
 func NewDeviceCableValidationInput(deviceId string) *DeviceCableValidationInput {
 	this := DeviceCableValidationInput{}
+	var deferCableStatusUpdates bool = false
+	this.DeferCableStatusUpdates = &deferCableStatusUpdates
 	this.DeviceId = deviceId
 	var ignoreNoNeighbor bool = false
 	this.IgnoreNoNeighbor = &ignoreNoNeighbor
@@ -48,9 +52,44 @@ func NewDeviceCableValidationInput(deviceId string) *DeviceCableValidationInput 
 // but it doesn't guarantee that properties required by API are set
 func NewDeviceCableValidationInputWithDefaults() *DeviceCableValidationInput {
 	this := DeviceCableValidationInput{}
+	var deferCableStatusUpdates bool = false
+	this.DeferCableStatusUpdates = &deferCableStatusUpdates
 	var ignoreNoNeighbor bool = false
 	this.IgnoreNoNeighbor = &ignoreNoNeighbor
 	return &this
+}
+
+// GetDeferCableStatusUpdates returns the DeferCableStatusUpdates field value if set, zero value otherwise.
+func (o *DeviceCableValidationInput) GetDeferCableStatusUpdates() bool {
+	if o == nil || IsNil(o.DeferCableStatusUpdates) {
+		var ret bool
+		return ret
+	}
+	return *o.DeferCableStatusUpdates
+}
+
+// GetDeferCableStatusUpdatesOk returns a tuple with the DeferCableStatusUpdates field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+func (o *DeviceCableValidationInput) GetDeferCableStatusUpdatesOk() (*bool, bool) {
+	if o == nil || IsNil(o.DeferCableStatusUpdates) {
+		return nil, false
+	}
+	return o.DeferCableStatusUpdates, true
+}
+
+// HasDeferCableStatusUpdates returns a boolean if a field has been set.
+func (o *DeviceCableValidationInput) HasDeferCableStatusUpdates() bool {
+	if o != nil && !IsNil(o.DeferCableStatusUpdates) {
+		return true
+	}
+
+	return false
+}
+
+// SetDeferCableStatusUpdates gets a reference to the given bool and assigns it to the DeferCableStatusUpdates field.
+func (o *DeviceCableValidationInput) SetDeferCableStatusUpdates(v bool) {
+	o.DeferCableStatusUpdates = &v
 }
 
 // GetDevice returns the Device field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -165,6 +204,9 @@ func (o DeviceCableValidationInput) MarshalJSON() ([]byte, error) {
 
 func (o DeviceCableValidationInput) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
+	if !IsNil(o.DeferCableStatusUpdates) {
+		toSerialize["defer_cable_status_updates"] = o.DeferCableStatusUpdates
+	}
 	if o.Device.IsSet() {
 		toSerialize["device"] = o.Device.Get()
 	}
