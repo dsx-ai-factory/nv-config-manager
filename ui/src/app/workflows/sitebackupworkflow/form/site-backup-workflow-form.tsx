@@ -155,7 +155,7 @@ export const SiteBackupWorkflowForm = () => {
     const location = resolveLocationOption(siteBackupData.siteData, data.site);
     const workflowParams: SiteBackupWorkflowInput = {
       site: location?.id ?? data.site,
-      site_model: location?.model,
+      site_type: location?.locationType,
       roles: data.roles,
       status: data.status,
       tenant: data.tenant || undefined,

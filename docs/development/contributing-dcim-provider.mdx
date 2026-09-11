@@ -136,14 +136,14 @@ Return `DCIMSelection.location_type` from `list_locations()` and
 `get_location_metadata()` when the provider distinguishes location types.
 Nautobot uses `LocationType.name`; a NetBox provider uses the source model name
 as its location type, such as `Region`, `SiteGroup`, `Site`, or `Location`. Location-taking
-operations accept `DCIMLocationReference(id=..., model=...)` as well as legacy
+operations accept `DCIMLocationReference(id=..., location_type=...)` as well as legacy
 bare string IDs. Providers with a single identifier namespace can ignore an
-absent model, while providers with overlapping IDs use it to select the correct
-model. Apply the requested location types in `list_locations()` rather than filtering a
+absent location type, while providers with overlapping IDs use it to select the correct
+namespace. Apply the requested location types in `list_locations()` rather than filtering a
 partial result in the service.
 
 Workflow request fields remain bare strings for API compatibility. Optional companion
-fields such as `site_model` and `location_model` carry the discriminator when it is
+fields such as `site_type` and `location_type` carry the discriminator when it is
 available; omitting them retains the legacy single-namespace behavior.
 
 The SDK validates provider metadata during discovery. It rejects duplicate

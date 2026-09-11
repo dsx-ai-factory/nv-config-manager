@@ -29,8 +29,8 @@ type ValidateHardwareInput struct {
 	Roles []string `json:"roles,omitempty"`
 	// Site used to select network devices for validation.
 	Site string `json:"site"`
-	// DCIM model that owns the site identifier.
-	SiteModel NullableString `json:"site_model,omitempty"`
+	// DCIM location type for the site identifier.
+	SiteType NullableString `json:"site_type,omitempty"`
 	// Device statuses used to filter the selected network devices.
 	Status []string `json:"status,omitempty"`
 	// Tenant used to filter the selected network devices.
@@ -184,49 +184,49 @@ func (o *ValidateHardwareInput) SetSite(v string) {
 	o.Site = v
 }
 
-// GetSiteModel returns the SiteModel field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *ValidateHardwareInput) GetSiteModel() string {
-	if o == nil || IsNil(o.SiteModel.Get()) {
+// GetSiteType returns the SiteType field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *ValidateHardwareInput) GetSiteType() string {
+	if o == nil || IsNil(o.SiteType.Get()) {
 		var ret string
 		return ret
 	}
-	return *o.SiteModel.Get()
+	return *o.SiteType.Get()
 }
 
-// GetSiteModelOk returns a tuple with the SiteModel field value if set, nil otherwise
+// GetSiteTypeOk returns a tuple with the SiteType field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
 
-func (o *ValidateHardwareInput) GetSiteModelOk() (*string, bool) {
+func (o *ValidateHardwareInput) GetSiteTypeOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return o.SiteModel.Get(), o.SiteModel.IsSet()
+	return o.SiteType.Get(), o.SiteType.IsSet()
 }
 
-// HasSiteModel returns a boolean if a field has been set.
-func (o *ValidateHardwareInput) HasSiteModel() bool {
-	if o != nil && o.SiteModel.IsSet() {
+// HasSiteType returns a boolean if a field has been set.
+func (o *ValidateHardwareInput) HasSiteType() bool {
+	if o != nil && o.SiteType.IsSet() {
 		return true
 	}
 
 	return false
 }
 
-// SetSiteModel gets a reference to the given NullableString and assigns it to the SiteModel field.
-func (o *ValidateHardwareInput) SetSiteModel(v string) {
-	o.SiteModel.Set(&v)
+// SetSiteType gets a reference to the given NullableString and assigns it to the SiteType field.
+func (o *ValidateHardwareInput) SetSiteType(v string) {
+	o.SiteType.Set(&v)
 }
 
-// SetSiteModelNil sets the value for SiteModel to be an explicit nil
-func (o *ValidateHardwareInput) SetSiteModelNil() {
-	o.SiteModel.Set(nil)
+// SetSiteTypeNil sets the value for SiteType to be an explicit nil
+func (o *ValidateHardwareInput) SetSiteTypeNil() {
+	o.SiteType.Set(nil)
 }
 
-// UnsetSiteModel ensures that no value is present for SiteModel, not even an explicit nil
-func (o *ValidateHardwareInput) UnsetSiteModel() {
-	o.SiteModel.Unset()
+// UnsetSiteType ensures that no value is present for SiteType, not even an explicit nil
+func (o *ValidateHardwareInput) UnsetSiteType() {
+	o.SiteType.Unset()
 }
 
 // GetStatus returns the Status field value if set, zero value otherwise.
@@ -327,8 +327,8 @@ func (o ValidateHardwareInput) ToMap() (map[string]interface{}, error) {
 		toSerialize["roles"] = o.Roles
 	}
 	toSerialize["site"] = o.Site
-	if o.SiteModel.IsSet() {
-		toSerialize["site_model"] = o.SiteModel.Get()
+	if o.SiteType.IsSet() {
+		toSerialize["site_type"] = o.SiteType.Get()
 	}
 	if !IsNil(o.Status) {
 		toSerialize["status"] = o.Status

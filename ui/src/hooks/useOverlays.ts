@@ -50,7 +50,7 @@ const useOverlays = ({
     const reference = parseLocationValue(location);
     if (reference) {
       params.set("location", reference.id);
-      if (reference.model) params.set("location_model", reference.model);
+      if (reference.locationType) params.set("location_type", reference.locationType);
     }
   }
   if (isolationType) {

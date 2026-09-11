@@ -93,10 +93,10 @@ class DCIMSelection(DCIMModel):
 
 
 class DCIMLocationReference(DCIMModel):
-    """A provider-owned location identifier with an optional model discriminator."""
+    """A provider-owned location identifier with an optional location type."""
 
     id: str
-    model: str | None = None
+    location_type: str | None = None
 
     def __str__(self) -> str:
         """Retain legacy identifier formatting in logs and display text."""
@@ -106,7 +106,7 @@ class DCIMLocationReference(DCIMModel):
 type DCIMLocationIdentifier = str | DCIMLocationReference
 """A typed location reference or a legacy bare provider identifier."""
 
-type DCIMLocationModel = str
+type DCIMLocationType = str
 """A provider-defined discriminator for a location identifier namespace."""
 
 
@@ -115,14 +115,20 @@ def dcim_location_id(location: DCIMLocationIdentifier) -> str:
     return location.id if isinstance(location, DCIMLocationReference) else location
 
 
-def dcim_location_model(location: DCIMLocationIdentifier) -> str | None:
-    """Return the model discriminator from a typed location reference."""
-    return location.model if isinstance(location, DCIMLocationReference) else None
+def dcim_location_type(location: DCIMLocationIdentifier) -> str | None:
+    """Return the location type from a typed location reference."""
+    return location.location_type if isinstance(location, DCIMLocationReference) else None
 
 
-def dcim_location_reference(location_id: str, model: str | None = None) -> DCIMLocationIdentifier:
-    """Build a typed reference when a location model discriminator is available."""
-    return DCIMLocationReference(id=location_id, model=model) if model else location_id
+def dcim_location_reference(
+    location_id: str, location_type: str | None = None
+) -> DCIMLocationIdentifier:
+    """Build a typed reference when a location type is available."""
+    return (
+        DCIMLocationReference(id=location_id, location_type=location_type)
+        if location_type
+        else location_id
+    )
 
 
 class DCIMDeviceSelection(DCIMModel):
@@ -339,7 +345,7 @@ class IBHostSite(DCIMModel):
     device_primary_ip: str | None
     site_id: str
     site_name: str
-    site_model: DCIMLocationModel | None = None
+    site_type: DCIMLocationType | None = None
 
 
 class IBPKeyContext(DCIMModel):

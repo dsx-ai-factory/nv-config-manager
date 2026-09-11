@@ -24,7 +24,7 @@ from temporalio.exceptions import ChildWorkflowError
 
 from nv_config_manager.dcim import (
     DCIMLocationIdentifier,
-    DCIMLocationModel,
+    DCIMLocationType,
     dcim_location_reference,
 )
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
@@ -90,8 +90,8 @@ class SitePasswordRotationInput(BaseModel):
         min_length=1,
         description="Location containing the devices to update.",
     )
-    location_model: DCIMLocationModel | None = Field(
-        default=None, description="DCIM model that owns the location identifier."
+    location_type: DCIMLocationType | None = Field(
+        default=None, description="DCIM location type for the location identifier."
     )
     selected_secret: str = Field(
         description="Name of the managed secret containing the replacement password."
@@ -366,7 +366,7 @@ class SitePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
         devices_output = await self.get_devices(
             SitePasswordRotationWorkflow.GetDevicesStageInput(
                 location=dcim_location_reference(
-                    workflow_input.location, workflow_input.location_model
+                    workflow_input.location, workflow_input.location_type
                 ),
                 roles=workflow_input.roles,
                 tenant=workflow_input.tenant,

@@ -18,7 +18,7 @@ import { expect } from "@playwright/test";
 import { DEVICES_LIST, SITES_LIST, SPX_OVERLAY_LIST } from "@/mocks/data";
 import { test, TEST_TIMEOUT } from "./shared/utils";
 
-test("tenant change preserves the model from a legacy site link", async ({
+test("tenant change preserves the location type from a legacy site link", async ({
   page,
 }) => {
   await page.route("**/v1/parameter/location*", async (route) => {
@@ -41,7 +41,7 @@ test("tenant change preserves the model from a legacy site link", async ({
   const request = await overlaysRequest;
   const searchParams = new URL(request.url()).searchParams;
   expect(searchParams.get("location")).toBe("42");
-  expect(searchParams.get("location_model")).toBe("Module");
+  expect(searchParams.get("location_type")).toBe("Module");
   await expect(
     page.getByRole("button", {
       name: "Module 1. Open options",

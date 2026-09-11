@@ -23,7 +23,7 @@ from temporalio.common import RetryPolicy
 
 from nv_config_manager.dcim import (
     DCIMLocationIdentifier,
-    DCIMLocationModel,
+    DCIMLocationType,
     dcim_location_id,
     dcim_location_reference,
 )
@@ -87,8 +87,8 @@ class IBPKeyCreationInput(BaseModel):
         default=None,
         description="Site used for UFM credential lookup; resolved from the host when omitted.",
     )
-    site_model: DCIMLocationModel | None = Field(
-        default=None, description="DCIM model that owns the site identifier."
+    site_type: DCIMLocationType | None = Field(
+        default=None, description="DCIM location type for the site identifier."
     )
     pkey: str | None = Field(
         default=None, description="Partition key to create; automatically allocated when omitted."
@@ -213,7 +213,7 @@ class IBPKeyCreationWorkflow(
 
         resolved = await call_resolve_ib_site_for_host(stage_input.host)
         return self.ResolveContextStageOutput(
-            effective_site=dcim_location_reference(resolved.location_id, resolved.location_model),
+            effective_site=dcim_location_reference(resolved.location_id, resolved.location_type),
             resolved_site=resolved.location_name,
             display=f"Resolved site for {stage_input.host} -> {resolved.location_name!r}",
         )
@@ -370,7 +370,7 @@ class IBPKeyCreationWorkflow(
             self.ResolveContextStageInput(
                 host=workflow_input.host,
                 site_override=(
-                    dcim_location_reference(workflow_input.site, workflow_input.site_model)
+                    dcim_location_reference(workflow_input.site, workflow_input.site_type)
                     if workflow_input.site
                     else None
                 ),

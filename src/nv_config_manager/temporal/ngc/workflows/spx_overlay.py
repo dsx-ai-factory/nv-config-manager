@@ -25,10 +25,10 @@ from temporalio.exceptions import ApplicationError, ChildWorkflowError
 
 from nv_config_manager.dcim import (
     DCIMLocationIdentifier,
-    DCIMLocationModel,
+    DCIMLocationType,
     dcim_location_id,
-    dcim_location_model,
     dcim_location_reference,
+    dcim_location_type,
 )
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
@@ -111,8 +111,8 @@ class SpXOverlayCreationInput(BaseModel):
     """SpX Overlay Creation Workflow Input Definition."""
 
     site: LocationReference = Field(description="Site where the SpX overlay will be created.")
-    site_model: DCIMLocationModel | None = Field(
-        default=None, description="DCIM model that owns the site identifier."
+    site_type: DCIMLocationType | None = Field(
+        default=None, description="DCIM location type for the site identifier."
     )
     overlay_id: str = Field(
         title="Overlay ID",
@@ -259,7 +259,7 @@ class SpXOverlayCreationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin
             self.CreateSpXOverlayStageInput(
                 namespace_tag=workflow_input.namespace_tag,
                 overlay_id=workflow_input.overlay_id,
-                site=dcim_location_reference(workflow_input.site, workflow_input.site_model),
+                site=dcim_location_reference(workflow_input.site, workflow_input.site_type),
                 tenant=workflow_input.tenant,
                 rd_min=workflow_input.rd_min,
                 rd_max=workflow_input.rd_max,
@@ -276,8 +276,8 @@ class SpXOverlayDeletionInput(BaseModel):
     """SpX Overlay Deletion Workflow Input Definition."""
 
     site: LocationReference = Field(description="Site containing the SpX overlay to delete.")
-    site_model: DCIMLocationModel | None = Field(
-        default=None, description="DCIM model that owns the site identifier."
+    site_type: DCIMLocationType | None = Field(
+        default=None, description="DCIM location type for the site identifier."
     )
     overlay_id: str = Field(
         title="Overlay ID",
@@ -430,7 +430,7 @@ class SpXOverlayDeletionWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin
         vrf_output = await self.delete_spx_overlay(
             self.DeleteSpXOverlayStageInput(
                 overlay_id=workflow_input.overlay_id,
-                site=dcim_location_reference(workflow_input.site, workflow_input.site_model),
+                site=dcim_location_reference(workflow_input.site, workflow_input.site_type),
                 namespace_tag=workflow_input.namespace_tag,
             )
         )
@@ -460,8 +460,8 @@ class SpXOverlayAssignmentInput(BaseModel):
         min_length=1, description="Names of the device interfaces to assign to the overlay."
     )
     site: LocationReference = Field(description="Site containing the target network device.")
-    site_model: DCIMLocationModel | None = Field(
-        default=None, description="DCIM model that owns the site identifier."
+    site_type: DCIMLocationType | None = Field(
+        default=None, description="DCIM location type for the site identifier."
     )
     namespace_tag: str = Field(
         default=NAMESPACE_TAG, description="Tag identifying the namespace used for allocation."
@@ -754,7 +754,7 @@ class SpXOverlayAssignmentWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
     ) -> SpXOverlayAssignmentWorkflowOutput:
         """Execute the VPC Assignment workflow."""
         self.set_input(workflow_input)
-        site = dcim_location_reference(workflow_input.site, workflow_input.site_model)
+        site = dcim_location_reference(workflow_input.site, workflow_input.site_type)
 
         device_vrf_output = await self.get_device_and_vrf(
             self.GetDeviceAndVrfStageInput(
@@ -824,8 +824,8 @@ class SpXOverlayTenantChangeInput(BaseModel):
         min_length=1, description="Names of the device interfaces to assign to the overlay."
     )
     site: LocationReference = Field(description="Site containing the target network device.")
-    site_model: DCIMLocationModel | None = Field(
-        default=None, description="DCIM model that owns the site identifier."
+    site_type: DCIMLocationType | None = Field(
+        default=None, description="DCIM location type for the site identifier."
     )
     namespace_tag: str = Field(
         default=NAMESPACE_TAG, description="Tag identifying the namespace used for allocation."
@@ -964,7 +964,7 @@ class SpXOverlayTenantChangeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
                     device=stage_input.device,
                     port_names=stage_input.port_names,
                     site=dcim_location_id(stage_input.site),
-                    site_model=dcim_location_model(stage_input.site),
+                    site_type=dcim_location_type(stage_input.site),
                     namespace_tag=stage_input.namespace_tag,
                 ),
                 run_timeout=timedelta(minutes=10),
@@ -1261,7 +1261,7 @@ class SpXOverlayTenantChangeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
                 overlay_id=workflow_input.overlay_id,
                 device=device_output.device,
                 port_names=workflow_input.port_names,
-                site=dcim_location_reference(workflow_input.site, workflow_input.site_model),
+                site=dcim_location_reference(workflow_input.site, workflow_input.site_type),
                 namespace_tag=workflow_input.namespace_tag,
             )
         )

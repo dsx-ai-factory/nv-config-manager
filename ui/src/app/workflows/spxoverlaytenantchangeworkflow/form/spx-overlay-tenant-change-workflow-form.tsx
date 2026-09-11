@@ -220,7 +220,7 @@ export const SpXOverlayTenantChangeWorkflowForm = () => {
     const location = resolveLocationOption(sites, data.site);
     const submissionData: SpXOverlayTenantChangeWorkflowInput = {
       site: location?.id ?? data.site,
-      site_model: location?.model,
+      site_type: location?.locationType,
       overlay_id: data.overlay_id || null,
       device_id: data.device,
       port_names: validPortNames,

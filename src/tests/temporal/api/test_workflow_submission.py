@@ -72,7 +72,7 @@ class LocationAndDeviceInput(BaseModel):
     """Input whose explicit location controls the legacy Site search attribute."""
 
     location_scope: LocationReference
-    location_scope_model: str | None = None
+    location_scope_type: str | None = None
     target_device: DeviceReference
 
 
@@ -287,8 +287,8 @@ async def test_explicit_location_takes_search_attribute_precedence() -> None:
 
 
 @pytest.mark.asyncio
-async def test_location_model_is_preserved_for_provider_lookup() -> None:
-    """Providers receive the model alongside IDs so overlapping namespaces stay unambiguous."""
+async def test_location_type_is_preserved_for_provider_lookup() -> None:
+    """Providers receive the location type so overlapping IDs stay unambiguous."""
     client = _client()
     client.is_valid_location_id = MagicMock(return_value=True)
     client.get_location_metadata = AsyncMock(
@@ -296,7 +296,7 @@ async def test_location_model_is_preserved_for_provider_lookup() -> None:
     )
     body = LocationAndDeviceInput(
         location_scope="42",
-        location_scope_model="Site",
+        location_scope_type="Site",
         target_device=DEVICE_ID,
     )
     client.get_devices.return_value = [
@@ -315,24 +315,24 @@ async def test_location_model_is_preserved_for_provider_lookup() -> None:
     ):
         attributes = await resolve_workflow_references(body)
 
-    reference = DCIMLocationReference(id="42", model="Site")
+    reference = DCIMLocationReference(id="42", location_type="Site")
     assert body.location_scope == "42"
     client.is_valid_location_id.assert_called_once_with("42")
     client.get_location_metadata.assert_awaited_once_with(reference)
     assert attributes[SITE_SEARCH_ATTRIBUTE] == ["SJC01"]
 
 
-def test_location_model_survives_workflow_and_activity_models() -> None:
-    """The location model remains available when workflows construct DCIM activities."""
+def test_location_type_survives_workflow_and_activity_models() -> None:
+    """The location type remains available when workflows construct DCIM activities."""
     body = SiteCableValidationInput(
         site="42",
-        site_model="Site",
+        site_type="Site",
         roles=[],
         status=[],
         tenant=None,
     )
     stage = SiteCableValidationWorkflow.GetDevicesStageInput(
-        site=dcim_location_reference(body.site, body.site_model),
+        site=dcim_location_reference(body.site, body.site_type),
         roles=body.roles,
         status=body.status,
         tenant=body.tenant,
@@ -340,16 +340,16 @@ def test_location_model_survives_workflow_and_activity_models() -> None:
     )
     activity_input = GetNetworkDevicesInput(site=stage.site)
 
-    assert activity_input.site == DCIMLocationReference(id="42", model="Site")
+    assert activity_input.site == DCIMLocationReference(id="42", location_type="Site")
 
 
 def test_location_fields_retain_the_string_api_contract() -> None:
-    """The additive model discriminator does not change existing location field types."""
+    """The additive type discriminator does not change existing location field types."""
     schema = SiteCableValidationInput.model_json_schema()
 
     assert schema["properties"]["site"]["type"] == "string"
-    assert "site_model" not in schema["required"]
-    assert SiteCableValidationInput(site="42").site_model is None
+    assert "site_type" not in schema["required"]
+    assert SiteCableValidationInput(site="42").site_type is None
 
 
 @pytest.mark.asyncio

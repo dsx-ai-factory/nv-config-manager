@@ -50,7 +50,7 @@ test.describe("Site Cable Validation Form", () => {
     await expect(title).toBeVisible({ timeout: TEST_TIMEOUT });
   });
 
-  test("submits the model for colliding DCIM location IDs", async ({ page }) => {
+  test("submits the location type for colliding DCIM location IDs", async ({ page }) => {
     await page.route("**/v1/parameter/location*", async (route) => {
       await route.fulfill({
         status: 200,
@@ -73,7 +73,7 @@ test.describe("Site Cable Validation Form", () => {
     const request = await requestPromise;
     const requestData = JSON.parse((await request.postData()) || "{}");
     expect(requestData.site).toBe("42");
-    expect(requestData.site_model).toBe("Module");
+    expect(requestData.site_type).toBe("Module");
   });
 
   test("displays validation errors for empty submission", async ({ page }) => {

@@ -160,10 +160,10 @@ async def resolve_workflow_references(body: BaseModel) -> dict[str, list[Any]]:
                     validated_value = reference.validator(value)
                 except ValueError as error:
                     raise HTTPException(status_code=422, detail=str(error)) from error
-                model = getattr(body, f"{field_name}_model", None)
+                location_type = getattr(body, f"{field_name}_type", None)
                 typed_value = (
-                    DCIMLocationReference(id=validated_value, model=model)
-                    if model
+                    DCIMLocationReference(id=validated_value, location_type=location_type)
+                    if location_type
                     else validated_value
                 )
                 # Explicit workflow scope takes precedence over device-derived metadata.

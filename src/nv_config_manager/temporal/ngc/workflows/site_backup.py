@@ -25,7 +25,7 @@ from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflow
 
 from nv_config_manager.dcim import (
     DCIMLocationIdentifier,
-    DCIMLocationModel,
+    DCIMLocationType,
     dcim_location_id,
     dcim_location_reference,
 )
@@ -93,8 +93,8 @@ class SiteBackupInput(BaseModel):
         min_length=1,
         description="Site containing the network devices to back up.",
     )
-    site_model: DCIMLocationModel | None = Field(
-        default=None, description="DCIM model that owns the site identifier."
+    site_type: DCIMLocationType | None = Field(
+        default=None, description="DCIM location type for the site identifier."
     )
     roles: list[str] = Field(
         default=[],
@@ -403,7 +403,7 @@ class SiteBackupWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin):
 
         devices_output = await self.get_devices(
             SiteBackupWorkflow.GetDevicesStageInput(
-                site=dcim_location_reference(workflow_input.site, workflow_input.site_model),
+                site=dcim_location_reference(workflow_input.site, workflow_input.site_type),
                 roles=workflow_input.roles,
                 tenant=workflow_input.tenant,
                 status=workflow_input.status,

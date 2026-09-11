@@ -111,7 +111,7 @@ async def test_nautobot_location_metadata_uses_direct_id_lookup() -> None:
         }
     )
 
-    reference = DCIMLocationReference(id=location_id, model="Site")
+    reference = DCIMLocationReference(id=location_id, location_type="Site")
     location = await client.get_location_metadata(reference)
 
     assert location is not None
@@ -161,7 +161,7 @@ def test_nautobot_device_filters_accept_typed_locations_as_legacy_ids() -> None:
     client = NautobotDCIMClient("https://dcim.example", "token")
 
     variables = client._build_device_filter_variables(
-        site=DCIMLocationReference(id="location-id", model="Site"),
+        site=DCIMLocationReference(id="location-id", location_type="Site"),
         status=None,
         role=None,
         tenant=None,

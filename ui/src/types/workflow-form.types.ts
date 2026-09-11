@@ -79,7 +79,7 @@ export type LocationResult = SiteResult;
 
 export type LocationOption = Option & {
   id: string;
-  model?: string;
+  locationType?: string;
 };
 
 export type SiteOption = LocationOption;

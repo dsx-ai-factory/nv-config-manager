@@ -144,7 +144,7 @@ export const CumulusHardwareValidationWorkflowForm = () => {
       const location = resolveLocationOption(siteCableData.siteData, data.site);
       const workflowParams: CumulusHardwareValidationWorkflowInput = {
         site: location?.id ?? data.site,
-        site_model: location?.model,
+        site_type: location?.locationType,
         roles: data.roles,
         status: data.status,
         tenant: data.tenant || undefined,

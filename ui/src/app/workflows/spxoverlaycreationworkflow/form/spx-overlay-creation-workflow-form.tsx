@@ -137,7 +137,7 @@ export const SpXOverlayCreationWorkflowForm = () => {
     const location = resolveLocationOption(sites, data.site);
     const submissionData: SpXOverlayCreationWorkflowInput = {
       site: location?.id ?? data.site,
-      site_model: location?.model,
+      site_type: location?.locationType,
       overlay_id: data.overlay_id,
       tenant: data.tenant,
       namespace_tag: data.namespace_tag,

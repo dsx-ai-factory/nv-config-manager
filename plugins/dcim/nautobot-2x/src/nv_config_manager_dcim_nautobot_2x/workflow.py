@@ -1654,7 +1654,7 @@ class NautobotWorkflowClient(BaseNautobotClient):
             device_primary_ip=(device.get("primary_ip4") or {}).get("host"),
             site_id=str(site["id"]),
             site_name=str(site["name"]),
-            site_model=(site.get("location_type") or {}).get("name"),
+            site_type=(site.get("location_type") or {}).get("name"),
         )
 
     async def canonicalize_ib_host(self, host: str) -> str:

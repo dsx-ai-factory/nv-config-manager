@@ -158,7 +158,7 @@ export const MultiDeployWorkflowForm = () => {
       role: data.role,
       max_batch_size: data.max_batch_size || 10,
       location: location?.id ?? (data.location?.trim() || null),
-      location_model: location?.model,
+      location_type: location?.locationType,
       status: data.status && data.status.length > 0 ? data.status : null,
       tenant: data.tenant?.trim() || null,
       commit_confirm: data.commit_confirm ?? true,

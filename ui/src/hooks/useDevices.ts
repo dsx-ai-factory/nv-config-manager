@@ -42,11 +42,11 @@ const useDevices = ({
   const apiURL = config?.workflowApiUrl;
   const location = parseLocationValue(site);
   const normalizedFilterParams = filterParams.filter(
-    ([name]) => name !== "site" && name !== "site_model"
+    ([name]) => name !== "site" && name !== "site_type"
   );
   if (location) {
     normalizedFilterParams.push(["site", location.id]);
-    if (location.model) normalizedFilterParams.push(["site_model", location.model]);
+    if (location.locationType) normalizedFilterParams.push(["site_type", location.locationType]);
   }
   const params = new URLSearchParams(normalizedFilterParams).toString();
 

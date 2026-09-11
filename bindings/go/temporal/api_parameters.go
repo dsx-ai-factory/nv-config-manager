@@ -637,7 +637,7 @@ type ApiGetDevicesV1ParameterDeviceGetRequest struct {
 	ctx          context.Context
 	ApiService   *ParametersAPIService
 	site         *[]*string
-	siteModel    *[]*string
+	siteType     *[]*string
 	status       *[]string
 	role         *[]string
 	tenant       *[]string
@@ -652,8 +652,8 @@ func (r ApiGetDevicesV1ParameterDeviceGetRequest) Site(site []*string) ApiGetDev
 	return r
 }
 
-func (r ApiGetDevicesV1ParameterDeviceGetRequest) SiteModel(siteModel []*string) ApiGetDevicesV1ParameterDeviceGetRequest {
-	r.siteModel = &siteModel
+func (r ApiGetDevicesV1ParameterDeviceGetRequest) SiteType(siteType []*string) ApiGetDevicesV1ParameterDeviceGetRequest {
+	r.siteType = &siteType
 	return r
 }
 
@@ -745,15 +745,15 @@ func (a *ParametersAPIService) GetDevicesV1ParameterDeviceGetExecute(r ApiGetDev
 			parameterAddToHeaderOrQuery(localVarQueryParams, "site", t, "form", "multi")
 		}
 	}
-	if r.siteModel != nil {
-		t := *r.siteModel
+	if r.siteType != nil {
+		t := *r.siteType
 		if reflect.TypeOf(t).Kind() == reflect.Slice {
 			s := reflect.ValueOf(t)
 			for i := 0; i < s.Len(); i++ {
-				parameterAddToHeaderOrQuery(localVarQueryParams, "site_model", s.Index(i).Interface(), "form", "multi")
+				parameterAddToHeaderOrQuery(localVarQueryParams, "site_type", s.Index(i).Interface(), "form", "multi")
 			}
 		} else {
-			parameterAddToHeaderOrQuery(localVarQueryParams, "site_model", t, "form", "multi")
+			parameterAddToHeaderOrQuery(localVarQueryParams, "site_type", t, "form", "multi")
 		}
 	}
 	if r.status != nil {
@@ -1152,10 +1152,10 @@ func (a *ParametersAPIService) GetLocationsV1ParameterLocationGetExecute(r ApiGe
 }
 
 type ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest struct {
-	ctx           context.Context
-	ApiService    *ParametersAPIService
-	location      *string
-	locationModel *string
+	ctx          context.Context
+	ApiService   *ParametersAPIService
+	location     *string
+	locationType *string
 }
 
 // Limit to namespace tags at this location
@@ -1164,9 +1164,9 @@ func (r ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest) Location(location 
 	return r
 }
 
-// DCIM model that owns the location identifier
-func (r ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest) LocationModel(locationModel string) ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest {
-	r.locationModel = &locationModel
+// DCIM location type for the location identifier
+func (r ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest) LocationType(locationType string) ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest {
+	r.locationType = &locationType
 	return r
 }
 
@@ -1214,8 +1214,8 @@ func (a *ParametersAPIService) GetNamespaceTagsV1ParameterNamespaceTagGetExecute
 	if r.location != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "location", r.location, "form", "")
 	}
-	if r.locationModel != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "location_model", r.locationModel, "form", "")
+	if r.locationType != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "location_type", r.locationType, "form", "")
 	}
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{}
@@ -1285,7 +1285,7 @@ type ApiGetOverlaysV1ParameterOverlayGetRequest struct {
 	ctx           context.Context
 	ApiService    *ParametersAPIService
 	location      *string
-	locationModel *string
+	locationType  *string
 	isolationType *string
 }
 
@@ -1295,9 +1295,9 @@ func (r ApiGetOverlaysV1ParameterOverlayGetRequest) Location(location string) Ap
 	return r
 }
 
-// DCIM model that owns the location identifier
-func (r ApiGetOverlaysV1ParameterOverlayGetRequest) LocationModel(locationModel string) ApiGetOverlaysV1ParameterOverlayGetRequest {
-	r.locationModel = &locationModel
+// DCIM location type for the location identifier
+func (r ApiGetOverlaysV1ParameterOverlayGetRequest) LocationType(locationType string) ApiGetOverlaysV1ParameterOverlayGetRequest {
+	r.locationType = &locationType
 	return r
 }
 
@@ -1351,8 +1351,8 @@ func (a *ParametersAPIService) GetOverlaysV1ParameterOverlayGetExecute(r ApiGetO
 	if r.location != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "location", r.location, "form", "")
 	}
-	if r.locationModel != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "location_model", r.locationModel, "form", "")
+	if r.locationType != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "location_type", r.locationType, "form", "")
 	}
 	if r.isolationType != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "isolation_type", r.isolationType, "form", "")

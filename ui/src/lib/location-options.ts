@@ -31,14 +31,14 @@ export const mapLocationOptions = (
     key: location.name,
     value: location.location_type ? encodeLocationOption(location) : location.id,
     id: location.id,
-    model: location.location_type ?? undefined,
+    locationType: location.location_type ?? undefined,
   }));
 };
 
 /** Decode the UI-only location value while accepting legacy bare IDs. */
 export const parseLocationValue = (
   value: string | null | undefined
-): { id: string; model?: string } | undefined => {
+): { id: string; locationType?: string } | undefined => {
   if (!value) return undefined;
   if (!value.startsWith(LOCATION_OPTION_PREFIX)) return { id: value };
 
@@ -50,7 +50,7 @@ export const parseLocationValue = (
       typeof parsed[0] === "string" &&
       typeof parsed[1] === "string"
     ) {
-      return { id: parsed[1], model: parsed[0] };
+      return { id: parsed[1], locationType: parsed[0] };
     }
   } catch {
     // Treat malformed or provider-owned values using the reserved prefix as bare IDs.
@@ -58,7 +58,7 @@ export const parseLocationValue = (
   return { id: value };
 };
 
-/** Resolve a selected or legacy query-string value to its provider ID and model. */
+/** Resolve a selected or legacy query-string value to its provider ID and location type. */
 export const resolveLocationOption = (
   options: LocationOption[],
   value: string | null | undefined

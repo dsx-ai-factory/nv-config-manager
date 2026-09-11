@@ -152,7 +152,7 @@ func TestGeneratedUnionRejectsNullAndEmptyValue(t *testing.T) {
 
 func TestGeneratedLocationFieldsRetainStringContract(t *testing.T) {
 	input := temporal.NewSiteCableValidationInput("42")
-	input.SetSiteModel("Site")
+	input.SetSiteType("Site")
 
 	encoded, err := json.Marshal(input)
 	if err != nil {
@@ -161,7 +161,7 @@ func TestGeneratedLocationFieldsRetainStringContract(t *testing.T) {
 	if !strings.Contains(string(encoded), `"site":"42"`) {
 		t.Fatalf("site is not encoded as a string: %s", encoded)
 	}
-	if !strings.Contains(string(encoded), `"site_model":"Site"`) {
-		t.Fatalf("site_model is not encoded: %s", encoded)
+	if !strings.Contains(string(encoded), `"site_type":"Site"`) {
+		t.Fatalf("site_type is not encoded: %s", encoded)
 	}
 }

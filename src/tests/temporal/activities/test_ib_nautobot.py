@@ -108,7 +108,7 @@ class TestCreatePartitionInNautobot:
             result = await create_partition_in_nautobot(
                 CreatePartitionInNautobotInput(
                     pkey="0x0005",
-                    location_name=DCIMLocationReference(id=LOCATION_UUID, model="Site"),
+                    location_name=DCIMLocationReference(id=LOCATION_UUID, location_type="Site"),
                 )
             )
 

@@ -26,7 +26,7 @@ from temporalio.exceptions import ActivityError
 
 from nv_config_manager.dcim import (
     DCIMLocationIdentifier,
-    DCIMLocationModel,
+    DCIMLocationType,
     dcim_location_id,
     dcim_location_reference,
 )
@@ -278,8 +278,8 @@ class ValidateHardwareInput(BaseModel):
     site: LocationReference = Field(
         description="Site used to select network devices for validation."
     )
-    site_model: DCIMLocationModel | None = Field(
-        default=None, description="DCIM model that owns the site identifier."
+    site_type: DCIMLocationType | None = Field(
+        default=None, description="DCIM location type for the site identifier."
     )
     roles: list[str] = Field(
         default=[], description="Device roles used to filter the selected network devices."
@@ -968,7 +968,7 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
 
         devices_to_validate_output = await self.get_devices_to_validate(
             self.GetDevicesToValidateStageInput(
-                site=dcim_location_reference(workflow_input.site, workflow_input.site_model),
+                site=dcim_location_reference(workflow_input.site, workflow_input.site_type),
                 roles=workflow_input.roles,
                 status=workflow_input.status,
                 tenant=workflow_input.tenant,

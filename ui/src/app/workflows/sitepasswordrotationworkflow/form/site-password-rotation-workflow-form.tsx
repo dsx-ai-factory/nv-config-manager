@@ -375,7 +375,7 @@ export const SitePasswordRotationWorkflowForm = () => {
 
     const workflowParams: SitePasswordRotationWorkflowInput = {
       location: location?.id ?? data.location,
-      location_model: location?.model,
+      location_type: location?.locationType,
       selected_secret: data.selected_secret,
       roles: data.roles,
       status: data.status,
