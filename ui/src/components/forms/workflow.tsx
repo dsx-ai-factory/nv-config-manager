@@ -140,6 +140,68 @@ const StatusField = ({
   );
 };
 
+type SiteFieldProps = {
+  form: ReturnType<typeof useForm<DeviceWorkflowFormSchema>>;
+  sites: { key: string; value: string }[];
+  siteIsLoading: boolean;
+  deviceIsLoading: boolean;
+  isSubmitting: boolean;
+  onChange: (value: string | string[]) => void;
+};
+
+const SiteField = ({
+  form,
+  sites,
+  siteIsLoading,
+  deviceIsLoading,
+  isSubmitting,
+  onChange,
+}: SiteFieldProps) => {
+  return (
+    <WorkflowFormField
+      type="select"
+      control={form.control}
+      name="site"
+      label="Site"
+      options={sites}
+      isLoading={siteIsLoading}
+      disabled={isSubmitting || deviceIsLoading}
+      handleChange={(_, value) => onChange(value)}
+    />
+  );
+};
+
+type DeviceFieldProps = {
+  form: ReturnType<typeof useForm<DeviceWorkflowFormSchema>>;
+  devices: DeviceOption[];
+  siteIsLoading: boolean;
+  deviceIsLoading: boolean;
+  isSubmitting: boolean;
+  onChange: (value: string | string[]) => void;
+};
+
+const DeviceField = ({
+  form,
+  devices,
+  siteIsLoading,
+  deviceIsLoading,
+  isSubmitting,
+  onChange,
+}: DeviceFieldProps) => {
+  return (
+    <WorkflowFormField
+      type="select"
+      control={form.control}
+      name="device"
+      label="Device"
+      options={devices}
+      isLoading={deviceIsLoading || siteIsLoading}
+      disabled={isSubmitting || deviceIsLoading}
+      handleChange={(_, value) => onChange(value)}
+    />
+  );
+};
+
 export const DeviceWorkflowForm = ({
   title,
   onSubmit,
@@ -321,38 +383,6 @@ export const DeviceWorkflowForm = ({
     }
   };
 
-  const SiteField = () => {
-    return (
-      <WorkflowFormField
-        type="select"
-        control={form.control}
-        name="site"
-        label="Site"
-        options={sites}
-        isLoading={siteIsLoading}
-        disabled={isSubmitting || deviceIsLoading}
-        handleChange={(_, value) => handleSiteChange(value)}
-      />
-    );
-  };
-
-
-
-  const DeviceField = () => {
-    return (
-      <WorkflowFormField
-        type="select"
-        control={form.control}
-        name="device"
-        label="Device"
-        options={deviceData}
-        isLoading={deviceIsLoading || siteIsLoading}
-        disabled={isSubmitting || deviceIsLoading}
-        handleChange={(_, value) => handleDeviceChange(value)}
-      />
-    );
-  };
-
   return (
     <div className="flex items-center justify-center p-6">
       <Card className="h-full border-2 shadow-md justify-center">
@@ -365,7 +395,14 @@ export const DeviceWorkflowForm = ({
               onSubmit={form.handleSubmit(submitWrapper)}
               className="space-y-6"
             >
-              <SiteField />
+              <SiteField
+                form={form}
+                sites={sites}
+                siteIsLoading={siteIsLoading}
+                deviceIsLoading={deviceIsLoading}
+                isSubmitting={isSubmitting}
+                onChange={handleSiteChange}
+              />
               <TenantField
                 form={form}
                 tenants={tenants}
@@ -380,7 +417,14 @@ export const DeviceWorkflowForm = ({
                 isSubmitting={isSubmitting}
                 onManualChange={() => setIsManualStatusChange(true)}
               />
-              <DeviceField />
+              <DeviceField
+                form={form}
+                devices={deviceData}
+                siteIsLoading={siteIsLoading}
+                deviceIsLoading={deviceIsLoading}
+                isSubmitting={isSubmitting}
+                onChange={handleDeviceChange}
+              />
               {showCommitConfirm && (
                 <FormField
                   control={form.control}

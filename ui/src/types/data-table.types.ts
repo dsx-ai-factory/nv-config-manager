@@ -250,8 +250,6 @@ export type WorkflowTableProps = {
   workflowMetadata: WorkflowMetadata[];
 };
 
-export type WorkflowColumns = Workflow;
-
 export interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
 }
