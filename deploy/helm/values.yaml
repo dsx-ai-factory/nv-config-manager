@@ -52,6 +52,10 @@ dcim:
   displayName: ""
   # true, false, a CA bundle path, or empty to inherit Nautobot's legacy value.
   verify: ""
+  # Optional DCIM request timeout in seconds; 0 keeps the provider's built-in
+  # default (30s for nautobot-2x). Raise it per cell for slow GraphQL queries,
+  # but stay below the DCIM ingress read timeout or the gateway 504s first.
+  timeout: 0
   cacheRefreshInterval: 0
   cacheTtl: 0
   # Kubernetes secret used by secrets.method=kubernetes. ESO and Vault Agent

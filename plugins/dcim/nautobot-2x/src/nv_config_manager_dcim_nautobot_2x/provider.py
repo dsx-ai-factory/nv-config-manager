@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
-from typing import Any, Self
+from typing import Any, Self, TypedDict
 from uuid import UUID
 
 from nv_config_manager_dcim.api import (
@@ -114,7 +114,7 @@ _DEVICE_SERIAL_QUERY = load_graphql_query("provider/devices.graphql", "GetDevice
 _RENDER_DATA_QUERY = load_graphql_query("query_config_data_by_device_id_v2.graphql")
 _LOCATION_DATA_QUERY = load_graphql_query("query_location_data.graphql")
 
-_NAUTOBOT_CONNECTION_KEYS = ("server", "token", "public_url", "verify")
+_NAUTOBOT_CONNECTION_KEYS = ("server", "token", "public_url", "verify", "timeout")
 _INTENDED_CONFIGURATION_PATH = "plugins/nv-config-manager/intendedconfig/"
 
 
@@ -141,6 +141,28 @@ def _parse_verify(value: object) -> bool | str:
     return normalized
 
 
+def _parse_timeout(value: object) -> int | None:
+    """Normalize the optional request budget, or ``None`` to keep the client default."""
+    if isinstance(value, bool):
+        raise DCIMProviderConfigurationError('DCIM provider "nautobot-2x" timeout must be a number')
+    if isinstance(value, int):
+        timeout = value
+    else:
+        if value is None or not (normalized := str(value).strip()):
+            return None
+        try:
+            timeout = int(normalized)
+        except ValueError as exc:
+            raise DCIMProviderConfigurationError(
+                f'DCIM provider "nautobot-2x" timeout must be a number, got {normalized!r}'
+            ) from exc
+    if timeout <= 0:
+        raise DCIMProviderConfigurationError(
+            f'DCIM provider "nautobot-2x" timeout must be positive, got {timeout}'
+        )
+    return timeout
+
+
 def _is_canonical_uuid(value: str) -> bool:
     """Return whether a value is a canonical UUID string."""
     try:
@@ -158,7 +180,17 @@ def _tag_names(tags: object) -> tuple[str, ...]:
     )
 
 
-def _nautobot_connection_settings(settings: ProviderSettings) -> dict[str, str | bool]:
+class _NautobotConnection(TypedDict):
+    """Normalized Nautobot connection settings."""
+
+    server: str
+    token: str
+    public_url: str
+    verify: bool | str
+    timeout: int | None
+
+
+def _nautobot_connection_settings(settings: ProviderSettings) -> _NautobotConnection:
     """Validate and normalize explicit Nautobot provider settings."""
     values = {key: settings.get(key) for key in _NAUTOBOT_CONNECTION_KEYS}
     missing = [key for key in ("server", "token") if not str(values[key] or "").strip()]
@@ -171,6 +203,7 @@ def _nautobot_connection_settings(settings: ProviderSettings) -> dict[str, str |
         "token": str(values["token"]),
         "public_url": str(values["public_url"]) if values["public_url"] else "",
         "verify": _parse_verify(values["verify"]),
+        "timeout": _parse_timeout(values["timeout"]),
     }
 
 
@@ -217,12 +250,19 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         token: str,
         verify: bool | str = True,
         public_url: str | None = None,
+        timeout: int | None = None,
         headers: dict[str, str] | Callable[[], dict[str, str]] | None = None,
     ) -> None:
         """Initialize the reference client with its user-facing base URL."""
         NautobotWorkflowClient.__init__(
             self,
-            {"server": nautobot_url, "token": token, "verify": verify, "headers": headers},
+            {
+                "server": nautobot_url,
+                "token": token,
+                "verify": verify,
+                "timeout": timeout,
+                "headers": headers,
+            },
         )
         self._public_url = (public_url or nautobot_url).rstrip("/")
 
@@ -231,10 +271,11 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         """Create the reference client from explicit provider settings."""
         connection_config = _nautobot_connection_settings(settings)
         return cls(
-            nautobot_url=str(connection_config["server"]),
-            token=str(connection_config["token"]),
+            nautobot_url=connection_config["server"],
+            token=connection_config["token"],
             verify=connection_config["verify"],
-            public_url=str(connection_config["public_url"]) or None,
+            public_url=connection_config["public_url"] or None,
+            timeout=connection_config["timeout"],
         )
 
     @staticmethod
@@ -825,10 +866,11 @@ class NautobotProvider:
         """Create the optional Nautobot MCP adapter with caller auth."""
         connection_config = _nautobot_connection_settings(settings)
         return NautobotDCIMClient(
-            nautobot_url=str(connection_config["server"]),
+            nautobot_url=connection_config["server"],
             token="",
             verify=connection_config["verify"],
-            public_url=str(connection_config["public_url"]) or None,
+            public_url=connection_config["public_url"] or None,
+            timeout=connection_config["timeout"],
             headers=headers,
         )
 
