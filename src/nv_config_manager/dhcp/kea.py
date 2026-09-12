@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import os
 from configparser import ConfigParser
 from enum import IntEnum
 from typing import Any, Literal
@@ -23,6 +24,16 @@ from typing import Any, Literal
 import aiohttp
 
 from nv_config_manager.common.config import load_config
+
+# Per-container overrides for the Kea control endpoint. These let a container
+# that runs in a *different* pod than Kea (e.g. the config-refresh deployment)
+# target a specific Kea Service without changing the shared INI used by every
+# other consumer. In particular the refresh process must reach Kea on pods that
+# are not yet Ready (bootstrap/config-test), so it points these at the internal
+# Kea bootstrap/validation Service (publishNotReadyAddresses) instead of the
+# Ready-only internal Service.
+KEA_SERVER_ENV = "NV_CONFIG_MANAGER_KEA_SERVER"
+KEA_PORT_ENV = "NV_CONFIG_MANAGER_KEA_PORT"
 
 
 class IpVersion(IntEnum):
@@ -48,14 +59,27 @@ class KeaClient:
 
     @staticmethod
     def from_config(config: ConfigParser | None = None, attached: bool = False) -> KeaClient:
-        """Create a KEA client from the configured server and port."""
+        """Create a KEA client from the configured server and port.
+
+        When ``attached`` is set, the client always targets the co-located Kea
+        over localhost (same pod / shared network namespace).
+
+        Otherwise the endpoint comes from ``[dhcp.kea]`` in the INI, but may be
+        overridden per-container via the ``NV_CONFIG_MANAGER_KEA_SERVER`` /
+        ``NV_CONFIG_MANAGER_KEA_PORT`` env vars. The config-refresh container
+        uses this override to reach Kea through the internal bootstrap/validation
+        Service so it can run ``config-test`` and seed Redis before pods are
+        Ready, without weakening readiness for anyone else.
+        """
         if config is None:
             config = load_config()
         if attached:
             host = "localhost"
+            port = int(config["dhcp.kea"]["port"])
         else:
-            host = config["dhcp.kea"]["server"]
-        return KeaClient(host=host, port=int(config["dhcp.kea"]["port"]))
+            host = os.environ.get(KEA_SERVER_ENV) or config["dhcp.kea"]["server"]
+            port = int(os.environ.get(KEA_PORT_ENV) or config["dhcp.kea"]["port"])
+        return KeaClient(host=host, port=port)
 
     def __init__(self, host: str | None = None, port: int = 8000) -> None:
         """Initialize a KEA REST Client."""
@@ -88,9 +112,17 @@ class KeaClient:
         """Async context manager exit."""
         await self.close()
 
-    async def status(self) -> Any:
-        """Return the status of the KEA server."""
-        data = {"command": "status-get"}
+    async def status(self, version: int | None = None) -> Any:
+        """Return the status of the KEA control agent, or of a DHCP server.
+
+        ``status-get`` without a ``service`` is answered by kea-ctrl-agent about
+        itself, so it stays ``result: 0`` even when kea-dhcp4 is dead. Pass
+        ``version`` to have the control agent forward the command to that DHCP
+        server instead; an unreachable server then returns a non-zero result.
+        """
+        data: dict[str, Any] = {"command": "status-get"}
+        if version is not None:
+            data["service"] = [f"dhcp{version}"]
         session = await self._get_session()
         try:
             async with session.post(self.url, json=data) as rsp:
