@@ -15,6 +15,8 @@
 """Tests for the NATS pull consumer module."""
 
 import json
+import urllib.error
+import urllib.request
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import nats.errors
@@ -27,6 +29,7 @@ from redis.asyncio.lock import Lock as AsyncRedisLock
 from nv_config_manager.render.events.util import DeviceNotEnabledError
 from nv_config_manager.render.pull_consumer import (
     CONSUMER_ACK_PENDING,
+    CONSUMER_ACK_WAIT_SECONDS,
     CONSUMER_PENDING,
     CONSUMER_REDELIVERED,
     CONSUMER_WAITING,
@@ -34,6 +37,7 @@ from nv_config_manager.render.pull_consumer import (
     PullDCIMConsumer,
     PullDeviceChangeConsumer,
     PullNautobotConsumer,
+    start_liveness_server,
 )
 
 # Test NATS configuration - mock credentials for testing only
@@ -135,6 +139,69 @@ async def test_pull_consumer_can_process_message(custom_ini):
 
     # Default implementation should always return True
     assert await consumer.can_process_message() is True
+
+
+def test_liveness_fails_once_fetches_stop_completing(custom_ini):
+    """A consumer that cannot complete a fetch must report itself unhealthy."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(
+        stream="test_stream",
+        subject="test_subject",
+        queue_suffix="test_queue",
+    )
+
+    live, _ = consumer.liveness()
+    assert live is True
+
+    # A wedged connection leaves the retry loop running but never completes a
+    # fetch, which is the only state that distinguishes it from an idle queue.
+    consumer._last_successful_fetch -= consumer.liveness_timeout + 1
+    live, detail = consumer.liveness()
+    assert live is False
+    assert "no successful fetch" in detail
+
+    # A fetch that returns no messages still proves the connection works
+    consumer._record_successful_fetch()
+    live, _ = consumer.liveness()
+    assert live is True
+
+
+def test_liveness_budget_outlasts_one_slow_message(custom_ini):
+    """A render that is slow but working must not be mistaken for a wedged loop."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(
+        stream="test_stream",
+        subject="test_subject",
+        queue_suffix="test_queue",
+    )
+
+    # The clock is only stamped between fetches, so a single message occupies the
+    # loop for its whole render. A budget below the ack wait would restart the pod
+    # mid-render, and the redelivery would be just as slow.
+    assert consumer.liveness_timeout > CONSUMER_ACK_WAIT_SECONDS
+
+
+def test_liveness_endpoint_returns_503_when_wedged(custom_ini):
+    """The probe endpoint has to fail closed so Kubernetes restarts the pod."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(
+        stream="test_stream",
+        subject="test_subject",
+        queue_suffix="test_queue",
+    )
+    server = start_liveness_server(consumer, port=0)
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/healthz"
+        with urllib.request.urlopen(url, timeout=5) as response:
+            assert response.status == 200
+
+        consumer._last_successful_fetch -= consumer.liveness_timeout + 1
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            urllib.request.urlopen(url, timeout=5)
+        assert excinfo.value.code == 503
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_render_consumer_metrics_are_labeled_by_fixed_consumer(custom_ini, monkeypatch):

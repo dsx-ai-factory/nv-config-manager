@@ -25,7 +25,7 @@ from nv_config_manager_templates.dataclasses.bgp import BGPLocalConfig, BGPPeer
 from nv_config_manager_templates.dataclasses.consoleport import ConsoleServerPort
 from nv_config_manager_templates.dataclasses.interface import ConnectedDevice, Interface
 from nv_config_manager_templates.dataclasses.vrf import VRF
-from nv_config_manager_templates.filters import FilterException
+from nv_config_manager_templates.filters import DeviceNotRenderableError, FilterException
 from nv_config_manager_templates.filters.ip import gateway as gateway_filter
 
 
@@ -88,11 +88,14 @@ def role(value: DeviceRenderData) -> str:
 
 def desired_firmware(value: DeviceRenderData) -> str:
     """Return the desired firmware image version for this device."""
-    return _required(
-        value.firmware.desired_version,
-        "device.firmware.desired_version",
-        value,
-    )
+    if value.firmware.desired_version is None:
+        # The firmware version selects the template directory, so a device
+        # without one has no template set to render from. That is a device that
+        # is not ready yet, not a broken render.
+        raise DeviceNotRenderableError(
+            f"Device {value.identity.name} has no desired firmware version set."
+        )
+    return value.firmware.desired_version
 
 
 def router_id(value: DeviceRenderData) -> str:
