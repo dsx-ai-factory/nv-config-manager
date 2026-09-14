@@ -87,7 +87,7 @@ def _worker(client: Client, task_queue_name: str) -> Worker:
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.device.CumulusConnection")
+@patch("nv_config_manager.temporal.client.device.factory.CumulusConnection")
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow_reports_diff(
@@ -132,7 +132,7 @@ async def test_execute_workflow_reports_diff(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.device.CumulusConnection")
+@patch("nv_config_manager.temporal.client.device.factory.CumulusConnection")
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow_no_diff(
@@ -184,7 +184,7 @@ def _preloaded_device() -> NetworkDeviceData:
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.device.CumulusConnection")
+@patch("nv_config_manager.temporal.client.device.factory.CumulusConnection")
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow_uses_preloaded_device(

@@ -303,7 +303,7 @@ def test_child_stage_serialization_excludes_operational_device_payloads(_):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.device.CumulusConnection")
+@patch("nv_config_manager.temporal.client.device.factory.CumulusConnection")
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_basic_flow(
@@ -462,7 +462,7 @@ def test_format_batch_status_with_backup_failure():
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.device.CumulusConnection")
+@patch("nv_config_manager.temporal.client.device.factory.CumulusConnection")
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_no_devices(
@@ -526,7 +526,7 @@ async def test_multi_deploy_workflow_no_devices(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.device.CumulusConnection")
+@patch("nv_config_manager.temporal.client.device.factory.CumulusConnection")
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_no_diffs(
@@ -587,7 +587,7 @@ async def test_multi_deploy_workflow_no_diffs(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.device.CumulusConnection")
+@patch("nv_config_manager.temporal.client.device.factory.CumulusConnection")
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_grouping_logic(
@@ -657,7 +657,7 @@ async def test_multi_deploy_workflow_grouping_logic(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.device.CumulusConnection")
+@patch("nv_config_manager.temporal.client.device.factory.CumulusConnection")
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_batch_deploy_workflow_directly(
