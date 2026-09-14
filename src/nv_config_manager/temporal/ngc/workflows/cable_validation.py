@@ -23,7 +23,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ChildWorkflowError
+from temporalio.exceptions import ApplicationError, ChildWorkflowError
 
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
@@ -159,7 +159,10 @@ class DeviceCableValidationInput(BaseModel):
     )
     defer_cable_status_updates: bool = Field(
         default=False,
-        description="Return pending DCIM updates for a parent site workflow to apply after reporting.",
+        description=(
+            "Return pending DCIM updates to a parent site workflow. "
+            "Direct API calls must leave this false."
+        ),
     )
     ignore_no_neighbor: bool = Field(
         default=False,
@@ -572,6 +575,16 @@ class DeviceCableValidationWorkflow(
     workflow_api_endpoint = "/ngc/device_cable_validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
+
+    @classmethod
+    async def canonicalize_input(cls, body: BaseModel) -> BaseModel:
+        """Reject the parent-to-child deferral option at the API boundary."""
+        if isinstance(body, DeviceCableValidationInput) and body.defer_cable_status_updates:
+            raise ApplicationError(
+                "defer_cable_status_updates is only valid for site cable validation child workflows",
+                non_retryable=True,
+            )
+        return body
 
     def __init__(self) -> None:
         """Workflow constructor."""

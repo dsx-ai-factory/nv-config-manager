@@ -21,7 +21,7 @@ var _ MappedNullable = &DeviceCableValidationInput{}
 
 // DeviceCableValidationInput Input for Device Cable Validation Workflow.
 type DeviceCableValidationInput struct {
-	// Return pending DCIM updates for a parent site workflow to apply after reporting.
+	// Return pending DCIM updates to a parent site workflow. Direct API calls must leave this false.
 	DeferCableStatusUpdates *bool `json:"defer_cable_status_updates,omitempty"`
 	// Preloaded data for the target network device, if available.
 	Device NullableNetworkDeviceData `json:"device,omitempty"`

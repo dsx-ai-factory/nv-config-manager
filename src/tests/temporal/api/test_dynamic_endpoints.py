@@ -25,6 +25,10 @@ from temporalio.exceptions import ApplicationError
 from nv_config_manager.temporal.api import dynamic_endpoints
 from nv_config_manager.temporal.api.dynamic_endpoints import create_workflow_endpoint
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
+from nv_config_manager.temporal.ngc.workflows.cable_validation import (
+    DeviceCableValidationInput,
+    DeviceCableValidationWorkflow,
+)
 
 
 class _Input(BaseModel):
@@ -87,6 +91,31 @@ async def test_endpoint_returns_422_for_canonicalization_failure(mocker):
 
     with pytest.raises(HTTPException, match="UFM device not found") as exc_info:
         await endpoint(_Input(host="attacker.example.com"), request)
+
+    assert exc_info.value.status_code == 422
+    start.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_device_cable_endpoint_rejects_deferred_status_updates(mocker):
+    """The child-only status deferral option cannot be set through the API."""
+    start = mocker.patch.object(dynamic_endpoints, "start_workflow", new=mocker.AsyncMock())
+    endpoint = create_workflow_endpoint(
+        DeviceCableValidationWorkflow,
+        DeviceCableValidationInput,
+        "/ngc/device_cable_validation",
+    )
+    request = MagicMock()
+    request.state.user = "user@nvidia.com"
+
+    with pytest.raises(HTTPException, match="only valid for site cable validation") as exc_info:
+        await endpoint(
+            DeviceCableValidationInput(
+                device_id="device-1",
+                defer_cable_status_updates=True,
+            ),
+            request,
+        )
 
     assert exc_info.value.status_code == 422
     start.assert_not_awaited()
