@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import click
 import pytest
+from aiohttp import ClientError
 
 from nv_config_manager.dhcp import cli
 from nv_config_manager.dhcp.kea import KeaException
@@ -299,24 +300,29 @@ async def test_config_hash_get_failure_is_handled_without_reapply(mocker: Any) -
     [
         KeaException("Failed to get configuration hash: down"),
         TimeoutError("KEA Request timed out, are you running within a KEA Docker Container?"),
+        ClientError("Connection reset"),
     ],
-    ids=["kea_exception", "timeout"],
+    ids=["kea_exception", "timeout", "client_error"],
 )
 async def test_startup_hash_get_failure_does_not_abort_sync(
-    mocker: Any, startup_error: Exception
+    mocker: Any, startup_error: Exception, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A config-hash-get failure at startup must not abort the sync loop.
 
     config-set has already applied and persisted the desired config at that
     point, so only the verification read failed -- the same failure the refresh
     loop tolerates. Aborting would crash-loop the sidecar over a config that is
-    actually applied. TimeoutError is included because get_config_hash re-raises
-    it instead of wrapping it in KeaException.
+    actually applied. TimeoutError and aiohttp.ClientError are included because
+    get_config_hash re-raises both instead of wrapping them in KeaException.
+
+    The next successful hash read is also not confirmed drift: expected_hash is
+    still unknown, so counting it as a mismatch would fire a false drift alert.
     """
     load_kea_config = AsyncMock(side_effect=[DESIRED_CONFIG, DESIRED_CONFIG])
     set_config = AsyncMock(return_value="HASH_A")
-    # Startup verification fails; the later drift check succeeds.
-    get_config_hash = AsyncMock(side_effect=[startup_error, "HASH_A"])
+    # Startup verification fails; the later hash read succeeds and the reapply
+    # verifies. A third HASH_A is the post-reapply verification read.
+    get_config_hash = AsyncMock(side_effect=[startup_error, "HASH_A", "HASH_A"])
     _patch_hash_clients(
         mocker,
         load_kea_config=load_kea_config,
@@ -324,9 +330,10 @@ async def test_startup_hash_get_failure_does_not_abort_sync(
         get_config_hash=get_config_hash,
     )
     _patch_sleep_to_break(mocker)
+    mismatches_before = _counter_value(DHCP_CONFIG_HASH_MISMATCHES, ip_version="4")
 
     # Reaching the loop's tail sleep proves startup was not aborted.
-    with pytest.raises(_StopLoop):
+    with caplog.at_level(logging.INFO), pytest.raises(_StopLoop):
         await cli._sync_kea_configuration_async(ip_version=4, refresh_interval=5, debug=False)
 
     # Startup apply, plus a reapply once the unverified hash is re-checked.
@@ -334,6 +341,38 @@ async def test_startup_hash_get_failure_does_not_abort_sync(
         call(DESIRED_CONFIG, version=4),
         call(DESIRED_CONFIG, version=4),
     ]
+    assert _counter_value(DHCP_CONFIG_HASH_MISMATCHES, ip_version="4") == mismatches_before
+    assert not [
+        rec
+        for rec in caplog.records
+        if getattr(rec, "sync_state", None) == SyncState.DRIFT_DETECTED
+    ]
+
+
+async def test_apply_verification_transport_failure_is_unverified() -> None:
+    """A transport error after config-set is an unverified apply, not a retry.
+
+    aiohttp.ClientError is not wrapped in KeaException. Letting it escape would
+    make startup and reconciliation retry config-set for a config already applied.
+    """
+    kea_client = MagicMock()
+    kea_client.set_config = AsyncMock(return_value="APPLIED_HASH")
+    kea_client.get_config_hash = AsyncMock(side_effect=ClientError("Connection reset"))
+    mismatches_before = _counter_value(DHCP_CONFIG_HASH_MISMATCHES, ip_version="4")
+    hash_get_before = _counter_value(
+        DHCP_SYNC_FAILURES, operation=SyncOperation.HASH_GET, ip_version="4"
+    )
+
+    expected_hash, verified = await cli._apply_and_verify_kea_config(kea_client, DESIRED_CONFIG, 4)
+
+    assert expected_hash is None
+    assert verified is False
+    kea_client.set_config.assert_awaited_once_with(DESIRED_CONFIG, version=4)
+    assert _counter_value(DHCP_CONFIG_HASH_MISMATCHES, ip_version="4") == mismatches_before
+    assert (
+        _counter_value(DHCP_SYNC_FAILURES, operation=SyncOperation.HASH_GET, ip_version="4")
+        == hash_get_before + 1
+    )
 
 
 def _counter_value(metric: Any, **labels: str) -> float:

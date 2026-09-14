@@ -28,6 +28,7 @@ from types import TracebackType
 from typing import Any
 
 import click
+from aiohttp import ClientError
 from prometheus_client import start_http_server
 
 from nv_config_manager.common.config import load_config
@@ -511,15 +512,16 @@ async def _apply_and_verify_kea_config(
         effective_hash = await asyncio.wait_for(
             kea_client.get_config_hash(version=ip_version), timeout=KEA_OP_TIMEOUT_SECONDS
         )
-    except (KeaException, TimeoutError) as exc:
+    except (KeaException, TimeoutError, ClientError) as exc:
         # config-set already succeeded, so the desired config is applied and
         # persisted -- only the verification read failed. get_config_hash
-        # re-raises TimeoutError (it does not wrap it in KeaException), and the
-        # refresh loop already swallows both. Aborting here would crash-loop
-        # the sidecar over a config that is actually applied, and reapplying it
-        # on a retry would hammer Kea for a config it is already running, so the
-        # apply stands as unverified: the caller must not report a successful
-        # reconciliation, and the next drift check reapplies and re-verifies.
+        # re-raises TimeoutError and aiohttp.ClientError (it does not wrap
+        # either in KeaException), and the refresh loop already swallows both.
+        # Aborting here would crash-loop the sidecar over a config that is
+        # actually applied, and reapplying it on a retry would hammer Kea for a
+        # config it is already running, so the apply stands as unverified: the
+        # caller must not report a successful reconciliation, and the next
+        # drift check reapplies and re-verifies.
         _record_sync_failure(SyncOperation.HASH_GET, ip_version, exc)
         logger.warning(
             "Could not verify the applied KEA configuration hash: %s",
@@ -762,27 +764,41 @@ async def _sync_kea_configuration_async(
                             ),
                         )
                         if kea_running_hash != expected_hash:
-                            DHCP_CONFIG_HASH_MISMATCHES.labels(ip_version=str(ip_version)).inc()
-                            _log_sync_state(
-                                SyncState.DRIFT_DETECTED,
-                                "KEA DHCP configuration drift detected, updating.",
-                                ip_version,
-                                desired_hash=expected_hash or "none",
-                                running_hash=kea_running_hash or "none",
-                            )
-                            logger.warning(
-                                "KEA running configuration hash (%s) does not match the "
-                                "expected hash (%s); reapplying desired configuration "
-                                "(KEA may have restarted).",
-                                kea_running_hash,
-                                expected_hash,
-                            )
-                            _log_sync_state(
-                                SyncState.APPLYING,
-                                "Applying updated KEA DHCP configuration.",
-                                ip_version,
-                                desired_hash=expected_hash or "none",
-                            )
+                            if expected_hash is None:
+                                # The last apply could not be verified, so
+                                # nothing is known to have diverged. Reapply
+                                # to confirm, but do not report drift: a
+                                # transient hash-read failure would otherwise
+                                # fire the mismatch alert.
+                                _log_sync_state(
+                                    SyncState.APPLYING,
+                                    "Last applied hash is unverified, reapplying "
+                                    "desired KEA DHCP configuration.",
+                                    ip_version,
+                                    running_hash=kea_running_hash,
+                                )
+                            else:
+                                DHCP_CONFIG_HASH_MISMATCHES.labels(ip_version=str(ip_version)).inc()
+                                _log_sync_state(
+                                    SyncState.DRIFT_DETECTED,
+                                    "KEA DHCP configuration drift detected, updating.",
+                                    ip_version,
+                                    desired_hash=expected_hash,
+                                    running_hash=kea_running_hash or "none",
+                                )
+                                logger.warning(
+                                    "KEA running configuration hash (%s) does not match the "
+                                    "expected hash (%s); reapplying desired configuration "
+                                    "(KEA may have restarted).",
+                                    kea_running_hash,
+                                    expected_hash,
+                                )
+                                _log_sync_state(
+                                    SyncState.APPLYING,
+                                    "Applying updated KEA DHCP configuration.",
+                                    ip_version,
+                                    desired_hash=expected_hash,
+                                )
                             expected_hash, verified = await _apply_and_verify_kea_config(
                                 kea_client, previous_config, ip_version
                             )
