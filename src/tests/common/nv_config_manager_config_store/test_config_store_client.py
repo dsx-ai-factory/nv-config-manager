@@ -14,7 +14,8 @@
 # limitations under the License.
 """Tests for AsyncConfigStoreClient."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from configparser import ConfigParser
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -70,7 +71,6 @@ async def test_init(async_config_store_client):
     assert async_config_store_client.target == "http://config-store.example.com"
     assert async_config_store_client.file_type == "intended"
     assert async_config_store_client.base_url == "http://config-store.example.com"
-    assert async_config_store_client.config_url == "http://config-store.example.com/v1/config"
 
 
 @pytest.mark.asyncio
@@ -85,29 +85,12 @@ async def test_init_with_ca_cert_disabled():
     await client.close()
 
 
-def _mock_retry_client(response_data):
-    """Create a mock RetryClient context manager returning response_data."""
-    mock_response = AsyncMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json = AsyncMock(return_value=response_data)
-    mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-    mock_response.__aexit__ = AsyncMock(return_value=None)
-
-    mock_session = MagicMock()
-    mock_session.get = MagicMock(return_value=mock_response)
-    mock_session.post = MagicMock(return_value=mock_response)
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=None)
-    return mock_session
-
-
 @pytest.mark.asyncio
 async def test_load_file(async_config_store_client):
     """Test loading a file from config store."""
-    mock_session = _mock_retry_client(MOCK_GET_RESPONSE)
 
-    with patch(
-        "nv_config_manager.common.client.config_store.RetryClient", return_value=mock_session
+    with patch.object(
+        async_config_store_client, "_call", new=AsyncMock(return_value=MOCK_GET_RESPONSE)
     ):
         device_uuid = "123e4567-e89b-12d3-a456-426614174000"
         config_file = await async_config_store_client.load_file(device_uuid, "startup.yaml")
@@ -121,19 +104,14 @@ async def test_load_file(async_config_store_client):
 @pytest.mark.asyncio
 async def test_whoami_uses_service_root(async_config_store_client):
     """Test whoami uses root /whoami while config APIs stay under /v1/config."""
-    mock_session = _mock_retry_client(
-        {"user": "config-store-api", "roles": ["all", "nv-config-manager"]}
-    )
-
-    with patch(
-        "nv_config_manager.common.client.config_store.RetryClient", return_value=mock_session
-    ):
+    identity = {"user": "config-store-api", "roles": ["all", "nv-config-manager"]}
+    with patch.object(
+        async_config_store_client, "_call", new=AsyncMock(return_value=identity)
+    ) as call:
         result = await async_config_store_client.whoami()
-
-    assert result == {"user": "config-store-api", "roles": ["all", "nv-config-manager"]}
-    mock_session.get.assert_called_once_with("http://config-store.example.com/whoami")
+    assert result == identity
+    assert call.call_args.args[0].__name__ == "whoami_whoami_get_without_preload_content"
     assert async_config_store_client.base_url == "http://config-store.example.com"
-    assert async_config_store_client.config_url == "http://config-store.example.com/v1/config"
 
 
 @pytest.mark.asyncio
@@ -146,10 +124,8 @@ async def test_persist_files_new(async_config_store_client):
 
     async_config_store_client.load_file = mock_load_file
 
-    mock_session = _mock_retry_client(MOCK_BATCH_POST_RESPONSE)
-
-    with patch(
-        "nv_config_manager.common.client.config_store.RetryClient", return_value=mock_session
+    with patch.object(
+        async_config_store_client, "_call", new=AsyncMock(return_value=MOCK_BATCH_POST_RESPONSE)
     ):
         config_files = await async_config_store_client.persist_files(
             device_uuid=device_uuid,
@@ -225,8 +201,6 @@ async def test_init_with_headers():
 @pytest.mark.asyncio
 async def test_from_config_internal_endpoint():
     """Test from_config with internal endpoint uses callable headers."""
-    from configparser import ConfigParser
-    from unittest.mock import patch
 
     config = ConfigParser()
     config.add_section("config_store.client")
@@ -246,7 +220,6 @@ async def test_from_config_internal_endpoint():
 @pytest.mark.asyncio
 async def test_from_config_external_endpoint():
     """Test from_config with external endpoint does not include auth headers."""
-    from configparser import ConfigParser
 
     config = ConfigParser()
     config.add_section("config_store.client")

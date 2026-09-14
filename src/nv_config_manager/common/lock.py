@@ -23,48 +23,16 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from nv_config_manager_infrastructure import lock as lock_primitives
+from nv_config_manager_infrastructure.lock import NoopLock as _FakeLock
 from redis.asyncio.lock import Lock as AsyncRedisLock
-from redis.exceptions import LockError, LockNotOwnedError
 
 from nv_config_manager.common.config import is_local_environment, redis_client
 
 if TYPE_CHECKING:
-    from types import TracebackType
-
     from nv_config_manager.common.client import RedisClient
 
 log = logging.getLogger(__name__)
-
-
-class _FakeLock:
-    """No-op lock for local single-process runs where no shared Redis exists."""
-
-    async def acquire(  # pylint: disable=unused-argument
-        self,
-        blocking: bool | None = None,
-        blocking_timeout: int | None = None,
-        token: str | bytes | None = None,
-    ) -> bool:
-        """Acquire the lock."""
-        return True
-
-    async def release(self) -> bool:
-        """Release the lock."""
-        return True
-
-    async def __aenter__(self) -> _FakeLock:
-        """Async context manager entry."""
-        await self.acquire()
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> None:
-        """Async context manager exit."""
-        await self.release()
 
 
 # Module-level Redis client for lock operations
@@ -116,11 +84,6 @@ async def create_lock(
 # ---------------------------------------------------------------------------
 
 
-def _token_bytes(token: str) -> bytes:
-    """Encode a caller-supplied lock token the way redis-py stores it."""
-    return token.encode()
-
-
 def _redis_lock(name: str, timeout: int) -> AsyncRedisLock | None:
     """Build a Redis-backed lock, or None in local single-process development."""
     client = _get_lock_redis_client()
@@ -136,64 +99,17 @@ async def acquire_lock(
     blocking_timeout: float | None = None,
     blocking: bool = True,
 ) -> bool:
-    """Acquire a distributed lock on ``name`` for ``token``.
-
-    Returns True once held, or False if it could not be acquired immediately
-    when ``blocking`` is False, otherwise within ``blocking_timeout``.
-
-    """
-    lock = _redis_lock(name, timeout)
-    if lock is None:
-        return True
-
-    token_bytes = _token_bytes(token)
-
-    if await lock.acquire(token=token_bytes, blocking=False):
-        return True
-    if await _refresh_if_owned(lock, token_bytes):
-        return True
-
-    if not blocking:
-        return False
-    return bool(
-        await lock.acquire(token=token_bytes, blocking=True, blocking_timeout=blocking_timeout)
+    """Acquire a token lock using the service-selected Redis backend."""
+    return await lock_primitives.acquire_lock(
+        _redis_lock(name, timeout), token, timeout, blocking_timeout, blocking
     )
 
 
-async def _refresh_if_owned(lock: AsyncRedisLock, token_bytes: bytes) -> bool:
-    """Extend ``lock``'s TTL when ``token_bytes`` already holds it, else False."""
-    lock.local.token = token_bytes
-    try:
-        await lock.reacquire()
-    except LockNotOwnedError:
-        return False
-    return True
-
-
 async def renew_lock(name: str, token: str, timeout: int) -> bool:
-    """Extend the TTL of a lock this ``token`` holds back out to ``timeout``."""
-    lock = _redis_lock(name, timeout)
-    if lock is None:
-        return True
-
-    lock.local.token = _token_bytes(token)
-    try:
-        await lock.reacquire()
-        return True
-    except LockNotOwnedError:
-        return False
+    """Renew a token lock using the service-selected Redis backend."""
+    return await lock_primitives.renew_lock(_redis_lock(name, timeout), token, timeout)
 
 
 async def release_lock(name: str, token: str) -> bool:
-    """Release a lock held by ``token``."""
-    lock = _redis_lock(name, timeout=1)
-    if lock is None:
-        return True
-
-    lock.local.token = _token_bytes(token)
-    try:
-        await lock.release()
-        return True
-    except (LockNotOwnedError, LockError):
-        log.warning("Lock %s was not owned at release time.", name)
-        return False
+    """Release a token lock using the service-selected Redis backend."""
+    return await lock_primitives.release_lock(_redis_lock(name, 1), token)
