@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -euo pipefail
+
+readonly image="ghcr.io/trufflesecurity/trufflehog:3.97.0"
+readonly results_file="${RUNNER_TEMP}/trufflehog-results.jsonl"
+readonly filtered_file="${RUNNER_TEMP}/trufflehog-results-filtered.jsonl"
+readonly allowlist_file=".github/trufflehog-full-history-allowlist.json"
+
+cleanup() {
+  rm -f -- "${results_file}" "${filtered_file}"
+}
+trap cleanup EXIT
+
+# Keep raw scanner output out of the job log because it contains the candidate
+# credential. TruffleHog exits non-zero here only for scanner/runtime failures;
+# finding-based failure is applied after the narrow allowlist below.
+docker run --rm -v "${PWD}:/tmp" -w /tmp "${image}" \
+  git file:///tmp/ \
+  --json \
+  --no-update \
+  --results=verified,unknown \
+  >"${results_file}"
+
+jq --compact-output --slurpfile allowlist "${allowlist_file}" '
+  . as $result
+  | ($result.SourceMetadata.Data.Git // {}) as $git
+  | select(
+      any(
+        $allowlist[0][];
+        .detector == $result.DetectorName
+          and .commit == $git.commit
+          and .file == $git.file
+          and .line == $git.line
+      )
+      | not
+    )
+  | {
+      DetectorName,
+      Verified,
+      Git: {
+        commit: $git.commit,
+        file: $git.file,
+        line: $git.line
+      }
+    }
+' "${results_file}" >"${filtered_file}"
+
+finding_count="$(jq --slurp 'length' "${filtered_file}")"
+readonly finding_count
+if [[ "${finding_count}" -eq 0 ]]; then
+  echo "TruffleHog found no non-allowlisted verified or unknown secrets."
+  exit 0
+fi
+
+# Emit actionable annotations without printing Raw, RawV2, SecretParts, or
+# other fields that may contain the candidate credential.
+jq --raw-output '
+  .Git as $git
+  | "::error file=\($git.file),line=\($git.line),title=TruffleHog::Found \(.Verified | if . then \"verified\" else \"unverified\" end) \(.DetectorName) result"
+' "${filtered_file}"
+
+echo "TruffleHog found ${finding_count} non-allowlisted verified or unknown secret(s)." >&2
+exit 183
