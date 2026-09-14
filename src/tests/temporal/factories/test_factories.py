@@ -189,26 +189,30 @@ def test_ticketing_client_settings_match_current_constructor_values(
 
 def test_redfish_client_settings_match_current_constructor_values(
     client_config: ConfigParser,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert redfish_client_settings(client_config, vendor=RedfishVendor.LENOVO) == {
-        "username": "lenovo-user",
-        "password": "lenovo-default",
-        "config_manager_password": "lenovo-managed",
-    }
-    assert redfish_client_settings(
-        client_config,
+    monkeypatch.setattr(config_module, "load_config", lambda: client_config)
+    settings = redfish_client_settings(vendor=RedfishVendor.LENOVO, config=client_config)
+    assert settings["username"] == "lenovo-user"
+    assert settings["password"] == "lenovo-default"
+    rotation_password = settings["config_manager_password"]
+    assert callable(rotation_password)
+    assert rotation_password() == "lenovo-managed"
+
+    settings = redfish_client_settings(
         vendor=RedfishVendor.BLUEFIELD,
+        config=client_config,
         credentials={
             "default_user": "host-user",
-            "default_password": "host-default",
             "config_manager_password": "host-managed",
         },
         credential_kind="config_manager",
-    ) == {
-        "username": "host-user",
-        "password": "host-managed",
-        "config_manager_password": "host-managed",
-    }
+    )
+    assert settings["username"] == "host-user"
+    assert settings["password"] == "host-managed"
+    rotation_password = settings["config_manager_password"]
+    assert callable(rotation_password)
+    assert rotation_password() == "bluefield-managed"
 
 
 def test_default_configuration_is_loaded_when_not_injected(
@@ -232,7 +236,6 @@ def test_injected_configuration_does_not_load_global_config(
     device_connection_settings(client_config)
     nats_client_settings(client_config)
     nats_consumer_settings("archive", client_config)
-    redfish_client_settings(client_config, vendor=RedfishVendor.LENOVO)
     redis_settings(client_config)
     ticketing_client_settings(client_config, platform="jira")
     ufm_client_settings(client_config)
@@ -243,12 +246,17 @@ def test_injected_configuration_does_not_load_global_config(
 def test_factories_do_not_log_credentials(
     client_config: ConfigParser,
     caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(config_module, "load_config", lambda: client_config)
     with caplog.at_level(logging.DEBUG):
         device_connection_settings(client_config)
         nats_client_settings(client_config)
         nats_consumer_settings("archive", client_config)
-        redfish_client_settings(client_config, vendor=RedfishVendor.LENOVO)
+        settings = redfish_client_settings(vendor=RedfishVendor.LENOVO, config=client_config)
+        rotation_password = settings["config_manager_password"]
+        assert callable(rotation_password)
+        rotation_password()
         redis_settings(client_config)
         ticketing_client_settings(client_config, platform="jira")
         ufm_client_settings(client_config)

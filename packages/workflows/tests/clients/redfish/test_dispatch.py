@@ -107,4 +107,6 @@ def test_dispatch_does_not_log_credentials(caplog: pytest.LogCaptureFixture) -> 
 
     assert SETTINGS["username"] not in caplog.text
     assert SETTINGS["password"] not in caplog.text
-    assert SETTINGS["config_manager_password"] not in caplog.text
+    managed_password = SETTINGS["config_manager_password"]
+    assert isinstance(managed_password, str)
+    assert managed_password not in caplog.text

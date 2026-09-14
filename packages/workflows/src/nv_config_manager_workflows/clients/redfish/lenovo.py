@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 import requests
 
@@ -35,19 +36,20 @@ class LenovoRedfishConnection(RedfishConnection):
         host: RedfishHost,
         username: str,
         password: str,
-        config_manager_password: str,
+        config_manager_password: str | Callable[[], str],
     ) -> None:
         super().__init__(host, username, password, config_manager_password)
         self.initial_password = password
 
     def set_config_manager_password(self) -> requests.Response:
         """Set the service-managed password."""
+        password = self.config_manager_password
         response = self.patch(
             path="AccountService/Accounts/1",
-            payload={"Password": self.config_manager_password},
+            payload={"Password": password},
         )
         response.raise_for_status()
-        self.password = self.config_manager_password
+        self.password = password
         return response
 
     def factory_reset(self) -> requests.Response:

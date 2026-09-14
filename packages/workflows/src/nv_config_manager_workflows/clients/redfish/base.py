@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from typing import TypedDict
 
 import requests
@@ -34,7 +35,7 @@ class RedfishClientSettings(TypedDict):
 
     username: str
     password: str
-    config_manager_password: str
+    config_manager_password: str | Callable[[], str]
 
 
 class RedfishConnection:
@@ -45,13 +46,19 @@ class RedfishConnection:
         host: RedfishHost,
         username: str,
         password: str,
-        config_manager_password: str,
+        config_manager_password: str | Callable[[], str],
     ) -> None:
         self.host = host
         self.url = f"https://{host.address}:{host.port}/redfish/v1"
         self.username = username
         self.password = password
-        self.config_manager_password = config_manager_password
+        self._config_manager_password = config_manager_password
+
+    @property
+    def config_manager_password(self) -> str:
+        """Resolve the rotation password when it is needed."""
+        password = self._config_manager_password
+        return password if isinstance(password, str) else password()
 
     def get_session(self) -> requests.Session:
         """Return an authenticated Redfish HTTP session."""
