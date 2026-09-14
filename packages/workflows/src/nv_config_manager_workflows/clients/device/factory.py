@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol, assert_never
+from typing import Protocol
 
 from nv_config_manager_dcim.workflow_models import Platform
 
@@ -56,5 +56,5 @@ def connection_class_for_platform(platform: Platform, *, mock: bool) -> DeviceCo
             raise NotImplementedError(
                 f"No NetworkConnection for platform {platform}; use UFMClient"
             )
-        case _ as unreachable:
-            assert_never(unreachable)
+        case _:
+            raise NotImplementedError(f"No NetworkConnection for platform {platform}")
