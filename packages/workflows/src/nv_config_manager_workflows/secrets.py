@@ -22,12 +22,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from nv_config_manager_workflows.log import AUTH_LOG_CATEGORY, get_logger
+from nv_config_manager_workflows.log import WorkflowLogCategory, get_logger
 
 type CredentialSection = Mapping[str, str]
 type CredentialConfig = Mapping[str, CredentialSection]
 
-logger = get_logger(__name__, category=AUTH_LOG_CATEGORY)
+logger = get_logger(__name__, category=WorkflowLogCategory.AUTH)
 
 
 def get_site_slug(site: str) -> str:

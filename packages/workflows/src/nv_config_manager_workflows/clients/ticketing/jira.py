@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import logging
 import types
 from typing import Any, Self, TypedDict, cast
 
@@ -27,8 +26,9 @@ from nv_config_manager_workflows.clients.ticketing.base import (
     TicketingSettings,
 )
 from nv_config_manager_workflows.clients.ticketing.registry import TICKETING_PROVIDERS
+from nv_config_manager_workflows.log import WorkflowLogCategory, get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, category=WorkflowLogCategory.TEMPORAL_ACTIVITY)
 
 
 class JiraSettings(TypedDict):

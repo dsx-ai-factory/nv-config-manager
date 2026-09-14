@@ -28,16 +28,27 @@ test in the host asserts the two agree, which is what keeps them from drifting.
 
 from __future__ import annotations
 
+from enum import StrEnum
 import logging
 
-WORKFLOW_LOG_CATEGORY = "temporal.workflow"
-AUTH_LOG_CATEGORY = "auth"
+class WorkflowLogCategory(StrEnum):
+    """Standard log category labels for structured logging."""
+
+    REDIS = "redis"
+    RENDER = "render"
+    CONFIG_STORE = "config_store"
+    TEMPORAL = "temporal"
+    TEMPORAL_WORKFLOW = "temporal.workflow"
+    TEMPORAL_ACTIVITY = "temporal.activity"
+    AUTH = "auth"
+    NATS = "nats"
+
 
 
 def get_logger(
-    name: str, category: str = WORKFLOW_LOG_CATEGORY
+    name: str, category: WorkflowLogCategory
 ) -> logging.LoggerAdapter[logging.Logger]:
-    """Return a logger whose records carry the workflow log category.
+    """Return a logger whose records carry the requested log category.
 
     Args:
         name: Logger name, conventionally the calling module's ``__name__``.

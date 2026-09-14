@@ -23,9 +23,10 @@ from datetime import timedelta
 from types import TracebackType
 from typing import Any, TypedDict, cast
 
+from nv_config_manager_workflows.log import WorkflowLogCategory, get_logger
 import redis.asyncio as redis_asyncio
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, category=WorkflowLogCategory.REDIS)
 
 # Pickle protocol markers (first two bytes of any pickle payload)
 _PICKLE_MARKERS = {b"\x80\x02", b"\x80\x03", b"\x80\x04", b"\x80\x05"}

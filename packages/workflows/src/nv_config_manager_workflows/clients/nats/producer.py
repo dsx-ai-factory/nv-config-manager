@@ -14,11 +14,10 @@
 # limitations under the License.
 """NATS JetStream producer."""
 
-import logging
-
 from nv_config_manager_workflows.clients.nats.base import NatsClient
+from nv_config_manager_workflows.log import WorkflowLogCategory, get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, category=WorkflowLogCategory.NATS)
 
 
 class NatsProducer(NatsClient):

@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import logging
 import ssl
 from typing import Any, TypedDict
 
@@ -26,7 +25,9 @@ import nats.js.errors
 from nats.aio.client import Client
 from nats.js.api import StreamInfo
 
-logger = logging.getLogger(__name__)
+from nv_config_manager_workflows.log import WorkflowLogCategory, get_logger
+
+logger = get_logger(__name__, category=WorkflowLogCategory.NATS)
 
 DEFAULT_NATS_API_PREFIX = "$JS.API"
 

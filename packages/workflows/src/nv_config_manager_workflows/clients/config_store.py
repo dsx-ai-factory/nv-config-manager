@@ -27,6 +27,7 @@ from urllib.parse import quote
 
 import aiohttp
 from aiohttp_retry import ExponentialRetry
+from nv_config_manager_workflows.log import WorkflowLogCategory, get_logger
 from pydantic import BaseModel
 
 from nv_config_manager_workflows.clients._http import (
@@ -85,7 +86,7 @@ class ConfigStoreClient(_WhoamiViaRetryClientMixin):
     This client interfaces with the nv-config-manager-config-store-service API using async/await.
     """
 
-    logger: logging.Logger = logging.getLogger(__name__)
+    logger = get_logger(__name__, category=WorkflowLogCategory.CONFIG_STORE)
 
     def __init__(
         self,

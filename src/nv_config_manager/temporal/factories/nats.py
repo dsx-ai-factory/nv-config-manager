@@ -59,14 +59,14 @@ def nats_consumer_settings(
     """Translate INI settings for the service-owned durable NATS consumer."""
     resolved = resolve_config(config)
     nats_config = resolved["nats"]
-    return {
+    return NatsConsumerSettings(
         **nats_client_settings(resolved),
-        "durable_name": nats_config.get(
+        durable_name=nats_config.get(
             "archive_consumer_name",
             f"nv-config-manager-{queue_suffix}",
         ),
-        "deliver_subject": nats_config.get(
+        deliver_subject=nats_config.get(
             "archive_deliver_subject",
             "nv-config-manager.archive.delivery",
         ),
-    }
+    )

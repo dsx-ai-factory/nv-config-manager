@@ -24,10 +24,27 @@ import logging
 
 import pytest
 
+from nv_config_manager_workflows.clients.nats.base import logger as nats_logger
+from nv_config_manager_workflows.clients.nats.producer import logger as producer_logger
+from nv_config_manager_workflows.clients.ticketing.jira import logger as jira_logger
 from nv_config_manager_workflows.log import WORKFLOW_LOG_CATEGORY, get_logger
 from nv_config_manager_workflows.stage import StageMixin
 
 STAGE_LOGGER_NAME = "nv_config_manager_workflows.stage.mixin"
+
+
+@pytest.mark.parametrize(
+    ("logger", "category"),
+    [(nats_logger, "nats"), (producer_logger, "nats"), (jira_logger, "temporal.activity")],
+)
+def test_client_categories_without_service_configuration(logger, category, caplog):
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        logger.info("client event", extra={"operation": "test"})
+
+    record = caplog.records[-1]
+    assert record.__dict__["category"] == category
+    assert record.__dict__["operation"] == "test"
+    assert record.name == logger.name
 
 
 def test_records_carry_the_workflow_category(caplog: pytest.LogCaptureFixture) -> None:

@@ -29,7 +29,10 @@ from nv_config_manager_workflows.clients._http import (
     _WhoamiViaRetryClientMixin,
 )
 
-logger = logging.getLogger(__name__)
+from nv_config_manager_workflows.log import WorkflowLogCategory, get_logger
+
+
+logger = get_logger(__name__, category=WorkflowLogCategory.RENDER)
 
 
 class FileCommit(BaseModel):
