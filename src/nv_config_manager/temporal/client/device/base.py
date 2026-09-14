@@ -32,17 +32,6 @@ from nv_config_manager_workflows.clients.device.base import (
 from nv_config_manager_workflows.clients.device.settings import DeviceConnectionSettings
 
 
-def legacy_settings(
-    username: str | None,
-    password: str | None,
-    site: str | None,
-) -> DeviceConnectionSettings:
-    """Resolve the legacy constructor's credentials from service configuration."""
-    return device_connection_settings(
-        load_config(), username=username, password=password, site=site, mock=False
-    )
-
-
 class NetworkConnection(WorkflowNetworkConnection):
     """Resolve service settings before cooperative vendor initialization.
 
@@ -60,11 +49,12 @@ class NetworkConnection(WorkflowNetworkConnection):
         password: str | None = None,
         *,
         site: str | None = None,
+        config: ConfigParser | None = None,
     ) -> None:
         resolved_port = self.DEFAULT_PORT if port is None else port
         if resolved_port is None:
             raise TypeError("NetworkConnection requires a port")
-        settings = legacy_settings(username, password, site)
+        settings = device_connection_settings(config, username=username, password=password, site=site, mock=False)
         super().__init__(host, resolved_port, settings=settings)
 
     @staticmethod

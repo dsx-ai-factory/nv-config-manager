@@ -51,4 +51,4 @@ def from_device_data(
         workflow_device.MockNetworkConnection: MockNetworkConnection,
     }
     connection_cls = adapters[implementation]
-    return connection_cls(device_data.host, site=device_data.site)
+    return connection_cls(device_data.host, site=device_data.site, config=resolved)

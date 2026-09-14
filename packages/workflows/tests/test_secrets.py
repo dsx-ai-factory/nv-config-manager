@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import builtins
+import logging
 
 import pytest
 
@@ -123,6 +124,8 @@ def test_resolution_has_no_file_configuration_or_secret_logging(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.DEBUG, logger=secrets_module.__name__)
+
     def fail_open(*args: object, **kwargs: object) -> None:
         raise AssertionError("credential resolution must not read files")
 
@@ -139,6 +142,10 @@ def test_resolution_has_no_file_configuration_or_secret_logging(
             "Alpha Site",
         )
         == "site-password"
+    )
+    assert any(
+        record.name == secrets_module.__name__ and record.levelno == logging.DEBUG
+        for record in caplog.records
     )
     assert "site-password" not in caplog.text
     assert "global-password" not in caplog.text

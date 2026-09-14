@@ -90,4 +90,8 @@ tls_client_key_path = /etc/tls-client/tls.key
         assert settings["target"] == "https://config-store.config-manager.example.com"
         assert settings["file_type"] == ConfigStoreType.INTENDED
         assert settings["verify"] is True
+        assert settings["client_certificate"] == (
+            "/etc/tls-client/tls.crt",
+            "/etc/tls-client/tls.key",
+        )
         assert client == mock_client_instance

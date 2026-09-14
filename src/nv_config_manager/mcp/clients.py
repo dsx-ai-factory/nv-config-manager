@@ -150,13 +150,20 @@ async def fetch_dhcp_config(settings: MCPSettings, ip_version: int) -> dict[str,
     return await _bounded_client_call(call, settings.max_response_bytes)
 
 
+def _parse_file_type(file_type: str) -> ConfigStoreType:
+    try:
+        return ConfigStoreType(file_type)
+    except ValueError as exc:
+        raise MCPClientError(str(exc)) from exc
+
+
 async def fetch_device_configs(
     settings: MCPSettings,
     device_id: str,
     file_type: str | None = "intended",
 ) -> dict[str, Any]:
     """Return a bounded response containing a list of Config Store files."""
-    resolved_file_type = ConfigStoreType(file_type) if file_type is not None else None
+    resolved_file_type = _parse_file_type(file_type) if file_type is not None else None
 
     async def call() -> list[dict[str, object]]:
         async with config_store_client(
@@ -176,7 +183,7 @@ async def fetch_device_config(
     version: int | None = None,
 ) -> dict[str, Any]:
     """Get a bounded Config Store file."""
-    resolved_file_type = ConfigStoreType(file_type)
+    resolved_file_type = _parse_file_type(file_type)
 
     async def call() -> Any:
         async with config_store_client(settings, resolved_file_type) as client:
@@ -198,7 +205,7 @@ async def fetch_config_versions(
     limit: int = 100,
 ) -> dict[str, Any]:
     """List bounded Config Store versions."""
-    resolved_file_type = ConfigStoreType(file_type)
+    resolved_file_type = _parse_file_type(file_type)
 
     async def call() -> Any:
         async with config_store_client(settings, resolved_file_type) as client:
@@ -221,7 +228,7 @@ async def fetch_config_diff(
     file_type: str = "intended",
 ) -> dict[str, Any]:
     """Get a bounded Config Store diff."""
-    resolved_file_type = ConfigStoreType(file_type)
+    resolved_file_type = _parse_file_type(file_type)
 
     async def call() -> Any:
         async with config_store_client(settings, resolved_file_type) as client:

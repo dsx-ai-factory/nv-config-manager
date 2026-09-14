@@ -155,7 +155,7 @@ def test_shared_constructor_resolves_credentials_and_initializes_vendor_once(nam
         ) as base_init,
     ):
         connection = getattr(legacy, name)("host", 1234, "user", "password", site="Site A")
-        resolve.assert_called_once_with("user", "password", "Site A")
+        resolve.assert_called_once_with("user", "password", "Site A", config=None)
         assert vendor_init.call_count == base_init.call_count == 1
         assert connection._username == "resolved-user"
         assert connection._passwords_to_try == ["resolved-password"]
@@ -191,4 +191,4 @@ def test_factory_wrapper_uses_injected_config_and_factory_constructor():
             legacy.NetworkConnection.from_device_data(device, config=config)
             is constructor.return_value
         )
-        constructor.assert_called_once_with(device.host, site="Site A")
+        constructor.assert_called_once_with(device.host, site="Site A", config=config)

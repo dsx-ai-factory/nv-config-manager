@@ -132,11 +132,12 @@ def test_from_device_data_rejects_ufm_platform(mock_base_load):
 )
 def test_factory_selects_vendor_adapter(platform, constructor_name):
     device = _CUMULUS_DEVICE.model_copy(update={"platform": platform})
+    config = _mock_config()
     with patch(
         f"nv_config_manager.temporal.client.device.factory.{constructor_name}"
     ) as constructor:
-        assert from_device_data(device, config=_mock_config()) is constructor.return_value
-    constructor.assert_called_once_with(device.host, site=device.site)
+        assert from_device_data(device, config=config) is constructor.return_value
+    constructor.assert_called_once_with(device.host, site=device.site, config=config)
 
 
 def test_legacy_wrapper_delegates_to_factory():
@@ -147,6 +148,7 @@ def test_legacy_wrapper_delegates_to_factory():
 
 def test_factory_uses_shared_selectors_result():
     """The shared selector owns platform policy; the service only adapts its result."""
+    config = _mock_config()
     with (
         patch(
             "nv_config_manager.temporal.client.device.factory.connection_class_for_platform",
@@ -154,20 +156,51 @@ def test_factory_uses_shared_selectors_result():
         ) as select,
         patch("nv_config_manager.temporal.client.device.factory.JuniperConnection") as constructor,
     ):
-        assert from_device_data(_CUMULUS_DEVICE, config=_mock_config()) is constructor.return_value
+        assert from_device_data(_CUMULUS_DEVICE, config=config) is constructor.return_value
     select.assert_called_once_with(Platform.CUMULUS_LINUX, mock=False)
-    constructor.assert_called_once_with(_CUMULUS_DEVICE.host, site=_CUMULUS_DEVICE.site)
+    constructor.assert_called_once_with(
+        _CUMULUS_DEVICE.host, site=_CUMULUS_DEVICE.site, config=config
+    )
 
 
 def test_factory_loads_config_when_not_injected():
+    config = _mock_config(mock=True)
+    config.set("device", "password", "configured-password")
     with (
         patch(
             "nv_config_manager.temporal.client.device.factory.load_config",
-            return_value=_mock_config(mock=True),
+            return_value=config,
         ) as load,
         patch(
-            "nv_config_manager.temporal.client.device.factory.MockNetworkConnection"
-        ) as constructor,
+            "nv_config_manager.temporal.client.device.base.load_config",
+            side_effect=AssertionError("Configuration must only be loaded once"),
+        ),
     ):
-        assert from_device_data(_CUMULUS_DEVICE) is constructor.return_value
+        connection = from_device_data(_CUMULUS_DEVICE)
     load.assert_called_once_with()
+    assert isinstance(connection, MockNetworkConnection)
+    assert connection._username == "admin"
+    assert connection._passwords_to_try == ["configured-password"]
+    connection.close()
+
+
+@pytest.mark.parametrize("mock", [False, True])
+def test_factory_uses_injected_credentials_without_loading_global_config(mock):
+    config = _mock_config(mock=mock)
+    config.set("device", "username", "injected-user")
+    config.set("device", "password", "injected-password")
+    with (
+        patch(
+            "nv_config_manager.temporal.client.device.factory.load_config",
+            side_effect=AssertionError("Configuration was injected"),
+        ),
+        patch(
+            "nv_config_manager.temporal.client.device.base.load_config",
+            side_effect=AssertionError("Configuration was injected"),
+        ),
+    ):
+        connection = from_device_data(_CUMULUS_DEVICE, config=config)
+    assert isinstance(connection, MockNetworkConnection if mock else CumulusConnection)
+    assert connection._username == "injected-user"
+    assert connection._passwords_to_try == ["injected-password"]
+    connection.close()
