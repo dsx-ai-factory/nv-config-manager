@@ -23,12 +23,13 @@
   - pyproject.toml
   - uv.lock
 # =============================================================================
-# Build Stage - Merge Requests
+# Build Stage - Default Branch And Release Tags
 # =============================================================================
 
 # Template for native Docker builds (no QEMU emulation)
 .docker-build-native-template:
   stage: build
+  timeout: 2h
   tags:
     - dca
     - linux/amd64
@@ -67,144 +68,6 @@
       template_engine_base="${template_engine_base/-rc/rc}"
       export TEMPLATE_ENGINE_VERSION="${template_engine_base}+g${CI_COMMIT_SHORT_SHA}"
       echo "Template engine version: ${TEMPLATE_ENGINE_VERSION}"
-
-# Template for QEMU-emulated cross-arch builds (kept for reference/future use)
-.docker-build-qemu-template:
-  stage: build
-  tags:
-    - dca
-    - linux/amd64
-    - docker
-  needs: []
-  image: $NVCM_CI_IMAGE_DOCKER
-  services:
-    - name: $NVCM_CI_IMAGE_DOCKER_DIND
-      alias: docker
-      command: ["--tls=false"]
-  variables:
-    DOCKER_HOST: tcp://docker:2375/
-    DOCKER_TLS_CERTDIR: ""
-    DOCKER_DRIVER: overlay2
-  before_script:
-    - apk add -q make bash git
-    - echo "Testing Docker connectivity..."
-    - docker info
-    - docker version
-    - echo "Setting up QEMU for cross-arch builds..."
-    - docker run --rm --privileged tonistiigi/binfmt --install all
-    - |
-      image_target_exports="$(bash .gitlab/ci/scripts/image_target_env.sh)" || exit $?
-      eval "$image_target_exports"
-    - image_token="$(printenv "$NVCM_IMAGE_TOKEN_VAR" || true)"
-    - test -n "$image_token" || (echo "Image target ${NVCM_IMAGE_TARGET_NAME} references ${NVCM_IMAGE_TOKEN_VAR}, but it is empty or unset" && exit 1)
-    - printf '%s' "$image_token" | docker login -u "$NVCM_IMAGE_USERNAME" --password-stdin "$NVCM_IMAGE_REGISTRY"
-
-# Build all images natively on amd64 runner (MR)
-docker-build-mr-amd64:
-  extends: .docker-build-native-template
-  tags:
-    - dca
-    - linux/amd64
-    - docker
-  rules:
-    # Force image builds for scanner validation on branch or MR pipelines
-    - if: $FORCE_PULSE_SCAN == "true" && ($CI_PIPELINE_SOURCE == "merge_request_event" || ($CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH))
-      when: always
-    # Auto-run when artifact paths change
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: *artifact-paths
-      when: always
-    # Also available as manual trigger (for when change detection fails)
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      when: manual
-      allow_failure: true
-    - when: never
-  script:
-    - echo "Building all images natively on amd64..."
-    - make docker-buildx-setup-native
-    - make docker-build-all PLATFORM=linux/amd64 VERSION=$CI_COMMIT_SHORT_SHA-amd64 REGISTRY=${NVCM_IMAGE_REPOSITORY} TEMPLATE_ENGINE_VERSION=$TEMPLATE_ENGINE_VERSION NAUTOBOT_APP_OVERLAYS_VERSION=${CI_COMMIT_TAG:-$TEMPLATE_ENGINE_VERSION} NAUTOBOT_NV_CONFIG_MANAGER_VERSION=${CI_COMMIT_TAG:-$TEMPLATE_ENGINE_VERSION}
-    - echo "All amd64 images pushed to configured registry"
-
-# Build all images natively on arm64 runner (MR)
-docker-build-mr-arm64:
-  extends: .docker-build-native-template
-  tags:
-    - dca
-    - linux/arm64
-    - docker
-  rules:
-    # Force image builds for scanner validation on branch or MR pipelines
-    - if: $FORCE_PULSE_SCAN == "true" && ($CI_PIPELINE_SOURCE == "merge_request_event" || ($CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH))
-      when: always
-    # Auto-run when artifact paths change
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: *artifact-paths
-      when: always
-    # Also available as manual trigger (for when change detection fails)
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      when: manual
-      allow_failure: true
-    - when: never
-  script:
-    - echo "Building all images natively on arm64..."
-    - make docker-buildx-setup-native
-    - make docker-build-all PLATFORM=linux/arm64 VERSION=$CI_COMMIT_SHORT_SHA-arm64 REGISTRY=${NVCM_IMAGE_REPOSITORY} TEMPLATE_ENGINE_VERSION=$TEMPLATE_ENGINE_VERSION NAUTOBOT_APP_OVERLAYS_VERSION=${CI_COMMIT_TAG:-$TEMPLATE_ENGINE_VERSION} NAUTOBOT_NV_CONFIG_MANAGER_VERSION=${CI_COMMIT_TAG:-$TEMPLATE_ENGINE_VERSION}
-    - echo "All arm64 images pushed to configured registry"
-
-# Create multi-arch manifests from arch-specific images (MR)
-docker-manifest-mr:
-  stage: build
-  tags:
-    - dca
-    - linux/amd64
-    - docker
-  needs:
-    - job: docker-build-mr-amd64
-      optional: false
-    - job: docker-build-mr-arm64
-      optional: false
-  image: $NVCM_CI_IMAGE_DOCKER
-  services:
-    - name: $NVCM_CI_IMAGE_DOCKER_DIND
-      alias: docker
-      command: ["--tls=false"]
-  rules:
-    # Force manifest creation for scanner validation on branch or MR pipelines
-    - if: $FORCE_PULSE_SCAN == "true" && ($CI_PIPELINE_SOURCE == "merge_request_event" || ($CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH))
-      when: on_success
-    # Auto-run when artifact paths change and builds succeed
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: *artifact-paths
-      when: on_success
-    # Also available as manual trigger (for when change detection fails)
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      when: manual
-      allow_failure: true
-    - when: never
-  variables:
-    DOCKER_HOST: tcp://docker:2375/
-    DOCKER_TLS_CERTDIR: ""
-    DOCKER_DRIVER: overlay2
-  before_script:
-    - apk add -q make bash git
-    - |
-      image_target_exports="$(bash .gitlab/ci/scripts/image_target_env.sh)" || exit $?
-      eval "$image_target_exports"
-    - image_token="$(printenv "$NVCM_IMAGE_TOKEN_VAR" || true)"
-    - test -n "$image_token" || (echo "Image target ${NVCM_IMAGE_TARGET_NAME} references ${NVCM_IMAGE_TOKEN_VAR}, but it is empty or unset" && exit 1)
-    - printf '%s' "$image_token" | docker login -u "$NVCM_IMAGE_USERNAME" --password-stdin "$NVCM_IMAGE_REGISTRY"
-    - docker buildx create --use --name manifest-builder --driver docker-container --bootstrap 2>/dev/null || docker buildx use manifest-builder
-  script:
-    - echo "Creating multi-arch manifests..."
-    - make docker-manifest-create VERSION_BASE=$CI_COMMIT_SHORT_SHA VERSION_FINAL=$CI_COMMIT_SHORT_SHA REGISTRY=${NVCM_IMAGE_REPOSITORY}
-    - echo "✅ All multi-arch manifests created (amd64 + arm64)"
-
-# =============================================================================
-# Test Stage - Merge Requests
-# =============================================================================
-
-# Python tests for merge requests
-# =============================================================================
 
 # Build all images natively on amd64 runner (default branch and release tags)
 docker-build-main-amd64:
@@ -265,6 +128,7 @@ docker-build-main-arm64:
 # Create multi-arch manifests from arch-specific images (default branch and release tags)
 docker-manifest-main:
   stage: build
+  timeout: 30m
   tags:
     - dca
     - linux/amd64

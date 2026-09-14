@@ -180,6 +180,29 @@ force-pushing it.
 
 ## How to Contribute
 
+### Discuss Changes First
+
+Before implementing a feature, behavior change, or substantial refactor, open or
+find an issue and agree on the approach with a maintainer. Link that issue in the
+pull request. Small typo fixes and straightforward bug fixes may go directly to
+a pull request with a clear problem description. Report vulnerabilities privately
+using [SECURITY.md](SECURITY.md).
+
+Maintainers assign issue priority based on user impact, security, regressions,
+release dependencies, and available capacity. Contributors can influence priority
+by adding reproducible examples, affected versions, impact, and offers to help
+to the issue. Explain disagreements in the issue so the rationale stays public;
+priority does not guarantee a delivery date.
+
+### AI-Assisted Contributions
+
+AI-assisted contributions follow the same review, testing, licensing, and DCO
+requirements as other contributions. Contributors remain responsible for every
+submitted line: verify behavior, provenance, and generated explanations. Disclose
+substantial AI assistance in the pull request and describe human review and tests.
+Do not submit confidential data, credentials, or third-party code to a tool unless
+you have permission to do so. Follow [AGENTS.md](AGENTS.md) when using coding agents.
+
 ### Reporting Bugs
 
 - Use the GitHub issue tracker to report bugs

@@ -38,6 +38,14 @@ from nv_config_manager.common.log import (
     get_logger,
 )
 from nv_config_manager.dcim import DCIMClient, dcim_client_session
+from nv_config_manager.dhcp.heartbeat import (
+    DEFAULT_HEARTBEAT_FILE,
+    DEFAULT_MAX_AGE_SECONDS,
+    age_is_fresh,
+    heartbeat_age_seconds,
+    record_successful_reconciliation,
+    touch_heartbeat,
+)
 from nv_config_manager.dhcp.kea import KeaClient, KeaException
 from nv_config_manager.dhcp.kea_dhcp_confgen import generate_config, inject_lease_db_config
 from nv_config_manager.dhcp.metrics import (
@@ -68,6 +76,23 @@ logger = get_logger(__name__, category=LogCategory.DHCP)
 # and the Prometheus ingress allow-list in network-policy.yaml;
 # test_confgen_metrics_port_is_scrapeable fails if they drift apart.
 CONFGEN_METRICS_PORT = 9091
+
+# Bounded timeouts for the reconcile loop's dependency calls so a hung Redis or
+# Kea request can never suspend the event loop indefinitely (which would freeze
+# the heartbeat). On timeout the call raises TimeoutError, which the loop treats
+# as a recoverable error: it is logged/counted but the heartbeat still advances.
+# Overridable via env for operational tuning; read once at import.
+REDIS_OP_TIMEOUT_SECONDS = float(os.environ.get("CONFIG_SYNC_REDIS_TIMEOUT", "10"))
+KEA_OP_TIMEOUT_SECONDS = float(os.environ.get("CONFIG_SYNC_KEA_TIMEOUT", "15"))
+
+# The startup apply retries a fixed in-memory payload, so it must be bounded: a
+# config KEA deterministically rejects (config-set returns non-zero, surfacing
+# as KeaException) fails identically on every attempt, and an unbounded retry
+# would spin at 1Hz forever without ever re-reading Redis -- so even publishing
+# a corrected config could not recover it. On exhaustion the loop hands off to
+# the monitoring loop, which re-reads Redis every interval and therefore does
+# pick up a correction. Sized to cover a Kea container that is slow to start.
+STARTUP_APPLY_ATTEMPTS = int(os.environ.get("CONFIG_SYNC_STARTUP_APPLY_ATTEMPTS", "30"))
 
 # Bound + redact dependency-error text so a Redis/PostgreSQL exception that
 # embeds a DSN or password= assignment cannot leak credentials into logs.
@@ -438,38 +463,62 @@ def refresh_kea_configuration(
     asyncio.run(_refresh_loop_async(ip_version, check, refresh_interval))
 
 
+async def _load_kea_config_with_timeout(
+    redis_client: RedisClient, ip_version: int
+) -> dict[str, Any] | None:
+    """Load the cached Kea config from Redis, bounded so a hung call cannot wedge the loop."""
+    return await asyncio.wait_for(
+        redis_client.load_kea_config(ip_version), timeout=REDIS_OP_TIMEOUT_SECONDS
+    )
+
+
 async def _apply_and_verify_kea_config(
     kea_client: KeaClient,
     config: dict[str, Any],
     ip_version: int,
-) -> str | None:
-    """Apply the desired configuration to KEA and return its verified hash.
+) -> tuple[str | None, bool]:
+    """Apply the desired configuration to KEA and return its hash and verification.
 
     KEA (2.4+) returns the SHA-256 hash of the effective configuration from
     ``config-set``. Before treating the sync as successful, the running
     configuration is confirmed against that hash via ``config-hash-get`` so a
     configuration that was rolled back or only partially applied surfaces as an
-    error rather than being silently trusted. The verified effective hash is
-    returned to track for subsequent drift detection.
+    error rather than being silently trusted.
+
+    Returns ``(effective_hash, verified)``. ``verified`` is False only when the
+    verification read itself failed, which is distinct from a hash of ``None``:
+    KEA versions without ``config-hash-get`` support report no digest at all, so
+    they verify trivially and drift detection degrades to a no-op for them.
+
+    Both Kea calls are bounded so a hung control channel cannot freeze the
+    heartbeat (and therefore the exec livenessProbe).
     """
     applied_hash = await _track_sync_operation(
-        SyncOperation.CONFIG_SET, ip_version, kea_client.set_config(config, version=ip_version)
+        SyncOperation.CONFIG_SET,
+        ip_version,
+        asyncio.wait_for(
+            kea_client.set_config(config, version=ip_version), timeout=KEA_OP_TIMEOUT_SECONDS
+        ),
     )
     try:
-        effective_hash = await kea_client.get_config_hash(version=ip_version)
+        effective_hash = await asyncio.wait_for(
+            kea_client.get_config_hash(version=ip_version), timeout=KEA_OP_TIMEOUT_SECONDS
+        )
     except (KeaException, TimeoutError) as exc:
         # config-set already succeeded, so the desired config is applied and
         # persisted -- only the verification read failed. get_config_hash
         # re-raises TimeoutError (it does not wrap it in KeaException), and the
         # refresh loop already swallows both. Aborting here would crash-loop
-        # the sidecar over a config that is actually applied. Returning None
-        # leaves the next drift check to reapply and re-verify.
+        # the sidecar over a config that is actually applied, and reapplying it
+        # on a retry would hammer Kea for a config it is already running, so the
+        # apply stands as unverified: the caller must not report a successful
+        # reconciliation, and the next drift check reapplies and re-verifies.
         _record_sync_failure(SyncOperation.HASH_GET, ip_version, exc)
         logger.warning(
             "Could not verify the applied KEA configuration hash: %s",
             _safe_error_text(exc),
         )
-        return None
+        return None, False
     if applied_hash is not None and effective_hash != applied_hash:
         # KEA did not keep what config-set reported, which is drift. Counted
         # here because this raise bypasses the tracked-operation wrappers: both
@@ -486,13 +535,14 @@ async def _apply_and_verify_kea_config(
             f"the hash returned by config-set ({applied_hash}); "
             "the configuration was not applied cleanly."
         )
-    return effective_hash
+    return effective_hash, True
 
 
 async def _sync_kea_configuration_async(
     ip_version: int,
     refresh_interval: int,
     debug: bool,
+    heartbeat_file: str = DEFAULT_HEARTBEAT_FILE,
 ) -> None:
     """Async implementation of sync configuration."""
     # Connect to the KEA server running in the same pod
@@ -501,16 +551,26 @@ async def _sync_kea_configuration_async(
     redis_client = RedisClient.from_config(ini_config)
 
     try:
-        # Startup gets the monitoring loop's contract: an unreachable Redis is
-        # recoverable, so it is counted and retried rather than allowed to exit
-        # the sidecar into CrashLoopBackOff over an outage a restart cannot fix.
+        # Seed the heartbeat before the first Redis read and advance it on every
+        # poll below. Waiting for config to appear in Redis is legitimate
+        # progress, not a wedged loop, so the probe must not fail during it --
+        # otherwise a cold start with no published config restart-loops the
+        # sidecar once the probe's grace period expires.
+        touch_heartbeat(heartbeat_file)
         config = None
         while config is None:
             try:
                 config = await _track_sync_operation(
-                    SyncOperation.REDIS_READ, ip_version, redis_client.load_kea_config(ip_version)
+                    SyncOperation.REDIS_READ,
+                    ip_version,
+                    _load_kea_config_with_timeout(redis_client, ip_version),
                 )
             except Exception as exc:
+                # Startup follows the same contract as the monitoring loop: an
+                # unreachable or slow Redis (including the bounded-timeout
+                # TimeoutError) is recoverable. Letting it propagate would exit
+                # the sidecar into CrashLoopBackOff during exactly the kind of
+                # dependency outage this design is meant to ride out.
                 DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
                 logger.error(
                     "Error loading the initial KEA config from Redis: %s",
@@ -522,6 +582,7 @@ async def _sync_kea_configuration_async(
                     f"Waiting for KEA DHCP{ip_version} Configuration to be available in Redis...",
                     ip_version,
                 )
+                touch_heartbeat(heartbeat_file)
                 await asyncio.sleep(1)
 
         # Inject Lease DB details after loading from Redis
@@ -529,11 +590,9 @@ async def _sync_kea_configuration_async(
         # PostgreSQL dependency, so failures here are labeled ``postgres``.
         config = _inject_lease_db_config_tracked(config, ip_version)
 
-        # Run once. The startup path always applies the desired Redis config and
-        # captures a fresh effective hash, which keeps a config-sync restart safe.
-        # Kea shares this pod and may still be binding its control socket, so a
-        # connection error or timeout here is retried for the same reason the
-        # Redis read above is.
+        # Apply once Redis has a config. Kea in this pod may still be coming
+        # up, so a connection error or bounded timeout must not exit the
+        # sidecar -- same recoverable contract as the Redis wait above.
         _log_sync_state(
             SyncState.APPLYING,
             f"Setting initial KEA DHCPv{ip_version} Configuration from Redis.",
@@ -541,32 +600,86 @@ async def _sync_kea_configuration_async(
             desired_hash=_config_fingerprint(config),
         )
         expected_hash: str | None = None
-        while True:
+        verified = False
+        applied_config: dict[str, Any] | None = None
+        for attempt in range(1, STARTUP_APPLY_ATTEMPTS + 1):
             try:
-                expected_hash = await _apply_and_verify_kea_config(kea_client, config, ip_version)
+                expected_hash, verified = await _apply_and_verify_kea_config(
+                    kea_client, config, ip_version
+                )
+                applied_config = config
                 break
             except Exception as exc:
                 DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
                 logger.error(
-                    "Error applying the initial KEA config: %s",
+                    "Error applying the initial KEA config (attempt %s/%s): %s",
+                    attempt,
+                    STARTUP_APPLY_ATTEMPTS,
                     _safe_error_text(exc),
                 )
+                touch_heartbeat(heartbeat_file)
                 await asyncio.sleep(1)
-        if expected_hash is not None:
-            _mark_verified_sync(ip_version, expected_hash, recovered=False)
+
+        if applied_config is None:
+            # Attempts exhausted: retrying the same payload is not going to
+            # start working. Leaving applied_config None tells the monitoring
+            # loop nothing is applied yet, so it re-reads Redis every interval
+            # and reapplies -- a corrected config self-heals without a restart,
+            # at the refresh interval instead of 1Hz.
+            logger.error(
+                "Giving up on the initial KEA DHCPv%s apply after %s attempts. "
+                "Handing off to the monitoring loop; this pod stays unready "
+                "until an applicable configuration is published.",
+                ip_version,
+                STARTUP_APPLY_ATTEMPTS,
+            )
+            if not refresh_interval:
+                # Run-once mode has no monitoring loop to hand off to, so
+                # falling through would exit 0 and report success for a
+                # configuration that was never applied.
+                raise KeaException(
+                    f"Failed to apply the initial KEA DHCPv{ip_version} configuration "
+                    f"after {STARTUP_APPLY_ATTEMPTS} attempts."
+                )
+        if verified:
+            # An apply whose verification read failed is not a successful
+            # reconciliation: the config is applied but unconfirmed, so the
+            # marker waits for the monitoring loop to re-verify it.
+            record_successful_reconciliation()
+            if expected_hash is not None:
+                # A KEA without config-hash-get verifies trivially with no
+                # digest, so there is no running_hash to publish; the gauge
+                # waits for a KEA that reports one.
+                _mark_verified_sync(ip_version, expected_hash, recovered=False)
+        # Seed the heartbeat immediately so the liveness probe has a fresh
+        # marker before the first monitoring iteration completes.
+        touch_heartbeat(heartbeat_file)
 
         if refresh_interval:
             logger.info(
                 f"Monitoring KEA DHCPv{ip_version} Configuration for changes every {refresh_interval}s, "
                 "only updates will be logged..."
             )
-            previous_config = config
+            # None when the startup apply never succeeded: there is no applied
+            # config to use as a drift baseline, so the first published config
+            # the loop reads counts as a change and gets applied.
+            previous_config = applied_config
             while True:
+                # Reading the desired config is separate from reconciling it. The
+                # drift check below needs only previous_config/expected_hash, both
+                # held in memory, so an unreachable Redis must not skip it: a Kea
+                # container recycle during a Redis outage would otherwise leave
+                # this pod on bootstrap config -- unready and out of the external
+                # Service -- for the whole outage, with a valid desired config
+                # sitting right here.
+                # None means Redis did not hand us a desired config this
+                # iteration (absent, unreachable, or timed out).
+                published_config: dict[str, Any] | None = None
                 try:
                     new_config = await _track_sync_operation(
                         SyncOperation.REDIS_READ,
                         ip_version,
-                        redis_client.load_kea_config(ip_version),
+                        _load_kea_config_with_timeout(redis_client, ip_version),
                     )
                     if new_config is None:
                         _log_sync_state(
@@ -575,11 +688,19 @@ async def _sync_kea_configuration_async(
                             "waiting for configuration to be available...",
                             ip_version,
                         )
-                        await asyncio.sleep(refresh_interval)
-                        continue
-                    new_config = _inject_lease_db_config_tracked(new_config, ip_version)
-                    if new_config != previous_config:
-                        desired_hash = _config_fingerprint(new_config)
+                    else:
+                        published_config = _inject_lease_db_config_tracked(new_config, ip_version)
+                except Exception as exc:
+                    DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
+                    logger.error(
+                        "Error loading the desired KEA config from Redis: %s",
+                        _safe_error_text(exc),
+                    )
+
+                verified = False
+                try:
+                    if published_config is not None and published_config != previous_config:
+                        desired_hash = _config_fingerprint(published_config)
                         # Two Redis snapshots differ, which means config-generation
                         # published a new desired config. That is not drift: Kea's
                         # effective hash has not been read here, so nothing is known
@@ -601,23 +722,38 @@ async def _sync_kea_configuration_async(
                             ip_version,
                             desired_hash=desired_hash,
                         )
-                        expected_hash = await _apply_and_verify_kea_config(
-                            kea_client, new_config, ip_version
+                        expected_hash, verified = await _apply_and_verify_kea_config(
+                            kea_client, published_config, ip_version
                         )
-                        previous_config = new_config
-                        if expected_hash is not None:
+                        previous_config = published_config
+                        if verified and expected_hash is not None:
                             _mark_verified_sync(ip_version, expected_hash, recovered=True)
+                    elif previous_config is None:
+                        # Startup never applied anything and Redis has not
+                        # returned a config since, so there is no desired state
+                        # to reconcile and no baseline to detect drift against.
+                        # Wait for the next read rather than reapplying the
+                        # payload startup already exhausted its attempts on.
+                        logger.warning(
+                            "No KEA DHCPv%s configuration has been applied yet; "
+                            "waiting for an applicable configuration in Redis.",
+                            ip_version,
+                        )
                     else:
-                        # Redis is unchanged, but KEA (e.g. the Kea container) may
-                        # have restarted from its bootstrap config while this
-                        # sidecar kept running. Compare KEA's effective config hash
-                        # against the last applied hash and reapply on drift.
+                        # KEA (e.g. the Kea container) may have restarted from its
+                        # bootstrap config while this sidecar kept running. Compare
+                        # KEA's effective config hash against the last applied hash
+                        # and reapply on drift. previous_config/expected_hash are
+                        # both in memory, so this runs whether or not Redis answered.
                         # Refresh the in-sync gauge only after that verification.
-                        try:
-                            kea_running_hash = await kea_client.get_config_hash(version=ip_version)
-                        except Exception as exc:
-                            _record_sync_failure(SyncOperation.HASH_GET, ip_version, exc)
-                            raise
+                        kea_running_hash = await _track_sync_operation(
+                            SyncOperation.HASH_GET,
+                            ip_version,
+                            asyncio.wait_for(
+                                kea_client.get_config_hash(version=ip_version),
+                                timeout=KEA_OP_TIMEOUT_SECONDS,
+                            ),
+                        )
                         if kea_running_hash != expected_hash:
                             DHCP_CONFIG_HASH_MISMATCHES.labels(ip_version=str(ip_version)).inc()
                             _log_sync_state(
@@ -640,29 +776,52 @@ async def _sync_kea_configuration_async(
                                 ip_version,
                                 desired_hash=expected_hash or "none",
                             )
-                            expected_hash = await _apply_and_verify_kea_config(
+                            expected_hash, verified = await _apply_and_verify_kea_config(
                                 kea_client, previous_config, ip_version
                             )
-                            if expected_hash is not None:
+                            if verified and expected_hash is not None:
                                 _mark_verified_sync(ip_version, expected_hash, recovered=True)
                         elif kea_running_hash is None:
-                            # Kea omitted the digest (pre-2.4). Equality of two
-                            # Nones is not a verified hash match; leave the
+                            # Kea omitted the digest (pre-2.4). The hashes agree,
+                            # so this is still a reconciled iteration, but equality
+                            # of two Nones is not a verified hash match: leave the
                             # gauge untouched so age-based alerts still fire.
-                            pass
+                            verified = True
                         else:
+                            verified = True
                             _mark_verified_sync(
                                 ip_version,
                                 kea_running_hash if debug else "",
                                 recovered=False,
                                 log=debug,
                             )
+                    if published_config is not None and verified:
+                        # A successful reconciliation means *verified* agreement
+                        # with *published* desired state (distinct from the
+                        # loop-progress heartbeat below). An unverified apply, or
+                        # drift repaired from the cached config while Redis is
+                        # down, keeps DHCP serving but confirms neither, so the
+                        # staleness gauge keeps ageing and alerting until a full
+                        # reconcile succeeds.
+                        record_successful_reconciliation()
                 except Exception as exc:
+                    # Recoverable dependency errors (PostgreSQL/Kea, including
+                    # bounded-timeout TimeoutError; Redis is handled above) are
+                    # logged and counted but MUST NOT stop the heartbeat: the
+                    # event loop is still making progress, so kubelet should not
+                    # restart us just because a dependency is temporarily
+                    # unreachable.
                     DHCP_CACHE_REFRESH_ERRORS.labels(ip_version=str(ip_version)).inc()
                     logger.error(
                         "Error refreshing the KEA config: %s",
                         _safe_error_text(exc),
                     )
+                finally:
+                    # Heartbeat == event-loop progress. Advances after every
+                    # completed attempt, success or recoverable failure. A
+                    # genuinely wedged iteration never reaches here, so the file
+                    # goes stale and the exec livenessProbe recycles the sidecar.
+                    touch_heartbeat(heartbeat_file)
                 if debug:
                     logger.info(f"Sleeping {refresh_interval}s...")
                 await asyncio.sleep(refresh_interval)
@@ -685,11 +844,20 @@ async def _sync_kea_configuration_async(
     default=0,
     help="interval in seconds at which to run the refresh, if unset, refresh will only be run once",
 )
+@click.option(
+    "--heartbeat-file",
+    default=DEFAULT_HEARTBEAT_FILE,
+    envvar="CONFIG_SYNC_HEARTBEAT_FILE",
+    show_envvar=True,
+    show_default=True,
+    help="path to the liveness heartbeat file touched after each reconcile attempt.",
+)
 @click.option("--debug", is_flag=True, default=False, help="display tracebacks in error output.")
 def sync_kea_configuration(
     ini_file: str,
     ip_version: int,
     refresh_interval: int,
+    heartbeat_file: str,
     debug: bool,
 ) -> None:
     """Sync the Redis configuration to the KEA DHCP Server."""
@@ -700,7 +868,47 @@ def sync_kea_configuration(
     initialize_sync_metrics(ip_version)
     _start_metrics_server("sync")
 
-    asyncio.run(_sync_kea_configuration_async(ip_version, refresh_interval, debug))
+    asyncio.run(_sync_kea_configuration_async(ip_version, refresh_interval, debug, heartbeat_file))
+
+
+@cli.command("check-sync-heartbeat")
+@click.option(
+    "--heartbeat-file",
+    default=DEFAULT_HEARTBEAT_FILE,
+    envvar="CONFIG_SYNC_HEARTBEAT_FILE",
+    show_envvar=True,
+    show_default=True,
+    help="path to the liveness heartbeat file written by sync-kea-configuration.",
+)
+@click.option(
+    "--max-age",
+    "max_age_seconds",
+    type=float,
+    default=DEFAULT_MAX_AGE_SECONDS,
+    envvar="CONFIG_SYNC_HEARTBEAT_MAX_AGE",
+    show_envvar=True,
+    show_default=True,
+    help="maximum allowed heartbeat age in seconds before it is considered stale.",
+)
+def check_sync_heartbeat(heartbeat_file: str, max_age_seconds: float) -> None:
+    """Liveness check for the config-sync loop.
+
+    Exits 0 only when the heartbeat file exists and its age is below the
+    threshold; exits non-zero when the heartbeat is stale or missing. Designed
+    to back an exec livenessProbe so a wedged reconcile loop is recycled while a
+    mere dependency outage (which still advances the heartbeat) is not.
+    """
+    age = heartbeat_age_seconds(heartbeat_file)
+    if age is None:
+        click.echo(f"heartbeat missing or unreadable: {heartbeat_file}", err=True)
+        sys.exit(1)
+    if not age_is_fresh(age, max_age_seconds):
+        click.echo(
+            f"heartbeat stale: age={age:.1f}s outside 0..{max_age_seconds:.1f}s ({heartbeat_file})",
+            err=True,
+        )
+        sys.exit(1)
+    click.echo(f"heartbeat ok: age={age:.1f}s <= max-age={max_age_seconds:.1f}s")
 
 
 def main() -> None:

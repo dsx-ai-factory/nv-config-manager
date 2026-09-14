@@ -17,6 +17,17 @@ Release tags must be Docker-compatible semver such as `1.2.3` or
 `1.2.3-rc.1`; tags with a `v` prefix or `+build` metadata are rejected by the
 release pipeline.
 
+## Job Lifecycle
+
+Redundant pipelines use `workflow:auto_cancel:on_new_commit: interruptible`.
+Secret-free pull-request builds and stateless validation jobs opt in to
+`interruptible: true` so superseded work stops consuming runners. GitLab
+defaults all other jobs to `interruptible: false`, which keeps release,
+artifact-publishing, and test-environment deployment work protected from newer
+commits. Every runner-backed job also has a job-level timeout suited to its
+workload; runnerless child-pipeline trigger jobs complete immediately and do
+not support the `timeout` keyword.
+
 Configure sensitive variables as masked and protected where possible. Configure
 non-secret internal names as protected variables if they should not appear in
 the public repository.
