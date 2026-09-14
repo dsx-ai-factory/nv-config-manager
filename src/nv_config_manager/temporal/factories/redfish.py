@@ -116,10 +116,12 @@ def _connection_settings(
     credential_kind: RedfishCredentialKind,
     bmc_credentials: BmcCredentials | None,
 ) -> RedfishClientSettings:
+    if host.vendor not in _INI_PREFIXES:
+        raise NotImplementedError(f"No Redfish connection implemented for vendor {host.vendor}")
+
     config = load_config()
     credentials = _host_credentials(host, bmc_credentials)
-    if host.vendor not in _INI_PREFIXES:
-        raise NotImplementedError(f"No Redfish connection implemented for vendor {host}")
+
     if not credentials:
         if host.vendor == RedfishVendor.DELL:
             raise ApplicationError(f"No password found for host {host}")
