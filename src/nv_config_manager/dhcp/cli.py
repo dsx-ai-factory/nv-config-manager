@@ -99,7 +99,14 @@ STARTUP_APPLY_ATTEMPTS = int(os.environ.get("CONFIG_SYNC_STARTUP_APPLY_ATTEMPTS"
 _MAX_ERROR_CHARS = 300
 # `*` so redis://:password@host (empty username) is redacted as well as
 # postgresql://user:password@host.
-_DSN_USERINFO_RE = re.compile(r"(://[^:/@\s]*):([^@/\s]+)@")
+#
+# The password run deliberately allows `@`: a password containing one is legal
+# in a DSN, and excluding `@` here would stop the match at the first one and
+# redact only the leading fragment -- leaving most of the secret in the log
+# while still satisfying a `secret not in text` assertion. Greedy matching
+# therefore backtracks to the LAST `@`, which is the userinfo/host boundary.
+# `/` and whitespace stay excluded so the run cannot escape its own DSN.
+_DSN_USERINFO_RE = re.compile(r"(://[^:/@\s]*):([^/\s]+)@")
 # The key may be quoted, because a rejected KEA config is JSON and reaches this
 # as `"password": "..."`. The quotes are matched independently rather than as a
 # balanced pair: over-redacting malformed input is harmless, whereas requiring

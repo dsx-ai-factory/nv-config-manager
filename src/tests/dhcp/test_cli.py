@@ -61,6 +61,25 @@ ssl = false
 """
 
 
+def _assert_no_secret_leak(text: str, *, min_run: int = 8) -> None:
+    """Fail if any run of ``min_run`` secret characters survives redaction.
+
+    Asserting only ``_SECRET_PASSWORD not in text`` is too weak to be worth
+    much: because the password starts with ``P@``, a redaction that stops at
+    the first ``@`` strips just those two characters and leaves the remaining
+    28 readable, yet the verbatim string is gone and the assertion still holds.
+    Checking for any surviving fragment closes that gap.
+    """
+    leaked = sorted(
+        {
+            _SECRET_PASSWORD[index : index + min_run]
+            for index in range(len(_SECRET_PASSWORD) - min_run + 1)
+            if _SECRET_PASSWORD[index : index + min_run] in text
+        }
+    )
+    assert not leaked, f"redaction leaked secret fragments: {leaked}"
+
+
 class _StopLoop(Exception):
     """Sentinel raised from a patched asyncio.sleep to exit the sync loop."""
 
@@ -420,7 +439,7 @@ def test_record_sync_failure_escapes_newlines_and_hides_secret(
 
     blob = _log_blob(caplog)
     assert "\\nretry" in blob
-    assert _SECRET_PASSWORD not in blob
+    _assert_no_secret_leak(blob)
     assert ":<redacted>@" in blob
     assert any(rec.sync_state == SyncState.DEPENDENCY_ERROR for rec in caplog.records)
 
@@ -432,7 +451,7 @@ def test_record_sync_failure_escapes_newlines_and_hides_secret(
             RuntimeError(f"could not connect to redis://:{_SECRET_PASSWORD}@localhost:6379/0"),
         )
     blob = _log_blob(caplog)
-    assert _SECRET_PASSWORD not in blob
+    _assert_no_secret_leak(blob)
     assert ":<redacted>@" in blob
 
 
@@ -473,7 +492,7 @@ async def test_sync_loop_refresh_error_log_redacts_redis_password(
         await _run_sync_until_stop(kea_client, redis_client)
 
     blob = _log_blob(caplog)
-    assert _SECRET_PASSWORD not in blob
+    _assert_no_secret_leak(blob)
     assert ":<redacted>@" in blob
     assert "Error loading the desired KEA config from Redis:" in caplog.text
 
@@ -581,7 +600,7 @@ async def test_startup_apply_error_log_redacts_redis_password(
             await cli._sync_kea_configuration_async(4, 1, False)
 
     blob = _log_blob(caplog)
-    assert _SECRET_PASSWORD not in blob
+    _assert_no_secret_leak(blob)
     assert ":<redacted>@" in blob
     assert "Error applying the initial KEA config (attempt 1/" in caplog.text
 
@@ -692,7 +711,7 @@ async def test_sync_loop_never_logs_secrets_or_full_config(
         await _run_sync_until_stop(kea_client, redis_client, debug=True)
 
     blob = _log_blob(caplog)
-    assert _SECRET_PASSWORD not in blob
+    _assert_no_secret_leak(blob)
     assert config_marker not in blob
     # The lease-database dict that inject_lease_db_config adds must not leak.
     assert "lease-database" not in blob
@@ -823,7 +842,7 @@ def test_exception_handler_redacts_credentials(caplog: pytest.LogCaptureFixture)
             cli._exception_handler(type(exc), exc, exc.__traceback__)
 
     blob = _log_blob(caplog)
-    assert _SECRET_PASSWORD not in blob
+    _assert_no_secret_leak(blob)
     assert ":<redacted>@" in blob
     # Stack frames carry no exception message, so they are still attached.
     assert "test_exception_handler_redacts_credentials" in blob
@@ -897,9 +916,9 @@ async def test_refresh_rejection_message_redacts_quoted_secret(
             MagicMock(), kea_client, MagicMock(), 4, check=True
         )
 
-    assert _SECRET_PASSWORD not in str(excinfo.value)
+    _assert_no_secret_leak(str(excinfo.value))
     assert '"password": <redacted>' in str(excinfo.value)
-    assert _SECRET_PASSWORD not in _log_blob(caplog)
+    _assert_no_secret_leak(_log_blob(caplog))
 
 
 def test_redact_secrets_covers_quoted_and_bare_keys() -> None:
@@ -917,6 +936,30 @@ def test_redact_secrets_covers_quoted_and_bare_keys() -> None:
     assert "secret" not in cli._redact_secrets(r'"password": "a\"secret"')
     assert cli._redact_secrets(r'"password": "a\"secret"') == '"password": <redacted>'
     assert cli._redact_secrets("no secrets here") == "no secrets here"
+
+
+def test_redact_secrets_consumes_a_dsn_password_containing_an_at_sign() -> None:
+    """A DSN password may itself contain ``@``, and must still redact whole.
+
+    Stopping the password at the first ``@`` leaves the rest of it in the log
+    and only removes the leading fragment, which defeats the redaction while
+    still satisfying a plain ``secret not in text`` assertion.
+    """
+    assert (
+        cli._redact_secrets("redis://:P@ssw0rd-x@localhost:6379/0")
+        == "redis://:<redacted>@localhost:6379/0"
+    )
+    assert (
+        cli._redact_secrets("postgresql://kea:p@ss@word@lease-db:5432/kea")
+        == "postgresql://kea:<redacted>@lease-db:5432/kea"
+    )
+    # No userinfo to redact: the host:port must survive untouched.
+    assert cli._redact_secrets("redis://localhost:6379/0") == "redis://localhost:6379/0"
+    # Two DSNs in one message are redacted independently.
+    assert (
+        cli._redact_secrets("redis://:a@b@h1/0 postgresql://u:c@d@h2/db")
+        == "redis://:<redacted>@h1/0 postgresql://u:<redacted>@h2/db"
+    )
 
 
 async def test_apply_verification_mismatch_counts_drift() -> None:
