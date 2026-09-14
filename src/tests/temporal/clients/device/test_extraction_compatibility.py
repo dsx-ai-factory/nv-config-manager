@@ -23,6 +23,7 @@ from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from nv_config_manager.temporal.client import device as legacy
 from nv_config_manager.temporal.client.device import base as legacy_base
 from nv_config_manager.temporal.client.device import exceptions as legacy_exceptions
+from nv_config_manager.temporal.client.device import factory as legacy_factory
 from nv_config_manager.temporal.client.device import models as legacy_models
 from nv_config_manager_workflows.clients import device as extracted
 from nv_config_manager_workflows.clients.device import DeviceConnectionSettings
@@ -176,7 +177,7 @@ def test_service_base_still_requires_a_port():
         load.assert_called_once_with()
 
 
-def test_factory_uses_injected_config_and_public_constructor_patch():
+def test_factory_wrapper_uses_injected_config_and_factory_constructor():
     config = ConfigParser()
     config.read_dict({"device": {"mock": "true"}})
     device = NetworkDeviceData.model_construct(
@@ -184,7 +185,7 @@ def test_factory_uses_injected_config_and_public_constructor_patch():
     )
     with (
         patch.object(legacy_base, "load_config", side_effect=AssertionError("Config was injected")),
-        patch.object(legacy, "MockNetworkConnection") as constructor,
+        patch.object(legacy_factory, "MockNetworkConnection") as constructor,
     ):
         assert (
             legacy.NetworkConnection.from_device_data(device, config=config)

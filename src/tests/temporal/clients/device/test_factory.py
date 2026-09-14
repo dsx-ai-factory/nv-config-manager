@@ -25,7 +25,11 @@ from nv_config_manager.temporal.client.device import (
     MockNetworkConnection,
     NetworkConnection,
 )
+from nv_config_manager.temporal.client.device.factory import from_device_data
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
+from nv_config_manager_workflows.clients.device.juniper import (
+    JuniperConnection as WorkflowJuniperConnection,
+)
 
 _CUMULUS_DEVICE = NetworkDeviceData(
     id="c8f7a95e-4b2a-4e8c-9d5f-1a2b3c4d5e6f",
@@ -75,7 +79,7 @@ def test_from_device_data_returns_mock_when_config_mock_true(mock_base_load):
     """Config with [device] mock = true → from_device_data() returns MockNetworkConnection."""
     config = _mock_config(mock=True)
     mock_base_load.return_value = config
-    conn = NetworkConnection.from_device_data(_CUMULUS_DEVICE)
+    conn = from_device_data(_CUMULUS_DEVICE, config=config)
     assert isinstance(conn, MockNetworkConnection)
 
 
@@ -84,7 +88,7 @@ def test_from_device_data_returns_cumulus_when_mock_false(mock_base_load):
     """Config with [device] mock = false + cumulus-linux platform → returns CumulusConnection."""
     config = _mock_config(mock=False)
     mock_base_load.return_value = config
-    conn = NetworkConnection.from_device_data(_CUMULUS_DEVICE)
+    conn = from_device_data(_CUMULUS_DEVICE, config=config)
     assert isinstance(conn, CumulusConnection)
 
 
@@ -93,7 +97,7 @@ def test_from_device_data_returns_juniper_when_mock_false(mock_base_load):
     """Config with mock = false + juniper-junos platform → JuniperConnection on the NETCONF port."""
     config = _mock_config(mock=False)
     mock_base_load.return_value = config
-    conn = NetworkConnection.from_device_data(_JUNIPER_DEVICE)
+    conn = from_device_data(_JUNIPER_DEVICE, config=config)
     assert isinstance(conn, JuniperConnection)
     assert conn._port == 830
 
@@ -103,7 +107,7 @@ def test_from_device_data_selects_platform_when_mock_option_missing(mock_base_lo
     """A [device] section without mock continues with normal platform selection."""
     config = _mock_config(mock=None)
     mock_base_load.return_value = config
-    conn = NetworkConnection.from_device_data(_CUMULUS_DEVICE)
+    conn = from_device_data(_CUMULUS_DEVICE, config=config)
     assert isinstance(conn, CumulusConnection)
 
 
@@ -113,4 +117,57 @@ def test_from_device_data_rejects_ufm_platform(mock_base_load):
     config = _mock_config(mock=False)
     mock_base_load.return_value = config
     with pytest.raises(NotImplementedError, match="use UFMClient"):
-        NetworkConnection.from_device_data(_UFM_DEVICE)
+        from_device_data(_UFM_DEVICE, config=config)
+
+
+@pytest.mark.parametrize(
+    ("platform", "constructor_name"),
+    [
+        (Platform.ARISTA_EOS, "AristaConnection"),
+        (Platform.CUMULUS_LINUX, "CumulusConnection"),
+        (Platform.NV_OS, "NVOSConnection"),
+        (Platform.MLNX_OS, "MellanoxConnection"),
+        (Platform.JUNIPER_JUNOS, "JuniperConnection"),
+    ],
+)
+def test_factory_selects_vendor_adapter(platform, constructor_name):
+    device = _CUMULUS_DEVICE.model_copy(update={"platform": platform})
+    with patch(
+        f"nv_config_manager.temporal.client.device.factory.{constructor_name}"
+    ) as constructor:
+        assert from_device_data(device, config=_mock_config()) is constructor.return_value
+    constructor.assert_called_once_with(device.host, site=device.site)
+
+
+def test_legacy_wrapper_delegates_to_factory():
+    with patch("nv_config_manager.temporal.client.device.factory.from_device_data") as factory:
+        assert NetworkConnection.from_device_data(_CUMULUS_DEVICE) is factory.return_value
+    factory.assert_called_once_with(_CUMULUS_DEVICE, config=None)
+
+
+def test_factory_uses_shared_selectors_result():
+    """The shared selector owns platform policy; the service only adapts its result."""
+    with (
+        patch(
+            "nv_config_manager.temporal.client.device.factory.connection_class_for_platform",
+            return_value=WorkflowJuniperConnection,
+        ) as select,
+        patch("nv_config_manager.temporal.client.device.factory.JuniperConnection") as constructor,
+    ):
+        assert from_device_data(_CUMULUS_DEVICE, config=_mock_config()) is constructor.return_value
+    select.assert_called_once_with(Platform.CUMULUS_LINUX, mock=False)
+    constructor.assert_called_once_with(_CUMULUS_DEVICE.host, site=_CUMULUS_DEVICE.site)
+
+
+def test_factory_loads_config_when_not_injected():
+    with (
+        patch(
+            "nv_config_manager.temporal.client.device.factory.load_config",
+            return_value=_mock_config(mock=True),
+        ) as load,
+        patch(
+            "nv_config_manager.temporal.client.device.factory.MockNetworkConnection"
+        ) as constructor,
+    ):
+        assert from_device_data(_CUMULUS_DEVICE) is constructor.return_value
+    load.assert_called_once_with()

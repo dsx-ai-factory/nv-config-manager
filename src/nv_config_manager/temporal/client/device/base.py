@@ -16,14 +16,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from configparser import ConfigParser
-from typing import ClassVar, cast
+from typing import ClassVar
 
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData
 
 from nv_config_manager.common.config_loader import load_config
-from nv_config_manager.temporal.client import device as device_clients
 from nv_config_manager.temporal.factories.device import device_connection_settings
 from nv_config_manager_workflows.clients.device.base import (
     COMMIT_CONFIRM_ROLLBACK_SECONDS as COMMIT_CONFIRM_ROLLBACK_SECONDS,
@@ -31,7 +29,6 @@ from nv_config_manager_workflows.clients.device.base import (
 from nv_config_manager_workflows.clients.device.base import (
     NetworkConnection as WorkflowNetworkConnection,
 )
-from nv_config_manager_workflows.clients.device.factory import connection_class_for_platform
 from nv_config_manager_workflows.clients.device.settings import DeviceConnectionSettings
 
 
@@ -77,12 +74,7 @@ class NetworkConnection(WorkflowNetworkConnection):
         config: ConfigParser | None = None,
     ) -> NetworkConnection:
         """Construct a service adapter using service-owned configuration."""
-        resolved = config if config is not None else load_config()
-        implementation = connection_class_for_platform(
-            device_data.platform, mock=resolved["device"].getboolean("mock", fallback=False)
-        )
+        # Defer import because the factory imports vendor adapters derived from this class.
+        from nv_config_manager.temporal.client.device.factory import from_device_data
 
-        connection_cls = cast(
-            Callable[..., NetworkConnection], getattr(device_clients, implementation.__name__)
-        )
-        return connection_cls(device_data.host, site=device_data.site)
+        return from_device_data(device_data, config=config)
