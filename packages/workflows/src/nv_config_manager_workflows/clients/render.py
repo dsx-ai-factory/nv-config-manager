@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import logging
 import ssl
 from collections.abc import Callable
 from typing import TypedDict, cast
@@ -28,9 +27,7 @@ from pydantic import BaseModel
 from nv_config_manager_workflows.clients._http import (
     _WhoamiViaRetryClientMixin,
 )
-
 from nv_config_manager_workflows.log import WorkflowLogCategory, get_logger
-
 
 logger = get_logger(__name__, category=WorkflowLogCategory.RENDER)
 

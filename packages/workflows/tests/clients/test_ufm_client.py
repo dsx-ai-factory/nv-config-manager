@@ -342,10 +342,9 @@ async def test_get_ports_preserves_mapping_and_unhealthy_filter() -> None:
             "guid": "0x2",
         },
     ]
-    client.request = AsyncMock(return_value=ports_response)
-
-    all_ports = await client.get_ports()
-    unhealthy_ports = await client.get_ports(unhealthy_only=True)
+    with patch.object(client, "request", new=AsyncMock(return_value=ports_response)) as request:
+        all_ports = await client.get_ports()
+        unhealthy_ports = await client.get_ports(unhealthy_only=True)
 
     assert all_ports == [
         {
@@ -374,7 +373,7 @@ async def test_get_ports_preserves_mapping_and_unhealthy_filter() -> None:
         },
     ]
     assert unhealthy_ports == [all_ports[1]]
-    assert client.request.await_args_list == [
+    assert request.await_args_list == [
         call("GET", "/resources/ports"),
         call("GET", "/resources/ports"),
     ]
@@ -384,9 +383,8 @@ async def test_get_ports_preserves_mapping_and_unhealthy_filter() -> None:
 @pytest.mark.parametrize("response", [{}, []])
 async def test_get_ports_handles_empty_or_non_list_response(response: object) -> None:
     client = _client()
-    client.request = AsyncMock(return_value=response)
-
-    assert await client.get_ports() == []
+    with patch.object(client, "request", new=AsyncMock(return_value=response)):
+        assert await client.get_ports() == []
 
 
 @pytest.mark.asyncio

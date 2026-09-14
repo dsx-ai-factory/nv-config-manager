@@ -17,14 +17,14 @@
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import Awaitable
 from datetime import timedelta
 from types import TracebackType
 from typing import Any, TypedDict, cast
 
-from nv_config_manager_workflows.log import WorkflowLogCategory, get_logger
 import redis.asyncio as redis_asyncio
+
+from nv_config_manager_workflows.log import WorkflowLogCategory, get_logger
 
 logger = get_logger(__name__, category=WorkflowLogCategory.REDIS)
 

@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import logging
 import re
 import ssl
 import types
@@ -27,13 +26,13 @@ from urllib.parse import quote
 
 import aiohttp
 from aiohttp_retry import ExponentialRetry
-from nv_config_manager_workflows.log import WorkflowLogCategory, get_logger
 from pydantic import BaseModel
 
 from nv_config_manager_workflows.clients._http import (
     HeaderProvider,
     _WhoamiViaRetryClientMixin,
 )
+from nv_config_manager_workflows.log import WorkflowLogCategory, get_logger
 
 
 class ConfigStoreType(Enum):

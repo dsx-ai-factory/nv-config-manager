@@ -32,12 +32,11 @@ def get_ticketing_provider(platform: str) -> TicketingProvider:
         raise ValueError(
             f"Unknown ticketing platform: {platform!r}. Registered: {list(TICKETING_PROVIDERS)}"
         )
-    try:
-        from_config = cast(
-            "Callable[[], TicketingProvider]",
-            provider_type.from_config,  # type: ignore[attr-defined]
-        )
-    except AttributeError:
+    from_config = cast(
+        "Callable[[], TicketingProvider] | None",
+        getattr(provider_type, "from_config", None),
+    )
+    if from_config is None:
         return provider_type.from_settings(ticketing_client_settings(platform=platform))
     return from_config()
 

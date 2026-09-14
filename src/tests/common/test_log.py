@@ -27,11 +27,7 @@ from nv_config_manager.common.log import EscapingFilter, escape_log_newlines, ge
 from nv_config_manager_workflows.clients.nats.base import logger as nats_logger
 from nv_config_manager_workflows.clients.nats.producer import logger as producer_logger
 from nv_config_manager_workflows.clients.ticketing.jira import logger as jira_logger
-from nv_config_manager_workflows.log import (
-    ACTIVITY_LOG_CATEGORY,
-    NATS_LOG_CATEGORY,
-    WORKFLOW_LOG_CATEGORY,
-)
+from nv_config_manager_workflows.log import WorkflowLogCategory
 
 # W3C trace-context example IDs.
 _TRACE_ID = 0x4BF92F3577B34DA6A3CE929D0E0E4736
@@ -229,9 +225,9 @@ def test_workflow_package_category_matches_this_services_label() -> None:
     Both definitions feed the same ``category`` field, so a rename on either side
     would silently split one dashboard filter into two.
     """
-    assert WORKFLOW_LOG_CATEGORY == log.LogCategory.TEMPORAL_WORKFLOW
-    assert NATS_LOG_CATEGORY == log.LogCategory.NATS
-    assert ACTIVITY_LOG_CATEGORY == log.LogCategory.TEMPORAL_ACTIVITY
+    assert WorkflowLogCategory.TEMPORAL_WORKFLOW == log.LogCategory.TEMPORAL_WORKFLOW
+    assert WorkflowLogCategory.NATS == log.LogCategory.NATS
+    assert WorkflowLogCategory.TEMPORAL_ACTIVITY == log.LogCategory.TEMPORAL_ACTIVITY
 
 
 def _emit_through_escaping_filter(msg: object, *args: object) -> str:

@@ -31,10 +31,10 @@ from nv_config_manager_workflows.clients.redfish import (
 )
 
 
-def _connection(
-    connection_type: type[RedfishConnection],
+def _connection[ConnectionT: RedfishConnection](
+    connection_type: type[ConnectionT],
     vendor: RedfishVendor,
-) -> RedfishConnection:
+) -> ConnectionT:
     return connection_type(
         host=RedfishHost(address="192.0.2.10", vendor=vendor),
         username="explicit-user",

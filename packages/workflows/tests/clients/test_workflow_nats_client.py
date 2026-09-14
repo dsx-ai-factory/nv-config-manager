@@ -44,6 +44,7 @@ async def test_connect_preserves_password_auth_and_tls() -> None:
         await producer.connect()
 
     connect.assert_awaited_once()
+    assert connect.await_args is not None
     (server,) = connect.await_args.args
     options = connect.await_args.kwargs
     assert server == TEST_SERVER
@@ -70,6 +71,7 @@ async def test_connect_preserves_jwt_auth() -> None:
     ) as connect:
         await producer.connect()
 
+    assert connect.await_args is not None
     options = connect.await_args.kwargs
     assert options["user_credentials"] == "/secrets/nats.creds"
     assert "user" not in options
