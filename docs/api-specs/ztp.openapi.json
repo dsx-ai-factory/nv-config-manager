@@ -804,6 +804,66 @@
           "files"
         ]
       },
+      "head": {
+        "description": "Check whether a file exists without opening a download stream.",
+        "operationId": "check_object_v1_files__platform___version___filename__head",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "platform",
+            "required": true,
+            "schema": {
+              "title": "Platform",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "title": "Filename",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Check Object",
+        "tags": [
+          "files"
+        ]
+      },
       "post": {
         "description": "Upload a file to the storage backend.\n\nSet ``firmware_image=true`` to tag this file as the OS/firmware image for\nthe given platform and version. Only one firmware image is allowed per\nplatform/version directory; the upload will be rejected if a *different*\nfile already occupies that slot.",
         "operationId": "upload_file_v1_files__platform___version___filename__post",

@@ -62,7 +62,7 @@ async def test_external_connect_does_not_require_stream_info():
 
     with (
         patch(
-            "nv_config_manager.common.client.nats.nats.connect", new=AsyncMock(return_value=conn)
+            "nv_config_manager_infrastructure.nats.nats.connect", new=AsyncMock(return_value=conn)
         ),
         patch.object(client, "_ensure_stream", new_callable=AsyncMock) as ensure_stream,
     ):
@@ -79,7 +79,7 @@ async def test_local_connect_keeps_stream_setup():
 
     with (
         patch(
-            "nv_config_manager.common.client.nats.nats.connect", new=AsyncMock(return_value=conn)
+            "nv_config_manager_infrastructure.nats.nats.connect", new=AsyncMock(return_value=conn)
         ),
         patch.object(client, "_ensure_stream", new_callable=AsyncMock) as ensure_stream,
     ):
@@ -237,7 +237,7 @@ async def test_consumer_stays_alive_after_subscribing():
     with (
         patch.object(consumer, "connect", new_callable=AsyncMock, return_value=conn),
         patch(
-            "nv_config_manager.common.client.nats.asyncio.sleep", new_callable=AsyncMock
+            "nv_config_manager_infrastructure.nats.asyncio.sleep", new_callable=AsyncMock
         ) as sleep,
     ):
         await consumer.main()
