@@ -20,6 +20,7 @@ from unittest.mock import Mock, patch
 import pytest
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 
+from nv_config_manager.common import config_loader
 from nv_config_manager.temporal.client import device as legacy
 from nv_config_manager.temporal.client.device import base as legacy_base
 from nv_config_manager.temporal.client.device import exceptions as legacy_exceptions
@@ -79,10 +80,11 @@ def test_legacy_positional_constructor_and_inheritance(name, port):
     # Direct constructors historically ignore factory-only mock configuration.
     config.read_dict({"device": {"mock": "invalid-boolean"}})
     with (
-        patch("nv_config_manager.temporal.client.device.base.load_config", return_value=config),
         patch.object(extracted.AristaConnection, "_connect", return_value=Mock()),
     ):
-        connection = getattr(legacy, name)("host", port, "user", "password", site="Site A")
+        connection = getattr(legacy, name)(
+            "host", port, "user", "password", site="Site A", config=config
+        )
     assert isinstance(connection, legacy.NetworkConnection)
     assert isinstance(connection, getattr(extracted, name))
     assert connection._username == "user"
@@ -107,7 +109,7 @@ def test_shared_constructor_ports_and_configured_credentials(name, default_port)
     config = ConfigParser()
     config.read_dict({"device": {"username": "user", "password": "password"}})
     with (
-        patch.object(legacy_base, "load_config", return_value=config) as load,
+        patch.object(config_loader, "load_config", return_value=config) as load,
         patch.object(extracted.AristaConnection, "_connect", return_value=Mock()),
     ):
         for kwargs, expected_port in [
@@ -144,7 +146,7 @@ def test_shared_constructor_resolves_credentials_and_initializes_vendor_once(nam
     }
     vendor = getattr(extracted, name)
     with (
-        patch.object(legacy_base, "legacy_settings", return_value=settings) as resolve,
+        patch.object(legacy_base, "device_connection_settings", return_value=settings) as resolve,
         patch.object(extracted.AristaConnection, "_connect", return_value=Mock()),
         patch.object(vendor, "__init__", autospec=True, side_effect=vendor.__init__) as vendor_init,
         patch.object(
@@ -155,7 +157,9 @@ def test_shared_constructor_resolves_credentials_and_initializes_vendor_once(nam
         ) as base_init,
     ):
         connection = getattr(legacy, name)("host", 1234, "user", "password", site="Site A")
-        resolve.assert_called_once_with("user", "password", "Site A", config=None)
+        resolve.assert_called_once_with(
+            None, username="user", password="password", site="Site A", mock=False
+        )
         assert vendor_init.call_count == base_init.call_count == 1
         assert connection._username == "resolved-user"
         assert connection._passwords_to_try == ["resolved-password"]
@@ -169,7 +173,7 @@ def test_shared_constructor_resolves_credentials_and_initializes_vendor_once(nam
 def test_service_base_still_requires_a_port():
     config = ConfigParser()
     config.read_dict({"device": {"username": "user"}})
-    with patch.object(legacy_base, "load_config", return_value=config) as load:
+    with patch.object(config_loader, "load_config", return_value=config) as load:
         with pytest.raises(TypeError, match="NetworkConnection requires a port"):
             legacy.NetworkConnection("host")
         load.assert_not_called()
@@ -184,7 +188,9 @@ def test_factory_wrapper_uses_injected_config_and_factory_constructor():
         platform=Platform.UFM, primary_ip4="192.0.2.10", site="Site A"
     )
     with (
-        patch.object(legacy_base, "load_config", side_effect=AssertionError("Config was injected")),
+        patch.object(
+            config_loader, "load_config", side_effect=AssertionError("Config was injected")
+        ),
         patch.object(legacy_factory, "MockNetworkConnection") as constructor,
     ):
         assert (

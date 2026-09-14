@@ -74,48 +74,38 @@ def _mock_config(*, mock: bool | None = False) -> ConfigParser:
     return config
 
 
-@patch("nv_config_manager.temporal.client.device.base.load_config")
-def test_from_device_data_returns_mock_when_config_mock_true(mock_base_load):
+def test_from_device_data_returns_mock_when_config_mock_true():
     """Config with [device] mock = true → from_device_data() returns MockNetworkConnection."""
     config = _mock_config(mock=True)
-    mock_base_load.return_value = config
     conn = from_device_data(_CUMULUS_DEVICE, config=config)
     assert isinstance(conn, MockNetworkConnection)
 
 
-@patch("nv_config_manager.temporal.client.device.base.load_config")
-def test_from_device_data_returns_cumulus_when_mock_false(mock_base_load):
+def test_from_device_data_returns_cumulus_when_mock_false():
     """Config with [device] mock = false + cumulus-linux platform → returns CumulusConnection."""
     config = _mock_config(mock=False)
-    mock_base_load.return_value = config
     conn = from_device_data(_CUMULUS_DEVICE, config=config)
     assert isinstance(conn, CumulusConnection)
 
 
-@patch("nv_config_manager.temporal.client.device.base.load_config")
-def test_from_device_data_returns_juniper_when_mock_false(mock_base_load):
+def test_from_device_data_returns_juniper_when_mock_false():
     """Config with mock = false + juniper-junos platform → JuniperConnection on the NETCONF port."""
     config = _mock_config(mock=False)
-    mock_base_load.return_value = config
     conn = from_device_data(_JUNIPER_DEVICE, config=config)
     assert isinstance(conn, JuniperConnection)
     assert conn._port == 830
 
 
-@patch("nv_config_manager.temporal.client.device.base.load_config")
-def test_from_device_data_selects_platform_when_mock_option_missing(mock_base_load):
+def test_from_device_data_selects_platform_when_mock_option_missing():
     """A [device] section without mock continues with normal platform selection."""
     config = _mock_config(mock=None)
-    mock_base_load.return_value = config
     conn = from_device_data(_CUMULUS_DEVICE, config=config)
     assert isinstance(conn, CumulusConnection)
 
 
-@patch("nv_config_manager.temporal.client.device.base.load_config")
-def test_from_device_data_rejects_ufm_platform(mock_base_load):
+def test_from_device_data_rejects_ufm_platform():
     """UFM is inventoried as a platform but is not a NetworkConnection."""
     config = _mock_config(mock=False)
-    mock_base_load.return_value = config
     with pytest.raises(NotImplementedError, match="use UFMClient"):
         from_device_data(_UFM_DEVICE, config=config)
 
@@ -172,7 +162,7 @@ def test_factory_loads_config_when_not_injected():
             return_value=config,
         ) as load,
         patch(
-            "nv_config_manager.temporal.client.device.base.load_config",
+            "nv_config_manager.common.config_loader.load_config",
             side_effect=AssertionError("Configuration must only be loaded once"),
         ),
     ):
@@ -195,7 +185,7 @@ def test_factory_uses_injected_credentials_without_loading_global_config(mock):
             side_effect=AssertionError("Configuration was injected"),
         ),
         patch(
-            "nv_config_manager.temporal.client.device.base.load_config",
+            "nv_config_manager.common.config_loader.load_config",
             side_effect=AssertionError("Configuration was injected"),
         ),
     ):
