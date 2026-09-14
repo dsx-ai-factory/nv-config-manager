@@ -14,6 +14,8 @@
 # limitations under the License.
 """Tests for the reusable asynchronous Config Store client."""
 
+from collections.abc import AsyncIterator
+from typing import Never
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -62,7 +64,7 @@ def test_config_store_type_values_are_stable() -> None:
 
 
 @pytest_asyncio.fixture
-async def async_config_store_client():
+async def async_config_store_client() -> AsyncIterator[ConfigStoreClient]:
     """Create a ConfigStoreClient instance for testing."""
     settings: ConfigStoreClientSettings = {
         "target": "http://config-store.example.com",
@@ -75,7 +77,7 @@ async def async_config_store_client():
 
 
 @pytest.mark.asyncio
-async def test_init(async_config_store_client):
+async def test_init(async_config_store_client: ConfigStoreClient) -> None:
     """Test client initialization."""
     assert async_config_store_client.target == "http://config-store.example.com"
     assert async_config_store_client.file_type == "intended"
@@ -90,7 +92,7 @@ async def test_init(async_config_store_client):
 
 
 @pytest.mark.asyncio
-async def test_init_with_ca_cert_disabled():
+async def test_init_with_ca_cert_disabled() -> None:
     """Test client initialization with CA certificate disabled."""
     client = ConfigStoreClient(
         target="http://config-store.example.com",
@@ -102,7 +104,7 @@ async def test_init_with_ca_cert_disabled():
 
 
 @pytest.mark.asyncio
-async def test_init_accepts_legacy_string_file_type():
+async def test_init_accepts_legacy_string_file_type() -> None:
     """String file types remain accepted at the public client boundary."""
     client = ConfigStoreClient(
         target="http://config-store.example.com",
@@ -114,7 +116,7 @@ async def test_init_accepts_legacy_string_file_type():
     await client.close()
 
 
-def _mock_retry_client(response_data):
+def _mock_retry_client(response_data: object) -> MagicMock:
     """Create a mock RetryClient context manager returning response_data."""
     mock_response = AsyncMock()
     mock_response.raise_for_status = MagicMock()
@@ -131,7 +133,7 @@ def _mock_retry_client(response_data):
 
 
 @pytest.mark.asyncio
-async def test_load_file(async_config_store_client):
+async def test_load_file(async_config_store_client: ConfigStoreClient) -> None:
     """Test loading a file from config store."""
     mock_session = _mock_retry_client(MOCK_GET_RESPONSE)
 
@@ -151,7 +153,9 @@ async def test_load_file(async_config_store_client):
 
 
 @pytest.mark.asyncio
-async def test_load_file_not_found_remains_distinguishable(async_config_store_client):
+async def test_load_file_not_found_remains_distinguishable(
+    async_config_store_client: ConfigStoreClient,
+) -> None:
     mock_session = _mock_retry_client({})
     response = mock_session.get.return_value
     response.raise_for_status.side_effect = aiohttp.ClientResponseError(
@@ -174,7 +178,9 @@ async def test_load_file_not_found_remains_distinguishable(async_config_store_cl
 
 
 @pytest.mark.asyncio
-async def test_load_file_other_http_error_is_generic(async_config_store_client):
+async def test_load_file_other_http_error_is_generic(
+    async_config_store_client: ConfigStoreClient,
+) -> None:
     mock_session = _mock_retry_client({})
     response = mock_session.get.return_value
     response.raise_for_status.side_effect = aiohttp.ClientResponseError(
@@ -197,7 +203,9 @@ async def test_load_file_other_http_error_is_generic(async_config_store_client):
 
 
 @pytest.mark.asyncio
-async def test_config_query_paths_and_parameters_are_unchanged(async_config_store_client):
+async def test_config_query_paths_and_parameters_are_unchanged(
+    async_config_store_client: ConfigStoreClient,
+) -> None:
     sessions = [_mock_retry_client({}) for _ in range(4)]
     sessions[0].get.return_value.json.return_value = []
 
@@ -244,7 +252,7 @@ async def test_config_query_paths_and_parameters_are_unchanged(async_config_stor
 
 
 @pytest.mark.asyncio
-async def test_whoami_uses_service_root(async_config_store_client):
+async def test_whoami_uses_service_root(async_config_store_client: ConfigStoreClient) -> None:
     """Test whoami uses root /whoami while config APIs stay under /v1/config."""
     mock_session = _mock_retry_client(
         {"user": "config-store-api", "roles": ["all", "nv-config-manager"]}
@@ -260,18 +268,19 @@ async def test_whoami_uses_service_root(async_config_store_client):
 
 
 @pytest.mark.asyncio
-async def test_persist_files_new(async_config_store_client):
+async def test_persist_files_new(async_config_store_client: ConfigStoreClient) -> None:
     """Test persisting new files."""
     device_uuid = "123e4567-e89b-12d3-a456-426614174000"
 
-    async def mock_load_file(dev_uuid, filename):
+    async def mock_load_file(dev_uuid: str, filename: str) -> Never:
         raise ConfigStoreFileNotFound(f"File {filename} not found")
-
-    async_config_store_client.load_file = mock_load_file
 
     mock_session = _mock_retry_client(MOCK_BATCH_POST_RESPONSE)
 
-    with patch("nv_config_manager_workflows.clients._http.RetryClient", return_value=mock_session):
+    with (
+        patch.object(async_config_store_client, "load_file", new=mock_load_file),
+        patch("nv_config_manager_workflows.clients._http.RetryClient", return_value=mock_session),
+    ):
         config_files = await async_config_store_client.persist_files(
             device_uuid=device_uuid,
             files={"startup.yaml": "new content"},
@@ -301,7 +310,7 @@ async def test_persist_files_new(async_config_store_client):
 
 
 @pytest.mark.asyncio
-async def test_file_url(async_config_store_client):
+async def test_file_url(async_config_store_client: ConfigStoreClient) -> None:
     """Test generating file URL."""
     device_uuid = "123e4567-e89b-12d3-a456-426614174000"
     url = async_config_store_client.file_url(device_uuid, "startup.yaml")
@@ -318,7 +327,7 @@ async def test_file_url(async_config_store_client):
 
 
 @pytest.mark.asyncio
-async def test_history_url(async_config_store_client):
+async def test_history_url(async_config_store_client: ConfigStoreClient) -> None:
     """Test generating history URL."""
     device_uuid = "123e4567-e89b-12d3-a456-426614174000"
     url = async_config_store_client.history_url(device_uuid, "startup.yaml")
@@ -329,7 +338,7 @@ async def test_history_url(async_config_store_client):
 
 
 @pytest.mark.asyncio
-async def test_context_manager():
+async def test_context_manager() -> None:
     """Test async context manager usage."""
     async with ConfigStoreClient(
         target="http://config-store.example.com",
@@ -340,7 +349,7 @@ async def test_context_manager():
 
 
 @pytest.mark.asyncio
-async def test_init_with_headers():
+async def test_init_with_headers() -> None:
     """Test client initialization with custom headers."""
     headers = {
         "X-Auth-Request-Email": "test-service",

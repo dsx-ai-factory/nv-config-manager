@@ -15,6 +15,7 @@
 """Tests for pure Redfish vendor dispatch."""
 
 import logging
+from collections.abc import Callable
 from enum import StrEnum
 
 import pytest
@@ -60,7 +61,7 @@ class UnknownVendor(StrEnum):
 def test_vendor_dispatch_uses_explicit_settings(
     vendor: RedfishVendor,
     connection_type: type[RedfishConnection],
-    factory,
+    factory: Callable[[RedfishHost, RedfishClientSettings], RedfishConnection],
 ) -> None:
     host = RedfishHost(address="192.0.2.10", vendor=vendor)
 
@@ -89,7 +90,7 @@ def test_unknown_vendor_preserves_not_implemented_error() -> None:
 
 
 @pytest.mark.parametrize("vendor", [None, "Unknown"])
-def test_missing_or_unknown_vendor_preserves_model_validation(vendor) -> None:
+def test_missing_or_unknown_vendor_preserves_model_validation(vendor: str | None) -> None:
     values = {"address": "192.0.2.10"}
     if vendor is not None:
         values["vendor"] = vendor

@@ -18,7 +18,7 @@ import pytest
 from nv_config_manager_workflows.clients.device.models import DeviceArpTable
 
 
-def test_add_entry_normalizes_and_indexes_ip_mac_and_interface():
+def test_add_entry_normalizes_and_indexes_ip_mac_and_interface() -> None:
     table = DeviceArpTable()
     table.add_entry("192.0.2.1", "00:11:22:33:44:55", "swp1")
 
@@ -28,7 +28,7 @@ def test_add_entry_normalizes_and_indexes_ip_mac_and_interface():
     assert table.interface_to_mac == {"swp1": [mac]}
 
 
-def test_add_entry_does_not_duplicate_the_same_mapping():
+def test_add_entry_does_not_duplicate_the_same_mapping() -> None:
     table = DeviceArpTable()
     table.add_entry("192.0.2.1", "00:11:22:33:44:55", "swp1")
     table.add_entry("192.0.2.1", "00:11:22:33:44:55", "swp1")
@@ -38,7 +38,7 @@ def test_add_entry_does_not_duplicate_the_same_mapping():
     assert table.interface_to_mac["swp1"] == [mac]
 
 
-def test_add_entry_raises_on_invalid_ip():
+def test_add_entry_raises_on_invalid_ip() -> None:
     table = DeviceArpTable()
     with pytest.raises(ValueError):
         table.add_entry("not-an-ip", "00:11:22:33:44:55", "swp1")

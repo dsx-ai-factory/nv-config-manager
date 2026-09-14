@@ -16,7 +16,7 @@
 from nv_config_manager_workflows.clients.device import ConfigSyntaxException
 
 
-def test_format_nvue_config_syntax_error():
+def test_format_nvue_config_syntax_error() -> None:
     """Test formatting of NVUE API syntax error JSON."""
     error_json = {
         "detail": "Error: Unevaluated properties are not "

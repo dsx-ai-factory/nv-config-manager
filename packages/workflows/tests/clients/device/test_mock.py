@@ -20,7 +20,7 @@ from nv_config_manager_workflows.clients.device import MockNetworkConnection
 _TEST_HOST = "192.0.2.1"
 
 
-def test_mock_run_diagnostic_command_returns_valid_json():
+def test_mock_run_diagnostic_command_returns_valid_json() -> None:
     """run_diagnostic_command returns a valid JSON string with the expected keys."""
     conn = MockNetworkConnection(
         _TEST_HOST, settings={"username": "user", "passwords": [], "mock": True}
@@ -31,7 +31,7 @@ def test_mock_run_diagnostic_command_returns_valid_json():
     assert "command" in parsed
 
 
-def test_mock_run_diagnostic_command_includes_command_name():
+def test_mock_run_diagnostic_command_includes_command_name() -> None:
     """The 'command' field in the returned JSON matches the input name."""
     conn = MockNetworkConnection(
         _TEST_HOST, settings={"username": "user", "passwords": [], "mock": True}
@@ -41,7 +41,7 @@ def test_mock_run_diagnostic_command_includes_command_name():
     assert parsed["command"] == "show_bgp_summary"
 
 
-def test_mock_get_tech_support_bundle_returns_bytes():
+def test_mock_get_tech_support_bundle_returns_bytes() -> None:
     """get_tech_support_bundle returns (bytes, log_str)."""
     conn = MockNetworkConnection(
         _TEST_HOST, settings={"username": "user", "passwords": [], "mock": True}

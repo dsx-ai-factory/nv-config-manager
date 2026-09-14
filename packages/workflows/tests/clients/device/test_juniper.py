@@ -15,10 +15,11 @@
 
 import json
 from types import SimpleNamespace
+from typing import Literal
 from unittest.mock import MagicMock, patch
 
 # lxml.etree is a binary extension without installed type stubs.
-import lxml.etree as etree  # ty: ignore[unresolved-import]
+import lxml.etree as etree  # type: ignore[import-untyped]  # ty: ignore[unresolved-import]
 import pytest
 from jnpr.junos.exception import (
     CommitError,
@@ -49,7 +50,7 @@ class _FakeConfigCM:
     def __enter__(self) -> MagicMock:
         return self._cu
 
-    def __exit__(self, *exc: object) -> bool:
+    def __exit__(self, *exc: object) -> Literal[False]:
         return False
 
 
@@ -62,14 +63,14 @@ def _rpc_error_rsp(message: str, severity: str = "error") -> etree._Element:
 
 
 @pytest.fixture
-def juniper_conn():
+def juniper_conn() -> JuniperConnection:
     """Construct from explicit settings without service configuration."""
     return JuniperConnection(
         "192.0.2.10", settings={"username": "shooks", "passwords": ["pw"], "mock": False}
     )
 
 
-def test_get_device_connects_once_and_caches(juniper_conn):
+def test_get_device_connects_once_and_caches(juniper_conn: JuniperConnection) -> None:
     """The NETCONF session is opened lazily on first use and reused afterwards."""
     fake_device = MagicMock()
     with patch(
@@ -88,7 +89,7 @@ def test_get_device_connects_once_and_caches(juniper_conn):
     assert fake_device.timeout == juniper_conn._RPC_TIMEOUT_SECONDS
 
 
-def test_perform_candidate_diff_uses_config_op_timeout(juniper_conn):
+def test_perform_candidate_diff_uses_config_op_timeout(juniper_conn: JuniperConnection) -> None:
     """Exclusive diff work temporarily lowers the RPC deadline, then restores it."""
 
     class _Device:
@@ -118,7 +119,7 @@ def test_perform_candidate_diff_uses_config_op_timeout(juniper_conn):
     assert device.timeout == juniper_conn._RPC_TIMEOUT_SECONDS
 
 
-def test_connect_rotates_then_raises_on_auth_failure(juniper_conn):
+def test_connect_rotates_then_raises_on_auth_failure(juniper_conn: JuniperConnection) -> None:
     """Genuine auth failures exhaust password rotation and raise NetworkDeviceException."""
     with patch("nv_config_manager_workflows.clients.device.juniper.Device") as mock_device:
         mock_device.return_value.open.side_effect = ConnectAuthError(
@@ -128,7 +129,7 @@ def test_connect_rotates_then_raises_on_auth_failure(juniper_conn):
             juniper_conn._get_device()
 
 
-def test_connect_raises_clear_error_on_probe_failure(juniper_conn):
+def test_connect_raises_clear_error_on_probe_failure(juniper_conn: JuniperConnection) -> None:
     """A probe (reachability) failure raises immediately with a NETCONF-specific message."""
     with patch("nv_config_manager_workflows.clients.device.juniper.Device") as mock_device:
         mock_device.return_value.open.side_effect = ProbeError(
@@ -138,13 +139,13 @@ def test_connect_raises_clear_error_on_probe_failure(juniper_conn):
             juniper_conn._get_device()
 
 
-def test_close_is_safe_before_device_assigned(juniper_conn):
+def test_close_is_safe_before_device_assigned(juniper_conn: JuniperConnection) -> None:
     """close() must not raise even if _device was never set (failed init path)."""
     del juniper_conn._device
     juniper_conn.close()
 
 
-def test_context_manager_closes_session(juniper_conn):
+def test_context_manager_closes_session(juniper_conn: JuniperConnection) -> None:
     """Using the connection as a context manager closes the session on exit."""
     device = MagicMock()
     juniper_conn._device = device
@@ -154,7 +155,7 @@ def test_context_manager_closes_session(juniper_conn):
     assert juniper_conn._device is None
 
 
-def test_rpc_requests_json_and_converts_flag_params(juniper_conn):
+def test_rpc_requests_json_and_converts_flag_params(juniper_conn: JuniperConnection) -> None:
     """_rpc asks for JSON format and turns empty values into boolean flags."""
     device = MagicMock()
     device.rpc.get_interface_information.return_value = {"interface-information": []}
@@ -166,7 +167,7 @@ def test_rpc_requests_json_and_converts_flag_params(juniper_conn):
     assert kwargs == {"terse": True}
 
 
-def test_get_running_configuration_returns_text_format(juniper_conn):
+def test_get_running_configuration_returns_text_format(juniper_conn: JuniperConnection) -> None:
     """Backup returns full hierarchical text from <configuration-output>."""
     device = MagicMock()
     device.rpc.get_config.return_value = etree.fromstring(
@@ -180,7 +181,7 @@ def test_get_running_configuration_returns_text_format(juniper_conn):
     assert device.rpc.get_config.call_args.kwargs["options"]["format"] == "text"
 
 
-def test_get_configuration_text_returns_hierarchical(juniper_conn):
+def test_get_configuration_text_returns_hierarchical(juniper_conn: JuniperConnection) -> None:
     """The text getter requests hierarchical (curly-brace) format."""
     device = MagicMock()
     device.rpc.get_config.return_value = etree.fromstring(
@@ -194,7 +195,9 @@ def test_get_configuration_text_returns_hierarchical(juniper_conn):
     assert device.rpc.get_config.call_args.kwargs["options"]["format"] == "text"
 
 
-def test_get_running_configuration_handles_unwrapped_reply_root(juniper_conn):
+def test_get_running_configuration_handles_unwrapped_reply_root(
+    juniper_conn: JuniperConnection,
+) -> None:
     """Real devices reply with <configuration-output> as the root, not nested."""
     device = MagicMock()
     device.rpc.get_config.return_value = etree.fromstring(
@@ -206,8 +209,8 @@ def test_get_running_configuration_handles_unwrapped_reply_root(juniper_conn):
 
 
 def test_get_running_configuration_falls_back_to_flattened_text_for_unknown_wrapper(
-    juniper_conn, caplog
-):
+    juniper_conn: JuniperConnection, caplog: pytest.LogCaptureFixture
+) -> None:
     """An unrecognized reply wrapper still yields the config via flattened text.
 
     A text-format reply carries nothing but the configuration body, so this is a
@@ -227,7 +230,7 @@ def test_get_running_configuration_falls_back_to_flattened_text_for_unknown_wrap
     assert "Unexpected get-configuration reply shape" in caplog.text
 
 
-def test_get_running_configuration_redacts_secrets(juniper_conn):
+def test_get_running_configuration_redacts_secrets(juniper_conn: JuniperConnection) -> None:
     """get_running_configuration redacts secrets."""
     device = MagicMock()
     device.rpc.get_config.return_value = etree.fromstring(
@@ -242,7 +245,7 @@ def test_get_running_configuration_redacts_secrets(juniper_conn):
     assert '"$6$<redacted>"' in config
 
 
-def test_get_configuration_text_redacts_secrets(juniper_conn):
+def test_get_configuration_text_redacts_secrets(juniper_conn: JuniperConnection) -> None:
     """get_configuration_text redacts secrets, matching get_running_configuration."""
     device = MagicMock()
     device.rpc.get_config.return_value = etree.fromstring(
@@ -257,7 +260,7 @@ def test_get_configuration_text_redacts_secrets(juniper_conn):
     assert '"$6$<redacted>"' in text
 
 
-def test_execute_ztp_issues_zeroize_and_closes(juniper_conn):
+def test_execute_ztp_issues_zeroize_and_closes(juniper_conn: JuniperConnection) -> None:
     """execute_ztp issues request-system-zeroize and closes the NETCONF session."""
     device = MagicMock()
     juniper_conn._device = device
@@ -268,7 +271,7 @@ def test_execute_ztp_issues_zeroize_and_closes(juniper_conn):
     assert juniper_conn._device is None
 
 
-def test_execute_ztp_treats_dropped_session_as_success(juniper_conn):
+def test_execute_ztp_treats_dropped_session_as_success(juniper_conn: JuniperConnection) -> None:
     """A dropped NETCONF session during zeroize is treated as success."""
     device = MagicMock()
     device.rpc.request_system_zeroize.side_effect = ConnectError("session closed")
@@ -279,13 +282,15 @@ def test_execute_ztp_treats_dropped_session_as_success(juniper_conn):
     assert juniper_conn._device is None
 
 
-def test_get_ztp_status_returns_success_when_image_readable(juniper_conn):
+def test_get_ztp_status_returns_success_when_image_readable(
+    juniper_conn: JuniperConnection,
+) -> None:
     """get_ztp_status is success once the device answers with a running image."""
     with patch.object(juniper_conn, "get_running_image", return_value="24.4R2-S3.7-EVO"):
         assert juniper_conn.get_ztp_status() == "success"
 
 
-def test_get_hostname_and_running_image_use_facts(juniper_conn):
+def test_get_hostname_and_running_image_use_facts(juniper_conn: JuniperConnection) -> None:
     """Hostname and running image come from PyEZ facts."""
     device = MagicMock()
     device.facts = {"hostname": "RTR1", "version": "24.4R2-S3.7-EVO"}
@@ -294,7 +299,7 @@ def test_get_hostname_and_running_image_use_facts(juniper_conn):
         assert juniper_conn.get_running_image() == "24.4R2-S3.7-EVO"
 
 
-def test_get_hostname_raises_when_absent(juniper_conn):
+def test_get_hostname_raises_when_absent(juniper_conn: JuniperConnection) -> None:
     """A hostname still missing after a refresh on a reachable device is non-retryable."""
     device = MagicMock()
     device.facts = {"hostname": None}
@@ -305,7 +310,7 @@ def test_get_hostname_raises_when_absent(juniper_conn):
     assert excinfo.value.non_retryable is True
 
 
-def test_get_hostname_recovers_from_cached_none_fact(juniper_conn):
+def test_get_hostname_recovers_from_cached_none_fact(juniper_conn: JuniperConnection) -> None:
     """A None cached by an earlier failed gather is refreshed rather than reported absent."""
     device = MagicMock()
     device.facts.get.side_effect = [None, "RTR1"]
@@ -314,7 +319,7 @@ def test_get_hostname_recovers_from_cached_none_fact(juniper_conn):
     device.facts_refresh.assert_called_once_with(keys="hostname")
 
 
-def test_get_running_image_recovers_from_cached_none_fact(juniper_conn):
+def test_get_running_image_recovers_from_cached_none_fact(juniper_conn: JuniperConnection) -> None:
     """The running image read recovers from a stale None the same way."""
     device = MagicMock()
     device.facts.get.side_effect = [None, "24.4R2-S3.7-EVO"]
@@ -323,7 +328,7 @@ def test_get_running_image_recovers_from_cached_none_fact(juniper_conn):
     device.facts_refresh.assert_called_once_with(keys="version")
 
 
-def test_get_hostname_retries_when_fact_gathering_failed(juniper_conn):
+def test_get_hostname_retries_when_fact_gathering_failed(juniper_conn: JuniperConnection) -> None:
     """PyEZ caches None on a failed fact read, so a dead session stays retryable."""
     device = MagicMock()
     device.facts = {"hostname": None}
@@ -334,7 +339,9 @@ def test_get_hostname_retries_when_fact_gathering_failed(juniper_conn):
     assert not excinfo.value.non_retryable
 
 
-def test_get_running_image_retries_when_fact_gathering_failed(juniper_conn):
+def test_get_running_image_retries_when_fact_gathering_failed(
+    juniper_conn: JuniperConnection,
+) -> None:
     """The running image read makes the same retryable/non-retryable distinction."""
     device = MagicMock()
     device.facts = {"version": None}
@@ -347,7 +354,9 @@ def test_get_running_image_retries_when_fact_gathering_failed(juniper_conn):
     assert not excinfo.value.non_retryable
 
 
-def test_get_running_image_raises_non_retryable_when_absent(juniper_conn):
+def test_get_running_image_raises_non_retryable_when_absent(
+    juniper_conn: JuniperConnection,
+) -> None:
     """A version the reachable device does not report is non-retryable."""
     device = MagicMock()
     device.facts = {"version": None}
@@ -357,7 +366,7 @@ def test_get_running_image_raises_non_retryable_when_absent(juniper_conn):
     assert excinfo.value.non_retryable is True
 
 
-def test_get_uptime_parses_seconds(juniper_conn):
+def test_get_uptime_parses_seconds(juniper_conn: JuniperConnection) -> None:
     """Uptime is parsed from the junos:seconds attribute."""
     data = {
         "system-uptime-information": [
@@ -368,14 +377,16 @@ def test_get_uptime_parses_seconds(juniper_conn):
         assert juniper_conn.get_uptime() == 12345
 
 
-def test_get_uptime_raises_on_unexpected_shape(juniper_conn):
+def test_get_uptime_raises_on_unexpected_shape(juniper_conn: JuniperConnection) -> None:
     """Uptime raises a clear error when the response shape is unexpected."""
     with patch.object(juniper_conn, "_rpc", return_value={"unexpected": True}):
         with pytest.raises(NetworkDeviceException):
             juniper_conn.get_uptime()
 
 
-def test_perform_candidate_diff_loads_full_config_rolls_back_and_returns_diff(juniper_conn):
+def test_perform_candidate_diff_loads_full_config_rolls_back_and_returns_diff(
+    juniper_conn: JuniperConnection,
+) -> None:
     """perform_candidate_diff loads the full config with load update, returns the diff, discards."""
     cu = MagicMock()
     cu.diff.return_value = "[edit system]\n-  host-name OLD;\n+  host-name RTR1;"
@@ -393,7 +404,7 @@ def test_perform_candidate_diff_loads_full_config_rolls_back_and_returns_diff(ju
     cu.commit.assert_not_called()
 
 
-def test_perform_candidate_diff_rejects_partial(juniper_conn):
+def test_perform_candidate_diff_rejects_partial(juniper_conn: JuniperConnection) -> None:
     """Partial diffs are rejected; no config session is opened."""
     with patch("nv_config_manager_workflows.clients.device.juniper.Config") as mock_config:
         with pytest.raises(NetworkDeviceException, match="Partial configuration is not supported"):
@@ -401,7 +412,7 @@ def test_perform_candidate_diff_rejects_partial(juniper_conn):
     mock_config.assert_not_called()
 
 
-def test_commit_candidate_config_rejects_partial(juniper_conn):
+def test_commit_candidate_config_rejects_partial(juniper_conn: JuniperConnection) -> None:
     """Partial commits are rejected; no config session is opened."""
     with patch("nv_config_manager_workflows.clients.device.juniper.Config") as mock_config:
         with pytest.raises(NetworkDeviceException, match="Partial configuration is not supported"):
@@ -411,7 +422,9 @@ def test_commit_candidate_config_rejects_partial(juniper_conn):
     mock_config.assert_not_called()
 
 
-def test_perform_candidate_diff_raises_config_syntax_on_load_error(juniper_conn):
+def test_perform_candidate_diff_raises_config_syntax_on_load_error(
+    juniper_conn: JuniperConnection,
+) -> None:
     """A load failure surfaces as ConfigSyntaxException and discards the candidate."""
     cu = MagicMock()
     cu.load.side_effect = ConfigLoadError(rsp=_rpc_error_rsp("syntax error"))
@@ -427,7 +440,9 @@ def test_perform_candidate_diff_raises_config_syntax_on_load_error(juniper_conn)
     cu.rollback.assert_called_once()
 
 
-def test_perform_candidate_diff_rolls_back_when_diff_rpc_fails(juniper_conn):
+def test_perform_candidate_diff_rolls_back_when_diff_rpc_fails(
+    juniper_conn: JuniperConnection,
+) -> None:
     """A mid-diff RpcError still discards the loaded candidate before unlocking."""
     cu = MagicMock()
     cu.diff.side_effect = RpcError(rsp=_rpc_error_rsp("diff failed"))
@@ -444,7 +459,7 @@ def test_perform_candidate_diff_rolls_back_when_diff_rpc_fails(juniper_conn):
     cu.rollback.assert_called_once()
 
 
-def test_commit_candidate_config_raises_when_diff_changed(juniper_conn):
+def test_commit_candidate_config_raises_when_diff_changed(juniper_conn: JuniperConnection) -> None:
     """A mismatch between the fresh diff and the approved diff aborts before commit."""
     cu = MagicMock()
     cu.diff.return_value = "new-diff"
@@ -461,7 +476,9 @@ def test_commit_candidate_config_raises_when_diff_changed(juniper_conn):
     cu.commit.assert_not_called()
 
 
-def test_commit_candidate_config_no_diff_confirms_pending_commit(juniper_conn):
+def test_commit_candidate_config_no_diff_confirms_pending_commit(
+    juniper_conn: JuniperConnection,
+) -> None:
     """Empty diff with commit_confirm still issues the confirm."""
     cu = MagicMock()
     cu.diff.return_value = ""
@@ -478,7 +495,9 @@ def test_commit_candidate_config_no_diff_confirms_pending_commit(juniper_conn):
     assert "confirm" not in cu.commit.call_args.kwargs
 
 
-def test_commit_candidate_config_no_diff_direct_does_not_commit(juniper_conn):
+def test_commit_candidate_config_no_diff_direct_does_not_commit(
+    juniper_conn: JuniperConnection,
+) -> None:
     """Empty diff with commit_confirm=False issues no commit at all."""
     cu = MagicMock()
     cu.diff.return_value = ""
@@ -494,7 +513,9 @@ def test_commit_candidate_config_no_diff_direct_does_not_commit(juniper_conn):
     cu.rollback.assert_called_once()
 
 
-def test_commit_candidate_config_commit_confirm_then_confirms(juniper_conn):
+def test_commit_candidate_config_commit_confirm_then_confirms(
+    juniper_conn: JuniperConnection,
+) -> None:
     """commit_confirm=True commits with a rollback timer then confirms with a plain commit."""
     cu = MagicMock()
     cu.diff.return_value = "diff"
@@ -512,7 +533,7 @@ def test_commit_candidate_config_commit_confirm_then_confirms(juniper_conn):
     assert "confirm" not in cu.commit.call_args_list[1].kwargs
 
 
-def test_commit_candidate_config_direct_commit(juniper_conn):
+def test_commit_candidate_config_direct_commit(juniper_conn: JuniperConnection) -> None:
     """commit_confirm=False commits directly with no follow-up confirm."""
     cu = MagicMock()
     cu.diff.return_value = "diff"
@@ -528,7 +549,7 @@ def test_commit_candidate_config_direct_commit(juniper_conn):
     assert "confirm" not in cu.commit.call_args.kwargs
 
 
-def test_commit_candidate_config_raises_on_commit_error(juniper_conn):
+def test_commit_candidate_config_raises_on_commit_error(juniper_conn: JuniperConnection) -> None:
     """A commit failure surfaces as NetworkDeviceException."""
     cu = MagicMock()
     cu.diff.return_value = "diff"
@@ -549,7 +570,7 @@ def test_commit_candidate_config_raises_on_commit_error(juniper_conn):
 # ---------------------------------------------------------------------------
 
 
-def test_get_rollback_diff_returns_diff(juniper_conn):
+def test_get_rollback_diff_returns_diff(juniper_conn: JuniperConnection) -> None:
     """get_rollback_diff compares the active config against a numbered rollback."""
     cu = MagicMock()
     cu.diff.return_value = "rollback-diff"
@@ -566,7 +587,7 @@ def test_get_rollback_diff_returns_diff(juniper_conn):
     cu.rollback.assert_called_once()
 
 
-def test_rollback_configuration_commits_when_diff(juniper_conn):
+def test_rollback_configuration_commits_when_diff(juniper_conn: JuniperConnection) -> None:
     """rollback_configuration loads the numbered revision and commits when it differs."""
     cu = MagicMock()
     cu.diff.return_value = "diff"
@@ -582,7 +603,7 @@ def test_rollback_configuration_commits_when_diff(juniper_conn):
     cu.commit.assert_called_once()
 
 
-def test_rollback_configuration_noop_when_no_diff(juniper_conn):
+def test_rollback_configuration_noop_when_no_diff(juniper_conn: JuniperConnection) -> None:
     """When the numbered revision matches the active config, nothing is committed."""
     cu = MagicMock()
     cu.diff.return_value = ""
@@ -599,7 +620,7 @@ def test_rollback_configuration_noop_when_no_diff(juniper_conn):
     cu.commit.assert_not_called()
 
 
-def test_save_rescue_configuration_calls_rescue_save(juniper_conn):
+def test_save_rescue_configuration_calls_rescue_save(juniper_conn: JuniperConnection) -> None:
     """save_rescue_configuration issues a rescue save."""
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
@@ -609,7 +630,7 @@ def test_save_rescue_configuration_calls_rescue_save(juniper_conn):
     mock_config.return_value.rescue.assert_called_once_with(action="save")
 
 
-def test_get_rescue_configuration_returns_text(juniper_conn):
+def test_get_rescue_configuration_returns_text(juniper_conn: JuniperConnection) -> None:
     """get_rescue_configuration reads get-rescue-information directly."""
     device = MagicMock()
     device.rpc.get_rescue_information.return_value = etree.fromstring(
@@ -623,7 +644,7 @@ def test_get_rescue_configuration_returns_text(juniper_conn):
     device.rpc.get_rescue_information.assert_called_once_with(format="text")
 
 
-def test_get_rescue_configuration_returns_none_when_absent(juniper_conn):
+def test_get_rescue_configuration_returns_none_when_absent(juniper_conn: JuniperConnection) -> None:
     """Missing rescue is reported as an rpc-error and mapped to None."""
     device = MagicMock()
     device.rpc.get_rescue_information.side_effect = RpcError(
@@ -633,7 +654,9 @@ def test_get_rescue_configuration_returns_none_when_absent(juniper_conn):
         assert juniper_conn.get_rescue_configuration() is None
 
 
-def test_get_rescue_configuration_raises_on_transport_error(juniper_conn):
+def test_get_rescue_configuration_raises_on_transport_error(
+    juniper_conn: JuniperConnection,
+) -> None:
     """Transport failures are not silently treated as a missing rescue config."""
     device = MagicMock()
     device.rpc.get_rescue_information.side_effect = ConnectError(
@@ -644,7 +667,9 @@ def test_get_rescue_configuration_raises_on_transport_error(juniper_conn):
             juniper_conn.get_rescue_configuration()
 
 
-def test_get_rescue_configuration_raises_on_unexpected_rpc_error(juniper_conn):
+def test_get_rescue_configuration_raises_on_unexpected_rpc_error(
+    juniper_conn: JuniperConnection,
+) -> None:
     """Non-absent rescue RpcErrors surface instead of looking like None."""
     device = MagicMock()
     device.rpc.get_rescue_information.side_effect = RpcError(
@@ -655,7 +680,7 @@ def test_get_rescue_configuration_raises_on_unexpected_rpc_error(juniper_conn):
             juniper_conn.get_rescue_configuration()
 
 
-def test_delete_rescue_configuration_calls_rescue_delete(juniper_conn):
+def test_delete_rescue_configuration_calls_rescue_delete(juniper_conn: JuniperConnection) -> None:
     """delete_rescue_configuration issues a rescue delete."""
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
@@ -665,7 +690,7 @@ def test_delete_rescue_configuration_calls_rescue_delete(juniper_conn):
     mock_config.return_value.rescue.assert_called_once_with(action="delete")
 
 
-def test_rollback_to_rescue_reloads_and_commits(juniper_conn):
+def test_rollback_to_rescue_reloads_and_commits(juniper_conn: JuniperConnection) -> None:
     """rollback_to_rescue reloads the rescue config and commits when it differs."""
     cu = MagicMock()
     cu.rescue.return_value = True
@@ -682,7 +707,7 @@ def test_rollback_to_rescue_reloads_and_commits(juniper_conn):
     cu.commit.assert_called_once()
 
 
-def test_rollback_to_rescue_noop_when_no_diff(juniper_conn):
+def test_rollback_to_rescue_noop_when_no_diff(juniper_conn: JuniperConnection) -> None:
     """rollback_to_rescue does nothing when the rescue config matches the active config."""
     cu = MagicMock()
     cu.rescue.return_value = True
@@ -699,7 +724,7 @@ def test_rollback_to_rescue_noop_when_no_diff(juniper_conn):
     cu.rollback.assert_called_once()
 
 
-def test_rollback_to_rescue_raises_when_rescue_missing(juniper_conn):
+def test_rollback_to_rescue_raises_when_rescue_missing(juniper_conn: JuniperConnection) -> None:
     """PyEZ rescue reload returns False when no rescue exists; surface that clearly."""
     cu = MagicMock()
     cu.rescue.return_value = False
@@ -716,7 +741,9 @@ def test_rollback_to_rescue_raises_when_rescue_missing(juniper_conn):
     cu.commit.assert_not_called()
 
 
-def test_run_diagnostic_command_dispatches_supported_junos_command(juniper_conn):
+def test_run_diagnostic_command_dispatches_supported_junos_command(
+    juniper_conn: JuniperConnection,
+) -> None:
     """A supported Junos diagnostic maps to its RPC and serialises to JSON."""
     with patch.object(juniper_conn, "_rpc", return_value={"host-name": "test-router"}) as mock_rpc:
         raw = juniper_conn.run_diagnostic_command("show_version")
@@ -724,7 +751,9 @@ def test_run_diagnostic_command_dispatches_supported_junos_command(juniper_conn)
     assert json.loads(raw) == {"host-name": "test-router"}
 
 
-def test_run_diagnostic_command_unsupported_junos_raises_network_exception(juniper_conn):
+def test_run_diagnostic_command_unsupported_junos_raises_network_exception(
+    juniper_conn: JuniperConnection,
+) -> None:
     """Junos diagnostics with no RPC mapping surface a NetworkDeviceException, not
     a raw NotImplementedError from the base stub."""
     with pytest.raises(NetworkDeviceException, match="not implemented for JuniperConnection"):
@@ -734,22 +763,24 @@ def test_run_diagnostic_command_unsupported_junos_raises_network_exception(junip
 class TestJunosList:
     """Tests for the _junos_list Junos-JSON normalization helper."""
 
-    def test_missing_key_returns_empty_list(self):
+    def test_missing_key_returns_empty_list(self) -> None:
         """A key absent from the container returns an empty list, not an error."""
         assert _junos_list({}, "mac-table-entry") == []
 
-    def test_wraps_a_bare_dict_as_a_single_item_list(self):
+    def test_wraps_a_bare_dict_as_a_single_item_list(self) -> None:
         """Junos omits the list wrapper entirely when there is exactly one element."""
         entry = {"mac-address": [{"data": "00:11:22:33:44:55"}]}
         assert _junos_list({"mac-table-entry": entry}, "mac-table-entry") == [entry]
 
-    def test_preserves_an_actual_list(self):
+    def test_preserves_an_actual_list(self) -> None:
         """A real list of entries is returned as-is."""
         entries = [{"a": 1}, {"b": 2}]
         assert _junos_list({"mac-table-entry": entries}, "mac-table-entry") == entries
 
     @pytest.mark.parametrize("scalar", ["some-string", 5, 1.5, True])
-    def test_scalar_value_returns_empty_list_instead_of_iterating_it(self, scalar):
+    def test_scalar_value_returns_empty_list_instead_of_iterating_it(
+        self, scalar: str | int | float | bool
+    ) -> None:
         """A stray string/number under a repeatable key must not be iterated character-by-character."""
         assert _junos_list({"mac-table-entry": scalar}, "mac-table-entry") == []
 
@@ -763,7 +794,9 @@ def _lldp_neighbor_entry(local_port: str, remote_port: str, remote_system: str) 
     }
 
 
-def test_get_lldp_data_returns_neighbor_for_matching_interface(juniper_conn):
+def test_get_lldp_data_returns_neighbor_for_matching_interface(
+    juniper_conn: JuniperConnection,
+) -> None:
     """get_lldp_data finds the single neighbor entry for the requested local port."""
     data = {
         "lldp-neighbors-information": [
@@ -776,18 +809,21 @@ def test_get_lldp_data_returns_neighbor_for_matching_interface(juniper_conn):
     }
     with patch.object(juniper_conn, "_rpc", return_value=data):
         result = juniper_conn.get_lldp_data("ge-0/0/0")
+    assert result is not None
     assert result.device_name == "junos-backbone-vjunos02"
     assert result.name == "et-0/0/1"
 
 
-def test_get_lldp_data_returns_none_when_no_match(juniper_conn):
+def test_get_lldp_data_returns_none_when_no_match(juniper_conn: JuniperConnection) -> None:
     """get_lldp_data returns None when the interface has no LLDP neighbor."""
-    data = {"lldp-neighbors-information": [{"lldp-neighbor-information": []}]}
+    data: dict[str, object] = {"lldp-neighbors-information": [{"lldp-neighbor-information": []}]}
     with patch.object(juniper_conn, "_rpc", return_value=data):
         assert juniper_conn.get_lldp_data("ge-0/0/5") is None
 
 
-def test_get_lldp_data_raises_on_multiple_neighbors_for_one_interface(juniper_conn):
+def test_get_lldp_data_raises_on_multiple_neighbors_for_one_interface(
+    juniper_conn: JuniperConnection,
+) -> None:
     """Multiple neighbors on the same local port is treated as ambiguous, like Arista."""
     data = {
         "lldp-neighbors-information": [
@@ -804,7 +840,9 @@ def test_get_lldp_data_raises_on_multiple_neighbors_for_one_interface(juniper_co
             juniper_conn.get_lldp_data("ge-0/0/0")
 
 
-def test_get_interface_connections_combines_lldp_and_link_state(juniper_conn):
+def test_get_interface_connections_combines_lldp_and_link_state(
+    juniper_conn: JuniperConnection,
+) -> None:
     """get_interface_connections merges LLDP neighbors with per-interface link state."""
     lldp_data = {
         "lldp-neighbors-information": [
@@ -831,9 +869,11 @@ def test_get_interface_connections_combines_lldp_and_link_state(juniper_conn):
     assert result.link_states == {"ge-0/0/0": True, "ge-0/0/1": False}
 
 
-def test_get_interface_connections_handles_no_neighbors(juniper_conn):
+def test_get_interface_connections_handles_no_neighbors(juniper_conn: JuniperConnection) -> None:
     """An empty LLDP table still returns link states with no neighbors."""
-    empty_lldp = {"lldp-neighbors-information": [{"lldp-neighbor-information": []}]}
+    empty_lldp: dict[str, object] = {
+        "lldp-neighbors-information": [{"lldp-neighbor-information": []}]
+    }
     link_state_data = {
         "interface-information": [
             {
@@ -849,7 +889,9 @@ def test_get_interface_connections_handles_no_neighbors(juniper_conn):
     assert result.link_states == {"ge-0/0/0": True}
 
 
-def test_get_interface_connections_raises_on_multiple_neighbors_for_one_interface(juniper_conn):
+def test_get_interface_connections_raises_on_multiple_neighbors_for_one_interface(
+    juniper_conn: JuniperConnection,
+) -> None:
     """A hub/fan-in on one port must raise here too, not silently keep the last neighbor."""
     lldp_data = {
         "lldp-neighbors-information": [
@@ -866,7 +908,7 @@ def test_get_interface_connections_raises_on_multiple_neighbors_for_one_interfac
             juniper_conn.get_interface_connections()
 
 
-def test_get_mac_table_parses_switching_table_entries(juniper_conn):
+def test_get_mac_table_parses_switching_table_entries(juniper_conn: JuniperConnection) -> None:
     """get_mac_table parses mac-table-entry rows, keyed by physical interface."""
     data = {
         "ethernet-switching-table-information": [
@@ -893,7 +935,7 @@ def test_get_mac_table_parses_switching_table_entries(juniper_conn):
     assert result.by_interface["ge-0/0/0"] == [mac]
 
 
-def test_get_mac_table_skips_entry_with_invalid_mac(juniper_conn):
+def test_get_mac_table_skips_entry_with_invalid_mac(juniper_conn: JuniperConnection) -> None:
     """A malformed MAC in one entry is skipped rather than aborting the whole table."""
     data = {
         "ethernet-switching-table-information": [
@@ -933,7 +975,9 @@ def _raise_unsupported_switching_table(*_args: object, **_kwargs: object) -> Non
     raise NetworkDeviceException("RPC get-ethernet-switching-table-information failed") from cause
 
 
-def test_get_mac_table_returns_empty_when_switching_unsupported(juniper_conn):
+def test_get_mac_table_returns_empty_when_switching_unsupported(
+    juniper_conn: JuniperConnection,
+) -> None:
     """A backbone router without bridging rejects the RPC; treat that as an empty table."""
     with patch.object(juniper_conn, "_rpc", side_effect=_raise_unsupported_switching_table):
         result = juniper_conn.get_mac_table()
@@ -941,7 +985,9 @@ def test_get_mac_table_returns_empty_when_switching_unsupported(juniper_conn):
     assert result.by_interface == {}
 
 
-def test_get_arp_table_parses_entries_and_strips_logical_unit(juniper_conn):
+def test_get_arp_table_parses_entries_and_strips_logical_unit(
+    juniper_conn: JuniperConnection,
+) -> None:
     """get_arp_table maps IP/MAC/interface, keying interfaces by physical name."""
     data = {
         "arp-table-information": [
@@ -964,7 +1010,7 @@ def test_get_arp_table_parses_entries_and_strips_logical_unit(juniper_conn):
     assert result.interface_to_mac["ge-0/0/0"] == [mac]
 
 
-def test_get_arp_table_skips_incomplete_entries(juniper_conn):
+def test_get_arp_table_skips_incomplete_entries(juniper_conn: JuniperConnection) -> None:
     """Entries missing a mac, ip, or interface are skipped rather than raising."""
     data = {
         "arp-table-information": [
@@ -981,7 +1027,9 @@ def test_get_arp_table_skips_incomplete_entries(juniper_conn):
     assert result.mac_to_ip == {}
 
 
-def test_get_arp_table_skips_entries_with_invalid_ip_or_mac(juniper_conn):
+def test_get_arp_table_skips_entries_with_invalid_ip_or_mac(
+    juniper_conn: JuniperConnection,
+) -> None:
     """A malformed IP or MAC in one entry is skipped rather than aborting the whole table."""
     data = {
         "arp-table-information": [
@@ -1012,7 +1060,7 @@ def test_get_arp_table_skips_entries_with_invalid_ip_or_mac(juniper_conn):
     assert result.mac_to_ip == {"00-11-22-33-44-66": ["10.0.0.2"]}
 
 
-def test_get_arp_table_returns_empty_for_empty_reply(juniper_conn):
+def test_get_arp_table_returns_empty_for_empty_reply(juniper_conn: JuniperConnection) -> None:
     """An empty arp-table-information reply produces an empty table, not an error."""
     with patch.object(juniper_conn, "_rpc", return_value={"arp-table-information": []}):
         result = juniper_conn.get_arp_table()

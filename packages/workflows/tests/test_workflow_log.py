@@ -37,7 +37,9 @@ STAGE_LOGGER_NAME = "nv_config_manager_workflows.stage.mixin"
     ("logger", "category"),
     [(nats_logger, "nats"), (producer_logger, "nats"), (jira_logger, "temporal.activity")],
 )
-def test_client_categories_without_service_configuration(logger, category, caplog):
+def test_client_categories_without_service_configuration(
+    logger: logging.LoggerAdapter[logging.Logger], category: str, caplog: pytest.LogCaptureFixture
+) -> None:
     with caplog.at_level(logging.INFO, logger=logger.name):
         logger.info("client event", extra={"operation": "test"})
 

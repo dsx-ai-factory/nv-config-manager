@@ -59,7 +59,9 @@ def test_site_specific_section_overrides_global_section() -> None:
 
 
 @pytest.mark.parametrize("secrets_config", [None, {}])
-def test_missing_secrets_mapping_falls_back_to_global_section(secrets_config) -> None:
+def test_missing_secrets_mapping_falls_back_to_global_section(
+    secrets_config: dict[str, dict[str, str]] | None,
+) -> None:
     selected, section = select_credential_source(
         MAIN_CONFIG,
         secrets_config,

@@ -34,7 +34,7 @@ def _arista_connection() -> AristaConnection:
     return conn
 
 
-def test_commit_preserves_diff_changed_exception():
+def test_commit_preserves_diff_changed_exception() -> None:
     """A mismatched approved diff raises DiffChangedException, not a wrapped failure."""
     conn = _arista_connection()
     with (
@@ -48,7 +48,7 @@ def test_commit_preserves_diff_changed_exception():
         abort.assert_called_once()
 
 
-def test_commit_wraps_other_failures_as_network_device_exception():
+def test_commit_wraps_other_failures_as_network_device_exception() -> None:
     """Unexpected commit errors stay wrapped as NetworkDeviceException."""
     conn = _arista_connection()
     with (
@@ -62,7 +62,7 @@ def test_commit_wraps_other_failures_as_network_device_exception():
             conn.commit_candidate_config("config", "new-diff", commit_confirm=False)
 
 
-def test_commit_preserves_diff_changed_when_abort_fails():
+def test_commit_preserves_diff_changed_when_abort_fails() -> None:
     """Abort failure after a stale diff must not replace DiffChangedException."""
     conn = _arista_connection()
     with (
@@ -78,7 +78,7 @@ def test_commit_preserves_diff_changed_when_abort_fails():
         abort.assert_called_once()
 
 
-def test_commit_preserves_config_syntax_when_abort_fails():
+def test_commit_preserves_config_syntax_when_abort_fails() -> None:
     """Abort failure after invalid config must not replace ConfigSyntaxException."""
     conn = _arista_connection()
     with (
@@ -96,7 +96,7 @@ def test_commit_preserves_config_syntax_when_abort_fails():
         abort.assert_called_once()
 
 
-def test_diff_and_commit_pass_partial_to_load_candidate():
+def test_diff_and_commit_pass_partial_to_load_candidate() -> None:
     """Tenant (partial) deploys must not issue rollback clean-config."""
     conn = _arista_connection()
     with (
@@ -113,7 +113,7 @@ def test_diff_and_commit_pass_partial_to_load_candidate():
         load_candidate.assert_called_with("fragment", partial=True)
 
 
-def test_diff_and_commit_default_to_full_candidate_load():
+def test_diff_and_commit_default_to_full_candidate_load() -> None:
     """Full deploys keep the default partial=False load."""
     conn = _arista_connection()
     with (
@@ -130,7 +130,7 @@ def test_diff_and_commit_default_to_full_candidate_load():
         load_candidate.assert_called_with("full-config", partial=False)
 
 
-def test_load_candidate_omits_empty_command_on_partial():
+def test_load_candidate_omits_empty_command_on_partial() -> None:
     """Partial loads start the session without a blank rollback placeholder."""
     conn = _arista_connection()
     with (
@@ -146,7 +146,7 @@ def test_load_candidate_omits_empty_command_on_partial():
     assert commands[1:] == ["hostname leaf1", "end"]
 
 
-def test_load_candidate_includes_rollback_on_full_load():
+def test_load_candidate_includes_rollback_on_full_load() -> None:
     """Full loads still wipe the session with rollback clean-config."""
     conn = _arista_connection()
     with (

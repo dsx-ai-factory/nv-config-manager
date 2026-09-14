@@ -22,6 +22,7 @@ from nv_config_manager_workflows.clients.render import (
     FileCommit,
     RenderClient,
     RenderClientException,
+    RenderClientSettings,
 )
 
 
@@ -41,7 +42,7 @@ def _session_returning(payload: dict[str, object]) -> MagicMock:
 
 @pytest.mark.asyncio
 async def test_constructs_from_explicit_settings_with_unchanged_policy() -> None:
-    settings = {
+    settings: RenderClientSettings = {
         "base_url": "https://render.example/",
         "client_certificate": None,
         "headers": {"Authorization": "Bearer token"},

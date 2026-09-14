@@ -31,7 +31,10 @@ from nv_config_manager_workflows.clients.device import (
     NetworkDeviceException,
     NVOSConnection,
 )
-from nv_config_manager_workflows.clients.device.factory import connection_class_for_platform
+from nv_config_manager_workflows.clients.device.factory import (
+    DeviceConnectionClass,
+    connection_class_for_platform,
+)
 
 
 @pytest.mark.parametrize(
@@ -44,7 +47,9 @@ from nv_config_manager_workflows.clients.device.factory import connection_class_
         (Platform.JUNIPER_JUNOS, JuniperConnection, 830),
     ],
 )
-def test_selected_platform_constructs_from_explicit_settings(platform, connection_cls, port):
+def test_selected_platform_constructs_from_explicit_settings(
+    platform: Platform, connection_cls: DeviceConnectionClass, port: int
+) -> None:
     settings: DeviceConnectionSettings = {
         "username": "user-sentinel",
         "passwords": ["new", "old"],
@@ -64,16 +69,18 @@ def test_selected_platform_constructs_from_explicit_settings(platform, connectio
 
 
 @pytest.mark.parametrize("platform", list(Platform))
-def test_mock_selection_precedes_platform_dispatch(platform):
+def test_mock_selection_precedes_platform_dispatch(platform: Platform) -> None:
     assert connection_class_for_platform(platform, mock=True) is MockNetworkConnection
 
 
-def test_ufm_preserves_unsupported_error():
+def test_ufm_preserves_unsupported_error() -> None:
     with pytest.raises(NotImplementedError, match="use UFMClient"):
         connection_class_for_platform(Platform.UFM, mock=False)
 
 
-def test_rotation_caches_success_without_logging_credentials(caplog):
+def test_rotation_caches_success_without_logging_credentials(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     username, newest, older = "username-sentinel", "new-password-sentinel", "old-password-sentinel"
     connection = NetworkConnection(
         "host", 22, settings={"username": username, "passwords": [newest, older], "mock": False}
@@ -87,7 +94,7 @@ def test_rotation_caches_success_without_logging_credentials(caplog):
         assert credential not in caplog.text
 
 
-def test_all_passwords_fail_preserves_exception_cause(caplog):
+def test_all_passwords_fail_preserves_exception_cause(caplog: pytest.LogCaptureFixture) -> None:
     connection = NetworkConnection(
         "host",
         22,
@@ -101,7 +108,7 @@ def test_all_passwords_fail_preserves_exception_cause(caplog):
     assert "username-sentinel" not in caplog.text
 
 
-def test_http_failure_does_not_log_response_secrets(caplog):
+def test_http_failure_does_not_log_response_secrets(caplog: pytest.LogCaptureFixture) -> None:
     connection = CumulusConnection(
         "host", settings={"username": "user", "passwords": [], "mock": False}
     )
