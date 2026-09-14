@@ -70,6 +70,33 @@ def test_attachment_size_limit_is_ten_mebibytes() -> None:
     assert JiraTicketingProvider.max_attachment_size == 10 * 1024 * 1024
 
 
+@pytest.mark.parametrize(
+    ("issue_key", "encoded_key"),
+    [
+        ("GNI-1234", "GNI-1234"),
+        ("GNI-1234/other?query=value#fragment", "GNI-1234%2Fother%3Fquery%3Dvalue%23fragment"),
+        ("GNI 1234%2F", "GNI%201234%252F"),
+    ],
+)
+async def test_issue_keys_are_encoded_in_all_request_urls(issue_key: str, encoded_key: str) -> None:
+    """Issue-key delimiters must not become URL paths, queries, or fragments."""
+    session, response = _session_response(status=200)
+    response.json.side_effect = [{"id": "42"}, [{"id": "43"}], {"id": "44"}]
+    provider = _provider()
+    issue_url = f"{BASE_URL}/rest/api/latest/issue/{encoded_key}"
+
+    with patch.object(provider, "_ensure_session", new=AsyncMock(return_value=session)):
+        await provider.validate_issue(issue_key)
+        await provider.upload_attachment(issue_key, "diagnostics.txt", b"diagnostics", "text/plain")
+        await provider.add_comment(issue_key, "Diagnostics complete.")
+
+    session.get.assert_called_once_with(issue_url)
+    assert [request.args[0] for request in session.post.call_args_list] == [
+        f"{issue_url}/attachments",
+        f"{issue_url}/comment",
+    ]
+
+
 async def test_session_preserves_headers_timeouts_and_cleanup() -> None:
     session = MagicMock()
     session.close = AsyncMock()

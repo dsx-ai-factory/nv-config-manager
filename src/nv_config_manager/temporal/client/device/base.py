@@ -21,7 +21,6 @@ from typing import ClassVar
 
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData
 
-from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.temporal.factories.device import device_connection_settings
 from nv_config_manager_workflows.clients.device.base import (
     COMMIT_CONFIRM_ROLLBACK_SECONDS as COMMIT_CONFIRM_ROLLBACK_SECONDS,
@@ -29,7 +28,6 @@ from nv_config_manager_workflows.clients.device.base import (
 from nv_config_manager_workflows.clients.device.base import (
     NetworkConnection as WorkflowNetworkConnection,
 )
-from nv_config_manager_workflows.clients.device.settings import DeviceConnectionSettings
 
 
 class NetworkConnection(WorkflowNetworkConnection):
@@ -54,7 +52,9 @@ class NetworkConnection(WorkflowNetworkConnection):
         resolved_port = self.DEFAULT_PORT if port is None else port
         if resolved_port is None:
             raise TypeError("NetworkConnection requires a port")
-        settings = device_connection_settings(config, username=username, password=password, site=site, mock=False)
+        settings = device_connection_settings(
+            config, username=username, password=password, site=site, mock=False
+        )
         super().__init__(host, resolved_port, settings=settings)
 
     @staticmethod

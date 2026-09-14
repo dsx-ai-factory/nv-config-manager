@@ -12,22 +12,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for service-owned UFM credential and client construction."""
+"""Tests for service-owned UFM credential settings."""
 
 from collections.abc import Iterator
 from configparser import ConfigParser
 from pathlib import Path
-from ssl import PROTOCOL_TLS_CLIENT, SSLContext
-from unittest.mock import Mock
 
 import pytest
 
-from nv_config_manager.common import config_loader as config_module
 from nv_config_manager.temporal.common.secrets import clear_secrets_cache
-from nv_config_manager.temporal.factories.ufm import (
-    create_ufm_client,
-    ufm_client_settings,
-)
+from nv_config_manager.temporal.factories.ufm import ufm_client_settings
 
 
 @pytest.fixture(autouse=True)
@@ -125,43 +119,3 @@ def test_missing_secrets_file_falls_back_to_global_credentials(
         "username": "global-user",
         "passwords": ["global-new", "global-old"],
     }
-
-
-def test_service_factory_passes_explicit_settings_tls_and_timeout(
-    main_config: ConfigParser,
-    multi_site_secrets: Path,
-) -> None:
-    assert multi_site_secrets.is_file()
-    ssl_context = SSLContext(PROTOCOL_TLS_CLIENT)
-
-    client = create_ufm_client(
-        "alpha-ufm.example.com",
-        main_config,
-        site="Alpha Site",
-        max_passwords=3,
-        ssl=ssl_context,
-        timeout_seconds=47,
-    )
-
-    assert client._base_url == "https://alpha-ufm.example.com/ufmRest"
-    assert client._host == "alpha-ufm.example.com"
-    assert client._username == "alpha-user"
-    assert client._passwords == ["alpha-new", "alpha-middle", "alpha-old"]
-    assert client._ssl is ssl_context
-    assert client._timeout_seconds == 47
-
-
-def test_injected_configuration_does_not_load_global_config(
-    main_config: ConfigParser,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    load_config = Mock(side_effect=AssertionError("load_config should not be called"))
-    monkeypatch.setattr(config_module, "load_config", load_config)
-
-    create_ufm_client(
-        "ufm.example.com",
-        main_config,
-        max_passwords=1,
-    )
-
-    load_config.assert_not_called()

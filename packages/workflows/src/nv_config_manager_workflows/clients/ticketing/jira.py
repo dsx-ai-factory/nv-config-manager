@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import types
 from typing import Any, Self, TypedDict, cast
+from urllib.parse import quote
 
 import aiohttp
 
@@ -87,10 +88,13 @@ class JiraTicketingProvider(TicketingProvider):
             await self._session.close()
             self._session = None
 
+    def _issue_url(self, issue_key: str) -> str:
+        return f"{self._base_url}/rest/api/latest/issue/{quote(issue_key, safe='')}"
+
     async def validate_issue(self, issue_key: str) -> dict[str, Any]:
         """Fetch a Jira issue and return its metadata."""
         session = await self._ensure_session()
-        url = f"{self._base_url}/rest/api/latest/issue/{issue_key}"
+        url = self._issue_url(issue_key)
         async with session.get(url) as response:
             if response.status == 404:
                 raise JiraClientError(
@@ -114,7 +118,7 @@ class JiraTicketingProvider(TicketingProvider):
     ) -> str:
         """Upload a direct attachment to a Jira issue."""
         session = await self._ensure_session()
-        url = f"{self._base_url}/rest/api/latest/issue/{issue_key}/attachments"
+        url = f"{self._issue_url(issue_key)}/attachments"
         form = aiohttp.FormData()
         form.add_field("file", content, filename=filename, content_type=content_type)
 
@@ -138,7 +142,7 @@ class JiraTicketingProvider(TicketingProvider):
     async def add_comment(self, issue_key: str, body: str) -> str:
         """Add a plain-text comment to a Jira issue."""
         session = await self._ensure_session()
-        url = f"{self._base_url}/rest/api/latest/issue/{issue_key}/comment"
+        url = f"{self._issue_url(issue_key)}/comment"
 
         async with session.post(url, json={"body": body}) as response:
             if response.status not in (200, 201):
