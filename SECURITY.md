@@ -26,6 +26,7 @@ For all security-related concerns, please visit NVIDIA's Product Security portal
 
 | Version | Supported |
 |---------|-----------|
+| 1.3.x   | Yes       |
 | 1.2.x   | Yes       |
 | < 1.2   | No        |
 
