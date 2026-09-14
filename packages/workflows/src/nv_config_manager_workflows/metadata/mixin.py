@@ -36,6 +36,8 @@ class WorkflowMetadataMixin:
     workflow_namespace: str | None = None
     workflow_mcp_enabled: bool = False
     workflow_lock: WorkflowLockSpec | None = None
+    # Per-class declaration only. Consumers must use
+    # get_workflow_required_activities() to aggregate requirements across the MRO.
     workflow_required_activities: Sequence[RequiredActivity] = ()
 
     @classmethod
@@ -103,8 +105,23 @@ class WorkflowMetadataMixin:
 
     @classmethod
     def get_workflow_required_activities(cls) -> Sequence[RequiredActivity]:
-        """Return the activities that must be installed with this workflow."""
-        return cls.workflow_required_activities
+        """Return activity requirements aggregated across the workflow's MRO.
+
+        Consumers must use this accessor rather than reading
+        ``workflow_required_activities`` directly.
+        """
+        required: list[RequiredActivity] = []
+        for base in reversed(cls.__mro__):
+            if base is WorkflowMetadataMixin:
+                continue
+
+            declared = base.__dict__.get("workflow_required_activities")
+            if declared is None:
+                continue
+            if isinstance(declared, str) or not isinstance(declared, Sequence):
+                return declared
+            required.extend(declared)
+        return tuple(required)
 
     @classmethod
     async def canonicalize_input(cls, body: BaseModel) -> BaseModel:

@@ -18,8 +18,11 @@ from pydantic import BaseModel
 from slack_sdk import WebClient
 from temporalio import activity
 
-from nv_config_manager.common.config import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager_workflows.runtime import (
+    get_slack_configuration,
+    get_ui_base_url,
+)
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
 
@@ -41,14 +44,9 @@ class SlackMessageOutput(BaseModel):
 @activity.defn
 async def send_slack_message(input: SlackMessageInput) -> SlackMessageOutput:
     """Send a message to Slack. No-op when Slack is not configured."""
-    config = load_config()
-
-    if not config.has_section("slack"):
-        logger.info("Slack is not configured; skipping notification.")
-        return SlackMessageOutput()
-
-    bot_token = config["slack"].get("bot_token", "").strip()
-    channel_name = config["slack"].get("channel_name", "").strip()
+    configured_token, configured_channel = get_slack_configuration()
+    bot_token = (configured_token or "").strip()
+    channel_name = (configured_channel or "").strip()
     if not bot_token or not channel_name:
         logger.info("Slack is not configured; skipping notification.")
         return SlackMessageOutput()
@@ -58,7 +56,7 @@ async def send_slack_message(input: SlackMessageInput) -> SlackMessageOutput:
 
     message = input.message
     if input.link_workflow:
-        ui_url = config["temporal"]["ui_url"].rstrip("/")
+        ui_url = get_ui_base_url().rstrip("/")
         workflow_id = activity.info().workflow_id
         message += f"\nView workflow: {ui_url}/workflows/{workflow_id}"
 

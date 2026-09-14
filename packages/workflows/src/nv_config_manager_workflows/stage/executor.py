@@ -20,7 +20,7 @@ from __future__ import annotations
 import functools
 import traceback
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import Any, TypeVar, cast
 
 from temporalio import workflow
 from temporalio.exceptions import (
@@ -32,10 +32,8 @@ from temporalio.exceptions import (
 )
 
 from nv_config_manager_workflows.stage.exceptions import StageRuntimeFailure, StageStateFailure
+from nv_config_manager_workflows.stage.mixin import StageMixin
 from nv_config_manager_workflows.stage.models import StageInput, StageOutput, StateEnum
-
-if TYPE_CHECKING:
-    from nv_config_manager_workflows.stage.mixin import StageMixin
 
 F = TypeVar("F", bound=Callable[..., Any])
 

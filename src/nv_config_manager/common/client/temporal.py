@@ -26,8 +26,9 @@ from typing import Any, cast
 import aiohttp
 from aiohttp import ClientTimeout, TCPConnector
 
-from nv_config_manager.common.client._mixins import WhoamiResult
+from nv_config_manager.common.http_config import get_internal_auth_headers, get_mtls_cert_paths
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager_workflows.clients._http import WhoamiResult
 
 
 class TemporalClientException(Exception):
@@ -79,8 +80,6 @@ class TemporalClient:
         Returns:
             Configured TemporalClient instance
         """
-        from nv_config_manager.common.config import get_internal_auth_headers, get_mtls_cert_paths
-
         temporal_config = config[section]
         use_internal = temporal_config.getboolean("use_internal_endpoint", fallback=False)
 

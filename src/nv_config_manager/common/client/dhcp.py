@@ -26,6 +26,12 @@ from typing import Any, cast
 import aiohttp
 from aiohttp import ClientTimeout, TCPConnector
 
+from nv_config_manager.common.http_config import (
+    get_internal_auth_headers,
+    get_mtls_cert_paths,
+    parse_verify_param,
+)
+
 
 class DHCPClientException(Exception):
     """Exception raised for errors in the DHCP client."""
@@ -55,13 +61,6 @@ class DHCPClient:
         section: str = "dhcp",
     ) -> DHCPClient:
         """Create a DHCP client from INI configuration."""
-        # Imported lazily because nv_config_manager.common.config imports common clients.
-        from nv_config_manager.common.config import (
-            get_internal_auth_headers,
-            get_mtls_cert_paths,
-            parse_verify_param,
-        )
-
         dhcp_config = config[section]
         use_internal = dhcp_config.getboolean("use_internal_endpoint", fallback=False)
         if use_internal:

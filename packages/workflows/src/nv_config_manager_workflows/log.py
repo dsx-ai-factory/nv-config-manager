@@ -20,7 +20,7 @@ logging module, so it attaches the same field through a plain
 :class:`logging.LoggerAdapter`: the record reaches the host's handlers carrying
 ``category`` exactly as a service-side logger would.
 
-``WORKFLOW_LOG_CATEGORY`` intentionally duplicates the host's
+``WorkflowLogCategory.TEMPORAL_WORKFLOW`` intentionally duplicates the host's
 ``LogCategory.TEMPORAL_WORKFLOW``. It is a label consumed by dashboards rather
 than a type anything compares by identity, so a second definition is safe; a
 test in the host asserts the two agree, which is what keeps them from drifting.
@@ -29,12 +29,24 @@ test in the host asserts the two agree, which is what keeps them from drifting.
 from __future__ import annotations
 
 import logging
+from enum import StrEnum
 
-WORKFLOW_LOG_CATEGORY = "temporal.workflow"
+
+class WorkflowLogCategory(StrEnum):
+    """Standard log category labels for structured logging."""
+
+    REDIS = "redis"
+    RENDER = "render"
+    CONFIG_STORE = "config_store"
+    TEMPORAL = "temporal"
+    TEMPORAL_WORKFLOW = "temporal.workflow"
+    TEMPORAL_ACTIVITY = "temporal.activity"
+    AUTH = "auth"
+    NATS = "nats"
 
 
-def get_workflow_logger(name: str) -> logging.LoggerAdapter[logging.Logger]:
-    """Return a logger whose records carry the workflow log category.
+def get_logger(name: str, category: WorkflowLogCategory) -> logging.LoggerAdapter[logging.Logger]:
+    """Return a logger whose records carry the requested log category.
 
     Args:
         name: Logger name, conventionally the calling module's ``__name__``.
@@ -45,6 +57,6 @@ def get_workflow_logger(name: str) -> logging.LoggerAdapter[logging.Logger]:
     """
     return logging.LoggerAdapter(
         logging.getLogger(name),
-        extra={"category": WORKFLOW_LOG_CATEGORY},
+        extra={"category": category},
         merge_extra=True,
     )

@@ -23,6 +23,7 @@ from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
 
+from nv_config_manager.common.lock import workflow_lock_backend
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
 from nv_config_manager.temporal.common.activities import REGISTERED_COMMON_ACTIVITIES
@@ -42,6 +43,7 @@ from nv_config_manager.temporal.ngc.activities import (
 from nv_config_manager.temporal.ngc.workflows import (
     REGISTERED_WORKFLOWS as NGC_REGISTERED_WORKFLOWS,
 )
+from nv_config_manager.temporal.runtime import configure_workflow_runtime
 from nv_config_manager.temporal.telemetry import setup_telemetry
 
 configure_logging(service="temporal-worker")
@@ -55,6 +57,8 @@ def _enabled_env_flag(name: str) -> bool:
 async def main() -> None:
     """Run the temporal worker."""
     runtime = setup_telemetry("nv-config-manager-temporal-worker")
+
+    configure_workflow_runtime(lock_redis=workflow_lock_backend())
 
     client = await Client.connect(
         temporal_address(),

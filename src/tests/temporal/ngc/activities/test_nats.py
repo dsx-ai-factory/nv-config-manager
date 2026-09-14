@@ -24,6 +24,19 @@ from nv_config_manager.temporal.ngc.activities.nats import (
     PublishNatsInput,
     publish_nats,
 )
+from nv_config_manager_workflows import runtime as runtime_module
+from nv_config_manager_workflows.mixins.archive import PUBLISH_NATS_ACTIVITY_NAME
+from nv_config_manager_workflows.registration import activity_name
+from nv_config_manager_workflows.runtime import NatsNotConfiguredError
+
+
+@pytest.mark.asyncio
+async def test_publish_nats_fails_clearly_before_runtime_configuration(monkeypatch):
+    """A missing startup call is reported before constructing a NATS client."""
+    monkeypatch.setattr(runtime_module, "_nats", runtime_module._UNSET)
+
+    with pytest.raises(NatsNotConfiguredError, match="configure_nats"):
+        await publish_nats(PublishNatsInput(message="payload"))
 
 
 @pytest.mark.asyncio
@@ -64,3 +77,8 @@ async def test_publish_nats_on_failure_raises(mock_producer_cls):
 
     with pytest.raises(nats.js.errors.NoStreamResponseError):
         await publish_nats(PublishNatsInput(subject=ARCHIVE_SUBJECT, message="payload"))
+
+
+def test_registered_under_the_name_archive_mixin_dispatches_on():
+    """ArchiveMixin executes this activity by name, so a rename here breaks archival."""
+    assert activity_name(publish_nats) == PUBLISH_NATS_ACTIVITY_NAME

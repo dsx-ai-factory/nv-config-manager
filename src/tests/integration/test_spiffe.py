@@ -534,7 +534,7 @@ def _client_whoami_script(kind: str, base_url: str, *, authenticated: bool) -> s
         }[kind]
         if kind == "config-store":
             body = (
-                f"    c = {cls}(target={base_url!r}, file_type='intended', "
+                f"    c = {cls}(target={base_url!r}, file_type=ConfigStoreType.INTENDED, "
                 f"ui_url='https://config-manager.example.com', headers={headers_expr})\n"
                 "    try:\n"
                 "        return await c.whoami()\n"
@@ -546,7 +546,8 @@ def _client_whoami_script(kind: str, base_url: str, *, authenticated: bool) -> s
                 f"    c = {cls}(base_url={base_url!r}, headers={headers_expr})\n"
                 "    return await c.whoami()\n"
             )
-        import_line = f"from {module} import {cls}\n"
+        imported_names = f"{cls}, ConfigStoreType" if kind == "config-store" else cls
+        import_line = f"from {module} import {imported_names}\n"
     return (
         "import asyncio, json\n"
         f"{import_line}"

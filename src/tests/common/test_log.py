@@ -24,7 +24,10 @@ from pythonjsonlogger.json import JsonFormatter
 
 from nv_config_manager.common import log
 from nv_config_manager.common.log import EscapingFilter, escape_log_newlines, get_logger
-from nv_config_manager_workflows.log import WORKFLOW_LOG_CATEGORY
+from nv_config_manager_workflows.clients.nats.base import logger as nats_logger
+from nv_config_manager_workflows.clients.nats.producer import logger as producer_logger
+from nv_config_manager_workflows.clients.ticketing.jira import logger as jira_logger
+from nv_config_manager_workflows.log import WorkflowLogCategory
 
 # W3C trace-context example IDs.
 _TRACE_ID = 0x4BF92F3577B34DA6A3CE929D0E0E4736
@@ -84,6 +87,33 @@ def _restore_logging():
     logging.root.handlers[:] = original_handlers
     logging.root.setLevel(original_level)
     log._custom_labels = original_labels
+
+
+@pytest.mark.parametrize(
+    ("adapter", "extra", "expected"),
+    [
+        (nats_logger, {}, "nats"),
+        (producer_logger, {}, "nats"),
+        (jira_logger, {}, "temporal.activity"),
+        (producer_logger, {"category": "custom"}, "custom"),
+    ],
+)
+def test_workflow_client_categories_reach_json_output(adapter, extra, expected, _restore_logging):
+    """Client adapters supply categories that survive service formatting."""
+    log._logging_configured = False
+    output = io.StringIO()
+    with mock.patch.dict("os.environ", {"LOG_FORMAT": "json", "LOG_LEVEL": "INFO"}):
+        log.configure_logging(service="test")
+    logging.root.handlers[0].setStream(output)
+    logger = adapter.logger
+    with (
+        mock.patch.object(logger, "level", logging.INFO),
+        mock.patch.object(logger, "propagate", True),
+        mock.patch.object(logger, "disabled", False),
+    ):
+        adapter.info("client event", extra=extra)
+    entry = json.loads(output.getvalue())
+    assert entry.get("category") == expected
 
 
 class TestRecordFactoryIntegration:
@@ -195,7 +225,9 @@ def test_workflow_package_category_matches_this_services_label() -> None:
     Both definitions feed the same ``category`` field, so a rename on either side
     would silently split one dashboard filter into two.
     """
-    assert WORKFLOW_LOG_CATEGORY == log.LogCategory.TEMPORAL_WORKFLOW
+    assert WorkflowLogCategory.TEMPORAL_WORKFLOW == log.LogCategory.TEMPORAL_WORKFLOW
+    assert WorkflowLogCategory.NATS == log.LogCategory.NATS
+    assert WorkflowLogCategory.TEMPORAL_ACTIVITY == log.LogCategory.TEMPORAL_ACTIVITY
 
 
 def _emit_through_escaping_filter(msg: object, *args: object) -> str:

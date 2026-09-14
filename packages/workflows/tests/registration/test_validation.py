@@ -21,7 +21,11 @@ from pydantic import BaseModel
 from temporalio import activity, workflow
 from temporalio.common import RawValue
 
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.metadata import RequiredActivity, WorkflowMetadataMixin
+from nv_config_manager_workflows.mixins.archive import (
+    PUBLISH_NATS_ACTIVITY_NAME,
+    ArchiveMixin,
+)
 from nv_config_manager_workflows.registration.descriptor import WorkflowPluginDescriptor
 from nv_config_manager_workflows.registration.errors import (
     WorkflowConflictError,
@@ -55,6 +59,10 @@ async def collect_facts_twin() -> None: ...
 
 @activity.defn(name="apply_config")
 async def apply_configuration() -> None: ...
+
+
+@activity.defn(name=PUBLISH_NATS_ACTIVITY_NAME)
+async def publish_result() -> None: ...
 
 
 @activity.defn(dynamic=True)
@@ -103,6 +111,16 @@ class BetaWorkflow(WorkflowMetadataMixin, StageMixin):
 @workflow.defn
 class BareWorkflow(WorkflowMetadataMixin, StageMixin):
     """Declares no metadata: registrable by the worker, exposed nowhere else."""
+
+    @workflow.run
+    async def run(self, workflow_input: BaseModel) -> None: ...
+
+
+@workflow.defn
+class ArchivedWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin):
+    """Combines its own requirement with the one contributed by ArchiveMixin."""
+
+    workflow_required_activities: Sequence[RequiredActivity] = (collect_facts,)
 
     @workflow.run
     async def run(self, workflow_input: BaseModel) -> None: ...
@@ -610,22 +628,76 @@ class TestDeclaredMetadata:
     ) -> None:
         monkeypatch.setattr(AlphaWorkflow, "workflow_required_activities", declared)
 
-        with pytest.raises(WorkflowRegistrationError, match="not a sequence of activity functions"):
+        with pytest.raises(WorkflowRegistrationError) as raised:
             validate_plugins(installed(alpha_plugin()))
+
+        assert str(raised.value) == (
+            'Workflow "AlphaWorkflow" from plugin "alpha-plugin" declares '
+            f"workflow_required_activities {declared!r}, which is not a sequence "
+            f"of activity functions"
+        )
 
     def test_required_activities_cannot_be_a_one_shot_iterator(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(
-            AlphaWorkflow,
-            "workflow_required_activities",
-            iter((collect_facts,)),
-        )
+        declared = iter((collect_facts,))
+        monkeypatch.setattr(AlphaWorkflow, "workflow_required_activities", declared)
 
-        with pytest.raises(WorkflowRegistrationError, match="not a sequence of activity functions"):
+        with pytest.raises(WorkflowRegistrationError) as raised:
             validate_plugins(installed(alpha_plugin()))
 
-    @pytest.mark.parametrize("entry", [None, "", "   ", 42, undecorated_activity])
+        assert str(raised.value) == (
+            'Workflow "AlphaWorkflow" from plugin "alpha-plugin" declares '
+            f"workflow_required_activities {declared!r}, which is not a sequence "
+            f"of activity functions"
+        )
+
+    def test_a_malformed_declaration_on_a_mixin_is_reported_against_the_plugin(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(ArchiveMixin, "workflow_required_activities", 42)
+
+        with pytest.raises(WorkflowRegistrationError) as raised:
+            validate_plugins(installed(plugin("archive-plugin", workflows=(ArchivedWorkflow,))))
+
+        assert str(raised.value) == (
+            'Workflow "ArchivedWorkflow" from plugin "archive-plugin" declares '
+            "workflow_required_activities 42, which is not a sequence of activity functions"
+        )
+
+    @pytest.mark.parametrize("declared", [42, "collect_facts"])
+    def test_a_declared_required_activities_accessor_must_return_a_sequence(
+        self, monkeypatch: pytest.MonkeyPatch, declared: Any
+    ) -> None:
+        """The contract invites overriding the accessor, so it is checked like the attribute."""
+        monkeypatch.setattr(
+            AlphaWorkflow,
+            "get_workflow_required_activities",
+            classmethod(lambda cls: declared),
+        )
+
+        with pytest.raises(WorkflowRegistrationError) as raised:
+            validate_plugins(installed(alpha_plugin()))
+
+        assert str(raised.value) == (
+            'Workflow "AlphaWorkflow" from plugin "alpha-plugin" declares '
+            f"workflow_required_activities {declared!r}, which is not a sequence "
+            f"of activity functions"
+        )
+
+    def test_a_workflow_may_decline_to_declare_required_activities(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Returning None clears the requirement: the plugin supplies no activities."""
+        monkeypatch.setattr(
+            AlphaWorkflow,
+            "get_workflow_required_activities",
+            classmethod(lambda cls: None),
+        )
+
+        validate_plugins(installed(plugin("alpha-plugin", workflows=(AlphaWorkflow,))))
+
+    @pytest.mark.parametrize("entry", [None, "", "   ", 42, [], undecorated_activity])
     def test_each_required_activity_must_be_identifiable(
         self, monkeypatch: pytest.MonkeyPatch, entry: Any
     ) -> None:
@@ -634,7 +706,10 @@ class TestDeclaredMetadata:
         with pytest.raises(WorkflowRegistrationError) as raised:
             validate_plugins(installed(alpha_plugin()))
 
-        assert "neither an activity function nor a non-empty activity name" in str(raised.value)
+        assert str(raised.value) == (
+            'Workflow "AlphaWorkflow" from plugin "alpha-plugin" declares required activity '
+            f"{entry!r}, which is neither an activity function nor a non-empty activity name"
+        )
 
 
 class TestConflictsBetweenPlugins:
@@ -757,6 +832,23 @@ class TestRequiredActivities:
 
         assert 'requires activity "collect_facts"' in str(raised.value)
         assert "no installed workflow plugin supplies" in str(raised.value)
+
+    def test_a_requirement_inherited_from_a_mixin_is_rejected_when_unsupplied(self) -> None:
+        with pytest.raises(WorkflowRequiredActivityError) as raised:
+            validate_plugins(installed(plugin("archive-plugin", workflows=(ArchivedWorkflow,))))
+
+        assert f'requires activity "{PUBLISH_NATS_ACTIVITY_NAME}"' in str(raised.value)
+
+    def test_a_requirement_inherited_from_a_mixin_is_satisfied_by_a_supplier(self) -> None:
+        validate_plugins(
+            installed(
+                plugin(
+                    "archive-plugin",
+                    workflows=(ArchivedWorkflow,),
+                    activities=(collect_facts, publish_result),
+                )
+            )
+        )
 
     def test_a_requirement_declared_by_name_is_matched(
         self, monkeypatch: pytest.MonkeyPatch

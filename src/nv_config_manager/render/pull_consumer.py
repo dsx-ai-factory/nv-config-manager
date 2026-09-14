@@ -33,14 +33,16 @@ from nats.js.errors import FetchTimeoutError, NotFoundError
 from prometheus_client import Gauge, start_http_server
 
 from nv_config_manager.common.config import (
-    DEFAULT_NATS_API_PREFIX,
     LogCategory,
     NATSConnectionManager,
     configure_logging,
     get_logger,
-    load_config,
-    nats_config_manager_api_prefix,
     nats_connection,
+)
+from nv_config_manager.common.config_loader import load_config
+from nv_config_manager.common.http_config import (
+    DEFAULT_NATS_API_PREFIX,
+    nats_config_manager_api_prefix,
     nats_dcim_change_config,
     nats_nautobot_api_prefix,
     nats_nautobot_change_config,

@@ -20,14 +20,11 @@ from contextlib import closing
 from pydantic import BaseModel
 from temporalio import activity
 
-from nv_config_manager.common.config import (
-    ConfigStoreType,
-    config_store_client,
-    config_store_ui_url,
-)
+from nv_config_manager.common.config import config_store_client, config_store_ui_url
 from nv_config_manager.dcim import ConfigurationBackupIntent, create_dcim_client
 from nv_config_manager.temporal.client.device import NetworkConnection
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
+from nv_config_manager_workflows.clients import ConfigStoreType
 
 
 @activity.defn

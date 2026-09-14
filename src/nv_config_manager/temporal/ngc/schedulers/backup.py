@@ -35,7 +35,7 @@ from temporalio.common import (
 )
 from temporalio.contrib.opentelemetry import TracingInterceptor
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_loader import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMError, create_dcim_client
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address

@@ -24,36 +24,55 @@ import logging
 
 import pytest
 
-from nv_config_manager_workflows.log import WORKFLOW_LOG_CATEGORY, get_workflow_logger
+from nv_config_manager_workflows.clients.nats.base import logger as nats_logger
+from nv_config_manager_workflows.clients.nats.producer import logger as producer_logger
+from nv_config_manager_workflows.clients.ticketing.jira import logger as jira_logger
+from nv_config_manager_workflows.log import WorkflowLogCategory, get_logger
 from nv_config_manager_workflows.stage import StageMixin
 
 STAGE_LOGGER_NAME = "nv_config_manager_workflows.stage.mixin"
 
 
+@pytest.mark.parametrize(
+    ("logger", "category"),
+    [(nats_logger, "nats"), (producer_logger, "nats"), (jira_logger, "temporal.activity")],
+)
+def test_client_categories_without_service_configuration(
+    logger: logging.LoggerAdapter[logging.Logger], category: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        logger.info("client event", extra={"operation": "test"})
+
+    record = caplog.records[-1]
+    assert record.__dict__["category"] == category
+    assert record.__dict__["operation"] == "test"
+    assert record.name == logger.name
+
+
 def test_records_carry_the_workflow_category(caplog: pytest.LogCaptureFixture) -> None:
     """Dashboards select on this field, so a plain logger would drop them."""
-    logger = get_workflow_logger("test.category")
+    logger = get_logger("test.category", category=WorkflowLogCategory.TEMPORAL_WORKFLOW)
 
     with caplog.at_level(logging.INFO, logger="test.category"):
         logger.error("stage failed")
 
-    assert caplog.records[-1].__dict__["category"] == WORKFLOW_LOG_CATEGORY
+    assert caplog.records[-1].__dict__["category"] == WorkflowLogCategory.TEMPORAL_WORKFLOW
 
 
 def test_per_call_fields_are_merged_with_the_category(caplog: pytest.LogCaptureFixture) -> None:
     """A call site adding structured fields must not displace the category."""
-    logger = get_workflow_logger("test.merge")
+    logger = get_logger("test.merge", category=WorkflowLogCategory.TEMPORAL_WORKFLOW)
 
     with caplog.at_level(logging.INFO, logger="test.merge"):
         logger.error("stage failed", extra={"stage": "render"})
 
     record = caplog.records[-1]
-    assert record.__dict__["category"] == WORKFLOW_LOG_CATEGORY
+    assert record.__dict__["category"] == WorkflowLogCategory.TEMPORAL_WORKFLOW
     assert record.__dict__["stage"] == "render"
 
 
 def test_the_logger_name_stays_the_calling_module(caplog: pytest.LogCaptureFixture) -> None:
-    logger = get_workflow_logger("test.naming")
+    logger = get_logger("test.naming", category=WorkflowLogCategory.TEMPORAL_WORKFLOW)
 
     with caplog.at_level(logging.INFO, logger="test.naming"):
         logger.error("stage failed")
@@ -69,7 +88,7 @@ def test_the_stage_mixin_logs_under_the_workflow_category(
         StageMixin.logger.error("Received retry signal for non-existent stage: %s", "render")
 
     record = caplog.records[-1]
-    assert record.__dict__["category"] == WORKFLOW_LOG_CATEGORY
+    assert record.__dict__["category"] == WorkflowLogCategory.TEMPORAL_WORKFLOW
     assert record.getMessage() == "Received retry signal for non-existent stage: render"
 
 

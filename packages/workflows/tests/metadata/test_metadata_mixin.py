@@ -13,11 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Sequence
+
 import pytest
 from pydantic import BaseModel
 from temporalio import activity
 
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.metadata import RequiredActivity, WorkflowMetadataMixin
+from nv_config_manager_workflows.registration import workflow_required_activity_names
 
 
 class WorkflowInput(BaseModel):
@@ -43,7 +46,49 @@ def test_metadata_defaults_fail_closed() -> None:
     assert not WorkflowMetadataMixin.workflow_api_enabled
     assert not WorkflowMetadataMixin.workflow_mcp_enabled
     assert WorkflowMetadataMixin.workflow_api_endpoint is None
+    assert WorkflowMetadataMixin.workflow_required_activities == ()
     assert WorkflowMetadataMixin.get_workflow_required_activities() == ()
+
+
+def test_required_activities_are_composed_across_the_mro() -> None:
+    class Publisher:
+        workflow_required_activities: Sequence[RequiredActivity] = (collect_facts,)
+
+    class ArchivedWorkflow(WorkflowMetadataMixin, Publisher):
+        workflow_required_activities: Sequence[RequiredActivity] = ("store_results",)
+
+    assert ArchivedWorkflow.get_workflow_required_activities() == (
+        collect_facts,
+        "store_results",
+    )
+
+
+def test_an_empty_workflow_declaration_cannot_hide_a_mixin_requirement() -> None:
+    class Publisher:
+        workflow_required_activities: Sequence[RequiredActivity] = (collect_facts,)
+
+    class ArchivedWorkflow(WorkflowMetadataMixin, Publisher):
+        workflow_required_activities: Sequence[RequiredActivity] = ()
+
+    assert ArchivedWorkflow.get_workflow_required_activities() == (collect_facts,)
+
+
+def test_a_requirement_shared_with_a_mixin_is_reported_once() -> None:
+    """Restating what a base already requires is a redundancy, not a second entry."""
+
+    class Publisher:
+        workflow_required_activities: Sequence[RequiredActivity] = ("collect_facts",)
+
+    class ArchivedWorkflow(WorkflowMetadataMixin, Publisher):
+        workflow_required_activities: Sequence[RequiredActivity] = (
+            collect_facts,
+            "store_results",
+        )
+
+    assert workflow_required_activity_names(ArchivedWorkflow) == (
+        "collect_facts",
+        "store_results",
+    )
 
 
 def test_metadata_accessors_read_subclass_declarations() -> None:

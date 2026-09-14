@@ -63,13 +63,12 @@ def _rpc_error_rsp(message: str, severity: str = "error") -> etree._Element:
 
 @pytest.fixture
 def juniper_conn():
-    """A JuniperConnection built with load_config patched (no network at init)."""
+    """A JuniperConnection built with injected config (no network at init)."""
     config = ConfigParser()
     config.add_section("device")
     config.set("device", "username", "shooks")
     config.set("device", "password", "pw")
-    with patch("nv_config_manager.temporal.client.device.base.load_config", return_value=config):
-        yield JuniperConnection("192.0.2.10", password="pw")
+    yield JuniperConnection("192.0.2.10", password="pw", config=config)
 
 
 def test_get_device_connects_once_and_caches(juniper_conn):

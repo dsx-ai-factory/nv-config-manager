@@ -15,9 +15,11 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
+from nv_config_manager.common.client import ConfigStoreType
 from nv_config_manager.mcp import clients
 from nv_config_manager.mcp.settings import MCPSettings
 
@@ -135,11 +137,14 @@ async def test_workflow_list_adds_config_manager_ui_href(settings: MCPSettings) 
     )
 
 
+@pytest.mark.parametrize("file_type", ["intended", None])
 async def test_fetch_device_configs_preserves_list_response_shape(
     settings: MCPSettings,
     monkeypatch: pytest.MonkeyPatch,
+    file_type: str | None,
 ) -> None:
     config_files = [{"filename": "startup.yaml", "version": 5}]
+    received_file_types: list[ConfigStoreType | None] = []
 
     class FakeConfigStoreClient:
         async def __aenter__(self) -> FakeConfigStoreClient:
@@ -151,19 +156,60 @@ async def test_fetch_device_configs_preserves_list_response_shape(
         async def list_device_configs(
             self,
             device_id: str,
-            file_type: str | None = "intended",
+            file_type: ConfigStoreType | None = ConfigStoreType.INTENDED,
         ) -> list[dict[str, object]]:
+            received_file_types.append(file_type)
             return config_files
+
+    def fake_config_store_client(
+        settings: MCPSettings,
+        file_type: ConfigStoreType,
+    ) -> FakeConfigStoreClient:
+        received_file_types.append(file_type)
+        return FakeConfigStoreClient()
 
     monkeypatch.setattr(
         clients,
         "config_store_client",
-        lambda settings, file_type: FakeConfigStoreClient(),
+        fake_config_store_client,
     )
 
-    result = await clients.fetch_device_configs(settings, "device-1")
+    result = await clients.fetch_device_configs(settings, "device-1", file_type=file_type)
 
     assert result == {"truncated": False, "data": config_files}
+    assert received_file_types == [
+        ConfigStoreType.INTENDED,
+        ConfigStoreType.INTENDED if file_type is not None else None,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("function_name", "kwargs"),
+    [
+        ("fetch_device_configs", {}),
+        ("fetch_device_config", {"filename": "startup.yaml"}),
+        ("fetch_config_versions", {"filename": "startup.yaml"}),
+        (
+            "fetch_config_diff",
+            {"filename": "startup.yaml", "from_version": 1, "to_version": 2},
+        ),
+    ],
+)
+async def test_config_store_invalid_file_type_raises_mcp_client_error(
+    settings: MCPSettings,
+    monkeypatch: pytest.MonkeyPatch,
+    function_name: str,
+    kwargs: dict[str, Any],
+) -> None:
+    client_factory = Mock()
+    monkeypatch.setattr(clients, "config_store_client", client_factory)
+
+    with pytest.raises(clients.MCPClientError, match="invalid-file-type"):
+        await getattr(clients, function_name)(
+            settings, "device-1", file_type="invalid-file-type", **kwargs
+        )
+
+    client_factory.assert_not_called()
 
 
 async def test_nautobot_graphql_uses_provider_owned_adapter(

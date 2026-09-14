@@ -24,6 +24,8 @@ Code under test:
 HTTP responses are intercepted via aioresponses — no real connections are made.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from aioresponses import aioresponses
 from temporalio import workflow
@@ -65,6 +67,46 @@ def test_init_sets_bearer_auth_header():
     """Authorization header uses Bearer scheme with the provided token."""
     provider = JiraTicketingProvider(base_url=BASE_URL, api_token="my-token")
     assert provider._headers["Authorization"] == "Bearer my-token"
+
+
+def test_attachment_size_limit_is_ten_mebibytes():
+    """The activity reports this limit and rejects larger bundles."""
+    assert JiraTicketingProvider.max_attachment_size == 10 * 1024 * 1024
+
+
+def test_from_config_resolves_jira_credentials():
+    """The legacy constructor delegates configuration to the service adapter."""
+    with patch(
+        "nv_config_manager.temporal.client.jira.ticketing_client_settings",
+        return_value={"base_url": BASE_URL, "api_token": API_TOKEN},
+    ) as ticketing_client_settings:
+        provider = JiraTicketingProvider.from_config()
+
+    ticketing_client_settings.assert_called_once_with(platform="jira")
+    assert provider._base_url == BASE_URL
+    assert provider._headers["Authorization"] == f"Bearer {API_TOKEN}"
+
+
+async def test_session_uses_current_timeout_contract():
+    """Jira requests retain the current total and connection timeouts."""
+    session = MagicMock()
+    session.close = AsyncMock()
+
+    with patch(
+        "nv_config_manager_workflows.clients.ticketing.jira.aiohttp.ClientSession",
+        return_value=session,
+    ) as client_session:
+        async with _make_provider() as provider:
+            assert provider._session is session
+
+    timeout = client_session.call_args.kwargs["timeout"]
+    assert timeout.total == 60
+    assert timeout.connect == 10
+    assert client_session.call_args.kwargs["headers"] == {
+        "Authorization": f"Bearer {API_TOKEN}",
+        "Accept": "application/json",
+    }
+    session.close.assert_awaited_once_with()
 
 
 # =============================================================================
