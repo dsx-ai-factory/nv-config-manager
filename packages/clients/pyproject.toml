@@ -23,3 +23,4 @@ packages = ["src/nv_config_manager_clients"]
 [tool.ruff]
 extend = "../../pyproject.toml"
 extend-exclude = ["src/nv_config_manager_clients/generated"]
+force-exclude = true

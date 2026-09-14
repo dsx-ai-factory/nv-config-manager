@@ -102,7 +102,9 @@ def main() -> None:
             package = service.replace("-", "_")
             source = staging / service / "nv_config_manager_clients/generated" / package
             for path in source.rglob("*.py"):
-                path.write_text(HEADER + path.read_text())
+                # Normalize generator whitespace without hand-editing artifacts.
+                content = "\n".join(line.rstrip() for line in path.read_text().splitlines())
+                path.write_text(HEADER + content.rstrip() + "\n")
             target = destination / package
             if target.exists():
                 shutil.rmtree(target)
