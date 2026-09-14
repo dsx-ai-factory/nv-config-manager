@@ -7,6 +7,10 @@ NVIDIA Config Manager (NVCM) is an open-source network automation and configurat
 
 NVCM is currently in Developer Preview and is not recommended for production use.
 
+[Hosted documentation](https://docs.nvidia.com/switch-infrastructure/config-manager/)
+· [Community questions and feature discussions](https://github.com/dsx-ai-factory/nv-config-manager/issues)
+· [Public release process](RELEASE.md)
+
 ## Overview
 
 | Service | Description |
@@ -396,6 +400,9 @@ Run `make api-generate` after changing API handlers. Public CI runs the same com
 a PR comment when committed specifications or bindings are stale.
 
 ## Releases and Roadmap
+
+See [RELEASE.md](RELEASE.md) for release cadence, versioning, public availability,
+and the protected promotion process.
 
 - Release notes are tracked in [CHANGELOG.md](CHANGELOG.md).
 - Stable releases are published from release tags through protected workflows
