@@ -57,15 +57,13 @@ NAUTOBOT_APP_OVERLAYS_VERSION ?= $(TEMPLATE_ENGINE_VERSION)
 NAUTOBOT_APP_OVERLAYS_VERSION_ARG = $(if $(NAUTOBOT_APP_OVERLAYS_VERSION),--build-arg NAUTOBOT_APP_OVERLAYS_VERSION=$(NAUTOBOT_APP_OVERLAYS_VERSION),)
 NAUTOBOT_NV_CONFIG_MANAGER_VERSION ?= $(TEMPLATE_ENGINE_VERSION)
 NAUTOBOT_NV_CONFIG_MANAGER_VERSION_ARG = $(if $(NAUTOBOT_NV_CONFIG_MANAGER_VERSION),--build-arg NAUTOBOT_NV_CONFIG_MANAGER_VERSION=$(NAUTOBOT_NV_CONFIG_MANAGER_VERSION),)
-# Keep this aligned with the currently approved production server version.
-# A Temporal server upgrade is a separately planned schema migration.
-TEMPORAL_SERVER_VERSION ?= 1.29.7
-# Admin tools run only in the bootstrap init containers. Temporal publishes
-# 1.29.7 under its fully qualified server/tctl/CLI tag.
-TEMPORAL_ADMIN_TOOLS_VERSION ?= 1.29.7-tctl-1.18.4-cli-1
-# UI is independently deployable and does not change Temporal persistence.
-TEMPORAL_UI_VERSION ?= 2.52.1
-TEMPORAL_BUILD_ARGS = --build-arg TEMPORAL_SERVER_VERSION=$(TEMPORAL_SERVER_VERSION) --build-arg TEMPORAL_ADMIN_TOOLS_VERSION=$(TEMPORAL_ADMIN_TOOLS_VERSION) --build-arg TEMPORAL_UI_VERSION=$(TEMPORAL_UI_VERSION)
+# Default Temporal tag@digest pins live in build/temporal.Dockerfile.
+# Explicit development overrides may use tag or tag@sha256:digest. A server
+# upgrade still requires a separately planned schema migration.
+TEMPORAL_SERVER_VERSION ?=
+TEMPORAL_ADMIN_TOOLS_VERSION ?=
+TEMPORAL_UI_VERSION ?=
+TEMPORAL_BUILD_ARGS = $(if $(TEMPORAL_SERVER_VERSION),--build-arg TEMPORAL_SERVER_VERSION=$(TEMPORAL_SERVER_VERSION),) $(if $(TEMPORAL_ADMIN_TOOLS_VERSION),--build-arg TEMPORAL_ADMIN_TOOLS_VERSION=$(TEMPORAL_ADMIN_TOOLS_VERSION),) $(if $(TEMPORAL_UI_VERSION),--build-arg TEMPORAL_UI_VERSION=$(TEMPORAL_UI_VERSION),)
 
 # Default target
 help:
