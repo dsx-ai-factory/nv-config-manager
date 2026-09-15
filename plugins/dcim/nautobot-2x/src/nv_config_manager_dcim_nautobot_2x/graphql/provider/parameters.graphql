@@ -1,9 +1,9 @@
 query ListLocations($location_types: [String]) {
-  locations(location_type: $location_types) { id name }
+  locations(location_type: $location_types) { id name location_type { name } }
 }
 
 query GetLocationById($id: ID!) {
-  location(id: $id) { id name }
+  location(id: $id) { id name location_type { name } }
 }
 
 query ListTenants {

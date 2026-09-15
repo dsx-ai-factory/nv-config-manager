@@ -50,6 +50,32 @@ test.describe("Site Cable Validation Form", () => {
     await expect(title).toBeVisible({ timeout: TEST_TIMEOUT });
   });
 
+  test("submits the location type for colliding DCIM location IDs", async ({ page }) => {
+    await page.route("**/v1/parameter/location*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        json: [
+          { id: "42", name: "SJC01", location_type: "Site" },
+          { id: "42", name: "Module 1", location_type: "Module" },
+        ],
+      });
+    });
+    await page.goto("/workflows/sitecablevalidationworkflow/form");
+
+    await page.locator("form").getByRole("button", { name: "Site" }).click();
+    await page.getByRole("dialog").getByText("Module 1", { exact: true }).click();
+
+    const requestPromise = page.waitForRequest((request) =>
+      request.url().includes("/v1/workflow/ngc/site_cable_validation")
+    );
+    await page.getByRole("button", { name: "Submit" }).click();
+
+    const request = await requestPromise;
+    const requestData = JSON.parse((await request.postData()) || "{}");
+    expect(requestData.site).toBe("42");
+    expect(requestData.site_type).toBe("Module");
+  });
+
   test("displays validation errors for empty submission", async ({ page }) => {
     await page.getByRole("button", { name: "Submit" }).click();
 
