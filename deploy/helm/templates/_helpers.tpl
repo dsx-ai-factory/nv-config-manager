@@ -965,20 +965,25 @@ Usage: {{ include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
   args:
   - |
     set -e
-    echo "Installing build dependencies..."
-    pip install --quiet hatchling
     echo "Installing template plugins from {{ .Values.renderService.templatePlugins.mountPath }}..."
     for plugin_dir in {{ .Values.renderService.templatePlugins.mountPath }}/*; do
       if [ ! -d "$plugin_dir" ]; then
         continue
       fi
       if ls "$plugin_dir"/wheels/*.whl >/dev/null 2>&1; then
-        echo "Installing plugin wheel(s): $plugin_dir/wheels"
-        pip install --target=/opt/plugins --no-deps "$plugin_dir"/wheels/*.whl
+        echo "Installing offline plugin wheel(s): $plugin_dir/wheels"
+        pip install --no-index --target=/opt/plugins --no-deps "$plugin_dir"/wheels/*.whl
+      elif ls "$plugin_dir"/dist/*.whl >/dev/null 2>&1; then
+        echo "Installing offline plugin wheel(s): $plugin_dir/dist"
+        pip install --no-index --target=/opt/plugins --no-deps "$plugin_dir"/dist/*.whl
       elif [ -f "$plugin_dir/source/pyproject.toml" ]; then
+        echo "Installing build dependencies..."
+        pip install --quiet hatchling
         echo "Installing plugin source: $plugin_dir/source"
         pip install --target=/opt/plugins --no-deps "$plugin_dir/source"
       elif [ -f "$plugin_dir/pyproject.toml" ]; then
+        echo "Installing build dependencies..."
+        pip install --quiet hatchling
         echo "Installing plugin source: $plugin_dir"
         pip install --target=/opt/plugins --no-deps "$plugin_dir"
       fi
