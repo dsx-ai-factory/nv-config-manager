@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+commit="${1:?commit is required}"
+target_version="${2:?target version is required}"
+default_branch="${3:?default branch is required}"
+default_ref="origin/${default_branch}"
+release_ref="origin/release/${target_version}"
+
+if ! [[ "$target_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Target version must match X.Y.Z. Got: ${target_version}"
+  exit 1
+fi
+IFS=. read -r target_major target_minor target_patch <<< "$target_version"
+
+if git merge-base --is-ancestor "$commit" "$default_ref"; then
+  exit 0
+fi
+
+if ! git rev-parse --verify "${release_ref}^{commit}" >/dev/null 2>&1; then
+  echo "Maintenance release branch ${release_ref} does not exist."
+  exit 1
+fi
+if [ "$(git rev-parse "${release_ref}^{commit}")" != "$commit" ]; then
+  echo "Release commit ${commit} must be the exact tip of ${release_ref}."
+  exit 1
+fi
+
+base_tag=""
+while IFS= read -r tag; do
+  tag_patch="${tag##*.}"
+  if [ "$tag_patch" -ge "$target_patch" ]; then
+    continue
+  fi
+  if git merge-base --is-ancestor "${tag}^{commit}" "$commit"; then
+    base_tag="$tag"
+    break
+  fi
+done < <(
+  git tag --list "${target_major}.${target_minor}.*" \
+    | grep -E "^${target_major}\\.${target_minor}\\.[0-9]+$" \
+    | sort -Vr
+)
+
+if [ -z "$base_tag" ]; then
+  echo "No earlier ${target_major}.${target_minor}.x stable tag is an ancestor of ${commit}; use the normal main release flow."
+  exit 1
+fi
+
+merge_commits="$(git rev-list --min-parents=2 "${base_tag}..${commit}")"
+if [ -n "$merge_commits" ]; then
+  echo "Maintenance release history ${base_tag}..${commit} contains merge commits:"
+  printf '%s\n' "$merge_commits"
+  exit 1
+fi
+
+while read -r disposition candidate; do
+  if [ "$disposition" != "+" ]; then
+    continue
+  fi
+  unexpected_paths="$(
+    git diff-tree --no-commit-id --name-only -r "$candidate" \
+      | grep -v '^CHANGELOG.md$' \
+      || true
+  )"
+  if [ -n "$unexpected_paths" ]; then
+    echo "Commit ${candidate} is not present on ${default_ref} and changes more than CHANGELOG.md:"
+    printf '%s\n' "$unexpected_paths"
+    exit 1
+  fi
+done < <(git cherry "$default_ref" "$commit" "$base_tag")
+
+echo "Validated maintenance release ${target_version} at ${commit} from base ${base_tag}."

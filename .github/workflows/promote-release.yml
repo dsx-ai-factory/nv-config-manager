@@ -112,8 +112,8 @@ jobs:
           fi
 
           if ! git merge-base --is-ancestor "$commit" "origin/${DEFAULT_BRANCH}"; then
-            echo "Source RC commit ${commit} is not reachable from origin/${DEFAULT_BRANCH}."
-            exit 1
+            .github/scripts/validate-maintenance-release-source \
+              "$commit" "$target_tag" "$DEFAULT_BRANCH"
           fi
 
           if ! git show "${commit}:CHANGELOG.md" \
