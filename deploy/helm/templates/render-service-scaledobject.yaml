@@ -26,7 +26,9 @@ so the two cannot disagree about which Prometheus KEDA queries.
 {{- if $autoscaling.consumers }}
 {{- range $consumerType := list "device" "template" "nautobot" }}
 {{- $consumerConfig := index $autoscaling.consumers $consumerType }}
-{{- $streamName := ternary $.Values.externalServices.nats.streams.nautobot.name $.Values.externalServices.nats.streams.configManager.name (eq $consumerType "nautobot") }}
+{{- $dcimStreamName := $.Values.dcim.events.stream | default $.Values.externalServices.nats.streams.nautobot.name }}
+{{- $streamName := ternary $dcimStreamName $.Values.externalServices.nats.streams.configManager.name (eq $consumerType "nautobot") }}
+{{- /* The workload and durable setting retain the Nautobot name for value and NATS-account compatibility. */ -}}
 {{- $consumerName := ternary (include "nv-config-manager.nautobotConsumerName" $) (include "nv-config-manager.configManagerConsumerName" $) (eq $consumerType "nautobot") }}
 {{- if $consumerConfig.enabled }}
 {{- /*

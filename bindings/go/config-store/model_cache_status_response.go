@@ -23,11 +23,13 @@ var _ MappedNullable = &CacheStatusResponse{}
 type CacheStatusResponse struct {
 	// Cache TTL in seconds
 	CacheTtl NullableInt32 `json:"cache_ttl,omitempty"`
+	// Whether the selected DCIM client is available
+	DcimConnected NullableBool `json:"dcim_connected,omitempty"`
 	// Whether cache service is enabled
 	Enabled bool `json:"enabled"`
 	// Status message if disabled
 	Message NullableString `json:"message,omitempty"`
-	// Whether Nautobot client is available
+	// Legacy alias for dcim_connected
 	NautobotConnected NullableBool `json:"nautobot_connected,omitempty"`
 	// Whether Redis is connected
 	RedisConnected NullableBool `json:"redis_connected,omitempty"`
@@ -96,6 +98,51 @@ func (o *CacheStatusResponse) SetCacheTtlNil() {
 // UnsetCacheTtl ensures that no value is present for CacheTtl, not even an explicit nil
 func (o *CacheStatusResponse) UnsetCacheTtl() {
 	o.CacheTtl.Unset()
+}
+
+// GetDcimConnected returns the DcimConnected field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *CacheStatusResponse) GetDcimConnected() bool {
+	if o == nil || IsNil(o.DcimConnected.Get()) {
+		var ret bool
+		return ret
+	}
+	return *o.DcimConnected.Get()
+}
+
+// GetDcimConnectedOk returns a tuple with the DcimConnected field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *CacheStatusResponse) GetDcimConnectedOk() (*bool, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.DcimConnected.Get(), o.DcimConnected.IsSet()
+}
+
+// HasDcimConnected returns a boolean if a field has been set.
+func (o *CacheStatusResponse) HasDcimConnected() bool {
+	if o != nil && o.DcimConnected.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetDcimConnected gets a reference to the given NullableBool and assigns it to the DcimConnected field.
+func (o *CacheStatusResponse) SetDcimConnected(v bool) {
+	o.DcimConnected.Set(&v)
+}
+
+// SetDcimConnectedNil sets the value for DcimConnected to be an explicit nil
+func (o *CacheStatusResponse) SetDcimConnectedNil() {
+	o.DcimConnected.Set(nil)
+}
+
+// UnsetDcimConnected ensures that no value is present for DcimConnected, not even an explicit nil
+func (o *CacheStatusResponse) UnsetDcimConnected() {
+	o.DcimConnected.Unset()
 }
 
 // GetEnabled returns the Enabled field value
@@ -269,6 +316,9 @@ func (o CacheStatusResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if o.CacheTtl.IsSet() {
 		toSerialize["cache_ttl"] = o.CacheTtl.Get()
+	}
+	if o.DcimConnected.IsSet() {
+		toSerialize["dcim_connected"] = o.DcimConnected.Get()
 	}
 	toSerialize["enabled"] = o.Enabled
 	if o.Message.IsSet() {

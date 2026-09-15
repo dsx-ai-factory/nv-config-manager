@@ -132,12 +132,103 @@ class SimOrchestrator:
     def _resolve_topology_path(self, cfg: SimConfig) -> str:
         if cfg.topology_path:
             return cfg.topology_path
-        if cfg.run_mock_topology_job:
+        if cfg.use_mock_context_for_fabric:
             return write_site_design_from_mock_context(cfg.mock_blueprint, cfg.deployment_name)
         raise RuntimeError(
-            "topology_path is required when run_mock_topology_job is disabled. "
-            "Custom job flows must provide a direct DSX Air topology YAML."
+            "topology_path or both mock_blueprint and deployment_name are required "
+            "to generate the DSX Air fabric."
         )
+
+    def _generate_install_yaml(
+        self, cfg: SimConfig, site_name: str, lb_allowed_prefixes: list[str]
+    ) -> str:
+        """Build the base installer document for the simulation.
+
+        Provider-specific installers may override this hook to extend their
+        deployment configuration without replacing the AIR orchestration flow.
+        """
+        return generate_air_sim_install_yaml(cfg, site_name, lb_allowed_prefixes)
+
+    def _create_simulation_manager(self, cfg: SimConfig) -> AirSimulationManager:
+        """Construct the AIR API/remote-host client used by the orchestration flow."""
+        return AirSimulationManager(
+            ngc_api_key=cfg.ngc_api_key,
+            use_internal=cfg.use_internal,
+            org_id=cfg.org_id,
+            ssh_password=cfg.oob_ssh_password,
+        )
+
+    def _build_deploy_command(self, cfg: SimConfig) -> str:
+        """Return the provider installer's remote deployment command."""
+        return build_deploy_command(cfg)
+
+    def _run_provider_pre_deploy(
+        self,
+        manager: AirSimulationManager,
+        host: str,
+        port: int,
+    ) -> None:
+        """Install provider-owned services before NVIDIA Config Manager deploys."""
+
+    def _provider_gateway_hostnames(self, cfg: SimConfig) -> tuple[str, ...]:
+        """Return provider-owned UI hostnames routed through the simulation gateway."""
+        return ()
+
+    def _run_provider_post_deploy(
+        self,
+        manager: AirSimulationManager,
+        host: str,
+        port: int,
+    ) -> None:
+        """Run setup owned by the bundled provider after common services are ready."""
+        manager.create_nautobot_demo_user(host, port)
+
+    def _wait_for_provider_configs(
+        self,
+        manager: AirSimulationManager,
+        host: str,
+        port: int,
+        expected_total: int,
+    ) -> None:
+        """Wait for the bundled provider to persist rendered configurations."""
+        manager.wait_for_intended_configs(host, port, expected_total=expected_total)
+
+    def _run_post_deploy(
+        self,
+        manager: AirSimulationManager,
+        cfg: SimConfig,
+        builder: AirTopologyBuilder,
+        simulation_id: str,
+        host: str,
+        port: int,
+        internal_mac: str,
+        oob_gateway: str | None,
+    ) -> None:
+        """Run common post-deploy setup, with a hook for provider-owned behavior."""
+        manager.configure_etc_hosts(
+            host,
+            port,
+            additional_hostnames=self._provider_gateway_hostnames(cfg),
+        )
+        resolved_iface = manager.resolve_iface_by_mac(host, port, internal_mac)
+        manager.configure_nat_rules(
+            host,
+            port,
+            oob_gateway=oob_gateway,
+            relay_return_networks=builder.relay_return_prefixes,
+            internal_iface=resolved_iface or "eth1",
+        )
+
+        cumulus_reset = [d.name for d in builder.devices.values() if "Cumulus" in d.platform]
+        manager.queue_render_all(host, port)
+        self._wait_for_provider_configs(manager, host, port, len(cumulus_reset))
+        manager.restart_dhcp_refresh(host, port)
+
+        if not cfg.no_reset_before_dhcp and cumulus_reset:
+            manager.reset_cumulus_nodes(simulation_id, cumulus_reset)
+
+        self._run_provider_post_deploy(manager, host, port)
+        manager.ensure_temporal_search_attributes(host, port)
 
     def _run_impl(self) -> tuple[str, int]:
         cfg = self._cfg
@@ -169,12 +260,7 @@ class SimOrchestrator:
         self._step("parse-topology", StepStatus.SUCCESS)
 
         self._step("validate-images", StepStatus.RUNNING)
-        manager = AirSimulationManager(
-            ngc_api_key=cfg.ngc_api_key,
-            use_internal=cfg.use_internal,
-            org_id=cfg.org_id,
-            ssh_password=cfg.oob_ssh_password,
-        )
+        manager = self._create_simulation_manager(cfg)
         cumulus_versions = builder.cumulus_firmware_versions()
         if cumulus_versions:
             builder.set_cumulus_image_overrides(manager.resolve_cumulus_vx_images(cumulus_versions))
@@ -299,7 +385,7 @@ class SimOrchestrator:
         self._step("wait-setup", StepStatus.SUCCESS)
 
         self._step("upload-files", StepStatus.RUNNING)
-        install_yaml = generate_air_sim_install_yaml(
+        install_yaml = self._generate_install_yaml(
             cfg,
             site_name=builder.site_name,
             lb_allowed_prefixes=lb_allowed,
@@ -326,12 +412,13 @@ class SimOrchestrator:
         if not cfg.deploy:
             for step_id in ("run-deploy", "post-deploy"):
                 self._step(step_id, StepStatus.SKIPPED)
-            self._log(f"\nSetup done. SSH in and run:\n  {build_deploy_command(cfg)}")
+            self._log(f"\nSetup done. SSH in and run:\n  {self._build_deploy_command(cfg)}")
             return host, port
 
         self._step("run-deploy", StepStatus.RUNNING)
         self._cb.on_deploy_started(host, port)
-        deploy_cmd = build_deploy_command(cfg)
+        self._run_provider_pre_deploy(manager, host, port)
+        deploy_cmd = self._build_deploy_command(cfg)
         self._log(f"Running deploy command:\n  {deploy_cmd}")
         deploy_ok = manager.run_deploy(host, port, deploy_cmd, timeout=cfg.deploy_timeout)
         if not deploy_ok:
@@ -340,26 +427,16 @@ class SimOrchestrator:
         self._step("run-deploy", StepStatus.SUCCESS)
 
         self._step("post-deploy", StepStatus.RUNNING)
-        manager.configure_etc_hosts(host, port)
-        resolved_iface = manager.resolve_iface_by_mac(host, port, internal_mac)
-        manager.configure_nat_rules(
+        self._run_post_deploy(
+            manager,
+            cfg,
+            builder,
+            simulation_id,
             host,
             port,
-            oob_gateway=oob_gateway,
-            relay_return_networks=builder.relay_return_prefixes,
-            internal_iface=resolved_iface or "eth1",
+            internal_mac,
+            oob_gateway,
         )
-
-        cumulus_reset = [d.name for d in builder.devices.values() if "Cumulus" in d.platform]
-        manager.queue_render_all(host, port)
-        manager.wait_for_intended_configs(host, port, expected_total=len(cumulus_reset))
-        manager.restart_dhcp_refresh(host, port)
-
-        if not cfg.no_reset_before_dhcp and cumulus_reset:
-            manager.reset_cumulus_nodes(simulation_id, cumulus_reset)
-
-        manager.create_nautobot_demo_user(host, port)
-        manager.ensure_temporal_search_attributes(host, port)
         self._step("post-deploy", StepStatus.SUCCESS)
         self._log(f"\nDone! {NVCM_BOX_USER}@{host}:{port}")
         return host, port

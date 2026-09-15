@@ -8,7 +8,7 @@ attach_switch: ''
 attach_interface: ''
 auto_configure: true
 git_token: ''
-config_manager_repo: https://github.com/NVIDIA/nv-config-manager
+config_manager_repo: https://github.com/dsx-ai-factory/nv-config-manager
 size: small
 config_manager_ref: main
 cumulus_version: ''

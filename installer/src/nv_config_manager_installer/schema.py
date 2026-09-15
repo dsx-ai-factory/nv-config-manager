@@ -93,6 +93,7 @@ class ZTPStorageType(StrEnum):
 
 
 SUPPORTED_ZTP_IMAGE_PLATFORMS = frozenset({"cumulus-linux", "arista-eos", "nv-os", "mlnx-os"})
+BUILT_IN_NAUTOBOT_PROVIDER = "nautobot-2x"
 
 
 class ImageSource(StrEnum):
@@ -152,6 +153,8 @@ def _path(enabled: bool = True, **keys: str) -> VaultPathConfig:
 class VaultPathsConfig(BaseModel):
     """All vault secret path groups consumed by the Helm chart."""
 
+    dcim: VaultPathConfig = Field(default_factory=lambda: _path(enabled=False, token="token"))
+    nats: VaultPathConfig = Field(default_factory=lambda: _path(enabled=False, password="password"))
     nautobot: VaultPathConfig = Field(
         default_factory=lambda: _path(
             token="token",
@@ -256,6 +259,10 @@ class KubernetesSecretsConfig(BaseModel):
     by the deployer.
     """
 
+    # ``dcim`` is the canonical provider token group. ``nautobot`` remains
+    # available for the built-in provider's compatibility credentials.
+    dcim: K8sSecretGroup = Field(default_factory=K8sSecretGroup)
+    nats: K8sSecretGroup = Field(default_factory=K8sSecretGroup)
     nautobot: K8sSecretGroup = Field(default_factory=K8sSecretGroup)
     redis: K8sSecretGroup = Field(default_factory=K8sSecretGroup)
     postgres: K8sSecretGroup = Field(default_factory=K8sSecretGroup)
@@ -413,10 +420,88 @@ class ContentConfig(BaseModel):
         return bool(self.jobs or self.run_after_deploy)
 
 
+class DCIMProviderPackage(BaseModel):
+    """One OCI image containing offline wheels for an external DCIM provider."""
+
+    name: str
+    image: str
+    pull_policy: str = "IfNotPresent"
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        """Require a DNS-compatible package name for Kubernetes resources."""
+        if not re.fullmatch(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?", value):
+            raise ValueError("DCIM provider package name must be DNS-compatible")
+        return value
+
+    @field_validator("image", "pull_policy")
+    @classmethod
+    def reject_control_characters(cls, value: str) -> str:
+        """Keep generated Helm values safe to render into YAML."""
+        if any(character in value for character in "\r\n\x00"):
+            raise ValueError("DCIM provider package values must not contain control characters")
+        return value
+
+
+class DCIMConfig(BaseModel):
+    """Provider-neutral DCIM selection, connection, and package settings."""
+
+    provider: str = BUILT_IN_NAUTOBOT_PROVIDER
+    server: str = ""
+    public_url: str = ""
+    display_name: str = ""
+    verify: bool | str = ""
+    cache_refresh_interval: int = 0
+    cache_ttl: int = 0
+    event_stream: str = ""
+    event_subject: str = ""
+    token_secret_name: str = "nautobot-token"
+    token_secret_key: str = "token"
+    options: dict[str, str] = Field(default_factory=dict)
+    provider_packages: list[DCIMProviderPackage] = Field(default_factory=list)
+
+    @field_validator("provider")
+    @classmethod
+    def validate_provider(cls, value: str) -> str:
+        """Accept stable entry-point names and reject INI/YAML injection."""
+        if not re.fullmatch(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?", value):
+            raise ValueError("dcim.provider must be a lowercase entry-point name")
+        return value
+
+    @field_validator(
+        "server",
+        "public_url",
+        "display_name",
+        "event_stream",
+        "event_subject",
+        "token_secret_name",
+        "token_secret_key",
+    )
+    @classmethod
+    def reject_unsafe_strings(cls, value: str) -> str:
+        """Reject values that could introduce additional rendered configuration lines."""
+        if any(character in value for character in "\r\n\x00"):
+            raise ValueError("DCIM configuration values must not contain control characters")
+        return value
+
+    @field_validator("options")
+    @classmethod
+    def validate_options(cls, value: dict[str, str]) -> dict[str, str]:
+        """Keep provider options as scalar, INI-safe non-secret configuration."""
+        for key, option_value in value.items():
+            if not key or any(character in key for character in "\r\n\x00="):
+                raise ValueError("DCIM option names must be non-empty and INI-safe")
+            if any(character in option_value for character in "\r\n\x00"):
+                raise ValueError("DCIM option values must not contain control characters")
+        return value
+
+
 class ServicesConfig(BaseModel):
     """Toggle individual NVIDIA Config Manager services on/off.
 
-    When ``nautobot`` is True a local Nautobot + NATS + Redis stack is deployed.
+    NATS is deployed as core infrastructure independently of this selection.
+    When ``nautobot`` is True a local Nautobot stack is deployed.
     Set it to False and provide ``external_nautobot_url`` to use an existing
     Nautobot server (e.g. a shared staging/prod instance).
     """
@@ -474,6 +559,9 @@ class MonitoringConfig(BaseModel):
     # Grafana/Loki are AGPL-licensed and are not enabled by the default
     # installer-managed observability path.
     observability_enabled: bool = False
+    # Explicit preference for the bundled local Redis exporter. Local
+    # observability enables it effectively without changing this preference.
+    redis_metrics_enabled: bool = False
 
     @field_validator("prometheus_namespace")
     @classmethod
@@ -607,6 +695,43 @@ class ExternalRedisConfig(BaseModel):
     password_auth: bool = True
 
 
+class NATSAuthMethod(StrEnum):
+    """Authentication mode used for a user-managed NATS endpoint."""
+
+    PASSWORD = "password"
+    JWT = "JWT"
+
+
+class ExternalNATSConfig(BaseModel):
+    """User-managed NATS connection settings.
+
+    NATS ownership is independent of the selected DCIM implementation. When
+    disabled, the installer deploys the bundled NATS service.
+    """
+
+    enabled: bool = False
+    server: str = ""
+    auth_method: NATSAuthMethod = NATSAuthMethod.PASSWORD
+    user: str = "nv-config-manager"
+    secret_name: str = ""
+    external_secret_name: str = ""
+    creds_path: str = "/etc/nv-config-manager/secrets/nats.creds"
+
+    @field_validator("server", "user", "secret_name", "external_secret_name", "creds_path")
+    @classmethod
+    def reject_unsafe_strings(cls, value: str) -> str:
+        """Reject values that could introduce additional rendered configuration lines."""
+        if any(character in value for character in "\r\n\x00"):
+            raise ValueError("NATS configuration values must not contain control characters")
+        return value
+
+    @model_validator(mode="after")
+    def validate_external_endpoint(self) -> ExternalNATSConfig:
+        if self.enabled and not self.server:
+            raise ValueError("External NATS requires a server")
+        return self
+
+
 class ExternalPostgresConfig(BaseModel):
     """External PostgreSQL host overrides (per-service).
 
@@ -680,6 +805,7 @@ class SlackConfig(BaseModel):
 class ExternalServicesConfig(BaseModel):
     """Out-of-cluster dependency configuration."""
 
+    nats: ExternalNATSConfig = Field(default_factory=ExternalNATSConfig)
     redis: ExternalRedisConfig = Field(default_factory=ExternalRedisConfig)
     postgres: ExternalPostgresConfig = Field(default_factory=ExternalPostgresConfig)
     temporal: ExternalTemporalConfig = Field(default_factory=ExternalTemporalConfig)
@@ -789,6 +915,7 @@ IMAGE_OVERRIDE_KEYS: list[tuple[str, str]] = [
     ("kubectl", "docker.io/alpine/kubectl"),
     ("busybox", "docker.io/library/busybox"),
     ("redis", "docker.io/library/redis"),
+    ("redisExporter", "docker.io/oliver006/redis_exporter"),
     ("nats", "docker.io/library/nats"),
     ("natsBox", "docker.io/natsio/nats-box"),
     ("natsExporter", "docker.io/natsio/prometheus-nats-exporter"),
@@ -801,6 +928,7 @@ IMAGE_OVERRIDE_KEYS: list[tuple[str, str]] = [
     ("spiffeHelper", "ghcr.io/spiffe/spiffe-helper"),
     ("oidcProxy", "quay.io/oauth2-proxy/oauth2-proxy"),
     ("templatePluginInstaller", "docker.io/library/python"),
+    ("dcimProviderInstaller", "docker.io/library/python"),
     ("envoyGateway", "docker.io/envoyproxy/gateway"),
     ("envoyRatelimit", "docker.io/envoyproxy/ratelimit"),
     ("envoyProxy", "docker.io/envoyproxy/envoy"),
@@ -923,6 +1051,7 @@ class NVConfigManagerInstallConfig(BaseModel):
     sso: SSOConfig = Field(default_factory=SSOConfig)
     spiffe: SPIFFEConfig = Field(default_factory=SPIFFEConfig)
     content: ContentConfig = Field(default_factory=ContentConfig)
+    dcim: DCIMConfig = Field(default_factory=DCIMConfig)
     services: ServicesConfig = Field(default_factory=ServicesConfig)
     external_services: ExternalServicesConfig = Field(default_factory=ExternalServicesConfig)
     infrastructure: InfrastructureConfig = Field(default_factory=InfrastructureConfig)
@@ -932,7 +1061,29 @@ class NVConfigManagerInstallConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_external_nautobot(self) -> NVConfigManagerInstallConfig:
-        """Reject content that cannot run against an external Nautobot instance."""
+        """Validate provider selection and local Nautobot-only content."""
+        if self.dcim.provider != BUILT_IN_NAUTOBOT_PROVIDER:
+            if self.services.nautobot:
+                raise ValueError("External DCIM providers require services.nautobot=false")
+            if not self.dcim.server:
+                raise ValueError(
+                    "dcim.server is required when dcim.provider is not the built-in nautobot-2x"
+                )
+            if (
+                self.secrets.method == SecretsMethod.ESO
+                and not self.secrets.vault.paths.dcim.enabled
+            ):
+                raise ValueError(
+                    "secrets.vault.paths.dcim.enabled must be true for an external DCIM provider with ESO"
+                )
+        elif not self.services.nautobot and not (
+            self.dcim.server or self.services.external_nautobot_url
+        ):
+            raise ValueError(
+                "dcim.server or services.external_nautobot_url is required when "
+                "services.nautobot=false and dcim.provider=nautobot-2x"
+            )
+
         if not self.services.nautobot and self.content.requires_local_nautobot:
             msg = (
                 "Custom jobs and post-deploy jobs require a local Nautobot deployment "
@@ -940,6 +1091,7 @@ class NVConfigManagerInstallConfig(BaseModel):
                 "content.run_after_deploy or switch to local Nautobot."
             )
             raise ValueError(msg)
+
         return self
 
     # -- Serialization helpers -----------------------------------------------
@@ -1066,6 +1218,10 @@ def _prune_services(services: dict[str, Any]) -> None:
 
 
 def _prune_external_services(external_services: dict[str, Any]) -> None:
+    nats = _as_dict(external_services.get("nats"))
+    if not nats.get("enabled"):
+        _replace_with_keys(nats, {"enabled"})
+
     redis = _as_dict(external_services.get("redis"))
     if not redis.get("enabled"):
         _replace_with_keys(redis, {"enabled"})

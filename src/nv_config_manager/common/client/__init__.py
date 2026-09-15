@@ -35,12 +35,6 @@ from nv_config_manager.common.client.nats import (
     config_manager_api_prefix,
 )
 
-# Nautobot Client
-from nv_config_manager.common.client.nautobot import (
-    NautobotClient,
-    NautobotException,
-)
-
 # NVDataflow Client
 from nv_config_manager.common.client.nvdataflow import (
     NVDataflowClient,
@@ -85,9 +79,6 @@ __all__ = [
     "NatsConsumer",
     "NatsProducer",
     "config_manager_api_prefix",
-    # Nautobot
-    "NautobotClient",
-    "NautobotException",
     # NVDataflow
     "NVDataflowClient",
     "NVDataflowException",

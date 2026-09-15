@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-import React, { createContext, useContext } from "react";
+import React, { createContext, useContext, useMemo } from "react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { useRuntimeConfig } from "@/config/runtime";
@@ -31,7 +31,9 @@ interface HealthContextType {
 
 const HealthContext = createContext<HealthContextType>({ isHealthy: true });
 
-export function HealthProvider({ children }: { children: React.ReactNode }) {
+export function HealthProvider({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
   const { setRefreshPaused, refreshPaused } = useHeaderContext();
   const { config } = useRuntimeConfig();
   const apiURL = config?.workflowApiUrl;
@@ -49,9 +51,10 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   });
 
   const isHealthy = !error;
+  const healthContextValue = useMemo(() => ({ isHealthy }), [isHealthy]);
 
   return (
-    <HealthContext.Provider value={{ isHealthy }}>
+    <HealthContext.Provider value={healthContextValue}>
       <div className="fixed top-4 right-4 z-50">
         <TokenExpiryDialog open={refreshPaused} setOpen={setRefreshPaused} />
       </div>

@@ -63,7 +63,9 @@ This application uses runtime environment variables (read via `/api/config` rout
 
 2. **Edit `.env.local`** with your values:
    - `WORKFLOW_API_URL` - Backend API URL (default: http://localhost:9000)
-   - `NAUTOBOT_URL` - Nautobot instance URL
+   - `DCIM_URL` - Selected DCIM provider's public URL
+   - `DCIM_PROVIDER` - Provider identifier (defaults to `nautobot`)
+   - `DCIM_DISPLAY_NAME` - Optional label shown for the provider in the UI
    - Roles, tenants, and statuses for form dropdowns are fetched from parameter
      endpoints (`/v1/parameter/role`, `/v1/parameter/tenant`, `/v1/parameter/status`)
 

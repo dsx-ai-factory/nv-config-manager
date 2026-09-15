@@ -91,6 +91,9 @@ if [[ "$SIGNING_ENABLED" == "true" || -n "$SIGNING_KEY" || -n "$SIGNING_FORMAT" 
                     SIGNING_READY="true"
                 fi
                 ;;
+            *)
+                echo "Unsupported cryptographic commit signing format: $SIGNING_FORMAT."
+                ;;
         esac
     fi
 

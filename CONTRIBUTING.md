@@ -8,6 +8,7 @@ Thank you for your interest in contributing to NVIDIA Config Manager! This docum
 - [Cryptographically Signing Commits](#cryptographically-signing-commits)
 - [Getting Started](#getting-started)
 - [How to Contribute](#how-to-contribute)
+- [Contributing a DCIM Provider](#contributing-a-dcim-provider)
 - [Pull Request Process](#pull-request-process)
 - [Coding Standards](#coding-standards)
 - [License](#license)
@@ -179,6 +180,29 @@ force-pushing it.
 
 ## How to Contribute
 
+### Discuss Changes First
+
+Before implementing a feature, behavior change, or substantial refactor, open or
+find an issue and agree on the approach with a maintainer. Link that issue in the
+pull request. Small typo fixes and straightforward bug fixes may go directly to
+a pull request with a clear problem description. Report vulnerabilities privately
+using [SECURITY.md](SECURITY.md).
+
+Maintainers assign issue priority based on user impact, security, regressions,
+release dependencies, and available capacity. Contributors can influence priority
+by adding reproducible examples, affected versions, impact, and offers to help
+to the issue. Explain disagreements in the issue so the rationale stays public;
+priority does not guarantee a delivery date.
+
+### AI-Assisted Contributions
+
+AI-assisted contributions follow the same review, testing, licensing, and DCO
+requirements as other contributions. Contributors remain responsible for every
+submitted line: verify behavior, provenance, and generated explanations. Disclose
+substantial AI assistance in the pull request and describe human review and tests.
+Do not submit confidential data, credentials, or third-party code to a tool unless
+you have permission to do so. Follow [AGENTS.md](AGENTS.md) when using coding agents.
+
 ### Reporting Bugs
 
 - Use the GitHub issue tracker to report bugs
@@ -199,6 +223,13 @@ force-pushing it.
 3. Update documentation if applicable
 4. Sign off all commits as described above
 5. Submit a pull request
+
+### Contributing a DCIM Provider
+
+DCIM providers are standalone packages that depend on the provider-neutral SDK
+rather than on Config Manager service code. Follow the [DCIM provider
+contribution guide](docs/development/contributing-dcim-provider.mdx) for the
+entry-point, Pydantic model, event, render-data, and test contract.
 
 ## Pull Request Process
 
@@ -234,8 +265,38 @@ force-pushing it.
 - Follow [PEP 8](https://pep8.org/) style guidelines
 - Use type hints for all function signatures
 - Write docstrings in Google style format
-- Run `ruff check` and `mypy` before committing
+- Run `uv run ruff check` and `uv run mypy` before committing
 - Target Python 3.13+
+
+The repository's Ruff baseline and pinned version are defined in the root
+`pyproject.toml`. The installer extends that configuration from
+`installer/pyproject.toml`, uses the same pinned Ruff version, and adds only its
+package-specific test exclusions. Keep shared settings such as the Python
+target, line length, enabled rules, ignores, and formatter behavior in the root
+configuration so they cannot drift between the two packages.
+
+Run Ruff through each package's `uv` environment from the repository root:
+
+```bash
+# Root package
+uv run ruff format --check src/
+uv run ruff check src/
+
+# Installer package
+uv run --project installer ruff format --check installer/src/ installer/tests/
+uv run --project installer ruff check installer/src/ installer/tests/
+```
+
+Lists where order is insignificant (a registry or lookup table where entries
+are read by name, not by position — e.g. `REGISTERED_WORKFLOWS` in
+`src/nv_config_manager/temporal/ngc/workflows/__init__.py`) should stay
+alphabetically ordered for readability. Wrap those in `# keep-sorted start` /
+`# keep-sorted end` comments, enforced by
+[keep-sorted](https://github.com/google/keep-sorted), pinned via
+`KEEP_SORTED_VERSION` in the root `Makefile`. `make lint` checks the order;
+`make format` fixes it. Do not add these markers to lists where order carries
+meaning (execution order, priority, migration sequence, etc.) — sorting those
+would silently change behavior.
 
 ### TypeScript/JavaScript (UI)
 

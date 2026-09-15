@@ -15,18 +15,19 @@
 """Unit tests for SpX Overlay activity logic."""
 
 import re
+from unittest.mock import patch
 
 import pytest
 from aioresponses import aioresponses
+from nv_config_manager_dcim_nautobot_2x.workflow import NautobotClient, NautobotException
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.common.client.nautobot import NautobotException
-from nv_config_manager.temporal.client.nautobot import NautobotClient
 from nv_config_manager.temporal.ngc.activities.nautobot import (
     DeleteOverlayInput,
     GetAvailableRouteDistinguishersInput,
     ProvisionVrfInput,
     ReconcileSpXOverlayAssignmentsInput,
+    RemoveUnmappedDeviceVrfsInput,
     VrfDeletionActivityInput,
     _vni_from_rd,
     delete_overlay,
@@ -34,6 +35,7 @@ from nv_config_manager.temporal.ngc.activities.nautobot import (
     get_available_route_distinguishers,
     provision_vrf,
     reconcile_spx_overlay_assignments,
+    remove_unmapped_device_vrfs,
 )
 
 NAUTOBOT = "https://nautobot.example.com"
@@ -187,6 +189,7 @@ async def test_reconcile_spx_overlay_assignments_moves_port_between_overlays():
                 site=LOCATION_ID,
                 device_id=device_id,
                 interface_ids=[interface_id, existing_interface_id],
+                device_interface_ids=[interface_id, existing_interface_id],
             )
         )
 
@@ -230,6 +233,7 @@ async def test_reconcile_spx_overlay_assignments_rejects_non_spx_overlay():
                     site=LOCATION_ID,
                     device_id="22220000-0000-0000-0000-000000000001",
                     interface_ids=["33330000-0000-0000-0000-000000000001"],
+                    device_interface_ids=["33330000-0000-0000-0000-000000000001"],
                 )
             )
 
@@ -297,17 +301,335 @@ async def test_reconcile_spx_overlay_assignments_keeps_old_assignment_if_create_
             status=204,
         )
 
-        with pytest.raises(NautobotException, match="replacement rejected"):
+        with pytest.raises(ApplicationError, match="replacement rejected"):
             await reconcile_spx_overlay_assignments(
                 ReconcileSpXOverlayAssignmentsInput(
                     overlay_id="Panda",
                     site=LOCATION_ID,
                     device_id=device_id,
                     interface_ids=[interface_id],
+                    device_interface_ids=[interface_id],
                 )
             )
 
     assert all(request_method.lower() != "delete" for request_method, _ in m.requests)
+
+
+@pytest.mark.asyncio
+async def test_reconcile_spx_overlay_assignments_removes_port_without_replacement():
+    device_id = "22220000-0000-0000-0000-000000000001"
+    interface_id = "33330000-0000-0000-0000-000000000001"
+    other_interface_id = "33330000-0000-0000-0000-000000000002"
+    old_overlay_id = "44440000-0000-0000-0000-000000000001"
+    interface_assignment_id = "66660000-0000-0000-0000-000000000001"
+    device_assignment_id = "77770000-0000-0000-0000-000000000001"
+
+    with aioresponses() as m:
+        m.get(
+            _r(f"{OVERLAYS_BASE}/overlay-assignments/"),
+            payload={
+                "results": [
+                    {
+                        "id": device_assignment_id,
+                        "overlay": {
+                            "id": old_overlay_id,
+                            "isolation_type": "spectrum_x_vrf",
+                        },
+                    }
+                ]
+            },
+        )
+        m.get(
+            _r(f"{OVERLAYS_BASE}/overlay-assignments/"),
+            payload={
+                "results": [
+                    {
+                        "id": interface_assignment_id,
+                        "overlay": {
+                            "id": old_overlay_id,
+                            "isolation_type": "spectrum_x_vrf",
+                        },
+                    }
+                ]
+            },
+        )
+        m.delete(
+            f"{OVERLAYS_BASE}/overlay-assignments/{interface_assignment_id}/",
+            status=204,
+        )
+        m.get(
+            _r(f"{OVERLAYS_BASE}/overlay-assignments/"),
+            payload={"results": []},
+        )
+        m.delete(
+            f"{OVERLAYS_BASE}/overlay-assignments/{device_assignment_id}/",
+            status=204,
+        )
+
+        result = await reconcile_spx_overlay_assignments(
+            ReconcileSpXOverlayAssignmentsInput(
+                overlay_id=None,
+                site=LOCATION_ID,
+                device_id=device_id,
+                interface_ids=[interface_id],
+                device_interface_ids=[interface_id, other_interface_id],
+            )
+        )
+
+    assert result.created == 0
+    assert result.removed == 2
+    assert all(
+        not str(request_url).startswith(f"{OVERLAYS_BASE}/overlays/")
+        for _, request_url in m.requests
+    )
+
+
+@pytest.mark.asyncio
+async def test_reconcile_spx_overlay_assignments_retry_removes_remaining_device_assignment():
+    """A retry derives device cleanup from current interface state after a partial delete."""
+    device_id = "22220000-0000-0000-0000-000000000001"
+    interface_id = "33330000-0000-0000-0000-000000000001"
+    other_interface_id = "33330000-0000-0000-0000-000000000002"
+    old_overlay_id = "44440000-0000-0000-0000-000000000001"
+    interface_assignment_id = "66660000-0000-0000-0000-000000000001"
+    device_assignment_id = "77770000-0000-0000-0000-000000000001"
+    device_assignment = {
+        "id": device_assignment_id,
+        "overlay": {
+            "id": old_overlay_id,
+            "isolation_type": "spectrum_x_vrf",
+        },
+    }
+    interface_assignment = {
+        "id": interface_assignment_id,
+        "overlay": {
+            "id": old_overlay_id,
+            "isolation_type": "spectrum_x_vrf",
+        },
+    }
+    activity_input = ReconcileSpXOverlayAssignmentsInput(
+        overlay_id=None,
+        site=LOCATION_ID,
+        device_id=device_id,
+        interface_ids=[interface_id],
+        device_interface_ids=[interface_id, other_interface_id],
+    )
+
+    with aioresponses() as m:
+        for assignments in (
+            [device_assignment],  # Attempt 1: device assignments.
+            [interface_assignment],  # Attempt 1: selected interface assignments.
+            [],  # Attempt 1: other device interface assignments.
+            [device_assignment],  # Attempt 2: device assignments.
+            [],  # Attempt 2: selected interface after its assignment was deleted.
+            [],  # Attempt 2: other device interface assignments.
+        ):
+            m.get(
+                _r(f"{OVERLAYS_BASE}/overlay-assignments/"),
+                payload={"results": assignments},
+            )
+        m.delete(
+            f"{OVERLAYS_BASE}/overlay-assignments/{interface_assignment_id}/",
+            status=204,
+        )
+        m.delete(
+            f"{OVERLAYS_BASE}/overlay-assignments/{device_assignment_id}/",
+            status=500,
+            payload={"detail": "temporary failure"},
+        )
+        m.delete(
+            f"{OVERLAYS_BASE}/overlay-assignments/{device_assignment_id}/",
+            status=204,
+        )
+
+        with pytest.raises(ApplicationError, match="temporary failure"):
+            await reconcile_spx_overlay_assignments(activity_input)
+
+        result = await reconcile_spx_overlay_assignments(activity_input)
+
+    assert result.created == 0
+    assert result.removed == 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_spx_overlay_assignments_retry_retains_completed_change_signal():
+    """A retry reports a prior mutation even when its final attempt is a no-op."""
+    device_id = "22220000-0000-0000-0000-000000000001"
+    interface_id = "33330000-0000-0000-0000-000000000001"
+    other_interface_id = "33330000-0000-0000-0000-000000000002"
+    old_overlay_id = "44440000-0000-0000-0000-000000000001"
+    interface_assignment_id = "66660000-0000-0000-0000-000000000001"
+    activity_input = ReconcileSpXOverlayAssignmentsInput(
+        overlay_id=None,
+        site=LOCATION_ID,
+        device_id=device_id,
+        interface_ids=[interface_id],
+        device_interface_ids=[interface_id, other_interface_id],
+    )
+
+    with aioresponses() as m:
+        for assignments in (
+            [],  # Attempt 1: device assignments.
+            [
+                {
+                    "id": interface_assignment_id,
+                    "overlay": {
+                        "id": old_overlay_id,
+                        "isolation_type": "spectrum_x_vrf",
+                    },
+                }
+            ],  # Attempt 1: selected interface assignments.
+        ):
+            m.get(
+                _r(f"{OVERLAYS_BASE}/overlay-assignments/"),
+                payload={"results": assignments},
+            )
+        m.delete(
+            f"{OVERLAYS_BASE}/overlay-assignments/{interface_assignment_id}/",
+            status=204,
+        )
+        m.get(
+            _r(f"{OVERLAYS_BASE}/overlay-assignments/"),
+            status=500,
+            payload={"detail": "temporary failure"},
+        )
+        for _ in range(3):  # Attempt 2: device, selected, and other interface reads.
+            m.get(
+                _r(f"{OVERLAYS_BASE}/overlay-assignments/"),
+                payload={"results": []},
+            )
+
+        with pytest.raises(ApplicationError, match="temporary failure"):
+            await reconcile_spx_overlay_assignments(activity_input)
+
+        with patch(
+            "nv_config_manager.temporal.ngc.activities.nautobot.activity.info"
+        ) as mock_activity_info:
+            mock_activity_info.return_value.attempt = 2
+            result = await reconcile_spx_overlay_assignments(activity_input)
+
+    assert result.created == 0
+    assert result.removed == 0
+    assert result.reconciliation_changed is True
+
+
+@pytest.mark.asyncio
+async def test_remove_unmapped_device_vrfs_removes_only_unused_associations():
+    device_id = "22220000-0000-0000-0000-000000000001"
+    mapped_vrf_id = "eeee0000-0000-0000-0000-000000000001"
+    unused_vrf_id = "eeee0000-0000-0000-0000-000000000002"
+    assignment_id = "88880000-0000-0000-0000-000000000001"
+
+    with aioresponses() as m:
+        m.post(
+            f"{NAUTOBOT}/api/graphql/",
+            payload={
+                "data": {
+                    "interfaces": [
+                        {
+                            "id": "33330000-0000-0000-0000-000000000001",
+                            "device": {"name": "leaf-1"},
+                            "mac_address": None,
+                            "name": "swp1",
+                            "ip_addresses": [],
+                            "vrf": {"id": mapped_vrf_id, "name": "mapped"},
+                        }
+                    ]
+                }
+            },
+        )
+        m.get(
+            _r(f"{NAUTOBOT}/api/ipam/vrf-device-assignments/"),
+            payload={
+                "results": [
+                    {
+                        "id": assignment_id,
+                        "device": {"id": device_id},
+                        "vrf": {"id": unused_vrf_id},
+                    }
+                ]
+            },
+        )
+        m.delete(
+            f"{NAUTOBOT}/api/ipam/vrf-device-assignments/{assignment_id}/",
+            status=204,
+        )
+
+        result = await remove_unmapped_device_vrfs(
+            RemoveUnmappedDeviceVrfsInput(
+                device_id=device_id,
+                vrf_ids=[mapped_vrf_id, unused_vrf_id],
+            )
+        )
+
+    assert result.removed_vrf_ids == [unused_vrf_id]
+
+
+@pytest.mark.asyncio
+async def test_remove_unmapped_device_vrfs_retry_retains_prior_removed_ids():
+    """A retry reports every requested unmapped VRF after a partial failure."""
+    device_id = "22220000-0000-0000-0000-000000000001"
+    first_vrf_id = "eeee0000-0000-0000-0000-000000000001"
+    second_vrf_id = "eeee0000-0000-0000-0000-000000000002"
+    first_assignment_id = "88880000-0000-0000-0000-000000000001"
+    second_assignment_id = "88880000-0000-0000-0000-000000000002"
+    empty_interfaces = {"data": {"interfaces": []}}
+    activity_input = RemoveUnmappedDeviceVrfsInput(
+        device_id=device_id,
+        vrf_ids=[first_vrf_id, second_vrf_id],
+    )
+
+    with aioresponses() as m:
+        m.post(f"{NAUTOBOT}/api/graphql/", payload=empty_interfaces)
+        m.post(f"{NAUTOBOT}/api/graphql/", payload=empty_interfaces)
+        for assignments in (
+            [
+                {
+                    "id": first_assignment_id,
+                    "device": {"id": device_id},
+                    "vrf": {"id": first_vrf_id},
+                }
+            ],  # Attempt 1: first VRF assignment.
+            [
+                {
+                    "id": second_assignment_id,
+                    "device": {"id": device_id},
+                    "vrf": {"id": second_vrf_id},
+                }
+            ],  # Attempt 1: second VRF assignment.
+            [],  # Attempt 2: first VRF after its assignment was deleted.
+            [
+                {
+                    "id": second_assignment_id,
+                    "device": {"id": device_id},
+                    "vrf": {"id": second_vrf_id},
+                }
+            ],  # Attempt 2: second VRF assignment.
+        ):
+            m.get(
+                _r(f"{NAUTOBOT}/api/ipam/vrf-device-assignments/"),
+                payload={"results": assignments},
+            )
+        m.delete(
+            f"{NAUTOBOT}/api/ipam/vrf-device-assignments/{first_assignment_id}/",
+            status=204,
+        )
+        m.delete(
+            f"{NAUTOBOT}/api/ipam/vrf-device-assignments/{second_assignment_id}/",
+            status=500,
+            payload={"detail": "temporary failure"},
+        )
+        m.delete(
+            f"{NAUTOBOT}/api/ipam/vrf-device-assignments/{second_assignment_id}/",
+            status=204,
+        )
+
+        with pytest.raises(ApplicationError, match="temporary failure"):
+            await remove_unmapped_device_vrfs(activity_input)
+
+        result = await remove_unmapped_device_vrfs(activity_input)
+
+    assert result.removed_vrf_ids == [first_vrf_id, second_vrf_id]
 
 
 # ---------------------------------------------------------------------------

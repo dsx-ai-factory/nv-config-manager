@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { SiteHeader, SiteFooter } from "@/components/nav";
 import { ThemeProvider } from "@/components/theme";
 import { Toaster } from "@/components/ui/toaster";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { HeaderContext } from "./contexts/header";
 
 
@@ -29,6 +29,10 @@ interface BodyProps {
 
 export default function Body({ children }: Readonly<BodyProps>) {
     const [refreshPaused, setRefreshPaused] = useState(false);
+    const headerContextValue = useMemo(
+      () => ({ refreshPaused, setRefreshPaused }),
+      [refreshPaused]
+    );
     return (
       <body
         className={cn(
@@ -37,7 +41,7 @@ export default function Body({ children }: Readonly<BodyProps>) {
       >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <div className="relative flex min-h-screen flex-col">
-            <HeaderContext.Provider value={{ refreshPaused, setRefreshPaused }}>
+            <HeaderContext.Provider value={headerContextValue}>
               <SiteHeader />
               <Toaster />
               <div className="flex-1">{children}</div>

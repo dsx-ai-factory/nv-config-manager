@@ -4,17 +4,17 @@ sidebar-title: Spectrum-X Overlay Tenant Change
 position: 40
 ---
 
-The Spectrum-X Overlay Tenant Change workflow drives an end-to-end overlay change against a single device: assign the overlay to the device and ports, re-render the tenant configuration, wait for the new render to land in the Config Store, and deploy the rendered configuration to the device. It is the workflow most operators interact with when adding, moving, or expanding a tenant's footprint on a switch — the underlying [Spectrum-X Overlay Assignment](../vpc-assignment/index.mdx), [Render Service](../../render/index.mdx), and [Tenant Deploy](../tenant-deploy/index.mdx) workflows are exposed individually for advanced cases but are normally orchestrated by this workflow.
+The Spectrum-X Overlay Tenant Change workflow drives an end-to-end overlay change against a single device: assign or remove the overlay on selected ports, re-render the tenant configuration, wait for the new render to land in the Config Store, and deploy the rendered configuration to the device. It is the supported operator entry point for adding, moving, removing, or expanding a tenant's footprint on a switch. The final tenant-scoped deployment runs as an internal child workflow so callers cannot bypass assignment reconciliation and render synchronization.
 
 ## Prerequisites
 
 Before running, confirm:
 
-- **Overlay exists at the site** ([Spectrum-X Overlay Creation](../vpc-creation/index.mdx) has been run, with the Overlay and L3 VXLANs created in Nautobot).
+- **For assignment or moves, the target overlay exists at the site** ([Spectrum-X Overlay Creation](../vpc-creation/index.mdx) has been run, with the Overlay and L3 VXLANs created in Nautobot). No target overlay is needed when only removing an assignment.
 - **Device exists in Nautobot** with a primary IPv4, a supported platform (Cumulus Linux or NVOS), and current credentials in the secrets store.
-- **Port names match Nautobot interface names** on the target device. Already-assigned ports are silently skipped.
+- **Target ports exist as interfaces in Nautobot** on the selected device. The form queries these interfaces after you choose the device. For assignment or move operations, ports already assigned to the target VRF are silently skipped as no-ops. Removal-only runs intentionally treat selected interfaces with existing Spectrum-X assignments as removal targets.
 - **Render service is healthy.** The workflow waits up to a bounded window for the render service to produce the new tenant config; outages on render will stall the workflow.
-- **Tenant Deploy validation will accept the diff.** [Tenant Deploy](../tenant-deploy/index.mdx) only applies diffs that match the tenant-allowed `nv set` / `nv unset` patterns.
+- **The tenant-scoped deployment validation will accept the diff.** The internal deployment child only applies diffs that match the tenant-allowed `nv set` / `nv unset` patterns.
 
 ## Running the workflow
 
@@ -25,15 +25,15 @@ Before running, confirm:
 | Field | Description | Required |
 | :---- | :---------- | :------- |
 | **Site** | The site the overlay and device belong to. | Yes |
-| **Overlay ID** | The overlay to apply to the device. The form lists Spectrum-X overlays at the selected site. | Yes |
+| **Overlay ID** | The overlay to apply to the selected ports. Leave blank to remove their current Spectrum-X assignment without creating a replacement. | No |
 | **Device** | The target device. | Yes |
-| **Port Names (comma-separated)** | Interface names on the device to bind to the overlay's VRF (comma-separated list). Already-assigned ports are skipped. | Yes |
+| **Ports** | One or more interfaces queried from the selected device. The chosen ports are assigned to the target overlay, or unassigned when Overlay ID is blank. Already-assigned ports are skipped. | Yes |
 
-After submission, a status page shows the five stages. The workflow runs without human approval.
+After submission, a status page shows the six stages. The workflow runs without human approval.
 
 ## Execution stages
 
-The workflow runs five stages in order. None require manual approval.
+The workflow runs six stages in order. None require manual approval.
 
 1. **`get_device` — Load the target device record from Nautobot.**
 
@@ -41,30 +41,34 @@ The workflow runs five stages in order. None require manual approval.
 
 1. **`assign_spx_overlay` — Run Spectrum-X Overlay Assignment as a child workflow.**
 
-   Invokes [Spectrum-X Overlay Assignment](../vpc-assignment/index.mdx) with the same inputs to bind the VRF to the device and its ports. The stage display links to the child workflow as soon as it starts. If the child fails, the stage retains the link and the tenant-change workflow stops before rendering or deployment. On success, the display also shows the Overlay name, L3 VXLAN name, VRF, and assigned ports. If the assignment is a complete no-op (`vrf_assigned=false` and no `assigned_ports` changed), the workflow short-circuits — `render_tenant_config`, `wait_for_render`, and `deploy` are marked UNREACHABLE and the workflow exits successfully with `device_deployed=null`.
+   Invokes [Spectrum-X Overlay Assignment](../vpc-assignment/index.mdx) with the same inputs. With an Overlay ID, it binds the target VRF to the device and ports. Without an Overlay ID, it clears the selected ports' VRF and Spectrum-X overlay assignments. After either operation, it removes any device/VRF association for which no interface on the device still maps to that VRF. The stage display links to the child workflow as soon as it starts. If the child fails, the stage retains the link and the tenant-change workflow stops before rendering or deployment. On success, the display shows the target Overlay, L3 VXLAN, VRF, and assigned ports, or the ports whose assignment was removed. If the requested state is already present, the next stage checks for a pending recorded configuration change before deciding whether to deploy.
+
+1. **`determine_deployment_action` — Decide whether rendering and deployment are needed.**
+
+   Continues to render and deploy when the assignment workflow changed a VRF, port, device association, or overlays-plugin assignment. When the requested state is already present, it checks for a pending recorded configuration change. If one exists, `render_tenant_config` and `wait_for_render` are marked UNREACHABLE, and `deploy` applies the latest rendered tenant configuration. If none exists, all three downstream stages are marked UNREACHABLE and the workflow exits successfully with `device_deployed=null`.
 
 1. **`render_tenant_config` — Trigger a tenant-scoped re-render for the device.**
 
-   Submits a render request to the render service to generate the updated tenant configuration that reflects the new VRF assignment. The stage captures the resulting `tenant_config_file` commit ID for tracking.
+   Submits a render request to the render service to generate the updated tenant configuration that reflects the requested overlay change. The stage captures matching tenant and full intended configuration commit IDs from the same render snapshot.
 
 1. **`wait_for_render` — Wait for the render to land in the Config Store.**
 
    Polls the Config Store for the rendered configuration tagged with the commit ID from the prior stage. Times out if the render service does not produce the file within the configured window.
 
-1. **`deploy` — Apply the rendered configuration via Tenant Deploy.**
+1. **`deploy` — Apply the rendered configuration.**
 
-   Invokes [Tenant Deploy](../tenant-deploy/index.mdx) as a child workflow against the device. The stage display links to the child while it is running and retains the link whether the child succeeds or fails. Tenant Deploy performs its own diff validation (allowed `nv set` patterns only) before applying.
+   Invokes the internal tenant deployment child workflow against the device. The stage display links to the child while it is running and retains the link whether the child succeeds or fails. The child validates that the diff contains only tenant-allowed `nv set` / `nv unset` operations before applying it. Removal paths use the matching full intended configuration so omitted settings produce the required `nv unset` commands.
 
 ## Verifying outcomes
 
 After the workflow reports success, confirm:
 
-- **All five stages green** on the Config Manager run page (or `assign_spx_overlay` green and downstream UNREACHABLE on the no-op path).
-- **`assign_spx_overlay` stage display** shows the Overlay name, L3 VXLAN name, VRF name, and assigned ports.
-- **`vrf_assigned`, `assigned_ports`, and `vrf`** in the result reflect the change you intended.
+- **All six stages green** on the Config Manager run page (or `determine_deployment_action` green and downstream UNREACHABLE on the no-op path).
+- **`assign_spx_overlay` stage display** shows either the target Overlay, L3 VXLAN, VRF, and assigned ports or the ports whose assignment was removed. It also lists device/VRF associations removed by cleanup.
+- **`vrf_assigned`, `assigned_ports`, `unassigned_ports`, `removed_vrf_ids`, `overlay_assignments_created`, `overlay_assignments_removed`, and `vrf`** in the result reflect the change you intended.
 - **`device_deployed`** is the device name when a deploy actually ran; `null` when the no-op short-circuit fired.
-- **Nautobot shows the VRF on the device and ports.**
-- **Nautobot overlays plugin** shows the Overlay with assignments for the device and each named interface.
+- **Nautobot shows the desired VRF on assigned ports and no VRF on ports removed without replacement.** Device/VRF associations remain only while at least one interface maps to that VRF.
+- **Nautobot overlays plugin** shows matching Spectrum-X assignments for the device and interfaces; stale assignments are removed.
 
 ## Common issues
 
@@ -76,9 +80,9 @@ After the workflow reports success, confirm:
 
 The render service either rejected the render or is unavailable. Open the [Render Service](../../render/index.mdx) status page; once render is healthy, re-run this workflow.
 
-**`deploy` (Tenant Deploy child) fails with `DiffValidationError`.**
+**`deploy` fails with `DiffValidationError`.**
 
-The tenant-scoped diff produced by the re-render exceeds the tenant-allowed `nv set` / `nv unset` set. See [Tenant Deploy → Diff validation rules](../tenant-deploy/index.mdx#diff-validation-rules). Either restructure the template change so only the tenant scope is affected, or apply the change via [Configuration Deploy](../configuration-deploy/index.mdx) with a human approval.
+The tenant-scoped diff produced by the re-render contains commands outside the allowed VXLAN, EVPN, interface-VRF, or non-default-VRF operations. Either restructure the template change so only the tenant scope is affected, or apply the change via [Configuration Deploy](../configuration-deploy/index.mdx) with a human approval.
 
 **`get_device_and_vrf` (inside the assign_spx_overlay child) raises `ApplicationError`.**
 
@@ -89,6 +93,5 @@ Either zero or multiple VRFs were returned for the `overlay_id` + `namespace_tag
 - [Spectrum-X Overlay Creation](../vpc-creation/index.mdx) — provision the VRF, VXLAN, and Overlay metadata before assigning it.
 - [Spectrum-X Overlay Assignment](../vpc-assignment/index.mdx) — the assignment child workflow this orchestration invokes.
 - [Spectrum-X Overlay Deletion](../vpc-deletion/index.mdx) — counterpart deletion lifecycle.
-- [Tenant Deploy](../tenant-deploy/index.mdx) — the tenant-scoped deploy child this orchestration ends with.
 - [Render Service](../../render/index.mdx) — produces the tenant configurations this workflow waits on.
 - [Configuration Deploy](../configuration-deploy/index.mdx) — alternative path when a change is too broad for tenant deploy.

@@ -6,7 +6,7 @@ position: 10
 
 The Configuration Deploy workflow applies a single device's intended configuration to that device, with a human approval step that lets an operator review the diff before any change is applied. It is the workflow to use when you need to push a configuration change to one device — for example, after a Nautobot edit on a specific switch, or to converge a single device that has drifted from its intended state.
 
-For fabric-wide changes across many devices, use [Multi-Device Deploy](../multi-deploy/index.mdx) instead. For tenant-scoped configuration changes that should run without human approval, use [Tenant Deploy](../tenant-deploy/index.mdx).
+For fabric-wide changes across many devices, use [Multi-Device Deploy](../multi-deploy/index.mdx) instead. For Spectrum-X port-assignment changes that should run without human approval, use [Spectrum-X Overlay Tenant Change](../vpc-tenant-change/index.mdx), which performs its tenant-scoped deployment internally.
 
 ## Prerequisites
 
@@ -104,7 +104,7 @@ Deploy-disabled is enforced as a safeguard for Kubernetes-attached management sw
 - [Controlling Running Workflows](../workflow-lifecycle/index.mdx) — approve, reject, retry, and terminate behavior for this and every other workflow.
 - [Multi-Device Deploy](../multi-deploy/index.mdx) — fabric-wide deploy with diff-grouped approvals.
 - [Batch Deploy](../batch-deploy/index.mdx) — the per-batch child workflow used by Multi-Deploy.
-- [Tenant Deploy](../tenant-deploy/index.mdx) — tenant-scoped deploy with automated diff validation instead of human approval.
+- [Spectrum-X Overlay Tenant Change](../vpc-tenant-change/index.mdx) — assignment, render, and tenant-scoped deployment with automated diff validation.
 - [Configuration Backup](../configuration-backup/index.mdx) — the child workflow triggered after a successful apply.
 - [Render Service](../../render/index.mdx) — produces the intended configurations this workflow deploys.
 - [Config Store](../../config-store/index.mdx) — where intended and backup configurations are versioned.

@@ -27,11 +27,10 @@ from nv_config_manager.common.client import (
     ConfigStoreException,
     DHCPClient,
     DHCPClientException,
-    NautobotClient,
-    NautobotException,
     TemporalClient,
     TemporalClientException,
 )
+from nv_config_manager.dcim import DCIMError, NautobotMCPClient, create_nautobot_mcp_client
 from nv_config_manager.mcp.auth import (
     MissingBearerTokenError,
     downstream_auth_headers,
@@ -110,8 +109,13 @@ async def nautobot_graphql_query(
     reject_non_readonly_graphql(query)
 
     async def call() -> Any:
-        async with nautobot_client(settings) as client:
+        client = nautobot_mcp_client(settings)
+        if client is None:
+            raise MCPClientError("The selected DCIM provider does not support Nautobot MCP tools.")
+        try:
             return await client.graphql_query(query, variables)
+        finally:
+            await client.close()
 
     return await _bounded_client_call(call, settings.max_response_bytes)
 
@@ -124,8 +128,13 @@ async def nautobot_rest_get(
     """Execute a bounded Nautobot REST GET for MCP."""
 
     async def call() -> Any:
-        async with nautobot_client(settings) as client:
+        client = nautobot_mcp_client(settings)
+        if client is None:
+            raise MCPClientError("The selected DCIM provider does not support Nautobot MCP tools.")
+        try:
             return await client.get(path.lstrip("/"), params=params)
+        finally:
+            await client.close()
 
     return await _bounded_client_call(call, settings.max_response_bytes)
 
@@ -256,13 +265,9 @@ async def start_workflow(
     return await _bounded_client_call(call, settings.max_response_bytes)
 
 
-def nautobot_client(settings: MCPSettings) -> NautobotClient:
-    """Create a common Nautobot client for MCP."""
-    return NautobotClient.for_mcp(
-        nautobot_url=settings.nautobot_url,
-        verify=settings.nautobot_verify,
-        headers=lambda: _nautobot_auth_headers(settings),
-    )
+def nautobot_mcp_client(settings: MCPSettings) -> NautobotMCPClient | None:
+    """Create the optional Nautobot MCP adapter from the selected provider."""
+    return create_nautobot_mcp_client(headers=lambda: _nautobot_auth_headers(settings))
 
 
 def workflow_client(settings: MCPSettings) -> TemporalClient:
@@ -300,8 +305,8 @@ async def _bounded_client_call(
         raise MCPAuthError(str(exc)) from exc
     except (
         ConfigStoreException,
+        DCIMError,
         DHCPClientException,
-        NautobotException,
         TemporalClientException,
     ) as exc:
         raise MCPClientError(str(exc)) from exc

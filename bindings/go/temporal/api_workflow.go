@@ -2417,7 +2417,7 @@ func (r ApiIbportguiddiscoveryworkflowEndpointV1WorkflowNgcIbPortGuidDiscoveryPo
 /*
 IbportguiddiscoveryworkflowEndpointV1WorkflowNgcIbPortGuidDiscoveryPost Execute IBPortGuidDiscoveryWorkflow
 
-Discover InfiniBand port GUIDs from UFM and sync them onto the matching Nautobot interfaces.
+Discover InfiniBand port GUIDs from UFM and sync them onto the matching DCIM interfaces.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@return ApiIbportguiddiscoveryworkflowEndpointV1WorkflowNgcIbPortGuidDiscoveryPostRequest
@@ -4105,7 +4105,7 @@ func (r ApiSpxoverlayassignmentworkflowEndpointV1WorkflowNgcSpxOverlayAssignment
 /*
 SpxoverlayassignmentworkflowEndpointV1WorkflowNgcSpxOverlayAssignmentPost Execute SpXOverlayAssignmentWorkflow
 
-Assign a SpX Overlay/VRF to a device and its specified ports
+Change or remove a SpX Overlay/VRF assignment on device ports
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@return ApiSpxoverlayassignmentworkflowEndpointV1WorkflowNgcSpxOverlayAssignmentPostRequest
@@ -4468,7 +4468,7 @@ func (r ApiSpxoverlaytenantchangeworkflowEndpointV1WorkflowNgcSpxOverlayTenantCh
 /*
 SpxoverlaytenantchangeworkflowEndpointV1WorkflowNgcSpxOverlayTenantChangePost Execute SpXOverlayTenantChangeWorkflow
 
-Assign a SpX Overlay to a device and deploy tenant configuration
+Change or remove a SpX Overlay assignment and deploy tenant configuration
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@return ApiSpxoverlaytenantchangeworkflowEndpointV1WorkflowNgcSpxOverlayTenantChangePostRequest
@@ -4645,127 +4645,6 @@ func (a *WorkflowAPIService) SwitchosupgradeworkflowEndpointV1WorkflowNgcSwitchO
 	}
 	// body params
 	localVarPostBody = r.switchOSUpgradeInput
-	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
-	if err != nil {
-		return localVarReturnValue, nil, err
-	}
-
-	localVarHTTPResponse, err := a.client.callAPI(req)
-	if err != nil || localVarHTTPResponse == nil {
-		return localVarReturnValue, localVarHTTPResponse, err
-	}
-
-	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
-	localVarHTTPResponse.Body.Close()
-	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
-	if err != nil {
-		return localVarReturnValue, localVarHTTPResponse, err
-	}
-
-	if localVarHTTPResponse.StatusCode >= 300 {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: localVarHTTPResponse.Status,
-		}
-		if localVarHTTPResponse.StatusCode == 422 {
-			var v HTTPValidationError
-			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHTTPResponse, newErr
-			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
-		}
-		return localVarReturnValue, localVarHTTPResponse, newErr
-	}
-
-	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-	if err != nil {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: err.Error(),
-		}
-		return localVarReturnValue, localVarHTTPResponse, newErr
-	}
-
-	return localVarReturnValue, localVarHTTPResponse, nil
-}
-
-type ApiTenantdeployworkflowEndpointV1WorkflowNgcTenantDeployPostRequest struct {
-	ctx               context.Context
-	ApiService        *WorkflowAPIService
-	tenantDeployInput *TenantDeployInput
-}
-
-func (r ApiTenantdeployworkflowEndpointV1WorkflowNgcTenantDeployPostRequest) TenantDeployInput(tenantDeployInput TenantDeployInput) ApiTenantdeployworkflowEndpointV1WorkflowNgcTenantDeployPostRequest {
-	r.tenantDeployInput = &tenantDeployInput
-	return r
-}
-
-func (r ApiTenantdeployworkflowEndpointV1WorkflowNgcTenantDeployPostRequest) Execute() (*WorkflowResponse, *http.Response, error) {
-	return r.ApiService.TenantdeployworkflowEndpointV1WorkflowNgcTenantDeployPostExecute(r)
-}
-
-/*
-TenantdeployworkflowEndpointV1WorkflowNgcTenantDeployPost Execute TenantDeployWorkflow
-
-Deploy tenant configuration to network device without approval
-
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@return ApiTenantdeployworkflowEndpointV1WorkflowNgcTenantDeployPostRequest
-*/
-func (a *WorkflowAPIService) TenantdeployworkflowEndpointV1WorkflowNgcTenantDeployPost(ctx context.Context) ApiTenantdeployworkflowEndpointV1WorkflowNgcTenantDeployPostRequest {
-	return ApiTenantdeployworkflowEndpointV1WorkflowNgcTenantDeployPostRequest{
-		ApiService: a,
-		ctx:        ctx,
-	}
-}
-
-// Execute executes the request
-//
-//	@return WorkflowResponse
-func (a *WorkflowAPIService) TenantdeployworkflowEndpointV1WorkflowNgcTenantDeployPostExecute(r ApiTenantdeployworkflowEndpointV1WorkflowNgcTenantDeployPostRequest) (*WorkflowResponse, *http.Response, error) {
-	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *WorkflowResponse
-	)
-
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "WorkflowAPIService.TenantdeployworkflowEndpointV1WorkflowNgcTenantDeployPost")
-	if err != nil {
-		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
-	}
-
-	localVarPath := localBasePath + "/v1/workflow/ngc/tenant-deploy"
-
-	localVarHeaderParams := make(map[string]string)
-	localVarQueryParams := url.Values{}
-	localVarFormParams := url.Values{}
-	if r.tenantDeployInput == nil {
-		return localVarReturnValue, nil, reportError("tenantDeployInput is required and must be specified")
-	}
-
-	// to determine the Content-Type header
-	localVarHTTPContentTypes := []string{"application/json"}
-
-	// set Content-Type header
-	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
-	if localVarHTTPContentType != "" {
-		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
-	}
-
-	// to determine the Accept header
-	localVarHTTPHeaderAccepts := []string{"application/json"}
-
-	// set Accept header
-	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
-	if localVarHTTPHeaderAccept != "" {
-		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
-	}
-	// body params
-	localVarPostBody = r.tenantDeployInput
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err

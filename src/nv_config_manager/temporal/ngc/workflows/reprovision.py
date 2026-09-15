@@ -38,11 +38,11 @@ with workflow.unsafe.imports_passed_through():
         build_workflow_url,
         get_ui_base_url,
     )
-    from nv_config_manager.temporal.ngc.activities.deploy import load_intended_configuration
-    from nv_config_manager.temporal.ngc.activities.nautobot import (
+    from nv_config_manager.temporal.ngc.activities.dcim import (
         GetNetworkDeviceInput,
         get_network_device,
     )
+    from nv_config_manager.temporal.ngc.activities.deploy import load_intended_configuration
     from nv_config_manager.temporal.ngc.activities.os import (
         ExecuteZTPInput,
         PollZTPStatusInput,
@@ -78,6 +78,7 @@ class ReprovisionWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
     workflow_name = "Reprovision"
     workflow_description = "Reprovision a network device using pre- and post-ZTP backups"
     workflow_input_class = ReprovisionInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/reprovision"
     workflow_namespace = "ngc"
 

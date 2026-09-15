@@ -17,19 +17,27 @@
 from __future__ import annotations
 
 import os
-import re
+from collections import defaultdict
 from datetime import UTC, datetime
-from inspect import getmembers, isfunction
 from typing import Any
 
 from prometheus_client import Counter, Histogram
 
-import nv_config_manager.render.events
 from nv_config_manager.common.client import ConfigStoreException
 from nv_config_manager.common.log import LogCategory, get_logger
-from nv_config_manager.render.events.exceptions import EventParseError
-from nv_config_manager.render.events.util import DeviceNotEnabledError
-from nv_config_manager.render.exceptions import NautobotException, RenderException
+from nv_config_manager.dcim import (
+    DCIMChangeEvent,
+    DCIMClient,
+    DCIMError,
+    DCIMRenderEventHandler,
+    DCIMRenderEventProvider,
+    DCIMRenderEventRegistry,
+    RenderEventRequest,
+    dcim_client_session,
+    get_dcim_provider,
+)
+from nv_config_manager.render.events.util import queue_render_batch
+from nv_config_manager.render.exceptions import RenderException
 from nv_config_manager.render.render import execute_render
 
 # Define custom bucket values for histograms (in seconds)
@@ -106,40 +114,81 @@ NAUTOBOT_CHANGE_FAILED_COUNTER = Counter(
 )
 
 
-class EventDispatcher:  # pylint: disable=too-few-public-methods
-    """Nautobot NATS Event Dispatcher."""
+class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-public-methods
+    """Provider-neutral dispatcher for render-triggering DCIM events."""
 
     logger = get_logger(__name__, category=LogCategory.RENDER_EVENT)
 
-    def __init__(self) -> None:
-        """Initialize the dispatcher."""
-        self.dispatch_table = {}
+    def __init__(self, provider: DCIMRenderEventProvider | None = None) -> None:
+        """Initialize the dispatcher with the selected provider's handlers."""
+        self.dispatch_table: dict[str, DCIMRenderEventHandler] = {}
         self.instance = os.getenv("HOSTNAME", "unknown")
         self.namespace = os.getenv("NV_CONFIG_MANAGER_K8S_NAMESPACE", "unknown")
 
-        # Dynamically load dispatch functions by module and method name
-        # e.g. dcim.device will map to function nv_config_manager.render.events.dcim.device
-        functions = getmembers(nv_config_manager.render.events, isfunction)
-        for name, func in functions:
-            module = re.sub("nv_config_manager.render.events.", "", func.__module__)
-            if module == "util":
-                continue
-            self.dispatch_table[f"{module}.{name}"] = func
+        selected_provider = provider or get_dcim_provider()
+        if isinstance(selected_provider, DCIMRenderEventProvider):
+            selected_provider.register_render_event_handlers(self)
+        else:
+            self.logger.warning(
+                "DCIM provider %s does not define render event handlers",
+                selected_provider.metadata.name,
+            )
 
-    async def nautobot_event_dispatch(self, data: dict[str, Any]) -> None:
-        """Invoke the appropriate function for the given NATS message."""
-        model = data["model"]
+    def register_render_event_handler(
+        self,
+        object_type: str,
+        handler: DCIMRenderEventHandler,
+    ) -> None:
+        """Register one provider-owned handler for a DCIM object type."""
+        if object_type in self.dispatch_table:
+            raise ValueError(f"Duplicate render event handler for {object_type}")
+        self.dispatch_table[object_type] = handler
+
+    async def _queue_requests(
+        self,
+        requests: tuple[RenderEventRequest, ...],
+        event: DCIMChangeEvent,
+        dcim_client: DCIMClient,
+    ) -> None:
+        """Queue provider-identified render requests in commit-message batches."""
+        requests_by_message: dict[str, list[str]] = defaultdict(list)
+        for request in requests:
+            requests_by_message[request.commit_message].append(request.device_id)
+
+        for commit_message, device_ids in requests_by_message.items():
+            _, failures = await queue_render_batch(
+                device_ids,
+                commit_message,
+                event.actor,
+                event.timestamp,
+                dcim_client=dcim_client,
+            )
+            for failure in failures:
+                self.logger.info(
+                    "Render request for %s was not queued: %s",
+                    failure["device_uuid"],
+                    failure["error"],
+                )
+
+    async def dcim_event_dispatch(self, event: DCIMChangeEvent) -> None:
+        """Invoke the selected provider's handler for one normalized event."""
+        model = event.object_type
 
         EVENT_RECEIVED_COUNTER.labels(model, self.instance, self.namespace).inc()
-        if data.get("record") is None:
+        if event.record is None:
             # Have seen instances of this occurring, could be an object that was deleted
             # after an update and therefore the change producer has no record to include
             # in the message.
+            self.logger.info(
+                "Event %s for object %s has no record, ignoring message.",
+                model,
+                event.object_id,
+            )
             EVENT_SKIPPED_COUNTER.labels(model, self.instance, self.namespace).inc()
             return
 
         try:
-            func = self.dispatch_table[model]
+            handler = self.dispatch_table[model]
         except KeyError:
             self.logger.info("No event handler implemented for %s, ignoring message.", model)
             EVENT_SKIPPED_COUNTER.labels(model, self.instance, self.namespace).inc()
@@ -147,18 +196,12 @@ class EventDispatcher:  # pylint: disable=too-few-public-methods
 
         try:
             with EVENT_PROCESSING_TIME.labels(model, self.instance, self.namespace).time():
-                await func(data)
+                async with dcim_client_session() as dcim_client:
+                    requests = tuple(await handler(event, dcim_client))
+                    await self._queue_requests(requests, event, dcim_client)
                 EVENT_PROCESSED_COUNTER.labels(model, self.instance, self.namespace).inc()
-        except DeviceNotEnabledError as exc:
-            self.logger.info(str(exc))
-            EVENT_SKIPPED_COUNTER.labels(model, self.instance, self.namespace).inc()
-        except EventParseError as exc:
-            self.logger.exception(str(exc))
-            EVENT_FAILED_COUNTER.labels(
-                model, self.instance, exc.__class__.__name__, self.namespace
-            ).inc()
-        except NautobotException as exc:
-            self.logger.exception("Error processing event: %s", data)
+        except DCIMError as exc:
+            self.logger.exception("Error processing event: %s", event)
             EVENT_FAILED_COUNTER.labels(
                 model, self.instance, exc.__class__.__name__, self.namespace
             ).inc()
@@ -182,7 +225,7 @@ class EventDispatcher:  # pylint: disable=too-few-public-methods
                 ).observe(e2e_time)
                 NAUTOBOT_CHANGE_PROCESSED_COUNTER.labels(self.instance, self.namespace).inc()
 
-        except (RenderException, ConfigStoreException, NautobotException) as exc:
+        except (RenderException, ConfigStoreException, DCIMError) as exc:
             self.logger.exception("Error processing nautobot device change event: %s", data)
             NAUTOBOT_CHANGE_FAILED_COUNTER.labels(
                 self.instance, exc.__class__.__name__, self.namespace

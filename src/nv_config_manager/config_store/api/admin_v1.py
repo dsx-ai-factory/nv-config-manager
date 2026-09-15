@@ -17,13 +17,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager.config_store.api.device_ids import validate_device_id
 from nv_config_manager.config_store.api.schemas import FileType
 from nv_config_manager.config_store.api.schemas_admin import (
     CacheStatusResponse,
@@ -80,7 +80,7 @@ async def list_devices(
     db: AsyncSession = Depends(get_db),
 ) -> list[DeviceUUID]:
     """List all devices with configs."""
-    # Get unique device UUIDs from ConfigFile
+    # Get unique provider-owned device identifiers from ConfigFile.
     query = (
         select(ConfigFile.device_uuid)
         .distinct()
@@ -109,6 +109,7 @@ async def cache_status(request: Request) -> CacheStatusResponse:
             message="Cache service is not initialized",
             cache_ttl=None,
             redis_connected=None,
+            dcim_connected=None,
             nautobot_connected=None,
         )
 
@@ -117,7 +118,8 @@ async def cache_status(request: Request) -> CacheStatusResponse:
         message=None,
         cache_ttl=cache_service.cache_ttl,
         redis_connected=cache_service.redis_client is not None,
-        nautobot_connected=cache_service.nautobot_client is not None,
+        dcim_connected=cache_service.dcim_client is not None,
+        nautobot_connected=cache_service.dcim_client is not None,
     )
 
 
@@ -127,9 +129,10 @@ async def cache_status(request: Request) -> CacheStatusResponse:
     summary="Test cache lookup for a device",
 )
 async def test_cache_lookup(
-    device_uuid: UUID, request: Request
+    device_uuid: str, request: Request
 ) -> CacheTestFoundResponse | CacheTestNotFoundResponse | CacheTestErrorResponse:
     """Test if a specific device can be found in cache."""
+    validate_device_id(device_uuid, request)
     cache_service = getattr(request.app.state, "cache_service", None)
 
     if not cache_service:
@@ -153,7 +156,7 @@ async def test_cache_lookup(
             return CacheTestNotFoundResponse(
                 found=False,
                 device_uuid=str(device_uuid),
-                message="Device not found in cache (not querying Nautobot)",
+                message="Device not found in cache (not querying the DCIM provider)",
             )
     except Exception as e:
         return CacheTestErrorResponse(
@@ -163,7 +166,7 @@ async def test_cache_lookup(
 
 
 def _latest_config_query(
-    file_type: FileType, device_uuids: list[UUID] | None = None, limit: int = 100
+    file_type: FileType, device_uuids: list[str] | None = None, limit: int = 100
 ) -> Select:
     """Build a query for the latest config version per device."""
     where_clauses = [ConfigFile.file_type == file_type]
@@ -200,7 +203,7 @@ def _latest_config_query(
 async def _build_device_list(
     configs: Sequence[ConfigFile],
     cache_service: DeviceCacheService | None,
-    active_uuids: set[UUID] | None,
+    active_uuids: set[str] | None,
     include_inactive: bool,
 ) -> list[DeviceLatestConfig]:
     """Map DB config rows to API response models, filtering by active status."""
@@ -242,19 +245,20 @@ async def search_devices(
     Search devices by name with their latest configuration metadata.
 
     If q is not provided, returns the 100 most recently updated devices from DB.
-    If q is provided, uses Redis cache to find matching device names and their UUIDs,
+    If q is provided, uses Redis cache to find matching device names and identifiers,
     then fetches their latest config info from DB.
     Results are sorted by most recent update first.
     Results are filtered by file_type (intended or backup).
-    Inactive devices (removed from nv_config_manager/Nautobot) are hidden unless include_inactive is True.
+    Devices no longer returned by the selected DCIM provider are hidden unless
+    include_inactive is True.
     """
     cache_service = getattr(request.app.state, "cache_service", None) if request else None
 
-    active_uuids: set[UUID] | None = None
+    active_uuids: set[str] | None = None
     if cache_service:
         active_uuids = await cache_service.get_active_device_uuids()
 
-    matching_uuids: list[UUID] | None = None
+    matching_uuids: list[str] | None = None
     if q and cache_service:
         try:
             matches = await cache_service.search_devices_by_name(q, limit=limit)
@@ -277,7 +281,7 @@ async def search_devices(
     summary="Permanently delete all configs for a device",
 )
 async def delete_device(
-    device_uuid: UUID,
+    device_uuid: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> DeleteDeviceResponse:
@@ -286,6 +290,7 @@ async def delete_device(
     This action cannot be undone. All config versions (intended and backup)
     for the specified device will be removed from the database.
     """
+    validate_device_id(device_uuid, request)
     deleted_count = await delete_device_configs(db, device_uuid)
     await db.commit()
 

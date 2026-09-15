@@ -70,9 +70,11 @@ externalServices:
           - nautobot
         subject: nautobot
   redis:
-    # Enable local redis to capture redis:7-alpine image
+    # Enable local Redis and its metrics sidecar to capture both images.
     local: true
     localHost: "redis-master"
+    metricsExport:
+      enabled: true
   postgres:
     port: 5432
     temporal:
@@ -128,6 +130,11 @@ renderService:
   # KEDA operator's own images come from its chart in create-airgapped.sh.
   autoscaling:
     enabled: true
+    prometheus:
+      # Use a synthetic external endpoint so the maximal extraction render can
+      # exercise KEDA without enabling the excluded AGPL observability charts.
+      serverAddress: "http://prometheus.monitoring.svc:9090"
+      natsMetricsNamespace: "bootstrap"
 
 # =============================================================================
 # Network ZTP

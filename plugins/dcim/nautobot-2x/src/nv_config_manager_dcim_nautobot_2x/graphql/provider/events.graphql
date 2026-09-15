@@ -1,0 +1,95 @@
+# import "../fragments/device.graphql"
+
+query ListManagedRenderEnabledDevices(
+  $names: [String]
+  $locations: [String]
+  $roles: [String]
+  $device_types: [String]
+  $platforms: [String]
+  $tenant_groups: [String]
+  $tenants: [String]
+  $device_redundancy_groups: [String]
+  $tags: [String]
+) {
+  devices(
+    name: $names
+    location: $locations
+    role: $roles
+    device_type: $device_types
+    platform: $platforms
+    tenant_group: $tenant_groups
+    tenant: $tenants
+    device_redundancy_group: $device_redundancy_groups
+    tags: $tags
+    nv_config_manager_device_status: true
+  ) {
+    ...DeviceRenderStatus
+  }
+}
+
+query ListVRFAffectedDevices($id: ID) {
+  vrf(id: $id) {
+    devices { ...DeviceRenderStatus }
+  }
+}
+
+query ListIPAddressAffectedDevices($id: ID) {
+  ip_address(id: $id) {
+    interfaces { device { ...DeviceRenderStatus } }
+  }
+}
+
+query ListAutonomousSystemAffectedDevices($id: [String]) {
+  bgp_routing_instances(autonomous_system: $id) {
+    device { ...DeviceRenderStatus }
+  }
+}
+
+query ListBGPPeeringAffectedDevices($id: ID) {
+  bgp_peering(id: $id) {
+    endpoints { routing_instance { device { ...DeviceRenderStatus } } }
+  }
+}
+
+query GetBGPRoutingInstanceAffectedDevice($id: ID) {
+  bgp_routing_instance(id: $id) {
+    device { ...DeviceRenderStatus }
+  }
+}
+
+query GetIntendedInterfaceNeighbors($device_id: String) {
+  interfaces(device: [$device_id], enabled: true) {
+    name
+    tags {
+      name
+    }
+    connected_interface {
+      name
+      mac_address
+      device {
+        name
+        rack {
+          name
+        }
+        position
+        serial
+        role {
+          name
+        }
+      }
+      module {
+        device {
+          name
+          serial
+          rack {
+            name
+          }
+          position
+          role {
+            name
+          }
+        }
+      }
+    }
+  }
+}

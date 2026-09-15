@@ -97,7 +97,7 @@ async def mock_send_slack_message(activity_input: SlackMessageInput) -> None:
 #     """Mock workflow wait_condition to prevent tests from hanging on retry logic."""
 #     # Simple mock that returns immediately to prevent hanging
 #     mock_wait = AsyncMock(return_value=None)
-#     mocker.patch("nv_config_manager.temporal.common.mixins.stage.workflow.wait_condition", mock_wait)
+#     mocker.patch("nv_config_manager_workflows.stage.mixin.workflow.wait_condition", mock_wait)
 
 
 @pytest.fixture(autouse=True)

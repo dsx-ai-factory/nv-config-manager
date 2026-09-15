@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 import { expect } from "@playwright/test";
-import { SITES_LIST, SPX_OVERLAY_LIST } from "@/mocks/data";
+import { DEVICES_LIST, SITES_LIST, SPX_OVERLAY_LIST } from "@/mocks/data";
 import { test, TEST_TIMEOUT } from "./shared/utils";
 
 test("tenant change selects from the site's Spectrum-X overlays", async ({
@@ -54,4 +54,63 @@ test("tenant change selects from the site's Spectrum-X overlays", async ({
   await expect(
     page.getByRole("dialog").getByText(SPX_OVERLAY_LIST.secondary)
   ).toBeVisible();
+});
+
+test("tenant change submits removals without a replacement overlay", async ({
+  page,
+}) => {
+  const device = DEVICES_LIST.PDX01[0];
+  await page.route(
+    "**/v1/workflow/ngc/spx_overlay_tenant_change",
+    async (route) => {
+      await route.fulfill({
+        status: 201,
+        json: { id: "spx-removal-workflow" },
+      });
+    }
+  );
+  await page.goto(
+    "/workflows/spxoverlaytenantchangeworkflow/form" +
+      `?site=${SITES_LIST.pdx01}` +
+      `&device-id=${device.id}` +
+      "&port_names=swp1%2Cswp2"
+  );
+
+  await expect(
+    page.getByText("Overlay ID (optional — leave blank to remove)", {
+      exact: true,
+    })
+  ).toBeVisible({ timeout: TEST_TIMEOUT });
+  await expect(
+    page.getByRole("button", { name: device.name })
+  ).toBeVisible({ timeout: TEST_TIMEOUT });
+  await expect(page.getByRole("button", { name: "Submit" })).toBeEnabled();
+
+  const requestPromise = page.waitForRequest((request) =>
+    request.url().includes("/v1/workflow/ngc/spx_overlay_tenant_change")
+  );
+  await page.getByRole("button", { name: "Submit" }).click();
+  const request = await requestPromise;
+
+  expect(JSON.parse((await request.postData()) || "{}")).toEqual({
+    site: SITES_LIST.pdx01,
+    overlay_id: null,
+    device_id: device.id,
+    port_names: ["swp1", "swp2"],
+  });
+});
+
+test("tenant change rejects delimiter-only port names", async ({ page }) => {
+  const device = DEVICES_LIST.PDX01[0];
+  await page.goto(
+    "/workflows/spxoverlaytenantchangeworkflow/form" +
+      `?site=${SITES_LIST.pdx01}` +
+      `&device-id=${device.id}` +
+      "&port_names=%2C"
+  );
+
+  await expect(
+    page.getByRole("button", { name: device.name })
+  ).toBeVisible({ timeout: TEST_TIMEOUT });
+  await expect(page.getByRole("button", { name: "Submit" })).toBeDisabled();
 });

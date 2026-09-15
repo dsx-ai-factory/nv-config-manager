@@ -1,0 +1,15 @@
+---
+# Shared CI image pins. Keep this file free of workflow, stages, and jobs so it
+# can be included by both top-level pipelines and narrow child pipelines.
+variables:
+  NVCM_CI_IMAGE_ALPINE: "alpine:3.21"
+  NVCM_CI_IMAGE_AWS_CLI: "amazon/aws-cli:2.36.37"
+  NVCM_CI_IMAGE_DOCKER: "docker:27"
+  NVCM_CI_IMAGE_DOCKER_DIND: "docker:27-dind"
+  NVCM_CI_IMAGE_GO: "golang:1.25-alpine"
+  NVCM_CI_IMAGE_NODE: "node:24-alpine"
+  NVCM_CI_IMAGE_PLAYWRIGHT: "mcr.microsoft.com/playwright:v1.56.1-noble"
+  NVCM_CI_IMAGE_PYTHON_311_BOOKWORM: "python:3.11-bookworm"
+  NVCM_CI_IMAGE_PYTHON_313: "python:3.13"
+  NVCM_CI_IMAGE_SONAR: "sonarsource/sonar-scanner-cli:11"
+  NVCM_CI_IMAGE_UBUNTU: "ubuntu:24.04"

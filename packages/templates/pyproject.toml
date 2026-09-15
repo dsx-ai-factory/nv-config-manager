@@ -1,0 +1,58 @@
+[project]
+name = "nv-config-manager-templates"
+dynamic = ["version"]
+description = "NV Config Manager template rendering engine and public reference templates"
+authors = [{ name = "NVIDIA Corporation" }]
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1.7",
+    "hvac>=2.0.0",
+    "jinja2>=3.1.2",
+    "libpass>=1.9.3",
+    "packaging>=24.0",
+    "nv-config-manager-dcim",
+    "importlib-metadata>=6.0.0; python_version < '3.10'",
+]
+
+[project.scripts]
+template-cli = "nv_config_manager_templates.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pyyaml>=6.0.1",
+    "ruff>=0.15.11",
+]
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "1.2.2rc22"
+
+[tool.hatch.version.raw-options]
+root = "../.."
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nv_config_manager_templates"]
+
+[tool.pytest.ini_options]
+cache_dir = ".cache/pytest_cache"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "B",
+    "UP",
+]

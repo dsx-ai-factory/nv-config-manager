@@ -25,8 +25,8 @@ type SpXOverlayTenantChangeInput struct {
 	DeviceId string `json:"device_id"`
 	// Tag identifying the namespace used for allocation.
 	NamespaceTag *string `json:"namespace_tag,omitempty"`
-	// Identifier of the SpX overlay to assign and deploy tenant configuration for.
-	OverlayId string `json:"overlay_id"`
+	// Identifier of the SpX overlay to assign and deploy tenant configuration for. Omit the overlay_id property or explicitly set it to null to remove the selected ports' current SpX assignment.
+	OverlayId NullableString `json:"overlay_id,omitempty"`
 	// Names of the device interfaces to assign to the overlay.
 	PortNames []string `json:"port_names"`
 	// Site containing the target network device.
@@ -39,12 +39,11 @@ type _SpXOverlayTenantChangeInput SpXOverlayTenantChangeInput
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewSpXOverlayTenantChangeInput(deviceId string, overlayId string, portNames []string, site string) *SpXOverlayTenantChangeInput {
+func NewSpXOverlayTenantChangeInput(deviceId string, portNames []string, site string) *SpXOverlayTenantChangeInput {
 	this := SpXOverlayTenantChangeInput{}
 	this.DeviceId = deviceId
 	var namespaceTag string = "spectrumx"
 	this.NamespaceTag = &namespaceTag
-	this.OverlayId = overlayId
 	this.PortNames = portNames
 	this.Site = site
 	return &this
@@ -117,28 +116,49 @@ func (o *SpXOverlayTenantChangeInput) SetNamespaceTag(v string) {
 	o.NamespaceTag = &v
 }
 
-// GetOverlayId returns the OverlayId field value
+// GetOverlayId returns the OverlayId field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *SpXOverlayTenantChangeInput) GetOverlayId() string {
-	if o == nil {
+	if o == nil || IsNil(o.OverlayId.Get()) {
 		var ret string
 		return ret
 	}
-
-	return o.OverlayId
+	return *o.OverlayId.Get()
 }
 
-// GetOverlayIdOk returns a tuple with the OverlayId field value
+// GetOverlayIdOk returns a tuple with the OverlayId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
 func (o *SpXOverlayTenantChangeInput) GetOverlayIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return &o.OverlayId, true
+	return o.OverlayId.Get(), o.OverlayId.IsSet()
 }
 
-// SetOverlayId sets field value
+// HasOverlayId returns a boolean if a field has been set.
+func (o *SpXOverlayTenantChangeInput) HasOverlayId() bool {
+	if o != nil && o.OverlayId.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetOverlayId gets a reference to the given NullableString and assigns it to the OverlayId field.
 func (o *SpXOverlayTenantChangeInput) SetOverlayId(v string) {
-	o.OverlayId = v
+	o.OverlayId.Set(&v)
+}
+
+// SetOverlayIdNil sets the value for OverlayId to be an explicit nil
+func (o *SpXOverlayTenantChangeInput) SetOverlayIdNil() {
+	o.OverlayId.Set(nil)
+}
+
+// UnsetOverlayId ensures that no value is present for OverlayId, not even an explicit nil
+func (o *SpXOverlayTenantChangeInput) UnsetOverlayId() {
+	o.OverlayId.Unset()
 }
 
 // GetPortNames returns the PortNames field value
@@ -203,7 +223,9 @@ func (o SpXOverlayTenantChangeInput) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.NamespaceTag) {
 		toSerialize["namespace_tag"] = o.NamespaceTag
 	}
-	toSerialize["overlay_id"] = o.OverlayId
+	if o.OverlayId.IsSet() {
+		toSerialize["overlay_id"] = o.OverlayId.Get()
+	}
 	toSerialize["port_names"] = o.PortNames
 	toSerialize["site"] = o.Site
 	return toSerialize, nil
@@ -215,7 +237,6 @@ func (o *SpXOverlayTenantChangeInput) UnmarshalJSON(data []byte) (err error) {
 	// that every required field exists as a key in the generic map.
 	requiredProperties := map[string]bool{
 		"device_id":  false,
-		"overlay_id": false,
 		"port_names": false,
 		"site":       false,
 	}

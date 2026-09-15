@@ -43,10 +43,6 @@ export type ConfigDiffWorkflowInput = {
   device_id: string;
 };
 
-export type TenantDeployWorkflowInput = {
-  device: string;
-};
-
 export type DevicePasswordRotationWorkflowInput = {
   device_id: string;
   selected_secret: string;
@@ -133,7 +129,7 @@ export interface SpXOverlayDeletionWorkflowInput {
 }
 
 export type SpXOverlayTenantChangeWorkflowInput = {
-  overlay_id: string;
+  overlay_id?: string | null;
   device_id: string;
   port_names: string[];
   site: string;

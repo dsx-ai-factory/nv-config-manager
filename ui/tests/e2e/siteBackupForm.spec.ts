@@ -63,7 +63,7 @@ test.describe("Site Backup Form", () => {
         `?site=${SITES_LIST.pdx01}` +
         `&role=${ROLES_LIST.leaf}` +
         `&status=${STATUS_LIST.active}` +
-        `&tenant=${TENANT_LIST.nsv}` +
+        `&tenant=${TENANT_LIST.tenant_a}` +
         "&backup_enabled_only=false"
     );
 
@@ -84,7 +84,7 @@ test.describe("Site Backup Form", () => {
       site: SITES_LIST.pdx01,
       roles: [ROLES_LIST.leaf],
       status: [STATUS_LIST.active],
-      tenant: TENANT_LIST.nsv,
+      tenant: TENANT_LIST.tenant_a,
       backup_enabled_only: false,
     });
 

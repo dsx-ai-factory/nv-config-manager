@@ -20,7 +20,7 @@ import asyncio
 import inspect
 import json
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
 import nats.js
 
@@ -33,15 +33,11 @@ from nv_config_manager.common.config import (
     nats_config_manager_api_prefix,
     nats_connection,
     nats_render_change_config,
-    pynautobot_client,
     redis_client,
 )
-from nv_config_manager.render.events.exceptions import EventParseError
-from nv_config_manager.render.exceptions import NautobotException
+from nv_config_manager.dcim import DCIMClient, dcim_client_session
 
 if TYPE_CHECKING:
-    from typing import Any
-
     from nv_config_manager.common.client import RedisClient
 
 
@@ -117,48 +113,14 @@ async def clear_queued(device_uuid: str, client: RedisClient | None = None) -> N
             await _close_queue_redis_client(client)
 
 
-def should_run(device_uuid: str) -> bool:
+async def should_run(device_uuid: str, dcim_client: DCIMClient) -> bool:
     """Return true if device is enabled for rendering."""
-    nb = pynautobot_client()
-    try:
-        device = nb.plugins.nv_config_manager.configmanagerdevicestatus.get(device_uuid)
-        if device is None:
-            return False
-    except Exception as exc:
-        raise NautobotException(f"Failed to query {device_uuid} in nautobot: {exc}") from exc
-
-    # mypy lacks context that the render_enabled field is a bool
-    if not bool(device.render_enabled):
+    device = await dcim_client.get_render_device_status(device_uuid)
+    if device is None or not device.render_enabled:
         return False
 
     env_aggregate_managed = is_aggregate_environment()
-    device_aggregate_managed = bool(device.is_aggregate_managed)
-
-    return env_aggregate_managed == device_aggregate_managed
-
-
-def extract_user(data: dict[str, Any]) -> str:
-    """Extract the user responsible for the change."""
-    try:
-        user: str = data["request"]["user"]
-        return user
-    except KeyError as err:
-        raise EventParseError("Failed to extract metadata from request.") from err
-
-
-def build_commit_message(data: dict[str, Any]) -> str:
-    """Build a commit message from the event metadata."""
-    try:
-        user = data["request"]["user"]
-        event = data["event"]
-        model = data["model"]
-        timestamp = data["@timestamp"]
-        name = data["record"].get("name")
-        if name:
-            return f"Triggered from nb {model} {event} on {name} by {user} at {timestamp}"
-        return f"Triggered from nb {model} {event} by {user} at {timestamp}"
-    except KeyError as err:
-        raise EventParseError("Failed to extract metadata from request.") from err
+    return env_aggregate_managed == device.is_aggregate_managed
 
 
 async def _process_single_device_enqueue(
@@ -169,6 +131,7 @@ async def _process_single_device_enqueue(
     jetstream: nats.js.JetStreamContext,
     logger: logging.Logger | logging.LoggerAdapter,
     queue_client: RedisClient | None,
+    dcim_client: DCIMClient,
 ) -> dict[str, str] | None:
     """
     Process a single device render operation.
@@ -193,8 +156,7 @@ async def _process_single_device_enqueue(
             )
             return None
 
-        # Check if device should run (this hits Nautobot API)
-        if not should_run(device_uuid):
+        if not await should_run(device_uuid, dcim_client):
             return {
                 "device_uuid": device_uuid,
                 "error": f"{device_uuid} is not enabled for configuration renders.",
@@ -229,7 +191,13 @@ async def _process_single_device_enqueue(
         return {"device_uuid": device_uuid, "error": error_msg}
 
 
-async def queue_render(device_uuid: str, commit_message: str, user: str, timestamp: str) -> None:
+async def queue_render(
+    device_uuid: str,
+    commit_message: str,
+    user: str,
+    timestamp: str,
+    dcim_client: DCIMClient | None = None,
+) -> None:
     """Queue a device render via NATS."""
     logger = get_logger(__name__, category=LogCategory.RENDER_EVENT)
 
@@ -251,15 +219,29 @@ async def queue_render(device_uuid: str, commit_message: str, user: str, timesta
 
         # Use the shared processing function
         try:
-            result = await _process_single_device_enqueue(
-                device_uuid,
-                commit_message,
-                user,
-                timestamp,
-                jetstream,
-                logger,
-                queue_client,
-            )
+            if dcim_client is None:
+                async with dcim_client_session() as session_client:
+                    result = await _process_single_device_enqueue(
+                        device_uuid,
+                        commit_message,
+                        user,
+                        timestamp,
+                        jetstream,
+                        logger,
+                        queue_client,
+                        session_client,
+                    )
+            else:
+                result = await _process_single_device_enqueue(
+                    device_uuid,
+                    commit_message,
+                    user,
+                    timestamp,
+                    jetstream,
+                    logger,
+                    queue_client,
+                    dcim_client,
+                )
         finally:
             await _close_queue_redis_client(queue_client)
 
@@ -286,6 +268,7 @@ async def queue_render_batch(
     user: str,
     timestamp: str,
     max_concurrency: int = 20,
+    dcim_client: DCIMClient | None = None,
 ) -> tuple[int, list[dict[str, str]]]:
     """
     Queue renders for multiple devices in parallel with controlled concurrency.
@@ -321,16 +304,15 @@ async def queue_render_batch(
             connection_manager.set_connection(nats_conn)
             nats_should_close = True
 
-        # Pre-warm Nautobot connection (it's already shared via singleton)
-        pynautobot_client()
-
         jetstream = nats_conn.jetstream(prefix=nats_config_manager_api_prefix())
         queue_client = _get_queue_redis_client()
 
         # Create semaphore to limit concurrency across all devices
         semaphore = asyncio.Semaphore(max_concurrency)
 
-        async def process_single_device(device_uuid: str) -> dict[str, str] | None:
+        async def process_single_device(
+            device_uuid: str, session_client: DCIMClient
+        ) -> dict[str, str] | None:
             """Process a single device with concurrency control."""
             async with semaphore:
                 return await _process_single_device_enqueue(
@@ -341,12 +323,22 @@ async def queue_render_batch(
                     jetstream,
                     logger,
                     queue_client,
+                    session_client,
                 )
 
         try:
-            # Process all devices concurrently with controlled concurrency
-            tasks = [process_single_device(device_uuid) for device_uuid in device_uuids]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            if dcim_client is None:
+                async with dcim_client_session() as session_client:
+                    tasks = [
+                        process_single_device(device_uuid, session_client)
+                        for device_uuid in device_uuids
+                    ]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+            else:
+                tasks = [
+                    process_single_device(device_uuid, dcim_client) for device_uuid in device_uuids
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
         finally:
             await _close_queue_redis_client(queue_client)
 
@@ -372,261 +364,3 @@ async def queue_render_batch(
         if nats_should_close and nats_conn and not nats_conn.is_closed:
             connection_manager.clear_connection()
             await nats_conn.close()
-
-
-def get_managed_device_uuids(
-    **filter_kwargs: Any,
-) -> list[str]:
-    """Load managed device UUIDs from nautobot based on filters."""
-    nb = pynautobot_client()
-    try:
-        query = """
-query(
-  $names: [String],
-  $locations: [String],
-  $roles: [String],
-  $device_types: [String],
-  $platforms: [String],
-  $tenant_groups: [String],
-  $tenants: [String],
-  $device_redundancy_groups: [String],
-  $tags: [String]
-) {
-  devices(
-    name: $names,
-    location: $locations,
-    role: $roles,
-    device_type: $device_types,
-    platform: $platforms,
-    tenant_group: $tenant_groups,
-    tenant: $tenants,
-    device_redundancy_group: $device_redundancy_groups,
-    tags: $tags,
-    nv_config_manager_device_status: true
-  ) {
-    id
-    configmanagerdevicestatus {
-      render_enabled
-    }
-  }
-}
-"""
-        rsp = nb.graphql.query(query, filter_kwargs)
-        devices = rsp.json["data"]["devices"]
-        return [
-            device["id"]
-            for device in devices
-            if device["configmanagerdevicestatus"]
-            and device["configmanagerdevicestatus"]["render_enabled"]
-        ]
-    except Exception as exc:
-        raise NautobotException(
-            f"Failed to query devices with filter {filter_kwargs}: {exc}"
-        ) from exc
-
-
-def get_module_bay(uuid: str) -> dict[str, Any]:
-    """Load module-bays from nautobot based on filters."""
-    nb = pynautobot_client()
-    try:
-        module_bay = nb.dcim.module_bays.get(id=uuid)
-        return dict(module_bay)
-    except Exception as exc:
-        raise NautobotException(f"Failed to query module-bay with id {uuid}: {exc}") from exc
-
-
-def get_managed_device_uuids_for_vrf(
-    vrf_id: str,
-) -> list[str]:
-    """Load managed device UUIDs affected by VRF changes."""
-    nb = pynautobot_client()
-    try:
-        query = """
-        query ($vrf_id: ID) {
-            vrf(id: $vrf_id) {
-                devices{
-                    id
-                    configmanagerdevicestatus{
-                        render_enabled
-                    }
-                }
-            }
-        }
-        """
-        variables = {"vrf_id": vrf_id}
-        rsp = nb.graphql.query(query, variables)
-        devices = rsp.json["data"]["vrf"]["devices"]
-        return [
-            device["id"]
-            for device in devices
-            if device["configmanagerdevicestatus"]
-            and device["configmanagerdevicestatus"]["render_enabled"]
-        ]
-    except Exception as exc:
-        raise NautobotException(f"Failed to query devices for VRF changes: {exc}") from exc
-
-
-def get_managed_device_uuids_for_ipaddress(ip_address_id: str) -> list[str]:
-    """Load managed device UUIDs affected by IPAM changes."""
-    nb = pynautobot_client()
-    try:
-        query = """
-        query($ip_address_id: ID) {
-          ip_address(id: $ip_address_id) {
-            interfaces {
-              device {
-                id
-                configmanagerdevicestatus {
-                  render_enabled
-                }
-              }
-            }
-          }
-        }
-        """
-
-        variables = {"ip_address_id": ip_address_id}
-
-        rsp = nb.graphql.query(query, variables)
-        ip_address = rsp.json["data"]["ip_address"]
-
-        # Collect unique device IDs that are render enabled
-        affected_devices = set()
-        for interface in ip_address["interfaces"]:
-            device = interface["device"]
-            if (
-                device
-                and device["configmanagerdevicestatus"]
-                and device["configmanagerdevicestatus"]["render_enabled"]
-            ):
-                affected_devices.add(device["id"])
-
-        return list(affected_devices)
-
-    except Exception as exc:
-        raise NautobotException(f"Failed to query devices for IPAM changes: {exc}") from exc
-
-
-def get_managed_device_uuids_for_autonomous_system(asn: str) -> list[str]:
-    """Load managed device UUIDs affected by Autonomous System changes."""
-    nb = pynautobot_client()
-    try:
-        query = """
-        query($as_id: [String]) {
-          bgp_routing_instances(autonomous_system: $as_id) {
-            device {
-              id
-              configmanagerdevicestatus {
-                render_enabled
-              }
-            }
-          }
-        }
-        """
-        variables = {"as_id": [asn]}
-
-        rsp = nb.graphql.query(query, variables)
-        routing_instances = rsp.json["data"]["bgp_routing_instances"]
-
-        affected_devices = set()
-        for instance in routing_instances:
-            if instance.get("device"):
-                device = instance["device"]
-                if (
-                    device
-                    and device["configmanagerdevicestatus"]
-                    and device["configmanagerdevicestatus"]["render_enabled"]
-                ):
-                    affected_devices.add(device["id"])
-
-        return list(affected_devices)
-
-    except Exception as exc:
-        raise NautobotException(
-            f"Failed to query devices for Autonomous System {asn} changes: {exc}"
-        ) from exc
-
-
-def get_managed_device_uuids_for_bgp_peering(peering_id: str) -> list[str]:
-    """Load managed device UUIDs affected by BGP Peering changes."""
-    nb = pynautobot_client()
-    try:
-        query = """
-        query($peering_id: ID) {
-          bgp_peering(id: $peering_id) {
-            endpoints {
-              routing_instance {
-                device {
-                  id
-                  configmanagerdevicestatus {
-                    render_enabled
-                  }
-                }
-              }
-            }
-          }
-        }
-        """
-        variables = {"peering_id": peering_id}
-
-        rsp = nb.graphql.query(query, variables)
-        peering = rsp.json["data"]["bgp_peering"]
-
-        affected_devices = set()
-        if peering and peering.get("endpoints"):
-            for endpoint in peering["endpoints"]:
-                if endpoint.get("routing_instance") and endpoint["routing_instance"].get("device"):
-                    device = endpoint["routing_instance"]["device"]
-                    if (
-                        device
-                        and device["configmanagerdevicestatus"]
-                        and device["configmanagerdevicestatus"]["render_enabled"]
-                    ):
-                        affected_devices.add(device["id"])
-
-        return list(affected_devices)
-
-    except Exception as exc:
-        raise NautobotException(
-            f"Failed to query devices for BGP Peering {peering_id} changes: {exc}"
-        ) from exc
-
-
-def get_managed_device_uuid_for_bgp_routing_instance(
-    routing_instance_id: str,
-) -> str | None:
-    """Load managed device UUID affected by BGP Peer Group changes."""
-    nb = pynautobot_client()
-    try:
-        query = """
-query ($routing_instance_id: ID) {
-  bgp_routing_instance(id: $routing_instance_id) {
-    device {
-      id
-      configmanagerdevicestatus {
-        render_enabled
-      }
-    }
-  }
-}
-        """
-        variables = {"routing_instance_id": routing_instance_id}
-
-        rsp = nb.graphql.query(query, variables)
-        routing_instance = rsp.json["data"]["bgp_routing_instance"]
-
-        if routing_instance and routing_instance.get("device"):
-            device = routing_instance["device"]
-            if (
-                device
-                and device["configmanagerdevicestatus"]
-                and device["configmanagerdevicestatus"]["render_enabled"]
-            ):
-                return cast(str, device["id"])
-
-        return None
-
-    except Exception as exc:
-        raise NautobotException(
-            f"Failed to query device for BGP Routing Instance {routing_instance_id} changes: {exc}"
-        ) from exc

@@ -4,7 +4,7 @@ sidebar-title: Spectrum-X Overlay Assignment
 position: 30
 ---
 
-The Spectrum-X Overlay Assignment workflow binds an existing overlay's VRF to a specific device and to a specific set of ports on that device. It updates Nautobot's IPAM intent and records matching device and interface `OverlayAssignment` entries in the overlays plugin without touching the device itself; the device-side change happens when a subsequent deploy applies the resulting intended configuration. Assignment is the second step in the Spectrum-X Overlay lifecycle, after [Spectrum-X Overlay Creation](../vpc-creation/index.mdx) provisions the VRF and Overlay objects.
+The Spectrum-X Overlay Assignment workflow changes the Spectrum-X assignment on a specific set of device ports. With a target Overlay ID, it binds that overlay's VRF to the device and ports. Without a target Overlay ID, it removes the selected ports' existing Spectrum-X assignment without creating a replacement. It updates Nautobot's IPAM intent and matching `OverlayAssignment` entries in the overlays plugin without touching the device itself; the device-side change happens when a subsequent deploy applies the resulting intended configuration. Assignment is the second step in the Spectrum-X Overlay lifecycle, after [Spectrum-X Overlay Creation](../vpc-creation/index.mdx) provisions the VRF and Overlay objects.
 
 For the end-to-end assign + render + deploy lifecycle, use [Spectrum-X Overlay Tenant Change](../vpc-tenant-change/index.mdx) — it calls this workflow as a child plus the render and deploy steps.
 
@@ -12,7 +12,7 @@ For the end-to-end assign + render + deploy lifecycle, use [Spectrum-X Overlay T
 
 Before running, confirm:
 
-- **Overlay exists at the site** with exactly one VRF allocated under `overlay_id` + `namespace_tag`. Multiple VRFs (or zero) under the same Overlay ID is treated as an error.
+- **For assignment or moves, the target overlay exists at the site** with exactly one VRF allocated under `overlay_id` + `namespace_tag`. Multiple VRFs (or zero) under the same Overlay ID is treated as an error. This is not required for removal-only changes.
 - **Device exists in Nautobot** and is in the site you are assigning at.
 - **Port names match Nautobot interface names** on the target device. Already-assigned ports for this VRF are skipped, not re-assigned.
 
@@ -28,25 +28,34 @@ The workflow runs three stages in order. None require manual approval.
 
 1. **`get_device_and_vrf` — Resolve the device and the overlay's VRF.**
 
-   Loads the target device record and queries Nautobot for the VRF matching `overlay_id` + `namespace_tag` + `site`. The query is asserted to return exactly one VRF — zero or more than one raises `ApplicationError` and halts the workflow.
+   Loads the target device record. When an Overlay ID is supplied, it queries Nautobot for the matching VRF and requires exactly one result. For removal-only changes, it skips the target-VRF lookup.
 
 1. **`assign_vrf_to_device` — Bind the VRF to the device record.**
 
-   Attaches the VRF to the device's VRF list in Nautobot. If the VRF is already assigned to this device, the stage short-circuits with `vrf_assigned=False`; otherwise it returns `vrf_assigned=True`.
+   Attaches the target VRF to the device's VRF list in Nautobot. If the VRF is already assigned, the stage reports `vrf_assigned=False`. Removal-only changes skip this step.
 
 1. **`assign_vrf_to_ports` — Bind the VRF to each named port.**
 
-   For each port in `port_names`, assigns the VRF to the interface in Nautobot, running all per-port writes in parallel. It then reconciles the overlays plugin so the device and every named interface have an `OverlayAssignment` for the target overlay. When a port moves between Spectrum-X overlays, its stale assignment is removed; assignments for other overlay types are preserved. Ports that already have this VRF assigned are recorded in `already_assigned_ports`, but their overlay-plugin records are still reconciled so an earlier incomplete run can be repaired. The final `assigned_ports` list contains the ports whose VRF changed during this run.
+   For each port in `port_names`, sets the target VRF or clears the VRF for a removal-only change, running all per-port writes in parallel. It reconciles the overlays plugin so interface assignments match the new Spectrum-X intent while preserving assignments for other overlay types. When no interface on the device remains mapped to an old VRF or Spectrum-X overlay, the corresponding device-level association is deleted. The result separates changed ports into `assigned_ports` and `unassigned_ports`, reports cleaned-up device VRFs in `removed_vrf_ids`, and exposes plugin mutations through `overlay_assignments_created` and `overlay_assignments_removed`.
 
 ## Verifying outcomes
 
 After the workflow reports success, confirm:
 
 - **All three stages green** on the Config Manager run page.
-- **Result shape** — `assigned_ports` lists the ports actually changed; `vrf_assigned=true` means the device-level binding was new this run; `vrf` carries the bound VRF record.
-- **Nautobot** shows the VRF on the device and on each named interface.
-- **Nautobot overlays plugin** shows `OverlayAssignment` entries for the device and each named interface under the target overlay.
 - **Run a deploy** to push the resulting intended-config change to the device. The simplest path is [Spectrum-X Overlay Tenant Change](../vpc-tenant-change/index.mdx), which combines assignment with the subsequent re-render and deploy.
+
+For assignment runs, also confirm:
+
+- **Result shape** — `assigned_ports` lists the interfaces changed, `vrf_assigned=true` means the target device-level binding was new, and `overlay_assignments_created` and `overlay_assignments_removed` reflect plugin reconciliation.
+- **Nautobot** shows the target VRF on the device and on each named interface.
+- **Nautobot overlays plugin** shows `OverlayAssignment` entries for the device and each named interface under the target overlay.
+
+For removal-only runs, instead confirm:
+
+- **Result shape** — `unassigned_ports` lists the interfaces changed, `vrf` is `null`, `removed_vrf_ids` lists unused device/VRF associations cleaned up, and the overlay-assignment counts reflect plugin reconciliation.
+- **Nautobot** shows no VRF association on any selected interface and no device/VRF association when no other device interface uses that VRF.
+- **Nautobot overlays plugin** shows no Spectrum-X `OverlayAssignment` on any selected interface and no device-level assignment when no other interface uses that overlay.
 
 ## Common issues
 
@@ -71,4 +80,3 @@ Those ports were already bound to this VRF. Successful no-op for those ports —
 - [Spectrum-X Overlay Creation](../vpc-creation/index.mdx) — provision the VRF and Overlay metadata.
 - [Spectrum-X Overlay Tenant Change](../vpc-tenant-change/index.mdx) — assignment + render + deploy in one workflow.
 - [Spectrum-X Overlay Deletion](../vpc-deletion/index.mdx) — tear down an overlay (only after VRFs are unassigned).
-- [Tenant Deploy](../tenant-deploy/index.mdx) — the tenant-scoped deploy used by Spectrum-X Overlay Tenant Change to push the resulting config to the device.

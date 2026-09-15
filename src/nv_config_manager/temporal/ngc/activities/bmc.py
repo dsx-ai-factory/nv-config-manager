@@ -29,8 +29,8 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager.dcim import create_dcim_client
 from nv_config_manager.temporal.client.device import DeviceArpTable
-from nv_config_manager.temporal.client.nautobot import NautobotClient
 from nv_config_manager.temporal.client.redfish import (
     Bluefield3RedfishConnection,
     RedfishDpu,
@@ -362,16 +362,22 @@ async def update_dpu_data(
     activity_input: UpdateDpuDataActivityInput,
 ) -> UpdateDpuDataActivityOutput:
     """Update DPU Data."""
-    client = NautobotClient()
+    client = create_dcim_client()
     async with client:
-        nb_result = await client.get_host_devices(mac_address=activity_input.server.mac)
-        if not nb_result:
-            raise ApplicationError(f"Server {activity_input.server} not found in nautobot")
-        if len(nb_result) > 1:
+        server_mac = activity_input.server.mac
+        if server_mac is None:
+            raise ApplicationError("Server MAC address is required", non_retryable=True)
+        host_devices = await client.find_host_devices_by_mac(server_mac)
+        if not host_devices:
             raise ApplicationError(
-                f"Multiple devices in nautobot for MAC {activity_input.server.mac}: {nb_result}"
+                f"Server {activity_input.server} not found in the configured DCIM"
             )
-        device_data = nb_result[0]
+        if len(host_devices) > 1:
+            raise ApplicationError(
+                "Multiple devices in the configured DCIM for "
+                f"MAC {activity_input.server.mac}: {host_devices}"
+            )
+        device_data = host_devices[0]
 
         # Assume lower bay name corresponds to lower NIC slot
         # i.e. Bay '0' would be slot '4' and bay '1' would be slot '5'
@@ -413,19 +419,22 @@ async def update_dpu_data(
             if len(device_interfaces) != len(dpu_interfaces):
                 raise ApplicationError("Must have same number of device ports and DPU ports")
 
-            dpu_data = await client.update_host_device(
-                device_id=device.id, data={"serial": dpu.serial}
-            )
-            dpu_data.interfaces = []
+            interface_macs: dict[str, str] = {}
             for device_interface, dpu_interface in zip(
                 device_interfaces, dpu_interfaces, strict=False
             ):
-                dpu_data.interfaces.append(
-                    await client.update_interface(
-                        interface_id=device_interface.id,
-                        data={"mac_address": dpu_interface.mac},
+                if dpu_interface.mac is None:
+                    raise ApplicationError(
+                        f"MAC address is missing for DPU port {dpu_interface.name}",
+                        non_retryable=True,
                     )
-                )
+                interface_macs[device_interface.id] = dpu_interface.mac
+
+            dpu_data = await client.update_dpu_device_inventory(
+                device_id=device.id,
+                serial=dpu.serial,
+                interface_macs=interface_macs,
+            )
             result.append(dpu_data)
 
     return UpdateDpuDataActivityOutput(device_data=result)

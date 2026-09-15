@@ -2,7 +2,7 @@
   "data": {
     "config_manager_device": {
       "intended_config": {
-        "config_store_instance": "https://ui.config-store.config-manager.example.com/",
+        "config_store_instance": "https://config-manager.example.com/",
         "path": "startup.yaml"
       },
       "device": {

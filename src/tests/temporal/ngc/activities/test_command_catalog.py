@@ -53,6 +53,28 @@ def test_get_available_commands_arista():
     assert len(result) == 21
 
 
+def test_get_available_commands_juniper():
+    """JUNIPER_JUNOS exposes exactly the RPC-backed diagnostics, each with a description."""
+    result = get_available_commands(Platform.JUNIPER_JUNOS)
+    assert set(result) == {
+        "show_version",
+        "show_interfaces",
+        "show_lldp_neighbors",
+        "show_route_table",
+        "show_arp_table",
+    }
+    for name, description in result.items():
+        assert isinstance(name, str)
+        assert isinstance(description, str)
+        assert description
+
+
+def test_validate_commands_juniper():
+    """Junos command names normalise and validate against the junos catalog."""
+    result = validate_commands(Platform.JUNIPER_JUNOS, ["show version", "show_bgp_summary"])
+    assert result == ["show_version"]  # bgp summary is not a junos command
+
+
 def test_get_available_commands_unknown_platform():
     """Returns {} for a platform not in the catalog — no KeyError raised."""
     for platform in Platform:

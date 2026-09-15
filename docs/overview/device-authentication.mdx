@@ -72,7 +72,15 @@ This keeps Vault/OpenBao as the production source of truth while still giving th
 
 ## Render and ZTP
 
-Device account creation is controlled by each device's Nautobot config context. The `password_mappings` block maps an OS username to a base secret key, rotation suffix, and platform role:
+Device account creation is controlled by each device's provider-neutral access
+data. Credential mappings associate an OS username with a base secret key,
+rotation suffix, and platform role:
+
+<Note>
+Nautobot maps its `config_context` construct to typed provider-neutral access
+data. Other providers surface the same credential mapping through their own
+native model, so the workflow does not depend on a config-context field.
+</Note>
 
 ```yaml
 password_mappings:

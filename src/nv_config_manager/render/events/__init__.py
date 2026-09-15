@@ -12,47 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""NB NATS Event Handlers."""
+"""Generic render queue helpers.
 
-# Import here for dynamic dispatching
-from nv_config_manager.render.events.dcim import (
-    cable,
-    cablepath,
-    device,
-    deviceredundancygroup,
-    frontport,
-    interface,
-    rearport,
-)
-from nv_config_manager.render.events.extras import configcontext
-from nv_config_manager.render.events.ipam import ipaddress, prefix, vrf
-from nv_config_manager.render.events.nautobot_bgp_models import (
-    autonomoussystem,
-    bgproutinginstance,
-    peerendpoint,
-    peergroup,
-    peering,
-)
-from nv_config_manager.render.events.nv_config_manager import (
-    configmanagerdevicestatus,
-)
-
-__all__ = (
-    "autonomoussystem",
-    "peering",
-    "peergroup",
-    "peerendpoint",
-    "bgproutinginstance",
-    "cable",
-    "cablepath",
-    "configcontext",
-    "device",
-    "deviceredundancygroup",
-    "frontport",
-    "interface",
-    "ipaddress",
-    "configmanagerdevicestatus",
-    "prefix",
-    "rearport",
-    "vrf",
-)
+Provider-specific DCIM event handlers are registered from their provider
+packages, never imported by the core render service.
+"""

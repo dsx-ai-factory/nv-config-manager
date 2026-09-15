@@ -20,6 +20,7 @@ import yaml
 
 import nv_config_manager.temporal.ngc.workflows as workflows
 from nv_config_manager.temporal.ngc.workflows import REGISTERED_WORKFLOWS
+from nv_config_manager.temporal.ngc.workflows.deploy import TenantDeployWorkflow
 
 
 def _load_all_workflow_classes():
@@ -45,6 +46,13 @@ def test_workflow_registration():
         assert workflow_class in REGISTERED_WORKFLOWS, (
             f"Workflow {workflow_class.__name__} not registered"
         )
+
+
+def test_tenant_deploy_is_worker_internal():
+    """Keep Tenant Deploy executable as a child without exposing a public start surface."""
+    assert TenantDeployWorkflow in REGISTERED_WORKFLOWS
+    assert TenantDeployWorkflow.get_workflow_api_endpoint() is None
+    assert not TenantDeployWorkflow.has_complete_metadata()
 
 
 def test_workflow_rbac_exists():

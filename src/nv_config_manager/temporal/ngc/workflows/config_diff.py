@@ -39,14 +39,14 @@ with workflow.unsafe.imports_passed_through():
         StageOutput,
         stage_executor,
     )
+    from nv_config_manager.temporal.ngc.activities.dcim import (
+        GetNetworkDeviceInput,
+        get_network_device,
+    )
     from nv_config_manager.temporal.ngc.activities.deploy import (
         DiffActivityInput,
         load_intended_configuration,
         perform_candidate_diff,
-    )
-    from nv_config_manager.temporal.ngc.activities.nautobot import (
-        GetNetworkDeviceInput,
-        get_network_device,
     )
 
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
@@ -79,6 +79,7 @@ class ConfigDiffWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archive
         "Compare the intended configuration against the live device without applying any changes"
     )
     workflow_input_class = ConfigDiffInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/config_diff"
     workflow_namespace = "ngc"
 

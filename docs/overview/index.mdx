@@ -4,11 +4,11 @@ title: Config Manager Concepts
 position: 0
 ---
 
-NVIDIA Config Manager is a Helm-deployed network automation and configuration management platform designed to bootstrap and operate NVIDIA AI-factory networks. It combines APIs, workers, Nautobot, data stores, eventing, and device-facing services to render, deploy, and operate network configuration at scale.
+NVIDIA Config Manager is a Helm-deployed network automation and configuration management platform designed to bootstrap and operate NVIDIA AI-factory networks. It combines APIs, workers, a selected DCIM provider, data stores, eventing, and device-facing services to render, deploy, and operate network configuration at scale. Nautobot is the bundled default provider.
 
 ## Overview
 
-Running on [Nautobot](../nautobot/index.mdx), Config Manager provides a comprehensive suite of services for network automation:
+Using provider-neutral contracts from the DCIM SDK, Config Manager provides a comprehensive suite of services for network automation:
 
 | Service | Description |
 | :------ | :---------- |
@@ -19,6 +19,12 @@ Running on [Nautobot](../nautobot/index.mdx), Config Manager provides a comprehe
 | **[ZTP Service](../network-ztp/index.mdx)** | Zero Touch Provisioning for device bootstrapping and firmware distribution |
 | **[DHCP Service](../dhcp/index.mdx)** | Dynamic configuration generation for ISC Kea DHCP server |
 | **[Remote MCP](mcp.mdx)** | Streamable HTTP MCP endpoint for authenticated tool access |
+
+The core services and workflows do not depend on a provider name. A provider
+supplies normalized data operations, render data, and (when available) its
+event-to-device mapping. The bundled [Nautobot overview](../nautobot/index.mdx)
+documents the default provider; see [Contribute a DCIM Provider](../development/contributing-dcim-provider.mdx)
+to add another.
 
 ## Design Principles
 

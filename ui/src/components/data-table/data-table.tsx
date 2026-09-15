@@ -96,20 +96,25 @@ const isWorkflowPageSize = (pageSize: number): boolean =>
   workflowPageSizeOptions.includes(pageSize);
 
 const getStoredWorkflowPageSize = (): number => {
-  if (typeof window === "undefined") {
+  if (typeof globalThis.window === "undefined") {
     return workflowPageSizeOptions[0];
   }
 
-  const pageSize = Number(window.localStorage.getItem(workflowPageSizeStorageKey));
+  const pageSize = Number(
+    globalThis.localStorage.getItem(workflowPageSizeStorageKey)
+  );
   return isWorkflowPageSize(pageSize) ? pageSize : workflowPageSizeOptions[0];
 };
 
 const setStoredWorkflowPageSize = (pageSize: number) => {
-  if (typeof window === "undefined" || !isWorkflowPageSize(pageSize)) {
+  if (
+    typeof globalThis.window === "undefined" ||
+    !isWorkflowPageSize(pageSize)
+  ) {
     return;
   }
 
-  window.localStorage.setItem(workflowPageSizeStorageKey, String(pageSize));
+  globalThis.localStorage.setItem(workflowPageSizeStorageKey, String(pageSize));
 };
 
 const workflowApiFilterParams: Record<string, string> = {
@@ -333,7 +338,9 @@ function Filter({ column }: { column: Column<Workflow, unknown> }) {
   );
 }
 
-function ColumnVisibilityMenu({ table }: { table: TanstackTable<Workflow> }) {
+function ColumnVisibilityMenu({
+  table,
+}: Readonly<{ table: TanstackTable<Workflow> }>) {
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -372,7 +379,9 @@ function ColumnVisibilityMenu({ table }: { table: TanstackTable<Workflow> }) {
   );
 }
 
-export function DataTable<TData, TValue>({ columns }: DataTableProps<TData, TValue>) {
+export function DataTable<TData, TValue>({
+  columns,
+}: Readonly<DataTableProps<TData, TValue>>) {
   const { config } = useRuntimeConfig();
   const apiURL = config?.workflowApiUrl;
   const pathname = usePathname();

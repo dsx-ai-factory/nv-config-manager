@@ -16,6 +16,7 @@ A scenario-first index into the docs. Pick the row that describes what you are t
 | Preview Config Manager locally without touching real devices. | [Local Development Quick Start](getting-started/local-development-quick-start.mdx) |
 | Validate Config Manager workflows against simulated Cumulus switches in NVIDIA DSX Air. | [DSX Air Simulation User Guide](user-guides/air-simulation/index.mdx) |
 | Decide what to inspect after the first install. | [First Run Tour](getting-started/first-run-tour.mdx) |
+| Add support for a DCIM other than the bundled Nautobot provider. | [Contribute a DCIM Provider](development/contributing-dcim-provider.mdx) |
 
 ## Bootstrap and provisioning
 
@@ -38,8 +39,8 @@ A scenario-first index into the docs. Pick the row that describes what you are t
 
 | I want to... | Go to |
 | :----------- | :---- |
-| Have a device's intended configuration regenerated automatically when Nautobot changes. | [Render Service](render/render-service.mdx) |
-| Push an intended-config change from Nautobot to a single live device. | [Configuration Deploy](user-guides/configuration-deploy/index.mdx) |
+| Have a device's intended configuration regenerated automatically when its DCIM data changes. | [Render Service](render/render-service.mdx) |
+| Push an intended-config change from the selected DCIM provider to a single live device. | [Configuration Deploy](user-guides/configuration-deploy/index.mdx) |
 | Review the configuration diff and approve (or reject) it before anything reaches the device. | [Configuration Deploy → Execution stages](user-guides/configuration-deploy/index.mdx) |
 | Apply a single change to many devices in one orchestrated run, with per-batch approval. | [Multi-Deploy](user-guides/multi-deploy/index.mdx), [Batch Deploy](user-guides/batch-deploy/index.mdx) |
 

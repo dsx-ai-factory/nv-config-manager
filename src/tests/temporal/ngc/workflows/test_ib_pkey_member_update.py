@@ -97,10 +97,12 @@ def _ufm_config() -> ConfigParser:
 
 def _nb_config() -> ConfigParser:
     config = ConfigParser()
-    config.add_section("nautobot")
-    config.set("nautobot", "server", NB_URL)
-    config.set("nautobot", "token", "test-token")
-    config.set("nautobot", "verify", "false")
+    config.add_section("dcim")
+    config.set("dcim", "provider", "nautobot-2x")
+    config.set("dcim", "server", NB_URL)
+    config.set("dcim", "token", "test-token")
+    config.set("dcim", "verify", "false")
+    config.add_section("nats")
     return config
 
 
@@ -117,7 +119,7 @@ def mock_all_configs():
     mock_producer.publish = AsyncMock(return_value=None)
     with (
         patch("nv_config_manager.temporal.client.ufm.load_config", return_value=_ufm_config()),
-        patch("nv_config_manager.temporal.client.nautobot.load_config", return_value=_nb_config()),
+        patch("nv_config_manager.common.config.load_config", return_value=_nb_config()),
         patch(
             "nv_config_manager.temporal.ngc.activities.nats.NatsProducer",
             return_value=mock_producer,

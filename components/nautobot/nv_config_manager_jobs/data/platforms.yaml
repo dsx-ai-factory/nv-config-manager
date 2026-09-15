@@ -13,6 +13,11 @@
   description: NVIDIA Cumulus Linux Network OS
   napalm_driver: ""
 
+- name: Juniper Junos
+  manufacturer: Juniper
+  description: Juniper Networks Junos OS
+  napalm_driver: junos
+
 - name: MLNX-OS
   # No manufacturer - Mellanox is now part of NVIDIA
   description: Mellanox NOS
@@ -21,4 +26,3 @@
 - name: NV-OS
   description: NVIDIA Network OS
   napalm_driver: ""
-

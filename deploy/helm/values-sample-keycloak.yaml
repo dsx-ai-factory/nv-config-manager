@@ -59,9 +59,18 @@ oidc:
     # Keep disabled unless the UI image tag includes /auth/discovery and /auth/logout.
     enabled: false
   
-  # Name of the K8s secret containing client-secret and a raw 32-byte
-  # cookie-secret used by the gateway-independent proxy.
-  # Create with: kubectl create secret generic oidc-client-secret --from-literal=client-secret=nv-config-manager-client-secret --from-literal=cookie-secret="$(openssl rand -base64 32)" -n nv-config-manager
+  # Name of the K8s secret containing client-secret and a cookie-secret used
+  # by the gateway-independent proxy. oauth2-proxy expects an AES key of 16,
+  # 24, or 32 bytes; it base64url-decodes the value first and only falls back
+  # to the raw string. The upstream-recommended incantation is
+  # `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='` — 32 bytes of
+  # entropy encoded as unpadded base64url (43 chars) that decode to 32 raw
+  # bytes (AES-256). Do NOT substitute a plain `openssl rand -base64 32`;
+  # its standard-alphabet `+`/`/` chars fail oauth2-proxy's base64url decode,
+  # so the resulting 44-char raw string is treated as-is — not a valid AES
+  # key size — and oauth2-proxy CrashLoopBackOffs with
+  # `cookie_secret must be 16, 24, or 32 bytes ... but is 44 bytes`.
+  # Create with: kubectl create secret generic oidc-client-secret --from-literal=client-secret=nv-config-manager-client-secret --from-literal=cookie-secret="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')" -n nv-config-manager
   clientSecretName: "oidc-client-secret"
   
   # OIDC scopes - KeyCloak standard scopes

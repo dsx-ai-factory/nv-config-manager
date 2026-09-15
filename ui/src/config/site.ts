@@ -65,12 +65,6 @@ export const siteConfig = {
       enabled: true,
     },
     {
-      title: "Tenant Deploy",
-      workflowName: "TenantDeployWorkflow",
-      slug: "tenantdeployworkflow",
-      enabled: true,
-    },
-    {
       title: "Multi-Configuration Deploy",
       workflowName: "MultiDeployWorkflow",
       slug: "multideployworkflow",

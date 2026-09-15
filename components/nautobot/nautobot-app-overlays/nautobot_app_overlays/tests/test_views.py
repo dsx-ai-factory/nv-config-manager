@@ -93,6 +93,7 @@ class OverlayViewTestCase(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Overlay Assignments")
+        self.assertContains(response, 'class="panel-body table-responsive"')
 
     def test_overlay_add_view(self):
         """Test the Overlay add view."""

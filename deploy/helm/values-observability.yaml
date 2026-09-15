@@ -61,10 +61,21 @@ global:
     include_in_slo: "true"
 
 # -----------------------------------------------------------------------------
+# Redis metrics exporter
+# -----------------------------------------------------------------------------
+# Exercise the bundled Redis exporter and its PodMonitor in local-dev and
+# observability-enabled CI deployments.
+externalServices:
+  redis:
+    metricsExport:
+      enabled: true
+
+# -----------------------------------------------------------------------------
 # Blackbox probes
 # -----------------------------------------------------------------------------
-# The installer flips monitoring.{enabled,podMonitors.enabled,probes.enabled} on
-# when observability_enabled is set (see helm_values.py), but the Probe CRs in
+# The installer flips monitoring.{enabled,podMonitors.enabled,
+# podMonitors.cnpg.enabled,probes.enabled} on when observability_enabled is set
+# (see helm_values.py), but the Probe CRs in
 # templates/monitoring.yaml are ALSO gated on a non-empty blackboxExporterUrl.
 # Set a URL here so the Probe CRs render — and therefore carry the SLO
 # customLabels under spec.targets.staticConfig.labels — on the local-dev / CI
@@ -76,6 +87,10 @@ global:
 # points this at its own blackbox-exporter Service.
 monitoring:
   grafanaUrl: 'http://localhost:3000/d/nv-config-manager-overview?var-namespace={{ .Values.global.namespace }}'
+  podMonitors:
+    enabled: true
+    redis:
+      enabled: true
   probes:
     enabled: true
     blackboxExporterUrl: "blackbox-exporter:9115"
@@ -87,7 +102,8 @@ monitoring:
 # observability path (local-dev + the opt-in kind integration run) actually
 # exercises NATS JetStream metric collection — the prerequisite for KEDA render
 # autoscaling on nats_consumer_num_pending. The installer flips
-# monitoring.{enabled,podMonitors.enabled} on when observability_enabled; this
+# monitoring.{enabled,podMonitors.enabled,podMonitors.cnpg.enabled} on when
+# observability_enabled; this
 # makes the sidecar + PodMonitor render alongside them (see
 # templates/nautobot.yaml and templates/monitoring.yaml). Both default to off in
 # values.yaml, so only this overlay (and real deployments that opt in) run them.

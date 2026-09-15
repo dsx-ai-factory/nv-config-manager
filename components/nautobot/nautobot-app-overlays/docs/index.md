@@ -16,6 +16,8 @@ A Nautobot app for network segmentation and multi-tenancy through overlays.
 
 ![Overlay Detail](images/overlay-detail.png)
 
+![Overlay Assignments](images/overlay-assignments.png)
+
 ![VXLANs](images/vxlans.png)
 
 ![InfiniBand PKeys](images/ib-pkeys.png)

@@ -28,8 +28,8 @@ from nv_config_manager.common.config import (
     load_config,
     nats_config_manager_api_prefix,
     nats_connection,
+    nats_dcim_change_config,
     nats_nautobot_api_prefix,
-    nats_nautobot_change_config,
     nats_render_change_config,
 )
 from nv_config_manager.common.log import LogCategory, get_logger
@@ -42,7 +42,7 @@ from nv_config_manager.common.nats_admin import (
 class ConsumerType(StrEnum):
     """Valid consumer types for NATS consumer management."""
 
-    nautobot = "nautobot"
+    dcim = "dcim"
     device = "device"
     template = "template"
 
@@ -95,17 +95,17 @@ def get_consumer_configs() -> dict[str, dict[str, str]]:
     config = load_config()
     nats_config = config["nats"]
 
-    nautobot_stream, nautobot_subject = nats_nautobot_change_config(config)
-    nautobot_api_prefix = nats_nautobot_api_prefix(config)
+    dcim_stream, dcim_subject = nats_dcim_change_config(config)
+    dcim_api_prefix = nats_nautobot_api_prefix(config)
     render_stream, render_subject = nats_render_change_config(config)
     render_api_prefix = nats_config_manager_api_prefix(config)
 
     return {
-        "nautobot": {
+        "dcim": {
             "durable_name": nats_config.get("nautobot_consumer_name", "nv-config-manager-nautobot"),
-            "stream": nautobot_stream,
-            "subject": nautobot_subject,
-            "api_prefix": nautobot_api_prefix,
+            "stream": dcim_stream,
+            "subject": dcim_subject,
+            "api_prefix": dcim_api_prefix,
         },
         "device": {
             "durable_name": nats_config.get(

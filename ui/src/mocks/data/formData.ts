@@ -88,7 +88,7 @@ export const STATUS_LIST_API_RESPONSE = [
 ];
 
 export const TENANT_LIST = {
-  nsv: "TenantA",
+  tenant_a: "TenantA",
   ngc: "TenantB",
 } as const;
 export const TENANT_LIST_API_RESPONSE = [
@@ -115,6 +115,13 @@ export const SPX_OVERLAY_LIST_API_RESPONSE = Object.values(SPX_OVERLAY_LIST).map
     name,
   })
 );
+
+export const DEVICE_INTERFACES_LIST_API_RESPONSE = [
+  { id: "interface-swp1", name: "swp1" },
+  { id: "interface-swp2", name: "swp2" },
+  { id: "interface-swp3", name: "swp3" },
+  { id: "interface-swp4", name: "swp4" },
+];
 
 export const NAMESPACE_TAGS_LIST_API_RESPONSE = [
   {

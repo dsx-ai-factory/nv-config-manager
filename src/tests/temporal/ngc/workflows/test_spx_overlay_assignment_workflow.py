@@ -50,6 +50,8 @@ from nv_config_manager.temporal.ngc.activities.nautobot import (
     QueryVRFByVPCInput,
     ReconcileSpXOverlayAssignmentsInput,
     ReconcileSpXOverlayAssignmentsOutput,
+    RemoveUnmappedDeviceVrfsInput,
+    RemoveUnmappedDeviceVrfsOutput,
     Vrf,
 )
 from nv_config_manager.temporal.ngc.activities.render import (
@@ -121,8 +123,28 @@ _mock_state = {
     "interfaces_with_vrf": [],
     "newer_commit_allowed": True,
     "reconcile_calls": 0,
+    "reconcile_created": 0,
+    "reconcile_removed": 0,
+    "reconcile_changed": False,
     "recorded_config_drift": False,
+    "removed_vrf_ids": [],
+    "interface_vrf_updates": [],
+    "reconcile_overlay_ids": [],
+    "cleanup_vrf_ids": [],
 }
+
+
+@pytest.fixture(autouse=True)
+def reset_spx_mock_mutations() -> Generator[None]:
+    """Keep workflow mutation outputs isolated between tests."""
+    _mock_state["removed_vrf_ids"] = []
+    _mock_state["reconcile_created"] = 0
+    _mock_state["reconcile_removed"] = 0
+    _mock_state["reconcile_changed"] = False
+    _mock_state["interface_vrf_updates"] = []
+    _mock_state["reconcile_overlay_ids"] = []
+    _mock_state["cleanup_vrf_ids"] = []
+    yield
 
 
 @activity.defn(name="get_vrfs_by_overlay_id")
@@ -203,9 +225,11 @@ async def mock_get_device_interfaces(
 
 @activity.defn(name="assign_vrf_to_interface")
 async def mock_assign_vrf_to_interface(
-    _activity_input: AssignVrfToInterfaceInput,
+    activity_input: AssignVrfToInterfaceInput,
 ) -> None:
     """Mock activity for assigning VRF to interface."""
+    updates = cast(list[tuple[str, str | None]], _mock_state["interface_vrf_updates"])
+    updates.append((activity_input.interface_id, activity_input.vrf_id))
 
 
 @activity.defn(name="reconcile_spx_overlay_assignments")
@@ -214,9 +238,28 @@ async def mock_reconcile_spx_overlay_assignments(
 ) -> ReconcileSpXOverlayAssignmentsOutput:
     """Mock reconciliation of overlay-plugin assignments."""
     _mock_state["reconcile_calls"] = int(_mock_state["reconcile_calls"]) + 1
+    overlay_ids = cast(list[str | None], _mock_state["reconcile_overlay_ids"])
+    overlay_ids.append(activity_input.overlay_id)
     return ReconcileSpXOverlayAssignmentsOutput(
-        created=1 + len(activity_input.interface_ids),
-        removed=0,
+        created=int(_mock_state["reconcile_created"]),
+        removed=int(_mock_state["reconcile_removed"]),
+        reconciliation_changed=bool(
+            _mock_state["reconcile_changed"]
+            or _mock_state["reconcile_created"]
+            or _mock_state["reconcile_removed"]
+        ),
+    )
+
+
+@activity.defn(name="remove_unmapped_device_vrfs")
+async def mock_remove_unmapped_device_vrfs(
+    activity_input: RemoveUnmappedDeviceVrfsInput,
+) -> RemoveUnmappedDeviceVrfsOutput:
+    """Mock cleanup of device VRFs without interface mappings."""
+    cleanup_vrf_ids = cast(list[list[str]], _mock_state["cleanup_vrf_ids"])
+    cleanup_vrf_ids.append(activity_input.vrf_ids)
+    return RemoveUnmappedDeviceVrfsOutput(
+        removed_vrf_ids=cast(list[str], _mock_state.get("removed_vrf_ids", []))
     )
 
 
@@ -259,7 +302,7 @@ async def mock_wait_for_tenant_render(
 async def test_spx_deploy_stage_rejects_partial_render_commit_pair(commit_ids):
     device_output = await mock_get_network_device(GetNetworkDeviceInput(device_id="device-1"))
     with patch(
-        "nv_config_manager.temporal.common.mixins.stage.workflow.time",
+        "nv_config_manager_workflows.stage.mixin.workflow.time",
         return_value=float(0),
     ):
         workflow_instance = SpXOverlayTenantChangeWorkflow()
@@ -280,7 +323,7 @@ async def test_spx_deploy_stage_normalizes_child_workflow_errors():
     """Convert tenant deploy child failures to the workflow's ApplicationError shape."""
     device_output = await mock_get_network_device(GetNetworkDeviceInput(device_id="device-1"))
     with patch(
-        "nv_config_manager.temporal.common.mixins.stage.workflow.time",
+        "nv_config_manager_workflows.stage.mixin.workflow.time",
         return_value=float(0),
     ):
         workflow_instance = SpXOverlayTenantChangeWorkflow()
@@ -315,11 +358,11 @@ async def test_spx_deploy_stage_surfaces_link_when_child_fails():
 
     with (
         patch(
-            "nv_config_manager.temporal.common.mixins.stage.workflow.time",
+            "nv_config_manager_workflows.stage.mixin.workflow.time",
             return_value=float(0),
         ),
         patch(
-            "nv_config_manager.temporal.common.mixins.stage.workflow.patched",
+            "nv_config_manager_workflows.stage.mixin.workflow.patched",
             return_value=False,
         ),
         patch(
@@ -359,11 +402,11 @@ async def test_spx_assignment_stage_publishes_child_link_before_failure():
 
     with (
         patch(
-            "nv_config_manager.temporal.common.mixins.stage.workflow.time",
+            "nv_config_manager_workflows.stage.mixin.workflow.time",
             return_value=float(0),
         ),
         patch(
-            "nv_config_manager.temporal.common.mixins.stage.workflow.patched",
+            "nv_config_manager_workflows.stage.mixin.workflow.patched",
             return_value=False,
         ),
         patch(
@@ -397,10 +440,20 @@ async def test_spx_assignment_stage_publishes_child_link_before_failure():
 class MockTenantDeployWorkflow:
     """Mock tenant deploy child workflow."""
 
+    def __init__(self) -> None:
+        """Initialize the captured workflow input."""
+        self.workflow_input: TenantDeployInput | None = None
+
     @workflow.run
-    async def run(self, _workflow_input: TenantDeployInput) -> bool:
+    async def run(self, workflow_input: TenantDeployInput) -> bool:
         """Mock tenant deploy run."""
+        self.workflow_input = workflow_input
         return True
+
+    @workflow.query
+    def input(self) -> TenantDeployInput | None:
+        """Return the tenant deploy input for parent workflow assertions."""
+        return self.workflow_input
 
 
 @workflow.defn(name="SpXOverlayAssignmentWorkflow", sandboxed=False)
@@ -470,7 +523,7 @@ def test_spx_render_stage_output_requires_snapshot_commit_ids():
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_assignment_workflow_vrf_not_assigned(_mock_time, _mock_nats_client, env):
     """Test VPC assignment when VRF is not already assigned to device."""
 
@@ -490,6 +543,7 @@ async def test_spx_overlay_assignment_workflow_vrf_not_assigned(_mock_time, _moc
             mock_get_device_interfaces,
             mock_assign_vrf_to_interface,
             mock_reconcile_spx_overlay_assignments,
+            mock_remove_unmapped_device_vrfs,
             publish_nats,
         ],
         activity_executor=ThreadPoolExecutor(1),
@@ -519,7 +573,7 @@ async def test_spx_overlay_assignment_workflow_vrf_not_assigned(_mock_time, _moc
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_assignment_workflow_vrf_already_assigned(
     _mock_time, _mock_nats_client, env
 ):
@@ -541,6 +595,7 @@ async def test_spx_overlay_assignment_workflow_vrf_already_assigned(
             mock_get_device_interfaces,
             mock_assign_vrf_to_interface,
             mock_reconcile_spx_overlay_assignments,
+            mock_remove_unmapped_device_vrfs,
             publish_nats,
         ],
         activity_executor=ThreadPoolExecutor(1),
@@ -570,7 +625,83 @@ async def test_spx_overlay_assignment_workflow_vrf_already_assigned(
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
+async def test_spx_overlay_tenant_change_removes_assignment_without_replacement(
+    _mock_time, _mock_nats_client, env
+):
+    """Clearing the target overlay unassigns ports, cleans the VRF, and deploys."""
+    _mock_state["interfaces_with_vrf"] = ["swp1"]
+    _mock_state["removed_vrf_ids"] = ["mock_namespace1"]
+    _mock_state["interface_vrf_updates"] = []
+    _mock_state["reconcile_overlay_ids"] = []
+    _mock_state["cleanup_vrf_ids"] = []
+
+    task_queue_name = str(uuid.uuid4())
+    async with Worker(
+        env.client,
+        task_queue=task_queue_name,
+        workflows=[
+            SpXOverlayAssignmentWorkflow,
+            SpXOverlayTenantChangeWorkflow,
+            MockTenantDeployWorkflow,
+        ],
+        activities=[
+            mock_get_network_device,
+            mock_get_device_interfaces,
+            mock_assign_vrf_to_interface,
+            mock_reconcile_spx_overlay_assignments,
+            mock_remove_unmapped_device_vrfs,
+            mock_execute_render,
+            mock_wait_for_tenant_render,
+            publish_nats,
+        ],
+        activity_executor=ThreadPoolExecutor(1),
+    ):
+        handle = await env.client.start_workflow(
+            SpXOverlayTenantChangeWorkflow.run,
+            SpXOverlayTenantChangeInput(
+                overlay_id=None,
+                device_id="mock_device_id_with_vrf",
+                port_names=["swp1"],
+                site="mock_site",
+            ),
+            id=str(uuid.uuid4()),
+            task_queue=task_queue_name,
+            run_timeout=timedelta(seconds=30),
+        )
+
+        result = await handle.result()
+        stages = {stage["name"]: stage for stage in await handle.query("stages")}
+        deploy_child_id = stages["deploy"]["child_workflows"][0]
+        deploy_input = await env.client.get_workflow_handle(deploy_child_id).query("input")
+
+    assert result.assigned_ports == []
+    assert result.unassigned_ports == ["swp1"]
+    assert result.removed_vrf_ids == ["mock_namespace1"]
+    assert result.vrf_assigned is False
+    assert result.vrf is None
+    assert result.device_deployed == "mock_device_id_with_vrf"
+    assert _mock_state["interface_vrf_updates"] == [("interface1_id", None)]
+    assert _mock_state["reconcile_overlay_ids"] == [None]
+    assert _mock_state["cleanup_vrf_ids"] == [["mock_namespace1"]]
+
+    assignment_child = stages["assign_spx_overlay"]["child_workflows"][0]
+    assert stages["assign_spx_overlay"]["output"]["display"] == (
+        "- **Overlay:** None (remove assignment)\n"
+        "- **Ports unassigned (1):** swp1\n"
+        "- **Device/VRF associations removed:** mock_namespace1\n\n"
+        f"Changing via workflow [{assignment_child}](/workflows/{assignment_child})"
+    )
+    assert stages["render_tenant_config"]["state"] == "COMPLETE"
+    assert stages["deploy"]["state"] == "COMPLETE"
+    assert deploy_input["tenant_config_commit_id"] == "7"
+    assert deploy_input["intended_config_commit_id"] == "11"
+    assert deploy_input["use_full_intended_config"] is True
+
+
+@pytest.mark.asyncio
+@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_tenant_change_is_noop_when_already_assigned(
     _mock_time, _mock_nats_client, env
 ):
@@ -594,6 +725,7 @@ async def test_spx_overlay_tenant_change_is_noop_when_already_assigned(
             mock_get_device_interfaces,
             mock_assign_vrf_to_interface,
             mock_reconcile_spx_overlay_assignments,
+            mock_remove_unmapped_device_vrfs,
             mock_check_recorded_config_drift,
             publish_nats,
         ],
@@ -627,17 +759,90 @@ async def test_spx_overlay_tenant_change_is_noop_when_already_assigned(
             "- **Overlay:** mock_overlay_id\n"
             "- **L3 VXLAN:** SpXTenant60004\n"
             "- **VRF:** SpXTenant60004 (already assigned)\n"
-            "- **Ports assigned (0):** None\n\n"
-            f"Assigning via workflow [{assignment_child}](/workflows/{assignment_child})"
+            "- **Ports assigned (0):** None\n"
+            "- **Device/VRF associations removed:** None\n\n"
+            f"Changing via workflow [{assignment_child}](/workflows/{assignment_child})"
         )
         assert stages["render_tenant_config"]["state"] == "UNREACHABLE"
         assert stages["wait_for_render"]["state"] == "UNREACHABLE"
         assert stages["deploy"]["state"] == "UNREACHABLE"
 
 
+@pytest.mark.parametrize(
+    ("reconcile_created", "reconcile_changed"),
+    [
+        pytest.param(1, False, id="counted-mutation"),
+        pytest.param(0, True, id="retry-stable-change-signal"),
+    ],
+)
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
+async def test_spx_overlay_tenant_change_deploys_reconciliation_only_change(
+    _mock_time,
+    _mock_nats_client,
+    env,
+    reconcile_created,
+    reconcile_changed,
+):
+    """Overlay-plugin-only mutations still require a render and deploy."""
+    _mock_state["vrf_exists"] = True
+    _mock_state["interfaces_with_vrf"] = ["swp1", "swp2"]
+    _mock_state["reconcile_created"] = reconcile_created
+    _mock_state["reconcile_changed"] = reconcile_changed
+
+    task_queue_name = str(uuid.uuid4())
+    async with Worker(
+        env.client,
+        task_queue=task_queue_name,
+        workflows=[
+            SpXOverlayAssignmentWorkflow,
+            SpXOverlayTenantChangeWorkflow,
+            MockTenantDeployWorkflow,
+        ],
+        activities=[
+            mock_get_network_device,
+            mock_get_vrfs_by_overlay_id,
+            mock_get_device_vrfs,
+            mock_assign_vrf_to_device,
+            mock_get_device_interfaces,
+            mock_assign_vrf_to_interface,
+            mock_reconcile_spx_overlay_assignments,
+            mock_remove_unmapped_device_vrfs,
+            mock_execute_render,
+            mock_wait_for_tenant_render,
+            publish_nats,
+        ],
+        activity_executor=ThreadPoolExecutor(1),
+    ):
+        handle = await env.client.start_workflow(
+            SpXOverlayTenantChangeWorkflow.run,
+            SpXOverlayTenantChangeInput(
+                overlay_id="mock_overlay_id",
+                device_id="mock_device_id_with_vrf",
+                port_names=["swp1", "swp2"],
+                site="mock_site",
+            ),
+            id=str(uuid.uuid4()),
+            task_queue=task_queue_name,
+            run_timeout=timedelta(seconds=30),
+        )
+
+        result = await handle.result()
+        stages = {stage["name"]: stage for stage in await handle.query("stages")}
+
+    assert result.assigned_ports == []
+    assert result.unassigned_ports == []
+    assert result.overlay_assignments_created == reconcile_created
+    assert result.overlay_assignments_removed == 0
+    assert result.device_deployed == "mock_device_id_with_vrf"
+    assert stages["render_tenant_config"]["state"] == "COMPLETE"
+    assert stages["deploy"]["state"] == "COMPLETE"
+
+
+@pytest.mark.asyncio
+@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_tenant_change_uses_current_versions_after_render_race(
     _mock_time, _mock_nats_client, env
 ):
@@ -664,6 +869,7 @@ async def test_spx_overlay_tenant_change_uses_current_versions_after_render_race
             mock_get_device_interfaces,
             mock_assign_vrf_to_interface,
             mock_reconcile_spx_overlay_assignments,
+            mock_remove_unmapped_device_vrfs,
             mock_execute_render,
             mock_wait_for_tenant_render,
             publish_nats,
@@ -710,8 +916,9 @@ async def test_spx_overlay_tenant_change_uses_current_versions_after_render_race
             "- **Overlay:** mock_overlay_id\n"
             "- **L3 VXLAN:** SpXTenant60004\n"
             "- **VRF:** SpXTenant60004 (already assigned)\n"
-            "- **Ports assigned (1):** swp3\n\n"
-            f"Assigning via workflow [{assignment_children[0]}]"
+            "- **Ports assigned (1):** swp3\n"
+            "- **Device/VRF associations removed:** None\n\n"
+            f"Changing via workflow [{assignment_children[0]}]"
             f"(/workflows/{assignment_children[0]})"
         )
         assert stages["deploy"]["output"]["display"] == (
@@ -722,7 +929,7 @@ async def test_spx_overlay_tenant_change_uses_current_versions_after_render_race
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_tenant_change_retries_deploy_when_already_assigned_but_pending(
     _mock_time, _mock_nats_client, env
 ):
@@ -750,6 +957,7 @@ async def test_spx_overlay_tenant_change_retries_deploy_when_already_assigned_bu
             mock_get_device_interfaces,
             mock_assign_vrf_to_interface,
             mock_reconcile_spx_overlay_assignments,
+            mock_remove_unmapped_device_vrfs,
             mock_check_recorded_config_drift,
             publish_nats,
         ],
@@ -781,11 +989,12 @@ async def test_spx_overlay_tenant_change_retries_deploy_when_already_assigned_bu
         assert stages["deploy"]["state"] == "COMPLETE"
         assert stages["deploy"]["input"]["tenant_config_commit_id"] is None
         assert stages["deploy"]["input"]["intended_config_commit_id"] is None
+        assert stages["deploy"]["input"]["use_full_intended_config"] is True
 
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_assignment_workflow_vrf_not_found(_mock_time, _mock_nats_client, env):
     """Test VPC assignment when VRF doesn't exist in Nautobot."""
 
@@ -805,6 +1014,7 @@ async def test_spx_overlay_assignment_workflow_vrf_not_found(_mock_time, _mock_n
             mock_get_device_interfaces,
             mock_assign_vrf_to_interface,
             mock_reconcile_spx_overlay_assignments,
+            mock_remove_unmapped_device_vrfs,
             publish_nats,
         ],
         activity_executor=ThreadPoolExecutor(1),
@@ -843,7 +1053,7 @@ async def test_spx_overlay_assignment_workflow_vrf_not_found(_mock_time, _mock_n
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_assignment_workflow_interface_not_found(
     _mock_time, _mock_nats_client, env
 ):
@@ -865,6 +1075,7 @@ async def test_spx_overlay_assignment_workflow_interface_not_found(
             mock_get_device_interfaces,
             mock_assign_vrf_to_interface,
             mock_reconcile_spx_overlay_assignments,
+            mock_remove_unmapped_device_vrfs,
             publish_nats,
         ],
         activity_executor=ThreadPoolExecutor(1),

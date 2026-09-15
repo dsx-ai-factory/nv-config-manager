@@ -29,21 +29,16 @@
     - linux/amd64
     - docker
   needs: &pulse-scan-needs
-    - job: docker-manifest-mr
-      optional: true
     - job: docker-manifest-main
       optional: true
   rules: &pulse-scan-rules
-    # Skip during test-env promote pipelines (web pipelines on the default
-    # branch with $NVCM_PROMOTE_ENV set).
-    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/
+    # Skip default-branch triggered pipelines without trusting their supplied
+    # variables; the promote validators authorize their dedicated jobs.
+    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/)
       when: never
     - if: $CI_COMMIT_TAG
       when: on_success
-    - if: $FORCE_PULSE_SCAN == "true" && ($CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH)
-      when: on_success
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: *artifact-paths
+    - if: $FORCE_PULSE_SCAN == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: on_success
     - if: $GITLAB_USER_EMAIL == $CI_PUSH_EMAIL
       when: never
@@ -128,7 +123,7 @@ include:
           PULSE_IMAGE_NAME:
             - oauth2-proxy
           PULSE_EXTERNAL_IMAGE:
-            - quay.io/oauth2-proxy/oauth2-proxy:v7.15.3
+            - quay.io/oauth2-proxy/oauth2-proxy:v7.15.4
           PULSE_CONTAINER_SCANNER_PLATFORM:
             - linux/amd64
             - linux/arm64
@@ -137,6 +132,7 @@ include:
 # upload wins and the remaining jobs can safely reuse it on retry.
 pulse-scan-images:
   allow_failure: true
+  timeout: 1h
   retry:
     max: 1
     when:
@@ -146,5 +142,6 @@ pulse-scan-images:
 # repository checkout so they can still run after a merged source branch has
 # been deleted while its pipeline is queued.
 .track_template_usage:
+  timeout: 10m
   variables:
     GIT_STRATEGY: empty

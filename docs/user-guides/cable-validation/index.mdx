@@ -84,7 +84,7 @@ Before running cable validation, confirm the following are in place:
 
 - **Devices have completed ZTP** and reached the `Provisioned` (or `Active`) status in Nautobot. Running validation against devices that are still provisioning or unreachable produces noisy failures. See [New Site Bringup](../new-site-deployment/index.mdx) for the bringup sequence.
 - **Intended cabling is captured in Nautobot.** The workflow compares observed state against enabled interfaces and connected endpoints in Nautobot, so the Nautobot data must reflect the design. Use `cable-validation-link-state-only` temporarily when an intended connection should be checked for link state but its far-end identity data is not available. Use `cable-validation-ignore` only for interfaces that are deliberately outside validation scope.
-- **Devices are running a supported platform** — Cumulus Linux, NVOS, or Arista EOS. Devices on other platforms are filtered out automatically.
+- **Devices are running a supported platform** — Cumulus Linux, NVOS, Arista EOS, or Juniper Junos. Devices on other platforms are filtered out automatically.
 - **Network reachability from Config Manager** to every in-scope device's management address, so the workflow can query LLDP neighbors and the MAC/ARP tables.
 
 ## Running site cable validation
@@ -143,7 +143,7 @@ The site workflow runs three stages. None require manual approval.
 
 1. **`get_devices_to_validate` — Resolve the device list from Nautobot.**
 
-   Calls Nautobot for all devices matching the site, role, status, tenant, and device-type filters, then drops anything not on a supported platform (Cumulus Linux, NVOS, Arista EOS). The resolved device list is rendered as a Markdown table on the stage page. If no devices match the filters, the remaining stages are marked Unreachable and the workflow returns immediately with an explanatory message.
+   Calls Nautobot for all devices matching the site, role, status, tenant, and device-type filters, then drops anything not on a supported platform (Cumulus Linux, NVOS, Arista EOS, Juniper Junos). The resolved device list is rendered as a Markdown table on the stage page. If no devices match the filters, the remaining stages are marked Unreachable and the workflow returns immediately with an explanatory message.
 
 1. **`validate_devices` — Run a device cable validation child per device.**
 

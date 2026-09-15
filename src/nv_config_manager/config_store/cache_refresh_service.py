@@ -12,10 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Standalone cache refresh service for Nautobot device metadata.
+"""Standalone cache refresh service for DCIM device metadata.
 
 This service runs independently from the API and periodically refreshes
-the Redis cache with device metadata from Nautobot.
+the Redis cache with device metadata from the selected DCIM provider.
 """
 
 import asyncio
@@ -45,11 +45,7 @@ def signal_handler(signum: int, frame: Any) -> None:
 
 async def main() -> None:
     """Main entry point for the cache refresh service."""
-    logger.info("Starting Nautobot cache refresh service")
-
-    if not settings.nautobot_token:
-        logger.error("Nautobot token is not configured")
-        sys.exit(1)
+    logger.info("Starting DCIM cache refresh service")
 
     cache_service = None
     refresh_task = None
@@ -67,7 +63,11 @@ async def main() -> None:
         logger.info("Cache service initialized successfully")
 
         # Start background cache refresh loop
-        cache_refresh_interval = config.getint("nautobot", "cache_refresh_interval", fallback=3600)
+        cache_refresh_interval = config.getint(
+            "dcim",
+            "cache_refresh_interval",
+            fallback=config.getint("nautobot", "cache_refresh_interval", fallback=3600),
+        )
         logger.info(
             "Starting cache refresh loop (interval: %d seconds)",
             cache_refresh_interval,
@@ -98,8 +98,8 @@ async def main() -> None:
 
         # Close connections
         if cache_service:
-            await cache_service.nautobot_client.close()
-            logger.info("Closed Nautobot client")
+            await cache_service.dcim_client.close()
+            logger.info("Closed DCIM client")
 
             await cache_service.redis_client.close()
             logger.info("Closed Redis connection")

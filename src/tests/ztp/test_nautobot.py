@@ -16,27 +16,23 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
-
-from nv_config_manager.ztp.nautobot import DeviceData, NautobotClient
+from nv_config_manager_dcim_nautobot_2x.provider import NautobotDCIMClient as NautobotClient
 
 
 @pytest.mark.asyncio
-async def test_device_data(mock_device_data):
+async def test_ztp_device_data(mock_device_data):
     with patch(
-        "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         new_callable=AsyncMock,
         return_value=mock_device_data,
     ):
-        nb = NautobotClient()
+        nb = NautobotClient(nautobot_url="https://nautobot.example", token="token")
         async with nb:
-            device_data = await nb.get_device_data(uuid4())
-        expected = DeviceData(
-            id="80ce0a9a-d3c8-5b8e-b755-e9c16d92237b",
-            name="rno1-m04-c10-spine1-hss-tan-lab1",
-            addresses=["10.180.166.13", "10.180.166.130"],
-            platform_name="Cumulus Linux",
-            version="5.7.0",
-            config_store_instance="https://api-mtls.config-store.config-manager.example.com/",
-        )
+            device_data = await nb.get_ztp_device(str(uuid4()))
 
-        assert device_data == expected
+        assert device_data.device_id == "80ce0a9a-d3c8-5b8e-b755-e9c16d92237b"
+        assert device_data.name == "rno1-m04-c10-spine1-hss-tan-lab1"
+        assert device_data.addresses == ["10.180.166.13", "10.180.166.130"]
+        assert device_data.platform_name == "Cumulus Linux"
+        assert device_data.firmware_version == "5.7.0"
+        assert device_data.config_store_instance == "https://config-manager.example.com/"

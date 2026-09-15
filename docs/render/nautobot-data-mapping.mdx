@@ -1,0 +1,91 @@
+---
+title: Nautobot render data mapping
+sidebar-title: Nautobot data mapping
+position: 12
+---
+
+The bundled `nautobot-2x` DCIM provider translates Nautobot records into the
+provider-neutral `RenderData` contract before the Render service or a template
+filter sees them. Templates must use the fields and filters documented here
+instead of querying Nautobot or reading `config_context` directly.
+
+## BGP peering limitation
+
+Nautobot BGP peerings must model both endpoints with `source_interface`.
+Although the Nautobot BGP Models plugin also exposes `source_ip`, that object
+does not include the IP address's VRF association. The `nautobot-2x` provider
+therefore intentionally rejects a peering whose remote endpoint has no
+`source_interface`; it uses the local endpoint's source interface to determine
+`source_vrf` and the remote endpoint's source interface addresses to determine
+`peer_ipv4` and `peer_ipv6`.
+
+This is a Nautobot-provider constraint, not a constraint on the
+provider-neutral models. Another provider may populate the same
+`RenderBGPPeer` fields from native peering and VRF objects.
+
+## Device filter mapping
+
+The “Nautobot source” column describes the provider implementation. The
+provider may combine native objects and effective configuration context to
+produce one neutral field.
+
+| Filter | Provider-neutral input | Nautobot source |
+| --- | --- | --- |
+| `hostname` | `identity.name` | `device.name` |
+| `site_name` | `identity.location` hierarchy | `device.location` and its parents; the ancestor whose location type is `Site` |
+| `device_tags`, `has_tag` | `identity.tags` | `device.tags[].name` |
+| `platform` | `identity.platform` | `device.platform.name` |
+| `model` | `identity.model` | `device.device_type.model` |
+| `role` | `identity.role` | `device.role.name` |
+| `uuid` | `identity.id` | `device.id` |
+| `desired_firmware` | `firmware.desired_version` | effective `config_context["intended-firmware"].version` |
+| `router_id` | `routing.bgp_instances[].router_id_interface` and `interfaces[].addresses` | BGP routing instance `router_id.interfaces[]`, then the matching device interface IP address |
+| `asn` | `routing.bgp_instances[].asn` or `routing.default_asn` | BGP Models routing instances; effective `config_context.bgp.asn` is the fallback when no native instance exists |
+| `bgp_routing_instance` | `routing.bgp_instances[]` | BGP Models routing instances, endpoints, peer groups, source interfaces, status, and autonomous systems |
+| `peer_group_ttl` | `routing.bgp_instances[].peers[].ttl` | BGP peer-group `extra_attributes.ttl`, falling back to its peer-group template |
+| `interface_by_name`, `interfaces`, `management_interface` | `interfaces[]` | native device interfaces, their roles, tags, VLANs, VRFs, addresses, members, parents, and connections |
+| `interface_has_tag` | template `Interface.tags` derived from `interfaces[]` | `device.interfaces[].tags[].name` |
+| `interface_natural_sort_key` | one template `Interface.name` | interface name already normalized from `device.interfaces[].name` |
+| `breakout_count` | `interfaces[].parent_interface` | child interfaces whose native `parent_interface.name` matches |
+| `loopback_prefix` | `interfaces[].addresses[].parent_prefixes` | recursive IPAM parent-prefix hierarchy for the loopback address |
+| `default_gateways` | management interface address | native management-only interface IP address; gateway is calculated from its subnet |
+| `attached_vrfs`, `has_vrf`, `get_vrf`, `has_vrf_interfaces` | `interfaces[].vrf` | native interface VRF assignments |
+| `console_server_ports` | `network.console_server_ports[]` | device console-server ports and their connected console ports/devices |
+| `nvlink_topology` | `network.nvlink_topology` | first native `device.nvlink_domain[].topology` value |
+| `dns_servers` | `services.dns` | effective `config_context.dns` |
+| `ntp_servers` | `services.ntp` | effective `config_context.ntp` |
+| `syslog_servers` | `services.syslog` | effective `config_context.syslog` |
+| `tacacs_servers` | `services.tacacs` | effective `config_context.tacacs` |
+| `ztp_servers` | `services.ztp` | effective `config_context.ztp` |
+| `firmware_cache` | `services.firmware_cache`, then `services.ztp` | effective `config_context.firmware_cache`, falling back to `config_context.ztp` |
+| `dhcp_servers` | `services.dhcp[]` | effective `config_context.dhcp` |
+| `management_prefixes` | `services.management_prefixes` | effective `config_context.management_prefixes` |
+| `provisioning_servers` | `services.provisioning` | effective `config_context.provisioning_servers` |
+| `firmware_bundle_version` | `firmware.selected_bundle_version` | effective `config_context.firmware_bundle_version` |
+| `firmware_bundles`, `firmware_bundle`, `has_firmware_bundle` | `firmware.bundles[]` | effective `config_context.firmware_bundles` |
+| `firmware_overrides` | `firmware.overrides` | effective `config_context.firmware_overrides` |
+| `firmware_component` | `firmware.bundles[]` plus `firmware.overrides` | effective firmware bundle and override contexts |
+| `nv_os_version`, `nv_os_image_file` | selected bundle's `operating_system` | effective `config_context.firmware_bundles[version].nv_os` |
+| `helper_addresses_by_vlan`, `helper_addresses_by_vrf` | device VLAN interfaces plus `LocationRenderData.address_space.vlans` | native device interfaces and site VLAN-to-helper-address relationships |
+| `users` | `access.credentials[]` | effective `config_context.password_mappings`; secrets remain references and are not copied into render data |
+| `l3vni_mappings` | `overlays.l3_vnis[]` | Overlay plugin L3 VXLANs whose VRF is assigned to the device |
+| `vni_mappings` | `overlays.l2_vnis[]` | Overlay plugin L2 VXLANs whose overlay is assigned to the device or whose VLAN is attached to a device interface |
+| `l2vni_vrfs` | `overlays.l2_vni_vrfs[]` | device overlay assignments joined to Overlay plugin VXLANs and route targets |
+| `evpn_esi_mac` | `routing.evpn.esi_base_mac` | effective `config_context.evpn_esi_base_mac` |
+| `global_fabric_mac` | `routing.evpn.fabric_mac` | effective `config_context["fabric-mac"]` |
+| `evpn_df_preference` | `routing.evpn.df_preference` | effective `config_context.evpn["df-preference"]` |
+| `spx_subnets` | downlink interface addresses and `parent_prefixes` | native interface roles and recursive IPAM parent-prefix hierarchy |
+| `device_aggregate` | downlink and connected-interface address data | native interface IPs, parent prefixes, cables, and peer interfaces |
+| `connected_devices` | `interfaces[].connected_interface.device` | native connected interfaces; modular endpoints are resolved through their parent device |
+| `isis_metric` | `routing.isis_interfaces[]` | effective `config_context.isis.interfaces` |
+
+## Location filter mapping
+
+| Filter | Provider-neutral input | Nautobot source |
+| --- | --- | --- |
+| `site_aggregates` | `address_space.prefixes[]` | IPAM prefixes scoped to the site, including role and tags |
+| `location_has_tag` | `location.tags` | tags on the resolved site location |
+
+IP utility filters such as `gateway`, `subnet`, `supernet`, `get_peer_ip`,
+`network_address`, and `host_range` operate only on the value passed to the
+filter. They do not query Nautobot or consume another `RenderData` field.

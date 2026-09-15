@@ -25,6 +25,8 @@ type BackupInput struct {
 	DeviceId string `json:"device_id"`
 	// Config Store commit containing the intended configuration.
 	IntendedConfigCommitId NullableString `json:"intended_config_commit_id,omitempty"`
+	// Suppress the Slack notification when configuration drift is detected.
+	SuppressDriftNotification *bool `json:"suppress_drift_notification,omitempty"`
 	// Terminate the workflow instead of waiting to retry a failed stage.
 	TerminateOnFailure *bool `json:"terminate_on_failure,omitempty"`
 	// Reason the backup workflow was started.
@@ -46,6 +48,8 @@ type _BackupInput BackupInput
 func NewBackupInput(deviceId string, trigger TriggerEnum) *BackupInput {
 	this := BackupInput{}
 	this.DeviceId = deviceId
+	var suppressDriftNotification bool = false
+	this.SuppressDriftNotification = &suppressDriftNotification
 	var terminateOnFailure bool = false
 	this.TerminateOnFailure = &terminateOnFailure
 	this.Trigger = trigger
@@ -57,6 +61,8 @@ func NewBackupInput(deviceId string, trigger TriggerEnum) *BackupInput {
 // but it doesn't guarantee that properties required by API are set
 func NewBackupInputWithDefaults() *BackupInput {
 	this := BackupInput{}
+	var suppressDriftNotification bool = false
+	this.SuppressDriftNotification = &suppressDriftNotification
 	var terminateOnFailure bool = false
 	this.TerminateOnFailure = &terminateOnFailure
 	return &this
@@ -129,6 +135,39 @@ func (o *BackupInput) SetIntendedConfigCommitIdNil() {
 // UnsetIntendedConfigCommitId ensures that no value is present for IntendedConfigCommitId, not even an explicit nil
 func (o *BackupInput) UnsetIntendedConfigCommitId() {
 	o.IntendedConfigCommitId.Unset()
+}
+
+// GetSuppressDriftNotification returns the SuppressDriftNotification field value if set, zero value otherwise.
+func (o *BackupInput) GetSuppressDriftNotification() bool {
+	if o == nil || IsNil(o.SuppressDriftNotification) {
+		var ret bool
+		return ret
+	}
+	return *o.SuppressDriftNotification
+}
+
+// GetSuppressDriftNotificationOk returns a tuple with the SuppressDriftNotification field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+func (o *BackupInput) GetSuppressDriftNotificationOk() (*bool, bool) {
+	if o == nil || IsNil(o.SuppressDriftNotification) {
+		return nil, false
+	}
+	return o.SuppressDriftNotification, true
+}
+
+// HasSuppressDriftNotification returns a boolean if a field has been set.
+func (o *BackupInput) HasSuppressDriftNotification() bool {
+	if o != nil && !IsNil(o.SuppressDriftNotification) {
+		return true
+	}
+
+	return false
+}
+
+// SetSuppressDriftNotification gets a reference to the given bool and assigns it to the SuppressDriftNotification field.
+func (o *BackupInput) SetSuppressDriftNotification(v bool) {
+	o.SuppressDriftNotification = &v
 }
 
 // GetTerminateOnFailure returns the TerminateOnFailure field value if set, zero value otherwise.
@@ -336,6 +375,9 @@ func (o BackupInput) ToMap() (map[string]interface{}, error) {
 	toSerialize["device_id"] = o.DeviceId
 	if o.IntendedConfigCommitId.IsSet() {
 		toSerialize["intended_config_commit_id"] = o.IntendedConfigCommitId.Get()
+	}
+	if !IsNil(o.SuppressDriftNotification) {
+		toSerialize["suppress_drift_notification"] = o.SuppressDriftNotification
 	}
 	if !IsNil(o.TerminateOnFailure) {
 		toSerialize["terminate_on_failure"] = o.TerminateOnFailure

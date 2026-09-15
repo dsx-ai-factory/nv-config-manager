@@ -20,7 +20,7 @@ import ipaddress
 import os
 import random
 import time as _time
-from typing import Any
+from typing import Any, cast
 
 import macaddress
 import netaddr
@@ -29,11 +29,11 @@ from jinja2.sandbox import SandboxedEnvironment, SecurityError
 
 from nv_config_manager.common.config import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager.dcim import DCIMClient
 from nv_config_manager.dhcp.metrics import (
     DHCP_CONFIG_GENERATION_DURATION,
     DHCP_CONFIG_GENERATION_ERRORS,
 )
-from nv_config_manager.dhcp.nautobot import NautobotClient
 from nv_config_manager.dhcp.redis import RedisClient
 
 logger = get_logger(__name__, category=LogCategory.DHCP_DATA)
@@ -41,6 +41,15 @@ logger = get_logger(__name__, category=LogCategory.DHCP_DATA)
 
 class DhcpConfigGenerationError(Exception):
     """DHCP Configuration Generation Error."""
+
+
+_DHCP4_OPTION_SPACE = "dhcp4"
+SiteOptionDefs = dict[str, dict[str, Any]]
+
+
+def _site_option_defs(site_dhcp_options: list[dict[str, Any]]) -> SiteOptionDefs:
+    """Index site option-def entries by option name."""
+    return {opt["name"]: opt for opt in site_dhcp_options}
 
 
 def _normalize_reservation_id(reservation_id: str) -> str:
@@ -213,7 +222,7 @@ def _filter_pool_reservation_overlaps(subnet_data: dict[str, Any]) -> None:
 def _process_subnet_reservations(
     subnet_data: dict[str, Any],
     dhcp_contexts: dict[str, dict[str, Any]],
-    site_option_codes: dict[str, int],
+    site_option_codes: SiteOptionDefs,
     options: dict[str, Any],
     config: dict[str, Any],
     reservations: list[dict[str, Any]],
@@ -247,7 +256,7 @@ def _process_subnet_reservations(
 def _process_option_candidates(
     subnet_data: dict[str, Any],
     dhcp_contexts: dict[str, dict[str, Any]],
-    site_option_codes: dict[str, int],
+    site_option_codes: SiteOptionDefs,
     options: dict[str, Any],
     config: dict[str, Any],
     conflicts: list[str],
@@ -286,7 +295,7 @@ def _process_option_candidates(
 def _build_subnet_config(
     subnet_data: dict[str, Any],
     options: dict[str, Any],
-    site_option_codes: dict[str, int],
+    site_option_codes: SiteOptionDefs,
     subnet_option_reservations: list[dict[str, Any]],
     config: dict[str, Any],
 ) -> dict[str, Any]:
@@ -314,7 +323,7 @@ def _build_subnet_config(
 
 
 async def _generate_automatic_dhcp_subnets_and_reservations(
-    nautobot_client: NautobotClient,
+    dcim_client: DCIMClient,
     dhcp_contexts: dict[str, dict[str, Any]],
     version: int = 4,
     site_dhcp_options: list[dict[str, Any]] | None = None,
@@ -322,7 +331,7 @@ async def _generate_automatic_dhcp_subnets_and_reservations(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Generate automatic DHCP subnet configurations and reservations from Nautobot data."""
     site_dhcp_options = site_dhcp_options or []
-    dhcp_subnets = await nautobot_client.load_auto_dhcp_subnets(
+    dhcp_subnets = await dcim_client.get_dhcp_auto_subnets(
         family=version, is_aggregate_managed=is_aggregate_managed
     )
 
@@ -333,7 +342,7 @@ async def _generate_automatic_dhcp_subnets_and_reservations(
     for subnet_data in dhcp_subnets:
         options: dict[str, Any] = {}
         config: dict[str, Any] = {}
-        site_option_codes = {opt["name"]: opt["code"] for opt in site_dhcp_options}
+        site_option_codes = _site_option_defs(site_dhcp_options)
 
         _filter_pool_reservation_overlaps(subnet_data)
         _process_subnet_reservations(
@@ -437,15 +446,23 @@ def _merge_options_and_config(
 
 def _format_options_for_kea(
     reservation_options: dict[str, str],
-    site_option_codes: dict[str, int],
+    site_option_codes: SiteOptionDefs,
 ) -> list[dict[str, Any]]:
     """Convert reservation_options dict to Kea option-data format."""
-    return [
-        {"name": opt, "data": value, "code": site_option_codes[opt]}
-        if opt in site_option_codes
-        else {"name": opt, "data": value}
-        for opt, value in reservation_options.items()
-    ]
+    option_data: list[dict[str, Any]] = []
+    for opt, value in reservation_options.items():
+        entry: dict[str, Any] = {"name": opt, "data": value}
+        option_def = site_option_codes.get(opt)
+        if option_def is None:
+            option_data.append(entry)
+            continue
+        if "code" in option_def:
+            entry["code"] = option_def["code"]
+        space = option_def.get("space")
+        if space and space != _DHCP4_OPTION_SPACE:
+            entry["space"] = space
+        option_data.append(entry)
+    return option_data
 
 
 def _add_reservation_identifier(
@@ -705,7 +722,7 @@ def _extract_hooks_path(kea_config: dict[str, Any], version: int = 4) -> str:
 
 
 async def generate_config(
-    nautobot_client: NautobotClient,
+    dcim_client: DCIMClient,
     redis_client: RedisClient | None = None,
     version: int = 4,
     kea_config: dict[str, Any] | None = None,
@@ -713,7 +730,7 @@ async def generate_config(
     """Generate a KEA DHCP Configuration.
 
     Args:
-        nautobot_client: Client for fetching data from Nautobot
+        dcim_client: Provider client for fetching normalized DHCP data
         redis_client: Optional Redis client for preserving subnet IDs
         version: DHCP version (4 or 6)
         kea_config: Optional existing Kea config to extract hooks path from
@@ -725,8 +742,9 @@ async def generate_config(
     # Get hooks path from existing Kea config (architecture-specific path set at build time)
     hooks_path = _extract_hooks_path(kea_config or {}, version)
 
-    site_dhcp_options_data = await nautobot_client.load_site_dhcp_options()
-    site_dhcp_options = site_dhcp_options_data.get(f"Dhcp{version}", {}).get("option-def", [])
+    site_dhcp_options_data = await dcim_client.get_dhcp_site_options()
+    family_options = cast(dict[str, Any], site_dhcp_options_data.get(f"Dhcp{version}", {}))
+    site_dhcp_options = family_options.get("option-def", [])
     dhcp_key = f"Dhcp{version}"
     dhcp_config = {
         dhcp_key: {
@@ -754,14 +772,14 @@ async def generate_config(
         }
     }
 
-    static_data = await nautobot_client.load_static_data()
-    dhcp_contexts = await nautobot_client.load_dhcp_contexts(is_aggregate_managed=is_aggregate)
+    static_data = await dcim_client.get_dhcp_static_data()
+    dhcp_contexts = await dcim_client.get_dhcp_contexts(is_aggregate_managed=is_aggregate)
 
     (
         auto_subnets,
         auto_subnet_reservations,
     ) = await _generate_automatic_dhcp_subnets_and_reservations(
-        nautobot_client,
+        dcim_client,
         dhcp_contexts,
         version,
         site_dhcp_options,

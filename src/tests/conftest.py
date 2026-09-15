@@ -53,10 +53,11 @@ is_aggregate_environment = false
 required = true
 accept_request_headers = true
 
-[nautobot]
+[dcim]
+provider = nautobot-2x
 server = https://nautobot.example.com/
 token = DUMMY
-version = 1.x
+verify = true
 
 [nats]
 server = nats://ruser:T0pS3cr3t@nats.example.local:4222

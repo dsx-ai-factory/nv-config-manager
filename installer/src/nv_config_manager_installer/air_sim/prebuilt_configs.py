@@ -61,17 +61,20 @@ def get_prebuilt_config(config_id: str) -> PrebuiltConfig | None:
     return next((config for config in PREBUILT_CONFIGS if config.id == config_id), None)
 
 
-def load_prebuilt_config(config_id: str) -> SimConfig:
-    """Return a fresh SimConfig populated from a named preset."""
+def load_prebuilt_config(
+    config_id: str,
+    config_model: type[SimConfig] = SimConfig,
+) -> SimConfig:
+    """Return a fresh simulation config populated from a named preset."""
     preset = get_prebuilt_config(config_id)
     if preset is None:
         raise ValueError(f"Unknown pre-built config: {config_id}")
 
     if preset.path:
-        return SimConfig.from_yaml(preset.path)
+        return config_model.from_yaml(preset.path)
 
     if preset.id == "superpod":
-        return SimConfig(
+        return config_model(
             topology_path="",
             mock_blueprint="air_superpod",
             deployment_name="demo",

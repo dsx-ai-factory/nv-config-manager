@@ -13,7 +13,7 @@ For site-wide bulk rotation across every device at a site, use [Site Password Ro
 Before running, confirm the following are in place:
 
 - **New password is populated in the secrets store and the intended configuration is re-rendered.** This is the pre-work that drives the rotation — the workflow only ever applies what the render says. Write the new password to the secrets backend the site is configured against (HashiCorp Vault or a Kubernetes Secret, per the site's `secrets:` install config) at the path the device's password mapping points to, then re-render via the [Render Service](../../render/index.mdx) so the device's intended configuration carries the new password. If the render has not rolled forward, the diff stage will report "No password changes needed, no diff" and the rotation will do nothing.
-- **Device exists in Nautobot** with a current intended configuration in the [Config Store](../../config-store/index.mdx), on a supported platform (Cumulus Linux or NVOS).
+- **Device exists in Nautobot** with a current intended configuration in the [Config Store](../../config-store/index.mdx), on a supported platform (Cumulus Linux, NVOS, or Juniper Junos).
 - **Password mapping is populated** for the target username in the device's config context. The workflow's `get_password_mappings` activity fails fast if the mapping is missing.
 - **Device is reachable** from Config Manager on its management address and credentials are present in the secrets store. After rotation, the new password becomes the working credential — older clients holding the prior password will need to update.
 
@@ -88,7 +88,7 @@ Either the rotation has already been applied, or the rendered intended config st
 
 **Unsupported platform error.**
 
-Password rotation is only implemented for Cumulus Linux and NVOS today. Devices on other platforms fail at platform validation; rotate their passwords through whatever per-platform process applies.
+Password rotation is only implemented for Cumulus Linux, NVOS, and Juniper Junos today. Devices on other platforms fail at platform validation; rotate their passwords through whatever per-platform process applies.
 
 **`DiffChangedException` at apply.**
 
@@ -96,6 +96,7 @@ The device's running configuration changed between diff and apply. Re-run the wo
 
 ## Related guides
 
+- [Device Password Rotation (workflow reference)](../../temporal/workflows/device-password-rotation.mdx) — form fields, stage list, and auto-approval rules in reference form.
 - [Site Password Rotation](../site-password-rotation/index.mdx) — fans this workflow out across an entire site.
 - [Configuration Backup](../configuration-backup/index.mdx) — child workflow triggered after a successful apply.
 - [Configuration Deploy](../configuration-deploy/index.mdx) — when a change is broader than a pure password rotation.

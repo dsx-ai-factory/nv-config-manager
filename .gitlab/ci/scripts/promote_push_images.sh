@@ -30,12 +30,13 @@ api="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}"
 # same-named variable could otherwise redirect which job's artifacts are
 # downloaded (BUILD_JOB_ID_*) or change the tag images are pushed under.
 promote_attest="${CI_PROJECT_DIR}/promote.env"
-[ -f "$promote_attest" ] || { echo "ERROR: missing attestation artifact ${promote_attest}"; exit 1; }
+[[ -f "$promote_attest" ]] || { echo "ERROR: missing attestation artifact ${promote_attest}" >&2; exit 1; }
 attest() {
     local key="$1" val
     val="$(grep -m1 "^${key}=" "$promote_attest" | cut -d= -f2- || true)"
-    [ -n "$val" ] || { echo "ERROR: ${key} missing from promote.env"; exit 1; }
+    [[ -n "$val" ]] || { echo "ERROR: ${key} missing from promote.env" >&2; exit 1; }
     printf '%s' "$val"
+    return 0
 }
 
 PROMOTE_VERSION="$(attest PROMOTE_VERSION)"
@@ -74,8 +75,8 @@ for image in $images; do
     # source or eval anything under $workdir here: this job holds registry
     # credentials, so executing untrusted build output would leak them.
     tar_file="${workdir}/images/${image}.tar.gz"
-    if [ ! -f "$tar_file" ]; then
-        echo "ERROR: job ${job_id} artifacts do not contain ${image}.tar.gz"
+    if [[ ! -f "$tar_file" ]]; then
+        echo "ERROR: job ${job_id} artifacts do not contain ${image}.tar.gz" >&2
         ls -laR "$workdir" || true
         exit 1
     fi
@@ -95,12 +96,12 @@ for image in $images; do
     # a non-matching grep would abort the script here, making the fallback (and
     # the validation below) unreachable.
     digest="$(docker buildx imagetools inspect "$dst" --format '{{json .Manifest}}' 2>/dev/null | grep -o '"digest": *"sha256:[0-9a-f]*"' | head -n 1 | cut -d'"' -f4 || true)"
-    if [ -z "$digest" ]; then
+    if [[ -z "$digest" ]]; then
         echo "  imagetools inspect yielded no digest; falling back to docker inspect"
         digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$dst" 2>/dev/null | cut -d@ -f2 || true)"
     fi
     if ! printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
-        echo "ERROR: could not capture a valid digest for ${dst} (got '${digest}')"
+        echo "ERROR: could not capture a valid digest for ${dst} (got '${digest}')" >&2
         exit 1
     fi
     echo "DIGEST_${key}=${digest}" >> digests.env

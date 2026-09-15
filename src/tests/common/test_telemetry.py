@@ -58,6 +58,8 @@ def test_fastapi_status_code_grouping_setting(monkeypatch, configured, expected)
     [
         "http://service/healthcheck",
         "http://service/healthcheck/",
+        "http://service/livez",
+        "http://service/livez/",
         "http://service/metrics",
         "http://service/metrics/",
     ],

@@ -202,7 +202,7 @@ The available tools are discoverable at runtime, so exact tool names may vary by
 - "Run cable validation for this site and summarize the result."
 - "Check the InfiniBand fabric for unhealthy ports."
 
-MCP clients can also inspect the Nautobot GraphQL schema through the server. If you are asking a broad inventory question, it is usually best to let the client explore the schema and then issue targeted read-only queries.
+When the selected provider implements the optional `NautobotMCPProvider` capability, the server also exposes Nautobot-specific inventory search and read-only GraphQL schema tools. The bundled `nautobot-2x` provider and a Nautobot 3.x provider can implement this capability because they expose the required GraphQL and REST endpoints. Those tools are deliberately omitted for providers without that capability because Nautobot GraphQL types and REST paths are not portable. If you are using Nautobot for a broad inventory question, let the client explore the schema and then issue targeted read-only queries.
 
 ## Public Documentation MCP
 
@@ -230,7 +230,7 @@ For the best results, connect both MCP servers: use the deployment MCP server fo
 
 - The bearer token represents the signed-in user.
 - MCP tools use the caller's access for Config Manager APIs.
-- External Nautobot deployments may use a configured read-only Nautobot token for MCP Nautobot queries.
+- External Nautobot deployments may use a configured read-only Nautobot token for the optional Nautobot MCP tools. Those tools are available only when Nautobot is the selected DCIM provider.
 - OAuth discovery metadata does not register clients. Native OAuth MCP clients must use a preconfigured public/native OIDC client ID.
 - Native OAuth MCP clients should not use an OIDC client secret.
 - Protected-resource metadata always advertises the HTTPS MCP endpoint as its RFC 9728 `resource`.

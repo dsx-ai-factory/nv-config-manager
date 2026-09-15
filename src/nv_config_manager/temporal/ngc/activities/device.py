@@ -16,11 +16,13 @@
 
 from __future__ import annotations
 
+import netaddr
 from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager.dcim import DCIMError, dcim_client_session
 from nv_config_manager.temporal.client.device import (
     DeviceArpTable,
     DeviceMacTable,
@@ -28,78 +30,49 @@ from nv_config_manager.temporal.client.device import (
     InterfaceNeighborData,
     NetworkConnection,
 )
-from nv_config_manager.temporal.client.nautobot import NautobotClient
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
-
-
-GET_CONNECTED_INTERFACES_QUERY_V2 = """
-query ($device_id: String) {
-  interfaces(device: [$device_id], enabled: true) {
-    name
-    tags {
-      name
-    }
-    connected_interface {
-      name
-      mac_address
-      device {
-        name
-        rack {
-          name
-        }
-        position
-        serial
-        role {
-          name
-        }
-      }
-      module {
-        device {
-          name
-          serial
-          rack {
-            name
-          }
-          position
-          role {
-            name
-          }
-        }
-      }
-    }
-  }
-}
-"""
 
 
 @activity.defn
 async def get_device_intended_neighbors(
     activity_input: NetworkDeviceData,
 ) -> DeviceNeighborData:
-    """Get the intended connections of a device from nautobot."""
-    client = NautobotClient()
+    """Get intended interface connections through the selected DCIM provider."""
+    try:
+        async with dcim_client_session() as client:
+            interfaces = await client.get_intended_interface_neighbors(activity_input.id)
+    except DCIMError as exc:
+        raise ApplicationError(str(exc), non_retryable=True) from exc
 
-    async with client:
-        data = await client.graphql_query(
-            GET_CONNECTED_INTERFACES_QUERY_V2, {"device_id": activity_input.id}
-        )
     return DeviceNeighborData(
         neighbors={
-            interface["name"]: InterfaceNeighborData.from_graphql(interface)
-            for interface in data["data"]["interfaces"]
-            if interface["connected_interface"]
+            interface.name: InterfaceNeighborData(
+                name=interface.connected_interface_name,
+                macs=(
+                    [str(netaddr.EUI(interface.connected_interface_mac))]
+                    if interface.connected_interface_mac
+                    else []
+                ),
+                device_name=device.name,
+                device_serial=device.serial,
+                device_role=(device.role.lower().replace(" ", "-") if device.role else None),
+                device_rack=device.rack,
+                device_position=device.position,
+            )
+            for interface in interfaces
+            if (device := interface.connected_device)
         },
         ignore=[
-            interface["name"]
-            for interface in data["data"]["interfaces"]
-            if {"name": "cable-validation-ignore"} in interface["tags"]
+            interface.name
+            for interface in interfaces
+            if "cable-validation-ignore" in interface.tags
         ],
         link_state_only=[
-            interface["name"]
-            for interface in data["data"]["interfaces"]
-            if {"name": "cable-validation-link-state-only"} in interface["tags"]
+            interface.name
+            for interface in interfaces
+            if "cable-validation-link-state-only" in interface.tags
         ],
     )
 
@@ -150,7 +123,7 @@ def validate_hostname(device_data: NetworkDeviceData) -> ValidateHostnameActivit
     if hostname.lower() != device_data.name.lower():
         raise ApplicationError(
             f"Hostname on {device_data.primary_ip4 or device_data.primary_ip6} "
-            f"({hostname}) does not match nautobot ({device_data.name}).",
+            f"({hostname}) does not match the DCIM record ({device_data.name}).",
             non_retryable=True,
         )
     return ValidateHostnameActivityOutput(hostname=hostname)

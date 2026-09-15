@@ -367,6 +367,8 @@ spec:
       {{- end }}
       {{- include "nv-config-manager.scheduling" .Values.temporal.configManagerWorker | nindent 6 }}
       initContainers:
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
       {{- if .Values.temporal.server.enabled }}
       # Initialize Temporal namespace and search attributes
       - name: temporal-setup
@@ -399,6 +401,7 @@ spec:
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- if .Values.localDev.enableLocalTestWorkflows }}
         - name: NVCM_ENABLE_LOCAL_TEST_WORKFLOWS
           value: "true"
@@ -428,12 +431,14 @@ spec:
           readOnly: true
         {{- end }}
         {{- include "nv-config-manager.temporalClientTLSVolumeMount" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
       {{- include "nv-config-manager.spiffeClientSidecar" (dict "root" .) | nindent 6 }}
       volumes:
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.bmcVolume" . | nindent 6 }}
       {{- include "nv-config-manager.temporalClientTLSVolume" . | nindent 6 }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- if .Values.secrets.vault.configSecrets.enabled }}
       {{- include "nv-config-manager.vaultAgent.configSecretsVolume" . | nindent 6 }}
       {{- end }}
@@ -485,6 +490,11 @@ spec:
         - name: {{ . }}
         {{- end }}
       {{- end }}
+      {{- if .Values.dcim.providerPackages.enabled }}
+      initContainers:
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
+      {{- end }}
       containers:
       - name: api
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -500,6 +510,7 @@ spec:
           value: {{ .Values.global.environment }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-temporal-api") | nindent 8 }}
         {{- end }}
@@ -511,6 +522,7 @@ spec:
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
         {{- include "nv-config-manager.temporalClientTLSVolumeMount" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if .Values.rbac }}
         - name: rbac-config
           mountPath: /etc/rbac
@@ -531,6 +543,7 @@ spec:
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
       {{- include "nv-config-manager.temporalClientTLSVolume" . | nindent 6 }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- if .Values.rbac }}
       - name: rbac-config
         configMap:
@@ -558,9 +571,9 @@ spec:
   selector:
     app: {{ $temporalName }}
     component: api
+{{- if and .Values.temporal.scheduler.enabled (eq (.Values.dcim.provider | default "nautobot-2x") "nautobot-2x") }}
 ---
-# NVIDIA Config Manager Temporal Scheduler Deployment (for backup scheduling)
-{{- if .Values.temporal.scheduler.enabled }}
+# NVIDIA Config Manager Temporal Scheduler Deployment (for Nautobot backup scheduling)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -608,7 +621,9 @@ spec:
       {{- end }}
       {{- include "nv-config-manager.scheduling" .Values.temporal.scheduler | nindent 6 }}
       initContainers:
-      # Wait for Nautobot to be available before starting scheduler
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
+      # The scheduler runs only with the built-in Nautobot provider.
       {{- include "nv-config-manager.waitForNautobot" . | nindent 6 }}
       # A locally managed Temporal server creates the configured namespace.
       {{- if .Values.temporal.server.enabled }}
@@ -624,6 +639,7 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-temporal-scheduler") | nindent 8 }}
         {{- end }}
@@ -632,6 +648,7 @@ spec:
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
         {{- include "nv-config-manager.temporalClientTLSVolumeMount" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if .Values.rbac }}
         - name: rbac-config
           mountPath: /etc/rbac
@@ -641,6 +658,7 @@ spec:
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
       {{- include "nv-config-manager.temporalClientTLSVolume" . | nindent 6 }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- if .Values.rbac }}
       - name: rbac-config
         configMap:
@@ -692,6 +710,11 @@ spec:
         - name: {{ . }}
         {{- end }}
       {{- end }}
+      {{- if .Values.dcim.providerPackages.enabled }}
+      initContainers:
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
+      {{- end }}
       containers:
       - name: archive
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -705,6 +728,7 @@ spec:
           value: {{ .Values.global.environment }}
         - name: TEMPORAL_API_HOST
           value: {{ tpl .Values.temporal.gateway.api.hostname . | quote }}
+        {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-temporal-archive") | nindent 8 }}
         {{- end }}
@@ -713,12 +737,14 @@ spec:
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
         {{- include "nv-config-manager.temporalClientTLSVolumeMount" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- /* SPIFFE volume mount for outbound mTLS */ -}}
         {{- include "nv-config-manager.spiffe.volumeMounts" . | nindent 8 }}
       volumes:
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
       {{- include "nv-config-manager.temporalClientTLSVolume" . | nindent 6 }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- /* SPIFFE volumes for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar.volumes" (dict "root" .) | nindent 6 }}
 {{- end }}

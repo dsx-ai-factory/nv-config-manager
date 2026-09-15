@@ -209,7 +209,7 @@ async def mock_create_consolidated_excel_export(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.cumulus_hardware_validation.DEFAULT_ACTIVITY_RETRY_POLICY",
     return_value=TEST_RETRY_POLICY,
@@ -336,7 +336,7 @@ async def mock_get_network_devices_invalid_filter(
     """Mock get_network_devices activity with a Nautobot GraphQL filter error."""
     raise ApplicationError(
         "GraphQL error: {'tenant': "
-        "['Select a valid choice. nsv is not one of the available choices.']}",
+        "['Select a valid choice. invalid-tenant is not one of the available choices.']}",
         non_retryable=True,
     )
 
@@ -367,7 +367,7 @@ async def mock_create_consolidated_excel_export_empty(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.cumulus_hardware_validation.DEFAULT_ACTIVITY_RETRY_POLICY",
     return_value=TEST_RETRY_POLICY,
@@ -441,7 +441,7 @@ async def test_cumulus_hardware_validation_workflow_no_devices(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager.temporal.ngc.workflows.cumulus_hardware_validation.DEFAULT_ACTIVITY_RETRY_POLICY",
     return_value=TEST_RETRY_POLICY,
@@ -473,7 +473,7 @@ async def test_cumulus_hardware_validation_workflow_invalid_filter(
             site="test-site",
             roles=["tor-switch"],
             status=["active"],
-            tenant="nsv",
+            tenant="invalid-tenant",
             device_type_ids=[],
             raise_for_invalid=False,
         )
@@ -494,7 +494,7 @@ async def test_cumulus_hardware_validation_workflow_invalid_filter(
         assert result.total_entries == 0
         assert "Invalid hardware validation device filter" in result.message
         assert "tenant: Select a valid choice" in result.message
-        assert "nsv is not one of the available choices" in result.message
+        assert "invalid-tenant is not one of the available choices" in result.message
 
         stages = await handle.query("stages")
         completed_stages = [s for s in stages if s["state"] == "COMPLETE"]

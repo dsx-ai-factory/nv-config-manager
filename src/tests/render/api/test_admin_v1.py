@@ -82,7 +82,7 @@ def test_consumer_configs_use_fixed_names_and_per_stream_prefixes(mock_load_conf
         "subject": "nv-config-manager.nautobotchange",
         "api_prefix": "$JS.API",
     }
-    assert configs["nautobot"] == {
+    assert configs["dcim"] == {
         "durable_name": "nv-config-manager-nautobot",
         "stream": "nautobot",
         "subject": "nautobot",
@@ -136,7 +136,7 @@ def test_reset_consumer_deletes_exact_durable(mock_nats_connection, mock_load_co
     jetstream.consumer_info = AsyncMock(return_value=MockConsumerInfo(num_pending=50))
     jetstream.delete_consumer = AsyncMock()
 
-    response = TestClient(app).delete("/v1/admin/consumers/nautobot/reset")
+    response = TestClient(app).delete("/v1/admin/consumers/dcim/reset")
 
     assert response.status_code == 200
     assert response.json()["consumer_name"] == "nv-config-manager-nautobot"
@@ -206,7 +206,7 @@ async def test_reset_permission_error_returns_admin_instructions(
     jetstream.delete_consumer = AsyncMock(side_effect=denied_delete)
 
     with pytest.raises(HTTPException) as exc_info:
-        await reset_consumer(ConsumerType.nautobot, MagicMock())
+        await reset_consumer(ConsumerType.dcim, MagicMock())
 
     assert exc_info.value.status_code == 403
     detail = exc_info.value.detail

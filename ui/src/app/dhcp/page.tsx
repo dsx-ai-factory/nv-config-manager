@@ -38,7 +38,10 @@ export default function DhcpPage() {
 
   return (
     <main className="container py-8">
-      <LeaseDashboard dhcpUrl={config.dhcpUrl} />
+      <LeaseDashboard
+        dhcpUrl={config.dhcpUrl}
+        grafanaUrl={config.grafanaUrl}
+      />
     </main>
   );
 }

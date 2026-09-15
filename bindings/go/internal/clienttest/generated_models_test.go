@@ -33,10 +33,11 @@ func TestGeneratedDeviceCableValidationInputDocumentsDevice(t *testing.T) {
 
 func TestGeneratedBackupInputDocumentsOptionalMetadata(t *testing.T) {
 	expected := map[string]string{
-		"IntendedConfigCommitId": "Config Store commit containing the intended configuration.",
-		"User":                   "User that requested the backup.",
-		"UserDomain":             "Domain of the user requesting the backup.",
-		"WorkflowId":             "Identifier of the parent workflow, if any.",
+		"IntendedConfigCommitId":    "Config Store commit containing the intended configuration.",
+		"SuppressDriftNotification": "Suppress the Slack notification when configuration drift is detected.",
+		"User":                      "User that requested the backup.",
+		"UserDomain":                "Domain of the user requesting the backup.",
+		"WorkflowId":                "Identifier of the parent workflow, if any.",
 	}
 	comments := generatedStructFieldComments(t, "model_backup_input.go")
 	for field, expectedComment := range expected {

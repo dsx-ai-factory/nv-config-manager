@@ -760,7 +760,15 @@ func (r ApiHealthcheckHealthcheckGetRequest) Execute() (string, *http.Response, 
 /*
 HealthcheckHealthcheckGet Healthcheck
 
-Execute healthcheck.
+Readiness probe (strict): Kea online AND desired config applied.
+
+Gates both pod readiness and the externally exposed NLB health endpoint. A
+pod becomes ready -- and therefore a valid external DHCP target -- only when
+Kea is online AND the expected desired configuration has been successfully
+applied/verified. An unconfigured pod (bootstrap config only) is never ready.
+
+A config mismatch makes the pod UNREADY (triggering reconciliation) but does
+NOT restart a live Kea; the readiness path never recycles the Kea container.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@return ApiHealthcheckHealthcheckGetRequest
@@ -1321,6 +1329,111 @@ func (a *DefaultAPIService) ListReservationsReservationGetExecute(r ApiListReser
 			}
 			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
 			newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiLivezLivezGetRequest struct {
+	ctx        context.Context
+	ApiService *DefaultAPIService
+}
+
+func (r ApiLivezLivezGetRequest) Execute() (string, *http.Response, error) {
+	return r.ApiService.LivezLivezGetExecute(r)
+}
+
+/*
+LivezLivezGet Livez
+
+Liveness probe for the Kea container.
+
+Only checks that the Kea DHCP process/control channel is alive. A config
+mismatch (desired config not yet applied) must NOT fail this probe, because
+liveness failures recycle the Kea container; config correctness is enforced
+separately by the readiness probe (“/healthcheck“).
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@return ApiLivezLivezGetRequest
+*/
+func (a *DefaultAPIService) LivezLivezGet(ctx context.Context) ApiLivezLivezGetRequest {
+	return ApiLivezLivezGetRequest{
+		ApiService: a,
+		ctx:        ctx,
+	}
+}
+
+// Execute executes the request
+//
+//	@return string
+func (a *DefaultAPIService) LivezLivezGetExecute(r ApiLivezLivezGetRequest) (string, *http.Response, error) {
+	var (
+		localVarHTTPMethod  = http.MethodGet
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue string
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DefaultAPIService.LivezLivezGet")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/livez"
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

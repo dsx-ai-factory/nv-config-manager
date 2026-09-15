@@ -37,10 +37,9 @@ const useNamespaceTags = (location?: string): UseNamespaceTagsReturn => {
   }
 
   const queryString = params.toString();
+  const query = queryString ? `?${queryString}` : "";
   const url = apiURL
-    ? sanitizeUrl(
-        `${apiURL}/v1/parameter/namespace-tag${queryString ? `?${queryString}` : ""}`
-      )
+    ? sanitizeUrl(`${apiURL}/v1/parameter/namespace-tag${query}`)
     : null;
 
   const { data, error, isLoading } = useSWR(url, fetcher);

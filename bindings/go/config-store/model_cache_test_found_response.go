@@ -23,7 +23,7 @@ var _ MappedNullable = &CacheTestFoundResponse{}
 type CacheTestFoundResponse struct {
 	// Device name
 	DeviceName string `json:"device_name"`
-	// Device UUID
+	// DCIM provider device identifier
 	DeviceUuid string `json:"device_uuid"`
 	// Whether device was found
 	Found *bool `json:"found,omitempty"`

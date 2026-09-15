@@ -23,10 +23,10 @@ The Config Manager Nautobot image enables the following Nautobot apps in `nautob
 | :----------- | :---------- |
 | `nv_config_manager` | Config Manager-specific models, jobs, and integration points |
 | `nautobot_fsus` | Field-serviceable unit tracking |
-| `nautobot_firewall_models` | Firewall and security policy data models |
-| `nautobot_design_builder` | Design and job framework used by bootstrap and custom data-loading flows |
+| [`nautobot_firewall_models`](https://github.com/nautobot/nautobot-app-firewall-models) | Firewall and security policy data models |
+| [`nautobot_design_builder`](https://github.com/nautobot/nautobot-app-design-builder) | Design and job framework used by bootstrap and custom data-loading flows |
 | `nautobot_nvdatamodels` | NVIDIA-specific data models |
-| `nautobot_bgp_models` | BGP data models |
+| [`nautobot_bgp_models`](https://github.com/nautobot/nautobot-app-bgp-models) | BGP data models |
 | `nautobot_app_overlays` | Overlay network data models |
 
 The image also includes the `nautobot-broker-nats` package for Nautobot event broker integration. That package is not listed in `PLUGINS`; it is registered by the Nautobot configuration when NATS is configured.

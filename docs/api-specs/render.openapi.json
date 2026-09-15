@@ -174,7 +174,7 @@
       "ConsumerType": {
         "description": "Valid consumer types for NATS consumer management.",
         "enum": [
-          "nautobot",
+          "dcim",
           "device",
           "template"
         ],

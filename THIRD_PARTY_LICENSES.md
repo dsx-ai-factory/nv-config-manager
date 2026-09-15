@@ -8,6 +8,7 @@ This document contains the licenses and notices for third-party software include
 - [JavaScript/TypeScript Dependencies](#javascripttypescript-dependencies)
 - [Go Dependencies](#go-dependencies)
 - [Nautobot Component Dependencies](#nautobot-component-dependencies)
+- [Runtime Container Images](#runtime-container-images)
 - [Bundled CLI Tools](#bundled-cli-tools)
 - [License Texts](#license-texts)
 
@@ -44,7 +45,6 @@ The following Python packages are dependencies of NVIDIA Config Manager. See `py
 | temporalio | MIT | https://github.com/temporalio/sdk-python |
 | protobuf | BSD-3-Clause | https://github.com/protocolbuffers/protobuf |
 | pyeapi | BSD-3-Clause | https://github.com/arista-eosplus/pyeapi |
-| pynautobot | Apache-2.0 | https://github.com/nautobot/pynautobot |
 | netmiko | MIT | https://github.com/ktbyers/netmiko |
 | macaddress | MIT | https://github.com/mentalisttraceur/python-macaddress |
 | netaddr | BSD-3-Clause | https://github.com/netaddr/netaddr |
@@ -189,14 +189,24 @@ The following packages are dependencies of the Nautobot component (`components/n
 | Package | License | URL |
 |---------|---------|-----|
 | nautobot | Apache-2.0 | https://github.com/nautobot/nautobot |
-| nautobot-fsus | Apache-2.0 | https://github.com/nautobot/nautobot-app-fsus |
+| nautobot-fsus | Apache-2.0 | https://github.com/NVIDIA/nautobot-app-fsus |
 | nautobot-firewall-models | Apache-2.0 | https://github.com/nautobot/nautobot-app-firewall-models |
 | nautobot-design-builder | Apache-2.0 | https://github.com/nautobot/nautobot-app-design-builder |
-| nautobot-bgp-models | Apache-2.0 | https://github.com/nautobot/nautobot-plugin-bgp-models |
+| nautobot-bgp-models | Apache-2.0 | https://github.com/nautobot/nautobot-app-bgp-models |
 | pyasn1 | BSD-2-Clause | https://github.com/pyasn1/pyasn1 |
 
 ---
 
+## Runtime Container Images
+
+The following third-party container images may be deployed by NVIDIA Config
+Manager. See `deploy/helm/values.yaml` for the configured versions.
+
+| Component | Image | License | URL |
+|-----------|-------|---------|-----|
+| Redis Exporter | `docker.io/oliver006/redis_exporter` | MIT | https://github.com/oliver006/redis_exporter |
+
+---
 
 ## Bundled CLI Tools
 
@@ -209,6 +219,32 @@ Air-gapped bundles can optionally include CLI tools copied from the build host. 
 ---
 
 ## License Texts
+
+### Redis Exporter — MIT License
+
+```text
+MIT License
+
+Copyright (c) 2016 Oliver
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ### Apache License 2.0
 

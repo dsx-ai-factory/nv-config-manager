@@ -27,6 +27,11 @@ from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 
 with workflow.unsafe.imports_passed_through():
+    from nv_config_manager_dcim_nautobot_2x.workflow_models import (
+        host_device_from_nautobot_graphql,
+        network_device_from_nautobot_graphql,
+    )
+
     from nv_config_manager.temporal.client.device import DeviceNeighborData
     from nv_config_manager.temporal.client.redfish import (
         RedfishDpu,
@@ -150,7 +155,7 @@ async def mock_get_network_devices(
 ) -> GetNetworkDevicesOutput:
     return GetNetworkDevicesOutput(
         devices=[
-            NetworkDeviceData.from_nautobot_graphql(device)
+            network_device_from_nautobot_graphql(device)
             for device in TEST_BMC_SWITCHES.values()
             if device["location"]["name"] == activity_input.site
             and device["role"]["name"] in activity_input.roles
@@ -321,9 +326,9 @@ async def mock_get_host_devices(
     activity_input: GetHostDevicesInput,
 ) -> GetHostDevicesOutput:
     if activity_input.site == "test_site" and activity_input.mac_addresses == ["C8-4B-D6-7A-E9-E2"]:
-        return GetHostDevicesOutput(devices=[HostDeviceData.from_nautobot_graphql(TEST_SERVERS[0])])
+        return GetHostDevicesOutput(devices=[host_device_from_nautobot_graphql(TEST_SERVERS[0])])
     if activity_input.site == "test_site" and activity_input.mac_addresses == ["38-7C-76-8D-6F-13"]:
-        return GetHostDevicesOutput(devices=[HostDeviceData.from_nautobot_graphql(TEST_SERVERS[1])])
+        return GetHostDevicesOutput(devices=[host_device_from_nautobot_graphql(TEST_SERVERS[1])])
     raise ApplicationError(str(activity_input), non_retryable=True)
 
 
@@ -332,11 +337,11 @@ async def mock_get_host_device(
     activity_input: GetHostDeviceInput,
 ) -> GetHostDeviceOutput:
     if activity_input.device_id == "3046d89c-5758-404a-879d-004fbdb96dd9":
-        return GetHostDeviceOutput(device=HostDeviceData.from_nautobot_graphql(TEST_DPU_DEVICES[0]))
+        return GetHostDeviceOutput(device=host_device_from_nautobot_graphql(TEST_DPU_DEVICES[0]))
     if activity_input.device_id == "fff10e3c-05c8-4cb7-b4f4-636fa9060fd8":
-        return GetHostDeviceOutput(device=HostDeviceData.from_nautobot_graphql(TEST_DPU_DEVICES[1]))
+        return GetHostDeviceOutput(device=host_device_from_nautobot_graphql(TEST_DPU_DEVICES[1]))
     if activity_input.device_id == "3bf3d6a7-df68-4616-97db-372005460fa0":
-        return GetHostDeviceOutput(device=HostDeviceData.from_nautobot_graphql(TEST_DPU_DEVICES[2]))
+        return GetHostDeviceOutput(device=host_device_from_nautobot_graphql(TEST_DPU_DEVICES[2]))
     raise ApplicationError(str(activity_input), non_retryable=True)
 
 
@@ -345,11 +350,11 @@ def mock_update_dpu_data(
     activity_input: UpdateDpuDataActivityInput,
 ) -> UpdateDpuDataActivityOutput:
     if activity_input.server.address == "127.0.0.1":
-        dpu1 = HostDeviceData.from_nautobot_graphql(TEST_DPU_DEVICES[0])
+        dpu1 = host_device_from_nautobot_graphql(TEST_DPU_DEVICES[0])
         dpu1.serial = "TESTSERIAL3"
         dpu1.interfaces[1].mac_address = "58-A2-E1-84-74-EE"
         dpu1.interfaces[2].mac_address = "58-A2-E1-84-74-EF"
-        dpu2 = HostDeviceData.from_nautobot_graphql(TEST_DPU_DEVICES[1])
+        dpu2 = host_device_from_nautobot_graphql(TEST_DPU_DEVICES[1])
         dpu2.serial = "TESTSERIAL4"
         dpu2.interfaces[1].mac_address = "58-A2-E1-84-00-B3"
         dpu2.interfaces[2].mac_address = "58-A2-E1-84-00-B4"
@@ -357,7 +362,7 @@ def mock_update_dpu_data(
             device_data=[dpu1, dpu2],
         )
     if activity_input.server.address == "127.0.0.2":
-        dpu = HostDeviceData.from_nautobot_graphql(TEST_DPU_DEVICES[2])
+        dpu = host_device_from_nautobot_graphql(TEST_DPU_DEVICES[2])
         dpu.serial = "TESTSERIAL5"
         dpu.interfaces[1].mac_address = "58-A2-E1-9A-03-04"
         return UpdateDpuDataActivityOutput(
@@ -368,7 +373,7 @@ def mock_update_dpu_data(
 
 @pytest.mark.asyncio
 @patch("asyncio.sleep", new_callable=AsyncMock)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_redfish_provisioning_workflow(mock_time, mock_sleep, env):
     task_queue_name = str(uuid.uuid4())
     mock_power_on_host = activity.defn(

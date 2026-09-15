@@ -21,7 +21,7 @@ var _ MappedNullable = &CacheTestNotFoundResponse{}
 
 // CacheTestNotFoundResponse Cache test response when device is not found.
 type CacheTestNotFoundResponse struct {
-	// Device UUID
+	// DCIM provider device identifier
 	DeviceUuid string `json:"device_uuid"`
 	// Whether device was found
 	Found *bool `json:"found,omitempty"`

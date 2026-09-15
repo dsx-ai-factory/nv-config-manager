@@ -17,7 +17,7 @@
 from datetime import timedelta
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
@@ -34,9 +34,11 @@ from nv_config_manager.temporal.ngc.workflows._ib_pkey_lock import UFMHostSiteVa
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
-    from nv_config_manager.temporal.ngc.activities.ib_nautobot import (
+    from nv_config_manager.temporal.ngc.activities.ib_dcim import (
+        RecordIBPKeyInDCIMInput,
+        RecordIBPKeyInDCIMOutput,
         RecordIBPKeyInNautobotInput,
-        RecordIBPKeyInNautobotOutput,
+        record_ib_pkey_in_dcim,
         record_ib_pkey_in_nautobot,
     )
     from nv_config_manager.temporal.ngc.activities.ib_pkey import (
@@ -58,6 +60,7 @@ with workflow.unsafe.imports_passed_through():
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
 )
+DCIM_STAGE_IDENTIFIERS_PATCH = "dcim-stage-identifiers-v1"
 
 
 class IBPKeyCreationInput(BaseModel):
@@ -67,10 +70,10 @@ class IBPKeyCreationInput(BaseModel):
     ``pkey`` value only when a specific partition key is required.
 
     ``site`` is optional. When omitted, the workflow resolves the device's
-    Site-typed Nautobot location from ``host`` and uses that as the UFM
+    Site-typed DCIM location from ``host`` and uses that as the UFM
     credential lookup key. Pass ``site`` explicitly to override the
     auto-resolved value (e.g. for API callers that want to skip the
-    Nautobot round-trip).
+    DCIM round-trip).
     """
 
     host: str = Field(description="Hostname of the UFM server managing the InfiniBand fabric.")
@@ -100,7 +103,26 @@ class IBPKeyCreationWorkflowOutput(BaseModel):
     created: bool
     verified: bool
     pkey_data: dict[str, Any]
-    nautobot_pkey_id: str
+    dcim_pkey_id: str
+    nautobot_pkey_id: str = Field(
+        description="Deprecated alias for dcim_pkey_id",
+        deprecated=True,
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_pkey_id_aliases(cls, data: Any) -> Any:  # noqa: ANN401
+        """Accept results serialized before or after the neutral field was added."""
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        dcim_pkey_id = normalized.get("dcim_pkey_id")
+        legacy_pkey_id = normalized.get("nautobot_pkey_id")
+        if not dcim_pkey_id and legacy_pkey_id:
+            normalized["dcim_pkey_id"] = legacy_pkey_id
+        if not legacy_pkey_id and dcim_pkey_id:
+            normalized["nautobot_pkey_id"] = dcim_pkey_id
+        return normalized
 
 
 @workflow.defn
@@ -115,15 +137,19 @@ class IBPKeyCreationWorkflow(
     workflow_name = "InfiniBand PKey Creation"
     workflow_description = "Create an InfiniBand PKey partition on UFM for multi-tenant isolation"
     workflow_input_class = IBPKeyCreationInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/ib_pkey_creation"
     workflow_namespace = "ngc"
 
     def __init__(self) -> None:
         """Initialize workflow stages."""
         StageMixin.__init__(self)
+        self._record_dcim_stage_name = (
+            "record_dcim" if workflow.patched(DCIM_STAGE_IDENTIFIERS_PATCH) else "record_nautobot"
+        )
         self.define_stage(
             name="resolve_context",
-            description="Resolve Site from host via Nautobot (skipped when site is provided)",
+            description="Resolve Site from host via the DCIM (skipped when site is provided)",
             requires_approval=False,
             depends_on=[],
         )
@@ -146,8 +172,8 @@ class IBPKeyCreationWorkflow(
             depends_on=["create_pkey"],
         )
         self.define_stage(
-            name="record_nautobot",
-            description="Record PKey in Nautobot",
+            name=self._record_dcim_stage_name,
+            description="Record PKey in the DCIM",
             requires_approval=False,
             depends_on=["verify_pkey"],
         )
@@ -289,29 +315,36 @@ class IBPKeyCreationWorkflow(
             display=result.display,
         )
 
-    class RecordNautobotStageInput(StageInput):
-        """Record Nautobot Stage Input."""
+    class RecordDCIMStageInput(StageInput):
+        """Record DCIM stage input."""
 
         pkey: str
 
-    class RecordNautobotStageOutput(StageOutput):
-        """Record Nautobot Stage Output."""
+    class RecordDCIMStageOutput(StageOutput):
+        """Record DCIM stage output."""
 
         pkey_id: str
         pkey: str
 
-    @stage_executor("record_nautobot")
-    async def record_nautobot(
-        self, stage_input: RecordNautobotStageInput
-    ) -> RecordNautobotStageOutput:
-        """Record the PKey in Nautobot as source of truth."""
-        result: RecordIBPKeyInNautobotOutput = await workflow.execute_activity(
-            record_ib_pkey_in_nautobot,
-            RecordIBPKeyInNautobotInput(pkey=stage_input.pkey),
+    @stage_executor("record_nautobot", name_attribute="_record_dcim_stage_name")
+    async def record_dcim(self, stage_input: RecordDCIMStageInput) -> RecordDCIMStageOutput:
+        """Record the PKey in the DCIM as source of truth."""
+        use_dcim_identifier = workflow.patched(DCIM_STAGE_IDENTIFIERS_PATCH)
+        activity_type = (
+            record_ib_pkey_in_dcim if use_dcim_identifier else record_ib_pkey_in_nautobot
+        )
+        activity_input = (
+            RecordIBPKeyInDCIMInput(pkey=stage_input.pkey)
+            if use_dcim_identifier
+            else RecordIBPKeyInNautobotInput(pkey=stage_input.pkey)
+        )
+        result: RecordIBPKeyInDCIMOutput = await workflow.execute_activity(
+            activity_type,
+            activity_input,
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
-        return self.RecordNautobotStageOutput(
+        return self.RecordDCIMStageOutput(
             pkey_id=result.pkey_id,
             pkey=result.pkey,
             display=result.display,
@@ -359,9 +392,7 @@ class IBPKeyCreationWorkflow(
             )
         )
 
-        nautobot_output = await self.record_nautobot(
-            self.RecordNautobotStageInput(pkey=verify_output.pkey)
-        )
+        dcim_output = await self.record_dcim(self.RecordDCIMStageInput(pkey=verify_output.pkey))
 
         await self.archive_results()
         return IBPKeyCreationWorkflowOutput(
@@ -370,5 +401,6 @@ class IBPKeyCreationWorkflow(
             created=create_output.created,
             verified=verify_output.verified,
             pkey_data=verify_output.pkey_data,
-            nautobot_pkey_id=nautobot_output.pkey_id,
+            dcim_pkey_id=dcim_output.pkey_id,
+            nautobot_pkey_id=dcim_output.pkey_id,
         )
