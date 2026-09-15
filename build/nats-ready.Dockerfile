@@ -6,7 +6,7 @@
 # =============================================================================
 # Builder stage - compile the Go binary
 # =============================================================================
-FROM nvcr.io/nvidia/base/ubuntu:noble-20260217 AS builder
+FROM nvcr.io/nvidia/base/ubuntu:noble-20260217@sha256:57a7daab5579d4b4cfbe25b59dc9d22d0c4cec24e5608523e77fd5f12e9da51a AS builder
 
 ARG APT_MIRROR=""
 ARG APT_MIRROR_GPG_KEY_URL=""
@@ -49,7 +49,7 @@ RUN go build -ldflags="-s -w" -o bin/nats-ready ./cmd/nats-ready
 # =============================================================================
 # Runtime stage - NVIDIA distroless Go image (minimal, no shell)
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/go:v4.0.8
+FROM nvcr.io/nvidia/distroless/go:v4.0.8@sha256:938bd28ce4ddb800118a951774203e7563c2067a72b20ae6b85d2c7da165a178
 
 COPY --from=builder /build/bin/nats-ready /nats-ready
 USER nvs
