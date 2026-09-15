@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import aiohttp
+
 from nv_config_manager_clients._base import HeaderProvider, ServiceClient
 from nv_config_manager_clients.generated.ztp import ApiClient, Configuration
 from nv_config_manager_clients.generated.ztp.api.default_api import DefaultApi
@@ -53,8 +55,11 @@ class ZTPClient(ServiceClient):
 
     async def check_file_exists(self, file_path: str) -> bool:
         """Check metadata without downloading firmware content."""
+        parts = file_path.split("/")
+        if len(parts) != 3 or any(not part or part in {".", ".."} for part in parts):
+            raise ZTPClientException("Firmware source path must contain three non-empty segments")
         try:
-            platform, version, filename = file_path.split("/", 2)
+            platform, version, filename = parts
             await self._call(
                 self._api.check_object_v1_files_platform_version_filename_head_without_preload_content,
                 platform=platform,
@@ -62,5 +67,9 @@ class ZTPClient(ServiceClient):
                 filename=filename,
             )
             return True
-        except Exception:
-            return False
+        except aiohttp.ClientResponseError as exc:
+            if exc.status == 404:
+                return False
+            raise ZTPClientException(f"Failed to check firmware file: {exc}") from exc
+        except aiohttp.ClientError as exc:
+            raise ZTPClientException(f"Failed to check firmware file: {exc}") from exc

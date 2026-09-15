@@ -9,3 +9,11 @@ Applications own configuration discovery, credentials, Redis database selection,
 NATS subjects, and connection lifetime. Workflow-specific keys, payloads, and
 activities remain with workflow consumers. Legacy service imports retain INI
 factory methods as thin subclasses; transport implementations live here only.
+
+NATS is split by responsibility under `nv_config_manager_infrastructure.nats`:
+`client`, `producer`, `consumer`, and `admin`. The package root re-exports the
+three client classes for compatibility.
+
+External password-authenticated NATS connections require a `tls://` endpoint
+and negotiate TLS before credentials are sent. The explicitly `local` bundled
+deployment retains its server-negotiated connection behavior.

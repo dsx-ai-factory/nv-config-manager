@@ -45,12 +45,13 @@ class SiteBackupInput(BaseModel):
     backup_enabled_only: Optional[StrictBool] = Field(default=True, description="When true, only devices with backup enabled are included.")
     roles: Optional[List[StrictStr]] = Field(default=None, description="Device roles used to filter the selected network devices.")
     site: Annotated[str, Field(min_length=1, strict=True)] = Field(description="Site containing the network devices to back up.")
+    site_type: Optional[StrictStr] = None
     status: Optional[List[StrictStr]] = Field(default=None, description="Device statuses used to filter the selected network devices.")
     tenant: Optional[StrictStr] = None
     user: Optional[StrictStr] = None
     user_domain: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["backup_enabled_only", "roles", "site", "status", "tenant", "user", "user_domain"]
+    __properties: ClassVar[List[str]] = ["backup_enabled_only", "roles", "site", "site_type", "status", "tenant", "user", "user_domain"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -98,6 +99,11 @@ class SiteBackupInput(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if site_type (nullable) is None
+        # and model_fields_set contains the field
+        if self.site_type is None and "site_type" in self.model_fields_set:
+            _dict['site_type'] = None
+
         # set to None if tenant (nullable) is None
         # and model_fields_set contains the field
         if self.tenant is None and "tenant" in self.model_fields_set:
@@ -128,6 +134,7 @@ class SiteBackupInput(BaseModel):
             "backup_enabled_only": obj.get("backup_enabled_only") if obj.get("backup_enabled_only") is not None else True,
             "roles": obj.get("roles"),
             "site": obj.get("site"),
+            "site_type": obj.get("site_type"),
             "status": obj.get("status"),
             "tenant": obj.get("tenant"),
             "user": obj.get("user"),

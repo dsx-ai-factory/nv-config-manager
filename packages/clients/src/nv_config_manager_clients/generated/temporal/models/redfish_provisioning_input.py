@@ -48,8 +48,9 @@ class RedfishProvisioningInput(BaseModel):
     ip_range_start: StrictStr = Field(description="First BMC IP address to scan.")
     port: Optional[StrictInt] = Field(default=443, description="HTTPS port used to contact Redfish services.")
     site: StrictStr = Field(description="Site containing the BMC network to provision.")
+    site_type: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["bmc_switch_roles", "dpu_manufacturers", "http_timeout_s", "ip_range_end", "ip_range_start", "port", "site"]
+    __properties: ClassVar[List[str]] = ["bmc_switch_roles", "dpu_manufacturers", "http_timeout_s", "ip_range_end", "ip_range_start", "port", "site", "site_type"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -97,6 +98,11 @@ class RedfishProvisioningInput(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if site_type (nullable) is None
+        # and model_fields_set contains the field
+        if self.site_type is None and "site_type" in self.model_fields_set:
+            _dict['site_type'] = None
+
         return _dict
 
     @classmethod
@@ -115,7 +121,8 @@ class RedfishProvisioningInput(BaseModel):
             "ip_range_end": obj.get("ip_range_end"),
             "ip_range_start": obj.get("ip_range_start"),
             "port": obj.get("port") if obj.get("port") is not None else 443,
-            "site": obj.get("site")
+            "site": obj.get("site"),
+            "site_type": obj.get("site_type")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

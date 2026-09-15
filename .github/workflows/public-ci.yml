@@ -43,8 +43,8 @@ jobs:
       - run: uv sync --frozen
       - run: uv run ruff format --check src/ packages plugins/dcim/nautobot-2x .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py
       - run: uv run ruff check src/ packages plugins/dcim/nautobot-2x .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py
-      - run: uv run ty check src/nv_config_manager/ packages/clients/src packages/infrastructure/src packages/dcim/src packages/workflows .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py
-      - run: uv run mypy src/nv_config_manager packages/clients/src packages/infrastructure/src packages/dcim/src packages/workflows .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py --no-incremental
+      - run: uv run ty check src/nv_config_manager/ packages/clients/src packages/infrastructure/src packages/logging/src packages/dcim/src packages/workflows scripts/generate_python_bindings.py .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py
+      - run: uv run mypy src/nv_config_manager packages/clients/src packages/infrastructure/src packages/logging/src packages/dcim/src packages/workflows scripts/generate_python_bindings.py .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py --no-incremental
       - name: Installer lint
         working-directory: installer
         run: |

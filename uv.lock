@@ -17,6 +17,7 @@ members = [
     "nv-config-manager-dcim",
     "nv-config-manager-dcim-nautobot-2x",
     "nv-config-manager-infrastructure",
+    "nv-config-manager-logging",
     "nv-config-manager-templates",
     "nv-config-manager-workflows",
 ]
@@ -2277,6 +2278,7 @@ dependencies = [
     { name = "nv-config-manager-dcim" },
     { name = "nv-config-manager-dcim-nautobot-2x" },
     { name = "nv-config-manager-infrastructure" },
+    { name = "nv-config-manager-logging" },
     { name = "nv-config-manager-templates" },
     { name = "nv-config-manager-workflows" },
     { name = "openpyxl" },
@@ -2397,6 +2399,7 @@ requires-dist = [
     { name = "nv-config-manager-dcim", editable = "packages/dcim" },
     { name = "nv-config-manager-dcim-nautobot-2x", editable = "plugins/dcim/nautobot-2x" },
     { name = "nv-config-manager-infrastructure", editable = "packages/infrastructure" },
+    { name = "nv-config-manager-logging", editable = "packages/logging" },
     { name = "nv-config-manager-templates", editable = "packages/templates" },
     { name = "nv-config-manager-workflows", editable = "packages/workflows" },
     { name = "openpyxl", specifier = ">=3.1.0" },
@@ -2488,6 +2491,7 @@ source = { editable = "packages/clients" }
 dependencies = [
     { name = "aiohttp" },
     { name = "aiohttp-retry" },
+    { name = "nv-config-manager-logging" },
     { name = "pydantic" },
     { name = "python-dateutil" },
     { name = "typing-extensions" },
@@ -2497,6 +2501,7 @@ dependencies = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.1" },
     { name = "aiohttp-retry", specifier = ">=2.9.1" },
+    { name = "nv-config-manager-logging", editable = "packages/logging" },
     { name = "pydantic", specifier = ">=2.11" },
     { name = "python-dateutil", specifier = ">=2.8.2" },
     { name = "typing-extensions", specifier = ">=4.7.1" },
@@ -2569,6 +2574,7 @@ source = { editable = "packages/infrastructure" }
 dependencies = [
     { name = "certifi" },
     { name = "nats-py" },
+    { name = "nv-config-manager-logging" },
     { name = "redis", extra = ["hiredis"] },
 ]
 
@@ -2576,7 +2582,23 @@ dependencies = [
 requires-dist = [
     { name = "certifi", specifier = ">=2024.8.30" },
     { name = "nats-py", specifier = ">=2.9.0" },
+    { name = "nv-config-manager-logging", editable = "packages/logging" },
     { name = "redis", extras = ["hiredis"], specifier = ">=5.2.1" },
+]
+
+[[package]]
+name = "nv-config-manager-logging"
+version = "1.0.0"
+source = { editable = "packages/logging" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "python-json-logger" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "opentelemetry-api", specifier = ">=1.11.1,<2" },
+    { name = "python-json-logger", specifier = ">=2.0.7" },
 ]
 
 [[package]]

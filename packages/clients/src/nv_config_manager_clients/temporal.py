@@ -17,8 +17,10 @@
 from __future__ import annotations
 
 from typing import Any, Self, cast
+from urllib.parse import urlparse
 
 import aiohttp
+from nv_config_manager_logging import LogCategory, get_logger
 
 from nv_config_manager_clients._base import HeaderProvider, ServiceClient
 from nv_config_manager_clients._types import WhoamiResult
@@ -38,6 +40,7 @@ class TemporalClient(ServiceClient):
     api_client_type = ApiClient
     configuration_type = Configuration
     default_api_type = DefaultApi
+    logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
 
     def __init__(
         self,
@@ -47,7 +50,13 @@ class TemporalClient(ServiceClient):
         headers: HeaderProvider = None,
         *,
         verify: bool | str = True,
+        allow_insecure_auth: bool = False,
     ) -> None:
+        if headers is not None and urlparse(base_url).scheme != "https" and not allow_insecure_auth:
+            raise ValueError(
+                "Temporal authentication headers require HTTPS; "
+                "trusted internal callers must opt in explicitly"
+            )
         super().__init__(
             base_url, client_certificate=client_certificate, headers=headers, verify=verify
         )
@@ -60,9 +69,16 @@ class TemporalClient(ServiceClient):
         base_url: str,
         headers: HeaderProvider,
         user_domain: str = "nvidia.com",
+        *,
+        allow_insecure_auth: bool = False,
     ) -> Self:
         """Create a caller-scoped HTTP client."""
-        return cls(base_url, user_domain, headers=headers)
+        return cls(
+            base_url,
+            user_domain,
+            headers=headers,
+            allow_insecure_auth=allow_insecure_auth,
+        )
 
     async def whoami(self) -> WhoamiResult:
         """Return identity using the wrapper's public exception type."""
@@ -138,4 +154,6 @@ class TemporalClient(ServiceClient):
                 "intended_config_commit_id": None,
             },
         )
-        return cast(str, result["id"])
+        workflow_id = cast(str, result["id"])
+        self.logger.info("Backup workflow invoked for device %s: %s", device_id, workflow_id)
+        return workflow_id

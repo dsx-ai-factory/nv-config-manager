@@ -43,12 +43,13 @@ class SitePasswordRotationInput(BaseModel):
     Site Password Rotation Workflow Input Definition.
     """ # noqa: E501
     location: Annotated[str, Field(min_length=1, strict=True)] = Field(description="Location containing the devices to update.")
+    location_type: Optional[StrictStr] = None
     roles: Optional[List[StrictStr]] = Field(default=None, description="Device roles used to filter the selected network devices.")
     selected_secret: StrictStr = Field(description="Name of the managed secret containing the replacement password.")
     status: Optional[List[StrictStr]] = Field(default=None, description="Device statuses used to filter the selected network devices.")
     tenant: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["location", "roles", "selected_secret", "status", "tenant"]
+    __properties: ClassVar[List[str]] = ["location", "location_type", "roles", "selected_secret", "status", "tenant"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -96,6 +97,11 @@ class SitePasswordRotationInput(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if location_type (nullable) is None
+        # and model_fields_set contains the field
+        if self.location_type is None and "location_type" in self.model_fields_set:
+            _dict['location_type'] = None
+
         # set to None if tenant (nullable) is None
         # and model_fields_set contains the field
         if self.tenant is None and "tenant" in self.model_fields_set:
@@ -114,6 +120,7 @@ class SitePasswordRotationInput(BaseModel):
 
         _obj = cls.model_validate({
             "location": obj.get("location"),
+            "location_type": obj.get("location_type"),
             "roles": obj.get("roles"),
             "selected_secret": obj.get("selected_secret"),
             "status": obj.get("status"),

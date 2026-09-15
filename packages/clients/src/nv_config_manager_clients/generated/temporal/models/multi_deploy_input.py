@@ -43,12 +43,13 @@ class MultiDeployInput(BaseModel):
     """ # noqa: E501
     commit_confirm: Optional[StrictBool] = Field(default=True, description="Whether to use commit-confirmed mode when the platform supports it.")
     location: Optional[StrictStr] = None
+    location_type: Optional[StrictStr] = None
     max_batch_size: Optional[StrictInt] = Field(default=10, description="Maximum number of devices included in each deployment batch.")
     role: StrictStr = Field(description="Device role used to select network devices for deployment.")
     status: Optional[List[StrictStr]] = None
     tenant: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["commit_confirm", "location", "max_batch_size", "role", "status", "tenant"]
+    __properties: ClassVar[List[str]] = ["commit_confirm", "location", "location_type", "max_batch_size", "role", "status", "tenant"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -101,6 +102,11 @@ class MultiDeployInput(BaseModel):
         if self.location is None and "location" in self.model_fields_set:
             _dict['location'] = None
 
+        # set to None if location_type (nullable) is None
+        # and model_fields_set contains the field
+        if self.location_type is None and "location_type" in self.model_fields_set:
+            _dict['location_type'] = None
+
         # set to None if status (nullable) is None
         # and model_fields_set contains the field
         if self.status is None and "status" in self.model_fields_set:
@@ -125,6 +131,7 @@ class MultiDeployInput(BaseModel):
         _obj = cls.model_validate({
             "commit_confirm": obj.get("commit_confirm") if obj.get("commit_confirm") is not None else True,
             "location": obj.get("location"),
+            "location_type": obj.get("location_type"),
             "max_batch_size": obj.get("max_batch_size") if obj.get("max_batch_size") is not None else 10,
             "role": obj.get("role"),
             "status": obj.get("status"),

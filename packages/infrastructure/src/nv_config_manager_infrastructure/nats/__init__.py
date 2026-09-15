@@ -12,11 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Compatibility exports for the standalone structured logging package."""
+"""NATS client, producer, consumer, and administration helpers."""
 
-from nv_config_manager_logging import EscapingFilter as EscapingFilter
-from nv_config_manager_logging import EscapingLoggerAdapter as EscapingLoggerAdapter
-from nv_config_manager_logging import LogCategory as LogCategory
-from nv_config_manager_logging import configure_logging as configure_logging
-from nv_config_manager_logging import escape_log_newlines as escape_log_newlines
-from nv_config_manager_logging import get_logger as get_logger
+from nv_config_manager_infrastructure.nats.client import (
+    DEFAULT_NATS_API_PREFIX as DEFAULT_NATS_API_PREFIX,
+)
+from nv_config_manager_infrastructure.nats.client import NatsClient as NatsClient
+from nv_config_manager_infrastructure.nats.consumer import NatsConsumer as NatsConsumer
+from nv_config_manager_infrastructure.nats.producer import NatsProducer as NatsProducer

@@ -130,6 +130,10 @@ def main() -> None:
             name = "_".join(filter(None, operation["operationId"].lower().split("_")))
             method = methods[name + "_without_preload_content"]
             argument = method.args.args[1]
+            if argument.annotation is None:
+                raise RuntimeError(
+                    f"Generated Temporal operation {name!r} has no request-model annotation"
+                )
             model = ast.unparse(argument.annotation)
             rows.append(
                 f"    {path.removeprefix('/v1/workflow')!r}: ({name!r}, {argument.arg!r}, models.{model}),"

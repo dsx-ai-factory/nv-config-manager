@@ -16,12 +16,12 @@
 
 from __future__ import annotations
 
-import logging
 import re
 from collections.abc import Callable
 from typing import Self, cast
 
 import aiohttp
+from nv_config_manager_logging import LogCategory, get_logger
 from pydantic import BaseModel
 
 from nv_config_manager_clients._base import ServiceClient
@@ -62,7 +62,7 @@ class ConfigStoreClient(ServiceClient):
     configuration_type = Configuration
     default_api_type = DefaultApi
 
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__, category=LogCategory.CONFIG_STORE)
 
     def __init__(
         self,

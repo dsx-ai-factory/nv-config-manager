@@ -46,9 +46,10 @@ class SpXOverlayCreationInput(BaseModel):
     rd_max: Optional[StrictInt] = Field(default=65000, description="Upper bound of the route-distinguisher allocation range (0–65535). Must be greater than rd_min.")
     rd_min: Optional[StrictInt] = Field(default=60000, description="Lower bound of the route-distinguisher allocation range (0–65535). The first available RD in [rd_min, rd_max] is allocated.")
     site: StrictStr = Field(description="Site where the SpX overlay will be created.")
+    site_type: Optional[StrictStr] = None
     tenant: StrictStr = Field(description="Tenant that will own the SpX overlay.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["namespace_tag", "overlay_id", "rd_max", "rd_min", "site", "tenant"]
+    __properties: ClassVar[List[str]] = ["namespace_tag", "overlay_id", "rd_max", "rd_min", "site", "site_type", "tenant"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -96,6 +97,11 @@ class SpXOverlayCreationInput(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if site_type (nullable) is None
+        # and model_fields_set contains the field
+        if self.site_type is None and "site_type" in self.model_fields_set:
+            _dict['site_type'] = None
+
         return _dict
 
     @classmethod
@@ -113,6 +119,7 @@ class SpXOverlayCreationInput(BaseModel):
             "rd_max": obj.get("rd_max") if obj.get("rd_max") is not None else 65000,
             "rd_min": obj.get("rd_min") if obj.get("rd_min") is not None else 60000,
             "site": obj.get("site"),
+            "site_type": obj.get("site_type"),
             "tenant": obj.get("tenant")
         })
         # store additional fields in additional_properties

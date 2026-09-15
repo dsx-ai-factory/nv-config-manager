@@ -47,8 +47,9 @@ class SpXOverlayTenantChangeInput(BaseModel):
     overlay_id: Optional[StrictStr] = None
     port_names: Annotated[List[StrictStr], Field(min_length=1)] = Field(description="Names of the device interfaces to assign to the overlay.")
     site: StrictStr = Field(description="Site containing the target network device.")
+    site_type: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["device_id", "namespace_tag", "overlay_id", "port_names", "site"]
+    __properties: ClassVar[List[str]] = ["device_id", "namespace_tag", "overlay_id", "port_names", "site", "site_type"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -101,6 +102,11 @@ class SpXOverlayTenantChangeInput(BaseModel):
         if self.overlay_id is None and "overlay_id" in self.model_fields_set:
             _dict['overlay_id'] = None
 
+        # set to None if site_type (nullable) is None
+        # and model_fields_set contains the field
+        if self.site_type is None and "site_type" in self.model_fields_set:
+            _dict['site_type'] = None
+
         return _dict
 
     @classmethod
@@ -117,7 +123,8 @@ class SpXOverlayTenantChangeInput(BaseModel):
             "namespace_tag": obj.get("namespace_tag") if obj.get("namespace_tag") is not None else 'spectrumx',
             "overlay_id": obj.get("overlay_id"),
             "port_names": obj.get("port_names"),
-            "site": obj.get("site")
+            "site": obj.get("site"),
+            "site_type": obj.get("site_type")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

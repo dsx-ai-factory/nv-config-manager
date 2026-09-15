@@ -32,7 +32,7 @@ import re  # noqa: F401
 import json
 
 from pydantic import BaseModel, ConfigDict, StrictStr
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
@@ -42,9 +42,10 @@ class Location(BaseModel):
     Site data for dropdown population.
     """ # noqa: E501
     id: StrictStr
+    location_type: Optional[StrictStr] = None
     name: StrictStr
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["id", "name"]
+    __properties: ClassVar[List[str]] = ["id", "location_type", "name"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -92,6 +93,11 @@ class Location(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if location_type (nullable) is None
+        # and model_fields_set contains the field
+        if self.location_type is None and "location_type" in self.model_fields_set:
+            _dict['location_type'] = None
+
         return _dict
 
     @classmethod
@@ -105,6 +111,7 @@ class Location(BaseModel):
 
         _obj = cls.model_validate({
             "id": obj.get("id"),
+            "location_type": obj.get("location_type"),
             "name": obj.get("name")
         })
         # store additional fields in additional_properties

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import ssl
 from collections.abc import Awaitable, Callable
 from types import SimpleNamespace, TracebackType
 from typing import Any, Self, cast
@@ -61,6 +62,9 @@ class ServiceClient:
         if client_certificate:
             configuration.cert_file, configuration.key_file = client_certificate
         self.api_client = self.api_client_type(configuration)
+        if client_certificate:
+            # Preserve the original mTLS policy shared by Render, Temporal, and ZTP.
+            self.api_client.rest_client.ssl_context.minimum_version = ssl.TLSVersion.TLSv1_3
         self.retry_options = ExponentialRetry(
             attempts=attempts,
             statuses=retry_statuses or set(),

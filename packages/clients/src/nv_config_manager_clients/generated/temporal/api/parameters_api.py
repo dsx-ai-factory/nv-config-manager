@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from typing_extensions import Annotated
 
 from pydantic import Field, StrictBool, StrictStr
-from typing import List, Optional
+from typing import Any, List, Optional
 from typing_extensions import Annotated
 from nv_config_manager_clients.generated.temporal.models.command_entry import CommandEntry
 from nv_config_manager_clients.generated.temporal.models.device import Device
@@ -1390,6 +1390,7 @@ class ParametersApi:
     async def get_devices_v1_parameter_device_get(
         self,
         site: Optional[List[Optional[StrictStr]]] = None,
+        site_type: Optional[List[Optional[StrictStr]]] = None,
         status: Optional[List[StrictStr]] = None,
         role: Optional[List[StrictStr]] = None,
         tenant: Optional[List[StrictStr]] = None,
@@ -1416,6 +1417,8 @@ class ParametersApi:
 
         :param site:
         :type site: List[Optional[str]]
+        :param site_type:
+        :type site_type: List[str]
         :param status:
         :type status: List[str]
         :param role:
@@ -1454,6 +1457,7 @@ class ParametersApi:
 
         _param = self._get_devices_v1_parameter_device_get_serialize(
             site=site,
+            site_type=site_type,
             status=status,
             role=role,
             tenant=tenant,
@@ -1486,6 +1490,7 @@ class ParametersApi:
     async def get_devices_v1_parameter_device_get_with_http_info(
         self,
         site: Optional[List[Optional[StrictStr]]] = None,
+        site_type: Optional[List[Optional[StrictStr]]] = None,
         status: Optional[List[StrictStr]] = None,
         role: Optional[List[StrictStr]] = None,
         tenant: Optional[List[StrictStr]] = None,
@@ -1512,6 +1517,8 @@ class ParametersApi:
 
         :param site:
         :type site: List[Optional[str]]
+        :param site_type:
+        :type site_type: List[str]
         :param status:
         :type status: List[str]
         :param role:
@@ -1550,6 +1557,7 @@ class ParametersApi:
 
         _param = self._get_devices_v1_parameter_device_get_serialize(
             site=site,
+            site_type=site_type,
             status=status,
             role=role,
             tenant=tenant,
@@ -1582,6 +1590,7 @@ class ParametersApi:
     async def get_devices_v1_parameter_device_get_without_preload_content(
         self,
         site: Optional[List[Optional[StrictStr]]] = None,
+        site_type: Optional[List[Optional[StrictStr]]] = None,
         status: Optional[List[StrictStr]] = None,
         role: Optional[List[StrictStr]] = None,
         tenant: Optional[List[StrictStr]] = None,
@@ -1608,6 +1617,8 @@ class ParametersApi:
 
         :param site:
         :type site: List[Optional[str]]
+        :param site_type:
+        :type site_type: List[str]
         :param status:
         :type status: List[str]
         :param role:
@@ -1646,6 +1657,7 @@ class ParametersApi:
 
         _param = self._get_devices_v1_parameter_device_get_serialize(
             site=site,
+            site_type=site_type,
             status=status,
             role=role,
             tenant=tenant,
@@ -1673,6 +1685,7 @@ class ParametersApi:
     def _get_devices_v1_parameter_device_get_serialize(
         self,
         site,
+        site_type,
         status,
         role,
         tenant,
@@ -1690,6 +1703,7 @@ class ParametersApi:
 
         _collection_formats: Dict[str, str] = {
             'site': 'multi',
+            'site_type': 'multi',
             'status': 'multi',
             'role': 'multi',
             'tenant': 'multi',
@@ -1712,6 +1726,10 @@ class ParametersApi:
         if site is not None:
 
             _query_params.append(('site', site))
+
+        if site_type is not None:
+
+            _query_params.append(('site_type', site_type))
 
         if status is not None:
 
@@ -2316,6 +2334,7 @@ class ParametersApi:
     async def get_namespace_tags_v1_parameter_namespace_tag_get(
         self,
         location: Annotated[Optional[StrictStr], Field(description="Limit to namespace tags at this location")] = None,
+        location_type: Annotated[Optional[Any], Field(description="DCIM location type for the location identifier")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2335,6 +2354,8 @@ class ParametersApi:
 
         :param location: Limit to namespace tags at this location
         :type location: str
+        :param location_type: DCIM location type for the location identifier
+        :type location_type: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -2359,6 +2380,7 @@ class ParametersApi:
 
         _param = self._get_namespace_tags_v1_parameter_namespace_tag_get_serialize(
             location=location,
+            location_type=location_type,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -2384,6 +2406,7 @@ class ParametersApi:
     async def get_namespace_tags_v1_parameter_namespace_tag_get_with_http_info(
         self,
         location: Annotated[Optional[StrictStr], Field(description="Limit to namespace tags at this location")] = None,
+        location_type: Annotated[Optional[Any], Field(description="DCIM location type for the location identifier")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2403,6 +2426,8 @@ class ParametersApi:
 
         :param location: Limit to namespace tags at this location
         :type location: str
+        :param location_type: DCIM location type for the location identifier
+        :type location_type: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -2427,6 +2452,7 @@ class ParametersApi:
 
         _param = self._get_namespace_tags_v1_parameter_namespace_tag_get_serialize(
             location=location,
+            location_type=location_type,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -2452,6 +2478,7 @@ class ParametersApi:
     async def get_namespace_tags_v1_parameter_namespace_tag_get_without_preload_content(
         self,
         location: Annotated[Optional[StrictStr], Field(description="Limit to namespace tags at this location")] = None,
+        location_type: Annotated[Optional[Any], Field(description="DCIM location type for the location identifier")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2471,6 +2498,8 @@ class ParametersApi:
 
         :param location: Limit to namespace tags at this location
         :type location: str
+        :param location_type: DCIM location type for the location identifier
+        :type location_type: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -2495,6 +2524,7 @@ class ParametersApi:
 
         _param = self._get_namespace_tags_v1_parameter_namespace_tag_get_serialize(
             location=location,
+            location_type=location_type,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -2515,6 +2545,7 @@ class ParametersApi:
     def _get_namespace_tags_v1_parameter_namespace_tag_get_serialize(
         self,
         location,
+        location_type,
         _request_auth,
         _content_type,
         _headers,
@@ -2540,6 +2571,10 @@ class ParametersApi:
         if location is not None:
 
             _query_params.append(('location', location))
+
+        if location_type is not None:
+
+            _query_params.append(('location_type', location_type))
 
         # process the header parameters
         # process the form parameters
@@ -2582,6 +2617,7 @@ class ParametersApi:
     async def get_overlays_v1_parameter_overlay_get(
         self,
         location: Annotated[Optional[StrictStr], Field(description="Limit to overlays at this location")] = None,
+        location_type: Annotated[Optional[Any], Field(description="DCIM location type for the location identifier")] = None,
         isolation_type: Annotated[Optional[StrictStr], Field(description="Limit to overlays with this isolation type")] = None,
         _request_timeout: Union[
             None,
@@ -2602,6 +2638,8 @@ class ParametersApi:
 
         :param location: Limit to overlays at this location
         :type location: str
+        :param location_type: DCIM location type for the location identifier
+        :type location_type: str
         :param isolation_type: Limit to overlays with this isolation type
         :type isolation_type: str
         :param _request_timeout: timeout setting for this request. If one
@@ -2628,6 +2666,7 @@ class ParametersApi:
 
         _param = self._get_overlays_v1_parameter_overlay_get_serialize(
             location=location,
+            location_type=location_type,
             isolation_type=isolation_type,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -2654,6 +2693,7 @@ class ParametersApi:
     async def get_overlays_v1_parameter_overlay_get_with_http_info(
         self,
         location: Annotated[Optional[StrictStr], Field(description="Limit to overlays at this location")] = None,
+        location_type: Annotated[Optional[Any], Field(description="DCIM location type for the location identifier")] = None,
         isolation_type: Annotated[Optional[StrictStr], Field(description="Limit to overlays with this isolation type")] = None,
         _request_timeout: Union[
             None,
@@ -2674,6 +2714,8 @@ class ParametersApi:
 
         :param location: Limit to overlays at this location
         :type location: str
+        :param location_type: DCIM location type for the location identifier
+        :type location_type: str
         :param isolation_type: Limit to overlays with this isolation type
         :type isolation_type: str
         :param _request_timeout: timeout setting for this request. If one
@@ -2700,6 +2742,7 @@ class ParametersApi:
 
         _param = self._get_overlays_v1_parameter_overlay_get_serialize(
             location=location,
+            location_type=location_type,
             isolation_type=isolation_type,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -2726,6 +2769,7 @@ class ParametersApi:
     async def get_overlays_v1_parameter_overlay_get_without_preload_content(
         self,
         location: Annotated[Optional[StrictStr], Field(description="Limit to overlays at this location")] = None,
+        location_type: Annotated[Optional[Any], Field(description="DCIM location type for the location identifier")] = None,
         isolation_type: Annotated[Optional[StrictStr], Field(description="Limit to overlays with this isolation type")] = None,
         _request_timeout: Union[
             None,
@@ -2746,6 +2790,8 @@ class ParametersApi:
 
         :param location: Limit to overlays at this location
         :type location: str
+        :param location_type: DCIM location type for the location identifier
+        :type location_type: str
         :param isolation_type: Limit to overlays with this isolation type
         :type isolation_type: str
         :param _request_timeout: timeout setting for this request. If one
@@ -2772,6 +2818,7 @@ class ParametersApi:
 
         _param = self._get_overlays_v1_parameter_overlay_get_serialize(
             location=location,
+            location_type=location_type,
             isolation_type=isolation_type,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -2793,6 +2840,7 @@ class ParametersApi:
     def _get_overlays_v1_parameter_overlay_get_serialize(
         self,
         location,
+        location_type,
         isolation_type,
         _request_auth,
         _content_type,
@@ -2819,6 +2867,10 @@ class ParametersApi:
         if location is not None:
 
             _query_params.append(('location', location))
+
+        if location_type is not None:
+
+            _query_params.append(('location_type', location_type))
 
         if isolation_type is not None:
 
