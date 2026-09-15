@@ -2076,7 +2076,7 @@ class AirSimulationManager:
             fds = {
                 dhcp_proc.stdout: "DHCP",
                 ztp_proc.stdout: "ZTP",
-                ztp_sftp_proc.stdout: "ZTP SFTP",
+                ztp_sftp_proc.stdout: "ZTP",
             }
             last_prov = -1
             while fds:
