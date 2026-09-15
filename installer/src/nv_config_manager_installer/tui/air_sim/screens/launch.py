@@ -96,7 +96,7 @@ _ZTP_SKIP_KEYWORDS = ("health", "metrics", "readiness", "livez")
 _STREAM_HINTS = {
     "deploy": "Deploy output streams here. The complete log is also written to the path above.",
     "dhcp": "DHCP events appear here after install completes.",
-    "ztp": "ZTP request events appear here after install completes.",
+    "ztp": "ZTP HTTP and SFTP request events appear here after install completes.",
     "access": "Direct SSH appears here after SSH is ready. Browser access appears after the provider is ready.",
 }
 _TAB_TO_STREAM = {
@@ -213,11 +213,17 @@ def _is_interesting_dhcp_line(line: str) -> bool:
 
 
 def _is_interesting_ztp_line(line: str) -> bool:
-    """Return true for ZTP access/API lines, excluding health/readiness noise."""
+    """Return true for ZTP HTTP or SFTP activity, excluding health/readiness noise."""
     lowered = line.lower()
     if any(keyword in lowered for keyword in _ZTP_SKIP_KEYWORDS):
         return False
-    return " /v1/" in line or "/v1/" in line or "error" in lowered or "failed" in lowered
+    return (
+        "/v1/" in line
+        or "request for path:" in lowered
+        or "opening range-backed object storage file:" in lowered
+        or "error" in lowered
+        or "failed" in lowered
+    )
 
 
 def _is_ready_pod(pod: dict[str, str]) -> bool:
