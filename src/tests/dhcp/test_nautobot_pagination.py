@@ -64,6 +64,33 @@ def _prefix_page(n: int) -> list[dict[str, Any]]:
     ]
 
 
+def _reserved_ip(record_id: str, parent_id: str) -> dict[str, Any]:
+    return {
+        "id": record_id,
+        "address": "10.0.0.50/24",
+        "ip_version": 4,
+        "parent": {"id": parent_id},
+        "interfaces": [
+            {
+                "name": "eth0",
+                "mac_address": "00:11:22:33:44:55",
+                "role": {"name": "management"},
+                "device": {
+                    "id": f"dev-{record_id}",
+                    "name": f"leaf-{record_id}",
+                    "serial": f"SN-{record_id}",
+                    "platform": {"name": "Cumulus Linux"},
+                    "status": {"name": "active"},
+                    "configmanagerdevicestatus": {
+                        "ztp_enabled": True,
+                        "is_aggregate_managed": False,
+                    },
+                },
+            }
+        ],
+    }
+
+
 @pytest.mark.asyncio
 async def test_load_dhcp_contexts_follows_limit_offset_pages() -> None:
     client = _PagingNautobotClient({"config_manager_devices": _device_page(5)})
@@ -187,3 +214,38 @@ async def test_load_dhcp_contexts_skips_entries_without_devices() -> None:
     )
     contexts = await client.load_dhcp_contexts(page_size=2)
     assert contexts == {"dev-1": {"n": 1}}
+
+
+@pytest.mark.asyncio
+async def test_iter_graphql_pages_rejects_malformed_result() -> None:
+    class _BadClient(NautobotClient):
+        def __init__(self) -> None:
+            super().__init__("https://nautobot.example.com/", "dummy")
+
+        async def graphql_query(self, query, variables=None):  # noqa: ANN001
+            return {"data": {"prefixes": {"id": "nope"}}}
+
+    client = _BadClient()
+    with pytest.raises(DHCPDataError, match="invalid prefixes"):
+        await client._iter_graphql_pages("query { prefixes }", "prefixes", page_size=2)
+
+
+@pytest.mark.asyncio
+async def test_load_auto_dhcp_subnets_keeps_same_address_with_distinct_ids() -> None:
+    prefixes = _prefix_page(2)
+    client = _PagingNautobotClient(
+        {
+            "prefixes": prefixes,
+            "pool_ips": [],
+            "reserved_ips": [
+                _reserved_ip("ip-a", "prefix-0"),
+                _reserved_ip("ip-b", "prefix-1"),
+            ],
+        }
+    )
+
+    subnets = await client.load_auto_dhcp_subnets(family=4, is_aggregate_managed=False, page_size=2)
+
+    by_id = {str(subnet["id"]): subnet for subnet in subnets}
+    assert len(by_id["prefix-0"]["reservations"]) == 1
+    assert len(by_id["prefix-1"]["reservations"]) == 1

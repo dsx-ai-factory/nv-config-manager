@@ -60,6 +60,7 @@ query auto_dhcp_subnets_prefixes($limit: Int!, $offset: Int!) {
 
 query auto_dhcp_subnets_pool_ips($limit: Int!, $offset: Int!) {
   pool_ips: ip_addresses(tags: ["dhcp-pool"], limit: $limit, offset: $offset) {
+    id
     address
     ip_version
     parent {
@@ -73,6 +74,7 @@ query auto_dhcp_subnets_pool_ips($limit: Int!, $offset: Int!) {
 
 query auto_dhcp_subnets_reserved_ips($limit: Int!, $offset: Int!) {
   reserved_ips: ip_addresses(tags: ["dhcp-reserve"], limit: $limit, offset: $offset) {
+    id
     address
     ip_version
     parent {

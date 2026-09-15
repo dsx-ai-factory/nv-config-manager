@@ -37,11 +37,15 @@ class DHCPDataError(DCIMInvalidDataError):
 
 
 def _dedupe_keep_first(items: list[Any], key: str) -> list[dict[str, Any]]:
-    """Drop later rows that repeat ``key`` (offset paging can overlap on a moving set)."""
+    """Drop later rows that repeat ``key`` (offset paging can overlap on a moving set).
+
+    DHCP IP records prefer Nautobot's unique ``id``. Fixtures that omit ``id``
+    still collapse overlapping pages by ``address``.
+    """
     seen: set[Any] = set()
     unique: list[dict[str, Any]] = []
     for item in items:
-        value = item.get(key)
+        value = item.get(key) or item.get("address")
         if value in seen:
             continue
         seen.add(value)
@@ -239,7 +243,10 @@ class NautobotDHCPOperations:
                 )
             page_vars = {**extra, "limit": page_size, "offset": offset}
             rsp = await self.graphql_query(query, page_vars)
-            page = (rsp.get("data") or {}).get(result_key) or []
+            data = rsp.get("data")
+            if not isinstance(data, dict) or not isinstance(data.get(result_key), list):
+                raise DHCPDataError(f"Nautobot returned invalid {result_key} data")
+            page = data[result_key]
             if not page:
                 break
             collected.extend(page)
@@ -306,7 +313,7 @@ class NautobotDHCPOperations:
                 "pool_ips",
                 page_size=page_size,
             ),
-            "address",
+            "id",
         )
         all_reserved_ips = _dedupe_keep_first(
             await self._iter_graphql_pages(
@@ -314,7 +321,7 @@ class NautobotDHCPOperations:
                 "reserved_ips",
                 page_size=page_size,
             ),
-            "address",
+            "id",
         )
         subnets: list[dict[str, object]] = []
         for prefix_entry in prefixes:
