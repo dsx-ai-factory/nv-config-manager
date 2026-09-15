@@ -17,15 +17,36 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 from typing import Any, cast
 
 from nv_config_manager_dcim.errors import DCIMInvalidDataError
 
 from nv_config_manager_dcim_nautobot_2x.queries import load_graphql_query
 
+logger = logging.getLogger(__name__)
+
+# Match other Nautobot GraphQL inventory pages. DHCP still needs a full snapshot;
+# paging only splits the Nautobot request so a large cell cannot 504 one query.
+GRAPHQL_PAGE_SIZE = 100
+_MAX_GRAPHQL_OFFSET = 1_000_000
+
 
 class DHCPDataError(DCIMInvalidDataError):
     """Nautobot returned invalid data required for DHCP configuration."""
+
+
+def _dedupe_keep_first(items: list[Any], key: str) -> list[dict[str, Any]]:
+    """Drop later rows that repeat ``key`` (offset paging can overlap on a moving set)."""
+    seen: set[Any] = set()
+    unique: list[dict[str, Any]] = []
+    for item in items:
+        value = item.get(key)
+        if value in seen:
+            continue
+        seen.add(value)
+        unique.append(item)
+    return unique
 
 
 def _get_gateway_ip(
@@ -193,18 +214,66 @@ class NautobotDHCPOperations:
         contexts = response["data"].get("config_contexts", [])
         return contexts[0].get("data", {}) if contexts else {}
 
+    async def _iter_graphql_pages(
+        self,
+        query: str,
+        result_key: str,
+        variables: dict[str, Any] | None = None,
+        page_size: int = GRAPHQL_PAGE_SIZE,
+    ) -> list[Any]:
+        """Fetch every page of a Nautobot GraphQL list field.
+
+        Stops on an empty or short page. Raises if offset grows without bound,
+        which would mean the server keeps returning full pages (or a mock that
+        ignores limit/offset).
+        """
+        if page_size < 1:
+            raise ValueError(f"page_size must be >= 1, got {page_size}")
+        collected: list[Any] = []
+        extra = dict(variables or {})
+        offset = 0
+        while True:
+            if offset > _MAX_GRAPHQL_OFFSET:
+                raise DHCPDataError(
+                    f"GraphQL pagination for {result_key} exceeded offset {_MAX_GRAPHQL_OFFSET}"
+                )
+            page_vars = {**extra, "limit": page_size, "offset": offset}
+            rsp = await self.graphql_query(query, page_vars)
+            page = (rsp.get("data") or {}).get(result_key) or []
+            if not page:
+                break
+            collected.extend(page)
+            if len(page) < page_size:
+                break
+            offset += len(page)
+            logger.info(
+                "Fetched %d %s at offset %d (%d total)",
+                len(page),
+                result_key,
+                offset - len(page),
+                len(collected),
+            )
+        return collected
+
     async def load_dhcp_contexts(
-        self, is_aggregate_managed: bool | None = None
+        self,
+        is_aggregate_managed: bool | None = None,
+        page_size: int = GRAPHQL_PAGE_SIZE,
     ) -> dict[str, dict[str, object]]:
         """Compatibility hook returning DHCP contexts from Nautobot GraphQL."""
-        response = await self.graphql_query(
+        entries = await self._iter_graphql_pages(
             load_graphql_query("provider/dhcp.graphql", "dhcp_contexts"),
-            {"is_aggregate_managed": is_aggregate_managed},
+            "config_manager_devices",
+            variables={"is_aggregate_managed": is_aggregate_managed},
+            page_size=page_size,
         )
-        return {
-            entry["device"]["id"]: entry["device"]["config_context"]
-            for entry in response["data"]["config_manager_devices"]
-        }
+        contexts: dict[str, dict[str, object]] = {}
+        for entry in entries:
+            device = entry.get("device") if isinstance(entry, dict) else None
+            if not device:
+                continue
+            contexts[device["id"]] = device["config_context"]
+        return contexts
 
     async def load_static_data(self) -> list[dict[str, object]]:
         """Compatibility hook returning static DHCP contexts."""
@@ -214,17 +283,39 @@ class NautobotDHCPOperations:
         return [entry["data"] for entry in response["data"].get("config_contexts", [])]
 
     async def load_auto_dhcp_subnets(
-        self, family: int = 4, is_aggregate_managed: bool | None = None
+        self,
+        family: int = 4,
+        is_aggregate_managed: bool | None = None,
+        page_size: int = GRAPHQL_PAGE_SIZE,
     ) -> list[dict[str, object]]:
         """Compatibility hook returning normalized automatic DHCP subnet data."""
-        response = await self.graphql_query(
-            load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets")
+        prefixes = _dedupe_keep_first(
+            await self._iter_graphql_pages(
+                load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_prefixes"),
+                "prefixes",
+                page_size=page_size,
+            ),
+            "id",
         )
-        prefixes = response["data"].get("prefixes", [])
         if not prefixes:
             return []
-        all_pool_ips = response["data"].get("pool_ips", [])
-        all_reserved_ips = response["data"].get("reserved_ips", [])
+
+        all_pool_ips = _dedupe_keep_first(
+            await self._iter_graphql_pages(
+                load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_pool_ips"),
+                "pool_ips",
+                page_size=page_size,
+            ),
+            "address",
+        )
+        all_reserved_ips = _dedupe_keep_first(
+            await self._iter_graphql_pages(
+                load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_reserved_ips"),
+                "reserved_ips",
+                page_size=page_size,
+            ),
+            "address",
+        )
         subnets: list[dict[str, object]] = []
         for prefix_entry in prefixes:
             if prefix_entry["ip_version"] != family:

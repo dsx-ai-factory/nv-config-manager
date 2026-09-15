@@ -17,8 +17,8 @@
 from typing import Any
 
 import pytest
-
-from nv_config_manager.dhcp.nautobot import NautobotClient, QueryException
+from nv_config_manager_dcim_nautobot_2x.dhcp import DHCPDataError
+from nv_config_manager_dcim_nautobot_2x.provider import NautobotDCIMClient as NautobotClient
 
 
 class _PagingNautobotClient(NautobotClient):
@@ -161,7 +161,29 @@ async def test_iter_graphql_pages_raises_when_offset_does_not_advance(
         async def graphql_query(self, query, variables=None):  # noqa: ANN001
             return {"data": {"prefixes": [{"id": "same"}] * 2}}
 
-    monkeypatch.setattr("nv_config_manager.dhcp.nautobot._MAX_GRAPHQL_OFFSET", 4)
+    monkeypatch.setattr("nv_config_manager_dcim_nautobot_2x.dhcp._MAX_GRAPHQL_OFFSET", 4)
     client = _StuckClient()
-    with pytest.raises(QueryException, match="exceeded offset"):
+    with pytest.raises(DHCPDataError, match="exceeded offset"):
         await client._iter_graphql_pages("query { prefixes }", "prefixes", page_size=2)
+
+
+@pytest.mark.asyncio
+async def test_iter_graphql_pages_rejects_non_positive_page_size() -> None:
+    client = _PagingNautobotClient({"prefixes": [{"id": "prefix-0"}]})
+    with pytest.raises(ValueError, match="page_size"):
+        await client.load_auto_dhcp_subnets(page_size=0)
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_load_dhcp_contexts_skips_entries_without_devices() -> None:
+    client = _PagingNautobotClient(
+        {
+            "config_manager_devices": [
+                {"device": None},
+                {"device": {"id": "dev-1", "config_context": {"n": 1}}},
+            ]
+        }
+    )
+    contexts = await client.load_dhcp_contexts(page_size=2)
+    assert contexts == {"dev-1": {"n": 1}}
