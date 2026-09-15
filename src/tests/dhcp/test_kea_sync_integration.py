@@ -218,15 +218,16 @@ async def test_apply_and_verify_returns_a_hash_and_counts_no_drift(
     """The real apply/verify helper succeeds against real Kea without drift.
 
     This drives the function the reconcile loop calls, rather than asserting on
-    mocked hashes: a successful apply must return a usable hash and must not
+    mocked hashes: a successful apply must return ``(hash, True)`` and must not
     touch the mismatch counter, since nothing diverged.
     """
     before = _counter_value(DHCP_CONFIG_HASH_MISMATCHES, ip_version="4")
 
-    verified_hash = await cli._apply_and_verify_kea_config(
+    verified_hash, verified = await cli._apply_and_verify_kea_config(
         kea_client, await _config_a(kea_client), 4
     )
 
+    assert verified is True
     assert verified_hash is not None
     assert verified_hash == await kea_client.get_config_hash(version=4)
     assert _counter_value(DHCP_CONFIG_HASH_MISMATCHES, ip_version="4") == before
@@ -240,7 +241,10 @@ async def test_out_of_band_change_makes_the_stored_hash_stale(kea_client: KeaCli
     the hash we stored at apply time must no longer match what Kea reports. That
     disagreement is the only thing the loop counts as drift.
     """
-    stored_hash = await cli._apply_and_verify_kea_config(kea_client, await _config_a(kea_client), 4)
+    stored_hash, verified = await cli._apply_and_verify_kea_config(
+        kea_client, await _config_a(kea_client), 4
+    )
+    assert verified is True
     assert stored_hash is not None
 
     # Stand in for Kea restarting onto its bootstrap config, or an operator
