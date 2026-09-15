@@ -163,13 +163,21 @@ class NautobotWorkflowClient(BaseNautobotClient):
             nautobot_url=str(connection_config["server"]),
             token=str(connection_config["token"]),
             verify=connection_config["verify"],
+            timeout=connection_config.get("timeout"),
             headers=connection_config.get("headers"),
         )
 
     async def graphql_query(
-        self, query: str, variables: dict[str, Any] | None = None, timeout: int | None = 10
+        self, query: str, variables: dict[str, Any] | None = None, timeout: int | None = None
     ) -> dict[str, Any]:
-        """Execute a graphql query with Temporal-specific error handling."""
+        """Execute a graphql query with Temporal-specific error handling.
+
+        Args:
+            query: GraphQL query string
+            variables: Query variables
+            timeout: Per-request timeout in seconds. ``None`` uses the
+                configured client budget.
+        """
         logger.info("Sending GraphQL query to Nautobot")
         try:
             return await super().graphql_query(query, variables, timeout)
