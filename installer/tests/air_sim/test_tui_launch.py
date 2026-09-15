@@ -39,6 +39,7 @@ from nv_config_manager_installer.tui.air_sim.screens.launch import (
     _create_deploy_log_path,
     _DeployStarted,
     _is_interesting_dhcp_line,
+    _is_interesting_ztp_line,
     _PodStatusWidget,
     _StreamTabsWidget,
     _TuiCallback,
@@ -343,7 +344,16 @@ def test_dhcp_activity_helpers_include_refresh_and_config_events() -> None:
     assert _is_interesting_dhcp_line(clean_config)
 
 
-def test_service_log_snapshots_include_dhcp_refresh_logs(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ztp_activity_helpers_include_sftp_requests() -> None:
+    assert _is_interesting_ztp_line(
+        "Request for path: /device/device-1/startup.yaml from 10.120.1.10"
+    )
+    assert not _is_interesting_ztp_line("Request for path: /healthcheck from 127.0.0.1")
+
+
+def test_service_log_snapshots_include_dhcp_and_both_ztp_transports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = AirSimulationManager.__new__(AirSimulationManager)
     commands: list[str] = []
 
@@ -371,6 +381,16 @@ def test_service_log_snapshots_include_dhcp_refresh_logs(monkeypatch: pytest.Mon
             )
         if sim_manager_module.CONFIG_MANAGER_DHCP_DEPLOYMENT in remote_command:
             return SimpleNamespace(returncode=0, stdout="DHCP4_LEASE_ALLOC allocated lease\n")
+        if " -c http-lb " in remote_command:
+            return SimpleNamespace(
+                returncode=0,
+                stdout='10.120.1.10:12345 - "GET /v1/device/device-1/boot-script HTTP/1.1" 200\n',
+            )
+        if " -c sftp " in remote_command:
+            return SimpleNamespace(
+                returncode=0,
+                stdout="Request for path: /device/device-1/startup.yaml from 10.120.1.10\n",
+            )
         return SimpleNamespace(returncode=0, stdout="")
 
     monkeypatch.setattr(manager, "_ssh_cmd", fake_ssh_cmd)
@@ -381,9 +401,15 @@ def test_service_log_snapshots_include_dhcp_refresh_logs(monkeypatch: pytest.Mon
     assert any(
         sim_manager_module.CONFIG_MANAGER_DHCP_REFRESH_DEPLOYMENT in command for command in commands
     )
+    assert any(" -c http-lb " in command for command in commands)
+    assert any(" -c sftp " in command for command in commands)
     assert snapshots["dhcp"] == [
         "DHCP4_LEASE_ALLOC allocated lease",
         '{"message": "KEA DHCP4 Configuration Refresh Complete."}',
+    ]
+    assert snapshots["ztp"] == [
+        '10.120.1.10:12345 - "GET /v1/device/device-1/boot-script HTTP/1.1" 200',
+        "Request for path: /device/device-1/startup.yaml from 10.120.1.10",
     ]
 
 
