@@ -1,0 +1,25 @@
+query (
+  $site: [String],
+  $status: [String],
+  $role: [String],
+  $tenant: [String],
+  $device_type_id: [String],
+  $mac_address: [String],
+  $device_ids: [String],
+  $platform: [String],
+  $managed_only: Boolean
+) {
+  devices(
+    location: $site,
+    status: $status,
+    role: $role,
+    tenant: $tenant,
+    device_type: $device_type_id,
+    mac_address: $mac_address,
+    id: $device_ids,
+    platform: $platform,
+    nv_config_manager_device_status: $managed_only
+  ) {
+    __FIELDS__
+  }
+}

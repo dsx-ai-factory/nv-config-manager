@@ -24,6 +24,7 @@ import tempfile
 import threading
 import time
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty, SimpleQueue
 from typing import IO
@@ -92,19 +93,11 @@ _DHCP_ACTIVITY_KEYWORDS = (
     "warning",
 )
 _ZTP_SKIP_KEYWORDS = ("health", "metrics", "readiness", "livez")
-_NAUTOBOT_DEPENDENT_PREFIXES = (
-    "nv-config-manager-nautobot-celery",
-    "nv-config-manager-nautobot-celery-beat",
-    "nv-config-manager-render-",
-    "nv-config-manager-temporal-",
-    "nv-config-manager-ztp",
-    "nv-config-manager-dhcp",
-)
 _STREAM_HINTS = {
     "deploy": "Deploy output streams here. The complete log is also written to the path above.",
     "dhcp": "DHCP events appear here after install completes.",
     "ztp": "ZTP request events appear here after install completes.",
-    "access": "Direct SSH appears here after SSH is ready. Browser access appears after Nautobot is ready.",
+    "access": "Direct SSH appears here after SSH is ready. Browser access appears after the provider is ready.",
 }
 _TAB_TO_STREAM = {
     "stream-deploy": "deploy",
@@ -118,6 +111,47 @@ _BUFFER_LIMITS = {
 }
 _FOLLOW_LABEL_ON = "Follow: On"
 _FOLLOW_LABEL_OFF = "Follow: Off"
+
+
+@dataclass(frozen=True)
+class AirProviderStatus:
+    """Provider-owned labels and readiness rules used by the shared AIR dashboard."""
+
+    display_name: str
+    web_pod_prefix: str
+    access_url: str
+    dependent_pod_prefixes: tuple[str, ...] = ()
+    excluded_web_pod_prefixes: tuple[str, ...] = ()
+
+    def is_web_pod(self, pod: dict[str, str]) -> bool:
+        """Return whether a pod is the provider's primary web workload."""
+        name = pod.get("name", "")
+        return name.startswith(f"{self.web_pod_prefix}-") and not name.startswith(
+            self.excluded_web_pod_prefixes
+        )
+
+    @property
+    def provisioning_wait_text(self) -> str:
+        return f"Switches Provisioned: waiting for {self.display_name}"
+
+
+DEFAULT_PROVIDER_STATUS = AirProviderStatus(
+    display_name="Nautobot",
+    web_pod_prefix=CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
+    access_url="https://nautobot.nvcm.air",
+    dependent_pod_prefixes=(
+        "nv-config-manager-nautobot-celery",
+        "nv-config-manager-nautobot-celery-beat",
+        "nv-config-manager-render-",
+        "nv-config-manager-temporal-",
+        "nv-config-manager-ztp",
+        "nv-config-manager-dhcp",
+    ),
+    excluded_web_pod_prefixes=(
+        "nv-config-manager-nautobot-celery",
+        "nv-config-manager-nautobot-celery-beat",
+    ),
+)
 
 
 def _create_deploy_log_path() -> Path:
@@ -193,13 +227,6 @@ def _is_ready_pod(pod: dict[str, str]) -> bool:
         and bool(ready_total)
         and ready_count == ready_total
         and pod.get("status") in _POD_READY_STATES
-    )
-
-
-def _is_nautobot_web_pod(pod: dict[str, str]) -> bool:
-    name = pod.get("name", "")
-    return name.startswith(f"{CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT}-") and not name.startswith(
-        f"{CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT}-celery"
     )
 
 
@@ -286,7 +313,7 @@ class _DeployStarted(Message):
         self.port = port
 
 
-class _NautobotReady(Message):
+class _ProviderReady(Message):
     def __init__(self, host: str, port: int) -> None:
         super().__init__()
         self.host = host
@@ -538,7 +565,8 @@ class _StreamTabsWidget(Vertical):
             existing.set_access(
                 widget.proxy,
                 widget.ssh_command,
-                nautobot_ready=widget.nautobot_ready,
+                provider_ready=widget.provider_ready,
+                provider_name=widget.provider_name,
             )
             self._sync_visible_content()
             return
@@ -785,13 +813,15 @@ class _ProxyAccessWidget(Container):
         proxy: ProxyInfo,
         ssh_command: str,
         *,
-        nautobot_ready: bool,
+        provider_ready: bool,
+        provider_name: str,
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)
         self._proxy = proxy
         self._ssh_command = ssh_command
-        self._nautobot_ready = nautobot_ready
+        self._provider_ready = provider_ready
+        self._provider_name = provider_name
         self._tunnel_proc: subprocess.Popen[bytes] | None = None
 
     @property
@@ -803,8 +833,12 @@ class _ProxyAccessWidget(Container):
         return self._ssh_command
 
     @property
-    def nautobot_ready(self) -> bool:
-        return self._nautobot_ready
+    def provider_ready(self) -> bool:
+        return self._provider_ready
+
+    @property
+    def provider_name(self) -> str:
+        return self._provider_name
 
     def compose(self) -> ComposeResult:
         p = self._proxy
@@ -816,7 +850,7 @@ class _ProxyAccessWidget(Container):
             classes="field-hint",
         )
         with Horizontal(id="proxy-controls") as controls:
-            controls.display = self._nautobot_ready
+            controls.display = self._provider_ready
             yield Label("SOCKS Port", id="socks-port-label")
             yield Input(
                 value=str(p.socks_port),
@@ -824,7 +858,7 @@ class _ProxyAccessWidget(Container):
                 id="socks-port",
             )
             launch_button = Button("Launch Browser", id="btn-launch-browser", variant="primary")
-            launch_button.display = self._nautobot_ready
+            launch_button.display = self._provider_ready
             yield launch_button
 
         yield Label(self._manual_label(), id="manual-commands-label", classes="subsection-label")
@@ -850,7 +884,7 @@ class _ProxyAccessWidget(Container):
             id="tunnel-commands-label",
             classes="subsection-label",
         )
-        tunnel_label.display = self._nautobot_ready
+        tunnel_label.display = self._provider_ready
         yield tunnel_label
         ssh_unix = _CopyCommandPanel(
             "Linux / macOS - SOCKS tunnel",
@@ -860,7 +894,7 @@ class _ProxyAccessWidget(Container):
             panel_id="panel-ssh-unix",
             command_id="cmd-ssh-unix",
         )
-        ssh_unix.display = self._nautobot_ready
+        ssh_unix.display = self._provider_ready
         yield ssh_unix
         ssh_win = _CopyCommandPanel(
             "Windows OpenSSH - SOCKS tunnel",
@@ -870,7 +904,7 @@ class _ProxyAccessWidget(Container):
             panel_id="panel-ssh-win",
             command_id="cmd-ssh-win",
         )
-        ssh_win.display = self._nautobot_ready
+        ssh_win.display = self._provider_ready
         yield ssh_win
         browser_unix = _CopyCommandPanel(
             "Linux / macOS - browser",
@@ -880,7 +914,7 @@ class _ProxyAccessWidget(Container):
             panel_id="panel-browser-unix",
             command_id="cmd-browser-unix",
         )
-        browser_unix.display = self._nautobot_ready
+        browser_unix.display = self._provider_ready
         yield browser_unix
         browser_win = _CopyCommandPanel(
             "Windows - browser",
@@ -890,11 +924,11 @@ class _ProxyAccessWidget(Container):
             panel_id="panel-browser-win",
             command_id="cmd-browser-win",
         )
-        browser_win.display = self._nautobot_ready
+        browser_win.display = self._provider_ready
         yield browser_win
 
         status = Static("", id="proxy-status")
-        status.display = self._nautobot_ready
+        status.display = self._provider_ready
         yield status
 
     def set_access(
@@ -902,11 +936,13 @@ class _ProxyAccessWidget(Container):
         proxy: ProxyInfo,
         ssh_command: str,
         *,
-        nautobot_ready: bool,
+        provider_ready: bool,
+        provider_name: str,
     ) -> None:
         self._proxy = proxy
         self._ssh_command = ssh_command
-        self._nautobot_ready = nautobot_ready
+        self._provider_ready = provider_ready
+        self._provider_name = provider_name
         self._update_command_panels()
         self._sync_ready_state()
 
@@ -938,7 +974,7 @@ class _ProxyAccessWidget(Container):
             "#proxy-status",
         ):
             try:
-                self.query_one(selector).display = self._nautobot_ready
+                self.query_one(selector).display = self._provider_ready
             except Exception:
                 pass
         try:
@@ -948,15 +984,18 @@ class _ProxyAccessWidget(Container):
             pass
 
     def _access_hint(self) -> str:
-        if self._nautobot_ready:
-            return "Nautobot is ready. Launch a proxied browser or copy the manual commands."
+        if self._provider_ready:
+            return (
+                f"{self._provider_name} is ready. "
+                "Launch a proxied browser or copy the manual commands."
+            )
         return (
             "SSH is ready. Use direct SSH to troubleshoot the OOB management server "
-            "while Nautobot starts."
+            f"while {self._provider_name} starts."
         )
 
     def _manual_label(self) -> str:
-        return "Manual commands" if self._nautobot_ready else "SSH details"
+        return "Manual commands" if self._provider_ready else "SSH details"
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn = event.button.id or ""
@@ -1031,8 +1070,9 @@ class _ProxyAccessWidget(Container):
 class _PodStatusWidget(Vertical):
     """Polls lightweight deployment health and provisioning status over SSH."""
 
-    def __init__(self, **kwargs: object) -> None:
+    def __init__(self, provider_status: AirProviderStatus, **kwargs: object) -> None:
         super().__init__(**kwargs)
+        self._provider_status = provider_status
         self._host = ""
         self._port = 0
         self._manager: object = None  # AirSimulationManager, set at start_polling
@@ -1040,7 +1080,7 @@ class _PodStatusWidget(Vertical):
         self._status_worker_running = False
         self._last_pod_summary = ""
         self._last_prov: tuple[int, int, tuple[str, ...]] | None = None
-        self._notified_nautobot_ready = False
+        self._notified_provider_ready = False
 
     def compose(self) -> ComposeResult:
         yield Label("Progress", classes="section-title")
@@ -1056,8 +1096,8 @@ class _PodStatusWidget(Vertical):
         self._port = port
         self._manager = manager
         self._stop.clear()
-        self._notified_nautobot_ready = False
-        self.query_one("#prov-count", Static).update("Switches Provisioned: waiting for Nautobot")
+        self._notified_provider_ready = False
+        self.query_one("#prov-count", Static).update(self._provider_status.provisioning_wait_text)
         if not self._status_worker_running:
             self._status_worker_running = True
             self._run_status_polling()
@@ -1109,7 +1149,7 @@ class _PodStatusWidget(Vertical):
             self.query_one("#prov-count", Static).update(
                 f"Switches Provisioned: {prov}/{total}"
                 if total
-                else "Switches Provisioned: waiting for Nautobot"
+                else self._provider_status.provisioning_wait_text
             )
             detail = ""
             if remaining and total and prov < total:
@@ -1124,23 +1164,27 @@ class _PodStatusWidget(Vertical):
             summary = "Pods: waiting for cluster"
             detail = ""
         else:
-            nautobot = next((pod for pod in pods if _is_nautobot_web_pod(pod)), None)
-            if nautobot is None:
-                summary = "Nautobot: waiting for pod"
-            elif _is_ready_pod(nautobot):
-                summary = f"Nautobot: ready ({_pod_state_text(nautobot)})"
-                if not self._notified_nautobot_ready and self._host and self._port:
-                    self._notified_nautobot_ready = True
-                    self.post_message(_NautobotReady(self._host, self._port))
+            provider = next(
+                (pod for pod in pods if self._provider_status.is_web_pod(pod)),
+                None,
+            )
+            provider_name = self._provider_status.display_name
+            if provider is None:
+                summary = f"{provider_name}: waiting for pod"
+            elif _is_ready_pod(provider):
+                summary = f"{provider_name}: ready ({_pod_state_text(provider)})"
+                if not self._notified_provider_ready and self._host and self._port:
+                    self._notified_provider_ready = True
+                    self.post_message(_ProviderReady(self._host, self._port))
             else:
-                summary = f"Nautobot: {_pod_state_text(nautobot)}"
+                summary = f"{provider_name}: {_pod_state_text(provider)}"
 
-            remaining = [pod for pod in pods if pod is not nautobot]
+            remaining = [pod for pod in pods if pod is not provider]
             remaining_not_ready = [pod for pod in remaining if not _is_ready_pod(pod)]
             dependent_not_ready = [
                 pod
                 for pod in remaining_not_ready
-                if pod.get("name", "").startswith(_NAUTOBOT_DEPENDENT_PREFIXES)
+                if pod.get("name", "").startswith(self._provider_status.dependent_pod_prefixes)
             ]
             other_not_ready = [pod for pod in remaining_not_ready if pod not in dependent_not_ready]
             ready_remaining = len(remaining) - len(remaining_not_ready)
@@ -1168,9 +1212,17 @@ class _PodStatusWidget(Vertical):
 class LaunchScreen(Container):
     """Launch panel: summary, launch button, step list, and log stream."""
 
-    def __init__(self, config: SimConfig, **kwargs: object) -> None:
+    PROVIDER_STATUS = DEFAULT_PROVIDER_STATUS
+
+    def __init__(
+        self,
+        config: SimConfig,
+        provider_status: AirProviderStatus | None = None,
+        **kwargs: object,
+    ) -> None:
         super().__init__(**kwargs)
         self._config = config
+        self._provider_status = provider_status or self.PROVIDER_STATUS
         self._bringup_running = False
         self._host = ""
         self._port = 0
@@ -1205,7 +1257,7 @@ class LaunchScreen(Container):
             with Horizontal(id="dashboard-top"):
                 with VerticalScroll(id="step-panel"):
                     yield _StepListWidget(id="step-list")
-                yield _PodStatusWidget(id="pod-status-panel")
+                yield _PodStatusWidget(self._provider_status, id="pod-status-panel")
             yield _StreamTabsWidget(id="stream-viewer")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -1237,8 +1289,14 @@ class LaunchScreen(Container):
         self.query_one("#air-link-bar", _AirLinkBar).set_url(self._simulation_url)
         self._set_status(self._status_text("[yellow]Running...[/yellow]"))
 
+    def validate_provider_config(self) -> str:
+        """Return a provider-owned validation error, or an empty string when ready."""
+        if self._config.run_mock_topology_job and not self._config.mock_topology_path:
+            return "Mock topology path required for bundled Nautobot population."
+        return ""
+
     def _start_bringup(self) -> None:
-        if self._config.run_mock_topology_job:
+        if self._config.use_mock_context_for_fabric:
             if not self._config.mock_blueprint:
                 self._set_status(
                     "[bold red][!] Mock blueprint required — set it on the Topology screen.[/bold red]"
@@ -1249,15 +1307,14 @@ class LaunchScreen(Container):
                     "[bold red][!] Deployment name required — set it on the Topology screen.[/bold red]"
                 )
                 return
-            if not self._config.mock_topology_path:
-                self._set_status(
-                    "[bold red][!] Mock topology path required — set it on the Topology screen.[/bold red]"
-                )
-                return
         elif not self._config.topology_path:
             self._set_status(
                 "[bold red][!] No topology file — set one on the Topology screen.[/bold red]"
             )
+            return
+        provider_error = self.validate_provider_config()
+        if provider_error:
+            self._set_status(f"[bold red][!] {provider_error}[/bold red]")
             return
         if not self._config.ngc_api_key:
             self._set_status(
@@ -1277,19 +1334,27 @@ class LaunchScreen(Container):
         log_path = self._deploy_log_path
         with open(log_path if log_path else os.devnull, "w") as lf:
             cb = _TuiCallback(self, log_file=lf)
-            orchestrator = SimOrchestrator(self._config, cb)
+            orchestrator = self.create_orchestrator(cb)
             orchestrator.run()
+
+    def create_orchestrator(self, callback: OrchestratorCallback) -> SimOrchestrator:
+        """Construct the simulation orchestrator used by the launch worker."""
+        return SimOrchestrator(self._config, callback)
+
+    def create_simulation_manager(self) -> AirSimulationManager:
+        """Construct the AIR and remote-host client used by dashboard workers."""
+        return AirSimulationManager(
+            ngc_api_key=self._config.ngc_api_key,
+            use_internal=self._config.use_internal,
+            org_id=self._config.org_id,
+            ssh_password=self._config.oob_ssh_password,
+        )
 
     @work(thread=True, group="air_sim_service_logs", exit_on_error=False)
     def _run_monitoring(self, host: str, port: int) -> None:
         worker = get_current_worker()
         try:
-            manager = AirSimulationManager(
-                ngc_api_key=self._config.ngc_api_key,
-                use_internal=self._config.use_internal,
-                org_id=self._config.org_id,
-                ssh_password=self._config.oob_ssh_password,
-            )
+            manager = self.create_simulation_manager()
             while not worker.is_cancelled and not self._monitor_stop.is_set():
                 snapshots = manager.get_service_log_snapshots(host, port)
                 entries: list[tuple[str, str]] = []
@@ -1402,12 +1467,7 @@ class LaunchScreen(Container):
             self._config.oob_ssh_password,
         )
         self._show_proxy_panel(event.host, event.port)
-        manager = AirSimulationManager(
-            ngc_api_key=self._config.ngc_api_key,
-            use_internal=self._config.use_internal,
-            org_id=self._config.org_id,
-            ssh_password=self._config.oob_ssh_password,
-        )
+        manager = self.create_simulation_manager()
         self.query_one("#pod-status-panel", _PodStatusWidget).start_polling(
             event.host, event.port, manager
         )
@@ -1416,10 +1476,10 @@ class LaunchScreen(Container):
         self._host = event.host
         self._port = event.port
 
-    def on__nautobot_ready(self, event: _NautobotReady) -> None:
+    def on__provider_ready(self, event: _ProviderReady) -> None:
         self._host = event.host
         self._port = event.port
-        self._show_proxy_panel(event.host, event.port, nautobot_ready=True)
+        self._show_proxy_panel(event.host, event.port, provider_ready=True)
 
     def on__bringup_complete(self, event: _BringupComplete) -> None:
         self._bringup_running = False
@@ -1434,7 +1494,7 @@ class LaunchScreen(Container):
             self._set_status(self._status_text("[bold green][*] Bringup complete![/bold green]"))
             self.app.notify("Simulation bringup complete!", severity="information")
             if event.host:
-                self._show_proxy_panel(event.host, event.port, nautobot_ready=True)
+                self._show_proxy_panel(event.host, event.port, provider_ready=True)
                 self._start_monitoring(event.host, event.port)
         else:
             self.enqueue_log_line(
@@ -1453,11 +1513,11 @@ class LaunchScreen(Container):
         self._socks_port = event.socks_port
         event.stop()
 
-    def _show_proxy_panel(self, host: str, port: int, *, nautobot_ready: bool = False) -> None:
+    def _show_proxy_panel(self, host: str, port: int, *, provider_ready: bool = False) -> None:
         access_target = (
             host,
             port,
-            nautobot_ready,
+            provider_ready,
             self._socks_port,
             self._config.oob_ssh_password,
         )
@@ -1473,11 +1533,13 @@ class LaunchScreen(Container):
             port=port,
             password=self._config.oob_ssh_password,
             socks_port=self._socks_port,
+            target_url=self._provider_status.access_url,
         )
         widget = _ProxyAccessWidget(
             proxy,
             self._ssh_cmd_text,
-            nautobot_ready=nautobot_ready,
+            provider_ready=provider_ready,
+            provider_name=self._provider_status.display_name,
             id="proxy-access",
         )
         self.query_one("#stream-viewer", _StreamTabsWidget).set_access_widget(widget)

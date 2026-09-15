@@ -25,6 +25,8 @@ from typing import Any
 import pytest
 import requests
 
+from tests.integration.dcim_adapter import DCIMIntegrationAdapter
+
 # Mark all tests in this module as integration tests
 pytestmark = pytest.mark.integration
 
@@ -32,59 +34,20 @@ pytestmark = pytest.mark.integration
 API_PREFIX = "/v1"
 BACKUP_WORKFLOW_ENDPOINT = f"{API_PREFIX}/workflow/ngc/backup"
 WORKFLOW_DETAIL_ENDPOINT = f"{API_PREFIX}/workflow/{{workflow_id}}"
-BACKUP_CONFIG_API_PATH = "/api/plugins/nv-config-manager/backupconfig/"
 
 POLL_INTERVAL_SECONDS = 5
 WORKFLOW_TERMINAL_STATES = {"COMPLETED", "FAILED", "TERMINATED", "CANCELED", "TIMED_OUT"}
 WORKFLOW_FAILURE_STATES = WORKFLOW_TERMINAL_STATES - {"COMPLETED"}
 TEMPORAL_REQUEST_TIMEOUT_SECONDS = 15
+TRANSIENT_GATEWAY_STATUS_CODES = {502, 503, 504}
 
 
 class TestTemporalAPI:
     """Tests for the Temporal Workflow API endpoints."""
 
-    BACKUP_TARGET_QUERY = """
-    query {
-      config_manager_devices(backup_enabled: true) {
-        id
-        device {
-          id
-          name
-        }
-        intended_config {
-          commit_id
-        }
-      }
-    }
-    """
-
-    def _query_nautobot(
-        self,
-        nautobot_url: str,
-        nautobot_client: requests.Session,
-        query: str,
-        variables: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Execute a Nautobot GraphQL query."""
-        payload: dict[str, Any] = {"query": query}
-        if variables:
-            payload["variables"] = variables
-
-        response = nautobot_client.post(
-            f"{nautobot_url}/api/graphql/",
-            json=payload,
-            timeout=30,
-        )
-        response.raise_for_status()
-        result = response.json()
-        if "errors" in result:
-            pytest.fail(f"Nautobot GraphQL query failed: {result['errors']}")
-        return result
-
     def _find_backup_target(
         self,
-        nautobot_url: str,
-        nautobot_client: requests.Session,
+        dcim_adapter: DCIMIntegrationAdapter,
         timeout_seconds: int = 180,
     ) -> dict[str, Any]:
         """Find a backup-enabled device with an intended config commit."""
@@ -92,12 +55,7 @@ class TestTemporalAPI:
         last_backup_enabled_count = 0
 
         while time.monotonic() < deadline:
-            result = self._query_nautobot(
-                nautobot_url,
-                nautobot_client,
-                self.BACKUP_TARGET_QUERY,
-            )
-            devices = result.get("data", {}).get("config_manager_devices", [])
+            devices = dcim_adapter.list_devices(backup_enabled=True)
             last_backup_enabled_count = len(devices)
 
             for managed_device in devices:
@@ -128,6 +86,20 @@ class TestTemporalAPI:
         while time.monotonic() < deadline:
             try:
                 response = temporal_client.get(url, timeout=TEMPORAL_REQUEST_TIMEOUT_SECONDS)
+                if response.status_code in TRANSIENT_GATEWAY_STATUS_CODES:
+                    last_error = requests.HTTPError(
+                        f"transient gateway response: {response.status_code}",
+                        response=response,
+                    )
+                    print(
+                        f"  - Backup workflow {workflow_id[:8]}... "
+                        f"poll transient error: {last_error}"
+                    )
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    time.sleep(min(POLL_INTERVAL_SECONDS, remaining))
+                    continue
                 response.raise_for_status()
                 detail = response.json()
                 last_status = detail.get("status", "UNKNOWN")
@@ -167,18 +139,27 @@ class TestTemporalAPI:
         while time.monotonic() < deadline:
             attempt += 1
             try:
-                return temporal_client.get(
+                response = temporal_client.get(
                     url,
                     params=params,
                     timeout=TEMPORAL_REQUEST_TIMEOUT_SECONDS,
                 )
+                if response.status_code not in TRANSIENT_GATEWAY_STATUS_CODES:
+                    return response
+
+                last_error = requests.HTTPError(
+                    f"transient gateway response: {response.status_code}",
+                    response=response,
+                )
+                print(f"  - GET {url} transient error on attempt {attempt}: {last_error}")
             except (requests.ConnectionError, requests.Timeout) as exc:
                 last_error = exc
                 print(f"  - GET {url} transient error on attempt {attempt}: {exc}")
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                time.sleep(min(POLL_INTERVAL_SECONDS, remaining))
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(POLL_INTERVAL_SECONDS, remaining))
 
         pytest.fail(
             f"GET {url} did not respond within {retry_seconds} seconds. "
@@ -187,25 +168,12 @@ class TestTemporalAPI:
 
     def _assert_any_backup_config(
         self,
-        nautobot_url: str,
-        nautobot_client: requests.Session,
+        dcim_adapter: DCIMIntegrationAdapter,
     ) -> None:
-        """Assert the live Nautobot plugin has at least one backup config entry."""
-        response = nautobot_client.get(
-            f"{nautobot_url}{BACKUP_CONFIG_API_PATH}",
-            timeout=30,
+        """Assert the selected DCIM has at least one backup config entry."""
+        assert dcim_adapter.backup_config_count() > 0, (
+            "The DCIM has no nv-config-manager backup configuration entries"
         )
-        response.raise_for_status()
-        data = response.json()
-
-        if isinstance(data, dict):
-            count = data.get("count")
-            if count is None:
-                count = len(data.get("results", []))
-        else:
-            count = len(data)
-
-        assert count > 0, "Nautobot has no nv-config-manager backupconfig entries"
 
     @pytest.mark.timeout(30)
     def test_temporal_healthcheck(
@@ -482,14 +450,12 @@ class TestTemporalAPI:
         self,
         temporal_api_url: str,
         temporal_client: requests.Session,
-        nautobot_url: str,
-        nautobot_client: requests.Session,
+        dcim_adapter: DCIMIntegrationAdapter,
     ) -> None:
-        """BackupWorkflow has no failed stages and Nautobot has live backup records."""
+        """BackupWorkflow has no failed stages and the DCIM has live backup records."""
         print("\n=== Testing BackupWorkflow plugin recording ===")
 
-        managed_device = self._find_backup_target(nautobot_url, nautobot_client)
-        device = managed_device["device"]
+        device = self._find_backup_target(dcim_adapter)
         device_id = device["id"]
 
         print(f"Starting BackupWorkflow for {device['name']} ({device_id})")
@@ -544,9 +510,9 @@ class TestTemporalAPI:
                 f"Status: {detail['status']}; failed stages: {failed_stages}"
             )
 
-        self._assert_any_backup_config(nautobot_url, nautobot_client)
+        self._assert_any_backup_config(dcim_adapter)
 
-        print("✅ BackupWorkflow had no failed stages and Nautobot has backupconfig entries")
+        print("✅ BackupWorkflow had no failed stages and the DCIM has backup config entries")
 
     @pytest.mark.timeout(30)
     def test_rbac_config_status(

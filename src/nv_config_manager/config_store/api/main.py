@@ -24,6 +24,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_fastapi_instrumentator import metrics as instrumentator_metrics
 
 from nv_config_manager.common.auth import install_identity_probe
+from nv_config_manager.common.config import dcim_client
 from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
 from nv_config_manager.common.telemetry import (
     group_fastapi_status_codes,
@@ -33,6 +34,7 @@ from nv_config_manager.common.telemetry import (
 from nv_config_manager.config_store.api.admin_v1 import router as admin_router
 from nv_config_manager.config_store.api.config_v1 import router as config_router
 from nv_config_manager.config_store.config import settings
+from nv_config_manager.config_store.core.device_cache_redis import DeviceCacheService
 
 configure_logging(service="config-store")
 setup_tracing("config-store")
@@ -42,33 +44,33 @@ logger = get_logger(__name__, category=LogCategory.CONFIG_STORE_API)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Handle application lifespan (startup and shutdown)."""
-    from nv_config_manager.config_store.core.device_cache_redis import DeviceCacheService
-
     # Startup
     cache_service = None
-    if settings.nautobot_token:
-        try:
-            logger.info("Initializing Redis-based Nautobot cache service (read-only)")
-            cache_service = await DeviceCacheService.from_config(settings.config)
-            app.state.cache_service = cache_service
-            logger.info(
-                "Redis-based Nautobot cache service initialized "
-                "(cache refresh runs in separate container)"
-            )
-        except Exception as e:
-            logger.error("Failed to initialize Nautobot cache service: %s", e)
-            app.state.cache_service = None
-    else:
-        logger.info("Nautobot cache service disabled")
+    provider_client = None
+    try:
+        provider_client = dcim_client(settings.config)
+        app.state.dcim_client = provider_client
+        logger.info("Initializing Redis-based DCIM cache service (read-only)")
+        cache_service = await DeviceCacheService.from_config(
+            settings.config, provider_client=provider_client
+        )
+        app.state.cache_service = cache_service
+        logger.info(
+            "Redis-based DCIM cache service initialized (cache refresh runs in separate container)"
+        )
+    except Exception as e:
+        logger.error("Failed to initialize DCIM cache service: %s", e)
         app.state.cache_service = None
+        app.state.dcim_client = provider_client
 
     yield
 
     # Shutdown
     logger.info("API service shutting down")
+    if provider_client:
+        await provider_client.close()
+        logger.info("Closed DCIM client")
     if cache_service:
-        await cache_service.nautobot_client.close()
-        logger.info("Closed Nautobot client")
         await cache_service.redis_client.close()
         logger.info("Closed Redis connection")
 

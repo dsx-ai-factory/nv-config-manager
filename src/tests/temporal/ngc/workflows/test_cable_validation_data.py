@@ -38,7 +38,7 @@ DEVICE_CONNECTION_DATA_VALID: dict[str, dict[str, Any]] = {
             "backup_enabled": True,
             "ztp_enabled": True,
         },
-        "config_context": None,
+        "intent": None,
         "actual_connections": [
             {
                 "name": "swp0",

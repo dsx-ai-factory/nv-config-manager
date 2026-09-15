@@ -4,7 +4,12 @@ sidebar-title: Configuration Management
 position: 30
 ---
 
-NVIDIA Config Manager stores device configurations in the [Config Store service](../config-store/index.mdx). Config Manager [renders](../render/index.mdx) per-device configurations using version-controlled templates and device data from Nautobot. It then writes the intended configuration to the Config Store service. When a device boots, Config Manager retrieves the intended configuration from the Config Store service and a [Temporal workflow](../temporal/index.mdx) (or [ZTP](../network-ztp/index.mdx) on day zero) applies it to the device.
+NVIDIA Config Manager stores device configurations in the [Config Store service](../config-store/index.mdx). Config Manager [renders](../render/index.mdx) per-device configurations using version-controlled templates and normalized data from the selected DCIM provider (Nautobot is built in and remains the default). It then writes the intended configuration to the Config Store service. When a device boots, Config Manager retrieves the intended configuration from the Config Store service and a [Temporal workflow](../temporal/index.mdx) (or [ZTP](../network-ztp/index.mdx) on day zero) applies it to the device.
+
+The core Temporal workflow surface is available for every selected DCIM
+provider. An external provider supplies the workflow's normalized,
+intent-level data operations; Config Manager workflows do not select behavior
+by provider or issue provider GraphQL/REST requests themselves.
 
 The Config Store interface provides a comparison view of the intended and backup configurations:
 
@@ -45,7 +50,7 @@ Each configuration file tracks:
 - **Modified**: Timestamp of last modification
 - **Hash**: Git commit hash for verification
 - **Commit message**: One of the following:
-  - A description of the Nautobot object that was changed and by whom
+  - A description of the DCIM object that was changed and by whom
   - A Template Version change and the version used for the render
   - A user generated commit message for manually triggered renders
 

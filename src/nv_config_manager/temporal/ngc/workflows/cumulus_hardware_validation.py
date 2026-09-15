@@ -24,6 +24,12 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
+from nv_config_manager.dcim import (
+    DCIMLocationIdentifier,
+    DCIMLocationType,
+    dcim_location_id,
+    dcim_location_reference,
+)
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager.temporal.common.mixins.stage import (
@@ -42,6 +48,10 @@ from nv_config_manager.temporal.common.workflow_references import LocationRefere
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin, NetworkDeviceData
+    from nv_config_manager.temporal.ngc.activities.dcim import (
+        GetNetworkDevicesInput,
+        get_network_devices,
+    )
     from nv_config_manager.temporal.ngc.activities.hardware_validation import (
         CreateConsolidatedExcelInput,
         HardwareValidationInput,
@@ -55,10 +65,6 @@ with workflow.unsafe.imports_passed_through():
         get_platform_environment_voltage,
         get_platform_inventory,
     )
-    from nv_config_manager.temporal.ngc.activities.nautobot import (
-        GetNetworkDevicesInput,
-        get_network_devices,
-    )
 
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=5)
 DEVICE_QUERY_START_TO_CLOSE_TIMEOUT = timedelta(seconds=30)
@@ -66,7 +72,7 @@ DEFAULT_HARDWARE_VALIDATION_STATUS = ["Active", "Provisioned"]
 
 
 def format_filter_summary(
-    site: str,
+    site: DCIMLocationIdentifier,
     roles: list[str],
     status: list[str],
     tenant: str | None,
@@ -272,6 +278,9 @@ class ValidateHardwareInput(BaseModel):
     site: LocationReference = Field(
         description="Site used to select network devices for validation."
     )
+    site_type: DCIMLocationType | None = Field(
+        default=None, description="DCIM location type for the site identifier."
+    )
     roles: list[str] = Field(
         default=[], description="Device roles used to filter the selected network devices."
     )
@@ -301,6 +310,7 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
         "Validate hardware components (fans, PSUs, LEDs, voltage) across network devices"
     )
     workflow_input_class = ValidateHardwareInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/cumulus_hardware_validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
@@ -316,7 +326,7 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
         )
         self.define_stage(
             name="get_device_info",
-            description="Get device information from Nautobot",
+            description="Get device information from the DCIM",
             requires_approval=False,
             depends_on=["get_devices_to_validate"],
         )
@@ -373,7 +383,7 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
     class GetDevicesToValidateStageInput(StageInput):
         """Get Devices to Validate Stage Input."""
 
-        site: str
+        site: DCIMLocationIdentifier
         roles: list[str]
         status: list[str]
         tenant: str | None
@@ -474,7 +484,7 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
         elif not cumulus_devices:
             display = (
                 "No Cumulus Linux devices matched the specified filters "
-                f"({filter_summary}). Nautobot returned {len(result.devices)} "
+                f"({filter_summary}). The DCIM returned {len(result.devices)} "
                 "device(s), but hardware validation only runs against Cumulus Linux devices."
             )
         else:
@@ -487,7 +497,7 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
 
     @stage_executor("get_device_info")
     async def get_device_info(self, stage_input: GetDeviceStageInput) -> GetDeviceStageOutput:
-        """Get device data from Nautobot."""
+        """Get device data from the DCIM."""
         devices_data = {}
         device_names = []
 
@@ -952,11 +962,13 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
     ) -> HardwareValidationResult:
         """Execute hardware validation workflow."""
         self.set_input(workflow_input)
-        upsert_missing_search_attributes({SITE_SEARCH_ATTRIBUTE: [workflow_input.site]})
+        upsert_missing_search_attributes(
+            {SITE_SEARCH_ATTRIBUTE: [dcim_location_id(workflow_input.site)]}
+        )
 
         devices_to_validate_output = await self.get_devices_to_validate(
             self.GetDevicesToValidateStageInput(
-                site=workflow_input.site,
+                site=dcim_location_reference(workflow_input.site, workflow_input.site_type),
                 roles=workflow_input.roles,
                 status=workflow_input.status,
                 tenant=workflow_input.tenant,

@@ -19,12 +19,11 @@ from configparser import ConfigParser
 from unittest.mock import patch
 
 from nv_config_manager.common.config import (
-    TimeoutHTTPAdapter,
     _read_spiffe_jwt,
     clear_config_cache,
+    dcim_client,
     get_internal_auth_headers,
     load_config,
-    pynautobot_client,
     reload_config,
 )
 
@@ -121,25 +120,21 @@ class TestLoadConfig:
         assert second["dynamic"]["value"] == "one"
 
 
-class TestPynautobotClient:
-    """Tests for the synchronous Nautobot API client."""
+class TestDCIMClient:
+    """Tests for the provider-neutral DCIM client factory."""
 
-    def test_configures_timeout_and_retries_for_http_and_https(self):
+    def test_uses_explicit_config(self):
         config = ConfigParser()
-        config["nautobot"] = {
-            "server": "http://nautobot",
-            "token": "test-token",
-            "retries": "3",
-        }
+        expected_client = object()
 
-        with patch("nv_config_manager.common.config.load_config", return_value=config):
-            connection = pynautobot_client()
+        with patch(
+            "nv_config_manager.common.config.create_dcim_client",
+            return_value=expected_client,
+        ) as create_client:
+            connection = dcim_client(config)
 
-        for protocol in ("http://", "https://"):
-            adapter = connection.http_session.get_adapter(protocol)
-            assert isinstance(adapter, TimeoutHTTPAdapter)
-            assert adapter.timeout == 10
-            assert adapter.max_retries.total == 3
+        assert connection is expected_client
+        create_client.assert_called_once_with(config)
 
 
 class TestGetInternalAuthHeaders:

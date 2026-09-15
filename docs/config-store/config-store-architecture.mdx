@@ -26,8 +26,8 @@ flowchart TB
   render -->|"HTTP REST API"| fastapi
 
   sl --> pg[("PostgreSQL<br/>• config_files<br/>• version history and audit metadata")]
-  sl --> redis[("Redis<br/>• Device metadata<br/>• Nautobot cache")]
-  sl --> nb["Nautobot<br/>(GraphQL)"]
+  sl --> redis[("Redis<br/>• Device metadata<br/>• DCIM cache")]
+  sl --> dcim["Selected DCIM Provider<br/>(provider-owned API)"]
 ```
 
 ### Components
@@ -57,13 +57,14 @@ The API service is a FastAPI application that provides a REST API for configurat
 
 #### Redis
 
-- Cache for Nautobot device metadata
-- Reduces load on Nautobot API
+- Cache for selected-provider device metadata
+- Reduces load on the provider API
 
-#### Nautobot
+#### DCIM Provider
 
-- Source of truth for device metadata (site, platform, role, rack)
-- Accessed through the GraphQL API
+- Source of truth for normalized device metadata (site, platform, role, rack)
+- Accessed through the provider SDK; the provider owns its native REST,
+  GraphQL, or client-library calls
 - Metadata cached in Redis for performance
 
 ## High Availability Architecture
@@ -104,7 +105,7 @@ In this high-availability architecture:
 1. Client sends HTTP GET request to API endpoint
 1. FastAPI queries PostgreSQL for latest version
 1. Content is decompressed from storage
-1. Device metadata is enriched from Redis cache (or Nautobot if cache miss)
+1. Device metadata is enriched from Redis cache (or the selected provider if cache miss)
 1. Response returned with config content and metadata
 
 ### Concurrent Write Handling
@@ -124,7 +125,7 @@ The `config_files` table stores all versioned configuration content:
 ```sql
 config_files:
 - id (UUID, primary key)
-- device_uuid (UUID, indexed)
+- device_uuid (text, indexed; provider-owned device identifier)
 - filename (text)
 - file_type (enum: intended|backup, indexed)
 - version (integer)
@@ -152,9 +153,9 @@ Indexes: device+filename, device+filename+file_type, created_at, author
 - Each version is immutable (no updates, only new versions)
 - Full audit trail with author, commit message, and timestamp
 
-## Nautobot Integration
+## DCIM Provider Integration
 
-Device metadata is fetched from Nautobot through GraphQL and cached in Redis:
+Device metadata is fetched through the selected provider and cached in Redis:
 
 - Site information
 - Platform details
@@ -167,7 +168,7 @@ This metadata enriches API responses and enables device-centric views in the UI.
 **Caching Strategy**:
 
 - Metadata cached in Redis with TTL
-- Cache misses trigger GraphQL queries to Nautobot
+- Cache misses trigger provider-owned API calls
 - Cache refresh service periodically updates stale entries
 
 ## Deployment Architecture
@@ -178,7 +179,7 @@ The service is deployed as a Kubernetes application with:
 
 - **API Service**: 3-5 replicas for high availability
 - **PostgreSQL**: CNPG cluster (primary + 2 replicas)
-- **Redis**: Shared service for Nautobot metadata caching
+- **Redis**: Shared service for DCIM metadata caching
 - **Web UI**: Optional Next.js frontend
 - **Gateway**: For external access
 
@@ -188,7 +189,7 @@ The service is deployed as a Kubernetes application with:
   - Memory: 16GB per instance
   - CPU: 4-8 cores per instance
   - Storage: 200GB SSD
-- **Redis**: Shared service for Nautobot metadata caching
+- **Redis**: Shared service for DCIM metadata caching
 - **API Replicas**: 3-5 replicas for high availability
   - Memory: 1GB per replica
   - CPU: 500m per replica

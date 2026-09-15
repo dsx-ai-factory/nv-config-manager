@@ -19,9 +19,7 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import UTC, datetime
-from typing import Any
 
-import pynautobot
 from nv_config_manager_templates.render import Renderer
 from nv_config_manager_templates.version import template_version_key
 
@@ -32,21 +30,22 @@ from nv_config_manager.common.config import (
     config_store_client,
     config_store_ui_url,
     get_logger,
-    pynautobot_client,
 )
-from nv_config_manager.render.exceptions import NautobotException, RenderException
+from nv_config_manager.dcim import (
+    DCIMClient,
+    IntendedConfigurationUpdate,
+    RenderDataRequest,
+    dcim_client_session,
+)
+from nv_config_manager.render.exceptions import RenderException
 
 logger = get_logger(__name__, category=LogCategory.RENDER)
 
 DEPLOYABLE_FILES = ["startup.yaml", "full-config"]
 
 
-def _nv_config_manager_intended_config_endpoint(nb: pynautobot.api) -> Any:
-    return nb.plugins.nv_config_manager.intendedconfig
-
-
-async def _update_nautobot_plugin(  # pylint: disable=too-many-arguments
-    nb: pynautobot.api,
+async def _update_intended_configuration(  # pylint: disable=too-many-arguments
+    dcim_client: DCIMClient,
     device_uuid: str,
     config_store_instance: str,
     commit_id: str,
@@ -55,130 +54,85 @@ async def _update_nautobot_plugin(  # pylint: disable=too-many-arguments
     commit_message: str,
     updated_at: str | None = None,
 ) -> None:
-    intended_config_endpoint = _nv_config_manager_intended_config_endpoint(nb)
-    # Run blocking Nautobot get in thread
-    existing_config_entry = await asyncio.to_thread(intended_config_endpoint.get, device_uuid)
+    """Persist the deployable render metadata through the selected provider."""
+    for filename in paths:
+        if filename in DEPLOYABLE_FILES:
+            await dcim_client.upsert_intended_configuration(
+                IntendedConfigurationUpdate(
+                    device_id=device_uuid,
+                    config_store_instance=config_store_instance,
+                    path=filename,
+                    commit_id=commit_id,
+                    updated=updated_at or datetime.now(UTC).isoformat(),
+                    updated_by=user,
+                    commit_message=commit_message,
+                    template_version=template_version_key(),
+                )
+            )
+            return
 
-    for file in paths:
-        # Only full-config changes are relevant to the NB plugin
-        if file in DEPLOYABLE_FILES:
-            update = {
-                "device_id": device_uuid,
-                "config_store_instance": config_store_instance,
-                "path": file,
-                "commit_id": commit_id,
-                "updated": updated_at or datetime.now(UTC).isoformat(),
-                "updated_by": user,
-                "commit_message": commit_message,
-                "template_version": template_version_key(),
-            }
-
-            try:
-                if existing_config_entry:
-                    # Run blocking update in thread
-                    await asyncio.to_thread(existing_config_entry.update, update)
-                else:
-                    # Run blocking create in thread
-                    await asyncio.to_thread(intended_config_endpoint.create, update)
-                return
-            except Exception as exc:
-                raise NautobotException(
-                    f"Failed to update NB with intended configuration: {exc}"
-                ) from exc
-    # If we got here, no full config file change, just bump the template version
-    await _update_template_version(nb, device_uuid)
+    await _update_template_version(dcim_client, device_uuid)
 
 
-async def _update_template_version(nb: pynautobot.api, device_uuid: str) -> None:
-    """Update the template version for a device."""
-    # Run blocking update in thread
-    await asyncio.to_thread(
-        _nv_config_manager_intended_config_endpoint(nb).update,
-        id=device_uuid,
-        data={
-            "template_version": template_version_key(),
-        },
-    )
+async def _update_template_version(dcim_client: DCIMClient, device_uuid: str) -> None:
+    """Record a template version change without a deployable file update."""
+    await dcim_client.update_render_template_version(device_uuid, template_version_key())
 
 
-async def execute_render(device_uuid: str, commit_message: str, user: str) -> list[FileCommit]:
-    """Execute a render for a device."""
-    nb = pynautobot_client()
-    logger.info(
-        "Rendering configuration for %s with commit message '%s'",
-        device_uuid,
-        commit_message,
-    )
-    user_domain = os.getenv("NV_CONFIG_MANAGER_DOMAIN", "local.config-manager.example.com")
-    renderer = Renderer(
-        nb.base_url.replace("/api", ""),
-        nb.token,
-    )
-
-    # Run blocking render operation in thread
-    try:
-        files = await asyncio.to_thread(renderer.render_entrypoints, device_id=device_uuid)
-        if not files:
-            # If the device doesn't have associated templates,
-            # the render will produce an empty dict and nothing further
-            # should be done.
-            logger.info("No entrypoint templates matched for %s", device_uuid)
-            return []
-        # Sanitize the files dict to only include the filename
-        # without the entrypoint path and extension
-        files = {k.split("/")[-1].replace(".j2", ""): v for k, v in files.items()}
-    except Exception as exc:
-        raise RenderException(f"Failed to render entrypoints for {device_uuid}: {exc}") from exc
-
+async def _persist_rendered_files(
+    dcim_client: DCIMClient,
+    device_uuid: str,
+    files: dict[str, str],
+    commit_message: str,
+    user: str,
+    user_domain: str,
+) -> list[FileCommit]:
+    """Persist rendered files and synchronize the resulting provider state."""
     csclient = config_store_client()
-
     async with csclient:
         updated_files = await csclient.persist_files(
             device_uuid, files, commit_message, user, user_domain
         )
 
         if updated_files:
-            file_commits = [FileCommit(filename=f.filename, commit=f.commit) for f in updated_files]
+            file_commits = [
+                FileCommit(filename=file.filename, commit=file.commit) for file in updated_files
+            ]
             deployable_file = next(
-                (f for f in file_commits if f.filename in DEPLOYABLE_FILES), None
+                (file for file in file_commits if file.filename in DEPLOYABLE_FILES), None
             )
             logger.info(
                 "Produced commits for %s: %s",
                 device_uuid,
-                {f.filename: f.commit for f in file_commits},
+                {file.filename: file.commit for file in file_commits},
             )
             if deployable_file:
-                await _update_nautobot_plugin(
-                    nb,
+                await _update_intended_configuration(
+                    dcim_client,
                     device_uuid,
                     config_store_ui_url(),
                     deployable_file.commit,
-                    [f.filename for f in file_commits],
+                    [file.filename for file in file_commits],
                     user,
                     commit_message,
                 )
             else:
-                await _update_template_version(nb, device_uuid)
+                await _update_template_version(dcim_client, device_uuid)
             return file_commits
 
-        # No diff — re-sync Nautobot with the latest Config Store version so
-        # that re-added devices get the intended config record populated even
-        # when the rendered config hasn't changed.  The deployable filename
-        # varies by platform (full-config vs startup.yaml), so try each
-        # rendered file that qualifies until one is found in the store.
         for candidate in files:
             if candidate not in DEPLOYABLE_FILES:
                 continue
             try:
                 latest = await csclient.load_file(device_uuid, candidate)
                 logger.info(
-                    "No config diff for %s, re-syncing Nautobot with latest version %s of %s",
+                    "No config diff for %s, re-syncing DCIM with latest version %s of %s",
                     device_uuid,
                     latest.commit,
                     candidate,
                 )
-                await _update_nautobot_plugin(
-                    nb,
+                await _update_intended_configuration(
+                    dcim_client,
                     device_uuid,
                     config_store_ui_url(),
                     latest.commit,
@@ -191,5 +145,48 @@ async def execute_render(device_uuid: str, commit_message: str, user: str) -> li
             except ConfigStoreFileNotFound:
                 continue
 
-        await _update_template_version(nb, device_uuid)
+        await _update_template_version(dcim_client, device_uuid)
         return []
+
+
+async def execute_render(device_uuid: str, commit_message: str, user: str) -> list[FileCommit]:
+    """Execute a render for a device."""
+    logger.info(
+        "Rendering configuration for %s with commit message '%s'",
+        device_uuid,
+        commit_message,
+    )
+    user_domain = os.getenv("NV_CONFIG_MANAGER_DOMAIN", "local.config-manager.example.com")
+
+    async with dcim_client_session() as dcim_client:
+        try:
+            renderer = Renderer()
+            render_data = await dcim_client.get_render_data(
+                RenderDataRequest(
+                    device_id=device_uuid,
+                    plugin_data_requirements=renderer.plugin_data_requirements,
+                )
+            )
+            files = await asyncio.to_thread(
+                renderer.render_entrypoints,
+                render_data=render_data,
+            )
+            if not files:
+                logger.info("No entrypoint templates matched for %s", device_uuid)
+                return []
+            files = {key.split("/")[-1].replace(".j2", ""): value for key, value in files.items()}
+        except Exception as exc:
+            raise RenderException(f"Failed to render entrypoints for {device_uuid}: {exc}") from exc
+
+        try:
+            return await _persist_rendered_files(
+                dcim_client,
+                device_uuid,
+                files,
+                commit_message,
+                user,
+                user_domain,
+            )
+        except Exception:
+            logger.exception("Failed to persist or synchronize render for %s", device_uuid)
+            raise

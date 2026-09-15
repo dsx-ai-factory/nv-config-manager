@@ -27,78 +27,14 @@ import pytest
 import requests
 from paramiko import Transport
 
+from tests.integration.dcim_adapter import DCIMIntegrationAdapter
+
 # Mark all tests in this module as integration tests
 pytestmark = pytest.mark.integration
 
 
 class TestZTPAPI:
     """Tests for the ZTP API endpoints."""
-
-    # GraphQL query to get all ZTP-enabled devices with config path
-    ZTP_DEVICES_QUERY = """
-    query {
-        config_manager_devices(ztp_enabled: true) {
-            intended_config {
-                path
-            }
-            device {
-                id
-                name
-                status {
-                    name
-                }
-            }
-        }
-    }
-    """
-
-    # GraphQL query to get a specific device's status
-    DEVICE_STATUS_QUERY = """
-    query($id: ID!) {
-        device(id: $id) {
-            id
-            name
-            status {
-                name
-            }
-        }
-    }
-    """
-
-    def _query_graphql(
-        self,
-        nautobot_url: str,
-        nautobot_client: requests.Session,
-        query: str,
-        variables: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Execute a GraphQL query against Nautobot."""
-        payload: dict[str, Any] = {"query": query}
-        if variables:
-            payload["variables"] = variables
-
-        response = nautobot_client.post(
-            f"{nautobot_url}/api/graphql/",
-            json=payload,
-            timeout=30,
-        )
-        response.raise_for_status()
-        return response.json()
-
-    def _get_device_status(
-        self,
-        nautobot_url: str,
-        nautobot_client: requests.Session,
-        device_id: str,
-    ) -> str:
-        """Get the current status of a device."""
-        result = self._query_graphql(
-            nautobot_url,
-            nautobot_client,
-            self.DEVICE_STATUS_QUERY,
-            variables={"id": device_id},
-        )
-        return result["data"]["device"]["status"]["name"]
 
     @staticmethod
     def _get_config_filename(managed_device: dict[str, Any]) -> str:
@@ -115,8 +51,7 @@ class TestZTPAPI:
     def test_ztp_devices_can_fetch_config(
         self,
         ztp_api_url: str,
-        nautobot_url: str,
-        nautobot_client: requests.Session,
+        dcim_adapter: DCIMIntegrationAdapter,
         ztp_client: requests.Session,
     ) -> None:
         """Test that all ZTP-enabled devices can fetch their config file.
@@ -126,17 +61,7 @@ class TestZTPAPI:
         """
         print("\n=== Testing ZTP config fetch for all ZTP-enabled devices ===")
 
-        # Get all ZTP-enabled devices
-        result = self._query_graphql(
-            nautobot_url,
-            nautobot_client,
-            self.ZTP_DEVICES_QUERY,
-        )
-
-        if "errors" in result:
-            pytest.fail(f"GraphQL query failed: {result['errors']}")
-
-        devices = result.get("data", {}).get("config_manager_devices", [])
+        devices = dcim_adapter.list_devices(ztp_enabled=True)
         total_count = len(devices)
 
         print(f"Total ZTP-enabled devices: {total_count}")
@@ -149,8 +74,8 @@ class TestZTPAPI:
         failed = []
 
         for managed_device in devices:
-            device_id = managed_device["device"]["id"]
-            device_name = managed_device["device"]["name"]
+            device_id = managed_device["id"]
+            device_name = managed_device["name"]
             config_filename = self._get_config_filename(managed_device)
 
             try:
@@ -208,30 +133,19 @@ class TestZTPAPI:
     def test_provisioned_endpoint_updates_status(
         self,
         ztp_api_url: str,
-        nautobot_url: str,
-        nautobot_client: requests.Session,
+        dcim_adapter: DCIMIntegrationAdapter,
         ztp_client: requests.Session,
     ) -> None:
-        """Test that the provisioned endpoint updates device status in Nautobot.
+        """Test that the provisioned endpoint updates device status in the DCIM.
 
         This test:
         1. Finds a ZTP-enabled device
         2. Calls the provisioned endpoint
-        3. Verifies the device status changed to 'Provisioned' in Nautobot
+        3. Verifies the device status changed to 'Provisioned' in the selected DCIM
         """
         print("\n=== Testing ZTP provisioned endpoint ===")
 
-        # Get all ZTP-enabled devices
-        result = self._query_graphql(
-            nautobot_url,
-            nautobot_client,
-            self.ZTP_DEVICES_QUERY,
-        )
-
-        if "errors" in result:
-            pytest.fail(f"GraphQL query failed: {result['errors']}")
-
-        devices = result.get("data", {}).get("config_manager_devices", [])
+        devices = dcim_adapter.list_devices(ztp_enabled=True)
 
         if not devices:
             pytest.skip("No ZTP-enabled devices found in the deployment")
@@ -239,7 +153,7 @@ class TestZTPAPI:
         # Find a device that is NOT already Provisioned (to test the status change)
         test_device = None
         for device in devices:
-            status = device["device"]["status"]["name"]
+            status = device["status"]
             if status != "Provisioned":
                 test_device = device
                 break
@@ -247,13 +161,11 @@ class TestZTPAPI:
         if not test_device:
             # All devices are already provisioned - just verify the endpoint works
             test_device = devices[0]
-            print(
-                f"All devices already Provisioned, testing endpoint on {test_device['device']['name']}"
-            )
+            print(f"All devices already Provisioned, testing endpoint on {test_device['name']}")
 
-        device_id = test_device["device"]["id"]
-        device_name = test_device["device"]["name"]
-        initial_status = test_device["device"]["status"]["name"]
+        device_id = test_device["id"]
+        device_name = test_device["name"]
+        initial_status = test_device["status"]
 
         print(f"Testing device: {device_name}")
         print(f"Initial status: {initial_status}")
@@ -269,8 +181,8 @@ class TestZTPAPI:
         except requests.RequestException as e:
             pytest.fail(f"Failed to call provisioned endpoint: {e}")
 
-        # Verify the status changed in Nautobot
-        new_status = self._get_device_status(nautobot_url, nautobot_client, device_id)
+        # Verify the status changed in the selected DCIM.
+        new_status = dcim_adapter.get_device_status(device_id)
         print(f"New status: {new_status}")
 
         if new_status != "Provisioned":
@@ -284,8 +196,7 @@ class TestZTPAPI:
     @pytest.mark.timeout(60)
     def test_ztp_devices_exist(
         self,
-        nautobot_url: str,
-        nautobot_client: requests.Session,
+        dcim_adapter: DCIMIntegrationAdapter,
     ) -> None:
         """Test that ZTP-enabled devices exist in the deployment.
 
@@ -294,22 +205,13 @@ class TestZTPAPI:
         """
         print("\n=== Checking for ZTP-enabled devices ===")
 
-        result = self._query_graphql(
-            nautobot_url,
-            nautobot_client,
-            self.ZTP_DEVICES_QUERY,
-        )
-
-        if "errors" in result:
-            pytest.fail(f"GraphQL query failed: {result['errors']}")
-
-        devices = result.get("data", {}).get("config_manager_devices", [])
+        devices = dcim_adapter.list_devices(ztp_enabled=True)
         total_count = len(devices)
 
         print(f"Found {total_count} ZTP-enabled devices:")
         for device in devices[:10]:
-            name = device["device"]["name"]
-            status = device["device"]["status"]["name"]
+            name = device["name"]
+            status = device["status"]
             print(f"  - {name} (status: {status})")
 
         if total_count > 10:
@@ -384,44 +286,17 @@ class TestZTPFileStore:
 class TestZTPSFTP:
     """Tests for the ZTP SFTP server."""
 
-    # GraphQL query to get a single ZTP-enabled device with config path
-    ZTP_DEVICE_QUERY = """
-    query {
-        config_manager_devices(ztp_enabled: true) {
-            intended_config {
-                path
-            }
-            device {
-                id
-                name
-            }
-        }
-    }
-    """
-
     def _get_ztp_device(
         self,
-        nautobot_url: str,
-        nautobot_client: requests.Session,
+        dcim_adapter: DCIMIntegrationAdapter,
     ) -> tuple[str, str, str] | None:
-        """Get a single ZTP-enabled device (id, name, config_filename) from Nautobot.
+        """Get a single ZTP-enabled device through the selected provider adapter.
 
         Returns:
             Tuple of (device_id, device_name, config_filename) or None if not found.
             The config_filename is extracted from the intended_config.path field.
         """
-        response = nautobot_client.post(
-            f"{nautobot_url}/api/graphql/",
-            json={"query": self.ZTP_DEVICE_QUERY},
-            timeout=30,
-        )
-        response.raise_for_status()
-        result = response.json()
-
-        if "errors" in result:
-            return None
-
-        devices = result.get("data", {}).get("config_manager_devices", [])
+        devices = dcim_adapter.list_devices(ztp_enabled=True)
         if not devices:
             return None
 
@@ -429,28 +304,26 @@ class TestZTPSFTP:
         for managed_device in devices:
             intended_config = managed_device.get("intended_config")
             if intended_config and intended_config.get("path"):
-                device = managed_device["device"]
                 # Extract filename from path (e.g., "startup.yaml" from full path)
                 config_path = intended_config["path"]
                 # The path may be just a filename or a full path
                 config_filename = config_path.split("/")[-1] if "/" in config_path else config_path
-                return (device["id"], device["name"], config_filename)
+                return (managed_device["id"], managed_device["name"], config_filename)
 
         # Fallback: return first device with a default filename
-        device = devices[0]["device"]
+        device = devices[0]
         return (device["id"], device["name"], "startup.yaml")
 
     @pytest.mark.timeout(60)
     def test_sftp_fetch_config(
         self,
         sftp_host_port: tuple[str, int],
-        nautobot_url: str,
-        nautobot_client: requests.Session,
+        dcim_adapter: DCIMIntegrationAdapter,
     ) -> None:
         """Test that a device's config file can be fetched via SFTP.
 
         This test:
-        1. Gets a ZTP-enabled device from Nautobot (with its config filename)
+        1. Gets a ZTP-enabled device from the DCIM (with its config filename)
         2. Connects to the SFTP server
         3. Downloads the device's config file
         4. Verifies the content is valid
@@ -464,7 +337,7 @@ class TestZTPSFTP:
         print(f"\n=== Testing SFTP config fetch at {host}:{port} ===")
 
         # Get a ZTP-enabled device with its config filename
-        device = self._get_ztp_device(nautobot_url, nautobot_client)
+        device = self._get_ztp_device(dcim_adapter)
         if not device:
             pytest.skip("No ZTP-enabled devices found in the deployment")
 

@@ -2417,7 +2417,7 @@ func (r ApiIbportguiddiscoveryworkflowEndpointV1WorkflowNgcIbPortGuidDiscoveryPo
 /*
 IbportguiddiscoveryworkflowEndpointV1WorkflowNgcIbPortGuidDiscoveryPost Execute IBPortGuidDiscoveryWorkflow
 
-Discover InfiniBand port GUIDs from UFM and sync them onto the matching Nautobot interfaces.
+Discover InfiniBand port GUIDs from UFM and sync them onto the matching DCIM interfaces.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@return ApiIbportguiddiscoveryworkflowEndpointV1WorkflowNgcIbPortGuidDiscoveryPostRequest

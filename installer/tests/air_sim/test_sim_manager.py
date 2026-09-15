@@ -83,6 +83,32 @@ def test_resolve_cumulus_vx_images_requires_match() -> None:
         manager.resolve_cumulus_vx_images(["5.16.1"])
 
 
+def test_configure_etc_hosts_adds_provider_hostname_on_existing_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = AirSimulationManager.__new__(AirSimulationManager)
+    commands: list[str] = []
+
+    monkeypatch.setattr(manager, "_ssh_cmd", lambda _host, _port: ["ssh", "worker.example"])
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
+        commands.append(cmd[-1])
+        if len(commands) == 1:
+            return SimpleNamespace(stdout="192.0.2.10\n")
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr(sim_manager_module.subprocess, "run", fake_run)
+
+    assert manager.configure_etc_hosts(
+        "worker.example",
+        17117,
+        additional_hostnames=("netbox.nvcm.air",),
+    )
+    assert "grep -Fqw -- nvcm.air" in commands[1]
+    assert "grep -Fqw -- netbox.nvcm.air" in commands[1]
+    assert "192.0.2.10 netbox.nvcm.air" in commands[1]
+
+
 def test_configure_nat_rules_enables_dhcp_relay(monkeypatch: pytest.MonkeyPatch) -> None:
     manager = AirSimulationManager.__new__(AirSimulationManager)
     commands: list[str] = []

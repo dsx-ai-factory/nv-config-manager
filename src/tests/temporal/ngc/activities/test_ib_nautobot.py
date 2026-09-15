@@ -56,10 +56,12 @@ PKEY_ID = "pky-bbbb"
 
 def _nb_config() -> ConfigParser:
     config = ConfigParser()
-    config.add_section("nautobot")
-    config.set("nautobot", "server", NB_URL)
-    config.set("nautobot", "token", "test-token")
-    config.set("nautobot", "verify", "false")
+    config.add_section("dcim")
+    config.set("dcim", "provider", "nautobot-2x")
+    config.set("dcim", "server", NB_URL)
+    config.set("dcim", "token", "test-token")
+    config.set("dcim", "verify", "false")
+    config.add_section("nats")
     return config
 
 
@@ -73,7 +75,7 @@ def reset_secrets_cache() -> Any:
 @pytest.fixture()
 def mock_nb_config() -> Any:
     with patch(
-        "nv_config_manager.temporal.client.nautobot.load_config",
+        "nv_config_manager.common.config.load_config",
         return_value=_nb_config(),
     ):
         yield
@@ -138,6 +140,7 @@ def _datahall_device_payload(
     return {
         "id": DEVICE_ID,
         "name": DEVICE_NAME,
+        "role": {"name": "UFM"},
         "primary_ip4": {"host": DEVICE_IP},
         "location": {
             "id": DATAHALL_ID,
@@ -289,6 +292,7 @@ class TestResolveIBContextByName:
         assert result.ufm_device_name == DEVICE_NAME
         assert result.location_id == LOCATION_ID
         assert result.location_name == LOCATION_NAME
+        assert result.location_type == "Site"
         assert result.overlay_id == OVERLAY_ID
         assert result.overlay_name == OVERLAY_NAME
         assert result.pkey_id == PKEY_ID
@@ -442,6 +446,7 @@ class TestResolveIBSiteForHost:
         assert result.ufm_device_primary_ip == DEVICE_IP
         assert result.location_id == LOCATION_ID
         assert result.location_name == LOCATION_NAME
+        assert result.location_type == "Site"
 
     async def test_happy_path_by_ip(self, mock_nb_config: Any) -> None:
         payload = {
@@ -767,7 +772,13 @@ class TestCanonicalizeUFMHost:
             assert await canonicalize_ufm_host(DEVICE_IP) == DEVICE_IP
 
     async def test_falls_back_to_name_without_primary_ip(self, mock_nb_config: Any) -> None:
-        device = {"id": DEVICE_ID, "name": DEVICE_NAME, "primary_ip4": None, "location": {}}
+        device = {
+            "id": DEVICE_ID,
+            "name": DEVICE_NAME,
+            "role": {"name": "UFM"},
+            "primary_ip4": None,
+            "location": {},
+        }
         with aioresponses() as m:
             m.post(NB_GRAPHQL, payload={"data": {"devices": [device]}})
             assert await canonicalize_ufm_host(DEVICE_NAME) == DEVICE_NAME

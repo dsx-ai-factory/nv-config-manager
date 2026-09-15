@@ -45,6 +45,9 @@ nautobot:
 
 # External services - use local deployments to avoid requiring external URLs
 externalServices:
+  nats:
+    local: true
+    authMethod: password
   nautobot:
     local: true
   redis:

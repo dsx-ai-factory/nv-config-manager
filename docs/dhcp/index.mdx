@@ -4,20 +4,20 @@ sidebar-title: DHCP Service
 position: 0
 ---
 
-NVIDIA Config Manager's DHCP service provides automated ISC Kea DHCP server configuration management, generating configurations dynamically from Nautobot network data. This enables automated IP address assignment, DHCP reservations, and Zero Touch Provisioning (ZTP) for network devices.
+NVIDIA Config Manager's DHCP service provides automated ISC Kea DHCP server configuration management, generating configurations dynamically from data supplied by the selected DCIM provider. This enables automated IP address assignment, DHCP reservations, and Zero Touch Provisioning (ZTP) for network devices. The bundled Nautobot provider's data model is documented separately.
 
 ## Overview
 
 The DHCP service:
 
-- Queries Nautobot for DHCP-relevant network data (prefixes, IP addresses, devices)
+- Queries the selected DCIM provider for DHCP-relevant network data (prefixes, IP addresses, devices)
 - Generates Kea DHCP4/DHCP6 configuration files with subnets, pools, and reservations
 - Manages Kea server configuration updates through the Kea Control Agent API
 - Supports ZTP integration with device-specific boot script URLs
 
 Key features include:
 
-- **Dynamic Configuration Generation**: Automatically generates Kea config from Nautobot source of truth
+- **Dynamic Configuration Generation**: Automatically generates Kea config from the selected DCIM source of truth
 - **Static DHCP Reservations**: Device-specific IP assignments based on MAC address or serial number
 - **Dynamic IP Pools**: Configurable ranges for transient device addressing
 - **ZTP Integration**: DHCP options for automated device bootstrapping (boot scripts, firmware URLs)
@@ -27,7 +27,7 @@ Key features include:
 
 ## Getting Started
 
-To configure DHCP in Nautobot for use with Config Manager:
+For the bundled Nautobot provider, configure DHCP in Nautobot as follows:
 
 Before you begin, make sure you understand the data model. Read [DHCP Modeling in Nautobot](nautobot-modeling.mdx) to learn about tagging network prefixes and IP addresses.
 
@@ -57,7 +57,7 @@ Follow the procedures on this page to define and generate your DHCP configuratio
 
 The DHCP service consists of:
 
-- **Configuration Generator** (`nv-config-manager-dhcp-confgen`): Queries Nautobot, generates Kea config files
+- **Configuration Generator** (`nv-config-manager-dhcp-confgen`): Queries the selected DCIM provider and generates Kea config files
 - **Kea DHCP Server**: ISC Kea DHCP4/DHCP6 server instances
 - **Kea Control Agent**: API for managing Kea configuration and leases
 - **PostgreSQL Lease Database**: Shared lease storage for high availability

@@ -34,7 +34,7 @@ from nv_config_manager.temporal.ngc.workflows._ib_pkey_lock import UFMHostLockMi
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
-    from nv_config_manager.temporal.ngc.activities.ib_nautobot import (
+    from nv_config_manager.temporal.ngc.activities.ib_dcim import (
         CurrentAssignment,
         FetchPKeyAssignmentsInput,
         FetchPKeyAssignmentsOutput,
@@ -72,6 +72,9 @@ with workflow.unsafe.imports_passed_through():
     )
 
 
+DCIM_STAGE_IDENTIFIERS_PATCH = "dcim-stage-identifiers-v1"
+
+
 def _format_diff_lines(
     *,
     pkey: str,
@@ -82,7 +85,7 @@ def _format_diff_lines(
 ) -> str:
     """Format a human-readable diff with device/interface/GUID per member.
 
-    ``ufm_only_removals`` are GUIDs present on UFM but absent from Nautobot; the
+    ``ufm_only_removals`` are GUIDs present on UFM but absent from the DCIM; the
     exact-set PUT will drop them, so they are surfaced explicitly for approval.
     """
     lines: list[str] = [f"**PKey {pkey} membership diff:**"]
@@ -105,7 +108,7 @@ def _format_diff_lines(
     if ufm_only_removals:
         lines.append(
             f"- Remove {len(ufm_only_removals)} untracked UFM-only member(s) "
-            "(present on UFM, not in Nautobot):"
+            "(present on UFM, not in the DCIM):"
         )
         for guid in ufm_only_removals:
             lines.append(f"    - Remove PKey {pkey} from GUID {guid} (untracked on UFM)")
@@ -131,7 +134,7 @@ class IBPKeyMemberUpdateInput(BaseModel):
     host: str = Field(description="Hostname of the UFM server managing the InfiniBand fabric.")
     pkey: str = Field(description="Partition key whose membership will be replaced.")
     interfaces: list[InterfaceRef] = Field(
-        default=[], description="Nautobot interfaces to resolve to InfiniBand port GUIDs."
+        default=[], description="DCIM interfaces to resolve to InfiniBand port GUIDs."
     )
     guids: list[str] = Field(
         default=[], description="InfiniBand port GUIDs that should belong to the partition."
@@ -191,6 +194,7 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
     workflow_name = "InfiniBand PKey Member Update"
     workflow_description = "Reconcile InfiniBand PKey membership to a desired interface list"
     workflow_input_class = IBPKeyMemberUpdateInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/ib_pkey_member_update"
     workflow_namespace = "ngc"
     workflow_lock = WorkflowLockSpec(key_fields=["host", "pkey"])
@@ -198,21 +202,24 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
     def __init__(self) -> None:
         """Initialize workflow with seven stages."""
         StageMixin.__init__(self)
+        self._update_dcim_stage_name = (
+            "update_dcim" if workflow.patched(DCIM_STAGE_IDENTIFIERS_PATCH) else "update_nautobot"
+        )
         self.define_stage(
             name="resolve_context",
-            description="Resolve site, overlay, and canonical pkey from Nautobot",
+            description="Resolve site, overlay, and canonical pkey from the DCIM",
             requires_approval=False,
             depends_on=[],
         )
         self.define_stage(
             name="resolve_desired",
-            description="Resolve desired interfaces to IB GUIDs from Nautobot",
+            description="Resolve desired interfaces to IB GUIDs from the DCIM",
             requires_approval=False,
             depends_on=["resolve_context"],
         )
         self.define_stage(
             name="query_current",
-            description="Fetch current OverlayAssignments from Nautobot and compute diff",
+            description="Fetch current OverlayAssignments from the DCIM and compute diff",
             requires_approval=False,
             depends_on=["resolve_desired"],
         )
@@ -224,8 +231,8 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
             depends_on=["query_current"],
         )
         self.define_stage(
-            name="update_nautobot",
-            description="Sync OverlayAssignment records in Nautobot",
+            name=self._update_dcim_stage_name,
+            description="Sync OverlayAssignment records in the DCIM",
             requires_approval=False,
             depends_on=["validate_diff"],
         )
@@ -233,7 +240,7 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
             name="update_ufm",
             description="Remove stale and add new GUIDs on UFM",
             requires_approval=False,
-            depends_on=["update_nautobot"],
+            depends_on=[self._update_dcim_stage_name],
         )
         self.define_stage(
             name="verify_ufm",
@@ -243,7 +250,7 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
         )
 
     # ------------------------------------------------------------------
-    # Stage 0: Resolve site / overlay / canonical pkey from Nautobot
+    # Stage 0: Resolve site / overlay / canonical pkey from the DCIM
     # ------------------------------------------------------------------
 
     class ResolveContextStageInput(StageInput):
@@ -267,7 +274,7 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
     async def resolve_context(
         self, stage_input: ResolveContextStageInput
     ) -> ResolveContextStageOutput:
-        """Resolve site/overlay from Nautobot and canonicalize pkey."""
+        """Resolve site/overlay from the DCIM and canonicalize pkey."""
         resolved = await call_resolve_ib_context(stage_input.host, stage_input.pkey)
 
         return self.ResolveContextStageOutput(
@@ -305,7 +312,7 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
     async def resolve_desired(
         self, stage_input: ResolveDesiredStageInput
     ) -> ResolveDesiredStageOutput:
-        """Resolve desired members from interfaces or GUIDs into Nautobot interface records."""
+        """Resolve desired members from interfaces or GUIDs into DCIM interface records."""
         resolved, display = await resolve_members(
             stage_input.interfaces,
             stage_input.guids,
@@ -315,7 +322,7 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
         return self.ResolveDesiredStageOutput(resolved=resolved, display=display)
 
     # ------------------------------------------------------------------
-    # Stage 2: Query current Nautobot state, compute diff
+    # Stage 2: Query current DCIM state, compute diff
     # ------------------------------------------------------------------
 
     class QueryCurrentStageInput(StageInput):
@@ -343,7 +350,7 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
 
     @stage_executor("query_current")
     async def query_current(self, stage_input: QueryCurrentStageInput) -> QueryCurrentStageOutput:
-        """Fetch current Nautobot assignments and compute the membership diff."""
+        """Fetch current DCIM assignments and compute the membership diff."""
         result: FetchPKeyAssignmentsOutput = await workflow.execute_activity(
             fetch_pkey_assignments,
             FetchPKeyAssignmentsInput(overlay_id=stage_input.overlay_id),
@@ -386,7 +393,7 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
             unresolved_guids = _unresolved_guid_values(guids_to_remove, ifaces_to_remove)
             if unresolved_guids:
                 raise ApplicationError(
-                    f"Unable to resolve removal GUID(s) to Nautobot interfaces: {unresolved_guids}",
+                    f"Unable to resolve removal GUID(s) to DCIM interfaces: {unresolved_guids}",
                     non_retryable=True,
                 )
 
@@ -448,7 +455,7 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
     async def validate_diff(self, stage_input: ValidateDiffStageInput) -> ValidateDiffStageOutput:
         """Gate on approval when the diff drops any UFM member; auto-approve additions-only.
 
-        Removals include both Nautobot-tracked members and untracked UFM-only
+        Removals include both DCIM-tracked members and untracked UFM-only
         members, since the exact-set PUT drops both.
         """
         stage_name = "validate_diff"
@@ -487,28 +494,26 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
         )
 
     # ------------------------------------------------------------------
-    # Stage 4: Update Nautobot
+    # Stage 4: Update the DCIM
     # ------------------------------------------------------------------
 
-    class UpdateNautobotStageInput(StageInput):
-        """Update Nautobot Stage Input."""
+    class UpdateDCIMStageInput(StageInput):
+        """Update DCIM stage input."""
 
         overlay_id: str
         desired: list[ResolvedInterface]
         membership_type: str
 
-    class UpdateNautobotStageOutput(StageOutput):
-        """Update Nautobot Stage Output."""
+    class UpdateDCIMStageOutput(StageOutput):
+        """Update DCIM stage output."""
 
         added: list[str]
         removed: list[str]
         unchanged: list[str]
 
-    @stage_executor("update_nautobot")
-    async def update_nautobot(
-        self, stage_input: UpdateNautobotStageInput
-    ) -> UpdateNautobotStageOutput:
-        """Sync OverlayAssignment records in Nautobot to match the desired list."""
+    @stage_executor("update_nautobot", name_attribute="_update_dcim_stage_name")
+    async def update_dcim(self, stage_input: UpdateDCIMStageInput) -> UpdateDCIMStageOutput:
+        """Sync overlay assignment records in the DCIM to match the desired list."""
         result: SyncPKeyAssignmentsOutput = await workflow.execute_activity(
             sync_pkey_assignments,
             SyncPKeyAssignmentsInput(
@@ -519,7 +524,7 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
-        return self.UpdateNautobotStageOutput(
+        return self.UpdateDCIMStageOutput(
             added=result.added,
             removed=result.removed,
             unchanged=result.unchanged,
@@ -677,7 +682,7 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
         )
 
         if not validate_output.approved:
-            self.set_stage_state("update_nautobot", StateEnum.UNREACHABLE)
+            self.set_stage_state(self._update_dcim_stage_name, StateEnum.UNREACHABLE)
             self.set_stage_state("update_ufm", StateEnum.UNREACHABLE)
             self.set_stage_state("verify_ufm", StateEnum.UNREACHABLE)
             await self.archive_results()
@@ -694,8 +699,8 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
                 assignment_ids_unchanged=[],
             )
 
-        nautobot_output = await self.update_nautobot(
-            self.UpdateNautobotStageInput(
+        dcim_output = await self.update_dcim(
+            self.UpdateDCIMStageInput(
                 overlay_id=context.overlay_id,
                 desired=resolve_output.resolved,
                 membership_type=workflow_input.membership_type,
@@ -740,11 +745,11 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
             pkey=verify_output.pkey,
             overlay_id=context.overlay_id,
             overlay_name=context.overlay_name,
-            members_added=len(nautobot_output.added),
-            members_removed=len(nautobot_output.removed),
-            members_unchanged=len(nautobot_output.unchanged),
+            members_added=len(dcim_output.added),
+            members_removed=len(dcim_output.removed),
+            members_unchanged=len(dcim_output.unchanged),
             verified=verify_output.verified,
-            assignment_ids_added=nautobot_output.added,
-            assignment_ids_removed=nautobot_output.removed,
-            assignment_ids_unchanged=nautobot_output.unchanged,
+            assignment_ids_added=dcim_output.added,
+            assignment_ids_removed=dcim_output.removed,
+            assignment_ids_unchanged=dcim_output.unchanged,
         )

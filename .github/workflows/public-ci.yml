@@ -33,11 +33,17 @@ jobs:
       - uses: &setup_uv astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: "1.26.6"
+      - name: Sorted list check (keep-sorted)
+        run: make sort-check
       - run: uv sync --frozen
-      - run: uv run ruff format --check src/ components/network-templates/src components/network-templates/tests
-      - run: uv run ruff check src/ components/network-templates/src components/network-templates/tests
-      - run: uv run ty check src/nv_config_manager/
-      - run: uv run mypy src/nv_config_manager --no-incremental
+      - run: uv run ruff format --check src/ packages plugins/dcim/nautobot-2x .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py
+      - run: uv run ruff check src/ packages plugins/dcim/nautobot-2x .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py
+      - run: uv run ty check src/nv_config_manager/ packages/dcim/src packages/workflows .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py
+      - run: uv run mypy src/nv_config_manager packages/dcim/src packages/workflows .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py --no-incremental
       - name: Installer lint
         working-directory: installer
         run: |
@@ -122,7 +128,7 @@ jobs:
         run: |
           SPDX_ID="SPDX-License-Identifier: Apache-2.0"
           LICENSE_TEXT="Licensed under the Apache License"
-          CHECK_DIRS="src/ ui/src/ ui/tests/ components/ db/migrations/ scripts/ development/ installer/src/"
+          CHECK_DIRS="src/ ui/src/ ui/tests/ packages/ plugins/ components/ db/migrations/ scripts/ development/ installer/src/"
           EXTENSIONS="py ts tsx go"
           FAILED=0
           for dir in $CHECK_DIRS; do
@@ -157,6 +163,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen
+      - run: uv run pytest packages/dcim/tests -v
       - run: uv run pytest -n auto --cov=src/nv_config_manager --cov-report=xml:coverage.xml --cov-report=term
       - name: Nautobot tests
         working-directory: components/nautobot
@@ -217,12 +224,12 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen
-      - run: uv run pytest components/network-templates/tests -v --cov=nv_config_manager_templates --cov-report=xml:components/network-templates/coverage.xml --cov-report=term
+      - run: uv run pytest packages/templates/tests -v --cov=nv_config_manager_templates --cov-report=xml:packages/templates/coverage.xml --cov-report=term
       - uses: *upload_artifact
         if: always()
         with:
           name: network-template-test-artifacts
-          path: components/network-templates/coverage.xml
+          path: packages/templates/coverage.xml
 
   go-lint:
     name: Go Module Check
@@ -258,10 +265,31 @@ jobs:
           persist-credentials: false
       - name: Setup proxy cache
         uses: *setup_proxy_cache
+      - uses: *actions_setup_python
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
       - name: Install Helm
         run: |
-          curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz
+          HELM_ARCHIVE="helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          # Official v3.15.3 Linux AMD64 release checksum. Update this value
+          # together with HELM_VERSION.
+          HELM_SHA256=ad871aecb0c9fd96aa6702f6b79e87556c8998c2e714a4959bf71ee31282ac9c
+          curl --retry 3 --retry-delay 5 --retry-connrefused -fsSLO \
+            "https://get.helm.sh/${HELM_ARCHIVE}"
+          curl --retry 3 --retry-delay 5 --retry-connrefused -fsSLO \
+            "https://get.helm.sh/${HELM_ARCHIVE}.sha256sum"
+          grep -Fqx "${HELM_SHA256}  ${HELM_ARCHIVE}" "${HELM_ARCHIVE}.sha256sum"
+          sha256sum -c "${HELM_ARCHIVE}.sha256sum"
+          tar -xzf "$HELM_ARCHIVE"
           sudo mv linux-amd64/helm /usr/local/bin/helm
+      - name: Install YAML parser from internal package cache
+        run: |
+          # PyYAML 6.0.3 cp313 manylinux2014 x86_64 wheel. Update this hash
+          # when PYTHON_VERSION or the Helm runner architecture changes.
+          PYYAML_SHA256=0f29edc409a6392443abf94b9cf89ce99889a1dd5376d94316ae5145dfedd5d6
+          python -m pip install --disable-pip-version-check --no-deps \
+            --only-binary=:all: --require-hashes \
+            -r <(printf 'PyYAML==6.0.3 --hash=sha256:%s\n' "$PYYAML_SHA256")
       - name: Build chart dependencies
         run: |
           helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
@@ -270,6 +298,38 @@ jobs:
           helm dependency build deploy/helm/
       - run: helm lint deploy/helm/ --values deploy/helm/values-ci.yaml
       - run: helm template test deploy/helm/ --values deploy/helm/values-ci.yaml >/tmp/nvcm-helm.yaml
+      - name: CNPG PodMonitor ownership render
+        run: |
+          # A CloudNativePG operator may own/delete a PodMonitor whose name is
+          # identical to its Cluster. Chart-owned monitors must use distinct,
+          # release-scoped names or ArgoCD will wait forever for deleted CRs.
+          # Exercise the fullname truncation path. Each monitor must retain a
+          # cluster-specific identity even when the release name is very long.
+          long_release_name="$(printf 'r%.0s' {1..53})"
+          helm template "$long_release_name" deploy/helm/ \
+            --values deploy/helm/values-ci.yaml >/tmp/nvcm-helm-long-release.yaml
+          python .github/scripts/check-cnpg-podmonitors.py \
+            /tmp/nvcm-helm.yaml \
+            /tmp/nvcm-helm-long-release.yaml
+      - name: Bundled NATS without Nautobot render
+        run: |
+          helm template test deploy/helm/ \
+            --values deploy/helm/values-ci.yaml \
+            --set-string dcim.provider=netbox \
+            --set-string dcim.server=https://netbox.example.com \
+            --set-string dcim.publicUrl=https://netbox.example.com \
+            --set nautobot.enabled=false \
+            --set externalServices.nautobot.local=false \
+            --set externalServices.nats.local=true \
+            --set-string externalServices.nats.authMethod=password \
+            --set-string secrets.vault.paths.dcim.path=nv-config-manager/ci/dcim \
+            --set-string secrets.vault.paths.nats.path=nv-config-manager/ci/nats \
+            >/tmp/nvcm-external-dcim.yaml
+          grep -q '^  name: test-nv-config-manager-nats$' /tmp/nvcm-external-dcim.yaml
+          if grep -q '^  name: test-nv-config-manager-nautobot$' /tmp/nvcm-external-dcim.yaml; then
+            echo "ERROR: Nautobot rendered for an external DCIM deployment"
+            exit 1
+          fi
       - name: Temporal codec CORS render
         run: |
           expected="cors_origins = https://ci.config-manager.example.com,https://temporal.ci.config-manager.example.com"
@@ -434,6 +494,25 @@ jobs:
           [ "$fail" -eq 0 ] || exit 1
           echo "All 9 built-service images render exact repository:tag or repository@digest references"
 
+  argocd-health-gate:
+    name: ArgoCD Rollout Observer
+    runs-on: linux-amd64-cpu4
+    permissions:
+      contents: read
+    steps:
+      - uses: *actions_checkout
+        with:
+          persist-credentials: false
+      - name: Setup proxy cache
+        uses: *setup_proxy_cache
+      - uses: *actions_setup_python
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: *setup_uv
+      - run: uv sync --frozen --only-group promotion-gate --no-install-project --no-install-workspace
+      - name: Exercise exact-revision rollout observation
+        run: uv run --frozen --only-group promotion-gate --no-sync python .gitlab/ci/scripts/test_wait_for_argocd.py
+
   openapi:
     name: OpenAPI And Go Bindings Check
     runs-on: linux-amd64-cpu4
@@ -567,6 +646,8 @@ jobs:
         with:
           node-version: "24"
       - run: node --test .github/scripts/*.test.js
+      - name: GitLab promotion authorization tests
+        run: .gitlab/ci/scripts/tests/validate_promote_request_test.sh
 
   ui-lint:
     name: UI Lint

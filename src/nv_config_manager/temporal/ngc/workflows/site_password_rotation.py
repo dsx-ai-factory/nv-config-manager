@@ -22,6 +22,11 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ChildWorkflowError
 
+from nv_config_manager.dcim import (
+    DCIMLocationIdentifier,
+    DCIMLocationType,
+    dcim_location_reference,
+)
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager.temporal.common.mixins.stage import (
@@ -40,16 +45,20 @@ from nv_config_manager.temporal.common.workflow_references import LocationRefere
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
-    from nv_config_manager.temporal.common.mixins.device import DeviceMixin, NetworkDeviceData
-    from nv_config_manager.temporal.ngc.activities.config import get_ui_base_url
-    from nv_config_manager.temporal.ngc.activities.device_password_rotation import (
-        FormatPasswordRotationResultsInput,
-        format_password_rotation_results,
+    from nv_config_manager.temporal.common.mixins.device import (
+        DeviceMixin,
+        NetworkDeviceData,
+        Platform,
     )
-    from nv_config_manager.temporal.ngc.activities.nautobot import (
+    from nv_config_manager.temporal.ngc.activities.config import get_ui_base_url
+    from nv_config_manager.temporal.ngc.activities.dcim import (
         GetNetworkDevicesInput,
         GetNetworkDevicesOutput,
         get_network_devices,
+    )
+    from nv_config_manager.temporal.ngc.activities.device_password_rotation import (
+        FormatPasswordRotationResultsInput,
+        format_password_rotation_results,
     )
     from nv_config_manager.temporal.ngc.workflows.device_password_rotation import (
         DevicePasswordRotationInput,
@@ -59,7 +68,7 @@ with workflow.unsafe.imports_passed_through():
 # Default configurations
 DEFAULT_CONFIG_MANAGER_STATUS = ["Active", "Provisioned"]
 DEFAULT_CONFIG_MANAGER_TENANT = None
-SUPPORTED_PLATFORMS = ["cumulus", "nvos"]
+SUPPORTED_PLATFORMS = [Platform.CUMULUS_LINUX, Platform.NV_OS, Platform.JUNIPER_JUNOS]
 
 # Search attributes to clone from parent to child workflows
 CLONE_SEARCH_ATTRS = [
@@ -80,6 +89,9 @@ class SitePasswordRotationInput(BaseModel):
     location: LocationReference = Field(
         min_length=1,
         description="Location containing the devices to update.",
+    )
+    location_type: DCIMLocationType | None = Field(
+        default=None, description="DCIM location type for the location identifier."
     )
     selected_secret: str = Field(
         description="Name of the managed secret containing the replacement password."
@@ -117,6 +129,7 @@ class SitePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
         "Rotate passwords across all devices in a site with coordinated deployment"
     )
     workflow_input_class = SitePasswordRotationInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/site_password_rotation"
     workflow_namespace = "ngc"
 
@@ -145,7 +158,7 @@ class SitePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
     class GetDevicesStageInput(StageInput):
         """Get Devices Stage Input."""
 
-        location: str
+        location: DCIMLocationIdentifier
         roles: list[str] = []
         tenant: str | None = DEFAULT_CONFIG_MANAGER_TENANT
         status: list[str] = DEFAULT_CONFIG_MANAGER_STATUS
@@ -166,6 +179,7 @@ class SitePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
                 tenant=stage_input.tenant,
                 status=stage_input.status,
                 managed_only=True,
+                platforms=SUPPORTED_PLATFORMS,
             ),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
@@ -351,7 +365,9 @@ class SitePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
 
         devices_output = await self.get_devices(
             SitePasswordRotationWorkflow.GetDevicesStageInput(
-                location=workflow_input.location,
+                location=dcim_location_reference(
+                    workflow_input.location, workflow_input.location_type
+                ),
                 roles=workflow_input.roles,
                 tenant=workflow_input.tenant,
                 status=workflow_input.status,

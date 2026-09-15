@@ -27,6 +27,6 @@ def get_custom_filters() -> dict:
     return {}
 
 
-def get_graphql_queries() -> dict:
-    """Return additional GraphQL queries."""
+def get_render_data_requirements() -> dict:
+    """Return provider-neutral additional render-data requirements."""
     return {}

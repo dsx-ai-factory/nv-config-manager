@@ -97,6 +97,31 @@ manifest.json            # Bundle metadata
 
 **Stage any site-specific content** that the installer will reference, such as custom Nautobot jobs, template plugins, and OS images for ZTP, on storage that is reachable from the target host.
 
+### External DCIM provider packages
+
+If `install.yaml` uses an external DCIM provider package, its OCI wheel image
+is site-specific and is not discoverable from the Config Manager chart. Build
+the bundle with an additional image list containing the exact image from the
+provider's `provider_packages` entry:
+
+```text
+# provider-images.config
+registry.example.com/synthetic-dcim-provider:1.0
+```
+
+```bash
+cd deploy/airgapped
+./create-airgapped.sh \
+  --version v1.0.0 \
+  --arch amd64 \
+  --extra-images-file ./provider-images.config
+```
+
+The image is then handled like every other bundled image: upload it through
+`upload-to-registry.sh` or preload it on each cluster node before deployment.
+The package itself must implement the entry-point and SDK contract described in
+[Contribute a DCIM Provider](../development/contributing-dcim-provider.mdx).
+
 ## Prepare Images and Charts
 
 Before deployment, Config Manager images must either be reachable from an OCI registry inside the airgapped environment, or preloaded onto the target cluster nodes.

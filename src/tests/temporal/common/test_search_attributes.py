@@ -21,7 +21,7 @@ from nv_config_manager.temporal.common.search_attributes import (
 )
 
 
-@patch("nv_config_manager.temporal.common.search_attributes.workflow")
+@patch("nv_config_manager_workflows.search_attributes.workflow")
 def test_old_workflow_histories_retain_all_upserts(mock_workflow: MagicMock) -> None:
     """Histories without the patch marker must replay their original upsert."""
     mock_workflow.patched.return_value = False
@@ -33,7 +33,7 @@ def test_old_workflow_histories_retain_all_upserts(mock_workflow: MagicMock) -> 
     mock_workflow.upsert_search_attributes.assert_called_once_with(attributes)
 
 
-@patch("nv_config_manager.temporal.common.search_attributes.workflow")
+@patch("nv_config_manager_workflows.search_attributes.workflow")
 def test_new_workflows_skip_attributes_attached_at_start(mock_workflow: MagicMock) -> None:
     """New workflows must not overwrite canonical attributes set by the API."""
     mock_workflow.patched.return_value = True
@@ -44,7 +44,7 @@ def test_new_workflows_skip_attributes_attached_at_start(mock_workflow: MagicMoc
     mock_workflow.upsert_search_attributes.assert_not_called()
 
 
-@patch("nv_config_manager.temporal.common.search_attributes.workflow")
+@patch("nv_config_manager_workflows.search_attributes.workflow")
 def test_new_workflows_upsert_only_missing_attributes(mock_workflow: MagicMock) -> None:
     """Direct starts and partial initial metadata retain workflow fallbacks."""
     mock_workflow.patched.return_value = True

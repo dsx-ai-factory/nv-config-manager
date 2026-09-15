@@ -650,7 +650,7 @@ class VerifyPKeyMembersAbsentOutput(StageOutput):
     ``partition_exists`` is False when UFM 404s (the partition is gone), and
     ``remaining_member_count`` reports how many members UFM still holds. Together
     they let the delete workflow decide whether the partition is truly empty
-    before reconciling Nautobot, rather than inferring it from Nautobot alone.
+    before reconciling the DCIM, rather than inferring it from DCIM state alone.
     """
 
     pkey: str

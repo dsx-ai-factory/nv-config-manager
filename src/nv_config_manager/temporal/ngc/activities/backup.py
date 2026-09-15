@@ -25,8 +25,8 @@ from nv_config_manager.common.config import (
     config_store_client,
     config_store_ui_url,
 )
+from nv_config_manager.dcim import ConfigurationBackupIntent, create_dcim_client
 from nv_config_manager.temporal.client.device import NetworkConnection
-from nv_config_manager.temporal.client.nautobot import NautobotClient
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
 
 
@@ -91,47 +91,51 @@ class RecordBackupConfigManagerPluginInput(BaseModel):
 async def record_backup_config_manager_plugin(  # pylint: disable=too-many-arguments
     activity_input: RecordBackupConfigManagerPluginInput,
 ) -> tuple[bool, str]:
-    """Write backup metadata to NB NVIDIA Config Manager plugin."""
+    """Record configuration-backup metadata in the configured DCIM."""
     csclient = config_store_client(ConfigStoreType.BACKUP)
     fname = activity_input.path.split("/")[-1]
 
     markdown = f"[Configuration Backup]({csclient.file_url(device_uuid=activity_input.device_id, filename=fname)})"
 
-    nbclient = NautobotClient()
-    async with nbclient:
-        existing_backup = await nbclient.load_config_manager_plugin_backup_config(
-            activity_input.device_id
-        )
+    client = create_dcim_client()
+    async with client:
+        existing_backup = await client.get_configuration_backup_metadata(activity_input.device_id)
         deployed_commit_id = activity_input.deployed_commit_id or None
-        config_store_changed = existing_backup.get("commit_id") != activity_input.commit_id
+        config_store_changed = (
+            existing_backup is None or existing_backup.commit_id != activity_input.commit_id
+        )
         deployed_commit_changed = (
-            existing_backup.get("deployed_commit_id") or None
-        ) != deployed_commit_id
+            existing_backup is None
+            or (existing_backup.deployed_commit_id or None) != deployed_commit_id
+        )
         if not config_store_changed and not deployed_commit_changed:
+            assert existing_backup is not None
             # Check if it was updated by this workflow,
             # if so this may be a retry that occurred despite the update succeeding
-            if existing_backup.get("workflow_id") == activity_input.workflow_id:
+            if existing_backup.workflow_id == activity_input.workflow_id:
                 return True, f"Persisted new backup configuration:\n{markdown}"
             return False, f"No diff to previous backup execution:\n{markdown}"
 
         # Updating only the deployed commit metadata does not represent a new Config Store
         # backup. Preserve the workflow that wrote the existing backup so an activity retry
         # cannot incorrectly report this metadata-only update as a new backup.
-        workflow_id = (
-            activity_input.workflow_id
-            if config_store_changed
-            else existing_backup.get("workflow_id") or activity_input.workflow_id
-        )
+        if config_store_changed:
+            workflow_id = activity_input.workflow_id
+        else:
+            assert existing_backup is not None
+            workflow_id = existing_backup.workflow_id or activity_input.workflow_id
 
-        await nbclient.update_config_manager_plugin_backup_config(
-            activity_input.device_id,
-            config_store_ui_url(),  # NB needs the UI target for URL building
-            activity_input.commit_id,
-            fname,
-            activity_input.user,
-            activity_input.commit_message,
-            workflow_id,
-            deployed_commit_id,
+        await client.record_configuration_backup(
+            ConfigurationBackupIntent(
+                device_id=activity_input.device_id,
+                config_store_url=config_store_ui_url(),
+                commit_id=activity_input.commit_id,
+                filename=fname,
+                user=activity_input.user,
+                commit_message=activity_input.commit_message,
+                workflow_id=workflow_id,
+                deployed_commit_id=deployed_commit_id,
+            )
         )
     if config_store_changed:
         return True, f"Persisted new backup configuration:\n{markdown}"

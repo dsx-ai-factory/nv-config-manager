@@ -150,7 +150,7 @@ def mock_cleanup_mlnx_os(
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(60)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_single_stage_already_on_target(
     _,
     env,
@@ -195,7 +195,7 @@ async def test_execute_single_stage_already_on_target(
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(30)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_single_stage_with_approval(_, time_skipping_env):
     """Test single stage workflow with approval signal and full completion."""
     async with time_skipping_env() as env:

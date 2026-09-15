@@ -8,19 +8,14 @@
             state:
               up: {}
           vlan:
-{% set vxlans = device_data.data.vxlans|default([]) %}
 {% for vlan_intf in vlan_interfaces %}
-{% set mapped_vxlans = [] %}
-{% for vxlan in vxlans %}
-{% if vxlan.vni_type|default("")|lower == "l2" and vxlan.vlan and vxlan.vlan.vid == vlan_intf.vlan_number %}
-{% set _ = mapped_vxlans.append(vxlan) %}
-{% endif %}
-{% endfor %}
-            '{{ vlan_intf.vlan_number }}':{% if not mapped_vxlans %} {}{% else %}
+{% set vni = device_data|vni_mappings(vlan_intf.vlan_number, false) %}
+{% if not vni %}
+            '{{ vlan_intf.vlan_number }}': {}
+{% else %}
+            '{{ vlan_intf.vlan_number }}':
               vni:
-{% for vxlan in mapped_vxlans %}
-                '{{ vxlan.vnid }}': {}
-{% endfor %}
+                '{{ vni }}': {}
 {% endif %}
 {% endfor %}
 {% endif %}

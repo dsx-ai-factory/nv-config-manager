@@ -35,3 +35,24 @@ def test_cors_origins_strips_whitespace_and_filters_empty(custom_ini):
 
     settings = Settings()
     assert settings.cors_origins == ["https://example.com", "https://test.com"]
+
+
+def test_dcim_settings_override_legacy_nautobot_settings(custom_ini):
+    """Config Store follows canonical generic DCIM connection settings."""
+    custom_ini(
+        """
+        [dcim]
+        provider = nautobot-2x
+        server = https://dcim.example.com
+        token = dcim-token
+        cache_refresh_interval = 120
+        cache_ttl = 240
+        """
+    )
+
+    settings = Settings()
+
+    assert settings.nautobot_url == "https://dcim.example.com"
+    assert settings.nautobot_token == "dcim-token"
+    assert settings.nautobot_cache_refresh_interval == 120
+    assert settings.nautobot_cache_ttl == 240

@@ -28,16 +28,21 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Label, Static
 
 from nv_config_manager_installer.air_sim.constants import DEFAULT_AIR_SIM_CONFIG_PATH
+from nv_config_manager_installer.air_sim.prebuilt_configs import (
+    PREBUILT_CONFIGS,
+    PrebuiltConfig,
+    load_prebuilt_config,
+)
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
 from nv_config_manager_installer.tui.air_sim.screens.launch import LaunchScreen
 from nv_config_manager_installer.tui.air_sim.screens.options import OptionsScreen
 from nv_config_manager_installer.tui.air_sim.screens.topology import TopologyScreen
 
-SECTION_LABELS: list[tuple[str, str]] = [
+SECTION_LABELS: tuple[tuple[str, str], ...] = (
     ("topology", "Topology"),
     ("options", "Options"),
     ("launch", "Launch"),
-]
+)
 
 CSS_PATH = Path(__file__).parent / "app.tcss"
 
@@ -112,6 +117,13 @@ class NVCMAirSimApp(App[None]):
     TITLE = "NVCM DSX Air Sim Wizard"
     CSS_PATH = CSS_PATH
     ENABLE_COMMAND_PALETTE = False
+    CONFIG_MODEL: ClassVar[type[SimConfig]] = SimConfig
+    SECTION_LABELS: ClassVar[tuple[tuple[str, str], ...]] = SECTION_LABELS
+    SCREEN_CLASSES: ClassVar[dict[str, type[Container]]] = {
+        "topology": TopologyScreen,
+        "options": OptionsScreen,
+        "launch": LaunchScreen,
+    }
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("f2", "save", "Save", key_display="F2"),
@@ -128,7 +140,7 @@ class NVCMAirSimApp(App[None]):
         config_path: Path | None = None,
     ) -> None:
         super().__init__()
-        self.config = config or SimConfig()
+        self.config = config if config is not None else self.CONFIG_MODEL()
         self.config_path = config_path or DEFAULT_AIR_SIM_CONFIG_PATH
         self.active_section = "topology"
         self._nav_items: dict[str, NavItem] = {}
@@ -138,7 +150,7 @@ class NVCMAirSimApp(App[None]):
         with Horizontal():
             with VerticalScroll(id="sidebar"):
                 yield Label("NVCM DSX Air Sim Wizard", id="sidebar-title")
-                for section_id, label in SECTION_LABELS:
+                for section_id, label in self.section_labels():
                     item = NavItem(section_id, label)
                     item.add_class("nav-item")
                     self._nav_items[section_id] = item
@@ -148,18 +160,33 @@ class NVCMAirSimApp(App[None]):
         yield Footer()
 
     def _build_screens(self) -> list[Container]:
-        screen_classes: dict[str, type[Container]] = {
-            "topology": TopologyScreen,
-            "options": OptionsScreen,
-            "launch": LaunchScreen,
-        }
         screens = []
-        for section_id, cls in screen_classes.items():
-            screen = cls(self.config, id=f"screen-{section_id}")
+        for section_id, cls in self.screen_classes().items():
+            screen = self.create_screen(section_id, cls)
             screen.display = section_id == self.active_section
             self._screens[section_id] = screen
             screens.append(screen)
         return screens
+
+    def section_labels(self) -> tuple[tuple[str, str], ...]:
+        """Return ordered navigation entries for this simulation installer."""
+        return self.SECTION_LABELS
+
+    def screen_classes(self) -> dict[str, type[Container]]:
+        """Return screen implementations keyed by section identifier."""
+        return dict(self.SCREEN_CLASSES)
+
+    def create_screen(self, section_id: str, screen_class: type[Container]) -> Container:
+        """Construct a section screen; derived installers may inject dependencies here."""
+        return screen_class(self.config, id=f"screen-{section_id}")
+
+    def prebuilt_configs(self) -> tuple[PrebuiltConfig, ...]:
+        """Return presets offered by the topology screen."""
+        return PREBUILT_CONFIGS
+
+    def load_prebuilt_config(self, config_id: str) -> SimConfig:
+        """Load a preset using this application's configuration model."""
+        return load_prebuilt_config(config_id, self.CONFIG_MODEL)
 
     def on_mount(self) -> None:
         self._highlight_nav(self.active_section)
@@ -169,7 +196,7 @@ class NVCMAirSimApp(App[None]):
         """Replace current wizard values from a pre-built config without changing save path."""
         self.config = config
         for screen in self._screens.values():
-            if isinstance(screen, TopologyScreen | OptionsScreen | LaunchScreen):
+            if hasattr(screen, "_config"):
                 screen._config = config
             if hasattr(screen, "sync_from_config"):
                 screen.sync_from_config(config)
@@ -213,13 +240,13 @@ class NVCMAirSimApp(App[None]):
                 screen.write_to_config(self.config)
 
     def action_next_section(self) -> None:
-        sections = [section_id for section_id, _ in SECTION_LABELS]
+        sections = [section_id for section_id, _ in self.section_labels()]
         idx = sections.index(self.active_section) if self.active_section in sections else -1
         if idx < len(sections) - 1:
             self.switch_section(sections[idx + 1])
 
     def action_prev_section(self) -> None:
-        sections = [section_id for section_id, _ in SECTION_LABELS]
+        sections = [section_id for section_id, _ in self.section_labels()]
         idx = sections.index(self.active_section) if self.active_section in sections else 0
         if idx > 0:
             self.switch_section(sections[idx - 1])

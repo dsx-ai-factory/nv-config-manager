@@ -12,24 +12,23 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Device Data is a dataclass that contains the Nautobot data for a device."""
+"""ZTP service model built from normalized DCIM device data."""
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
-from typing import Any
 
 from nv_config_manager.common.client import (
     ConfigStoreClient,
     ConfigStoreFileNotFound,
 )
 from nv_config_manager.common.config import get_internal_auth_headers, load_config
+from nv_config_manager.dcim.models import ZTPDevice
 
 
 @dataclass
 class DeviceData:  # pylint: disable=too-many-instance-attributes
-    """Nautobot Device Data."""
+    """ZTP-specific view of normalized device data."""
 
     id: str
     name: str
@@ -64,9 +63,7 @@ class DeviceData:  # pylint: disable=too-many-instance-attributes
             )
         else:
             # External mTLS communication
-            if not self.config_store_instance:
-                raise ValueError("Config store API endpoint not configured")
-            api_endpoint = self.config_store_instance
+            api_endpoint = app_config.get("config_store.client", "api_url")
 
             client_cert_path = None
             if app_config.get("mtls", "tls_client_cert_path") and app_config.get(
@@ -103,33 +100,14 @@ class DeviceData:  # pylint: disable=too-many-instance-attributes
             config_file = await client.load_file(self.id, filename)
         return config_file.content
 
-    @staticmethod
-    def from_graphql(data: dict[str, Any]) -> DeviceData | None:
-        """Create DeviceData from GraphQL query."""
-        plugin_data = data["data"]["config_manager_device"]
-        if plugin_data is None:
-            return None
-        device = plugin_data["device"]
-        addresses = {
-            address["host"]
-            for interface in device["interfaces"]
-            for address in interface["ip_addresses"]
-        }
-
-        version = None
-        if device["config_context"] is not None:
-            version = device["config_context"].get("intended-firmware", {}).get("version")
-
-        instance = None
-        if plugin_data["intended_config"]:
-            instance = plugin_data["intended_config"]["config_store_instance"]
-            instance = re.sub("ui", "api-mtls", instance)
-
-        return DeviceData(
-            id=device["id"],
-            name=device["name"],
-            addresses=sorted(addresses),
-            platform_name=device["platform"]["name"],
-            version=version,
-            config_store_instance=instance,
+    @classmethod
+    def from_dcim(cls, device: ZTPDevice) -> DeviceData:
+        """Build the service model from the public DCIM ZTP contract."""
+        return cls(
+            id=device.device_id,
+            name=device.name,
+            addresses=device.addresses,
+            platform_name=device.platform_name,
+            version=device.firmware_version,
+            config_store_instance=device.config_store_instance,
         )

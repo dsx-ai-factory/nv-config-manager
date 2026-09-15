@@ -21,9 +21,16 @@ from pydantic import BaseModel, Field
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from nv_config_manager.common.client.config_store import ConfigStoreClient, ConfigStoreFileNotFound
 from nv_config_manager.common.client.render import FileCommit
-from nv_config_manager.common.config import ConfigStoreType, config_store_client, render_client
+from nv_config_manager.common.config import (
+    ConfigStoreType,
+    config_store_client,
+    get_storage_client,
+    render_client,
+)
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
+from nv_config_manager.ztp.storage import ObjectStorageClient, ObjectStorageNotFoundException
 
 
 class ExecuteRenderInput(BaseModel):
@@ -91,44 +98,90 @@ class ValidateRenderedPasswordChangeInput(BaseModel):
     desired_password_string: str
 
 
+_IMAGE_RENDER_POLL_TIMEOUT = timedelta(minutes=5)
+_IMAGE_RENDER_POLL_INTERVAL_SECONDS = 30
+_JUNIPER_INTENDED_CONFIG_FILE = "full-config"
+
+
 # Temporary hack until we can get proper mTLS certificates issued
 # for communication between the render service and the temporal service
 @activity.defn
 async def validate_rendered_image_change(
     activity_input: ValidateRenderedImageChangeInput,
 ) -> bool:
-    """Validate the rendered image change.
+    """Validate that upgrade artifacts for the target image are in place."""
+    platform = activity_input.device_data.platform
+    if platform == Platform.CUMULUS_LINUX:
+        return await _validate_cumulus_boot_script_image(activity_input)
+    if platform == Platform.JUNIPER_JUNOS:
+        return await _validate_juniper_upgrade_artifacts(activity_input)
+    raise NotImplementedError(f"Platform {platform} not supported")
 
-    Polls the file content every 30 seconds for up to 5 minutes to check for the desired image version.
-    Raises ApplicationError if the timeout is reached.
-    """
+
+def _heartbeat_render_poll(start_time: datetime) -> None:
+    elapsed_minutes = (datetime.now() - start_time).total_seconds() / 60
+    activity.heartbeat(f"Validating render ({elapsed_minutes:.0f}m)")
+
+
+async def _validate_cumulus_boot_script_image(
+    activity_input: ValidateRenderedImageChangeInput,
+) -> bool:
+    """Poll until the boot-script names the desired Cumulus VERSION_ID."""
     client = config_store_client(ConfigStoreType.INTENDED)
-    boot_script = None
-    if activity_input.device_data.platform == Platform.CUMULUS_LINUX:
-        boot_script = "boot-script"
-
-    if not boot_script:
-        raise NotImplementedError(f"Platform {activity_input.device_data.platform} not supported")
-
+    desired = activity_input.desired_image
     start_time = datetime.now()
-    timeout = timedelta(minutes=5)
-    poll_interval = 30  # seconds
-
     async with client:
-        while datetime.now() - start_time < timeout:
-            # Send heartbeat with progress information
-            elapsed_minutes = (datetime.now() - start_time).total_seconds() / 60
-            activity.heartbeat(f"Validating render ({elapsed_minutes:.0f}m)")
-
+        while datetime.now() - start_time < _IMAGE_RENDER_POLL_TIMEOUT:
+            _heartbeat_render_poll(start_time)
             config_file = await client.load_file(
-                device_uuid=activity_input.device_data.id, filename=boot_script
+                device_uuid=activity_input.device_data.id, filename="boot-script"
             )
-            if f"VERSION_ID={activity_input.desired_image}" in config_file.content:
+            if f"VERSION_ID={desired}" in config_file.content:
                 return True
-            await asyncio.sleep(poll_interval)
-
+            await asyncio.sleep(_IMAGE_RENDER_POLL_INTERVAL_SECONDS)
     raise ApplicationError(
-        f"Timeout waiting for image version {activity_input.desired_image} to be present in boot script"
+        f"Timeout waiting for image version {desired} to be present in boot script"
+    )
+
+
+async def _juniper_firmware_present(
+    storage_client: ObjectStorageClient, platform: str, desired: str
+) -> bool:
+    try:
+        await storage_client.get_firmware_checksum(platform, desired)
+        return True
+    except ObjectStorageNotFoundException:
+        return False
+
+
+async def _juniper_full_config_present(config_client: ConfigStoreClient, device_id: str) -> bool:
+    try:
+        await config_client.load_file(device_uuid=device_id, filename=_JUNIPER_INTENDED_CONFIG_FILE)
+        return True
+    except ConfigStoreFileNotFound:
+        return False
+
+
+async def _validate_juniper_upgrade_artifacts(
+    activity_input: ValidateRenderedImageChangeInput,
+) -> bool:
+    """Poll until the Junos image is on the ZTP server and full-config is rendered."""
+    desired = activity_input.desired_image
+    device_id = activity_input.device_data.id
+    platform = str(activity_input.device_data.platform)
+    config_client = config_store_client(ConfigStoreType.INTENDED)
+    storage_client = get_storage_client()
+    start_time = datetime.now()
+    async with config_client, storage_client:
+        while datetime.now() - start_time < _IMAGE_RENDER_POLL_TIMEOUT:
+            _heartbeat_render_poll(start_time)
+            firmware_ready = await _juniper_firmware_present(storage_client, platform, desired)
+            config_ready = await _juniper_full_config_present(config_client, device_id)
+            if firmware_ready and config_ready:
+                return True
+            await asyncio.sleep(_IMAGE_RENDER_POLL_INTERVAL_SECONDS)
+    raise ApplicationError(
+        f"Timeout waiting for Juniper firmware {desired} and full-config for device {device_id}"
     )
 
 

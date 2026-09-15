@@ -22,7 +22,7 @@ import pytest
 from aioresponses import aioresponses
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.temporal.client.nautobot import NautobotException
+from nv_config_manager.dcim import DCIMLocationReference
 from nv_config_manager.temporal.ngc.activities.ib_nautobot import (
     CleanupEmptyPartitionInput,
     CreatePartitionInNautobotInput,
@@ -53,16 +53,18 @@ _NB_ASSIGNMENTS = re.compile(rf"{re.escape(PLUGIN)}/overlay-assignments/.*")
 
 def _nb_config() -> ConfigParser:
     config = ConfigParser()
-    config.add_section("nautobot")
-    config.set("nautobot", "server", NB_URL)
-    config.set("nautobot", "token", "test-token")
-    config.set("nautobot", "verify", "false")
+    config.add_section("dcim")
+    config.set("dcim", "provider", "nautobot-2x")
+    config.set("dcim", "server", NB_URL)
+    config.set("dcim", "token", "test-token")
+    config.set("dcim", "verify", "false")
+    config.add_section("nats")
     return config
 
 
 @pytest.fixture(autouse=True)
 def mock_nb_config():
-    with patch("nv_config_manager.temporal.client.nautobot.load_config") as mock:
+    with patch("nv_config_manager.common.config.load_config") as mock:
         mock.return_value = _nb_config()
         yield mock
 
@@ -92,6 +94,25 @@ class TestCreatePartitionInNautobot:
             assert result.partition_name == "ib-pkey-0x0005"
             assert result.pkey_id == PKEY_UUID
             assert result.pkey == "0x0005"
+
+    @pytest.mark.asyncio
+    async def test_typed_location_uses_provider_id(self, mock_nb_config):
+        """A typed site bypasses the legacy location-name lookup."""
+        with aioresponses() as m:
+            m.get(_NB_STATUSES, payload={"results": [{"id": STATUS_UUID, "name": "Active"}]})
+            m.get(_NB_OVERLAYS, payload={"results": []})
+            m.post(f"{PLUGIN}/overlays/", payload={"id": OVERLAY_UUID, "name": "ib-pkey-0x0005"})
+            m.get(_NB_PKEYS, payload={"results": []})
+            m.post(f"{PLUGIN}/pkeys/", payload={"id": PKEY_UUID, "pkey": "0x0005"})
+
+            result = await create_partition_in_nautobot(
+                CreatePartitionInNautobotInput(
+                    pkey="0x0005",
+                    location_name=DCIMLocationReference(id=LOCATION_UUID, location_type="Site"),
+                )
+            )
+
+            assert result.partition_id == OVERLAY_UUID
 
     @pytest.mark.asyncio
     async def test_custom_partition_name(self, mock_nb_config):
@@ -328,7 +349,7 @@ class TestResolveGuidsToInterfaces:
         with aioresponses() as m:
             m.post(_NB_GRAPHQL, payload=_graphql_payload([]))
 
-            with pytest.raises(ApplicationError, match="No Nautobot interface found"):
+            with pytest.raises(ApplicationError, match="No DCIM interface found"):
                 await resolve_guids_to_interfaces(
                     ResolveGuidsToInterfacesInput(guids=["0002c903000e0b72"])
                 )
@@ -576,5 +597,5 @@ class TestCleanupEmptyPkeyPartition:
             m.get(_NB_ASSIGNMENTS, payload={"results": []})
             m.delete(_NB_PKEYS, status=500)
 
-            with pytest.raises(NautobotException):
+            with pytest.raises(ApplicationError):
                 await cleanup_empty_pkey_partition(self._input())

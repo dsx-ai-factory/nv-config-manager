@@ -21,7 +21,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
-    from nv_config_manager.temporal.ngc.activities.ib_nautobot import (
+    from nv_config_manager.temporal.ngc.activities.ib_dcim import (
         DEFAULT_MEMBERSHIP_TYPE,
         InterfaceRef,
         ResolvedInterface,
@@ -96,7 +96,7 @@ async def resolve_members(
     default_membership: str = DEFAULT_MEMBERSHIP_TYPE,
     guid_memberships: list[str] | None = None,
 ) -> tuple[list[ResolvedInterface], str]:
-    """Resolve members from interfaces or GUIDs into Nautobot interface records."""
+    """Resolve members from interfaces or GUIDs into DCIM interface records."""
 
     if interfaces:
         iface_result: ResolveInterfaceGuidsOutput = await workflow.execute_activity(

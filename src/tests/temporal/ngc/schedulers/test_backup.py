@@ -20,70 +20,20 @@ from nv_config_manager.temporal.ngc.schedulers.backup import BackupScheduler
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.nautobot.NautobotClient.graphql_query")
-async def test_devices_to_schedule(graphql_query_mock):
-    # Mock query response
-    query_response = {
-        "data": {
-            "config_manager_devices": [
-                {
-                    "device": {
-                        "id": "device1",
-                        "platform": {"name": "Arista EOS"},
-                        "status": {"name": "Provisioned"},
-                    }
-                },
-                {
-                    "device": {
-                        "id": "device2",
-                        "platform": {"name": "Cumulus Linux"},
-                        "status": {"name": "Active"},
-                    }
-                },
-                {
-                    "device": {
-                        "id": "device3",
-                        "platform": {"name": "NV-OS"},
-                        "status": {"name": "Inactive"},
-                    }
-                },
-                {
-                    "device": {
-                        "id": "device4",
-                        "platform": {"name": "MLNX-OS"},
-                        "status": {"name": "Provisioned"},
-                    }
-                },
-                {
-                    "device": {
-                        "id": "device5",
-                        "platform": None,
-                        "status": {"name": "Provisioned"},
-                    }
-                },
-                {
-                    "device": {
-                        "id": "device6",
-                        "platform": {"name": "Juniper Junos"},
-                        "status": {"name": "Active"},
-                    }
-                },
-                {
-                    "device": {
-                        "id": "device7",
-                        "platform": {"name": "Juniper Junos"},
-                        "status": {"name": "Inactive"},
-                    }
-                },
-            ]
-        }
-    }
-    graphql_query_mock.return_value = query_response
+async def test_devices_to_schedule(monkeypatch):
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.get_backup_enabled_device_ids.return_value = {"device1", "device2"}
+    monkeypatch.setattr(
+        "nv_config_manager.temporal.ngc.schedulers.backup.create_dcim_client",
+        lambda: client,
+    )
 
     scheduler = BackupScheduler()
     devices = await scheduler.devices_to_schedule()
 
-    assert devices == {"device1", "device2", "device6"}
+    assert devices == {"device1", "device2"}
+    client.get_backup_enabled_device_ids.assert_awaited_once_with(False)
 
 
 @pytest.mark.asyncio

@@ -184,7 +184,7 @@ async def mock_get_host_data_by_names(device_names: list[str]):
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow(
     mock_time,
     mock_nats_client,
@@ -299,7 +299,7 @@ async def test_execute_workflow(
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
-@patch("nv_config_manager.temporal.common.mixins.stage.workflow.time", return_value=float(0))
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow_no_data(
     mock_time,
     mock_nats_client,

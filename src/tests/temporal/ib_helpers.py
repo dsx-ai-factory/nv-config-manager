@@ -66,6 +66,7 @@ def stub_graphql_resolve_ib_context(
                     {
                         "id": device_id,
                         "name": host,
+                        "role": {"name": "UFM"},
                         "primary_ip4": {"host": "10.0.0.1"},
                         "location": {
                             "id": location_id,

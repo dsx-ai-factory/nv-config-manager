@@ -37,9 +37,8 @@ from temporalio.contrib.opentelemetry import TracingInterceptor
 
 from nv_config_manager.common.config import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager.dcim import DCIMError, create_dcim_client
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
-from nv_config_manager.temporal.client.nautobot import NautobotClient, NautobotException
-from nv_config_manager.temporal.common.mixins.device import Platform
 from nv_config_manager.temporal.common.rbac_config import RBACConfig
 from nv_config_manager.temporal.common.search_attributes import (
     EXECUTE_ROLES_SEARCH_ATTRIBUTE,
@@ -56,28 +55,6 @@ from nv_config_manager.temporal.telemetry import get_runtime, setup_telemetry
 class BackupScheduler:
     """Backup Workflow Scheduler."""
 
-    BACKUP_DEVICES_QUERY = """
-query ($is_aggregate_managed: Boolean) {
-  config_manager_devices(backup_enabled: true, is_aggregate_managed: $is_aggregate_managed) {
-    device {
-      id
-      platform {
-        name
-      }
-      status {
-        name
-      }
-    }
-  }
-}
-"""
-    SUPPORTED_PLATFORMS = [
-        Platform.ARISTA_EOS.dcim_name,
-        Platform.CUMULUS_LINUX.dcim_name,
-        Platform.NV_OS.dcim_name,
-        Platform.JUNIPER_JUNOS.dcim_name,
-    ]
-    STATUSES = ["Provisioned", "Active"]
     SCHEDULE_PREFIX = "backup-"
     # Run every 12 hours, with a jitter of 1 hour to avoid all devices being scheduled at the same time
     SPEC = ScheduleSpec(
@@ -103,24 +80,9 @@ query ($is_aggregate_managed: Boolean) {
         is_aggregate_env = config.getboolean(
             "aggregate", "is_aggregate_environment", fallback=False
         )
-        devices = set()
-        client = NautobotClient()
+        client = create_dcim_client()
         async with client:
-            rsp = await client.graphql_query(
-                self.BACKUP_DEVICES_QUERY, {"is_aggregate_managed": is_aggregate_env}
-            )
-        try:
-            for entry in rsp["data"]["config_manager_devices"]:
-                device = entry["device"]
-                status_name = (device.get("status") or {}).get("name")
-                platform_name = (device.get("platform") or {}).get("name")
-                if status_name in self.STATUSES and platform_name in self.SUPPORTED_PLATFORMS:
-                    devices.add(device["id"])
-        except KeyError as e:
-            raise NautobotException(
-                f"Failed to query list of backup enabled devices. Query: {self.BACKUP_DEVICES_QUERY}, Response: {rsp}"
-            ) from e
-        return devices
+            return await client.get_backup_enabled_device_ids(is_aggregate_env)  # type: ignore[attr-defined]
 
     async def scheduled_devices(self, temporal_client: Client) -> set[str]:
         """Retrieve the set of currently scheduled devices."""
@@ -222,9 +184,9 @@ query ($is_aggregate_managed: Boolean) {
             try:
                 try:
                     await self.reconcile_schedules()
-                except NautobotException:
+                except DCIMError:
                     self.logger.exception(
-                        "Error querying desired devices from Nautobot, leaving schedules unchanged."
+                        "Error querying desired backup devices from the configured DCIM, leaving schedules unchanged."
                     )
                 await asyncio.sleep(timedelta(minutes=10).seconds)
             except asyncio.CancelledError:

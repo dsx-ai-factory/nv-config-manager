@@ -64,7 +64,7 @@ Path: `POST /v1/files/{platform}/{version}/{filename}`
 
 | Parameter | Where | Required | Description |
 | :-------- | :---- | :------- | :---------- |
-| `platform` | path | yes | Platform key — for example `cumulus-linux`, `mlnx-os`, `nv-os`. Must match the platform value devices in Nautobot resolve to. |
+| `platform` | path | yes | Platform key — for example `cumulus-linux`, `mlnx-os`, `nv-os`. Must match the normalized platform value supplied by the selected DCIM provider. |
 | `version` | path | yes | Version string the workflows will reference — for example `5.14.0`. Used directly in the `{platform}/{version}/` storage path. |
 | `filename` | path | yes | The on-disk filename to store. Devices fetch by this name. |
 | `checksum` | query | yes | SHA256 of the file you are uploading. |
@@ -186,7 +186,7 @@ The request did not arrive with an authenticated SSO identity. Confirm you are r
 
 **Devices fail to boot off the new image after upload.**
 
-Confirm the device's `intended-firmware.version` in Nautobot matches the `version` segment you uploaded under, and that `firmware_image=true` was set on the upload — otherwise the workflow will not pick it as the OS image. See [Switch OS Upgrade → Prerequisites](../user-guides/switch-os-upgrade/index.mdx#prerequisites) for the pairing.
+Confirm the device's intended firmware in the selected DCIM provider matches the `version` segment you uploaded under, and that `firmware_image=true` was set on the upload — otherwise the workflow will not pick it as the OS image. For the bundled Nautobot provider, this intent is currently mapped from `intended-firmware.version`. See [Switch OS Upgrade → Prerequisites](../user-guides/switch-os-upgrade/index.mdx#prerequisites) for the pairing.
 
 ## Related guides
 

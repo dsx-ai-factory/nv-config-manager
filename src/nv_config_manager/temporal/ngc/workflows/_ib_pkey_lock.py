@@ -16,7 +16,7 @@
 
 Import-safe inside the Temporal workflow sandbox: it declares a mixin whose
 canonicalization runs only at the API boundary (never in the workflow), so the
-Nautobot lookup is imported lazily.
+The DCIM lookup is imported lazily.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ class UFMHostLockMixin:
     @classmethod
     async def canonicalize_input(cls, body: BaseModel) -> BaseModel:
         """Rewrite ``host`` to its canonical UFM identifier at the API boundary."""
-        from nv_config_manager.temporal.ngc.activities.ib_nautobot import canonicalize_ufm_host
+        from nv_config_manager.temporal.ngc.activities.ib_dcim import canonicalize_ufm_host
 
         typed = cast("_HasHost", body)
         typed.host = await canonicalize_ufm_host(typed.host)
@@ -53,8 +53,8 @@ class UFMHostSiteValidationMixin:
 
     @classmethod
     async def canonicalize_input(cls, body: BaseModel) -> BaseModel:
-        """Use Nautobot's endpoint and reject a mismatched credential Site."""
-        from nv_config_manager.temporal.ngc.activities.ib_nautobot import (
+        """Use the DCIM endpoint and reject a mismatched credential Site."""
+        from nv_config_manager.temporal.ngc.activities.ib_dcim import (
             canonicalize_ufm_host_for_site,
         )
 

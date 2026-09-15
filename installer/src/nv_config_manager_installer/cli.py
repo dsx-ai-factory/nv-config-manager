@@ -181,6 +181,12 @@ def generate_values(
     "config_path",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
 )
+@click.option(
+    "--project-root",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Repository root containing deployment charts and local image build contexts.",
+)
 @click.option("--chart-dir", default="deploy/helm", help="Path to the Helm chart directory.")
 @click.option(
     "--image-source",
@@ -221,6 +227,7 @@ def generate_values(
 @click.option("--dry-run", is_flag=True, help="Generate values only, skip helm install.")
 def deploy(
     config_path: Path,
+    project_root: Path | None,
     chart_dir: str,
     image_source: str,
     ngc_api_key: str,
@@ -247,6 +254,7 @@ def deploy(
         config.images.pull_secret.password = ngc_api_key
 
     options = DeployOptions(
+        project_root=project_root,
         chart_dir=chart_dir,
         build_images=build_images,
         load_kind=load_kind,

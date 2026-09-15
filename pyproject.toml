@@ -50,7 +50,7 @@ dependencies = [
     "nkeys>=0.2.0",
     # Temporal
     # Security: Fix rustls-webpki vulnerability in Temporal bridge (GHSA-82j2-j2ch-gfr8)
-    "temporalio[opentelemetry]>=1.29.0",
+    "temporalio[opentelemetry]>=1.29.0,<1.32.0",
     # OpenTelemetry — trace export and FastAPI HTTP instrumentation
     # (opentelemetry-api and opentelemetry-sdk come via temporalio[opentelemetry])
     "opentelemetry-exporter-otlp-proto-grpc>=1.11.1,<2",
@@ -67,7 +67,6 @@ dependencies = [
     # Network Automation
     "pyeapi>=1.0.2",
     "junos-eznc>=2.8.2",
-    "pynautobot>=2.4.0",
     "netmiko>=4.3.0",
     "macaddress>=2.0.2",
     "netaddr>=0.10.1",
@@ -111,6 +110,12 @@ dependencies = [
     "mcp>=1.29.0,<2",
     # Network Templates (render service)
     "nv-config-manager-templates",
+    # Provider-neutral DCIM SDK
+    "nv-config-manager-dcim",
+    # Built-in reference DCIM provider (also distributed as a standalone provider package)
+    "nv-config-manager-dcim-nautobot-2x",
+    # Shared workflow contracts and implementations imported by the Temporal services
+    "nv-config-manager-workflows",
 ]
 
 [project.scripts]
@@ -184,6 +189,10 @@ dev = [
     "anybadge>=1.14.0",
     "lxml>=5.3.0",
 ]
+promotion-gate = [
+    "requests>=2.33.0",
+    "responses>=0.25.3",
+]
 ipython = [
     "ipython>=8.28.0",
 ]
@@ -200,10 +209,13 @@ docs = [
 package = true
 
 [tool.uv.workspace]
-members = ["components/network-templates"]
+members = ["packages/dcim", "packages/templates", "packages/workflows", "plugins/dcim/nautobot-2x"]
 
 [tool.uv.sources]
+nv-config-manager-dcim = { workspace = true }
+nv-config-manager-dcim-nautobot-2x = { workspace = true }
 nv-config-manager-templates = { workspace = true }
+nv-config-manager-workflows = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -215,7 +227,12 @@ packages = ["src/nv_config_manager"]
 [tool.pytest.ini_options]
 cache_dir = ".cache/pytest_cache"
 asyncio_mode = "auto"
-testpaths = ["src/tests", "development/mock_topology/tests", "development/ufm_mock/tests"]
+testpaths = [
+    "src/tests",
+    "development/mock_topology/tests",
+    "development/ufm_mock/tests",
+    "packages/workflows/tests",
+]
 timeout = 30  # Global timeout in seconds per test
 # Exclude integration tests by default (they require a running cluster)
 addopts = "--ignore=src/tests/integration"
@@ -230,6 +247,10 @@ show_missing = true
 
 [tool.coverage.xml]
 output = "coverage.xml"
+
+[tool.basedpyright]
+venvPath = "."
+venv = ".venv"
 
 [tool.mypy]
 cache_dir = ".cache/mypy_cache"
@@ -248,7 +269,6 @@ module = [
     "ruamel.*",
     "brotli.*",
     "netaddr.*",
-    "pynautobot.*",
     "macaddress",
     "requests",
 ]
@@ -285,6 +305,9 @@ ignore = [
     "C901",   # too complex
     "ANN401", # Any type allowed - needed for generic HTTP/Redis clients
 ]
+
+[tool.ruff.lint.isort]
+known-first-party = ["nv_config_manager", "nv_config_manager_workflows"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/tests/**/*.py" = ["B", "ANN"]

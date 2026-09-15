@@ -1,0 +1,132 @@
+query GetIBSwitchTopology($device_ids: [String]) {
+  devices(id: $device_ids) {
+    id
+    name
+    interfaces {
+      name
+      connected_interface {
+        name
+        device { name }
+      }
+    }
+  }
+}
+
+query GetIBInterfaceGUIDs($device_names: [String]) {
+  devices(name: $device_names) {
+    name
+    interfaces {
+      id
+      name
+      cf_ib_guid
+    }
+  }
+}
+
+query GetIBInterfacesByGUID($guids: [String]) {
+  interfaces(cf_ib_guid__ie: $guids) {
+    id
+    name
+    cf_ib_guid
+    device { name }
+  }
+}
+
+query ResolveIBPKeyDeviceByName($host: [String]) {
+  devices(name: $host) {
+    id
+    name
+    primary_ip4 { host }
+    tenant { id name }
+    location {
+      id
+      name
+      location_type { name }
+      overlays(isolation_type: ["ib_pkey"]) {
+        id
+        name
+        pkeys { id pkey }
+      }
+      parent {
+        id
+        name
+        location_type { name }
+        overlays(isolation_type: ["ib_pkey"]) {
+          id
+          name
+          pkeys { id pkey }
+        }
+        parent {
+          id
+          name
+          location_type { name }
+          overlays(isolation_type: ["ib_pkey"]) {
+            id
+            name
+            pkeys { id pkey }
+          }
+        }
+      }
+    }
+  }
+}
+
+query ResolveIBPKeyDeviceByIP($ip: [String]) {
+  ip_addresses(address: $ip) {
+    address
+    interfaces {
+      device {
+        id
+        name
+        primary_ip4 { host }
+        tenant { id name }
+        location {
+          id
+          name
+          location_type { name }
+          overlays(isolation_type: ["ib_pkey"]) {
+            id
+            name
+            pkeys { id pkey }
+          }
+          parent {
+            id
+            name
+            location_type { name }
+            overlays(isolation_type: ["ib_pkey"]) {
+              id
+              name
+              pkeys { id pkey }
+            }
+            parent {
+              id
+              name
+              location_type { name }
+              overlays(isolation_type: ["ib_pkey"]) {
+                id
+                name
+                pkeys { id pkey }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+query GetSpectrumXVRFs($ids: [String]!) {
+  vrfs(id: $ids) {
+    id
+    name
+    rd
+    namespace {
+      name
+      location { name }
+    }
+    interfaces {
+      name
+      device { name }
+    }
+  }
+}

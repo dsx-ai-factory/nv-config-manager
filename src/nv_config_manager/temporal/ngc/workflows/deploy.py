@@ -50,6 +50,10 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin, NetworkDeviceData
     from nv_config_manager.temporal.ngc.activities.config import build_workflow_url, get_ui_base_url
+    from nv_config_manager.temporal.ngc.activities.dcim import (
+        GetNetworkDeviceInput,
+        get_network_device,
+    )
     from nv_config_manager.temporal.ngc.activities.deploy import (
         ConfigApplyActivityInput,
         DiffActivityInput,
@@ -60,10 +64,6 @@ with workflow.unsafe.imports_passed_through():
         load_partial_configuration,
         perform_candidate_diff,
         validate_config_diff,
-    )
-    from nv_config_manager.temporal.ngc.activities.nautobot import (
-        GetNetworkDeviceInput,
-        get_network_device,
     )
     from nv_config_manager.temporal.ngc.workflows.backup import (
         BackupInput,
@@ -108,6 +108,7 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
     workflow_name = "Configuration Deploy"
     workflow_description = "Deploy intended configuration to network device with approval workflow"
     workflow_input_class = DeployInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/deploy"
     workflow_namespace = "ngc"
 
@@ -166,7 +167,7 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
         # Add device search attributes the first time we pull
-        # them from nautobot
+        # them from the DCIM
         DeviceMixin.attach_device_search_attributes(result.device)
 
         content, commit_id, url = await workflow.execute_activity(

@@ -72,6 +72,7 @@ class SimConfig:
     cumulus_version: str = ""
     deploy: bool = True
 
+    generate_fabric_from_mock_context: bool | None = None
     run_mock_topology_job: bool = True
     mock_topology_path: str = field(
         default_factory=lambda: _default_path(DEFAULT_MOCK_TOPOLOGY_PATH)
@@ -94,6 +95,13 @@ class SimConfig:
     def __post_init__(self) -> None:
         if not self.oob_ssh_password:
             self.oob_ssh_password = generate_oob_ssh_password()
+
+    @property
+    def use_mock_context_for_fabric(self) -> bool:
+        """Return the fabric source while preserving older AIR config semantics."""
+        if self.generate_fabric_from_mock_context is not None:
+            return self.generate_fabric_from_mock_context
+        return self.run_mock_topology_job
 
     def to_yaml(self, path: Path) -> None:
         """Persist config to a YAML file with 0600 permissions."""

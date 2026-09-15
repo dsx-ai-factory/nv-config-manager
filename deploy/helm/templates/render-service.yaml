@@ -49,8 +49,10 @@ spec:
       {{- end }}
       {{- include "nv-config-manager.scheduling" .Values.renderService.api | nindent 6 }}
       {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
-      {{- if .Values.renderService.templatePlugins.enabled }}
+      {{- if or .Values.renderService.templatePlugins.enabled .Values.dcim.providerPackages.enabled }}
       initContainers:
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
       {{- include "nv-config-manager.copyTemplatePluginImages" . | nindent 6 }}
       {{- include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
       {{- end }}
@@ -76,10 +78,7 @@ spec:
         - name: NV_CONFIG_MANAGER_CONFIG_SECRET_PATH
           value: {{ include "nv-config-manager.vaultAgent.configSecretsFilePath" (dict "root" . "path" .Values.renderService.configSecrets.path) | quote }}
         {{- end }}
-        {{- if .Values.renderService.templatePlugins.enabled }}
-        - name: PYTHONPATH
-          value: "/opt/plugins:${PYTHONPATH:-}"
-        {{- end }}
+        {{- include "nv-config-manager.pythonPluginPath" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-render") | nindent 8 }}
         {{- end }}
@@ -98,6 +97,7 @@ spec:
           mountPath: /opt/plugins
           readOnly: true
         {{- end }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- include "nv-config-manager.authVolumeMounts" . | nindent 8 }}
         livenessProbe:
           httpGet:
@@ -118,6 +118,7 @@ spec:
       {{- if .Values.renderService.templatePlugins.enabled }}
       {{- include "nv-config-manager.templatePluginVolumes" . | nindent 6 }}
       {{- end }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- /* SPIFFE volumes */ -}}
       {{- include "nv-config-manager.authSidecar.volumes" (dict "root" .) | nindent 6 }}
 ---
@@ -190,6 +191,8 @@ spec:
       initContainers:
       # Wait for NATS to be available before starting consumer
       {{- include "nv-config-manager.waitForNats" . | nindent 6 }}
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
       {{- if .Values.renderService.templatePlugins.enabled }}
       {{- include "nv-config-manager.copyTemplatePluginImages" . | nindent 6 }}
       {{- include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
@@ -210,15 +213,12 @@ spec:
         - name: NV_CONFIG_MANAGER_DEV_SALT
           value: "W585uq6K"
         - name: NATS_CONSUMER
-          value: "nautobot"
+          value: "dcim"
         {{- if .Values.secrets.vault.configSecrets.enabled }}
         - name: NV_CONFIG_MANAGER_CONFIG_SECRET_PATH
           value: {{ include "nv-config-manager.vaultAgent.configSecretsFilePath" (dict "root" . "path" .Values.renderService.configSecrets.path) | quote }}
         {{- end }}
-        {{- if .Values.renderService.templatePlugins.enabled }}
-        - name: PYTHONPATH
-          value: "/opt/plugins:${PYTHONPATH:-}"
-        {{- end }}
+        {{- include "nv-config-manager.pythonPluginPath" . | nindent 8 }}
         ports:
         - name: metrics
           containerPort: 8000
@@ -234,6 +234,7 @@ spec:
           mountPath: /opt/plugins
           readOnly: true
         {{- end }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if .Values.spiffe.enabled }}
         - name: spiffe-jwt-svid
           mountPath: /var/run/secrets/spiffe
@@ -249,6 +250,7 @@ spec:
       {{- if .Values.renderService.templatePlugins.enabled }}
       {{- include "nv-config-manager.templatePluginVolumes" . | nindent 6 }}
       {{- end }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- include "nv-config-manager.spiffeClientVolumes" (dict "root" .) | nindent 6 }}
 ---
 # Render Service - Device Consumer Deployment
@@ -300,6 +302,8 @@ spec:
       initContainers:
       # Wait for NATS to be available before starting consumer
       {{- include "nv-config-manager.waitForNats" . | nindent 6 }}
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
       {{- if .Values.renderService.templatePlugins.enabled }}
       {{- include "nv-config-manager.copyTemplatePluginImages" . | nindent 6 }}
       {{- include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
@@ -325,10 +329,7 @@ spec:
         - name: NV_CONFIG_MANAGER_CONFIG_SECRET_PATH
           value: {{ include "nv-config-manager.vaultAgent.configSecretsFilePath" (dict "root" . "path" .Values.renderService.configSecrets.path) | quote }}
         {{- end }}
-        {{- if .Values.renderService.templatePlugins.enabled }}
-        - name: PYTHONPATH
-          value: "/opt/plugins:${PYTHONPATH:-}"
-        {{- end }}
+        {{- include "nv-config-manager.pythonPluginPath" . | nindent 8 }}
         ports:
         - name: metrics
           containerPort: 8000
@@ -344,6 +345,7 @@ spec:
           mountPath: /opt/plugins
           readOnly: true
         {{- end }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if .Values.spiffe.enabled }}
         - name: spiffe-jwt-svid
           mountPath: /var/run/secrets/spiffe
@@ -359,6 +361,7 @@ spec:
       {{- if .Values.renderService.templatePlugins.enabled }}
       {{- include "nv-config-manager.templatePluginVolumes" . | nindent 6 }}
       {{- end }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- include "nv-config-manager.spiffeClientVolumes" (dict "root" .) | nindent 6 }}
 ---
 # Render Service - Template Updater Job (runs once to completion)
@@ -406,8 +409,12 @@ spec:
       {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
       initContainers:
       # Wait for dependencies before running direct template update renders.
+      {{- if eq (.Values.dcim.provider | default "nautobot-2x") "nautobot-2x" }}
       {{- include "nv-config-manager.waitForNautobot" . | nindent 6 }}
+      {{- end }}
       {{- include "nv-config-manager.waitForRedis" . | nindent 6 }}
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
       {{- if .Values.renderService.templatePlugins.enabled }}
       {{- include "nv-config-manager.copyTemplatePluginImages" . | nindent 6 }}
       {{- include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
@@ -435,10 +442,7 @@ spec:
         - name: NV_CONFIG_MANAGER_CONFIG_SECRET_PATH
           value: {{ include "nv-config-manager.vaultAgent.configSecretsFilePath" (dict "root" . "path" .Values.renderService.configSecrets.path) | quote }}
         {{- end }}
-        {{- if .Values.renderService.templatePlugins.enabled }}
-        - name: PYTHONPATH
-          value: "/opt/plugins:${PYTHONPATH:-}"
-        {{- end }}
+        {{- include "nv-config-manager.pythonPluginPath" . | nindent 8 }}
         resources:
           {{- toYaml .Values.renderService.templateUpdater.resources | nindent 10 }}
         volumeMounts:
@@ -451,6 +455,7 @@ spec:
           mountPath: /opt/plugins
           readOnly: true
         {{- end }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
       volumes:
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
@@ -460,6 +465,7 @@ spec:
       {{- if .Values.renderService.templatePlugins.enabled }}
       {{- include "nv-config-manager.templatePluginVolumes" . | nindent 6 }}
       {{- end }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- /* SPIFFE volumes for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar.volumes" (dict "root" .) | nindent 6 }}
 {{- end }}

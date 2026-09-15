@@ -45,7 +45,7 @@ from nv_config_manager_installer.tui.screens.vault import SecretsScreen
 from nv_config_manager_installer.tui.screens.workflow_rbac import WorkflowsScreen
 from nv_config_manager_installer.tui.screens.ztp import ZTPScreen
 
-SECTION_LABELS: list[tuple[str, str]] = [
+SECTION_LABELS: tuple[tuple[str, str], ...] = (
     ("cluster", "Cluster"),
     ("services", "Services"),
     ("external_services", "External Services"),
@@ -61,7 +61,7 @@ SECTION_LABELS: list[tuple[str, str]] = [
     ("infrastructure", "Infrastructure"),
     ("values_preview", "Values Preview"),
     ("deploy", "Deploy"),
-]
+)
 
 CSS_PATH = Path(__file__).parent / "app.tcss"
 
@@ -163,6 +163,25 @@ class NVConfigManagerInstallerApp(App[None]):
     TITLE = "NVCM Install Wizard"
     CSS_PATH = CSS_PATH
     ENABLE_COMMAND_PALETTE = False
+    CONFIG_MODEL: ClassVar[type[NVConfigManagerInstallConfig]] = NVConfigManagerInstallConfig
+    SECTION_LABELS: ClassVar[tuple[tuple[str, str], ...]] = SECTION_LABELS
+    SCREEN_CLASSES: ClassVar[dict[str, type[Container]]] = {
+        "cluster": ClusterScreen,
+        "services": ServicesScreen,
+        "external_services": ExternalServicesScreen,
+        "secrets": SecretsScreen,
+        "network_secrets": NetworkSecretsScreen,
+        "ingest_data": IngestDataScreen,
+        "render": RenderScreen,
+        "ztp": ZTPScreen,
+        "workflows": WorkflowsScreen,
+        "images": ImagesScreen,
+        "sso": SSOScreen,
+        "spiffe": SPIFFEScreen,
+        "infrastructure": InfraScreen,
+        "values_preview": ValuesPreviewScreen,
+        "deploy": DeployScreen,
+    }
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("f2", "save", "Save", key_display="F2"),
@@ -180,7 +199,7 @@ class NVConfigManagerInstallerApp(App[None]):
         config_path: Path | None = None,
     ) -> None:
         super().__init__()
-        self.config = config or NVConfigManagerInstallConfig()
+        self.config = config or self.create_default_config()
         self.config_path = config_path or Path("nv-config-manager-install.yaml")
         self.active_section = "cluster"
         self._nav_items: dict[str, NavItem] = {}
@@ -192,7 +211,7 @@ class NVConfigManagerInstallerApp(App[None]):
         with Horizontal():
             with VerticalScroll(id="sidebar"):
                 yield Label("NVCM Install Wizard", id="sidebar-title")
-                for section_id, label in SECTION_LABELS:
+                for section_id, label in self.section_labels():
                     item = NavItem(section_id, label)
                     item.add_class("nav-item")
                     self._nav_items[section_id] = item
@@ -203,30 +222,33 @@ class NVConfigManagerInstallerApp(App[None]):
 
     def _build_section_screens(self) -> list[Container]:
         """Create all section screens, only the active one visible."""
-        screen_classes: dict[str, type[Container]] = {
-            "cluster": ClusterScreen,
-            "services": ServicesScreen,
-            "external_services": ExternalServicesScreen,
-            "secrets": SecretsScreen,
-            "network_secrets": NetworkSecretsScreen,
-            "ingest_data": IngestDataScreen,
-            "render": RenderScreen,
-            "ztp": ZTPScreen,
-            "workflows": WorkflowsScreen,
-            "images": ImagesScreen,
-            "sso": SSOScreen,
-            "spiffe": SPIFFEScreen,
-            "infrastructure": InfraScreen,
-            "values_preview": ValuesPreviewScreen,
-            "deploy": DeployScreen,
-        }
         screens = []
-        for section_id, cls in screen_classes.items():
-            screen = cls(self.config, id=f"screen-{section_id}")
+        for section_id, cls in self.screen_classes().items():
+            screen = self.create_screen(section_id, cls)
             screen.display = section_id == self.active_section
             self._screens[section_id] = screen
             screens.append(screen)
         return screens
+
+    def section_labels(self) -> tuple[tuple[str, str], ...]:
+        """Return ordered navigation entries for this installer."""
+        return self.SECTION_LABELS
+
+    def create_default_config(self) -> NVConfigManagerInstallConfig:
+        """Create the configuration model edited by this installer."""
+        return self.CONFIG_MODEL()
+
+    def validate_config(self) -> NVConfigManagerInstallConfig:
+        """Validate and preserve the configuration model selected by a derived app."""
+        return self.CONFIG_MODEL.model_validate(self.config.model_dump())
+
+    def screen_classes(self) -> dict[str, type[Container]]:
+        """Return screen implementations keyed by section identifier."""
+        return dict(self.SCREEN_CLASSES)
+
+    def create_screen(self, section_id: str, screen_class: type[Container]) -> Container:
+        """Construct a section screen; derived installers may inject dependencies here."""
+        return screen_class(self.config, id=f"screen-{section_id}")
 
     def on_mount(self) -> None:
         """Highlight the initial section after mounting."""
@@ -279,14 +301,14 @@ class NVConfigManagerInstallerApp(App[None]):
 
     def action_next_section(self) -> None:
         """Advance to the next sidebar section (Ctrl+N)."""
-        sections = [s for s, _ in SECTION_LABELS]
+        sections = [s for s, _ in self.section_labels()]
         idx = sections.index(self.active_section) if self.active_section in sections else -1
         if idx < len(sections) - 1:
             self.switch_section(sections[idx + 1])
 
     def action_prev_section(self) -> None:
         """Go back to the previous sidebar section (Ctrl+P)."""
-        sections = [s for s, _ in SECTION_LABELS]
+        sections = [s for s, _ in self.section_labels()]
         idx = sections.index(self.active_section) if self.active_section in sections else 0
         if idx > 0:
             self.switch_section(sections[idx - 1])
@@ -310,7 +332,7 @@ class NVConfigManagerInstallerApp(App[None]):
         """Validate, save, and exit (F10)."""
         self.collect_config()
         try:
-            NVConfigManagerInstallConfig.model_validate(self.config.model_dump())
+            self.validate_config()
         except Exception as exc:
             self.notify(f"Validation error: {exc}", severity="error")
             return

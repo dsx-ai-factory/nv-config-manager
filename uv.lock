@@ -13,7 +13,10 @@ resolution-markers = [
 [manifest]
 members = [
     "nv-config-manager",
+    "nv-config-manager-dcim",
+    "nv-config-manager-dcim-nautobot-2x",
     "nv-config-manager-templates",
+    "nv-config-manager-workflows",
 ]
 
 [[package]]
@@ -1102,6 +1105,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b5/c8/f439cffde755cffa462bfbb156278fa6f9d09119719af9814b858fd4f81f/googleapis_common_protos-1.75.0.tar.gz", hash = "sha256:53a062ff3c32552fbd62c11fe23768b78e4ddf0494d5e5fd97d3f4689c75fbbd", size = 151035, upload-time = "2026-05-07T08:04:49.423Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e7/c8/e2645aa8ed02fd4c7a2f59d68783b65b1f3cbdfe39a6308e156509d1fee8/googleapis_common_protos-1.75.0-py3-none-any.whl", hash = "sha256:961ed60399c457ceb0ee8f285a84c870aabc9c6a832b9d37bb281b5bebde43ed", size = 300631, upload-time = "2026-05-07T08:03:30.345Z" },
+]
+
+[[package]]
+name = "graphql-core"
+version = "3.2.11"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4d/90/f2aff026ab4aebd80eb71905106a0885f4cfde85dcf965543f45bed0d9ee/graphql_core-3.2.11.tar.gz", hash = "sha256:e7e156d10beb127cab5c89ff0da71416fc73d27c484a4757d3b2d35633774802", size = 528407, upload-time = "2026-06-05T13:45:22.915Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/15/b92b4e1d88d02c6eff9733c9eea21846ab435cc4d813d84ccc5d335955df/graphql_core-3.2.11-py3-none-any.whl", hash = "sha256:0b3e35ff41e9adba53021ab0cef475eb18f57c7f53f0f2ca55567fbf3c537ea0", size = 214879, upload-time = "2026-06-05T13:45:21.245Z" },
 ]
 
 [[package]]
@@ -2259,7 +2271,10 @@ dependencies = [
     { name = "netmiko" },
     { name = "nkeys" },
     { name = "numpy" },
+    { name = "nv-config-manager-dcim" },
+    { name = "nv-config-manager-dcim-nautobot-2x" },
     { name = "nv-config-manager-templates" },
+    { name = "nv-config-manager-workflows" },
     { name = "openpyxl" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
     { name = "opentelemetry-instrumentation-aiohttp-client" },
@@ -2280,7 +2295,6 @@ dependencies = [
     { name = "pyeapi" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "pynacl" },
-    { name = "pynautobot" },
     { name = "python-json-logger" },
     { name = "python-multipart" },
     { name = "redis", extra = ["hiredis"] },
@@ -2344,6 +2358,10 @@ integration-test = [
 ipython = [
     { name = "ipython" },
 ]
+promotion-gate = [
+    { name = "requests" },
+    { name = "responses" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -2372,7 +2390,10 @@ requires-dist = [
     { name = "netmiko", specifier = ">=4.3.0" },
     { name = "nkeys", specifier = ">=0.2.0" },
     { name = "numpy", specifier = ">=2.1.0,<3.0.0" },
-    { name = "nv-config-manager-templates", editable = "components/network-templates" },
+    { name = "nv-config-manager-dcim", editable = "packages/dcim" },
+    { name = "nv-config-manager-dcim-nautobot-2x", editable = "plugins/dcim/nautobot-2x" },
+    { name = "nv-config-manager-templates", editable = "packages/templates" },
+    { name = "nv-config-manager-workflows", editable = "packages/workflows" },
     { name = "openpyxl", specifier = ">=3.1.0" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.11.1,<2" },
     { name = "opentelemetry-instrumentation-aiohttp-client", specifier = ">=0.46b0" },
@@ -2392,7 +2413,6 @@ requires-dist = [
     { name = "pyeapi", specifier = ">=1.0.2" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.13.0" },
     { name = "pynacl", specifier = ">=1.6.2" },
-    { name = "pynautobot", specifier = ">=2.4.0" },
     { name = "python-json-logger", specifier = ">=2.0.7" },
     { name = "python-multipart", specifier = ">=0.0.30" },
     { name = "redis", extras = ["hiredis"], specifier = ">=5.2.1" },
@@ -2402,7 +2422,7 @@ requires-dist = [
     { name = "slack-sdk", specifier = ">=3.35.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.23" },
     { name = "starlette", specifier = ">=1.3.1" },
-    { name = "temporalio", extras = ["opentelemetry"], specifier = ">=1.29.0" },
+    { name = "temporalio", extras = ["opentelemetry"], specifier = ">=1.29.0,<1.32.0" },
     { name = "types-netaddr", specifier = ">=1.3.0.20250822" },
     { name = "types-openpyxl", specifier = ">=3.1.5.20250602" },
     { name = "urllib3", specifier = ">=2.7.0" },
@@ -2452,17 +2472,81 @@ docs = [
 ]
 integration-test = [{ name = "pytest", specifier = ">=8.3.3" }]
 ipython = [{ name = "ipython", specifier = ">=8.28.0" }]
+promotion-gate = [
+    { name = "requests", specifier = ">=2.33.0" },
+    { name = "responses", specifier = ">=0.25.3" },
+]
+
+[[package]]
+name = "nv-config-manager-dcim"
+version = "1.0.0"
+source = { editable = "packages/dcim" }
+dependencies = [
+    { name = "netaddr" },
+    { name = "pydantic" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "netaddr", specifier = ">=1.3.0" },
+    { name = "pydantic", specifier = ">=2.10.2" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "pytest-asyncio", specifier = ">=0.23.7" },
+    { name = "ruff", specifier = ">=0.15.11" },
+]
+
+[[package]]
+name = "nv-config-manager-dcim-nautobot-2x"
+version = "1.0.0"
+source = { editable = "plugins/dcim/nautobot-2x" }
+dependencies = [
+    { name = "aiohttp", extra = ["speedups"] },
+    { name = "graphql-core" },
+    { name = "nv-config-manager-dcim" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", extras = ["speedups"], specifier = ">=3.14.1" },
+    { name = "graphql-core", specifier = ">=3.2.7,<3.3" },
+    { name = "nv-config-manager-dcim", editable = "packages/dcim" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "pytest-asyncio", specifier = ">=0.23.7" },
+    { name = "ruff", specifier = ">=0.15.11" },
+]
 
 [[package]]
 name = "nv-config-manager-templates"
-source = { editable = "components/network-templates" }
+source = { editable = "packages/templates" }
 dependencies = [
     { name = "click" },
     { name = "hvac" },
     { name = "jinja2" },
     { name = "libpass" },
+    { name = "nv-config-manager-dcim" },
     { name = "packaging" },
-    { name = "requests" },
 ]
 
 [package.dev-dependencies]
@@ -2479,8 +2563,8 @@ requires-dist = [
     { name = "importlib-metadata", marker = "python_full_version < '3.10'", specifier = ">=6.0.0" },
     { name = "jinja2", specifier = ">=3.1.2" },
     { name = "libpass", specifier = ">=1.9.3" },
+    { name = "nv-config-manager-dcim", editable = "packages/dcim" },
     { name = "packaging", specifier = ">=24.0" },
-    { name = "requests", specifier = ">=2.31.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -2488,6 +2572,41 @@ dev = [
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "ruff", specifier = ">=0.15.11" },
+]
+
+[[package]]
+name = "nv-config-manager-workflows"
+version = "1.0.0"
+source = { editable = "packages/workflows" }
+dependencies = [
+    { name = "netaddr" },
+    { name = "nv-config-manager-dcim" },
+    { name = "py-markdown-table" },
+    { name = "pydantic" },
+    { name = "temporalio" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "netaddr", specifier = ">=1.3.0" },
+    { name = "nv-config-manager-dcim", editable = "packages/dcim" },
+    { name = "py-markdown-table", specifier = ">=1.1.0" },
+    { name = "pydantic", specifier = ">=2.10.2" },
+    { name = "temporalio", specifier = ">=1.29.0,<1.32.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "pytest-asyncio", specifier = ">=0.23.7" },
+    { name = "ruff", specifier = "==0.16.3" },
 ]
 
 [[package]]
@@ -3349,20 +3468,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/48/47/e761c254f410c023a469284a9bc210933e18588ca87706ae93002c05114c/pynacl-1.6.2-cp38-abi3-win32.whl", hash = "sha256:5811c72b473b2f38f7e2a3dc4f8642e3a3e9b5e7317266e4ced1fba85cae41aa", size = 227421, upload-time = "2026-01-01T17:32:33.076Z" },
     { url = "https://files.pythonhosted.org/packages/41/ad/334600e8cacc7d86587fe5f565480fde569dfb487389c8e1be56ac21d8ac/pynacl-1.6.2-cp38-abi3-win_amd64.whl", hash = "sha256:62985f233210dee6548c223301b6c25440852e13d59a8b81490203c3227c5ba0", size = 239754, upload-time = "2026-01-01T17:32:34.557Z" },
     { url = "https://files.pythonhosted.org/packages/29/7d/5945b5af29534641820d3bd7b00962abbbdfee84ec7e19f0d5b3175f9a31/pynacl-1.6.2-cp38-abi3-win_arm64.whl", hash = "sha256:834a43af110f743a754448463e8fd61259cd4ab5bbedcf70f9dabad1d28a394c", size = 184801, upload-time = "2026-01-01T17:32:36.309Z" },
-]
-
-[[package]]
-name = "pynautobot"
-version = "3.1.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "packaging" },
-    { name = "requests" },
-    { name = "urllib3" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/81/7f/f49b7f2bdad89ddc5869c9e67896fa8048cd689fb701395971dfa89fec99/pynautobot-3.1.0.tar.gz", hash = "sha256:72f99278eefb81ab4f60748e128acf35101e28b1a3b77b6a979da122e0d1d7e9", size = 33338, upload-time = "2026-03-31T14:02:18.301Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9d/91/15932faa74db2783f3dcb7f81d08b976b36f64d725c7ea916803a8b5a6cf/pynautobot-3.1.0-py3-none-any.whl", hash = "sha256:f217cfa90c67310415c6d83dc23b7210b4dcb85dc3b8e009cec55a5fca33874e", size = 41772, upload-time = "2026-03-31T14:02:16.95Z" },
 ]
 
 [[package]]

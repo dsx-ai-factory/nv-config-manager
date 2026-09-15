@@ -52,6 +52,11 @@ spec:
       {{- end }}
       {{- include "nv-config-manager.scheduling" .Values.networkZtp | nindent 6 }}
       {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
+      {{- if .Values.dcim.providerPackages.enabled }}
+      initContainers:
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
+      {{- end }}
       containers:
       # HTTP API container for user access (via envoy/gateway with SSO/mTLS headers)
       # ACCEPT_REQUEST_HEADERS=true allows SSO/mTLS header-based authorization
@@ -68,6 +73,7 @@ spec:
           value: "ztp"
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
         - name: ACCEPT_REQUEST_HEADERS
@@ -81,9 +87,10 @@ spec:
           name: http
         resources:
           {{- toYaml .Values.networkZtp.resources.http | nindent 10 }}
-        {{- if or $ztpConfigVolume $ztpFileStorage $ztpSpiffeJwt }}
+        {{- if or $ztpConfigVolume $ztpFileStorage $ztpSpiffeJwt .Values.dcim.providerPackages.enabled }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if $ztpFileStorage }}
         - name: os-images
           mountPath: {{ .Values.networkZtp.storage.file.mountPath | default "/mnt/images" }}
@@ -132,6 +139,7 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.networkZtpStorageEnv" . | nindent 8 }}
@@ -143,9 +151,10 @@ spec:
           name: http-lb
         resources:
           {{- toYaml .Values.networkZtp.resources.http | nindent 10 }}
-        {{- if or $ztpConfigVolume $ztpFileStorage }}
+        {{- if or $ztpConfigVolume $ztpFileStorage .Values.dcim.providerPackages.enabled }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if $ztpFileStorage }}
         - name: os-images
           mountPath: {{ .Values.networkZtp.storage.file.mountPath | default "/mnt/images" }}
@@ -188,6 +197,7 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.networkZtpStorageEnv" . | nindent 8 }}
         ports:
@@ -197,9 +207,10 @@ spec:
           name: sftp-metrics
         resources:
           {{- toYaml .Values.networkZtp.resources.sftp | nindent 10 }}
-        {{- if or $ztpConfigVolume $ztpFileStorage }}
+        {{- if or $ztpConfigVolume $ztpFileStorage .Values.dcim.providerPackages.enabled }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if $ztpFileStorage }}
         - name: os-images
           mountPath: {{ .Values.networkZtp.storage.file.mountPath | default "/mnt/images" }}
@@ -245,10 +256,11 @@ spec:
       
       {{- /* SPIFFE helper sidecar for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar" (dict "root" . "serviceName" "network-ztp") | nindent 6 }}
-      {{- if or $ztpVaultAgentJwt $ztpConfigVolume $ztpFileStorage $ztpSpiffeJwt }}
+      {{- if or $ztpVaultAgentJwt $ztpConfigVolume $ztpFileStorage $ztpSpiffeJwt .Values.dcim.providerPackages.enabled }}
       volumes:
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- if $ztpFileStorage }}
       - name: os-images
         persistentVolumeClaim:

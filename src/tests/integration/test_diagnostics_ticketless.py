@@ -20,7 +20,7 @@ server pointing at a Kind/local cluster with live devices).
 
 Requirements:
   - Running nv-config-manager deployment (Kind or real cluster)
-  - Nautobot loaded with at least one Cumulus Linux device
+  - The selected DCIM loaded with at least one Cumulus Linux device
   - Live device reachable from the worker pod (for commands + tech-support)
   - config-manager.local service hostnames resolve to the Envoy Gateway address
 
@@ -67,8 +67,8 @@ def _poll_to_terminal(
 ) -> dict[str, Any]:
     """Poll until the workflow reaches a terminal state.
 
-    kubectl port-forward silently drops keep-alive connections between polls.
-    ConnectionError is treated as a transient failure — logged and retried.
+    kubectl port-forward and the local gateway can drop keep-alive connections
+    between polls. Connection errors and gateway 503s are transient failures.
     """
     url = f"{temporal_api_url}{WORKFLOW_DETAIL_ENDPOINT.format(workflow_id=workflow_id)}"
     deadline = time.monotonic() + timeout
@@ -85,6 +85,10 @@ def _poll_to_terminal(
         except requests.exceptions.ConnectionError as exc:
             # Port-forward dropped the connection between polls — retry on next tick.
             print(f"  [poll] connection dropped (retrying): {exc}")
+        except requests.exceptions.HTTPError as exc:
+            if exc.response is None or exc.response.status_code != 503:
+                raise
+            print("  [poll] gateway upstream connection reset (retrying)")
         time.sleep(interval)
     pytest.fail(
         f"Workflow {workflow_id} did not reach a terminal state within {timeout}s. "
@@ -122,10 +126,10 @@ def _start_workflow(
 
 
 @pytest.fixture(scope="session")
-def ticketless_input(nautobot_device_ids: list[str]) -> dict[str, Any]:
+def ticketless_input(dcim_device_ids: list[str]) -> dict[str, Any]:
     """Standard ticketless payload — no Jira fields, single device, fast commands."""
     return {
-        "device_ids": [nautobot_device_ids[0]],
+        "device_ids": [dcim_device_ids[0]],
         "commands": ["show_version"],
         "ticketing_platform": "",
         "issue_key": "",
@@ -255,7 +259,7 @@ def test_ticketless_result_no_jira_fields(
 @pytest.mark.timeout(30)
 def test_ticketless_diagnostics_content_has_device_output(
     completed_ticketless_workflow: dict[str, Any],
-    nautobot_device_ids: list[str],
+    dcim_device_ids: list[str],
 ) -> None:
     """diagnostics_content includes show_version output from the target device."""
     print("\n=== test_ticketless_diagnostics_content_has_device_output ===")
@@ -276,17 +280,17 @@ def test_ticketless_diagnostics_content_has_device_output(
 def test_ticketless_multiple_devices(
     temporal_api_url: str,
     temporal_client: requests.Session,
-    nautobot_device_ids: list[str],
+    dcim_device_ids: list[str],
 ) -> None:
     """Ticketless with 3 devices: result.devices_count == 3, all core stages COMPLETE."""
     print("\n=== test_ticketless_multiple_devices ===")
-    if len(nautobot_device_ids) < 3:
+    if len(dcim_device_ids) < 3:
         pytest.skip(
-            f"Need at least 3 cumulus-linux devices in Nautobot, found {len(nautobot_device_ids)}."
+            f"Need at least 3 Cumulus Linux devices in the DCIM, found {len(dcim_device_ids)}."
         )
 
     payload = {
-        "device_ids": nautobot_device_ids[:3],
+        "device_ids": dcim_device_ids[:3],
         "commands": ["show_version"],
         "ticketing_platform": "",
         "issue_key": "",
@@ -315,7 +319,7 @@ def test_ticketless_multiple_devices(
 def test_ticketless_with_tech_support(
     temporal_api_url: str,
     temporal_client: requests.Session,
-    nautobot_device_ids: list[str],
+    dcim_device_ids: list[str],
 ) -> None:
     """include_tech_support=True in ticketless mode:
     - collect_tech_support stage reaches COMPLETE
@@ -324,7 +328,7 @@ def test_ticketless_with_tech_support(
     """
     print("\n=== test_ticketless_with_tech_support ===")
     payload = {
-        "device_ids": [nautobot_device_ids[0]],
+        "device_ids": [dcim_device_ids[0]],
         "commands": ["show_version"],
         "ticketing_platform": "",
         "issue_key": "",

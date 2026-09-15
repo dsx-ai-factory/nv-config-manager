@@ -21,7 +21,7 @@ var _ MappedNullable = &CacheTestErrorResponse{}
 
 // CacheTestErrorResponse Cache test response when there's an error.
 type CacheTestErrorResponse struct {
-	// Device UUID
+	// DCIM provider device identifier
 	DeviceUuid string `json:"device_uuid"`
 	// Error message
 	Error string `json:"error"`

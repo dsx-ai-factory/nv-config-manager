@@ -25,6 +25,12 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ChildWorkflowError
 
+from nv_config_manager.dcim import (
+    DCIMLocationIdentifier,
+    DCIMLocationType,
+    dcim_location_id,
+    dcim_location_reference,
+)
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager.temporal.common.mixins.stage import (
@@ -74,18 +80,18 @@ with workflow.unsafe.imports_passed_through():
         validate_device_neighbors,
     )
     from nv_config_manager.temporal.ngc.activities.config import build_workflow_url, get_ui_base_url
+    from nv_config_manager.temporal.ngc.activities.dcim import (
+        GetNetworkDeviceInput,
+        GetNetworkDevicesInput,
+        get_network_device,
+        get_network_devices,
+    )
     from nv_config_manager.temporal.ngc.activities.device import (
         get_device_actual_neighbors,
         get_device_arp_table,
         get_device_intended_neighbors,
         get_device_mac_table,
         validate_hostname,
-    )
-    from nv_config_manager.temporal.ngc.activities.nautobot import (
-        GetNetworkDeviceInput,
-        GetNetworkDevicesInput,
-        get_network_device,
-        get_network_devices,
     )
 
 
@@ -115,6 +121,9 @@ class SiteCableValidationInput(BaseModel):
     """Input for Site Cable Validation Workflow."""
 
     site: LocationReference = Field(description="Site containing the network devices to validate.")
+    site_type: DCIMLocationType | None = Field(
+        default=None, description="DCIM location type for the site identifier."
+    )
     roles: list[str] = Field(
         default=[],
         description="Device roles used to filter the selected network devices.",
@@ -179,6 +188,7 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
         "Validate cable connections for all devices in a site against intended topology"
     )
     workflow_input_class = SiteCableValidationInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/site_cable_validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
@@ -208,7 +218,7 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
     class GetDevicesStageInput(StageInput):
         """Get Devices Stage Input."""
 
-        site: str
+        site: DCIMLocationIdentifier
         roles: list[str]
         status: list[str]
         tenant: str | None
@@ -223,7 +233,7 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
     async def get_devices_to_validate(
         self, stage_input: SiteCableValidationWorkflow.GetDevicesStageInput
     ) -> SiteCableValidationWorkflow.GetDevicesStageOutput:
-        """Get all devices to validate from nautobot."""
+        """Get all devices to validate from the DCIM."""
         result = await workflow.execute_activity(
             get_network_devices,
             GetNetworkDevicesInput(
@@ -239,7 +249,7 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
         if not result.devices:
-            platform_names = [p.dcim_name for p in SUPPORTED_PLATFORMS]
+            platform_names = [platform.value for platform in SUPPORTED_PLATFORMS]
             display = (
                 "No devices found matching the specified filters "
                 f"(location={stage_input.site}, roles={stage_input.roles}, "
@@ -435,11 +445,13 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
     ) -> SiteCableValidationResult:
         """Run the workflow."""
         self.set_input(workflow_input)
-        upsert_missing_search_attributes({SITE_SEARCH_ATTRIBUTE: [workflow_input.site]})
+        upsert_missing_search_attributes(
+            {SITE_SEARCH_ATTRIBUTE: [dcim_location_id(workflow_input.site)]}
+        )
 
         devices_output = await self.get_devices_to_validate(
             SiteCableValidationWorkflow.GetDevicesStageInput(
-                site=workflow_input.site,
+                site=dcim_location_reference(workflow_input.site, workflow_input.site_type),
                 roles=workflow_input.roles,
                 status=workflow_input.status,
                 tenant=workflow_input.tenant,
@@ -481,6 +493,7 @@ class DeviceCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
         "Validate cable connections for a specific device against intended topology"
     )
     workflow_input_class = DeviceCableValidationInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/device_cable_validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
@@ -496,13 +509,13 @@ class DeviceCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
         )
         self.define_stage(
             name="validate_device_hostname",
-            description="Ensure device hostnames match nautobot",
+            description="Ensure device hostnames match the DCIM",
             requires_approval=False,
             depends_on=["get_device_data"],
         )
         self.define_stage(
             name="get_device_intended_neighbors",
-            description="Get the list of intended connected interfaces from nautobot",
+            description="Get the list of intended connected interfaces from the DCIM",
             requires_approval=False,
             depends_on=["validate_device_hostname"],
         )
@@ -544,7 +557,7 @@ class DeviceCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
     async def get_device_intended_neighbors(
         self, stage_input: IntendedNeighborStageInput
     ) -> IntendedNeighborStageOutput:
-        """Get intended connections from nautobot."""
+        """Get intended connections from the DCIM."""
         result = await workflow.execute_activity(
             get_device_intended_neighbors,
             stage_input.device,
@@ -574,7 +587,7 @@ class DeviceCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
     async def get_device_data(
         self, stage_input: NetworkDeviceDataStageInput
     ) -> NetworkDeviceDataStageOutput:
-        """Get device data from nautobot."""
+        """Get device data from the DCIM."""
         if stage_input.device:
             # When called from another workflow, this may already be present
             device = stage_input.device

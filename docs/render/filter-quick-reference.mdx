@@ -4,7 +4,9 @@ sidebar-title: Filter quick reference
 position: 11
 ---
 
-Quick lookup for common filters used in network templates. For Nautobot field mappings and narrative detail, see the [Network Template Rendering System overview](index.mdx).
+Quick lookup for common filters used in network templates. For the bundled
+provider's exact object and configuration-context sources, see
+[Nautobot render data mapping](nautobot-data-mapping.mdx).
 
 ## Device information
 
@@ -15,7 +17,7 @@ Quick lookup for common filters used in network templates. For Nautobot field ma
 {{ device_data|role }}                        {# Device role (e.g., "TAN-Leaf") #}
 {{ device_data|model }}                       {# Device model #}
 {{ device_data|desired_firmware }}            {# Target firmware version #}
-{{ device_data|uuid }}                        {# Nautobot UUID #}
+{{ device_data|uuid }}                        {# Provider device identifier #}
 {{ device_data|device_tags }}                 {# List of device tags #}
 {{ device_data|has_tag("tag-name") }}         {# Check for specific tag #}
 ```
@@ -26,9 +28,8 @@ Quick lookup for common filters used in network templates. For Nautobot field ma
 {{ device_data|router_id }}                   {# Router ID (loopback IP without mask) #}
 {{ device_data|asn }}                         {# BGP ASN for default VRF #}
 {{ device_data|asn("VRF-NAME") }}             {# BGP ASN for specific VRF #}
-{{ device_data|local_asn }}                   {# Local ASN (Azure) #}
-
-{% for peer in device_data|bgp_peers %}
+{% set bgp = device_data|bgp_routing_instance %}
+{% for peer in bgp.peers %}
   neighbor {{ peer.peer_ipv4 }} remote-as {{ peer.asn }}
   neighbor {{ peer.peer_ipv4 }} description {{ peer.description }}
   neighbor {{ peer.peer_ipv4 }} peer-group {{ peer.peer_group }}
@@ -132,7 +133,7 @@ range {{ first }} {{ last }};                 {# → range 10.0.0.2 10.0.0.254 #
 ## Location and site data
 
 ```jinja
-{{ location_data|site_asn }}                  {# Site BGP ASN #}
+{{ location_data.routing.site_asn }}          {# Site BGP ASN #}
 
 {% for prefix in location_data|site_aggregates("Aggregate") %}
   network {{ prefix }}
@@ -146,15 +147,17 @@ range {{ first }} {{ last }};                 {# → range 10.0.0.2 10.0.0.254 #
   network {{ prefix }}
 {% endfor %}
 
-{% for rs in location_data|route_server_peers %}
-  neighbor {{ rs.peer_ipv4 }} remote-as {{ rs.asn }}
+{% for rs in location_data.topology.route_servers %}
+{% for address in rs.loopback_addresses %}
+  neighbor {{ address }} remote-as {{ rs.routing_asn }}
+{% endfor %}
 {% endfor %}
 
-{% for name, loopback in location_data|wan_loopbacks %}
-  router {{ name }} loopback {{ loopback }}
+{% for router in location_data.topology.wan_routers %}
+  router {{ router.name }} loopbacks {{ router.loopback_addresses|join(",") }}
 {% endfor %}
 
-{% for prefix in location_data|uc_jumphost_prefixes %}
+{% for prefix in location_data.address_space.uc_jumphost_prefixes %}
   ip prefix-list JUMPHOSTS permit {{ prefix }}
 {% endfor %}
 ```
@@ -210,7 +213,7 @@ In development or testing, set `NV_CONFIG_MANAGER_SKIP_VAULT=1` to use dummy sec
 ## VRF operations
 
 ```jinja
-{% for vrf in device_data|tenant_vrfs %}
+{% for vrf in device_data|attached_vrfs %}
   vrf {{ vrf.name }}
     vni {{ vrf.vni }}
     {% for rt in vrf.export_targets %}

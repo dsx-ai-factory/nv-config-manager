@@ -4,7 +4,7 @@ sidebar-title: NVIDIA Switch Infrastructure
 position: 0
 ---
 
-NVIDIA Config Manager is a platform for bootstrapping and managing NVIDIA AI-factory network infrastructure. It brings Nautobot source-of-truth data, template rendering, DHCP, ZTP, configuration storage, and workflow automation into one deployment.
+NVIDIA Config Manager is a platform for bootstrapping and managing NVIDIA AI-factory network infrastructure. It brings data from a selected DCIM provider, template rendering, DHCP, ZTP, configuration storage, and workflow automation into one deployment. Nautobot is bundled as the default provider, while other providers integrate through the standalone DCIM SDK.
 
 Read the [Start Here guide](getting-started/index.mdx) or learn fundamental concepts through the [Config Manager overview](overview/index.mdx). Then use the [deployment guide](install/index.mdx) and [user guides](user-guides/new-site-deployment/index.mdx) to install Config Manager, model network intent, render device configuration, run approved workflows, and troubleshoot day-0 and day-2 operations.
 
@@ -19,6 +19,7 @@ The project's GitHub repository is [https://github.com/dsx-ai-factory/nv-config-
 - [Airgapped Deployment](install/install-airgapped.mdx) covers disconnected environments.
 - [DSX Air Simulation User Guide](user-guides/air-simulation/index.mdx) covers workflow validation in NVIDIA DSX Air.
 - [I want to...](i-want-to.mdx) routes common tasks to the right guide.
+- [Contribute a DCIM Provider](development/contributing-dcim-provider.mdx) describes the provider SDK and package contract.
 
 <Warning>
 The local development quick start is only for render and UI exploration. Use the DSX Air simulation guide when you need simulated Cumulus switches for device-facing workflow validation.

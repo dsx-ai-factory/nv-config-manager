@@ -33,7 +33,7 @@ def test_config_store_client():
         addresses=["10.0.0.1"],
         platform_name="Cumulus Linux",
         version="5.7.0",
-        config_store_instance="https://api-mtls.config-store.example.com/",
+        config_store_instance="https://config-manager.example.com/",
     )
 
     with patch("nv_config_manager.ztp.device.ConfigStoreClient") as mock_client:
@@ -58,6 +58,7 @@ def test_config_store_client_external(custom_ini):
     custom_ini("""
 [config_store.client]
 api_service = http://config-store-api.example.local:8080
+api_url = https://config-store.config-manager.example.com
 use_internal_endpoint = false
 ui_url = https://config-manager.example.com
 verify = true
@@ -73,7 +74,7 @@ tls_client_key_path = /etc/tls-client/tls.key
         addresses=["10.0.0.1"],
         platform_name="Cumulus Linux",
         version="5.7.0",
-        config_store_instance="https://api-mtls.config-store.example.com/",
+        config_store_instance="https://config-manager.example.com/",
     )
 
     with patch("nv_config_manager.ztp.device.ConfigStoreClient") as mock_client:
@@ -85,7 +86,7 @@ tls_client_key_path = /etc/tls-client/tls.key
         # Verify the external mTLS endpoint is used
         mock_client.assert_called_once()
         call_args = mock_client.call_args
-        assert call_args[0][0] == "https://api-mtls.config-store.example.com/"
+        assert call_args[0][0] == "https://config-store.config-manager.example.com"
         assert call_args[0][1] == "intended"
         assert call_args[1]["verify"] is True
         assert client == mock_client_instance

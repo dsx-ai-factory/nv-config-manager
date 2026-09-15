@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from nv_config_manager.dcim import create_dcim_client
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
 from nv_config_manager.temporal.ngc.activities.config import build_workflow_url
 
@@ -88,6 +89,8 @@ async def validate_password_diff(
 
     if platform in ["cumulus", "nvos"]:
         return _validate_cumulus_diff(diff, username)
+    elif platform == "junos":
+        return _validate_junos_diff(diff, username)
     else:
         error_msg = f"No diff parser available for platform: {platform}"
         activity.logger.error(error_msg)
@@ -106,19 +109,17 @@ async def get_password_mappings(
     """Get password mapping configuration for a device and username."""
     device = activity_input.device
     username = activity_input.username
-    config_context = device.config_context or {}
-    password_mappings = config_context.get("password_mappings", {})
+    client = create_dcim_client()
+    async with client:
+        password_mapping_users = await client.get_device_password_mapping_users(device.id)
 
-    if not password_mappings:
+    if not password_mapping_users:
         raise ApplicationError(
             f"No password mappings found for device {device.name}",
             non_retryable=True,
         )
 
-    # password_mappings is keyed by username on the device (from nv-config-manager-templates)
-    user_config = password_mappings.get(username) if isinstance(password_mappings, dict) else None
-
-    if not user_config:
+    if username not in password_mapping_users:
         raise ApplicationError(
             f"No password mapping found for '{username}' on device {device.name}",
             non_retryable=True,
@@ -142,6 +143,7 @@ async def validate_platform_support(
     platform_map = {
         Platform.CUMULUS_LINUX: "cumulus",
         Platform.NV_OS: "nvos",
+        Platform.JUNIPER_JUNOS: "junos",
     }
 
     slugified_platform = platform_map.get(platform)
@@ -190,6 +192,61 @@ def _validate_cumulus_diff(diff: str, username: str) -> ValidatePasswordDiffOutp
             valid_lines=valid_lines,
             error_message=error_msg,
         )
+
+
+_JUNOS_EDIT_HEADER_RE = re.compile(r"^\[edit\s+(.+)\]$")
+_JUNOS_PASSWORD_LINE_RE = re.compile(
+    r'^[+-]\s*encrypted-password\s+"\$[0-9]\$\S+";(\s*##\s*SECRET-DATA)?$'
+)
+
+
+def _junos_expected_path(username: str) -> str:
+    """Return the Junos config-diff path holding a user's encrypted-password."""
+    if username == "root":
+        return "system root-authentication"
+    return f"system login user {username} authentication"
+
+
+def _validate_junos_diff(diff: str, username: str) -> ValidatePasswordDiffOutput:
+    """Validate a Junos hierarchical diff touches only the target user's encrypted-password."""
+    expected_path = _junos_expected_path(username)
+    valid_lines: list[str] = []
+    invalid_lines: list[str] = []
+    current_path: str | None = None
+
+    for raw_line in diff.split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        header_match = _JUNOS_EDIT_HEADER_RE.match(line)
+        if header_match:
+            current_path = header_match.group(1)
+            continue
+
+        if current_path == expected_path and _JUNOS_PASSWORD_LINE_RE.match(line):
+            valid_lines.append(line)
+        else:
+            invalid_lines.append(line)
+            activity.logger.warning("Unexpected line found outside target password stanza")
+
+    if not invalid_lines and valid_lines:
+        activity.logger.info(f"Junos password diff validation successful for user {username}")
+        return ValidatePasswordDiffOutput(
+            is_valid=True, invalid_lines=[], valid_lines=valid_lines, error_message=None
+        )
+    if not invalid_lines and not valid_lines:
+        error_msg = f"Diff contains no password changes for user '{username}'"
+        return ValidatePasswordDiffOutput(
+            is_valid=False, invalid_lines=[], valid_lines=[], error_message=error_msg
+        )
+    error_msg = f"Diff contains non-password changes for user '{username}'"
+    return ValidatePasswordDiffOutput(
+        is_valid=False,
+        invalid_lines=invalid_lines,
+        valid_lines=valid_lines,
+        error_message=error_msg,
+    )
 
 
 class FormatPasswordRotationResultsInput(BaseModel):

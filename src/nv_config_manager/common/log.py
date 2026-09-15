@@ -20,11 +20,12 @@ import json
 import logging
 import os
 import re
+from collections.abc import Mapping
 from numbers import Number
 from typing import Any
 
 from opentelemetry import trace
-from pythonjsonlogger import jsonlogger
+from pythonjsonlogger.json import JsonFormatter
 
 # =============================================================================
 # LOG CATEGORIES
@@ -48,6 +49,7 @@ class LogCategory:
     TEMPORAL_ACTIVITY = "temporal.activity"
     TEMPORAL_API = "temporal.api"
     TEMPORAL_AUDIT = "temporal.audit"
+    DCIM = "dcim"
     NAUTOBOT = "nautobot"
     AUTH = "auth"
     API = "api"  # Deprecated: use per-service variants (RENDER_API, etc.)
@@ -186,7 +188,7 @@ def _build_formatter() -> logging.Formatter:
     """Build the appropriate formatter based on environment configuration."""
     if _use_json_format():
         format_str = "%(message)s%(levelname)s%(name)s%(asctime)s%(module)s%(lineno)d"
-        return jsonlogger.JsonFormatter(format_str)
+        return JsonFormatter(format_str)
     return logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 
@@ -217,6 +219,15 @@ def _escape_log_argument(value: object) -> object:
     return escape_log_newlines(value)
 
 
+def _escape_log_arguments(
+    args: tuple[object, ...] | Mapping[str, object],
+) -> tuple[object, ...] | dict[str, object]:
+    """Escape record arguments while preserving whether they are positional or named."""
+    if isinstance(args, Mapping):
+        return {escape_log_newlines(key): _escape_log_argument(item) for key, item in args.items()}
+    return tuple(_escape_log_argument(arg) for arg in args)
+
+
 class EscapingLoggerAdapter(logging.LoggerAdapter):
     """Logger adapter that escapes unsafe characters in messages and arguments."""
 
@@ -227,6 +238,29 @@ class EscapingLoggerAdapter(logging.LoggerAdapter):
             escaped_msg = escape_log_newlines(msg)
             escaped_args = tuple(_escape_log_argument(arg) for arg in args)
             self.logger.log(level, escaped_msg, *escaped_args, **processed_kwargs)
+
+
+class EscapingFilter(logging.Filter):
+    """Escape unsafe characters in records that bypass :class:`EscapingLoggerAdapter`.
+
+    Libraries and packages outside this distribution -- notably
+    ``nv_config_manager_workflows``, which logs signal-supplied stage names --
+    use plain ``logging.getLogger()``, so their records reach the handler
+    unsanitized. Escaping is idempotent: the translation table maps only control
+    characters, so a record the adapter already escaped passes through unchanged.
+
+    Sanitizing must preserve the message's structure. A mapping passed as the
+    message -- ``logger.info({"event": "deploy"})`` -- is merged into the JSON
+    output as top-level fields by the formatter, so :func:`_escape_log_argument`
+    escapes it in place instead of stringifying it into one Python repr.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Sanitize the record in place and always keep it."""
+        record.msg = _escape_log_argument(record.msg)
+        if record.args:
+            record.args = _escape_log_arguments(record.args)
+        return True
 
 
 def configure_logging(service: str | None = None) -> None:
@@ -267,6 +301,7 @@ def configure_logging(service: str | None = None) -> None:
 
     handler = logging.StreamHandler()
     handler.setFormatter(_build_formatter())
+    handler.addFilter(EscapingFilter())
     root.addHandler(handler)
 
     old_factory = logging.getLogRecordFactory()
@@ -315,6 +350,7 @@ def get_logger(
             if json_format
             else logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         )
+        handler.addFilter(EscapingFilter())
         logger.addHandler(handler)
         logger.setLevel(_get_log_level())
 

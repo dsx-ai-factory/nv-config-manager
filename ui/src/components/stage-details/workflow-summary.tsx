@@ -17,7 +17,7 @@
 import * as React from "react";
 import { WorkflowClientComponentProps } from "@/types/workflow-page.types";
 import { Workflow } from "@/types/data-table.types";
-import { buildNautobotDeviceLink, formatTimestamp } from "@/lib/utils";
+import { formatTimestamp } from "@/lib/utils";
 
 interface SummaryData {
   label: string;
@@ -43,10 +43,7 @@ const WorkflowSummary: React.FC<WorkflowClientComponentProps> = ({
       } else {
         summaryData.push({
           label: "Device",
-          value: buildNautobotDeviceLink(
-            String(deviceName[0]),
-            String(deviceId[0])
-          ),
+          value: String(deviceName[0]),
         });
       }
     }

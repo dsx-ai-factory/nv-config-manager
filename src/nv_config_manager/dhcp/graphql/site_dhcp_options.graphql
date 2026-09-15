@@ -1,6 +1,0 @@
-query site_dhcp_options {
-  config_contexts(schema:"nv-config-manager-site-dhcp-option-def", is_active:true) {
-    data
-  }
-}
-

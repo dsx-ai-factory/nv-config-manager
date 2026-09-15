@@ -12,19 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Any
+"""Deprecated import path for :mod:`nv_config_manager_workflows.mixins.base`.
 
-from pydantic import BaseModel
+The mixin moved to the standalone workflows package. This module re-exports it so
+existing service imports keep resolving to the same class object; import from
+``nv_config_manager_workflows`` in new code.
+"""
 
+from nv_config_manager_workflows.mixins.base import BaseMixin
 
-class BaseMixin:
-    """Base Workflow mixin class.
-
-    Subclasses override the `run` method with specific input/output types.
-    Use `# type: ignore[override, ty:invalid-method-override]` on subclass `run` methods since we
-    intentionally use more specific input types (covariant override).
-    """
-
-    async def run(self, workflow_input: BaseModel) -> Any:
-        """Run the workflow."""
-        ...
+__all__ = ["BaseMixin"]

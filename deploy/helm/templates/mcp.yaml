@@ -45,6 +45,11 @@ spec:
       {{- end }}
       {{- include "nv-config-manager.scheduling" .Values.mcp.api | nindent 6 }}
       {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
+      {{- if .Values.dcim.providerPackages.enabled }}
+      initContainers:
+      {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
+      {{- end }}
       containers:
       - name: api
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -64,6 +69,7 @@ spec:
           value: "/etc/nv-config-manager-mcp-auth/mcp-auth.ini"
         - name: NV_CONFIG_MANAGER_SERVICE
           value: "mcp"
+        {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-mcp") | nindent 8 }}
         {{- end }}
@@ -74,6 +80,7 @@ spec:
           {{- toYaml .Values.mcp.api.resources | nindent 10 }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
+        {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         - name: mcp-auth-config
           mountPath: /etc/nv-config-manager-mcp-auth
           readOnly: true
@@ -94,6 +101,7 @@ spec:
       volumes:
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
+      {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       - name: mcp-auth-config
         configMap:
           name: {{ include "nv-config-manager.mcpAuthConfigMapName" . }}

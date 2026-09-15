@@ -58,8 +58,9 @@ from nv_config_manager.common.log import (
     escape_log_newlines,
     get_logger,
 )
+from nv_config_manager.dcim import dcim_client_session
+from nv_config_manager.ztp.device import DeviceData
 from nv_config_manager.ztp.download_control import ThreadDownloadLimiter, get_positive_int_config
-from nv_config_manager.ztp.nautobot import NautobotClient
 from nv_config_manager.ztp.storage import (
     ObjectStorageClient,
     ObjectStorageDownload,
@@ -427,17 +428,12 @@ class ZTPSFTPServer(SFTPServerInterface):
             self._client_addr,
         )
 
-        # Get device data from Nautobot using the session's event loop
-        nb_client = NautobotClient()
-
         # Check if client is from localhost (bypass IP auth for testing/healthchecks)
         client_is_localhost = self._client_addr in ("127.0.0.1", "::1", "localhost")
 
         async def get_device_and_file() -> tuple[Any, str | None]:
-            async with nb_client:
-                device = await nb_client.get_device_data(device_id)
-            if not device:
-                return None, None
+            async with dcim_client_session() as client:
+                device = DeviceData.from_dcim(await client.get_ztp_device(device_id))
             # Bypass IP validation for localhost connections (testing/port-forward)
             if not client_is_localhost and self._client_addr not in device.addresses:
                 raise PermissionError(

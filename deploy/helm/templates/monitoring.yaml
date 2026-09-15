@@ -33,6 +33,7 @@
 {{- $temporalName := include "nv-config-manager.componentName" (dict "root" . "component" "temporal") }}
 {{- $nautobotName := include "nv-config-manager.componentName" (dict "root" . "component" "nautobot") }}
 {{- $natsName := include "nv-config-manager.componentName" (dict "root" . "component" "nats") }}
+{{- $redisName := include "nv-config-manager.componentName" (dict "root" . "component" "redis") }}
 {{- $uiName := include "nv-config-manager.componentName" (dict "root" . "component" "ui") }}
 
 {{- /* Determine gateway availability and scheme for probes */}}
@@ -711,12 +712,43 @@ spec:
       {{- end }}
 {{- end }}
 
-{{- /* Nautobot NATS exporter PodMonitor (JetStream metrics for KEDA autoscaling).
-       Gated on the same condition as the NATS Deployment (templates/nautobot.yaml):
-       only when Nautobot/NATS is deployed by this chart. With an external
-       Nautobot/NATS (externalServices.nautobot.local=false) there is no in-cluster
-       NATS pod / exporter sidecar to scrape, so the PodMonitor must not render. */}}
-{{- if and .Values.monitoring.podMonitors.enabled .Values.nautobotNats.metrics.enabled .Values.nautobot.enabled .Values.externalServices.nautobot.local }}
+{{- /* Bundled Redis exporter PodMonitor. Gated on the same local Redis and
+       exporter conditions as the redis-exporter sidecar. */}}
+{{- if and .Values.monitoring.podMonitors.enabled .Values.monitoring.podMonitors.redis.enabled .Values.externalServices.redis.local .Values.externalServices.redis.metricsExport.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ $redisName }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+    {{- with $monitoringCRLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- include "nv-config-manager.podTargetLabels" . | nindent 2 }}
+  namespaceSelector:
+    matchNames:
+      - {{ $namespace }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $redisName }}
+  podMetricsEndpoints:
+    - port: redis-metrics
+      path: /metrics
+      interval: {{ $scrapeInterval }}
+      scrapeTimeout: {{ $scrapeTimeout }}
+      {{- if .Values.global.customLabels }}
+      metricRelabelings:
+        {{- include "nv-config-manager.podMonitorMetricRelabelings" . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
+{{- /* Bundled NATS exporter PodMonitor (JetStream metrics for KEDA autoscaling).
+       Gated on the same condition as the NATS Deployment. */}}
+{{- if and .Values.monitoring.podMonitors.enabled .Values.nautobotNats.metrics.enabled (or .Values.nautobotNats.enabled .Values.externalServices.nats.local) }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
@@ -725,7 +757,7 @@ metadata:
   namespace: {{ $namespace }}
   labels:
     {{- include "nv-config-manager.labels" . | nindent 4 }}
-    app.kubernetes.io/component: nautobot-nats
+    app.kubernetes.io/component: nats
     {{- with $monitoringCRLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
@@ -762,11 +794,16 @@ spec:
 {{- range $clusterKey := .Values.cnpg.clusterList }}
 {{- $config := index $.Values.cnpg $clusterKey }}
 {{- if $config.enabled }}
+{{- $podMonitorName := include "nv-config-manager.cnpgPodMonitorName" (dict "root" $ "clusterName" $config.clusterName) }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  name: {{ $config.clusterName }}
+  # This chart deliberately leaves Cluster.spec.monitoring.enablePodMonitor
+  # disabled. CloudNativePG may still delete a same-name PodMonitor it does not
+  # own, so keep chart-owned monitors release-scoped. Upstream diagnosis:
+  # https://github.com/cloudnative-pg/cloudnative-pg/issues/6109
+  name: {{ $podMonitorName }}
   namespace: {{ $namespace }}
   labels:
     {{- include "nv-config-manager.labels" $ | nindent 4 }}
@@ -797,11 +834,12 @@ spec:
 {{- /* Nautobot CNPG cluster — same enable conditions as cnpg-clusters.yaml */}}
 {{- $nautobotConfig := .Values.cnpg.nautobot }}
 {{- if or $nautobotConfig.enabled (and .Values.nautobot.enabled .Values.externalServices.nautobot.local) }}
+{{- $nautobotPodMonitorName := include "nv-config-manager.cnpgPodMonitorName" (dict "root" . "clusterName" $nautobotConfig.clusterName) }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  name: {{ $nautobotConfig.clusterName }}
+  name: {{ $nautobotPodMonitorName }}
   namespace: {{ $namespace }}
   labels:
     {{- include "nv-config-manager.labels" . | nindent 4 }}

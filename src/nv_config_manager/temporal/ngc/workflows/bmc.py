@@ -26,6 +26,11 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager.dcim import (
+    DCIMLocationIdentifier,
+    DCIMLocationType,
+    dcim_location_reference,
+)
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager.temporal.common.mixins.stage import (
@@ -62,14 +67,15 @@ with workflow.unsafe.imports_passed_through():
         set_redfish_password,
         update_dpu_data,
     )
-    from nv_config_manager.temporal.ngc.activities.device import get_device_arp_table
-    from nv_config_manager.temporal.ngc.activities.nautobot import (
+    from nv_config_manager.temporal.ngc.activities.dcim import (
         GetNetworkDevicesInput,
         get_network_devices,
     )
+    from nv_config_manager.temporal.ngc.activities.device import get_device_arp_table
 
 ACTIVITY_NO_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
+DCIM_STAGE_IDENTIFIERS_PATCH = "dcim-stage-identifiers-v1"
 
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_WORKFLOW)
@@ -83,6 +89,9 @@ class RedfishProvisioningInput(BaseModel):
     """Input for Redfish provisioning workflow."""
 
     site: LocationReference = Field(description="Site containing the BMC network to provision.")
+    site_type: DCIMLocationType | None = Field(
+        default=None, description="DCIM location type for the site identifier."
+    )
     bmc_switch_roles: list[str] = Field(
         description="Switch roles used to discover BMC-connected network interfaces."
     )
@@ -113,15 +122,21 @@ class RedfishProvisioningWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
     workflow_name = "Redfish Provisioning"
     workflow_description = "Discover and provision Redfish-capable BMCs for server management"
     workflow_input_class = RedfishProvisioningInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/redfish_provisioning"
     workflow_namespace = "ngc"
 
     def __init__(self) -> None:
         """Workflow Constructor."""
         super().__init__()
+        self._write_to_dcim_stage_name = (
+            "write_to_dcim"
+            if workflow.patched(DCIM_STAGE_IDENTIFIERS_PATCH)
+            else "write_to_nautobot"
+        )
         self.define_stage(
             name="get_bmc_switches",
-            description="Get BMC devices from nautobot",
+            description="Get BMC devices from the DCIM",
             requires_approval=False,
             depends_on=[],
         )
@@ -186,8 +201,8 @@ class RedfishProvisioningWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
             depends_on=["discover_host_details"],
         )
         self.define_stage(
-            name="write_to_nautobot",
-            description="Update nautobot with discovered host data",
+            name=self._write_to_dcim_stage_name,
+            description="Update the DCIM with discovered host data",
             requires_approval=False,
             depends_on=["update_dpu_mapping"],
         )
@@ -196,7 +211,7 @@ class RedfishProvisioningWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
             description="Approval to Factory reset all host BMCs",
             requires_approval=True,
             approval_threshold=1,
-            depends_on=["write_to_nautobot"],
+            depends_on=[self._write_to_dcim_stage_name],
         )
         self.define_stage(
             name="factory_reset_hosts",
@@ -208,7 +223,7 @@ class RedfishProvisioningWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
     class GetBmcSwitchStageInput(StageInput):
         """Get BMC device stage input."""
 
-        site: str
+        site: DCIMLocationIdentifier
         roles: list[str]
 
     class GetBmcSwitchStageOutput(StageOutput):
@@ -463,22 +478,22 @@ class RedfishProvisioningWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
             servers=results, display=self.markdown_table(results)
         )
 
-    class WriteToNautobotStageInput(StageInput):
-        """Write to nautobot stage input."""
+    class WriteToDCIMStageInput(StageInput):
+        """Write to DCIM stage input."""
 
         servers: list[RedfishServer]
 
-    class WriteToNautobotStageOutput(StageOutput):
-        """Write to nautobot stage output."""
+    class WriteToDCIMStageOutput(StageOutput):
+        """Write to DCIM stage output."""
 
         updated_devices: list[HostDeviceData]
 
-    @stage_executor("write_to_nautobot")
-    async def write_to_nautobot(
+    @stage_executor("write_to_nautobot", name_attribute="_write_to_dcim_stage_name")
+    async def write_to_dcim(
         self,
-        stage_input: WriteToNautobotStageInput,
-    ) -> WriteToNautobotStageOutput:
-        """Write updated mappings to nautobot."""
+        stage_input: WriteToDCIMStageInput,
+    ) -> WriteToDCIMStageOutput:
+        """Write updated mappings to the DCIM."""
         results = await asyncio.gather(
             *[
                 workflow.execute_activity(
@@ -491,7 +506,7 @@ class RedfishProvisioningWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
             ]
         )
         updated_devices = [data for result in results for data in result.device_data]
-        return self.WriteToNautobotStageOutput(
+        return self.WriteToDCIMStageOutput(
             updated_devices=updated_devices,
             display=self.markdown_table(updated_devices),
         )
@@ -555,7 +570,7 @@ class RedfishProvisioningWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
 
         bmc_devices = await self.get_bmc_switches(
             self.GetBmcSwitchStageInput(
-                site=workflow_input.site,
+                site=dcim_location_reference(workflow_input.site, workflow_input.site_type),
                 roles=workflow_input.bmc_switch_roles,
             )
         )
@@ -611,8 +626,8 @@ class RedfishProvisioningWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
             self.UpdateDpuMappingStageInput(servers=host_details.servers, dpus=host_details.dpus)
         )
 
-        updated_devices = await self.write_to_nautobot(
-            self.WriteToNautobotStageInput(servers=mapped_hosts.servers)
+        updated_devices = await self.write_to_dcim(
+            self.WriteToDCIMStageInput(servers=mapped_hosts.servers)
         )
 
         hosts_to_reset = [host for host in all_hosts if not host.vendor == RedfishVendor.DELL]

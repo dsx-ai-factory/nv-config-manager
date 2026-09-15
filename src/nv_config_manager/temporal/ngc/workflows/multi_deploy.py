@@ -24,6 +24,12 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ChildWorkflowError
 
+from nv_config_manager.dcim import (
+    DCIMLocationIdentifier,
+    DCIMLocationType,
+    dcim_location_id,
+    dcim_location_reference,
+)
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager.temporal.common.mixins.stage import (
@@ -46,16 +52,16 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin, NetworkDeviceData
     from nv_config_manager.temporal.ngc.activities.config import build_workflow_url, get_ui_base_url
+    from nv_config_manager.temporal.ngc.activities.dcim import (
+        GetNetworkDevicesInput,
+        get_network_devices,
+    )
     from nv_config_manager.temporal.ngc.activities.deploy import (
         ConfigApplyActivityInput,
         DiffActivityInput,
         apply_approved_configuration,
         load_intended_configuration,
         perform_candidate_diff,
-    )
-    from nv_config_manager.temporal.ngc.activities.nautobot import (
-        GetNetworkDevicesInput,
-        get_network_devices,
     )
     from nv_config_manager.temporal.ngc.workflows.backup import (
         BackupInput,
@@ -137,6 +143,9 @@ class MultiDeployInput(BaseModel):
     )
     location: OptionalLocationReference = Field(
         default=None, description="Location used to filter the selected network devices."
+    )
+    location_type: DCIMLocationType | None = Field(
+        default=None, description="DCIM location type for the location identifier."
     )
     status: list[str] | None = Field(
         default=None, description="Device statuses used to filter the selected network devices."
@@ -585,6 +594,7 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
         "Deploy configurations to multiple devices by role with batching and approval workflow"
     )
     workflow_input_class = MultiDeployInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/multi_deploy"
     workflow_namespace = "ngc"
 
@@ -593,7 +603,7 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
         StageMixin.__init__(self)
         self.define_stage(
             name="discover_devices",
-            description="Discover devices by role from Nautobot.",
+            description="Discover devices by role from the DCIM.",
             requires_approval=False,
             depends_on=[],
         )
@@ -623,7 +633,7 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
         """Discover Devices Stage Input."""
 
         role: str
-        location: str | None = None
+        location: DCIMLocationIdentifier | None = None
         status: list[str] | None = None
         tenant: str | None = None
 
@@ -636,7 +646,7 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
     async def discover_devices(
         self, stage_input: DiscoverDevicesStageInput
     ) -> DiscoverDevicesStageOutput:
-        """Discover devices by role from Nautobot."""
+        """Discover devices by role from the DCIM."""
         result = await workflow.execute_activity(
             get_network_devices,
             GetNetworkDevicesInput(
@@ -1055,13 +1065,19 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
         """Execute multi-deploy workflow."""
         self.set_input(workflow_input)
         if workflow_input.location:
-            upsert_missing_search_attributes({SITE_SEARCH_ATTRIBUTE: [workflow_input.location]})
+            upsert_missing_search_attributes(
+                {SITE_SEARCH_ATTRIBUTE: [dcim_location_id(workflow_input.location)]}
+            )
 
         # Discover devices
         discover_output = await self.discover_devices(
             MultiDeployWorkflow.DiscoverDevicesStageInput(
                 role=workflow_input.role,
-                location=workflow_input.location,
+                location=(
+                    dcim_location_reference(workflow_input.location, workflow_input.location_type)
+                    if workflow_input.location
+                    else None
+                ),
                 status=workflow_input.status,
                 tenant=workflow_input.tenant,
             )

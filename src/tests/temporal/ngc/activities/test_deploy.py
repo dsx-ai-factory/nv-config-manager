@@ -574,7 +574,7 @@ def _get_revision_patch_bodies():
 
 
 @responses.activate
-@patch("nv_config_manager.temporal.client.device.time.sleep")
+@patch("nv_config_manager.temporal.client.device.cumulus.time.sleep")
 def test_apply_approved_configuration_cumulus_commit_confirm_true(mock_sleep):
     """With commit_confirm=True, Cumulus sends PATCH with confirm_yes/state-controls and a second confirm PATCH."""
     rev = "rev-abc"
@@ -615,7 +615,7 @@ def test_apply_approved_configuration_cumulus_commit_confirm_true(mock_sleep):
 
 
 @responses.activate
-@patch("nv_config_manager.temporal.client.device.time.sleep")
+@patch("nv_config_manager.temporal.client.device.cumulus.time.sleep")
 def test_apply_approved_configuration_cumulus_commit_confirm_false(mock_sleep):
     """With commit_confirm=False, Cumulus sends single PATCH without confirm_yes/state-controls, no confirm PATCH."""
     rev = "rev-xyz"

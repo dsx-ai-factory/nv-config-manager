@@ -21,7 +21,12 @@ from configparser import ConfigParser
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-from nv_config_manager.common.config import load_config, parse_verify_param
+from nv_config_manager.common.config import load_config
+from nv_config_manager.dcim import (
+    DEFAULT_DCIM_PROVIDER,
+    provider_settings,
+    supports_nautobot_mcp,
+)
 
 NAUTOBOT_AUTH_MODES = {"auto", "jwt", "token"}
 MCP_AUTH_CONFIG_ENV_VAR = "NV_CONFIG_MANAGER_MCP_AUTH_INI"
@@ -47,33 +52,51 @@ class MCPSettings:
     nautobot_auth_mode: str
     nautobot_token_fallback_enabled: bool
     max_response_bytes: int
+    dcim_provider_name: str = DEFAULT_DCIM_PROVIDER
+    nautobot_mcp_enabled: bool = False
 
     @classmethod
     def from_config(cls, config: ConfigParser | None = None) -> MCPSettings:
         """Resolve MCP settings from nv-config-manager.ini."""
         config = config or load_config()
         use_internal = _get_bool(config, "mcp", "use_internal_endpoints", True)
-        configured_auth_mode = _get_value(config, "mcp", "nautobot_auth_mode", "auto").lower()
-        if configured_auth_mode not in NAUTOBOT_AUTH_MODES:
-            raise ValueError(
-                f"mcp.nautobot_auth_mode must be one of: {', '.join(sorted(NAUTOBOT_AUTH_MODES))}"
-            )
+        dcim_provider_name = (
+            _get_value(config, "dcim", "provider", DEFAULT_DCIM_PROVIDER).strip()
+            or DEFAULT_DCIM_PROVIDER
+        )
+        nautobot_url = ""
+        nautobot_verify: bool | str = True
+        nautobot_auth_mode = "auto"
+        nautobot_mcp_enabled = supports_nautobot_mcp(config)
+        if nautobot_mcp_enabled:
+            dcim_settings = provider_settings(config, dcim_provider_name)
+            configured_auth_mode = _get_value(config, "mcp", "nautobot_auth_mode", "auto").lower()
+            if configured_auth_mode not in NAUTOBOT_AUTH_MODES:
+                raise ValueError(
+                    "mcp.nautobot_auth_mode must be one of: "
+                    f"{', '.join(sorted(NAUTOBOT_AUTH_MODES))}"
+                )
+            nautobot_url = dcim_settings.get("server", "").strip()
+            if not nautobot_url:
+                raise ValueError("Missing required DCIM provider setting server")
+            nautobot_verify = _verify_value(dcim_settings)
+            nautobot_auth_mode = _resolve_nautobot_auth_mode(configured_auth_mode, nautobot_url)
 
         return cls(
             workflow_api_url=_service_url(config, "temporal", use_internal),
             workflow_ui_url=_workflow_ui_url(config),
             config_store_api_url=_service_url(config, "config_store.client", use_internal),
             dhcp_api_url=_service_url(config, "dhcp", use_internal),
-            nautobot_url=_get_required(config, "nautobot", "server"),
+            nautobot_url=nautobot_url,
             nautobot_read_only_token=_get_value(config, "mcp", "nautobot_read_only_token", ""),
-            nautobot_verify=_verify_value(config, "nautobot"),
-            nautobot_auth_mode=_resolve_nautobot_auth_mode(
-                configured_auth_mode, _get_required(config, "nautobot", "server")
-            ),
+            nautobot_verify=nautobot_verify,
+            nautobot_auth_mode=nautobot_auth_mode,
             nautobot_token_fallback_enabled=_get_bool(
                 config, "mcp", "nautobot_token_fallback_enabled", False
             ),
             max_response_bytes=_get_int(config, "mcp", "max_response_bytes", 100_000),
+            dcim_provider_name=dcim_provider_name,
+            nautobot_mcp_enabled=nautobot_mcp_enabled,
         )
 
 
@@ -230,10 +253,14 @@ def _workflow_ui_url(config: ConfigParser) -> str:
     return f"{parsed.scheme}://{hostname}"
 
 
-def _verify_value(config: ConfigParser, section: str) -> bool | str:
-    if not config.has_section(section):
+def _verify_value(settings: dict[str, str]) -> bool | str:
+    value = settings.get("verify", "").strip()
+    if not value:
         return True
-    return parse_verify_param(config[section])
+    try:
+        return ConfigParser.BOOLEAN_STATES[value.lower()]
+    except KeyError:
+        return value
 
 
 def _resolve_nautobot_auth_mode(configured_auth_mode: str, nautobot_url: str) -> str:
