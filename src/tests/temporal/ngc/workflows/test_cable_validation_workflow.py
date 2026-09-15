@@ -15,16 +15,18 @@
 # pylint: disable=B101,C0115,C0116
 """Test Suite for Cable Validation Workflow"""
 
+import asyncio
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 import pytest
 from temporalio import activity, workflow
 from temporalio.client import WorkflowFailureError, WorkflowHandle
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, ChildWorkflowError
 from temporalio.worker import Worker
 
 from tests.temporal.ngc.workflows.test_cable_validation_data import (
@@ -40,17 +42,26 @@ with workflow.unsafe.imports_passed_through():
         network_device_from_nautobot_graphql,
     )
 
-    from nv_config_manager.temporal.client.device import DeviceArpTable, DeviceMacTable
+    from nv_config_manager.temporal.client.device import (
+        DeviceArpTable,
+        DeviceMacTable,
+        DeviceNeighborData,
+    )
     from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
     from nv_config_manager.temporal.common.mixins.device import InterfaceData, NetworkDeviceData
     from nv_config_manager.temporal.common.mixins.stage import StageRuntimeFailure
     from nv_config_manager.temporal.ngc.activities.cable_validation import (
+        CableStatus,
+        CableValidationResultData,
         DecorateResultActivityInput,
-        DeviceNeighborData,
+        DecorateResultActivityOutput,
         InterfaceNeighborData,
+        UpdateCableStatusesInput,
+        ValidateDeviceNeighborsResult,
         decorate_result,
         format_device_validation_result,
         format_results,
+        update_cable_statuses,
         validate_device_neighbors,
     )
     from nv_config_manager.temporal.ngc.activities.device import ValidateHostnameActivityOutput
@@ -59,6 +70,9 @@ with workflow.unsafe.imports_passed_through():
         GetNetworkDevicesOutput,
     )
     from nv_config_manager.temporal.ngc.workflows.cable_validation import (
+        CABLE_STATUS_UPDATE_PATCH_ID,
+        CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID,
+        DCIM_PERSISTENCE_PENDING_MESSAGE,
         DeviceCableValidationInput,
         DeviceCableValidationResult,
         DeviceCableValidationWorkflow,
@@ -67,6 +81,284 @@ with workflow.unsafe.imports_passed_through():
         SiteCableValidationWorkflow,
     )
     from tests.temporal.conftest import mock_publish_nats
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("patch_enabled", [False, True])
+@pytest.mark.parametrize("defer", [False, True])
+async def test_device_report_stage_waits_for_persistence(patch_enabled, defer):
+    device = NetworkDeviceData.model_construct(id="device-1", name="leaf-1")
+    stage_input = DeviceCableValidationWorkflow.ValidateConnectionsStageInput(
+        device=device,
+        intended=DeviceNeighborData(),
+        actual=DeviceNeighborData(),
+        mac_table=DeviceMacTable(),
+        arp_table=DeviceArpTable(),
+        defer_cable_status_updates=defer,
+    )
+    validation_result = ValidateDeviceNeighborsResult(
+        cable_statuses={"Ethernet1/1": CableStatus.CONNECTED}
+    )
+    decorated_result = DecorateResultActivityOutput(
+        devices={"leaf-1": CableValidationResultData(interfaces={}, device=device)}
+    )
+    calls = []
+    instance = MagicMock(spec=DeviceCableValidationWorkflow)
+
+    async def persist(stage_name, report, updates):
+        assert format_device_validation_result in calls
+        assert report.display == "All cable connections are valid."
+        assert instance.set_stage_state.call_args == call("validate_connections", "IN_PROGRESS")
+
+    instance.persist_cable_statuses_after_report = AsyncMock(side_effect=persist)
+
+    async def execute_activity(activity_callable, *_args, **_kwargs):
+        calls.append(activity_callable)
+        if activity_callable is validate_device_neighbors:
+            return validation_result
+        if activity_callable is decorate_result:
+            return decorated_result
+        if activity_callable is format_device_validation_result:
+            return "All cable connections are valid."
+        if activity_callable is update_cable_statuses:
+            return None
+        raise AssertionError(f"Unexpected activity: {activity_callable}")
+
+    with (
+        patch(
+            "nv_config_manager.temporal.ngc.workflows.cable_validation.workflow.execute_activity",
+            side_effect=execute_activity,
+        ),
+        patch(
+            "nv_config_manager.temporal.ngc.workflows.cable_validation.workflow.patched",
+            return_value=patch_enabled,
+        ) as patched,
+        patch(
+            "nv_config_manager.temporal.ngc.workflows.cable_validation.workflow.info",
+            return_value=SimpleNamespace(workflow_id="workflow-1"),
+        ),
+    ):
+        await DeviceCableValidationWorkflow.validate_connections(instance, stage_input)
+
+    patched.assert_called_once_with(CABLE_STATUS_UPDATE_PATCH_ID)
+    assert instance.persist_cable_statuses_after_report.await_count == int(
+        patch_enabled and not defer
+    )
+    assert instance.set_stage_state.call_args == call("validate_connections", "COMPLETE")
+    assert update_cable_statuses not in calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("patch_enabled", [False, True])
+@pytest.mark.parametrize("defer", [False, True])
+async def test_device_passes_persistence_deferral_to_report_stage(patch_enabled, defer):
+    device = NetworkDeviceData.model_construct(id="device-1", name="leaf-1")
+    instance = MagicMock(spec=DeviceCableValidationWorkflow)
+    instance.get_device_data = AsyncMock(return_value=SimpleNamespace(device=device))
+    instance.validate_device_hostname = AsyncMock()
+    instance.get_device_intended_neighbors = AsyncMock(
+        return_value=SimpleNamespace(intended_neighbors=DeviceNeighborData())
+    )
+    instance.get_device_actual_neighbors = AsyncMock(
+        return_value=SimpleNamespace(actual_neighbors=DeviceNeighborData())
+    )
+    instance.get_device_mac_table = AsyncMock(
+        return_value=SimpleNamespace(mac_table=DeviceMacTable(), arp_table=DeviceArpTable())
+    )
+    instance.validate_connections = AsyncMock(
+        return_value=SimpleNamespace(
+            validation_result=ValidateDeviceNeighborsResult(
+                cable_statuses={"p": CableStatus.CONNECTED}
+            )
+        )
+    )
+
+    instance.archive_results = AsyncMock()
+    with (
+        patch("temporalio.workflow.patched", return_value=patch_enabled) as patched,
+        patch("temporalio.workflow.info", return_value=SimpleNamespace(workflow_id="workflow-1")),
+        patch(
+            "nv_config_manager.temporal.ngc.workflows.cable_validation.DeviceMixin.attach_device_search_attributes"
+        ),
+    ):
+        result = await DeviceCableValidationWorkflow.run.__wrapped__(
+            instance,
+            DeviceCableValidationInput(
+                device_id="device-1", device=device, defer_cable_status_updates=defer
+            ),
+        )
+    patched.assert_called_once_with(CABLE_STATUS_UPDATE_PATCH_ID)
+    assert instance.validate_connections.call_args.args[0].defer_cable_status_updates == defer
+    instance.persist_cable_statuses_after_report.assert_not_awaited()
+    assert (result.cable_status_update is not None) == (patch_enabled and defer)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("patch_enabled", [False, True])
+async def test_site_passes_pending_updates_to_report_stage(patch_enabled):
+    device = NetworkDeviceData.model_construct(id="device-1", name="leaf-1")
+    pending = UpdateCableStatusesInput(
+        device_id="device-1", cable_statuses={"p": CableStatus.CONNECTED}, workflow_id="child-1"
+    )
+    instance = MagicMock(spec=SiteCableValidationWorkflow)
+    instance.get_devices_to_validate = AsyncMock(return_value=SimpleNamespace(devices=[device]))
+    instance.validate_devices = AsyncMock(
+        return_value=SimpleNamespace(devices={}, failed_devices={}, cable_status_updates=[pending])
+    )
+    instance.format_result = AsyncMock(return_value=SimpleNamespace(display="Report"))
+    instance.FormatResultStageInput = SiteCableValidationWorkflow.FormatResultStageInput
+
+    instance.archive_results = AsyncMock()
+    with (
+        patch("temporalio.workflow.patched", return_value=patch_enabled),
+        patch(
+            "nv_config_manager.temporal.ngc.workflows.cable_validation.upsert_missing_search_attributes"
+        ),
+    ):
+        result = await SiteCableValidationWorkflow.run.__wrapped__(
+            instance, SiteCableValidationInput(site="site-1")
+        )
+    assert result.markdown == "Report"
+    assert instance.format_result.call_args.args[0].cable_status_updates == [pending]
+    instance.persist_cable_statuses_after_report.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("patch_enabled", [False, True])
+async def test_site_report_stage_waits_for_persistence(patch_enabled):
+    instance = MagicMock(spec=SiteCableValidationWorkflow)
+    instance.FormatResultStageOutput = SiteCableValidationWorkflow.FormatResultStageOutput
+    pending = UpdateCableStatusesInput(
+        device_id="device-1", cable_statuses={"p": CableStatus.CONNECTED}, workflow_id="workflow-1"
+    )
+
+    async def persist(stage_name, report, updates):
+        assert updates == [pending]
+        assert report.display == "Report with Excel link"
+        assert instance.set_stage_state.call_args == call("format_result", "IN_PROGRESS")
+
+    instance.persist_cable_statuses_after_report = AsyncMock(side_effect=persist)
+    with (
+        patch("temporalio.workflow.patched", return_value=patch_enabled),
+        patch(
+            "temporalio.workflow.execute_activity", AsyncMock(return_value="Report with Excel link")
+        ),
+    ):
+        await SiteCableValidationWorkflow.format_result(
+            instance,
+            SiteCableValidationWorkflow.FormatResultStageInput(
+                devices={}, cable_status_updates=[pending]
+            ),
+        )
+    assert instance.persist_cable_statuses_after_report.await_count == int(patch_enabled)
+    assert instance.set_stage_state.call_args == call("format_result", "COMPLETE")
+
+
+@pytest.mark.asyncio
+async def test_dcim_persistence_keeps_report_visible_until_complete():
+    pending = UpdateCableStatusesInput(
+        device_id="device-1", cable_statuses={"p": CableStatus.CONNECTED}, workflow_id="workflow-1"
+    )
+    report = SiteCableValidationWorkflow.FormatResultStageOutput(display="Report")
+    instance = MagicMock(spec=SiteCableValidationWorkflow)
+
+    async def persist(updates):
+        assert updates == [pending]
+        assert instance.set_stage_output.call_args == call(
+            "format_result",
+            SiteCableValidationWorkflow.FormatResultStageOutput(
+                display="Report" + DCIM_PERSISTENCE_PENDING_MESSAGE
+            ),
+        )
+
+    instance.persist_cable_statuses = AsyncMock(side_effect=persist)
+
+    await SiteCableValidationWorkflow.persist_cable_statuses_after_report(
+        instance, "format_result", report, [pending]
+    )
+
+    assert instance.set_stage_output.call_args_list == [
+        call(
+            "format_result",
+            SiteCableValidationWorkflow.FormatResultStageOutput(
+                display="Report" + DCIM_PERSISTENCE_PENDING_MESSAGE
+            ),
+        ),
+        call("format_result", report),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dcim_persistence_failure_preserves_report_and_propagates_error():
+    pending = UpdateCableStatusesInput(
+        device_id="device-1", cable_statuses={"p": CableStatus.CONNECTED}, workflow_id="workflow-1"
+    )
+    markdown = "| Device | Issue |\n| --- | --- |\n| leaf-1 | Link down |\n\n[Excel](report.xlsx)"
+    report = SiteCableValidationWorkflow.FormatResultStageOutput(display=markdown)
+    instance = MagicMock(spec=SiteCableValidationWorkflow)
+    error = ApplicationError("DCIM unavailable")
+    instance.persist_cable_statuses = AsyncMock(side_effect=error)
+
+    with pytest.raises(ApplicationError) as raised:
+        await SiteCableValidationWorkflow.persist_cable_statuses_after_report(
+            instance, "format_result", report, [pending]
+        )
+
+    assert raised.value is error
+    stage_name, output = instance.set_stage_output.call_args.args
+    assert stage_name == "format_result"
+    assert output.display.startswith(markdown)
+    assert "persistence failed" in output.display
+    assert "partially updated" in output.display
+    assert "still running" not in output.display
+    assert report.display == markdown
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("timeout_enabled", [False, True])
+async def test_site_records_child_timeout_and_continues(timeout_enabled):
+    device = NetworkDeviceData.model_construct(id="device-1", name="leaf-1")
+    instance = MagicMock(spec=SiteCableValidationWorkflow)
+    instance.ValidateDevicesStageOutput = SiteCableValidationWorkflow.ValidateDevicesStageOutput
+    child = asyncio.get_running_loop().create_future()
+    child.id = "child-1"
+    error = ChildWorkflowError(
+        "Child timed out",
+        namespace="default",
+        workflow_id=child.id,
+        run_id="run-1",
+        workflow_type="DeviceCableValidationWorkflow",
+        initiated_event_id=1,
+        started_event_id=2,
+        retry_state=None,
+    )
+    error.__cause__ = ApplicationError("Device validation exceeded ten minutes")
+    child.set_exception(error)
+    with (
+        patch(
+            "temporalio.workflow.execute_activity", new=AsyncMock(return_value="https://nvcm.test")
+        ),
+        patch(
+            "temporalio.workflow.start_child_workflow", new=AsyncMock(return_value=child)
+        ) as start_child,
+        patch("temporalio.workflow.info", return_value=SimpleNamespace(search_attributes={})),
+        patch(
+            "temporalio.workflow.patched",
+            side_effect=lambda name: (
+                timeout_enabled if name == CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID else True
+            ),
+        ),
+    ):
+        result = await SiteCableValidationWorkflow.validate_devices.__wrapped__(
+            instance, SiteCableValidationWorkflow.ValidateDevicesStageInput(devices=[device])
+        )
+    assert start_child.call_args.kwargs["execution_timeout"] == (
+        timedelta(minutes=10) if timeout_enabled else None
+    )
+    assert start_child.call_args.args[1].defer_cable_status_updates is True
+    assert result.failed_devices == {"leaf-1": "Device validation exceeded ten minutes"}
+    assert result.devices == {}
+
 
 ROLES_FOR_CABLE_VALIDATION = [
     "wan",
@@ -80,6 +372,11 @@ ROLES_FOR_CABLE_VALIDATION = [
     "smn-spine",
     "smn-leaf",
 ]
+
+
+@activity.defn(name="update_cable_statuses")
+async def mock_update_cable_statuses(_: UpdateCableStatusesInput) -> None:
+    """Accept cable status updates without an external DCIM in workflow tests."""
 
 
 @activity.defn(name="get_network_devices")
@@ -561,6 +858,7 @@ async def test_execute_device_cable_validation_workflow_dpu_mac_offset(_, env):
             decorate_result,
             format_device_validation_result,
             validate_device_neighbors,
+            mock_update_cable_statuses,
             mock_get_device_mac_table_dpu_offset,
             mock_get_device_arp_table,
             mock_publish_nats,
@@ -766,6 +1064,8 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
         await handle.result()
 
         stages = await handle.query("stages")
+        assert stages[1]["output"].pop("cable_status_updates") == []
+        assert stages[2]["input"].pop("cable_status_updates") == []
         assert stages == [
             {
                 "approval_threshold": 0,
@@ -1684,6 +1984,7 @@ async def test_execute_device_cable_validation_workflow_valid(_, env):
             mock_get_device_actual_neighbors_valid,
             mock_get_device_intended_neighbors_valid,
             validate_device_neighbors,
+            mock_update_cable_statuses,
             decorate_result,
             mock_get_device_mac_table,
             mock_get_device_arp_table,
@@ -2017,6 +2318,7 @@ async def test_execute_device_cable_validation_workflow_invalid(env):
             _decorate_result_with_mock,
             format_device_validation_result,
             validate_device_neighbors,
+            mock_update_cable_statuses,
             mock_get_device_mac_table,
             mock_get_device_arp_table,
             mock_publish_nats,
@@ -2314,6 +2616,7 @@ async def test_execute_device_cable_validation_workflow_mac_validation_all_valid
             decorate_result,
             format_device_validation_result,
             validate_device_neighbors,
+            mock_update_cable_statuses,
             mock_get_device_mac_table_healthy,
             mock_get_device_arp_table,
             mock_publish_nats,
@@ -2389,6 +2692,7 @@ async def test_execute_device_cable_validation_workflow_hostname_mismatch(_, env
             mock_get_device_intended_neighbors_for_mac_validation,
             decorate_result,
             validate_device_neighbors,
+            mock_update_cable_statuses,
             mock_get_device_mac_table_invalid,
             mock_get_device_arp_table_invalid,
         ],

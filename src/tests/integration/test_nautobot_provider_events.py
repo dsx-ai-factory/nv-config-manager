@@ -502,14 +502,14 @@ class TestNautobotProviderEvents:
             restore_changes={"backup_enabled": managed_status["backup_enabled"]},
         )
 
-    def test_cable_event_resolves_its_terminations(
+    def test_cable_update_does_not_render(
         self,
         nautobot_url: str,
         nautobot_client: requests.Session,
         render_api_url: str,
         render_client: requests.Session,
     ) -> None:
-        """A ``dcim.cable`` update resolves its managed-device termination."""
+        """Cable metadata updates must not trigger device configuration renders."""
         managed_device_ids = {
             device["device"]["id"] for device in _render_devices(nautobot_url, nautobot_client)
         }
@@ -547,17 +547,30 @@ class TestNautobotProviderEvents:
         if target_device_id is None:
             pytest.fail(f"Cable {cable['id']} has no render-enabled termination")
 
-        _patch_and_assert_event(
-            nautobot_url,
-            nautobot_client,
-            render_api_url,
-            render_client,
-            target_device_id=target_device_id,
-            path=f"dcim/cables/{cable['id']}",
-            object_type="dcim.cable",
-            changes={"label": f"nvcm-provider-cable-{uuid4().hex}"},
-            restore_changes={"label": cable.get("label") or ""},
+        _wait_for_queues_to_drain(render_api_url, render_client)
+        previous_message = _event_message_for_device(
+            nautobot_url, nautobot_client, target_device_id
         )
+        url = f"{nautobot_url}/api/dcim/cables/{cable['id']}/"
+        try:
+            response = nautobot_client.patch(
+                url, json={"label": f"nvcm-provider-cable-{uuid4().hex}"}, timeout=30
+            )
+            response.raise_for_status()
+            # Observe a bounded window: the positive create/delete fan-out is
+            # covered separately by the provider handler tests.
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                assert (
+                    _event_message_for_device(nautobot_url, nautobot_client, target_device_id)
+                    == previous_message
+                )
+                time.sleep(1)
+        finally:
+            response = nautobot_client.patch(
+                url, json={"label": cable.get("label") or ""}, timeout=30
+            )
+            response.raise_for_status()
 
     def test_bgp_events_resolve_affected_devices(
         self,
