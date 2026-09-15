@@ -70,8 +70,17 @@ jobs:
 
           commit="$(git rev-parse "${resolved_ref}^{commit}")"
           if ! git merge-base --is-ancestor "$commit" "origin/${DEFAULT_BRANCH}"; then
-            echo "Source commit ${commit} is not reachable from origin/${DEFAULT_BRANCH}."
-            exit 1
+            case "$SOURCE_REF" in
+              release/*)
+                target_version="${SOURCE_REF#release/}"
+                .github/scripts/validate-maintenance-release-source \
+                  "$commit" "$target_version" "$DEFAULT_BRANCH"
+                ;;
+              *)
+                echo "Source commit ${commit} is not reachable from origin/${DEFAULT_BRANCH}."
+                exit 1
+                ;;
+            esac
           fi
 
           echo "commit=${commit}" >> "$GITHUB_OUTPUT"
@@ -82,6 +91,7 @@ jobs:
         env:
           INPUT_BASE_VERSION: ${{ inputs.base_version }}
           INPUT_RC_TAG: ${{ inputs.rc_tag }}
+          SOURCE_REF: ${{ inputs.source_ref }}
         run: |
           set -euo pipefail
           stable_re='^[0-9]+\.[0-9]+\.[0-9]+$'
@@ -129,6 +139,15 @@ jobs:
           if git rev-parse --verify "refs/tags/${rc_tag}" >/dev/null 2>&1; then
             echo "Tag ${rc_tag} already exists."
             exit 1
+          fi
+
+          if [[ "$SOURCE_REF" == release/* ]]; then
+            release_version="$SOURCE_REF"
+            release_version="${release_version#release/}"
+            if [ "${rc_tag%%-rc.*}" != "$release_version" ]; then
+              echo "RC tag ${rc_tag} does not match release branch ${release_version}."
+              exit 1
+            fi
           fi
 
           go_tag="bindings/go/v${rc_tag}"
