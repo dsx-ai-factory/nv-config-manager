@@ -10,6 +10,13 @@ version before the selected release candidate is promoted.
 
 - No unreleased changes have been recorded yet.
 
+## 1.3.2
+
+### Fixed
+
+- Fixed air-gapped template-plugin installation by installing bundled wheels
+  without contacting PyPI.
+
 ## 1.3.1
 
 ### Added
