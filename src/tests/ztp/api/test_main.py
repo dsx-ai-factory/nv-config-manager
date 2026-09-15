@@ -57,6 +57,21 @@ def test_healthcheck_is_async():
     assert inspect.iscoroutinefunction(healthcheck)
 
 
+@pytest.mark.parametrize("exists", [True, False])
+def test_file_head_checks_metadata_without_downloading(client, exists):
+    storage = AsyncMock()
+    storage.__aenter__.return_value = storage
+    if not exists:
+        storage.get_object_metadata.side_effect = S3NotFoundException("missing")
+    with patch("nv_config_manager.ztp.api.files_v1.get_storage_client", return_value=storage):
+        response = client.head("/v1/files/platform/1.0/image.bin", headers=SSO_HEADERS)
+    assert response.status_code == (200 if exists else 404)
+    assert response.content == b""
+    storage.get_object_metadata.assert_awaited_once_with("platform", "1.0", "image.bin")
+    storage.get_object.assert_not_called()
+    storage.__aexit__.assert_awaited_once()
+
+
 def test_docs(client):
     """Verify Swagger Doc endpoint."""
     rsp = client.get("/docs")

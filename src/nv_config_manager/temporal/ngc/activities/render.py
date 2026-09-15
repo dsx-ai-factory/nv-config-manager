@@ -63,10 +63,10 @@ async def execute_render(
     Returns:
         ExecuteRenderOutput containing changed files and the post-render snapshot
     """
-    client = render_client()
-    updated_files = await client.execute_render(
-        activity_input.device_id, activity_input.workflow_id
-    )
+    async with render_client() as client:
+        updated_files = await client.execute_render(
+            activity_input.device_id, activity_input.workflow_id
+        )
 
     # Config Store returns every latest file version in one response, keeping
     # commit IDs used together for deployment pinned to the same snapshot.

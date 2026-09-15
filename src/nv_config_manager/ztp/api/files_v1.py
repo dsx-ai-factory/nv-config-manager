@@ -15,7 +15,7 @@
 """S3 File Endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from nv_config_manager.common.auth import SSOIdentity, require_authenticated_identity
 from nv_config_manager.common.config import get_storage_client
@@ -28,6 +28,18 @@ from nv_config_manager.ztp.storage import (
 )
 
 router = APIRouter(prefix="/files", tags=["files"], responses={404: {"description": "Not found"}})
+
+
+@router.head("/{platform}/{version}/{filename}", response_class=Response)
+async def check_object(platform: str, version: str, filename: str) -> Response:
+    """Check whether a file exists without opening a download stream."""
+    storage_client = get_storage_client()
+    try:
+        async with storage_client:
+            await storage_client.get_object_metadata(platform, version, filename)
+        return Response(status_code=200)
+    except ObjectStorageNotFoundException as exc:
+        raise HTTPException(status_code=404, detail="File not found in storage.") from exc
 
 
 @router.get("/{platform}/{version}/{filename}", response_class=StreamingResponse)
