@@ -231,6 +231,20 @@ async def test_iter_graphql_pages_rejects_malformed_result() -> None:
 
 
 @pytest.mark.asyncio
+async def test_iter_graphql_pages_rejects_null_page_entries() -> None:
+    class _NullEntryClient(NautobotClient):
+        def __init__(self) -> None:
+            super().__init__("https://nautobot.example.com/", "dummy")
+
+        async def graphql_query(self, query, variables=None):  # noqa: ANN001
+            return {"data": {"prefixes": [None, {"id": "prefix-0"}]}}
+
+    client = _NullEntryClient()
+    with pytest.raises(DHCPDataError, match="invalid prefixes"):
+        await client._iter_graphql_pages("query { prefixes }", "prefixes", page_size=2)
+
+
+@pytest.mark.asyncio
 async def test_load_auto_dhcp_subnets_keeps_same_address_with_distinct_ids() -> None:
     prefixes = _prefix_page(2)
     client = _PagingNautobotClient(

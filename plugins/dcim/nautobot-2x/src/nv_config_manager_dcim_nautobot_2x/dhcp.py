@@ -249,6 +249,8 @@ class NautobotDHCPOperations:
             page = data[result_key]
             if not page:
                 break
+            if any(not isinstance(item, dict) for item in page):
+                raise DHCPDataError(f"Nautobot returned invalid {result_key} data")
             collected.extend(page)
             if len(page) < page_size:
                 break
