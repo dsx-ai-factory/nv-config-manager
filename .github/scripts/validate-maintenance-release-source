@@ -55,6 +55,48 @@ if [ -n "$merge_commits" ]; then
   exit 1
 fi
 
+patch_matches_default() {
+  local candidate="$1"
+  local candidate_patch_id default_candidate default_patch_id
+
+  candidate_patch_id="$(
+    git show --root --format= "$candidate" -- . ':!CHANGELOG.md' \
+      | git patch-id --verbatim \
+      | awk 'NR == 1 { print $1 }'
+  )"
+  if [ -z "$candidate_patch_id" ]; then
+    return 1
+  fi
+
+  while IFS= read -r default_candidate; do
+    default_patch_id="$(
+      git show --root --format= "$default_candidate" -- . ':!CHANGELOG.md' \
+        | git patch-id --verbatim \
+        | awk 'NR == 1 { print $1 }'
+    )"
+    if [ "$candidate_patch_id" = "$default_patch_id" ]; then
+      return 0
+    fi
+  done < <(git rev-list --no-merges "${default_ref}")
+
+  return 1
+}
+
+# Verify every functional patch verbatim before git cherry performs its
+# whitespace-insensitive patch filtering.
+while IFS= read -r candidate; do
+  unexpected_paths="$(
+    git diff-tree --no-commit-id --name-only -r "$candidate" \
+      | grep -v '^CHANGELOG.md$' \
+      || true
+  )"
+  if [ -n "$unexpected_paths" ] && ! patch_matches_default "$candidate"; then
+    echo "Commit ${candidate} contains release-only changes that do not exactly match ${default_ref}:"
+    printf '%s\n' "$unexpected_paths"
+    exit 1
+  fi
+done < <(git rev-list --reverse "${base_tag}..${commit}")
+
 while read -r disposition candidate; do
   if [ "$disposition" != "+" ]; then
     continue
@@ -64,7 +106,7 @@ while read -r disposition candidate; do
       | grep -v '^CHANGELOG.md$' \
       || true
   )"
-  if [ -n "$unexpected_paths" ]; then
+  if [ -n "$unexpected_paths" ] && ! patch_matches_default "$candidate"; then
     echo "Commit ${candidate} is not present on ${default_ref} and changes more than CHANGELOG.md:"
     printf '%s\n' "$unexpected_paths"
     exit 1
