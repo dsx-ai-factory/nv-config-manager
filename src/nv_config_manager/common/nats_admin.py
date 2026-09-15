@@ -14,25 +14,25 @@
 # limitations under the License.
 """Compatibility exports for shared NATS guidance."""
 
-from nv_config_manager_infrastructure.nats_admin import (
+from nv_config_manager_infrastructure.nats.admin import (
     CONSUMER_ACK_WAIT_SECONDS as CONSUMER_ACK_WAIT_SECONDS,
 )
-from nv_config_manager_infrastructure.nats_admin import CONSUMER_MAX_DELIVER as CONSUMER_MAX_DELIVER
-from nv_config_manager_infrastructure.nats_admin import (
+from nv_config_manager_infrastructure.nats.admin import CONSUMER_MAX_DELIVER as CONSUMER_MAX_DELIVER
+from nv_config_manager_infrastructure.nats.admin import (
     consumer_api_subjects as consumer_api_subjects,
 )
-from nv_config_manager_infrastructure.nats_admin import (
+from nv_config_manager_infrastructure.nats.admin import (
     expected_consumer_configuration as expected_consumer_configuration,
 )
-from nv_config_manager_infrastructure.nats_admin import (
+from nv_config_manager_infrastructure.nats.admin import (
     is_nats_permissions_error as is_nats_permissions_error,
 )
-from nv_config_manager_infrastructure.nats_admin import (
+from nv_config_manager_infrastructure.nats.admin import (
     provision_consumer_request as provision_consumer_request,
 )
-from nv_config_manager_infrastructure.nats_admin import (
+from nv_config_manager_infrastructure.nats.admin import (
     reset_consumer_request as reset_consumer_request,
 )
-from nv_config_manager_infrastructure.nats_admin import (
+from nv_config_manager_infrastructure.nats.admin import (
     update_consumer_request as update_consumer_request,
 )

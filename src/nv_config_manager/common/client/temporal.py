@@ -63,6 +63,7 @@ class TemporalClient(_TemporalClient):
                 user_domain=user_domain,
                 client_certificate=None,
                 headers=get_internal_auth_headers,
+                allow_insecure_auth=True,
             )
         else:
             return cls(

@@ -47,8 +47,9 @@ class IBPKeyCreationInput(BaseModel):
     pkey_max: Optional[StrictInt] = Field(default=32766, description="Highest partition key eligible for automatic allocation.")
     pkey_min: Optional[StrictInt] = Field(default=1, description="Lowest partition key eligible for automatic allocation.")
     site: Optional[StrictStr] = None
+    site_type: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["host", "ip_over_ib", "pkey", "pkey_max", "pkey_min", "site"]
+    __properties: ClassVar[List[str]] = ["host", "ip_over_ib", "pkey", "pkey_max", "pkey_min", "site", "site_type"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -106,6 +107,11 @@ class IBPKeyCreationInput(BaseModel):
         if self.site is None and "site" in self.model_fields_set:
             _dict['site'] = None
 
+        # set to None if site_type (nullable) is None
+        # and model_fields_set contains the field
+        if self.site_type is None and "site_type" in self.model_fields_set:
+            _dict['site_type'] = None
+
         return _dict
 
     @classmethod
@@ -123,7 +129,8 @@ class IBPKeyCreationInput(BaseModel):
             "pkey": obj.get("pkey"),
             "pkey_max": obj.get("pkey_max") if obj.get("pkey_max") is not None else 32766,
             "pkey_min": obj.get("pkey_min") if obj.get("pkey_min") is not None else 1,
-            "site": obj.get("site")
+            "site": obj.get("site"),
+            "site_type": obj.get("site_type")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

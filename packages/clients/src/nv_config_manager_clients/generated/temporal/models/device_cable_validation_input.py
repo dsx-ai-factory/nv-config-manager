@@ -42,11 +42,12 @@ class DeviceCableValidationInput(BaseModel):
     """
     Input for Device Cable Validation Workflow.
     """ # noqa: E501
+    defer_cable_status_updates: Optional[StrictBool] = Field(default=False, description="Return pending DCIM updates to a parent site workflow. Direct API calls must leave this false.")
     device: Optional[NetworkDeviceData] = Field(default=None, description="Preloaded data for the target network device, if available.")
     device_id: StrictStr = Field(description="Identifier of the network device to validate.")
     ignore_no_neighbor: Optional[StrictBool] = Field(default=False, description="Whether interfaces without discovered neighbors should be ignored.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["device", "device_id", "ignore_no_neighbor"]
+    __properties: ClassVar[List[str]] = ["defer_cable_status_updates", "device", "device_id", "ignore_no_neighbor"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -114,6 +115,7 @@ class DeviceCableValidationInput(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
+            "defer_cable_status_updates": obj.get("defer_cable_status_updates") if obj.get("defer_cable_status_updates") is not None else False,
             "device": NetworkDeviceData.from_dict(obj["device"]) if obj.get("device") is not None else None,
             "device_id": obj.get("device_id"),
             "ignore_no_neighbor": obj.get("ignore_no_neighbor") if obj.get("ignore_no_neighbor") is not None else False

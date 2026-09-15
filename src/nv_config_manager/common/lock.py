@@ -101,13 +101,13 @@ async def acquire_lock(
 ) -> bool:
     """Acquire a token lock using the service-selected Redis backend."""
     return await lock_primitives.acquire_lock(
-        _redis_lock(name, timeout), token, timeout, blocking_timeout, blocking
+        _redis_lock(name, timeout), token, blocking_timeout, blocking
     )
 
 
 async def renew_lock(name: str, token: str, timeout: int) -> bool:
     """Renew a token lock using the service-selected Redis backend."""
-    return await lock_primitives.renew_lock(_redis_lock(name, timeout), token, timeout)
+    return await lock_primitives.renew_lock(_redis_lock(name, timeout), token)
 
 
 async def release_lock(name: str, token: str) -> bool:

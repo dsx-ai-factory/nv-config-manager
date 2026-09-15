@@ -45,10 +45,11 @@ class SiteCableValidationInput(BaseModel):
     raise_for_invalid: Optional[StrictBool] = Field(default=False, description="Whether invalid cabling should fail the workflow.")
     roles: Optional[List[StrictStr]] = Field(default=None, description="Device roles used to filter the selected network devices.")
     site: StrictStr = Field(description="Site containing the network devices to validate.")
+    site_type: Optional[StrictStr] = None
     status: Optional[List[StrictStr]] = Field(default=None, description="Device statuses used to filter the selected network devices.")
     tenant: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["device_type_ids", "raise_for_invalid", "roles", "site", "status", "tenant"]
+    __properties: ClassVar[List[str]] = ["device_type_ids", "raise_for_invalid", "roles", "site", "site_type", "status", "tenant"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -96,6 +97,11 @@ class SiteCableValidationInput(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if site_type (nullable) is None
+        # and model_fields_set contains the field
+        if self.site_type is None and "site_type" in self.model_fields_set:
+            _dict['site_type'] = None
+
         # set to None if tenant (nullable) is None
         # and model_fields_set contains the field
         if self.tenant is None and "tenant" in self.model_fields_set:
@@ -117,6 +123,7 @@ class SiteCableValidationInput(BaseModel):
             "raise_for_invalid": obj.get("raise_for_invalid") if obj.get("raise_for_invalid") is not None else False,
             "roles": obj.get("roles"),
             "site": obj.get("site"),
+            "site_type": obj.get("site_type"),
             "status": obj.get("status"),
             "tenant": obj.get("tenant")
         })

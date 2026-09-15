@@ -5,7 +5,15 @@ description = "Shared Redis, NATS, and locking adapters for NVIDIA Config Manage
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.13"
-dependencies = ["redis[hiredis]>=5.2.1", "nats-py>=2.9.0", "certifi>=2024.8.30"]
+dependencies = [
+    "redis[hiredis]>=5.2.1",
+    "nats-py>=2.9.0",
+    "certifi>=2024.8.30",
+    "nv-config-manager-logging",
+]
+
+[tool.uv.sources]
+nv-config-manager-logging = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

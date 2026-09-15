@@ -44,8 +44,9 @@ class SpXOverlayDeletionInput(BaseModel):
     namespace_tag: Optional[StrictStr] = Field(default='spectrumx', description="Tag identifying the namespace used for allocation.")
     overlay_id: StrictStr = Field(description="Identifier of the SpX overlay to delete.")
     site: StrictStr = Field(description="Site containing the SpX overlay to delete.")
+    site_type: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["namespace_tag", "overlay_id", "site"]
+    __properties: ClassVar[List[str]] = ["namespace_tag", "overlay_id", "site", "site_type"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -93,6 +94,11 @@ class SpXOverlayDeletionInput(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if site_type (nullable) is None
+        # and model_fields_set contains the field
+        if self.site_type is None and "site_type" in self.model_fields_set:
+            _dict['site_type'] = None
+
         return _dict
 
     @classmethod
@@ -107,7 +113,8 @@ class SpXOverlayDeletionInput(BaseModel):
         _obj = cls.model_validate({
             "namespace_tag": obj.get("namespace_tag") if obj.get("namespace_tag") is not None else 'spectrumx',
             "overlay_id": obj.get("overlay_id"),
-            "site": obj.get("site")
+            "site": obj.get("site"),
+            "site_type": obj.get("site_type")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

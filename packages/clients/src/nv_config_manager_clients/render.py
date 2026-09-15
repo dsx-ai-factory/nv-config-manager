@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from nv_config_manager_logging import LogCategory, get_logger
 from pydantic import BaseModel
 
 from nv_config_manager_clients._base import HeaderProvider, ServiceClient
@@ -42,6 +43,7 @@ class RenderClient(ServiceClient):
     api_client_type = ApiClient
     configuration_type = Configuration
     default_api_type = DefaultApi
+    logger = get_logger(__name__, category=LogCategory.RENDER)
 
     def __init__(
         self,
@@ -63,6 +65,7 @@ class RenderClient(ServiceClient):
 
     async def execute_render(self, device_id: str, workflow_id: str) -> list[FileCommit]:
         """Render a device and return the files that changed."""
+        self.logger.info("Rendering device=%s, workflow=%s", device_id, workflow_id)
         try:
             data = await self._call(
                 self._api.render_v1_render_device_uuid_render_post_without_preload_content,
@@ -73,4 +76,5 @@ class RenderClient(ServiceClient):
             )
             return [FileCommit.model_validate(item) for item in data.get("updated_files", [])]
         except Exception as exc:
+            self.logger.exception("Failed to render device %s: %s", device_id, exc)
             raise RenderClientException(f"Failed to render device: {exc}") from exc

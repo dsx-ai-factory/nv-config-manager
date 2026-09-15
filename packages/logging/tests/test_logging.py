@@ -12,11 +12,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Compatibility exports for the standalone structured logging package."""
+"""Standalone structured logging contracts."""
 
-from nv_config_manager_logging import EscapingFilter as EscapingFilter
-from nv_config_manager_logging import EscapingLoggerAdapter as EscapingLoggerAdapter
-from nv_config_manager_logging import LogCategory as LogCategory
-from nv_config_manager_logging import configure_logging as configure_logging
-from nv_config_manager_logging import escape_log_newlines as escape_log_newlines
-from nv_config_manager_logging import get_logger as get_logger
+import logging
+
+import pytest
+
+from nv_config_manager_logging import LogCategory, get_logger
+
+
+def test_logger_preserves_category_and_call_fields(caplog: pytest.LogCaptureFixture) -> None:
+    """Package loggers attach category while merging per-call structured fields."""
+    logger = get_logger("test.shared.logging", category=LogCategory.NATS)
+    with caplog.at_level(logging.INFO, logger="test.shared.logging"):
+        logger.info("connected", extra={"server": "nats.example.test"})
+
+    record = caplog.records[-1]
+    assert record.category == "nats"
+    assert record.server == "nats.example.test"

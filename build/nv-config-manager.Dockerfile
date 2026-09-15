@@ -47,6 +47,7 @@ COPY src/nv_config_manager/ /code/nv-config-manager/src/nv_config_manager/
 COPY src/tests/ /code/nv-config-manager/src/tests/
 COPY packages/clients/ /code/nv-config-manager/packages/clients/
 COPY packages/infrastructure/ /code/nv-config-manager/packages/infrastructure/
+COPY packages/logging/ /code/nv-config-manager/packages/logging/
 COPY packages/dcim/pyproject.toml packages/dcim/README.md /code/nv-config-manager/packages/dcim/
 COPY packages/dcim/src/ /code/nv-config-manager/packages/dcim/src/
 COPY plugins/dcim/nautobot-2x/pyproject.toml plugins/dcim/nautobot-2x/README.md /code/nv-config-manager/plugins/dcim/nautobot-2x/

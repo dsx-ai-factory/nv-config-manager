@@ -14,12 +14,15 @@
 # limitations under the License.
 """Exercise wrappers and generated clients together against a local HTTP server."""
 
+import ssl
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from aiohttp import web
+from nv_config_manager_logging import LogCategory
 
 from nv_config_manager_clients import (
     ConfigStoreClient,
@@ -31,6 +34,7 @@ from nv_config_manager_clients import (
     TemporalClient,
     TemporalClientException,
     ZTPClient,
+    ZTPClientException,
 )
 from nv_config_manager_clients.generated.config_store import ApiClient, Configuration
 from nv_config_manager_clients.generated.config_store.api.default_api import DefaultApi
@@ -156,6 +160,39 @@ async def test_public_generated_client_works_without_wrapper(server: Server) -> 
     assert server.requests[0]["headers"]["Authorization"] == "Bearer test-token"
 
 
+def test_mtls_requires_tls_1_3() -> None:
+    """All generated transports retain the previous mTLS protocol floor."""
+    with patch.object(ssl.SSLContext, "load_cert_chain"):
+        clients = [
+            RenderClient("https://render.example.test", ("client.crt", "client.key")),
+            TemporalClient(
+                "https://temporal.example.test",
+                "example.com",
+                ("client.crt", "client.key"),
+            ),
+            ZTPClient("https://ztp.example.test", ("client.crt", "client.key")),
+        ]
+    assert all(
+        client.api_client.rest_client.ssl_context.minimum_version == ssl.TLSVersion.TLSv1_3
+        for client in clients
+    )
+
+
+def test_clients_preserve_structured_log_categories() -> None:
+    """Extracted wrappers keep the category labels used by dashboards."""
+    assert ConfigStoreClient.logger.extra["category"] == LogCategory.CONFIG_STORE
+    assert RenderClient.logger.extra["category"] == LogCategory.RENDER
+    assert TemporalClient.logger.extra["category"] == LogCategory.TEMPORAL_ACTIVITY
+
+
+def test_temporal_auth_headers_require_https() -> None:
+    """Public callers cannot accidentally transmit authentication over plaintext HTTP."""
+    with pytest.raises(ValueError, match="require HTTPS"):
+        TemporalClient(
+            "http://temporal.example.test", "example.com", headers={"Authorization": "x"}
+        )
+
+
 async def test_render_retry_and_payload(server: Server) -> None:
     server.responses = [
         (409, {"detail": "busy"}),
@@ -196,10 +233,14 @@ async def test_dhcp_and_temporal_operations(server: Server) -> None:
 
 
 async def test_ztp_uses_head_and_preserves_missing_file_behavior(server: Server) -> None:
-    server.responses = [(200, None), (404, None)]
+    server.responses = [(200, None), (404, None), (500, None)]
     async with ZTPClient(server.url) as client:
         assert await client.check_file_exists("platform/1.0/firmware.bin")
         assert not await client.check_file_exists("platform/1.0/missing.bin")
+        with pytest.raises(ZTPClientException):
+            await client.check_file_exists("platform/1.0/unavailable.bin")
+        with pytest.raises(ZTPClientException, match="three"):
+            await client.check_file_exists("invalid")
     assert server.requests[0]["method"] == "HEAD"
     assert server.requests[0]["path"] == "/v1/files/platform/1.0/firmware.bin"
 

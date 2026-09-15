@@ -154,6 +154,7 @@ class TestTemporalClientInternalAuth:
             base_url="http://temporal-api:9000",
             user_domain="nvidia.com",
             headers=headers,
+            allow_insecure_auth=True,
         )
         assert client.base_url == "http://temporal-api:9000"
         assert client._headers == headers
@@ -201,6 +202,7 @@ class TestTemporalClientInternalAuth:
             base_url="http://temporal-api:9000",
             user_domain="nvidia.com",
             headers=headers,
+            allow_insecure_auth=True,
         )
         async with client:
             assert client.api_client.rest_client.pool_manager is not None

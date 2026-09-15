@@ -118,6 +118,7 @@ dependencies = [
     "nv-config-manager-workflows",
     "nv-config-manager-clients",
     "nv-config-manager-infrastructure",
+    "nv-config-manager-logging",
 ]
 
 [project.scripts]
@@ -210,11 +211,12 @@ docs = [
 package = true
 
 [tool.uv.workspace]
-members = ["packages/clients", "packages/infrastructure", "packages/dcim", "packages/templates", "packages/workflows", "plugins/dcim/nautobot-2x"]
+members = ["packages/clients", "packages/infrastructure", "packages/logging", "packages/dcim", "packages/templates", "packages/workflows", "plugins/dcim/nautobot-2x"]
 
 [tool.uv.sources]
 nv-config-manager-clients = { workspace = true }
 nv-config-manager-infrastructure = { workspace = true }
+nv-config-manager-logging = { workspace = true }
 nv-config-manager-dcim = { workspace = true }
 nv-config-manager-dcim-nautobot-2x = { workspace = true }
 nv-config-manager-templates = { workspace = true }
@@ -237,6 +239,7 @@ testpaths = [
     "packages/workflows/tests",
     "packages/clients/tests",
     "packages/infrastructure/tests",
+    "packages/logging/tests",
 ]
 timeout = 30  # Global timeout in seconds per test
 # Exclude integration tests by default (they require a running cluster)

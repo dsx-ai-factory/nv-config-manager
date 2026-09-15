@@ -64,7 +64,6 @@ def _token_bytes(token: str) -> bytes:
 async def acquire_lock(
     lock: AsyncRedisLock | None,
     token: str,
-    timeout: int,
     blocking_timeout: float | None = None,
     blocking: bool = True,
 ) -> bool:
@@ -101,8 +100,8 @@ async def _refresh_if_owned(lock: AsyncRedisLock, token_bytes: bytes) -> bool:
     return True
 
 
-async def renew_lock(lock: AsyncRedisLock | None, token: str, timeout: int) -> bool:
-    """Extend the TTL of a lock this ``token`` holds back out to ``timeout``."""
+async def renew_lock(lock: AsyncRedisLock | None, token: str) -> bool:
+    """Extend the TTL of a lock this ``token`` holds to its configured lease."""
     if lock is None:
         return True
 
