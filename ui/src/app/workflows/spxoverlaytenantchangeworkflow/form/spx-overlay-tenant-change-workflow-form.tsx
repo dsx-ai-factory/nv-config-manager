@@ -35,6 +35,10 @@ import {
 } from "@/hooks";
 import { WorkflowFormField } from "@/components/forms/formfield";
 import { getErrorMessage, startWorkflow } from "@/lib/utils";
+import {
+  resolveLocationFormValue,
+  resolveLocationOption,
+} from "@/lib/location-options";
 import { SpXOverlayTenantChangeWorkflowInput } from "@/types/data-table.types";
 
 const normalizePortNames = (portNames: string | string[]): string[] =>
@@ -125,10 +129,14 @@ export const SpXOverlayTenantChangeWorkflowForm = () => {
 
   useEffect(() => {
     if (!siteIsLoading && querySite) {
-      const siteExists = sites?.some((site) => site.key === querySite);
-      if (siteExists) {
-        if (!form.getValues("site")) {
-          form.setValue("site", querySite);
+      const siteValue = resolveLocationFormValue(sites, querySite);
+      if (siteValue) {
+        const currentSite = form.getValues("site");
+        if (
+          currentSite !== siteValue &&
+          (!currentSite || currentSite === querySite)
+        ) {
+          form.setValue("site", siteValue);
         }
       } else {
         form.setValue("site", "");
@@ -209,8 +217,10 @@ export const SpXOverlayTenantChangeWorkflowForm = () => {
     }
 
     setIsSubmitting(true);
+    const location = resolveLocationOption(sites, data.site);
     const submissionData: SpXOverlayTenantChangeWorkflowInput = {
-      site: data.site,
+      site: location?.id ?? data.site,
+      site_type: location?.locationType,
       overlay_id: data.overlay_id || null,
       device_id: data.device,
       port_names: validPortNames,

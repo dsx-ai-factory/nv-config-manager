@@ -35,6 +35,7 @@ import { useEnvData, useDevices } from "@/hooks";
 import { DeviceOption } from "@/types/workflow-form.types";
 import { Checkbox } from "@/components/ui/checkbox";
 import { WorkflowFormField } from "@/components/forms/formfield";
+import { resolveLocationFormValue } from "@/lib/location-options";
 
 const deviceWorkflowFormSchema = z.object({
   site: z.string().trim().min(1, { message: "Site is required" }),
@@ -226,8 +227,8 @@ export const DeviceWorkflowForm = ({
 
   React.useEffect(() => {
     if (querySite && !isManualSiteChange) {
-      const isSiteValid = sites.some((option) => option.key === querySite);
-      const siteId = sites.find((option) => option.key === querySite)?.value;
+      const siteId = resolveLocationFormValue(sites, querySite);
+      const isSiteValid = siteId !== undefined;
 
       if (isSiteValid) {
         if (siteId && form.getValues("site") !== siteId) {

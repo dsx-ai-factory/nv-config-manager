@@ -23,7 +23,9 @@ from pydantic import BaseModel
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import (
     DCIMDeviceSelectionFilter,
+    DCIMLocationType,
     create_dcim_client,
+    dcim_location_reference,
 )
 from nv_config_manager.dcim.errors import DCIMConflictError, DCIMInvalidDataError, DCIMNotFoundError
 from nv_config_manager.temporal.common.mixins.device import Platform
@@ -52,6 +54,7 @@ class Location(BaseModel):
 
     id: str
     name: str
+    location_type: DCIMLocationType | None = None
 
 
 class Secret(BaseModel):
@@ -71,7 +74,9 @@ async def get_sites() -> list[Location]:
     async with client:
         sites = await client.list_locations(("Site",))
 
-    return [Location(id=site.id, name=site.name) for site in sites]
+    return [
+        Location(id=site.id, name=site.name, location_type=site.location_type) for site in sites
+    ]
 
 
 @router.get("/location")
@@ -83,7 +88,14 @@ async def get_locations(
     async with client:
         locations = await client.list_locations(tuple(location_type or ()))
 
-    return [Location(id=location.id, name=location.name) for location in locations]
+    return [
+        Location(
+            id=location.id,
+            name=location.name,
+            location_type=location.location_type,
+        )
+        for location in locations
+    ]
 
 
 class Tenant(BaseModel):
@@ -143,13 +155,18 @@ async def get_namespace_tags(
     location: Annotated[
         str | None, Query(description="Limit to namespace tags at this location")
     ] = None,
+    location_type: Annotated[
+        DCIMLocationType | None,
+        Query(description="DCIM location type for the location identifier"),
+    ] = None,
 ) -> list[Tag]:
     """Return the configured DCIM provider's namespace tag choices."""
     client = create_dcim_client()
 
     try:
         async with client:
-            tag_names = await client.list_namespace_tags(location)
+            reference = dcim_location_reference(location, location_type) if location else None
+            tag_names = await client.list_namespace_tags(reference)
     except DCIMInvalidDataError as exc:
         raise HTTPException(
             status_code=500,
@@ -166,6 +183,10 @@ async def get_namespace_tags(
 @router.get("/overlay")
 async def get_overlays(
     location: Annotated[str | None, Query(description="Limit to overlays at this location")] = None,
+    location_type: Annotated[
+        DCIMLocationType | None,
+        Query(description="DCIM location type for the location identifier"),
+    ] = None,
     isolation_type: Annotated[
         str | None, Query(description="Limit to overlays with this isolation type")
     ] = None,
@@ -174,7 +195,8 @@ async def get_overlays(
     client = create_dcim_client()
     try:
         async with client:
-            overlays = await client.list_overlays(location, isolation_type)
+            reference = dcim_location_reference(location, location_type) if location else None
+            overlays = await client.list_overlays(reference, isolation_type)
     except DCIMInvalidDataError as exc:
         raise HTTPException(
             status_code=500,
@@ -214,6 +236,7 @@ async def get_statuses(
 @router.get("/device")
 async def get_devices(  # pylint: disable=R0913,R0914
     site: Annotated[list[str] | None, Query()] = None,
+    site_type: Annotated[list[DCIMLocationType] | None, Query()] = None,
     status: Annotated[list[str] | None, Query()] = None,
     role: Annotated[list[str] | None, Query()] = None,
     tenant: Annotated[list[str] | None, Query()] = None,
@@ -225,8 +248,18 @@ async def get_devices(  # pylint: disable=R0913,R0914
     ] = False,
 ) -> list[Device]:
     """Return a list of filtered devices."""
+    sites = site or []
+    site_types = site_type or []
+    if site_types and len(site_types) != len(sites):
+        raise HTTPException(
+            status_code=422,
+            detail="site_type must contain one entry for each site",
+        )
     filters = DCIMDeviceSelectionFilter(
-        sites=tuple(site or ()),
+        sites=tuple(
+            dcim_location_reference(location_id, site_types[index]) if site_types else location_id
+            for index, location_id in enumerate(sites)
+        ),
         statuses=tuple(status or ()),
         roles=tuple(role or ()),
         tenants=tuple(tenant or ()),

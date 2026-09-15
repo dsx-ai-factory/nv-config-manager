@@ -141,6 +141,9 @@
         "title": "ConnectedHostWorkflowInput",
         "type": "object"
       },
+      "DCIMLocationType": {
+        "type": "string"
+      },
       "DeployInput": {
         "description": "Config Deployment Workflow Input Definiton.",
         "properties": {
@@ -417,6 +420,17 @@
             ],
             "description": "Site used for UFM credential lookup; resolved from the host when omitted.",
             "title": "Site"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
           }
         },
         "required": [
@@ -707,6 +721,16 @@
             "title": "Id",
             "type": "string"
           },
+          "location_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -739,6 +763,17 @@
             ],
             "description": "Location used to filter the selected network devices.",
             "title": "Location"
+          },
+          "location_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the location identifier."
           },
           "max_batch_size": {
             "default": 10,
@@ -1105,6 +1140,17 @@
             "description": "Site containing the BMC network to provision.",
             "title": "Site",
             "type": "string"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
           }
         },
         "required": [
@@ -1218,6 +1264,17 @@
             "title": "Site",
             "type": "string"
           },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
+          },
           "status": {
             "default": [
               "Active",
@@ -1305,6 +1362,17 @@
             "title": "Site",
             "type": "string"
           },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
+          },
           "status": {
             "default": [
               "Active",
@@ -1344,6 +1412,17 @@
             "minLength": 1,
             "title": "Location",
             "type": "string"
+          },
+          "location_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the location identifier."
           },
           "roles": {
             "default": [],
@@ -1437,6 +1516,17 @@
             "description": "Site containing the target network device.",
             "title": "Site",
             "type": "string"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
           }
         },
         "required": [
@@ -1478,6 +1568,17 @@
             "title": "Site",
             "type": "string"
           },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
+          },
           "tenant": {
             "description": "Tenant that will own the SpX overlay.",
             "title": "Tenant",
@@ -1510,6 +1611,17 @@
             "description": "Site containing the SpX overlay to delete.",
             "title": "Site",
             "type": "string"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
           }
         },
         "required": [
@@ -1558,6 +1670,17 @@
             "description": "Site containing the target network device.",
             "title": "Site",
             "type": "string"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
           }
         },
         "required": [
@@ -1812,6 +1935,17 @@
             "description": "Site used to select network devices for validation.",
             "title": "Site",
             "type": "string"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
           },
           "status": {
             "default": [
@@ -2443,6 +2577,25 @@
           },
           {
             "in": "query",
+            "name": "site_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/DCIMLocationType"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Site Type"
+            }
+          },
+          {
+            "in": "query",
             "name": "status",
             "required": false,
             "schema": {
@@ -3010,6 +3163,24 @@
               "description": "Limit to namespace tags at this location",
               "title": "Location"
             }
+          },
+          {
+            "description": "DCIM location type for the location identifier",
+            "in": "query",
+            "name": "location_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DCIMLocationType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "DCIM location type for the location identifier",
+              "title": "Location Type"
+            }
           }
         ],
         "responses": {
@@ -3070,6 +3241,24 @@
               ],
               "description": "Limit to overlays at this location",
               "title": "Location"
+            }
+          },
+          {
+            "description": "DCIM location type for the location identifier",
+            "in": "query",
+            "name": "location_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DCIMLocationType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "DCIM location type for the location identifier",
+              "title": "Location Type"
             }
           },
           {

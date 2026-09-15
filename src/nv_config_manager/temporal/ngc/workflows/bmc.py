@@ -26,6 +26,11 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager.dcim import (
+    DCIMLocationIdentifier,
+    DCIMLocationType,
+    dcim_location_reference,
+)
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager.temporal.common.mixins.stage import (
@@ -84,6 +89,9 @@ class RedfishProvisioningInput(BaseModel):
     """Input for Redfish provisioning workflow."""
 
     site: LocationReference = Field(description="Site containing the BMC network to provision.")
+    site_type: DCIMLocationType | None = Field(
+        default=None, description="DCIM location type for the site identifier."
+    )
     bmc_switch_roles: list[str] = Field(
         description="Switch roles used to discover BMC-connected network interfaces."
     )
@@ -215,7 +223,7 @@ class RedfishProvisioningWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
     class GetBmcSwitchStageInput(StageInput):
         """Get BMC device stage input."""
 
-        site: str
+        site: DCIMLocationIdentifier
         roles: list[str]
 
     class GetBmcSwitchStageOutput(StageOutput):
@@ -562,7 +570,7 @@ class RedfishProvisioningWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
 
         bmc_devices = await self.get_bmc_switches(
             self.GetBmcSwitchStageInput(
-                site=workflow_input.site,
+                site=dcim_location_reference(workflow_input.site, workflow_input.site_type),
                 roles=workflow_input.bmc_switch_roles,
             )
         )
