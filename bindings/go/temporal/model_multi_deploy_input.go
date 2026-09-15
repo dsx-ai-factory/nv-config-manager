@@ -25,6 +25,8 @@ type MultiDeployInput struct {
 	CommitConfirm *bool `json:"commit_confirm,omitempty"`
 	// Location used to filter the selected network devices.
 	Location NullableString `json:"location,omitempty"`
+	// DCIM location type for the location identifier.
+	LocationType NullableString `json:"location_type,omitempty"`
 	// Maximum number of devices included in each deployment batch.
 	MaxBatchSize *int32 `json:"max_batch_size,omitempty"`
 	// Device role used to select network devices for deployment.
@@ -139,6 +141,51 @@ func (o *MultiDeployInput) SetLocationNil() {
 // UnsetLocation ensures that no value is present for Location, not even an explicit nil
 func (o *MultiDeployInput) UnsetLocation() {
 	o.Location.Unset()
+}
+
+// GetLocationType returns the LocationType field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *MultiDeployInput) GetLocationType() string {
+	if o == nil || IsNil(o.LocationType.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.LocationType.Get()
+}
+
+// GetLocationTypeOk returns a tuple with the LocationType field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *MultiDeployInput) GetLocationTypeOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.LocationType.Get(), o.LocationType.IsSet()
+}
+
+// HasLocationType returns a boolean if a field has been set.
+func (o *MultiDeployInput) HasLocationType() bool {
+	if o != nil && o.LocationType.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetLocationType gets a reference to the given NullableString and assigns it to the LocationType field.
+func (o *MultiDeployInput) SetLocationType(v string) {
+	o.LocationType.Set(&v)
+}
+
+// SetLocationTypeNil sets the value for LocationType to be an explicit nil
+func (o *MultiDeployInput) SetLocationTypeNil() {
+	o.LocationType.Set(nil)
+}
+
+// UnsetLocationType ensures that no value is present for LocationType, not even an explicit nil
+func (o *MultiDeployInput) UnsetLocationType() {
+	o.LocationType.Unset()
 }
 
 // GetMaxBatchSize returns the MaxBatchSize field value if set, zero value otherwise.
@@ -291,6 +338,9 @@ func (o MultiDeployInput) ToMap() (map[string]interface{}, error) {
 	}
 	if o.Location.IsSet() {
 		toSerialize["location"] = o.Location.Get()
+	}
+	if o.LocationType.IsSet() {
+		toSerialize["location_type"] = o.LocationType.Get()
 	}
 	if !IsNil(o.MaxBatchSize) {
 		toSerialize["max_batch_size"] = o.MaxBatchSize

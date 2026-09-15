@@ -26,6 +26,7 @@ from nv_config_manager_dcim import (
 
 from nv_config_manager.dcim.api import (
     DCIM_PROVIDER_API_VERSION,
+    DCIMCableStatusClient,
     DCIMClient,
     DCIMEventProvider,
     DCIMProvider,
@@ -56,11 +57,16 @@ from nv_config_manager.dcim.errors import (
 )
 from nv_config_manager.dcim.models import (
     DCIM_EVENT_CONTRACT_VERSION,
+    CableStatus,
+    CableStatusUpdate,
     ConfigurationBackupIntent,
     ConfigurationBackupMetadata,
     DCIMChangeEvent,
     DCIMDeviceSelection,
     DCIMDeviceSelectionFilter,
+    DCIMLocationIdentifier,
+    DCIMLocationReference,
+    DCIMLocationType,
     DCIMSelection,
     DeviceMetadata,
     DeviceVRF,
@@ -85,6 +91,9 @@ from nv_config_manager.dcim.models import (
     RenderTemplateVersion,
     SpectrumXVRF,
     ZTPDevice,
+    dcim_location_id,
+    dcim_location_reference,
+    dcim_location_type,
 )
 from nv_config_manager.dcim.registry import (
     DCIM_PROVIDER_ENTRY_POINT_GROUP,
@@ -102,6 +111,9 @@ from nv_config_manager.dcim.registry import (
 
 __all__ = [
     "DCIM_PROVIDER_API_VERSION",
+    "CableStatus",
+    "CableStatusUpdate",
+    "DCIMCableStatusClient",
     "DCIM_EVENT_CONTRACT_VERSION",
     "DCIM_PROVIDER_ENTRY_POINT_GROUP",
     "DEFAULT_DCIM_PROVIDER",
@@ -111,6 +123,9 @@ __all__ = [
     "DCIMChangeEvent",
     "DCIMDeviceSelection",
     "DCIMDeviceSelectionFilter",
+    "DCIMLocationIdentifier",
+    "DCIMLocationType",
+    "DCIMLocationReference",
     "DCIMConflictError",
     "DCIMConnectivityError",
     "DCIMError",
@@ -171,6 +186,9 @@ __all__ = [
     "create_nautobot_mcp_client",
     "dcim_client_session",
     "discover_dcim_providers",
+    "dcim_location_id",
+    "dcim_location_type",
+    "dcim_location_reference",
     "get_dcim_provider",
     "normalize_dcim_event",
     "provider_settings",

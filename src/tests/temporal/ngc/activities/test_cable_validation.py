@@ -14,6 +14,7 @@
 # limitations under the License.
 """Test suite for cable validation activities."""
 
+import asyncio
 import base64
 import io
 from typing import Any
@@ -21,9 +22,17 @@ from typing import Any
 import pandas as pd
 import pytest
 from aioresponses import aioresponses
+from nv_config_manager_dcim import CableStatus
 
-from nv_config_manager.temporal.client.device import InterfaceNeighborData
+from nv_config_manager.temporal.client.device import (
+    DeviceArpTable,
+    DeviceMacTable,
+    DeviceNeighborData,
+    InterfaceNeighborData,
+)
+from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
 from nv_config_manager.temporal.ngc.activities.cable_validation import (
+    CABLE_STATUS_UPDATE_CONCURRENCY,
     CSV_EXCLUDE_COLUMNS,
     HOST_SUMMARY_COLUMNS,
     MARKDOWN_EXCLUDE_COLUMNS,
@@ -32,6 +41,8 @@ from nv_config_manager.temporal.ngc.activities.cable_validation import (
     DecorateResultActivityInput,
     DecorateResultActivityOutput,
     InvalidCable,
+    UpdateCableStatusesInput,
+    ValidateDeviceNeighborsInput,
     _build_host_summary,
     _classify_issue,
     _escape_formula,
@@ -39,6 +50,8 @@ from nv_config_manager.temporal.ngc.activities.cable_validation import (
     _generate_csv_link,
     _generate_xlsx_link,
     decorate_result,
+    update_cable_statuses,
+    validate_device_neighbors,
 )
 from tests.temporal.ngc.activities.test_cable_validation_activity_data import (
     NAUTOBOT_INTERFACE_RESPONSE,
@@ -50,6 +63,178 @@ def construct_input(json: Any) -> DecorateResultActivityInput:
     return DecorateResultActivityInput(
         devices={device: CableValidationResultData(**data) for device, data in json.items()}
     )
+
+
+@pytest.mark.asyncio
+async def test_validation_classifies_cable_statuses() -> None:
+    neighbor = lambda name: InterfaceNeighborData(  # noqa: E731
+        name=name,
+        device_name="peer",
+        device_role="leaf",
+    )
+    intended = DeviceNeighborData(
+        neighbors={
+            "valid": neighbor("Ethernet1"),
+            "down": neighbor("Ethernet2"),
+            "mismatch": neighbor("Ethernet3"),
+            "ignored": neighbor("Ethernet4"),
+            "link-state-only": neighbor("Ethernet5"),
+            "ignored-no-neighbor": neighbor("Ethernet6"),
+        },
+        ignore=["ignored"],
+        link_state_only=["link-state-only"],
+    )
+    actual = DeviceNeighborData(
+        neighbors={
+            "valid": neighbor("Ethernet1"),
+            "mismatch": neighbor("wrong-port"),
+        },
+        link_states={
+            "valid": True,
+            "down": False,
+            "mismatch": True,
+            "ignored": False,
+            "link-state-only": True,
+            "ignored-no-neighbor": True,
+        },
+    )
+    device = NetworkDeviceData(
+        id="device-1",
+        name="leaf-1",
+        role="leaf",
+        site="site-1",
+        device_type="switch",
+        platform="cumulus-linux",
+        primary_ip4="192.0.2.1",
+        primary_ip6=None,
+    )
+
+    result = await validate_device_neighbors(
+        ValidateDeviceNeighborsInput(
+            device=device,
+            intended=intended,
+            actual=actual,
+            mac_table=DeviceMacTable(),
+            arp_table=DeviceArpTable(),
+            ignore_no_neighbor=True,
+        )
+    )
+
+    assert result.cable_statuses == {
+        "valid": CableStatus.CONNECTED,
+        "down": CableStatus.DISCONNECTED,
+        "mismatch": CableStatus.INVALID,
+        "link-state-only": CableStatus.CONNECTED,
+    }
+    assert set(result.interfaces) == {"down", "mismatch", "ignored-no-neighbor"}
+
+
+@pytest.mark.asyncio
+async def test_update_cable_statuses_is_noop_for_unsupported_provider(monkeypatch) -> None:
+    class UnsupportedClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    client = UnsupportedClient()
+    monkeypatch.setattr(
+        "nv_config_manager.temporal.ngc.activities.cable_validation.create_dcim_client",
+        lambda: client,
+    )
+
+    await update_cable_statuses(
+        UpdateCableStatusesInput(
+            device_id="device-1",
+            cable_statuses={"Ethernet1/1": CableStatus.CONNECTED},
+            workflow_id="workflow-1",
+        )
+    )
+
+    assert client.closed is True
+
+
+@pytest.mark.asyncio
+async def test_update_cable_statuses_passes_workflow_provenance(monkeypatch) -> None:
+    class SupportedClient:
+        def __init__(self) -> None:
+            self.updates = []
+
+        async def __aenter__(self) -> Any:
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: object,
+            exc_value: object,
+            traceback: object,
+        ) -> None:
+            return None
+
+        async def update_cable_status(self, update: Any) -> None:
+            self.updates.append(update)
+
+    client = SupportedClient()
+    monkeypatch.setattr(
+        "nv_config_manager.temporal.ngc.activities.cable_validation.create_dcim_client",
+        lambda: client,
+    )
+
+    await update_cable_statuses(
+        UpdateCableStatusesInput(
+            device_id="device-1",
+            cable_statuses={"Ethernet1/1": CableStatus.DISCONNECTED},
+            workflow_id="workflow-1",
+        )
+    )
+
+    assert len(client.updates) == 1
+    assert client.updates[0].model_dump(mode="json") == {
+        "device_id": "device-1",
+        "interface_name": "Ethernet1/1",
+        "status": "Disconnected",
+        "workflow_id": "workflow-1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_update_cable_statuses_writes_concurrently(monkeypatch) -> None:
+    class SupportedClient:
+        def __init__(self) -> None:
+            self.active = 0
+            self.maximum_active = 0
+
+        async def __aenter__(self) -> Any:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def update_cable_status(self, update: Any) -> None:
+            self.active += 1
+            self.maximum_active = max(self.maximum_active, self.active)
+            await asyncio.sleep(0)
+            self.active -= 1
+
+    client = SupportedClient()
+    monkeypatch.setattr(
+        "nv_config_manager.temporal.ngc.activities.cable_validation.create_dcim_client",
+        lambda: client,
+    )
+
+    await update_cable_statuses(
+        UpdateCableStatusesInput(
+            device_id="device-1",
+            cable_statuses={
+                f"Ethernet1/{index}": CableStatus.CONNECTED
+                for index in range(CABLE_STATUS_UPDATE_CONCURRENCY * 2)
+            },
+            workflow_id="workflow-1",
+        )
+    )
+
+    assert client.maximum_active == CABLE_STATUS_UPDATE_CONCURRENCY
 
 
 @pytest.mark.asyncio

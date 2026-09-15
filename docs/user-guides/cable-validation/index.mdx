@@ -4,7 +4,7 @@ sidebar-title: Cable Validation
 position: 10
 ---
 
-The Cable Validation workflows validate physical cabling against the intended topology in Nautobot. They compare what each switch reports over LLDP (and, where LLDP is unavailable, what its FDB and ARP tables show) against the cabling Nautobot says should be in place, and produce a per-interface report of every mismatch.
+The Cable Validation workflows validate physical cabling against the intended topology in the configured DCIM. They compare what each switch reports over LLDP (and, where LLDP is unavailable, what its FDB and ARP tables show) against the cabling the DCIM says should be in place, and produce a per-interface report of every mismatch.
 
 Two variants are available:
 
@@ -12,6 +12,10 @@ Two variants are available:
 - **Device Cable Validation** — targets a single device. Used to re-validate after fixing a specific cabling, MAC, or hostname issue without re-running the full site.
 
 The site workflow runs the device workflow as a child workflow per device, so the issue categories and the underlying validation logic are identical between the two — only the scope and the report download format differ.
+
+Site-launched device validations have a ten-minute overall timeout, including retries and waits for manual stage retries. A timed-out device appears among the failed devices in the site report, allowing the remaining results to be reported. Standalone device validations retain their normal stage retry behavior.
+
+The report becomes available before cable statuses are persisted to the DCIM. The report remains visible while its stage is in progress, so operators can begin reviewing results without waiting for the DCIM writes. See [DCIM cable status updates](#dcim-cable-status-updates) for the status mapping and provider behavior.
 
 Cable validation can detect:
 
@@ -23,16 +27,16 @@ Cable validation can detect:
 
 ## How each connection is evaluated
 
-Cable validation runs from the perspective of each in-scope network device. For each enabled interface with a connected interface modeled in Nautobot, it compares the intended far end with observations from the local device in this order:
+Cable validation runs from the perspective of each in-scope network device. For each enabled interface with a connected interface modeled in the DCIM, it compares the intended far end with observations from the local device in this order:
 
-1. **Does the intended neighbor have the required Nautobot data?** The connected device must have a name and role. Missing required data stops validation for the device before any link-state result is produced.
-1. **Is the local link operationally up?** If not, the workflow reports `Link is down`. This check applies to both full validation and link-state-only validation after the required Nautobot data passes validation.
+1. **Does the intended neighbor have the required DCIM data?** The connected device must have a name and role. Missing required data stops validation for the device before any link-state result is produced.
+1. **Is the local link operationally up?** If not, the workflow reports `Link is down`. This check applies to both full validation and link-state-only validation after the required DCIM data passes validation.
 1. **Is the interface tagged for link-state-only validation?** If the link is up and the local interface has `cable-validation-link-state-only`, the connection passes without an identity check.
-1. **Does LLDP identify the intended neighbor?** The reported neighbor device and interface are compared with the far-end device and interface in Nautobot. The comparison is case-insensitive. The workflow also handles devices that advertise an interface MAC instead of a port or system name, including the supported DPU MAC-offset behavior.
-1. **Does the expected far-end MAC appear on the correct local interface?** The workflow takes the MAC from the connected far-end interface in Nautobot and looks for it in the local device's FDB or ARP table.
+1. **Does LLDP identify the intended neighbor?** The reported neighbor device and interface are compared with the far-end device and interface in the DCIM. The comparison is case-insensitive. The workflow also handles devices that advertise an interface MAC instead of a port or system name, including the supported DPU MAC-offset behavior.
+1. **Does the expected far-end MAC appear on the correct local interface?** The workflow takes the MAC from the connected far-end interface in the DCIM and looks for it in the local device's FDB or ARP table.
 1. **Classify the result.** A connection passes when either LLDP or the MAC check matches. If neither matches, the report distinguishes a wrong observed neighbor from a link that is up but has no usable neighbor data.
 
-The workflow also reports an LLDP neighbor on an interface that has no intended connection in Nautobot as `Unexpected connection found`. It does not treat every unmodeled FDB entry as an unexpected cable because a port can legitimately learn multiple MAC addresses.
+The workflow also reports an LLDP neighbor on an interface that has no intended connection in the DCIM as `Unexpected connection found`. It does not treat every unmodeled FDB entry as an unexpected cable because a port can legitimately learn multiple MAC addresses.
 
 | Validation mode | Link state | LLDP identity | FDB/ARP MAC | Unexpected LLDP neighbor |
 | :-------------- | :--------: | :-----------: | :---------: | :----------------------: |
@@ -44,13 +48,33 @@ The workflow also reports an LLDP neighbor on an interface that has no intended 
 An operationally up link does not prove that it reaches the intended host or port. Link-state-only validation is an intentionally temporary, lower-confidence result for cases where the data needed for full validation is not available yet.
 </Warning>
 
+## DCIM cable status updates
+
+When the provider supports cable status persistence, validation records these results on each modeled cable:
+
+| Validation result | Persisted status |
+| :---------------- | :--------------- |
+| Link is down | `Disconnected` |
+| Identity mismatch or unsuppressed missing neighbor | `Invalid` |
+| Link passes full validation | `Connected` |
+| Link is up and passes `cable-validation-link-state-only` validation | `Connected` |
+| Interface has `cable-validation-ignore` | No change |
+| Missing neighbor is suppressed with **Ignore No Neighbor** | No change |
+| Unexpected connection finding | No change |
+
+The configured DCIM integration reads the current value before writing. If the status is already correct, the workflow makes no change. This avoids unnecessary DCIM writes and events on repeated site validations. Deployments without cable-status persistence support treat the update as a no-op.
+
+For a site validation, the `format_result` stage displays the Markdown report and Excel link, then remains **In Progress** while it applies the collected cable statuses. For a standalone device validation, `validate_connections` behaves the same way. Status writes run concurrently within each device and have a fifteen-minute activity timeout per device. The stage becomes **Complete** only after persistence succeeds.
+
+If persistence fails, the stage is marked **Failed**, but its output retains the report and replaces the progress message with a warning that cable statuses may be partially updated. Resolve the reported DCIM error and rerun validation; unchanged statuses will be skipped on the next run.
+
 ## Validation tags
 
-Apply validation tags to the interface on the in-scope network device—the interface from which the workflow collects link, LLDP, FDB, and ARP state. For a high-speed leaf-to-host connection, this is normally the leaf switch interface. The cable and connected far-end interface must still be modeled in Nautobot.
+Apply validation tags to the interface on the in-scope network device—the interface from which the workflow collects link, LLDP, FDB, and ARP state. For a high-speed leaf-to-host connection, this is normally the leaf switch interface. The cable and connected far-end interface must still be modeled in the DCIM.
 
 ### `cable-validation-link-state-only`
 
-Use `cable-validation-link-state-only` when the intended connection is known but there is not yet enough neighbor identity data for a meaningful full check. The common initial bringup case is a high-speed host port whose MAC addresses are not delivered with the original inventory data. Those MACs become available only after the compute management system discovers the host and updates Nautobot. Hosts may also provide no reliable LLDP identity during this stage.
+Use `cable-validation-link-state-only` when the intended connection is known but there is not yet enough neighbor identity data for a meaningful full check. The common initial bringup case is a high-speed host port whose MAC addresses are not delivered with the original inventory data. Those MACs become available only after the compute management system discovers the host and updates the DCIM. Hosts may also provide no reliable LLDP identity during this stage.
 
 With this tag, the workflow evaluates only whether the local switch interface is operationally up:
 
@@ -59,18 +83,18 @@ With this tag, the workflow evaluates only whether the local switch interface is
 
 Use the tag during the first validation pass as follows:
 
-1. Confirm the cable and both endpoints are modeled correctly in Nautobot.
+1. Confirm the cable and both endpoints are modeled correctly in the DCIM.
 1. Add `cable-validation-link-state-only` to each affected in-scope switch interface before the first cable-validation run.
 1. Run site cable validation and resolve all link-down results. Treat a clean link-state-only result as confirmation of physical signal only, not confirmation that the host is connected to the correct port.
-1. Allow the compute management system to discover the hosts and populate their high-speed interface MAC addresses in Nautobot.
+1. Allow the compute management system to discover the hosts and populate their high-speed interface MAC addresses in the DCIM.
 1. Verify that the MAC is assigned to the correct far-end host interface, then remove `cable-validation-link-state-only` from the switch interface.
 1. Re-run device or site cable validation. The connection now receives full LLDP-or-MAC validation and can detect swapped host links.
 
 Do not leave the tag in place after the required MAC or reliable LLDP data becomes available. Doing so permanently hides wrong-neighbor and cable-swap errors on an otherwise healthy link.
 
-The report lists findings, not every passing interface. An up link-state-only interface therefore does not appear with a special “partial validation” result. Before final site acceptance, filter Nautobot interfaces by the `cable-validation-link-state-only` tag, resolve every remaining temporary use, and run full validation again.
+The report lists findings, not every passing interface. An up link-state-only interface therefore does not appear with a special “partial validation” result. Before final site acceptance, filter DCIM interfaces by the `cable-validation-link-state-only` tag, resolve every remaining temporary use, and run full validation again.
 
-To add or remove the tag in Nautobot, open the local switch interface, edit its **Tags** field, and save the interface. For many host-facing ports, use Nautobot's interface list and bulk-edit the selected interfaces. The workflow reads the current tags at the start of each run, so re-run validation after changing them.
+To add or remove the tag, open the local switch interface in the DCIM, edit its **Tags** field, and save the interface. For many host-facing ports, use the interface list and bulk-edit the selected interfaces. The workflow reads the current tags at the start of each run, so re-run validation after changing them.
 
 ### `cable-validation-ignore`
 
@@ -82,8 +106,8 @@ Do not apply both validation tags to the same interface. If both are present, `c
 
 Before running cable validation, confirm the following are in place:
 
-- **Devices have completed ZTP** and reached the `Provisioned` (or `Active`) status in Nautobot. Running validation against devices that are still provisioning or unreachable produces noisy failures. See [New Site Bringup](../new-site-deployment/index.mdx) for the bringup sequence.
-- **Intended cabling is captured in Nautobot.** The workflow compares observed state against enabled interfaces and connected endpoints in Nautobot, so the Nautobot data must reflect the design. Use `cable-validation-link-state-only` temporarily when an intended connection should be checked for link state but its far-end identity data is not available. Use `cable-validation-ignore` only for interfaces that are deliberately outside validation scope.
+- **Devices have completed ZTP** and reached the `Provisioned` (or `Active`) status in the DCIM. Running validation against devices that are still provisioning or unreachable produces noisy failures. See [New Site Bringup](../new-site-deployment/index.mdx) for the bringup sequence.
+- **Intended cabling is captured in the DCIM.** The workflow compares observed state against enabled interfaces and connected endpoints in the DCIM, so the inventory data must reflect the design. Use `cable-validation-link-state-only` temporarily when an intended connection should be checked for link state but its far-end identity data is not available. Use `cable-validation-ignore` only for interfaces that are deliberately outside validation scope.
 - **Devices are running a supported platform** — Cumulus Linux, NVOS, Arista EOS, or Juniper Junos. Devices on other platforms are filtered out automatically.
 - **Network reachability from Config Manager** to every in-scope device's management address, so the workflow can query LLDP neighbors and the MAC/ARP tables.
 
@@ -103,13 +127,13 @@ Use this for site bringup or any time you need a full-site view.
    | :---- | :---------- | :------- |
    | **Site** | The site to validate. | Yes |
    | **Roles** | Device roles to include (multi-select). On InfiniBand sites, exclude CIN devices — they are validated by a separate workflow. | Yes |
-   | **Device Types** | Optional device-type filter. When set, only devices whose Nautobot device type IDs are in this list are included. | No |
+   | **Device Types** | Optional device-type filter. When set, only devices whose DCIM device type IDs are in this list are included. | No |
    | **Device Status** | Device statuses to include (multi-select). Typically `Provisioned`, the state devices are in after ZTP completes. | Yes |
-   | **Tenant** | Nautobot tenant for the run. | Yes |
+   | **Tenant** | DCIM tenant for the run. | Yes |
 
 1. Submit the form. A status page appears showing the three workflow stages. Progress for the per-device child workflows is reported incrementally; once fewer than ten devices remain, the page links directly to each remaining child workflow so you can drill in on stragglers. This may take a few minutes as the workflow reaches out to every device in scope.
 
-1. When the workflow is finished, click **Generate Cable Validation report** on the left menu to view the report.
+1. When **Generate Cable Validation report** starts, the status page selects it and displays the report while DCIM persistence continues. You can review the Markdown table or download the Excel workbook immediately. The stage remains **In Progress** until the cable status writes finish.
 
    ![Report link](../../assets/images/cable-validation-report-link.png)
 
@@ -128,12 +152,12 @@ Use this to re-validate a single device after fixing an issue without re-running
 | Field | Description | Required |
 | :---- | :---------- | :------- |
 | **Site** | The site of the target device. Drives the device list below. | Yes |
-| **Tenant** | Optional Nautobot tenant filter to narrow the device list. | No |
+| **Tenant** | Optional DCIM tenant filter to narrow the device list. | No |
 | **Status** | Optional device-status filter to narrow the device list. | No |
 | **Device** | The target device. The list is filtered by the selections above. | Yes |
 | **Ignore No Neighbor** | Optional. If enabled, suppresses `Link is up but no neighbor found` findings for this device run. Useful during partial bringup where some far-side neighbors are intentionally absent. | No |
 
-A typical device run completes in well under a minute, dominated by the round-trip time to query LLDP and the FDB.
+A typical device report is available in well under a minute, dominated by the round-trip time to query LLDP and the FDB. The workflow may remain in progress longer while it persists cable statuses to the DCIM.
 
 ## Execution stages
 
@@ -141,9 +165,9 @@ A typical device run completes in well under a minute, dominated by the round-tr
 
 The site workflow runs three stages. None require manual approval.
 
-1. **`get_devices_to_validate` — Resolve the device list from Nautobot.**
+1. **`get_devices_to_validate` — Resolve the device list from the DCIM.**
 
-   Calls Nautobot for all devices matching the site, role, status, tenant, and device-type filters, then drops anything not on a supported platform (Cumulus Linux, NVOS, Arista EOS, Juniper Junos). The resolved device list is rendered as a Markdown table on the stage page. If no devices match the filters, the remaining stages are marked Unreachable and the workflow returns immediately with an explanatory message.
+   Calls the DCIM for all devices matching the site, role, status, tenant, and device-type filters, then drops anything not on a supported platform (Cumulus Linux, NVOS, Arista EOS, Juniper Junos). The resolved device list is rendered as a Markdown table on the stage page. If no devices match the filters, the remaining stages are marked Unreachable and the workflow returns immediately with an explanatory message.
 
 1. **`validate_devices` — Run a device cable validation child per device.**
 
@@ -151,23 +175,23 @@ The site workflow runs three stages. None require manual approval.
 
 1. **`format_result` — Aggregate per-device results into the site report.**
 
-   Combines every child's interface findings into the consolidated Markdown report, with the list of `failed_devices` preserved verbatim at the top so operators know which switches were skipped versus which were validated and clean. The report renders inline on the stage page and is also offered as a downloadable Excel workbook for cases where the result set is too large to view in the UI. The workbook has two sheets: **Cable Issues** lists every interface finding, and **Host Summary** provides per-switch issue counts for triage.
+   Combines every child's interface findings into the consolidated Markdown report, with the list of `failed_devices` preserved verbatim at the top so operators know which switches were skipped versus which were validated and clean. The report renders inline on the stage page and is also offered as a downloadable Excel workbook for cases where the result set is too large to view in the UI. The workbook has two sheets: **Cable Issues** lists every interface finding, and **Host Summary** provides per-switch issue counts for triage. After publishing the report, this stage remains in progress while it persists the cable statuses returned by the child workflows.
 
 ### Device cable validation
 
 The device workflow runs six stages. The three data-collection stages (`get_device_intended_neighbors`, `get_device_actual_neighbors`, `get_device_mac_table`) run in parallel once the hostname check has passed.
 
-1. **`get_device_data` — Fetch the device record from Nautobot.**
+1. **`get_device_data` — Fetch the device record from the DCIM.**
 
    Loads the device by UUID and attaches device search attributes to the workflow for observability. When the workflow is invoked as a child of site cable validation, the parent passes the already-fetched record so this stage is effectively a no-op.
 
-1. **`validate_device_hostname` — Confirm the device's running hostname matches Nautobot.**
+1. **`validate_device_hostname` — Confirm the device's running hostname matches the DCIM.**
 
-   Logs into the device and reads its configured hostname, then compares it against the Nautobot name. A mismatch fails the workflow before any cabling work begins, since cabling validation against the wrong device would produce misleading findings.
+   Logs into the device and reads its configured hostname, then compares it against the DCIM name. A mismatch fails the workflow before any cabling work begins, since cabling validation against the wrong device would produce misleading findings.
 
-1. **`get_device_intended_neighbors` — Read intended cabling from Nautobot.**
+1. **`get_device_intended_neighbors` — Read intended cabling from the DCIM.**
 
-   Pulls every enabled interface with a connected interface from Nautobot. For each connection, it records the far-end device, interface, role, rack position, and interface MAC when present. It also records `cable-validation-ignore` and `cable-validation-link-state-only` tags on the local interface.
+   Pulls every enabled interface with a connected interface from the DCIM. For each connection, it records the far-end device, interface, role, rack position, and interface MAC when present. It also records `cable-validation-ignore` and `cable-validation-link-state-only` tags on the local interface.
 
 1. **`get_device_actual_neighbors` — Read observed cabling from the device.**
 
@@ -175,11 +199,11 @@ The device workflow runs six stages. The three data-collection stages (`get_devi
 
 1. **`get_device_mac_table` — Read the FDB and ARP table from the device.**
 
-   Pulls the MAC table (FDB) and ARP table off the device. MAC and ARP entries are the fallback validator for links where LLDP is not available — most commonly IPMI/BMC connections to hosts. When LLDP is absent, the FDB MAC must match the MAC recorded in Nautobot.
+   Pulls the MAC table (FDB) and ARP table off the device. MAC and ARP entries are the fallback validator for links where LLDP is not available — most commonly IPMI/BMC connections to hosts. When LLDP is absent, the FDB MAC must match the MAC recorded in the DCIM.
 
 1. **`validate_connections` — Compare intended vs actual and produce the report.**
 
-   Joins the three data sources and applies the decision order in [How each connection is evaluated](#how-each-connection-is-evaluated). It validates the required intended-neighbor fields before checking link state. After that prerequisite passes, an up interface marked link-state-only passes immediately; otherwise either LLDP or the expected far-end MAC must match. The stage then classifies every mismatch (link down, wrong neighbor, no neighbor found, unexpected connection), decorates findings with the stable `ID` hash used across runs, and formats the per-device Markdown report. This stage is not retryable — if validation logic raises, the run fails outright rather than masking a real bug behind a retry.
+   Joins the three data sources and applies the decision order in [How each connection is evaluated](#how-each-connection-is-evaluated). It validates the required intended-neighbor fields before checking link state. After that prerequisite passes, an up interface marked link-state-only passes immediately; otherwise either LLDP or the expected far-end MAC must match. The stage then classifies every mismatch (link down, wrong neighbor, no neighbor found, unexpected connection), decorates findings with the stable `ID` hash used across runs, and formats the per-device Markdown report. For a standalone device run, the report appears while this stage persists cable statuses; a site-launched child returns its pending updates to the parent instead. This stage is not retryable — if validation logic or DCIM persistence raises, the run fails outright rather than masking a real error behind a retry.
 
 The workflow's final output is a `DeviceCableValidationResult` whose `interfaces` field maps each invalid interface name to its findings.
 
@@ -187,7 +211,7 @@ The workflow's final output is a `DeviceCableValidationResult` whose `interfaces
 
 ### Actual vs. Intended
 
-The results in the report show the device/port pair being validated (Start Device/Port) and then what the intended connection should be (based on what is in Nautobot) compared to the actual observed connection on the device.
+The results in the report show the device/port pair being validated (Start Device/Port) and then what the intended connection should be (based on what is in the DCIM) compared to the actual observed connection on the device.
 
 ### Issue
 
@@ -222,10 +246,10 @@ A link that is expected to be present and up is operationally down. Either a bad
 
 **`Incorrect cabling, actual should match intended`**
 
-The cabling modeled in Nautobot does not match what was found on the network. This can be due to:
+The cabling modeled in the DCIM does not match what was found on the network. This can be due to:
 
-- **LLDP data** — the physical cabling does not match what is modeled in Nautobot.
-- **MAC address** — the MAC seen on the switch FDB does not match the expected MAC in Nautobot. Either the MAC in Nautobot is wrong, or the physical cabling is wrong. This is used when LLDP is not available, usually for IPMI/BMC connections.
+- **LLDP data** — the physical cabling does not match what is modeled in the DCIM.
+- **MAC address** — the MAC seen on the switch FDB does not match the expected MAC in the DCIM. Either the inventory MAC is wrong, or the physical cabling is wrong. This is used when LLDP is not available, usually for IPMI/BMC connections.
 
 **`Link is up but no neighbor found`**
 
@@ -233,23 +257,27 @@ A link is present but no LLDP neighbor or MAC address was found, so the link cou
 
 **`Unexpected connection found`**
 
-A neighbor was found that is not modeled in Nautobot. This could mean Nautobot is out of date, or that there are connections not in scope for Config Manager validation (commonly custom cabling for the site or connections to non-Nautobot-managed devices).
+A neighbor was found that is not modeled in the DCIM. This could mean the inventory is out of date, or that there are connections not in scope for Config Manager validation (commonly custom cabling for the site or connections to devices not managed in the DCIM).
 
-If there are connections in Nautobot that are deliberately outside validation scope, add the `cable-validation-ignore` tag to the in-scope switch interfaces and re-run the cable validation workflow. If the connection should be validated later but currently lacks host MAC or reliable LLDP data, use `cable-validation-link-state-only` instead.
+If there are connections in the DCIM that are deliberately outside validation scope, add the `cable-validation-ignore` tag to the in-scope switch interfaces and re-run the cable validation workflow. If the connection should be validated later but currently lacks host MAC or reliable LLDP data, use `cable-validation-link-state-only` instead.
 
 ## Common issues and troubleshooting
 
 **One or more devices are listed as failed.**
 
-A failed device means the per-device child workflow itself errored — most often because the device is unreachable over its management IP or its hostname does not match Nautobot. The device's findings are excluded from the report; fix the underlying issue and either re-run the site workflow or run a targeted device cable validation against just that device. The results page lists unreachable devices separately and excludes their results from the report.
+A failed device means the per-device child workflow itself errored — most often because the device is unreachable over its management IP or its hostname does not match the DCIM. The device's findings are excluded from the report; fix the underlying issue and either re-run the site workflow or run a targeted device cable validation against just that device. The results page lists unreachable devices separately and excludes their results from the report.
 
 **Hostname validation failed.**
 
-The hostname configured on the device does not match Nautobot. Either the device was renamed in Nautobot without re-applying configuration, or you are running validation against the wrong device. Reconcile the names — typically by re-rendering and re-applying the device's configuration — and re-run.
+The hostname configured on the device does not match the DCIM. Either the device was renamed in the inventory without re-applying configuration, or you are running validation against the wrong device. Reconcile the names — typically by re-rendering and re-applying the device's configuration — and re-run.
 
 **Stage `get_device_actual_neighbors` or `get_device_mac_table` failed.**
 
-The device is unreachable, the management credentials are wrong, or the device is on an unsupported platform. Confirm the device is reachable on its management IP, that ZTP has completed, and that the platform field in Nautobot is set correctly. If the device was just reprovisioned, give LLDP a minute or two to populate before retrying.
+The device is unreachable, the management credentials are wrong, or the device is on an unsupported platform. Confirm the device is reachable on its management IP, that ZTP has completed, and that the platform field in the DCIM is set correctly. If the device was just reprovisioned, give LLDP a minute or two to populate before retrying.
+
+**The report is visible, but its stage says DCIM cable status persistence failed.**
+
+The validation itself completed, but one or more cable status writes failed. The report remains valid for the observations collected during the run. Some cable statuses may have been updated before the failure. Resolve the DCIM connectivity, permissions, missing-cable, or bootstrap-data error shown by the workflow and rerun validation. The rerun skips statuses that already match.
 
 **The report shows duplicate findings for the same link.**
 
@@ -269,11 +297,11 @@ LLDP and the FDB were both empty for those interfaces. Retry the workflow first 
 
 **Validation found unexpected connections that are legitimately out of scope.**
 
-For connections that exist in Nautobot but should not be validated (custom site cabling, non-Nautobot-managed neighbors), add the `cable-validation-ignore` tag to those interfaces and re-run for a clean report.
+For connections that exist in the DCIM but should not be validated (custom site cabling or neighbors not managed in the DCIM), add the `cable-validation-ignore` tag to those interfaces and re-run for a clean report.
 
 **High-speed host links fail because the intended MAC is empty or has not been discovered yet.**
 
-During initial bringup, add `cable-validation-link-state-only` to the leaf-side interfaces and validate physical link state first. After the compute management system populates the host interface MACs in Nautobot, verify their interface assignments, remove the tag, and re-run full validation. Do not use the temporary clean report as evidence that host links are in the correct order; only the later identity-aware pass can detect swaps.
+During initial bringup, add `cable-validation-link-state-only` to the leaf-side interfaces and validate physical link state first. After the compute management system populates the host interface MACs in the DCIM, verify their interface assignments, remove the tag, and re-run full validation. Do not use the temporary clean report as evidence that host links are in the correct order; only the later identity-aware pass can detect swaps.
 
 ## Related guides
 

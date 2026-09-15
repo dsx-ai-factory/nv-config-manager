@@ -20,11 +20,13 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Protocol, runtime_checkable
 
 from nv_config_manager_dcim.models import (
+    CableStatusUpdate,
     ConfigurationBackupIntent,
     ConfigurationBackupMetadata,
     DCIMChangeEvent,
     DCIMDeviceSelection,
     DCIMDeviceSelectionFilter,
+    DCIMLocationIdentifier,
     DCIMModel,
     DCIMSelection,
     DeviceMetadata,
@@ -98,7 +100,9 @@ class DCIMClient(Protocol):
         ...
 
     async def get_device_metadata(self, device_id: str) -> DeviceMetadata | None: ...
-    async def get_location_metadata(self, location_id: str) -> DCIMSelection | None: ...
+    async def get_location_metadata(
+        self, location: DCIMLocationIdentifier
+    ) -> DCIMSelection | None: ...
     async def get_managed_device_metadata(self, page_size: int = 100) -> list[DeviceMetadata]: ...
     def get_device_ui_url(self, device_id: str) -> str: ...
     async def get_ztp_device(self, device_id: str) -> ZTPDevice: ...
@@ -128,9 +132,13 @@ class DCIMClient(Protocol):
     async def list_locations(self, location_types: tuple[str, ...] = ()) -> list[DCIMSelection]: ...
     async def list_tenants(self, managed_only: bool = False) -> list[DCIMSelection]: ...
     async def list_roles(self, managed_only: bool = False) -> list[DCIMSelection]: ...
-    async def list_namespace_tags(self, location: str | None = None) -> list[str]: ...
+    async def list_namespace_tags(
+        self, location: DCIMLocationIdentifier | None = None
+    ) -> list[str]: ...
     async def list_overlays(
-        self, location: str | None = None, isolation_type: str | None = None
+        self,
+        location: DCIMLocationIdentifier | None = None,
+        isolation_type: str | None = None,
     ) -> list[DCIMSelection]: ...
     async def list_statuses(self, content_type: str | None = None) -> list[DCIMSelection]: ...
     async def list_devices(
@@ -164,7 +172,7 @@ class DCIMClient(Protocol):
     async def get_host_metadata_by_macs(self, mac_addresses: list[str]) -> list[HostMetadata]: ...
     async def get_host_metadata_by_names(self, device_names: list[str]) -> list[HostMetadata]: ...
     async def get_namespace_route_distinguishers(
-        self, site: str, namespace_tag: str
+        self, site: DCIMLocationIdentifier, namespace_tag: str
     ) -> list[NamespaceRouteDistinguisher]: ...
     async def get_connected_switch_port_by_remote_mac(
         self, mac_address: str
@@ -184,23 +192,28 @@ class DCIMClient(Protocol):
     async def get_ib_interface_guid(self, interface_id: str) -> IBInterfaceGuid: ...
     async def set_ib_interface_guid(self, interface_id: str, guid: str) -> None: ...
     async def get_spectrum_x_vrfs(
-        self, overlay_name: str, site: str, namespace: str | None = None
+        self,
+        overlay_name: str,
+        site: DCIMLocationIdentifier,
+        namespace: str | None = None,
     ) -> list[SpectrumXVRF]: ...
     async def delete_spectrum_x_vrf(self, vrf_id: str, vnid: int) -> None: ...
-    async def delete_spectrum_x_overlay_if_unused(self, overlay_name: str, site: str) -> bool: ...
+    async def delete_spectrum_x_overlay_if_unused(
+        self, overlay_name: str, site: DCIMLocationIdentifier
+    ) -> bool: ...
     async def provision_spectrum_x_vrf(
         self,
         namespaces: list[str],
         route_distinguisher: str,
         vnid: int,
         overlay_name: str,
-        site: str,
+        site: DCIMLocationIdentifier,
         tenant: str,
     ) -> None: ...
     async def reconcile_spectrum_x_overlay_assignments(
         self,
         overlay_name: str | None,
-        site: str,
+        site: DCIMLocationIdentifier,
         device_id: str,
         interface_ids: list[str],
         device_interface_ids: list[str],
@@ -212,7 +225,7 @@ class DCIMClient(Protocol):
         self,
         pkey: str,
         partition_name: str,
-        location_name: str,
+        location_name: DCIMLocationIdentifier,
         tenant_name: str | None,
         membership_type: str,
     ) -> IBPKeyPartition: ...
@@ -239,6 +252,19 @@ class DCIMClient(Protocol):
     async def cleanup_ib_pkey_partition(
         self, overlay_id: str, overlay_name: str, pkey_id: str, pkey: str, ufm_partition_empty: bool
     ) -> IBPKeyCleanup: ...
+
+
+@runtime_checkable
+class DCIMCableStatusClient(Protocol):
+    """Optional capability for providers with mutable cable objects."""
+
+    async def update_cable_status(self, update: CableStatusUpdate) -> None:
+        """Persist one cable-validation status.
+
+        Providers without a dedicated cable object omit this capability; callers
+        treat its absence as a no-op.
+        """
+        ...
 
 
 @runtime_checkable

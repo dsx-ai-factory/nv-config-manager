@@ -147,6 +147,11 @@ async def frontport(event: DCIMChangeEvent, client: DCIMClient) -> tuple[RenderE
 
 async def cable(event: DCIMChangeEvent, client: DCIMClient) -> tuple[RenderEventRequest, ...]:
     """Handle a ``dcim.cable`` event, including compact termination references."""
+    # Nautobot cable terminations are immutable: changing an endpoint requires
+    # deleting and recreating the cable. Updates can therefore only affect
+    # non-topological fields and do not require a configuration render.
+    if event.operation not in {"create", "delete"}:
+        return ()
     record = _record(event)
     termination_a = record.get("termination_a")
     termination_b = record.get("termination_b")

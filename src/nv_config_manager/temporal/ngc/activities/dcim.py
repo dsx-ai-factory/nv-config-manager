@@ -21,7 +21,7 @@ import re
 from typing import Any, ClassVar
 
 import netaddr
-from nv_config_manager_dcim import DeviceInventoryFilter
+from nv_config_manager_dcim import DCIMLocationIdentifier, DeviceInventoryFilter
 from pydantic import BaseModel, computed_field
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -104,7 +104,7 @@ async def get_host_device(
 class GetNetworkDevicesInput(BaseModel):
     """Get network devices input."""
 
-    site: str | None = None
+    site: DCIMLocationIdentifier | None = None
     roles: list[str] | None = None
     status: list[str] | None = None
     tenant: str | None = None
@@ -155,7 +155,7 @@ async def get_network_devices(
 class GetHostDevicesInput(BaseModel):
     """Get host devices input."""
 
-    site: str | None = None
+    site: DCIMLocationIdentifier | None = None
     roles: list[str] | None = None
     status: list[str] | None = None
     tenant: str | None = None
@@ -251,7 +251,7 @@ async def get_host_data_by_names(device_names: list[str]) -> list[HostData]:
 class GetAvailableRouteDistinguishersInput(BaseModel):
     """Get Available Route Distinguishers Activity Input."""
 
-    site: str
+    site: DCIMLocationIdentifier
     namespace_tag: str
     rd_min: int
     rd_max: int
@@ -376,7 +376,7 @@ class ProvisionVrfInput(BaseModel):
     namespaces: list[str]
     route_distinguisher: str
     overlay_id: str
-    site: str
+    site: DCIMLocationIdentifier
     tenant: str
 
 
@@ -411,7 +411,7 @@ class QueryVRFByVPCInput(BaseModel):
     """Query VRF Activity Input."""
 
     overlay_id: str
-    site: str
+    site: DCIMLocationIdentifier
     namespace_tag: str
     namespace: str | None = None
 
@@ -454,7 +454,7 @@ class DeleteOverlayInput(BaseModel):
     """Delete Overlay Activity Input."""
 
     overlay_id: str
-    site: str
+    site: DCIMLocationIdentifier
 
 
 class DeleteOverlayOutput(BaseModel):
@@ -622,7 +622,7 @@ class ReconcileSpXOverlayAssignmentsInput(BaseModel):
     """Spectrum-X overlay assignments to reconcile in the configured DCIM."""
 
     overlay_id: str | None
-    site: str
+    site: DCIMLocationIdentifier
     device_id: str
     interface_ids: list[str]
     device_interface_ids: list[str]

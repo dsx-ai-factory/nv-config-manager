@@ -17,12 +17,17 @@
 from __future__ import annotations
 
 from configparser import ConfigParser
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from nv_config_manager_dcim import DCIMInvalidDataError, DCIMProviderConfigurationError
+from nv_config_manager_dcim import (
+    DCIMInvalidDataError,
+    DCIMLocationReference,
+    DCIMProviderConfigurationError,
+)
 from nv_config_manager_dcim import registry as sdk_registry
-from nv_config_manager_dcim_nautobot_2x.client import NautobotException
+from nv_config_manager_dcim_nautobot_2x.client import DEFAULT_TIMEOUT, NautobotException
+from nv_config_manager_dcim_nautobot_2x.client import NautobotClient as BaseNautobotClient
 from nv_config_manager_dcim_nautobot_2x.provider import NautobotDCIMClient, NautobotProvider
 
 from nv_config_manager.dcim import (
@@ -96,17 +101,79 @@ async def test_nautobot_location_metadata_uses_direct_id_lookup() -> None:
     location_id = "b6f4972a-c6ab-4be1-96ac-72f4efc4f328"
     client = NautobotDCIMClient("https://dcim.example", "token")
     client.graphql_query = AsyncMock(
-        return_value={"data": {"location": {"id": location_id, "name": "SJC01"}}}
+        return_value={
+            "data": {
+                "location": {
+                    "id": location_id,
+                    "name": "SJC01",
+                    "location_type": {"name": "Site"},
+                }
+            }
+        }
     )
 
-    location = await client.get_location_metadata(location_id)
+    reference = DCIMLocationReference(id=location_id, location_type="Site")
+    location = await client.get_location_metadata(reference)
 
     assert location is not None
     assert location.id == location_id
     assert location.name == "SJC01"
+    assert location.location_type == "Site"
     query, variables = client.graphql_query.await_args.args
     assert "query GetLocationById" in query
     assert variables == {"id": location_id}
+
+
+@pytest.mark.asyncio
+async def test_nautobot_location_choices_include_type_and_filter_at_source() -> None:
+    """Nautobot maps LocationType names to models and applies every requested type."""
+    client = NautobotDCIMClient("https://dcim.example", "token")
+    client.graphql_query = AsyncMock(
+        return_value={
+            "data": {
+                "locations": [
+                    {
+                        "id": "b6f4972a-c6ab-4be1-96ac-72f4efc4f328",
+                        "name": "SJC01",
+                        "location_type": {"name": "Site"},
+                    },
+                    {
+                        "id": "ed3e30d2-9078-4bc7-8676-f1dcaf3e29c8",
+                        "name": "Module 1",
+                        "location_type": {"name": "Module"},
+                    },
+                ]
+            }
+        }
+    )
+
+    locations = await client.list_locations(("Site", "Module"))
+
+    assert [(location.id, location.location_type) for location in locations] == [
+        ("b6f4972a-c6ab-4be1-96ac-72f4efc4f328", "Site"),
+        ("ed3e30d2-9078-4bc7-8676-f1dcaf3e29c8", "Module"),
+    ]
+    _, variables = client.graphql_query.await_args.args
+    assert variables == {"location_types": ["Site", "Module"]}
+
+
+def test_nautobot_device_filters_accept_typed_locations_as_legacy_ids() -> None:
+    """Typed location input does not change Nautobot's single UUID namespace."""
+    client = NautobotDCIMClient("https://dcim.example", "token")
+
+    variables = client._build_device_filter_variables(
+        site=DCIMLocationReference(id="location-id", location_type="Site"),
+        status=None,
+        role=None,
+        tenant=None,
+        device_type_id=None,
+        mac_address=None,
+        device_ids=None,
+        platform=None,
+        managed_only=None,
+    )
+
+    assert variables == {"site": ["location-id"]}
 
 
 @pytest.mark.asyncio
@@ -271,6 +338,78 @@ def test_provider_settings_require_connection_details() -> None:
 
     with pytest.raises(DCIMProviderConfigurationError, match="server, token"):
         create_dcim_client(config)
+
+
+def test_dcim_timeout_reaches_the_provider_client() -> None:
+    """A deployment can widen the request budget without a code change."""
+    config = _config()
+    config["dcim.nautobot-2x"]["timeout"] = "120"
+
+    client = create_dcim_client(config)
+
+    assert client._timeout == 120
+
+
+def test_dcim_timeout_defaults_when_unset_or_blank() -> None:
+    """An unconfigured or blank timeout keeps the provider's built-in budget."""
+    assert create_dcim_client(_config())._timeout == DEFAULT_TIMEOUT
+
+    blank = _config()
+    blank["dcim.nautobot-2x"]["timeout"] = "  "
+    assert create_dcim_client(blank)._timeout == DEFAULT_TIMEOUT
+
+
+def test_legacy_nautobot_timeout_remains_supported_until_v2() -> None:
+    """A 1.x deployment can still tune the budget through [nautobot]."""
+    config = ConfigParser()
+    config.read_dict(
+        {
+            "nautobot": {
+                "server": "https://legacy.example",
+                "token": "legacy-token",
+                "timeout": "90",
+            }
+        }
+    )
+
+    with pytest.warns(DeprecationWarning):
+        client = create_dcim_client(config)
+
+    assert client._timeout == 90
+
+
+@pytest.mark.parametrize("value", ["not-a-number", "0", "-5"])
+def test_unusable_dcim_timeout_is_rejected(value: str) -> None:
+    """A misconfigured budget fails loudly instead of silently falling back."""
+    config = _config()
+    config["dcim.nautobot-2x"]["timeout"] = value
+
+    with pytest.raises(DCIMProviderConfigurationError, match="timeout must be"):
+        create_dcim_client(config)
+
+
+def test_nautobot_mcp_client_uses_the_configured_timeout() -> None:
+    """The MCP adapter shares the deployment's request budget."""
+    config = _config()
+    config["dcim.nautobot-2x"]["timeout"] = "75"
+
+    client = create_nautobot_mcp_client(lambda: {"Authorization": "Bearer caller"}, config)
+
+    assert client is not None
+    assert client._timeout == 75
+
+
+@pytest.mark.asyncio
+async def test_graphql_queries_use_the_client_budget_by_default() -> None:
+    """Callers that omit a timeout get the configured budget, not a hardcoded one."""
+    client = NautobotDCIMClient("https://dcim.example", "token", timeout=45)
+    transport = AsyncMock(return_value={"data": {}})
+
+    with patch.object(BaseNautobotClient, "graphql_query", transport):
+        await client.graphql_query("query { x }")
+
+    assert transport.await_args.args[-1] is None
+    assert client._timeout == 45
 
 
 def test_event_provider_mismatch_is_rejected() -> None:
