@@ -23,7 +23,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ChildWorkflowError
+from temporalio.exceptions import ApplicationError, ChildWorkflowError
 
 from nv_config_manager.dcim import (
     DCIMLocationIdentifier,
@@ -72,11 +72,13 @@ with workflow.unsafe.imports_passed_through():
         FormatDeviceValidationResultInput,
         FormatResultsActivityInput,
         InvalidCable,
+        UpdateCableStatusesInput,
         ValidateDeviceNeighborsInput,
         ValidateDeviceNeighborsResult,
         decorate_result,
         format_device_validation_result,
         format_results,
+        update_cable_statuses,
         validate_device_neighbors,
     )
     from nv_config_manager.temporal.ngc.activities.config import build_workflow_url, get_ui_base_url
@@ -114,6 +116,11 @@ SUPPORTED_PLATFORMS = [
 ]
 DEVICE_CABLE_VALIDATION_DEVICE_DESCRIPTION = (
     "Preloaded data for the target network device, if available."
+)
+CABLE_STATUS_UPDATE_PATCH_ID = "cable-validation-dcim-status-v1"
+CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID = "cable-validation-child-timeout-v1"
+DCIM_PERSISTENCE_PENDING_MESSAGE = (
+    "\n\n> **The report is ready. DCIM cable status persistence is still running.**"
 )
 
 
@@ -159,6 +166,13 @@ class DeviceCableValidationInput(BaseModel):
         default=None,
         description=DEVICE_CABLE_VALIDATION_DEVICE_DESCRIPTION,
     )
+    defer_cable_status_updates: bool = Field(
+        default=False,
+        description=(
+            "Return pending DCIM updates to a parent site workflow. "
+            "Direct API calls must leave this false."
+        ),
+    )
     ignore_no_neighbor: bool = Field(
         default=False,
         description="Whether interfaces without discovered neighbors should be ignored.",
@@ -170,6 +184,58 @@ class DeviceCableValidationResult(BaseModel, validate_assignment=True):
 
     # key is the interface name
     interfaces: dict[str, InvalidCable] = {}
+    cable_status_update: UpdateCableStatusesInput | None = None
+
+
+class CableStatusPersistenceMixin(StageMixin):
+    """Shared post-report persistence behavior for device and site validation."""
+
+    async def persist_cable_statuses(self, updates: list[UpdateCableStatusesInput]) -> None:
+        """Update devices sequentially; each activity writes cables concurrently."""
+        # Child workflows can complete together; sort before scheduling commands
+        # so set iteration order cannot affect replay.
+        for update in sorted(updates, key=lambda item: item.device_id):
+            if not update.cable_statuses:
+                continue
+            await workflow.execute_activity(
+                update_cable_statuses,
+                update,
+                start_to_close_timeout=timedelta(minutes=15),
+                retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
+            )
+
+    async def persist_cable_statuses_after_report(
+        self,
+        stage_name: str,
+        report_output: StageOutput,
+        updates: list[UpdateCableStatusesInput],
+    ) -> None:
+        """Keep the report visible while its DCIM updates are being persisted."""
+        if not any(update.cable_statuses for update in updates):
+            return
+
+        self.set_stage_output(
+            stage_name,
+            report_output.model_copy(
+                update={"display": report_output.display + DCIM_PERSISTENCE_PENDING_MESSAGE}
+            ),
+        )
+        try:
+            await self.persist_cable_statuses(updates)
+        except Exception:
+            self.set_stage_output(
+                stage_name,
+                report_output.model_copy(
+                    update={
+                        "display": report_output.display
+                        + "\n\n> **DCIM cable status persistence failed. The validation report "
+                        "is still available, but cable statuses may only be partially updated. "
+                        "Resolve the DCIM error and rerun cable validation.**"
+                    }
+                ),
+            )
+            raise
+        self.set_stage_output(stage_name, report_output)
 
 
 class SiteCableValidationResult(BaseModel):
@@ -179,7 +245,7 @@ class SiteCableValidationResult(BaseModel):
 
 
 @workflow.defn
-class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin):
+class SiteCableValidationWorkflow(WorkflowMetadataMixin, CableStatusPersistenceMixin, ArchiveMixin):
     """Site-wide cable validation workflow for network infrastructure."""
 
     # Workflow metadata
@@ -274,6 +340,7 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
 
         devices: dict[str, CableValidationResultData]
         failed_devices: dict[str, str]
+        cable_status_updates: list[UpdateCableStatusesInput] = Field(default_factory=list)
 
     @stage_executor("validate_devices")
     async def validate_devices(
@@ -297,9 +364,18 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
             search_attrs.update({DEVICE_ID_SEARCH_ATTRIBUTE: [device.id]})
             handles[device.name] = await workflow.start_child_workflow(
                 DeviceCableValidationWorkflow.run,
-                DeviceCableValidationInput(device_id=device.id, device=device),
+                DeviceCableValidationInput(
+                    device_id=device.id,
+                    device=device,
+                    defer_cable_status_updates=workflow.patched(CABLE_STATUS_UPDATE_PATCH_ID),
+                ),
                 retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
                 search_attributes=search_attrs,
+                execution_timeout=(
+                    timedelta(minutes=10)
+                    if workflow.patched(CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID)
+                    else None
+                ),
             )
             self.append_child_workflow("validate_devices", handles[device.name].id)
 
@@ -333,6 +409,7 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
         failed_devices = {}
         child_results = {}
         stage_results = {}
+        cable_status_updates = []
         remaining_items = list(handles.items())
 
         while remaining_items:
@@ -361,6 +438,8 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
                 try:
                     result = completed_handle.result()
                     child_results[device_name] = result
+                    if result.cable_status_update is not None:
+                        cable_status_updates.append(result.cable_status_update)
                     stage_results[device_name] = CableValidationResultData(
                         interfaces=result.interfaces, device=device_data
                     )
@@ -410,6 +489,7 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
             devices=stage_results,
             failed_devices=failed_devices,
             display=display,
+            cable_status_updates=cable_status_updates,
         )
 
     class FormatResultStageInput(StageInput):
@@ -418,6 +498,7 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
         devices: dict[str, CableValidationResultData]
         legacy_site: bool = False
         failed_devices: dict[str, str] = {}
+        cable_status_updates: list[UpdateCableStatusesInput] = []
 
     class FormatResultStageOutput(StageOutput):
         """Format result stage output."""
@@ -436,7 +517,12 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=ACTIVITY_NO_RETRY_POLICY,
         )
-        return self.FormatResultStageOutput(display=results)
+        output = self.FormatResultStageOutput(display=results)
+        if workflow.patched(CABLE_STATUS_UPDATE_PATCH_ID):
+            await self.persist_cable_statuses_after_report(
+                "format_result", output, stage_input.cable_status_updates
+            )
+        return output
 
     @run_nv_config_manager_workflow
     async def run(  # type: ignore[override, ty:invalid-method-override]
@@ -475,6 +561,7 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
             self.FormatResultStageInput(
                 devices=validation_output.devices,
                 failed_devices=validation_output.failed_devices,
+                cable_status_updates=validation_output.cable_status_updates,
             )
         )
 
@@ -484,7 +571,9 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
 
 
 @workflow.defn
-class DeviceCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixin):
+class DeviceCableValidationWorkflow(
+    WorkflowMetadataMixin, CableStatusPersistenceMixin, DeviceMixin, ArchiveMixin
+):
     """Single device cable validation workflow for network infrastructure."""
 
     # Workflow metadata
@@ -497,6 +586,16 @@ class DeviceCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
     workflow_api_endpoint = "/ngc/device_cable_validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
+
+    @classmethod
+    async def canonicalize_input(cls, body: BaseModel) -> BaseModel:
+        """Reject the parent-to-child deferral option at the API boundary."""
+        if isinstance(body, DeviceCableValidationInput) and body.defer_cable_status_updates:
+            raise ApplicationError(
+                "defer_cable_status_updates is only valid for site cable validation child workflows",
+                non_retryable=True,
+            )
+        return body
 
     def __init__(self) -> None:
         """Workflow constructor."""
@@ -696,6 +795,7 @@ class DeviceCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
         mac_table: DeviceMacTable
         arp_table: DeviceArpTable
         ignore_no_neighbor: bool = False
+        defer_cable_status_updates: bool = False
 
     class ValidateConnectionsStageOutput(StageOutput):
         """Validate Connections Stage Output."""
@@ -715,6 +815,7 @@ class DeviceCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
                 actual=stage_input.actual,
                 mac_table=stage_input.mac_table,
                 arp_table=stage_input.arp_table,
+                ignore_no_neighbor=stage_input.ignore_no_neighbor,
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
@@ -733,7 +834,8 @@ class DeviceCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
         decorated_result = ValidateDeviceNeighborsResult(
-            interfaces=decorated.devices[stage_input.device.name].interfaces
+            interfaces=decorated.devices[stage_input.device.name].interfaces,
+            cable_statuses=result.cable_statuses,
         )
 
         display: str = await workflow.execute_activity(
@@ -747,9 +849,25 @@ class DeviceCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
 
-        return DeviceCableValidationWorkflow.ValidateConnectionsStageOutput(
+        output = DeviceCableValidationWorkflow.ValidateConnectionsStageOutput(
             validation_result=decorated_result, display=display
         )
+        if (
+            workflow.patched(CABLE_STATUS_UPDATE_PATCH_ID)
+            and not stage_input.defer_cable_status_updates
+        ):
+            await self.persist_cable_statuses_after_report(
+                "validate_connections",
+                output,
+                [
+                    UpdateCableStatusesInput(
+                        device_id=stage_input.device.id,
+                        cable_statuses=decorated_result.cable_statuses,
+                        workflow_id=workflow.info().workflow_id,
+                    )
+                ],
+            )
+        return output
 
     @run_nv_config_manager_workflow
     async def run(  # type: ignore[override, ty:invalid-method-override]
@@ -800,11 +918,23 @@ class DeviceCableValidationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
                 mac_table=mac_output.mac_table,
                 arp_table=mac_output.arp_table,
                 ignore_no_neighbor=workflow_input.ignore_no_neighbor,
+                defer_cable_status_updates=workflow_input.defer_cable_status_updates,
             )
         )
+
+        pending_update = None
+        if workflow.patched(CABLE_STATUS_UPDATE_PATCH_ID):
+            pending_update = UpdateCableStatusesInput(
+                device_id=device_data.id,
+                cable_statuses=validation_output.validation_result.cable_statuses,
+                workflow_id=workflow.info().workflow_id,
+            )
 
         await self.archive_results()
 
         return DeviceCableValidationResult(
-            interfaces=validation_output.validation_result.interfaces
+            interfaces=validation_output.validation_result.interfaces,
+            cable_status_update=pending_update
+            if workflow_input.defer_cable_status_updates
+            else None,
         )
