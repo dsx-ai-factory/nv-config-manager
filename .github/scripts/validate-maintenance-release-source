@@ -82,6 +82,52 @@ patch_matches_default() {
   return 1
 }
 
+added_lines() {
+  local from="$1"
+  local to="$2"
+
+  git diff --no-renames --unified=0 "$from" "$to" -- . ':!CHANGELOG.md' \
+    | awk '
+      /^diff --git / { in_hunk = 0; next }
+      /^@@ / { in_hunk = 1; next }
+      in_hunk && /^\+/ { print substr($0, 2) }
+    '
+}
+
+approved_backport_matches_default() {
+  local candidate="$1"
+  local mapping main_first main_last extra
+  local candidate_parent main_parent candidate_numstat main_numstat
+
+  mapping="$(awk -v candidate="$candidate" '$1 == candidate { print $2, $3; exit }' \
+    .github/maintenance-release-backports)"
+  if [ -z "$mapping" ]; then
+    return 1
+  fi
+  read -r main_first main_last extra <<< "$mapping"
+  if [ -n "$extra" ] \
+    || ! git merge-base --is-ancestor "$main_first" "$main_last" \
+    || ! git merge-base --is-ancestor "$main_last" "$default_ref"; then
+    return 1
+  fi
+
+  # The approved release SHA is the review boundary. Matching per-file line
+  # counts and ordered additions allows only baseline-specific removed lines.
+  candidate_parent="$(git rev-parse "${candidate}^")"
+  main_parent="$(git rev-parse "${main_first}^")"
+  candidate_numstat="$(
+    git diff --no-renames --numstat "$candidate_parent" "$candidate" -- . ':!CHANGELOG.md' \
+      | LC_ALL=C sort
+  )"
+  main_numstat="$(
+    git diff --no-renames --numstat "$main_parent" "$main_last" -- . ':!CHANGELOG.md' \
+      | LC_ALL=C sort
+  )"
+  [ "$candidate_numstat" = "$main_numstat" ] \
+    && [ "$(added_lines "$candidate_parent" "$candidate")" \
+      = "$(added_lines "$main_parent" "$main_last")" ]
+}
+
 # Verify every functional patch verbatim before git cherry performs its
 # whitespace-insensitive patch filtering.
 while IFS= read -r candidate; do
@@ -90,6 +136,10 @@ while IFS= read -r candidate; do
       | grep -v '^CHANGELOG.md$' \
       || true
   )"
+  if [ -n "$unexpected_paths" ] && approved_backport_matches_default "$candidate"; then
+    echo "Accepted approved conflict-adjusted backport ${candidate}."
+    continue
+  fi
   if [ -n "$unexpected_paths" ] && ! patch_matches_default "$candidate"; then
     echo "Commit ${candidate} contains release-only changes that do not exactly match ${default_ref}:"
     printf '%s\n' "$unexpected_paths"
@@ -106,7 +156,9 @@ while read -r disposition candidate; do
       | grep -v '^CHANGELOG.md$' \
       || true
   )"
-  if [ -n "$unexpected_paths" ] && ! patch_matches_default "$candidate"; then
+  if [ -n "$unexpected_paths" ] \
+    && ! approved_backport_matches_default "$candidate" \
+    && ! patch_matches_default "$candidate"; then
     echo "Commit ${candidate} is not present on ${default_ref} and changes more than CHANGELOG.md:"
     printf '%s\n' "$unexpected_paths"
     exit 1
