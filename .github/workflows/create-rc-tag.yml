@@ -219,10 +219,22 @@ jobs:
           COMMIT: ${{ needs.validate.outputs.commit }}
           GO_TAG: ${{ needs.validate.outputs.go_tag }}
           RC_TAG: ${{ needs.validate.outputs.rc_tag }}
+          SOURCE_REF: ${{ inputs.source_ref }}
           TAG_PUSH_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN || github.token }}
         run: |
           set -euo pipefail
           git fetch --force --prune --tags origin '+refs/heads/*:refs/remotes/origin/*'
+
+          if git rev-parse --verify "origin/${SOURCE_REF}^{commit}" >/dev/null 2>&1; then
+            refreshed_ref="origin/${SOURCE_REF}"
+          else
+            refreshed_ref="${SOURCE_REF}"
+          fi
+          refreshed_commit="$(git rev-parse "${refreshed_ref}^{commit}")"
+          if [ "$refreshed_commit" != "$COMMIT" ]; then
+            echo "Source ref ${SOURCE_REF} advanced from ${COMMIT} to ${refreshed_commit}; restart the workflow."
+            exit 1
+          fi
 
           if git rev-parse --verify "refs/tags/${RC_TAG}" >/dev/null 2>&1; then
             echo "Tag ${RC_TAG} already exists."
