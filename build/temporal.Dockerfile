@@ -42,7 +42,7 @@ RUN ui_version="${TEMPORAL_UI_VERSION%%@*}" && \
 # =============================================================================
 # Temporal Server
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/go:v4.0.8@sha256:938bd28ce4ddb800118a951774203e7563c2067a72b20ae6b85d2c7da165a178 AS server
+FROM nvcr.io/nvidia/distroless/go:v4.1.2@sha256:731531712c92ee24001a4a6e0a0897c4fa542432d7186c5d73b0110ba6d0da16 AS server
 COPY --from=server-upstream /usr/local/bin/temporal-server /usr/local/bin/temporal-server
 COPY --from=server-upstream /usr/local/bin/dockerize /usr/local/bin/dockerize
 USER nvs
@@ -53,7 +53,7 @@ ENTRYPOINT ["/usr/local/bin/temporal-server"]
 # =============================================================================
 # This image carries Temporal's v1.29 schema files plus NVIDIA Config Manager's
 # bootstrap binary. It runs only as a chart-managed init container.
-FROM nvcr.io/nvidia/distroless/go:v4.0.8@sha256:938bd28ce4ddb800118a951774203e7563c2067a72b20ae6b85d2c7da165a178 AS bootstrap
+FROM nvcr.io/nvidia/distroless/go:v4.1.2@sha256:731531712c92ee24001a4a6e0a0897c4fa542432d7186c5d73b0110ba6d0da16 AS bootstrap
 COPY --from=admin-tools-upstream /usr/local/bin/temporal /usr/local/bin/temporal
 COPY --from=admin-tools-upstream /usr/local/bin/temporal-sql-tool /usr/local/bin/temporal-sql-tool
 COPY --from=admin-tools-upstream /etc/temporal/schema /etc/temporal/schema
@@ -64,7 +64,7 @@ ENTRYPOINT ["/usr/local/bin/temporal-bootstrap"]
 # =============================================================================
 # Temporal Web UI
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/go:v4.0.8@sha256:938bd28ce4ddb800118a951774203e7563c2067a72b20ae6b85d2c7da165a178 AS ui
+FROM nvcr.io/nvidia/distroless/go:v4.1.2@sha256:731531712c92ee24001a4a6e0a0897c4fa542432d7186c5d73b0110ba6d0da16 AS ui
 WORKDIR /home/ui-server
 COPY --from=ui-upstream /home/ui-server /home/ui-server
 COPY --from=ui-server-builder /out/ui-server /home/ui-server/ui-server
