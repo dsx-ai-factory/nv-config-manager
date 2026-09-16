@@ -270,6 +270,18 @@ async def test_ztp_uses_head_and_preserves_missing_file_behavior(server: Server)
     assert server.requests[0]["path"] == "/v1/files/platform/1.0/firmware.bin"
 
 
+async def test_temporal_preserves_error_details(server: Server) -> None:
+    detail = "No RBAC configuration found for this workflow"
+    server.responses = [(403, {"detail": detail})]
+
+    async with TemporalClient(server.url, "example.com") as client:
+        with pytest.raises(TemporalClientException) as error:
+            await client.start_workflow("/plugin/start", {})
+
+    assert "403" in str(error.value)
+    assert detail in str(error.value)
+
+
 async def test_errors_non_json_and_cleanup(server: Server) -> None:
     server.responses = [
         (404, {"detail": "missing"}),

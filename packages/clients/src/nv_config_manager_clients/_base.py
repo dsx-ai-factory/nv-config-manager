@@ -110,13 +110,24 @@ class ServiceClient:
         response = await operation(_request_timeout=self.timeout, **kwargs)
         try:
             data = await response.read()
-            response.raise_for_status()
-            if not data:
-                return None
             try:
-                return json.loads(data)
+                payload = json.loads(data) if data else None
             except (ValueError, UnicodeDecodeError):
-                return data.decode("utf-8", errors="replace")
+                payload = data.decode("utf-8", errors="replace")
+
+            try:
+                response.raise_for_status()
+            except aiohttp.ClientResponseError as exc:
+                detail = payload.get("detail", payload) if isinstance(payload, dict) else payload
+                raise aiohttp.ClientResponseError(
+                    request_info=exc.request_info,
+                    history=exc.history,
+                    status=exc.status,
+                    message=f"{exc.message}: {detail}" if detail else exc.message,
+                    headers=exc.headers,
+                ) from exc
+
+            return payload
         finally:
             response.release()
 
