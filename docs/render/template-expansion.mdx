@@ -6,7 +6,7 @@ position: 13
 
 This walkthrough shows how the render engine selects entrypoint templates, expands Jinja inheritance, and loads external template plugins. It is intended for external users who need to build their own template plugins while reusing the Config Manager template engine.
 
-## Entrypoint Selection
+## Entrypoint selection
 
 For each device, the selected DCIM provider loads one `RenderData` payload with
 device, location, and optional plugin data. The renderer then selects every
@@ -29,7 +29,7 @@ cumulus-linux/storage-leaf/5.16.1/entrypoint/
 
 Each matching `.j2` file renders one output file. The render service stores the output by stripping the path and `.j2` suffix, so `entrypoint/startup.yaml.j2` becomes `startup.yaml`.
 
-## Built-In Expansion Example
+## Built-in expansion example
 
 A Cumulus storage leaf startup entrypoint starts as a thin version-specific composition file:
 
@@ -117,7 +117,7 @@ The final render is the merged result of those layers:
 1. Jinja replaces each `include` with the included template output.
 1. Filters convert provider-supplied device, location, and plugin data into the values used by the templates.
 
-## Plugin Discovery
+## Plugin discovery
 
 Template plugins are normal Python packages. A plugin registers an entry point in the `nv_config_manager_templates.plugins` group:
 
@@ -164,7 +164,7 @@ At renderer startup, Config Manager:
 
 Because plugin template paths are loaded before the built-in templates, a plugin can add new logical paths or intentionally shadow a built-in template path. Shadowing should be explicit and covered by render tests. Prefer `extends` and small block overrides when the plugin only needs to adjust part of a built-in template.
 
-## Plugin Template Layout
+## Plugin template layout
 
 A plugin template root uses the same logical layout as the built-in templates:
 
@@ -203,7 +203,7 @@ cumulus-linux/example-storage-leaf/base/startup.yaml.j2
 cumulus-linux/example-border-leaf/base/startup.yaml.j2
 ```
 
-## Plugin Data and Filters
+## Plugin data and filters
 
 The render context always includes:
 
@@ -236,7 +236,7 @@ Then call that filter from the template:
 
 This keeps provider model changes isolated to Python filters instead of spreading response-shape assumptions across templates.
 
-## Local Plugin Testing
+## Local plugin testing
 
 Install the plugin into the same Python environment as `nv-config-manager-templates`, then use `template-cli` for local iteration.
 

@@ -152,7 +152,8 @@ If the PVC is NFS-backed and the API is not reachable, you can write the image s
 
 The `tags.firmware-image` field is what marks this file as the OS image for the directory. Omit it for supporting files.
 
-Reach for this approach only when the API path is unavailable. The API and the installer keep the manifest consistent for you; hand edits are easy to get wrong.
+Use this approach only when the API is unavailable. The API and installer keep
+the manifest consistent and avoid errors from manual edits.
 
 ## Verify the upload
 
