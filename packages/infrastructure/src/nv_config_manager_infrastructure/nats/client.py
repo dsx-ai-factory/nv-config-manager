@@ -113,10 +113,12 @@ class NatsClient:
         # Use TLS and auth the same way as nats_connection() (used by Render).
         # When local=True we used to skip TLS, but the server may still require TLS
         # for JetStream; skipping it caused "Connected" then JetStream timeouts.
+        scheme = urlparse(self.server).scheme
         if self.auth_method == "JWT":
+            if not self.local and scheme != "tls":
+                raise ValueError("External JWT authentication requires a tls:// NATS endpoint")
             options["user_credentials"] = self.creds_path
         else:
-            scheme = urlparse(self.server).scheme
             if (self.user or self.password) and not self.local and scheme != "tls":
                 raise ValueError("External password authentication requires a tls:// NATS endpoint")
             options["user"] = self.user

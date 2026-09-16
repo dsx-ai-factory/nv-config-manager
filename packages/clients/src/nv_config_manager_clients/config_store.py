@@ -297,10 +297,19 @@ class ConfigStoreClient(ServiceClient):
             created = result.get("created", [])
             if not created:
                 return None
-            return [
-                ConfigFileMetadata(
-                    commit=str(item["version"]), filename=filtered_items[i]["filename"]
+            skipped = set(result.get("skipped") or [])
+            submitted = [
+                item["filename"]
+                for item in filtered_items
+                if item["filename"] not in skipped
+            ]
+            if len(created) != len(submitted):
+                raise ValueError(
+                    "Unexpected Config Store batch response: "
+                    f"{len(created)} created entries for {len(submitted)} non-skipped files"
                 )
+            return [
+                ConfigFileMetadata(commit=str(item["version"]), filename=submitted[i])
                 for i, item in enumerate(created)
             ]
         except Exception as exc:

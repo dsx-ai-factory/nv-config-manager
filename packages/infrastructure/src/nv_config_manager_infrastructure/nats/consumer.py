@@ -68,39 +68,50 @@ class NatsConsumer(NatsClient):
     def run(self) -> None:
         """Run the consumer until interrupted."""
         try:
-            self._loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
         except RuntimeError:
-            self._loop = asyncio.new_event_loop()
+            pass
+        else:
+            raise RuntimeError(
+                "NatsConsumer.run() cannot be called from a running event loop; "
+                "await consumer.main() instead"
+            )
 
-        for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
-            self._loop.add_signal_handler(sig, self._clean_exit)
+        self._loop = asyncio.new_event_loop()
+        try:
+            for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
+                self._loop.add_signal_handler(sig, self._clean_exit)
 
-        logger.info("Starting consumer event loop")
-        self._loop.run_until_complete(self.main())
-        self._loop.close()
+            logger.info("Starting consumer event loop")
+            self._loop.run_until_complete(self.main())
+        finally:
+            self._loop.close()
 
     async def main(self) -> None:
         """Connect, bind the durable consumer, and process messages."""
         self.conn = await self.connect()
-        jetstream = self.conn.jetstream(prefix=self.api_prefix)
-        durable = self.full_queue_name
-        consumer_info = await self._ensure_consumer(jetstream)
+        try:
+            jetstream = self.conn.jetstream(prefix=self.api_prefix)
+            durable = self.full_queue_name
+            consumer_info = await self._ensure_consumer(jetstream)
 
-        await jetstream.subscribe_bind(
-            stream=self.stream,
-            consumer=durable,
-            config=consumer_info.config,
-            cb=self.handler,
-        )
-        logger.info(
-            "Subscribed to subject %s on stream %s with queue %s",
-            self.subject,
-            self.stream,
-            self.full_queue_name,
-        )
+            await jetstream.subscribe_bind(
+                stream=self.stream,
+                consumer=durable,
+                config=consumer_info.config,
+                cb=self.handler,
+            )
+            logger.info(
+                "Subscribed to subject %s on stream %s with queue %s",
+                self.subject,
+                self.stream,
+                self.full_queue_name,
+            )
 
-        while not self.conn.is_closed:
-            await asyncio.sleep(1)
+            while not self.conn.is_closed:
+                await asyncio.sleep(1)
+        finally:
+            await self.conn.close()
 
     def _expected_consumer_config(self) -> ConsumerConfig:
         """Build the exact push-consumer configuration owned by this runtime."""

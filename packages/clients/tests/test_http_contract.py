@@ -129,6 +129,31 @@ async def test_batch_skips_unchanged_and_serializes_generated_request(server: Se
     }
 
 
+async def test_batch_maps_created_versions_after_server_skips(server: Server) -> None:
+    server.responses = [
+        (404, {"detail": "missing"}),
+        (404, {"detail": "missing"}),
+        (
+            200,
+            {
+                "created": [{"version": 8}],
+                "skipped": ["boot-script"],
+            },
+        ),
+    ]
+    async with ConfigStoreClient(server.url, "intended", server.url) as client:
+        files = await client.persist_files(
+            "device",
+            {"boot-script": "boot content", "startup.yaml": "startup content"},
+            "render",
+            "user",
+            "example.com",
+        )
+
+    assert files is not None
+    assert [(item.filename, item.commit) for item in files] == [("startup.yaml", "8")]
+
+
 async def test_auth_refreshes_on_retries_and_subsequent_requests(server: Server) -> None:
     identity = {"user": "worker", "roles": ["service"]}
     server.responses = [(503, {"detail": "retry"}), (200, identity), (200, identity)]

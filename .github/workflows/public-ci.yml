@@ -601,7 +601,7 @@ jobs:
             fi
             body="$(printf '%s\n\n%s' \
               "$marker" \
-              '✅ The committed OpenAPI specifications and Go bindings are back in sync.')"
+              '✅ The committed OpenAPI specifications and Go/Python bindings are back in sync.')"
           fi
 
           if [ -n "$comment_id" ]; then

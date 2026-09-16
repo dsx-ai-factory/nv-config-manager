@@ -85,6 +85,35 @@ async def test_external_password_connection_rejects_plaintext_endpoint() -> None
         await client.connect()
 
 
+async def test_jwt_connection_uses_standard_tls_negotiation() -> None:
+    """JWT authentication uses the server-advertised TLS handshake."""
+    conn = MagicMock(connected_url="tls://nats.example.test:4222")
+    with patch(
+        "nv_config_manager_infrastructure.nats.client.nats.connect",
+        new=AsyncMock(return_value=conn),
+    ) as connect:
+        await NatsClient(
+            "tls://nats.example.test:4222",
+            auth_method="JWT",
+            creds_path="/etc/nats/user.creds",
+        ).connect()
+
+    assert connect.await_args.kwargs["user_credentials"] == "/etc/nats/user.creds"
+    assert connect.await_args.kwargs["tls"] is not None
+    assert "tls_handshake_first" not in connect.await_args.kwargs
+
+
+async def test_external_jwt_connection_rejects_plaintext_endpoint() -> None:
+    """External JWT credentials cannot be sent to an endpoint without TLS."""
+    client = NatsClient(
+        "nats://nats.example.test:4222",
+        auth_method="JWT",
+        creds_path="/etc/nats/user.creds",
+    )
+    with pytest.raises(ValueError, match="tls://"):
+        await client.connect()
+
+
 async def test_bundled_password_connection_keeps_server_negotiated_tls() -> None:
     """The explicitly local bundled server retains its existing INFO-first protocol."""
     conn = MagicMock(connected_url="nats://localhost:4222")

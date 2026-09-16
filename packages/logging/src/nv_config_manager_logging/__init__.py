@@ -52,7 +52,6 @@ class LogCategory:
     DCIM = "dcim"
     NAUTOBOT = "nautobot"
     AUTH = "auth"
-    API = "api"  # Deprecated: use per-service variants (RENDER_API, etc.)
     NATS = "nats"
     CACHE = "cache"
 
@@ -84,7 +83,7 @@ _LOG_LINE_BREAK_ESCAPES = str.maketrans(
         "\u2029": r"\u2029",
     }
 )
-_VALID_LABEL_KEY = re.compile(r"^\w+(\_\w+)?$")
+_VALID_LABEL_KEY = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
 _MAX_LABEL_VALUE_LEN = 63
 _RESERVED_FIELDS = frozenset(
     {
@@ -160,7 +159,7 @@ def _load_custom_labels() -> dict[str, str]:
         if key in _RESERVED_FIELDS:
             print(f"WARNING: custom label key {key!r} is reserved, skipping")  # noqa: T201
             continue
-        if not _VALID_LABEL_KEY.match(key) or len(key) > _MAX_LABEL_VALUE_LEN:
+        if not _VALID_LABEL_KEY.fullmatch(key) or len(key) > _MAX_LABEL_VALUE_LEN:
             print(  # noqa: T201
                 f"WARNING: custom label key {key!r} is invalid "
                 f"(must match {_VALID_LABEL_KEY.pattern} and be <= 63 chars), skipping",
@@ -237,11 +236,12 @@ class EscapingLoggerAdapter(logging.LoggerAdapter):
             msg, processed_kwargs = self.process(msg, kwargs)
             escaped_msg = escape_log_newlines(msg)
             escaped_args = tuple(_escape_log_argument(arg) for arg in args)
+            processed_kwargs["stacklevel"] = processed_kwargs.get("stacklevel", 1) + 1
             self.logger.log(level, escaped_msg, *escaped_args, **processed_kwargs)
 
 
 class EscapingFilter(logging.Filter):
-    """Escape unsafe characters in records that bypass :class:`EscapingLoggerAdapter`.
+    """Enrich and escape records immediately before they are emitted.
 
     Libraries and packages outside this distribution -- notably
     ``nv_config_manager_workflows``, which logs signal-supplied stage names --
@@ -253,6 +253,11 @@ class EscapingFilter(logging.Filter):
     message -- ``logger.info({"event": "deploy"})`` -- is merged into the JSON
     output as top-level fields by the formatter, so :func:`_escape_log_argument`
     escapes it in place instead of stringifying it into one Python repr.
+
+    Custom labels are applied here rather than by the record factory because
+    :meth:`logging.Logger.makeRecord` merges call-level ``extra`` fields after
+    invoking the factory. Call-level fields take precedence over configured
+    labels when their keys collide so explicit event data is preserved.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -260,6 +265,8 @@ class EscapingFilter(logging.Filter):
         record.msg = _escape_log_argument(record.msg)
         if record.args:
             record.args = _escape_log_arguments(record.args)
+        for key, value in _custom_labels.items():
+            record.__dict__.setdefault(key, value)
         return True
 
 
@@ -311,8 +318,6 @@ def configure_logging(service: str | None = None) -> None:
         record.level = record.levelname.lower()  # type: ignore[attr-defined]
         if service:
             record.service = service  # type: ignore[attr-defined]
-        for key, value in _custom_labels.items():
-            setattr(record, key, value)
         for key, value in _otel_trace_fields().items():
             setattr(record, key, value)
         return record
