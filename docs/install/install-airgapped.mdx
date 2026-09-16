@@ -48,7 +48,9 @@ The following components are assumed to be pre-installed and configured by your 
    kubectl get ipaddresspool -n metallb-system -o yaml
    ```
 
-   The output of the second command will be similar to the following example. In this case, the output shows a pool of available IP addresses from `10.0.100.200` through `10.0.100.210`:
+   The output of the second command resembles the following example, which shows
+   a pool of available IP addresses from `10.0.100.200` through
+   `10.0.100.210`:
 
    ```yaml
    apiVersion: metallb.io/v1beta1
@@ -63,7 +65,8 @@ The following components are assumed to be pre-installed and configured by your 
 
 1. From the output of the second command, select two unused IP addresses for ZTP and DHCP services.
 
-   You will use these with the `--ztp-lb-ip` and `--dhcp-lb-ip` flags when deploying Config Manager.
+   Use these addresses with the `--ztp-lb-ip` and `--dhcp-lb-ip` flags when
+   deploying Config Manager.
 
 1. Set the `--lb-allowed-prefixes` flag for the deploy script to the OOB (out-of-band) management network CIDR(s) from which devices will reach these services.
 

@@ -20,13 +20,19 @@ You can use the render service's API endpoints to trigger the rendering of netwo
 - `POST /v1/render/all` - Queue renders for all devices that are enabled for rendering
 - `POST /v1/render/batch` - Queue renders for a list of devices
 
-### Event Consumers
+### Event consumers
 
 Two specialized pull-based consumers process NATS JetStream events:
 
-**DCIM event consumer** responds to provider-neutral change events (device, interface, cable, IP address, and so on). The consumer validates the event envelope, dispatches it to model-specific handlers, and queues device renders. The built-in Nautobot provider translates its legacy changelog payload at the provider boundary during the compatibility window.
+The **DCIM event consumer** responds to provider-neutral change events for
+objects such as devices, interfaces, cables, and IP addresses. The consumer
+validates the event envelope, dispatches it to model-specific handlers, and
+queues device renders. The built-in Nautobot provider translates its legacy
+changelog payload at the provider boundary during the compatibility window.
 
-**Device change consumer** responds to queued device render requests from event handlers. The consumer executes renders with distributed locking, and updates the config store.
+The **device change consumer** responds to queued render requests from event
+handlers. It executes renders with distributed locking and updates the Config
+Store.
 
 ### External NATS administration
 
@@ -87,11 +93,11 @@ An administrator-provisioned consumer should use the configured stream and filte
 
 If create permission is omitted and the durable is absent, the consumer logs the exact provisioning request. If delete permission is omitted, the reset API returns instructions to delete and recreate the exact durable at the stream head. Configuration mismatches likewise produce an administrator-ready update request in the consumer log.
 
-### Event Dispatcher
+### Event dispatcher
 
 The event dispatcher is a dynamic event routing system that maps normalized DCIM object types to handler functions. It maintains a dispatch table for supported render impacts and exposes Prometheus metrics for event processing.
 
-## Rendering Process
+## Rendering process
 
 The rendering process is as follows:
 
@@ -100,15 +106,20 @@ The rendering process is as follows:
 1. Persist the rendered files using the Config Store client.
 1. Record intended-configuration metadata through the DCIM provider.
 
-## Template Version Management
+## Template version management
 
 **Producer**: Runs as a Kubernetes job on service deployment. The producer queries the selected DCIM provider for devices with stale `template_version`, and publishes template-change events for outdated devices.
 
-**Version tracking**: The producer records the `nv_config_manager_templates` version through the DCIM provider, and the template consumer refuses to process events for newer versions (NAKs with 30s delay). This allows for zero-downtime rolling deployments (old pods terminate, new pods process backlog).
+**Version tracking**: The producer records the `nv_config_manager_templates`
+version through the DCIM provider. The template consumer rejects events for
+newer versions with a negative acknowledgement and a 30-second delay. During a
+rolling deployment, old pods can terminate before new pods process the backlog.
 
 ## Deployment
 
-The service is deployed as a Kubernetes deployment, with three consumer deployments (DCIM, device, template), a producer job (runs on helm upgrade), and Redis for distributed locking. The service exposes Prometheus metrics on port 8000.
+The service uses three consumer deployments (DCIM, device, and template), a
+producer job that runs on Helm upgrades, and Redis for distributed locking. It
+exposes Prometheus metrics on port 8000.
 
 The service is configured using a configuration file (`config.py`). The configuration file contains the selected DCIM provider settings, NATS connection details (TLS, credentials), Redis connection for locking, Config Store client settings, and environment-specific aggregate management flags. External providers configure `dcim_change_stream` and `dcim_change_subject`; empty Helm values retain the historical Nautobot stream and subject.
 
@@ -159,11 +170,14 @@ The service is configured using a configuration file (`config.py`). The configur
 
 **Provider-owned handler registration**: The event dispatcher exposes a registration surface; the selected provider registers its own object-type handlers and owns affected-device resolution.
 
-**Pull-based consumption**: Consumers fetch messages on-demand rather than push-based subscriptions, enabling better flow control and horizontal scaling.
+**Pull-based consumption**: Consumers fetch messages on demand instead of using
+push-based subscriptions, which improves flow control and horizontal scaling.
 
 **Distributed locking**: Redis-backed locks prevent concurrent renders for the same device across multiple consumer instances.
 
-**Version-aware processing**: Template consumer compares running version to message version, refusing to process newer versions to enable safe rolling deployments.
+**Version-aware processing**: The template consumer compares its running
+version with the message version and rejects messages from newer versions
+during rolling deployments.
 
 **Provider-backed data access**: Render obtains normalized device data and managed-device state from the configured DCIM provider. Template rendering runs in a thread pool using `asyncio.to_thread()` to avoid blocking the event loop.
 
