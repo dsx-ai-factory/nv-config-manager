@@ -31,7 +31,7 @@ dependencies = [
     # Security: Fix urllib3 vulnerabilities (CVE-2026-44431, CVE-2026-44432)
     "urllib3>=2.7.0",
     # Security: Fix GitPython vulnerability (GHSA-mv93-w799-cj2w)
-    "gitpython>=3.1.50",
+    "gitpython>=3.1.62",
     # Security: Fix vulnerable OpenSSL bundled in cryptography wheels (GHSA-537c-gmf6-5ccf)
     "cryptography>=48.0.1",
     # Security: Fix uncontrolled resource consumption in Pillow (GHSA-whj4-6x5x-4v2j)
