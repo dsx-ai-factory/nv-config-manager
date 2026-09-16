@@ -57,10 +57,13 @@ fi
 
 patch_matches_default() {
   local candidate="$1"
-  local candidate_patch_id default_candidate default_patch_id
+  local candidate_patch_id candidate_paths_text default_patch_id default_paths_text
+  local default_candidate path start_parent
+  local start_index end_index window_size
+  local -a candidate_paths default_candidates
 
   candidate_patch_id="$(
-    git show --root --format= "$candidate" -- . ':!CHANGELOG.md' \
+    git show --root --format= --unified=0 "$candidate" -- . ':!CHANGELOG.md' \
       | git patch-id --verbatim \
       | awk 'NR == 1 { print $1 }'
   )"
@@ -68,16 +71,60 @@ patch_matches_default() {
     return 1
   fi
 
+  while IFS= read -r path; do
+    candidate_paths+=("$path")
+  done < <(
+    git diff-tree --no-commit-id --name-only -r "$candidate" \
+      | grep -v '^CHANGELOG.md$'
+  )
+  if [ "${#candidate_paths[@]}" -eq 0 ]; then
+    return 1
+  fi
+  candidate_paths_text="$(printf '%s\n' "${candidate_paths[@]}" | LC_ALL=C sort)"
+
+  # Limit the search to first-parent commits that touch the candidate paths.
+  # Comparing the full diff between each pair of endpoints still rejects any
+  # unrelated changes made by commits between them.
   while IFS= read -r default_candidate; do
-    default_patch_id="$(
-      git show --root --format= "$default_candidate" -- . ':!CHANGELOG.md' \
-        | git patch-id --verbatim \
-        | awk 'NR == 1 { print $1 }'
-    )"
-    if [ "$candidate_patch_id" = "$default_patch_id" ]; then
-      return 0
-    fi
-  done < <(git rev-list --no-merges "${default_ref}")
+    default_candidates+=("$default_candidate")
+  done < <(
+    git rev-list --first-parent --reverse "$default_ref" -- "${candidate_paths[@]}"
+  )
+
+  # Search shorter ranges first because a maintenance commit normally maps to
+  # one default-branch commit or a small squash. Zero-context verbatim patch
+  # IDs ignore baseline-only hunk offsets while preserving every changed line.
+  for ((window_size = 1; window_size <= ${#default_candidates[@]}; window_size++)); do
+    for ((start_index = 0; start_index + window_size <= ${#default_candidates[@]}; start_index++)); do
+      end_index=$((start_index + window_size - 1))
+      start_parent="$(
+        git rev-parse "${default_candidates[$start_index]}^" 2>/dev/null \
+          || true
+      )"
+      if [ -z "$start_parent" ]; then
+        continue
+      fi
+      default_paths_text="$(
+        git diff --no-renames --name-only \
+          "$start_parent" "${default_candidates[$end_index]}" \
+          -- . ':!CHANGELOG.md' \
+          | LC_ALL=C sort
+      )"
+      if [ "$candidate_paths_text" != "$default_paths_text" ]; then
+        continue
+      fi
+      default_patch_id="$(
+        git diff --no-renames --unified=0 \
+          "$start_parent" "${default_candidates[$end_index]}" \
+          -- . ':!CHANGELOG.md' \
+          | git patch-id --verbatim \
+          | awk 'NR == 1 { print $1 }'
+      )"
+      if [ "$candidate_patch_id" = "$default_patch_id" ]; then
+        return 0
+      fi
+    done
+  done
 
   return 1
 }
