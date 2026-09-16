@@ -238,11 +238,13 @@ jobs:
         uses: *setup_proxy_cache
       - uses: &actions_setup_go actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version-file: components/nats-ready/go.mod
+          go-version: "1.26.6"
           cache-dependency-path: components/nats-ready/go.sum
       - name: Verify go.mod is tidy
         working-directory: components/nats-ready
         run: |
+          go_version="$(go env GOVERSION)"
+          test "${go_version}" = "go1.26.6"
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 

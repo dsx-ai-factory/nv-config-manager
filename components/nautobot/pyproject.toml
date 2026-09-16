@@ -34,10 +34,12 @@ dependencies = [
     "gitpython>=3.1.62",
     # Security: Fix vulnerable OpenSSL bundled in cryptography wheels (GHSA-537c-gmf6-5ccf)
     "cryptography>=48.0.1",
-    # Security: Fix uncontrolled resource consumption in Pillow (GHSA-whj4-6x5x-4v2j)
-    "pillow>=12.2.0",
+    # Security: Fix Pillow decompression-bomb bypasses
+    # (GHSA-5x94-69rx-g8h2, GHSA-phj9-mv4w-65pm, GHSA-45hq-cxwh-f6vc, GHSA-8v84-f9pq-wr9x)
+    "pillow>=12.3.0",
     # Security: Fix DoS via unbounded recursion (GHSA-jr27-m4p2-rc6r, GHSA-63vm-454h-vhhq)
-    "pyasn1>=0.6.3",
+    "pyasn1>=0.6.4",
+    "soupsieve>=2.8.4",
     "sqlparse>=0.6.0",
     # Multi-provider JWT validation (external IdPs, Azure AD, SPIFFE JWT-SVIDs)
     # cryptography is already a transitive dep of nautobot but pin for JWKS key support
