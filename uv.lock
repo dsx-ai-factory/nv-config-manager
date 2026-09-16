@@ -2512,6 +2512,7 @@ version = "1.0.0"
 source = { editable = "plugins/dcim/nautobot-2x" }
 dependencies = [
     { name = "aiohttp", extra = ["speedups"] },
+    { name = "aiohttp-retry" },
     { name = "graphql-core" },
     { name = "nv-config-manager-dcim" },
 ]
@@ -2526,6 +2527,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", extras = ["speedups"], specifier = ">=3.14.1" },
+    { name = "aiohttp-retry", specifier = ">=2.9.1" },
     { name = "graphql-core", specifier = ">=3.2.7,<3.3" },
     { name = "nv-config-manager-dcim", editable = "packages/dcim" },
 ]

@@ -18,8 +18,7 @@ import pytest
 from aiohttp import ClientResponseError
 from aioresponses import aioresponses
 from nv_config_manager_dcim_nautobot_2x.client import (
-    _GRAPHQL_RETRY_ATTEMPTS,
-    _GRAPHQL_RETRY_BASE_DELAY_SECONDS,
+    _GRAPHQL_RETRY_OPTIONS,
     NautobotClient,
     NautobotException,
 )
@@ -29,17 +28,19 @@ _GRAPHQL_URL = "https://nautobot.example/api/graphql/"
 
 @pytest.fixture
 def fast_graphql_retries(monkeypatch: pytest.MonkeyPatch) -> list[float]:
-    """Skip retry backoff so tests do not wait on real sleeps."""
+    """Skip RetryClient backoff so tests do not wait on real sleeps."""
     delays: list[float] = []
 
     async def _sleep(seconds: float) -> None:
         delays.append(seconds)
 
-    monkeypatch.setattr(
-        "nv_config_manager_dcim_nautobot_2x.client.asyncio.sleep",
-        _sleep,
-    )
+    monkeypatch.setattr("aiohttp_retry.client.asyncio.sleep", _sleep)
     return delays
+
+
+def _retry_delays(failures: int) -> list[float]:
+    """Return ExponentialRetry waits after ``failures`` retryable responses."""
+    return [_GRAPHQL_RETRY_OPTIONS.get_timeout(attempt) for attempt in range(1, failures + 1)]
 
 
 @pytest.mark.asyncio
@@ -52,7 +53,7 @@ async def test_graphql_query_retries_504_then_succeeds(fast_graphql_retries: lis
             result = await client.graphql_query("query { ok }")
 
     assert result == {"data": {"ok": True}}
-    assert fast_graphql_retries == [_GRAPHQL_RETRY_BASE_DELAY_SECONDS]
+    assert fast_graphql_retries == _retry_delays(1)
 
 
 @pytest.mark.asyncio
@@ -61,17 +62,14 @@ async def test_graphql_query_gives_up_after_retryable_504s(
 ) -> None:
     """Persistent 504s still fail after the retry budget."""
     with aioresponses() as mocked:
-        for _ in range(_GRAPHQL_RETRY_ATTEMPTS):
+        for _ in range(_GRAPHQL_RETRY_OPTIONS.attempts):
             mocked.post(_GRAPHQL_URL, status=504)
         async with NautobotClient("https://nautobot.example", token="token") as client:
             with pytest.raises(ClientResponseError) as exc_info:
                 await client.graphql_query("query { ok }")
 
     assert exc_info.value.status == 504
-    assert fast_graphql_retries == [
-        _GRAPHQL_RETRY_BASE_DELAY_SECONDS * (2**attempt)
-        for attempt in range(_GRAPHQL_RETRY_ATTEMPTS - 1)
-    ]
+    assert fast_graphql_retries == _retry_delays(_GRAPHQL_RETRY_OPTIONS.attempts - 1)
 
 
 @pytest.mark.asyncio
@@ -102,4 +100,17 @@ async def test_graphql_query_retries_timeout_then_succeeds(
             result = await client.graphql_query("query { ok }")
 
     assert result == {"data": {"ok": True}}
-    assert fast_graphql_retries == [_GRAPHQL_RETRY_BASE_DELAY_SECONDS]
+    assert fast_graphql_retries == _retry_delays(1)
+
+
+@pytest.mark.asyncio
+async def test_graphql_query_does_not_retry_http_500(fast_graphql_retries: list[float]) -> None:
+    """Persistent Nautobot 500s are not treated as gateway blips."""
+    with aioresponses() as mocked:
+        mocked.post(_GRAPHQL_URL, status=500)
+        async with NautobotClient("https://nautobot.example", token="token") as client:
+            with pytest.raises(ClientResponseError) as exc_info:
+                await client.graphql_query("query { ok }")
+
+    assert exc_info.value.status == 500
+    assert fast_graphql_retries == []

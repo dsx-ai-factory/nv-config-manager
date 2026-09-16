@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 import ssl
@@ -26,6 +25,7 @@ from typing import Any, Self, cast
 
 import aiohttp
 from aiohttp import ClientTimeout, TCPConnector
+from aiohttp_retry import ExponentialRetry, RetryClient
 from nv_config_manager_dcim.errors import DCIMError
 
 logger = logging.getLogger(__name__)
@@ -35,26 +35,15 @@ _SAFE_REST_PATH = re.compile(r"[A-Za-z0-9._~/-]+")
 DEFAULT_TIMEOUT = 30
 """Request budget used when the deployment does not configure one."""
 
-_GRAPHQL_RETRYABLE_STATUS_CODES = frozenset({502, 503, 504})
-_GRAPHQL_RETRY_ATTEMPTS = 3
-_GRAPHQL_RETRY_BASE_DELAY_SECONDS = 1.0
-
-
-def _graphql_error_is_retryable(exc: BaseException) -> bool:
-    """Return True for transient gateway failures that a later attempt may survive."""
-    if isinstance(exc, TimeoutError):
-        return True
-    return (
-        isinstance(exc, aiohttp.ClientResponseError)
-        and exc.status in _GRAPHQL_RETRYABLE_STATUS_CODES
-    )
-
-
-def _graphql_retry_reason(exc: BaseException) -> str:
-    """Return a short, query-free reason for GraphQL retry logs."""
-    if isinstance(exc, aiohttp.ClientResponseError):
-        return f"HTTP {exc.status}"
-    return "timeout"
+_GRAPHQL_RETRY_OPTIONS = ExponentialRetry(
+    attempts=3,
+    start_timeout=1.0,
+    max_timeout=5.0,
+    factor=2.0,
+    statuses={502, 503, 504},
+    exceptions={TimeoutError},
+    retry_all_server_errors=False,
+)
 
 
 class NautobotException(DCIMError):
@@ -221,30 +210,6 @@ class NautobotClient:
             status_code=rsp.status,
         )
 
-    async def _execute_graphql_query(
-        self,
-        session: aiohttp.ClientSession,
-        payload: dict[str, Any],
-        request_timeout: aiohttp.ClientTimeout,
-    ) -> dict[str, Any]:
-        """Send one GraphQL POST and return the parsed payload."""
-        async with session.post(
-            self.graphql_endpoint,
-            json=payload,
-            timeout=request_timeout,
-            headers=self._resolve_headers(),
-        ) as rsp:
-            if rsp.status == 400:
-                data = await rsp.json()
-                raise NautobotException(f"GraphQL error: {data.get('errors', data)}")
-            rsp.raise_for_status()
-            result = await rsp.json()
-
-            if "errors" in result:
-                raise NautobotException(f"GraphQL errors: {result['errors']}")
-
-            return cast(dict[str, Any], result)
-
     async def graphql_query(
         self, query: str, variables: dict[str, Any] | None = None, timeout: int | None = None
     ) -> dict[str, Any]:
@@ -261,8 +226,9 @@ class NautobotClient:
         Raises:
             NautobotException: If the query fails or returns errors
 
-        Transient HTTP 502/503/504 and request timeouts are retried a few
-        times. A request that is consistently too large will still fail.
+        Transient HTTP 502/503/504 and request timeouts are retried by
+        ``RetryClient``. A request that is consistently too large will still
+        fail. REST mutations keep the non-retrying session.
         """
         session = await self._ensure_session()
         payload = {"query": query, "variables": variables or {}}
@@ -273,23 +239,28 @@ class NautobotClient:
         logger.debug("Executing GraphQL query")
 
         request_timeout = aiohttp.ClientTimeout(total=timeout or self._timeout)
-        attempt = 0
-        while True:
-            attempt += 1
-            try:
-                return await self._execute_graphql_query(session, payload, request_timeout)
-            except (TimeoutError, aiohttp.ClientResponseError) as exc:
-                if not _graphql_error_is_retryable(exc) or attempt >= _GRAPHQL_RETRY_ATTEMPTS:
-                    raise
-                delay = _GRAPHQL_RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
-                logger.warning(
-                    "Nautobot GraphQL request failed (%s); retrying in %s seconds (attempt %s/%s)",
-                    _graphql_retry_reason(exc),
-                    delay,
-                    attempt + 1,
-                    _GRAPHQL_RETRY_ATTEMPTS,
-                )
-                await asyncio.sleep(delay)
+        # Wrap the shared session; do not close RetryClient or it closes Nautobot too.
+        retry_client = RetryClient(
+            client_session=session,
+            retry_options=_GRAPHQL_RETRY_OPTIONS,
+            logger=logger,
+        )
+        async with retry_client.post(
+            self.graphql_endpoint,
+            json=payload,
+            timeout=request_timeout,
+            headers=self._resolve_headers(),
+        ) as rsp:
+            if rsp.status == 400:
+                data = await rsp.json()
+                raise NautobotException(f"GraphQL error: {data.get('errors', data)}")
+            rsp.raise_for_status()
+            result = await rsp.json()
+
+            if "errors" in result:
+                raise NautobotException(f"GraphQL errors: {result['errors']}")
+
+            return cast(dict[str, Any], result)
 
     async def get(
         self, path: str, params: dict[str, Any] | None = None, timeout: int | None = None
