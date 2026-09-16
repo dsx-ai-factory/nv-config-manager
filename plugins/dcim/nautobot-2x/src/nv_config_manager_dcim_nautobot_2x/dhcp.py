@@ -34,7 +34,6 @@ GRAPHQL_PAGE_SIZE = 100
 # unread one. Re-reading the tail of each page absorbs a shift of up to this many
 # rows; callers collapse the repeats.
 GRAPHQL_PAGE_OVERLAP = 10
-_MAX_GRAPHQL_OFFSET = 1_000_000
 
 
 class DHCPDataError(DCIMInvalidDataError):
@@ -236,9 +235,9 @@ class NautobotDHCPOperations:
         Consecutive requests re-read the last ``overlap`` rows, so callers must
         collapse the repeated rows.
 
-        Stops on an empty or short page. Raises if offset grows without bound,
-        which would mean the server keeps returning full pages (or a mock that
-        ignores limit/offset).
+        Stops on an empty or short page. Raises when a page repeats the one
+        before it, which means the server (or a mock) is ignoring limit/offset
+        and would otherwise page forever.
         """
         if page_size < 1:
             raise ValueError(f"page_size must be >= 1, got {page_size}")
@@ -248,11 +247,8 @@ class NautobotDHCPOperations:
         collected: list[Any] = []
         extra = dict(variables or {})
         offset = 0
+        previous_page: list[Any] | None = None
         while True:
-            if offset > _MAX_GRAPHQL_OFFSET:
-                raise DHCPDataError(
-                    f"GraphQL pagination for {result_key} exceeded offset {_MAX_GRAPHQL_OFFSET}"
-                )
             page_vars = {**extra, "limit": page_size, "offset": offset}
             rsp = await self.graphql_query(query, page_vars)
             data = rsp.get("data")
@@ -263,9 +259,17 @@ class NautobotDHCPOperations:
                 break
             if any(not isinstance(item, dict) for item in page):
                 raise DHCPDataError(f"Nautobot returned invalid {result_key} data")
+            # Overlapping pages share rows but never match outright, so an exact
+            # repeat means the server served the same rows for a new offset.
+            if page == previous_page:
+                raise DHCPDataError(
+                    f"Nautobot repeated the same {result_key} page at offset {offset}, "
+                    "so it is ignoring limit/offset"
+                )
             collected.extend(page)
             if len(page) < page_size:
                 break
+            previous_page = page
             logger.info(
                 "Fetched %d %s at offset %d (%d fetched)",
                 len(page),

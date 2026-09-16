@@ -199,20 +199,22 @@ async def test_load_auto_dhcp_subnets_stops_without_ip_queries_when_no_prefixes(
 
 
 @pytest.mark.asyncio
-async def test_iter_graphql_pages_raises_when_offset_does_not_advance(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_iter_graphql_pages_raises_when_a_page_repeats() -> None:
+    """A backend ignoring limit/offset serves the same page for every offset."""
+
     class _StuckClient(NautobotClient):
         def __init__(self) -> None:
             super().__init__("https://nautobot.example.com/", "dummy")
+            self.requests = 0
 
         async def graphql_query(self, query, variables=None):  # noqa: ANN001
+            self.requests += 1
             return {"data": {"prefixes": [{"id": "same"}] * 2}}
 
-    monkeypatch.setattr("nv_config_manager_dcim_nautobot_2x.dhcp._MAX_GRAPHQL_OFFSET", 4)
     client = _StuckClient()
-    with pytest.raises(DHCPDataError, match="exceeded offset"):
-        await client._iter_graphql_pages("query { prefixes }", "prefixes", page_size=2)
+    with pytest.raises(DHCPDataError, match="ignoring limit/offset"):
+        await client._iter_graphql_pages(_PREFIX_QUERY, "prefixes", page_size=2)
+    assert client.requests == 2
 
 
 @pytest.mark.asyncio
