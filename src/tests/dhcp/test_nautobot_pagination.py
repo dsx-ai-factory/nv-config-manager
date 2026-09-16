@@ -218,6 +218,56 @@ async def test_iter_graphql_pages_raises_when_a_page_repeats() -> None:
 
 
 @pytest.mark.asyncio
+async def test_iter_graphql_pages_raises_when_a_page_only_reorders() -> None:
+    """An unordered backend repeats the same rows in a new sequence."""
+
+    class _ShufflingClient(NautobotClient):
+        def __init__(self) -> None:
+            super().__init__("https://nautobot.example.com/", "dummy")
+            self.requests = 0
+
+        async def graphql_query(self, query, variables=None):  # noqa: ANN001
+            self.requests += 1
+            rows = [{"id": "prefix-0"}, {"id": "prefix-1"}]
+            return {"data": {"prefixes": rows if self.requests % 2 else rows[::-1]}}
+
+    client = _ShufflingClient()
+    with pytest.raises(DHCPDataError, match="ignoring limit/offset"):
+        await client._iter_graphql_pages(_PREFIX_QUERY, "prefixes", page_size=2)
+    assert client.requests == 2
+
+
+@pytest.mark.asyncio
+async def test_iter_graphql_pages_detects_a_stall_in_rows_without_ids() -> None:
+    """Rows that carry no id fall back to a whole-row signature."""
+
+    class _NoIdClient(NautobotClient):
+        def __init__(self) -> None:
+            super().__init__("https://nautobot.example.com/", "dummy")
+            self.requests = 0
+
+        async def graphql_query(self, query, variables=None):  # noqa: ANN001
+            self.requests += 1
+            return {"data": {"prefixes": [{"prefix": "10.0.0.0/24"}, {"prefix": "10.0.1.0/24"}]}}
+
+    client = _NoIdClient()
+    with pytest.raises(DHCPDataError, match="ignoring limit/offset"):
+        await client._iter_graphql_pages(_PREFIX_QUERY, "prefixes", page_size=2)
+    assert client.requests == 2
+
+
+@pytest.mark.asyncio
+async def test_iter_graphql_pages_allows_a_short_page_inside_the_overlap() -> None:
+    """The last page can be entirely overlap once the rows run out exactly."""
+    client = _PagingNautobotClient({"prefixes": _prefix_page(4)})
+
+    rows = await client._iter_graphql_pages(_PREFIX_QUERY, "prefixes", page_size=4, overlap=2)
+
+    assert client.calls == [("prefixes", 4, 0), ("prefixes", 4, 2)]
+    assert {row["id"] for row in rows} == {f"prefix-{i}" for i in range(4)}
+
+
+@pytest.mark.asyncio
 async def test_iter_graphql_pages_rejects_non_positive_page_size() -> None:
     client = _PagingNautobotClient({"prefixes": [{"id": "prefix-0"}]})
     with pytest.raises(ValueError, match="page_size"):

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 from typing import Any, cast
 
@@ -38,6 +39,22 @@ GRAPHQL_PAGE_OVERLAP = 10
 
 class DHCPDataError(DCIMInvalidDataError):
     """Nautobot returned invalid data required for DHCP configuration."""
+
+
+def _row_signature(row: dict[str, Any]) -> str:
+    """Identify a row so repeated pages can be told from new ones.
+
+    Every DHCP query selects Nautobot's unique ``id``; ``dhcp_contexts`` carries
+    it on the wrapped device. Serializing the whole row is the fallback for
+    fixtures and future selections that omit it.
+    """
+    identity = row.get("id")
+    if identity is None:
+        device = row.get("device")
+        identity = device.get("id") if isinstance(device, dict) else None
+    if identity is not None:
+        return str(identity)
+    return json.dumps(row, sort_keys=True, default=str)
 
 
 def _dedupe_keep_first(items: list[Any], key: str) -> list[dict[str, Any]]:
@@ -235,9 +252,9 @@ class NautobotDHCPOperations:
         Consecutive requests re-read the last ``overlap`` rows, so callers must
         collapse the repeated rows.
 
-        Stops on an empty or short page. Raises when a page repeats the one
-        before it, which means the server (or a mock) is ignoring limit/offset
-        and would otherwise page forever.
+        Stops on an empty or short page. Raises when a full page adds no rows
+        the page before it did not already have, which means the server (or a
+        mock) is ignoring limit/offset and would otherwise page forever.
         """
         if page_size < 1:
             raise ValueError(f"page_size must be >= 1, got {page_size}")
@@ -247,7 +264,7 @@ class NautobotDHCPOperations:
         collected: list[Any] = []
         extra = dict(variables or {})
         offset = 0
-        previous_page: list[Any] | None = None
+        previous_signatures: set[str] | None = None
         while True:
             page_vars = {**extra, "limit": page_size, "offset": offset}
             rsp = await self.graphql_query(query, page_vars)
@@ -259,17 +276,20 @@ class NautobotDHCPOperations:
                 break
             if any(not isinstance(item, dict) for item in page):
                 raise DHCPDataError(f"Nautobot returned invalid {result_key} data")
-            # Overlapping pages share rows but never match outright, so an exact
-            # repeat means the server served the same rows for a new offset.
-            if page == previous_page:
-                raise DHCPDataError(
-                    f"Nautobot repeated the same {result_key} page at offset {offset}, "
-                    "so it is ignoring limit/offset"
-                )
             collected.extend(page)
             if len(page) < page_size:
                 break
-            previous_page = page
+            # Overlapping pages repeat rows on purpose, but a full page that
+            # adds none means the server served the same rows for a new offset.
+            # Only full pages qualify: a short final page can legitimately fall
+            # entirely inside the previous page's overlap.
+            signatures = {_row_signature(row) for row in page}
+            if previous_signatures is not None and signatures <= previous_signatures:
+                raise DHCPDataError(
+                    f"Nautobot returned no new {result_key} rows at offset {offset}, "
+                    "so it is ignoring limit/offset"
+                )
+            previous_signatures = signatures
             logger.info(
                 "Fetched %d %s at offset %d (%d fetched)",
                 len(page),
