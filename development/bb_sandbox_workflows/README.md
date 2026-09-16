@@ -49,21 +49,23 @@ and bringup workflows; the workflows do not perform an artificial pre-change ren
 ## Interface drain
 
 Input is a Nautobot device name or UUID, an interface/LAG name, and an optional
-Jira issue. The workflow:
+Jira issue. This workflow is the planning-before-persistence POC:
 
 1. Resolves the real sandbox object and validates Jira when present.
-2. Changes the native Nautobot interface status to `Maintenance` so Nautobot remains
-   the source of truth for the drain metric.
-3. Requests a synchronous fresh render and pins the resulting `interfaces` entrypoint commit.
-4. Uses the Junos platform client to merge and compare that partial configuration over
-   NETCONF, then waits for one approval. In local mock mode, review instead shows the
-   focused Junos `edit protocols isis interface ...` metric transition.
-5. Rechecks and applies the approved diff using the standard guarded deployment
-   activity, mock-validates the applied IS-IS metric, and records the render, diff,
-   decision, and reviewer on Jira when supplied.
+2. Loads the renderer's current GraphQL data, copies it, and overrides only the
+   interface status and `ISISInterface` values that execution would persist.
+3. Calls the template renderer directly with that in-memory data. It neither changes
+   Nautobot nor writes the proposed render to Config Store.
+4. Calculates the candidate diff and records the plan on Jira when supplied, then
+   waits for approval. The workflow can remain at this gate through CAB review while
+   other operators continue changing Nautobot.
+5. On approval, writes the proposed values to Nautobot, runs the normal render, and
+   requires the persisted render to exactly match the approved in-memory render.
+6. Rechecks the candidate diff against the device and applies it using the standard
+   guarded deployment activity. A changed render or device diff stops execution and
+   requires a new plan.
 
-A rejection leaves the Maintenance intent and fresh render in place as pending drift;
-it does not revert Nautobot merely because device deployment was declined.
+A rejection or empty diff leaves Nautobot, Config Store, and the device unchanged.
 
 With `cluster.mock_devices: true`, the drain's device activity replaces the NETCONF
 comparison with a compact Junos-style diff containing only the selected interface's
@@ -91,8 +93,9 @@ separate validation stage so its approved diff and device-push result remain vis
 2. Addressing deploy creates native Prefix, IP, and interface-assignment objects and
    stores expected RTT and Jira. Validation checks both applied address families
    before ping/RTT.
-3. Routing deploy runs only after RTT passes and writes `bb_isis_metric` to both LAGs.
-   The presence of that explicit IS-IS intent—not a workflow phase flag—causes the
+3. Routing deploy runs only after RTT passes and creates or updates the routing app's
+   `ISISInterface` record for both LAGs. The presence of that explicit IS-IS
+   intent—not a workflow phase flag—causes the
    templates to render IS-IS/MPLS/RSVP. Validation checks the applied metric and
    protocol health on both routers.
 

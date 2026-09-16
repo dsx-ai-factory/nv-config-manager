@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import ipaddress
 from datetime import timedelta
 
@@ -40,6 +41,7 @@ from nv_config_manager.temporal.common.search_attributes import ISSUE_KEY_SEARCH
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.bb_sandbox.activities import (
         MAINTENANCE_STATUS,
+        MOCK_DRAIN_METRIC,
         ActivateBackboneRoutingInput,
         ApplyBackboneAddressingInput,
         DrainApplyInput,
@@ -54,6 +56,7 @@ with workflow.unsafe.imports_passed_through():
         MockNeighborInput,
         MockPingInput,
         MockRoutingInput,
+        ProposedInterfaceRenderInput,
         RenderRevisionDiffInput,
         SetInterfaceStatusInput,
         activate_backbone_routing,
@@ -67,6 +70,7 @@ with workflow.unsafe.imports_passed_through():
         mock_validate_neighbor,
         mock_validate_routing,
         perform_drain_candidate_diff,
+        render_proposed_interface_intent,
         resolve_drain_intent,
         resolve_internal_backbone_intent,
         set_interface_status,
@@ -108,6 +112,59 @@ def _jira_diff(diff: str) -> str:
     """Format a diff with Jira wiki markup that preserves whitespace."""
     content = diff.rstrip() or "(no configuration changes)"
     return f"{{noformat}}\n{content}\n{{noformat}}"
+
+
+def _verify_execution_render(proposed: str, persisted: str) -> None:
+    """Reject an execution render that differs from the approved plan."""
+    if persisted != proposed:
+        raise ApplicationError(
+            "Persisted render differs from the approved plan; re-plan before deploying",
+            non_retryable=True,
+        )
+
+
+class DrainPreflightComparison(BaseModel):
+    """Comparison of approved and freshly rendered drain artifacts."""
+
+    matched: bool
+    reason: str | None = None
+    render_diff: str = ""
+    fresh_candidate_diff: str
+
+    @classmethod
+    def from_artifacts(
+        cls,
+        *,
+        approved_configuration: str,
+        fresh_configuration: str,
+        approved_candidate_diff: str,
+        fresh_candidate_diff: str,
+    ) -> DrainPreflightComparison:
+        """Compare a fresh non-persistent proposal with the approved plan."""
+        configuration_changed = fresh_configuration != approved_configuration
+        candidate_changed = fresh_candidate_diff != approved_candidate_diff
+        reasons = []
+        if configuration_changed:
+            reasons.append("render changed since approval")
+        if candidate_changed:
+            reasons.append("candidate diff changed since approval")
+        render_diff = ""
+        if configuration_changed:
+            render_diff = "\n".join(
+                difflib.unified_diff(
+                    approved_configuration.splitlines(),
+                    fresh_configuration.splitlines(),
+                    fromfile="approved",
+                    tofile="current",
+                    lineterm="",
+                )
+            )
+        return cls(
+            matched=not reasons,
+            reason="; ".join(reasons) or None,
+            render_diff=render_diff,
+            fresh_candidate_diff=fresh_candidate_diff,
+        )
 
 
 class DrainInterfaceInput(BaseModel):
@@ -268,12 +325,10 @@ class _ApprovalMixin(StageMixin):
 
 @workflow.defn
 class BBDrainInterfaceWorkflow(WorkflowMetadataMixin, _ApprovalMixin, DeviceMixin):
-    """Set interface intent to Maintenance, render it, and run the normal deployment flow."""
+    """Plan a Maintenance render, then persist and deploy it after approval."""
 
     workflow_name = "BB Sandbox: Drain Interface"
-    workflow_description = (
-        "Set Nautobot interface status to Maintenance, render, diff, review, and deploy"
-    )
+    workflow_description = "Render proposed Maintenance intent, review it, then persist and deploy"
     workflow_input_class = DrainInterfaceInput
     workflow_api_endpoint = "/bb_sandbox/drain_interface"
     workflow_namespace = "bb_sandbox"
@@ -283,47 +338,65 @@ class BBDrainInterfaceWorkflow(WorkflowMetadataMixin, _ApprovalMixin, DeviceMixi
         """Define the drain demonstration stages."""
         StageMixin.__init__(self)
         self.define_stage(
-            name="resolve_intent",
-            description="Validate Jira when supplied and resolve the interface in Nautobot.",
+            name="resolve",
+            description="Validate interface and Jira if selected.",
             requires_approval=False,
             depends_on=[],
         )
         self.define_stage(
-            name="update_nautobot_intent",
-            description="Set the interface status to Maintenance in Nautobot.",
+            name="plan",
+            description="Render the proposed change in memory.",
             requires_approval=False,
-            depends_on=["resolve_intent"],
+            depends_on=["resolve"],
         )
         self.define_stage(
-            name="render_intended_configuration",
-            description="Trigger a fresh render and load that exact intended configuration.",
+            name="record_plan",
+            description="Post the diff to Jira.",
             requires_approval=False,
-            depends_on=["update_nautobot_intent"],
+            depends_on=["plan"],
         )
         self.define_stage(
-            name="review_configuration_diff",
-            description="Diff the rendered configuration against the device and review it.",
+            name="review",
+            description="Approve or reject the diff.",
             requires_approval=True,
             approval_threshold=1,
-            depends_on=["render_intended_configuration"],
+            depends_on=["record_plan"],
         )
         self.define_stage(
-            name="apply_configuration",
-            description="Apply the approved rendered configuration using the standard device client.",
+            name="preflight",
+            description="Re-check that the plan is still current.",
             requires_approval=False,
-            depends_on=["review_configuration_diff"],
+            depends_on=["review"],
         )
         self.define_stage(
-            name="validate_applied_configuration",
-            description="Verify the deployed IS-IS drain metric on the mocked device.",
+            name="persist",
+            description="Write status and metric to Nautobot.",
             requires_approval=False,
-            depends_on=["apply_configuration"],
+            depends_on=["preflight"],
         )
         self.define_stage(
-            name="record_audit",
-            description="Record result, diff, and reviewer on Jira when supplied.",
+            name="render",
+            description="Render persisted intent; verify against the plan.",
             requires_approval=False,
-            depends_on=["review_configuration_diff"],
+            depends_on=["persist"],
+        )
+        self.define_stage(
+            name="apply",
+            description="Commit to the device.",
+            requires_approval=False,
+            depends_on=["render"],
+        )
+        self.define_stage(
+            name="validate",
+            description="Verify the metric on the device.",
+            requires_approval=False,
+            depends_on=["apply"],
+        )
+        self.define_stage(
+            name="audit",
+            description="Post the result to Jira.",
+            requires_approval=False,
+            depends_on=["review"],
         )
 
     class ResolveInput(StageInput):
@@ -338,7 +411,7 @@ class BBDrainInterfaceWorkflow(WorkflowMetadataMixin, _ApprovalMixin, DeviceMixi
 
         intent: DrainIntent
 
-    @stage_executor("resolve_intent")
+    @stage_executor("resolve")
     async def resolve(self, stage_input: ResolveInput) -> ResolveOutput:
         """Resolve real sandbox records before proposing a change."""
         ticket_line = "No Jira supplied (ticketless drain)."
@@ -364,52 +437,250 @@ class BBDrainInterfaceWorkflow(WorkflowMetadataMixin, _ApprovalMixin, DeviceMixi
             ),
         )
 
-    class UpdateIntentInput(StageInput):
-        """Nautobot drain mutation input."""
+    class PlanInput(StageInput):
+        """Non-persistent drain proposal input."""
 
         intent: DrainIntent
 
-    class UpdateIntentOutput(StageOutput):
-        """Nautobot drain mutation output."""
+    class PlanOutput(StageOutput):
+        """Proposed configuration and device data used to calculate the plan."""
 
-        status: str
+        device: NetworkDeviceData
+        intended_config: str
+        diff: str
+        mocked: bool
 
-    @stage_executor("update_nautobot_intent")
-    async def update_intent(self, stage_input: UpdateIntentInput) -> UpdateIntentOutput:
-        """Persist Maintenance before rendering or contacting the device."""
-        await workflow.execute_activity(
-            set_interface_status,
-            SetInterfaceStatusInput(
-                interface_ids=[stage_input.intent.interface.id], status=MAINTENANCE_STATUS
+    @stage_executor("plan")
+    async def plan_proposed_configuration(self, stage_input: PlanInput) -> PlanOutput:
+        """Render the exact proposed values without changing Nautobot or Config Store."""
+        device_result = await workflow.execute_activity(
+            get_network_device,
+            GetNetworkDeviceInput(device_id=stage_input.intent.device_id),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        DeviceMixin.attach_device_search_attributes(device_result.device)
+        proposed = await workflow.execute_activity(
+            render_proposed_interface_intent,
+            ProposedInterfaceRenderInput(
+                device_id=stage_input.intent.device_id,
+                interface_name=stage_input.intent.interface.name,
+                status=MAINTENANCE_STATUS,
+                isis_metric=MOCK_DRAIN_METRIC,
+                filename=DRAIN_CONFIG_FILE,
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        candidate = await workflow.execute_activity(
+            perform_drain_candidate_diff,
+            DrainCandidateInput(
+                device_data=device_result.device,
+                configuration=proposed.configuration,
+                interface_name=stage_input.intent.interface.name,
+                current_metric=stage_input.intent.interface.isis_metric,
             ),
             start_to_close_timeout=ACTIVITY_TIMEOUT,
             retry_policy=ACTIVITY_RETRY_POLICY,
         )
-        return self.UpdateIntentOutput(
-            status=MAINTENANCE_STATUS,
+        return self.PlanOutput(
+            device=device_result.device,
+            intended_config=proposed.configuration,
+            diff=candidate.diff,
+            mocked=candidate.mocked,
             display=(
-                f"Set `{stage_input.intent.device_name}:{stage_input.intent.interface.name}` "
-                f"to **{MAINTENANCE_STATUS}** in Nautobot. A rejected device deployment will "
-                "leave this rendered intent pending."
+                f"Rendered proposed **{MAINTENANCE_STATUS}** intent for "
+                f"`{stage_input.intent.device_name}:{stage_input.intent.interface.name}` "
+                "in memory. Nautobot and Config Store are unchanged.\n\n"
+                f"{_markdown_diff(candidate.diff)}"
             ),
         )
 
+    class RecordPlanInput(StageInput):
+        """Proposed diff audit input."""
+
+        jira: str | None
+        intent: DrainIntent
+        diff: str
+        workflow_url: str
+
+    class RecordPlanOutput(StageOutput):
+        """Jira plan comment result."""
+
+        comment_id: str | None
+
+    @stage_executor("record_plan")
+    async def record_change_plan(self, stage_input: RecordPlanInput) -> RecordPlanOutput:
+        """Publish the generated plan before waiting for approval."""
+        target = f"{stage_input.intent.device_name}:{stage_input.intent.interface.name}"
+        summary = (
+            "### Proposed interface drain\n\n"
+            f"- **Workflow:** [Open workflow]({stage_input.workflow_url})\n"
+            f"- **Target:** `{target}`\n"
+            "- **Nautobot:** unchanged pending approval\n\n"
+            f"#### Proposed candidate diff\n\n{_markdown_diff(stage_input.diff)}"
+        )
+        if not stage_input.jira:
+            return self.RecordPlanOutput(comment_id=None, display=summary)
+        jira_body = (
+            "h3. Proposed BB sandbox interface drain\n\n"
+            f"*Workflow:* [Open workflow|{stage_input.workflow_url}]\n"
+            f"*Target:* {target}\n"
+            "*Nautobot:* unchanged pending approval\n\n"
+            "h4. Proposed candidate diff\n"
+            f"{_jira_diff(stage_input.diff)}"
+        )
+        result = await workflow.execute_activity(
+            add_ticket_comment,
+            AddCommentInput(
+                ticketing_platform="jira",
+                issue_key=stage_input.jira,
+                body=jira_body,
+            ),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        return self.RecordPlanOutput(
+            comment_id=result.comment_id,
+            display=f"Recorded change plan `{result.comment_id}` on {stage_input.jira}.\n\n{summary}",
+        )
+
+    class PersistIntentInput(StageInput):
+        """Approved Nautobot drain mutation input."""
+
+        intent: DrainIntent
+
+    class PersistIntentOutput(StageOutput):
+        """Persisted Nautobot status."""
+
+        status: str
+
+    @stage_executor("persist")
+    async def persist_intent(self, stage_input: PersistIntentInput) -> PersistIntentOutput:
+        """Persist only after the proposal has been approved."""
+        await workflow.execute_activity(
+            set_interface_status,
+            SetInterfaceStatusInput(
+                interface_ids=[stage_input.intent.interface.id],
+                status=MAINTENANCE_STATUS,
+                isis_metric=MOCK_DRAIN_METRIC,
+                expected_status=stage_input.intent.interface.status,
+                expected_isis_metric=stage_input.intent.interface.isis_metric,
+            ),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        return self.PersistIntentOutput(
+            status=MAINTENANCE_STATUS,
+            display=(
+                f"Persisted **{MAINTENANCE_STATUS}** and IS-IS metric "
+                f"`{MOCK_DRAIN_METRIC}` for "
+                f"`{stage_input.intent.device_name}:{stage_input.intent.interface.name}`."
+            ),
+        )
+
+    class PreflightInput(StageInput):
+        """Approved artifacts and original intent for a fresh non-persistent check."""
+
+        intent: DrainIntent
+        approved_configuration: str
+        approved_candidate_diff: str
+
+    class PreflightOutput(StageOutput):
+        """Fresh artifacts and whether they still match the approved plan."""
+
+        matched: bool
+        reason: str | None
+        render_diff: str
+        fresh_candidate_diff: str
+
+    @stage_executor("preflight")
+    async def preflight_approved_plan(self, stage_input: PreflightInput) -> PreflightOutput:
+        """Rebuild and re-diff the proposal without changing Nautobot or Config Store."""
+        fresh_intent = await workflow.execute_activity(
+            resolve_drain_intent,
+            DrainLookupInput(
+                device=stage_input.intent.device_id,
+                port=stage_input.intent.interface.name,
+            ),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        device_result = await workflow.execute_activity(
+            get_network_device,
+            GetNetworkDeviceInput(device_id=fresh_intent.device_id),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        fresh_proposal = await workflow.execute_activity(
+            render_proposed_interface_intent,
+            ProposedInterfaceRenderInput(
+                device_id=fresh_intent.device_id,
+                interface_name=fresh_intent.interface.name,
+                status=MAINTENANCE_STATUS,
+                isis_metric=MOCK_DRAIN_METRIC,
+                filename=DRAIN_CONFIG_FILE,
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        fresh_candidate = await workflow.execute_activity(
+            perform_drain_candidate_diff,
+            DrainCandidateInput(
+                device_data=device_result.device,
+                configuration=fresh_proposal.configuration,
+                interface_name=fresh_intent.interface.name,
+                current_metric=fresh_intent.interface.isis_metric,
+            ),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        comparison = DrainPreflightComparison.from_artifacts(
+            approved_configuration=stage_input.approved_configuration,
+            fresh_configuration=fresh_proposal.configuration,
+            approved_candidate_diff=stage_input.approved_candidate_diff,
+            fresh_candidate_diff=fresh_candidate.diff,
+        )
+        if comparison.matched:
+            display = "Still matches the approved plan. Nothing changed yet."
+        else:
+            render_details = (
+                f"\n\n#### Render drift\n\n{_markdown_diff(comparison.render_diff)}"
+                if comparison.render_diff
+                else ""
+            )
+            display = (
+                f"**BLOCKED** - {comparison.reason}. No changes made.\n\n\n"
+                "#### Approved\n\n"
+                f"{_markdown_diff(stage_input.approved_candidate_diff)}"
+                "\n\n#### Current\n\n"
+                f"{_markdown_diff(comparison.fresh_candidate_diff)}"
+                f"{render_details}"
+            )
+        return self.PreflightOutput(
+            matched=comparison.matched,
+            reason=comparison.reason,
+            render_diff=comparison.render_diff,
+            fresh_candidate_diff=comparison.fresh_candidate_diff,
+            display=display,
+        )
+
     class RenderInput(StageInput):
-        """Fresh render input."""
+        """Approved proposal verification input."""
 
         device_id: str
+        proposed_configuration: str
 
     class RenderOutput(StageOutput):
         """Pinned post-mutation intended configuration."""
 
         device: NetworkDeviceData
         intended_config: str
-        commit_id: str
         config_url: str
 
-    @stage_executor("render_intended_configuration")
+    @stage_executor("render")
     async def render_intended_configuration(self, stage_input: RenderInput) -> RenderOutput:
-        """Render after the Nautobot mutation and load the resulting exact snapshot."""
+        """Render persisted intent and reject drift from the approved proposal."""
         device_result = await workflow.execute_activity(
             get_network_device,
             GetNetworkDeviceInput(device_id=stage_input.device_id),
@@ -433,7 +704,7 @@ class BBDrainInterfaceWorkflow(WorkflowMetadataMixin, _ApprovalMixin, DeviceMixi
                 f"Fresh render did not produce {config_file!r} for {device_result.device.name}",
                 non_retryable=True,
             )
-        intended_config, loaded_commit_id, config_url = await workflow.execute_activity(
+        intended_config, _, config_url = await workflow.execute_activity(
             load_partial_configuration,
             LoadPartialConfigurationActivityInput(
                 device_data=device_result.device,
@@ -443,24 +714,19 @@ class BBDrainInterfaceWorkflow(WorkflowMetadataMixin, _ApprovalMixin, DeviceMixi
             start_to_close_timeout=ACTIVITY_TIMEOUT,
             retry_policy=ACTIVITY_RETRY_POLICY,
         )
+        _verify_execution_render(stage_input.proposed_configuration, intended_config)
         return self.RenderOutput(
             device=device_result.device,
             intended_config=intended_config,
-            commit_id=loaded_commit_id,
             config_url=config_url,
-            display=(
-                f"Fresh render complete. Loaded [{config_file}]({config_url}) at "
-                f"config ID `{loaded_commit_id}`."
-            ),
+            display=f"[{config_file}]({config_url}) matches the approved plan.",
         )
 
     class ReviewDiffInput(StageInput):
-        """Rendered configuration review input."""
+        """Proposed candidate review input."""
 
-        device: NetworkDeviceData
-        intended_config: str
-        interface_name: str
-        current_metric: int
+        diff: str
+        mocked: bool
 
     class ReviewDiffOutput(StageOutput):
         """Rendered-to-device candidate diff decision."""
@@ -469,22 +735,11 @@ class BBDrainInterfaceWorkflow(WorkflowMetadataMixin, _ApprovalMixin, DeviceMixi
         reviewers: list[str]
         diff: str
 
-    @stage_executor("review_configuration_diff")
+    @stage_executor("review")
     async def review_configuration_diff(self, stage_input: ReviewDiffInput) -> ReviewDiffOutput:
-        """Use the standard platform device client to calculate and gate the candidate diff."""
-        stage_name = "review_configuration_diff"
-        candidate = await workflow.execute_activity(
-            perform_drain_candidate_diff,
-            DrainCandidateInput(
-                device_data=stage_input.device,
-                configuration=stage_input.intended_config,
-                interface_name=stage_input.interface_name,
-                current_metric=stage_input.current_metric,
-            ),
-            start_to_close_timeout=ACTIVITY_TIMEOUT,
-            retry_policy=ACTIVITY_RETRY_POLICY,
-        )
-        if not candidate.diff.strip():
+        """Gate the already-recorded non-persistent candidate diff."""
+        stage_name = "review"
+        if not stage_input.diff.strip():
             self.get_stage_by_name(stage_name).requires_approval = False
             return self.ReviewDiffOutput(
                 approved=False,
@@ -496,16 +751,16 @@ class BBDrainInterfaceWorkflow(WorkflowMetadataMixin, _ApprovalMixin, DeviceMixi
                 ),
             )
         approved, reviewers = await self.wait_for_review(
-            stage_name, candidate.diff, mocked=candidate.mocked
+            stage_name, stage_input.diff, mocked=stage_input.mocked
         )
         decision = "Approved" if approved else "Rejected"
         return self.ReviewDiffOutput(
             approved=approved,
             reviewers=reviewers,
-            diff=candidate.diff,
+            diff=stage_input.diff,
             display=(
                 f"Rendered configuration diff {decision.lower()} by "
-                f"{', '.join(reviewers)}\n\n{_markdown_diff(candidate.diff)}"
+                f"{', '.join(reviewers)}\n\n{_markdown_diff(stage_input.diff)}"
             ),
         )
 
@@ -521,7 +776,7 @@ class BBDrainInterfaceWorkflow(WorkflowMetadataMixin, _ApprovalMixin, DeviceMixi
     class ApplyOutput(StageOutput):
         """Rendered configuration application output."""
 
-    @stage_executor("apply_configuration")
+    @stage_executor("apply")
     async def apply_drain(self, stage_input: ApplyInput) -> ApplyOutput:
         """Apply through the same guarded activity used by standard deploy workflows."""
         result = await workflow.execute_activity(
@@ -555,7 +810,7 @@ class BBDrainInterfaceWorkflow(WorkflowMetadataMixin, _ApprovalMixin, DeviceMixi
 
         healthy: bool
 
-    @stage_executor("validate_applied_configuration")
+    @stage_executor("validate")
     async def validate_drain(self, stage_input: ValidateDrainInput) -> ValidateDrainOutput:
         """Verify the device reports the rendered maintenance metric."""
         result = await workflow.execute_activity(
@@ -582,40 +837,78 @@ class BBDrainInterfaceWorkflow(WorkflowMetadataMixin, _ApprovalMixin, DeviceMixi
         decision: str
         reviewers: list[str]
         diff: str
-        render_commit: str
+        config_url: str | None
         workflow_url: str
+        failure_reason: str | None = None
+        fresh_candidate_diff: str | None = None
+        render_diff: str | None = None
 
     class AuditOutput(StageOutput):
         """Drain audit output."""
 
         comment_id: str | None
 
-    @stage_executor("record_audit")
+    @stage_executor("audit")
     async def record_audit(self, stage_input: AuditInput) -> AuditOutput:
         """Write the review result to Jira when requested."""
         target = f"{stage_input.intent.device_name}:{stage_input.intent.interface.name}"
         reviewers = ", ".join(stage_input.reviewers) or "none"
+        persisted = stage_input.config_url is not None
+        nautobot_status = MAINTENANCE_STATUS if persisted else "unchanged"
+        blocked_prefix = "blocked: "
+        if stage_input.decision.startswith(blocked_prefix):
+            blocked_reason = stage_input.decision.removeprefix(blocked_prefix)
+            result_md = f"**BLOCKED** - {blocked_reason}"
+            result_jira = f"*BLOCKED* - {blocked_reason}"
+        else:
+            result_md = stage_input.decision
+            result_jira = stage_input.decision
+        failure_summary = ""
+        failure_jira = ""
+        if stage_input.failure_reason:
+            fresh_diff = stage_input.fresh_candidate_diff or "(none)"
+            render_diff = stage_input.render_diff or "(render matched)"
+            failure_summary = (
+                f"\n\n\n#### Current candidate diff\n\n{_markdown_diff(fresh_diff)}\n\n"
+                f"#### Render drift\n\n{_markdown_diff(render_diff)}"
+            )
+            failure_jira = (
+                f"\n\nh4. Current candidate diff\n{_jira_diff(fresh_diff)}\n\n"
+                f"h4. Render drift\n{_jira_diff(render_diff)}"
+            )
+        rendered_summary = (
+            f"- **Rendered config:** [{DRAIN_CONFIG_FILE}]({stage_input.config_url})\n"
+            if persisted
+            else ""
+        )
+        rendered_jira = (
+            f"*Rendered config:* [{DRAIN_CONFIG_FILE}|{stage_input.config_url}]\n"
+            if persisted
+            else ""
+        )
         summary = (
-            "### Interface drain summary\n\n"
+            "\n### Interface drain\n\n"
             f"- **Workflow:** [Open workflow]({stage_input.workflow_url})\n"
             f"- **Target:** `{target}`\n"
-            f"- **Nautobot status:** {MAINTENANCE_STATUS}\n"
-            f"- **Rendered interfaces config ID:** `{stage_input.render_commit}`\n"
+            f"- **Nautobot status:** {nautobot_status}\n"
+            f"{rendered_summary}"
             f"- **Reviewers:** {reviewers}\n"
-            f"- **Deployment:** {stage_input.decision}\n\n"
+            f"- **Result:** {result_md}\n\n\n"
             "#### Candidate diff\n\n"
             f"{_markdown_diff(stage_input.diff)}"
+            f"{failure_summary}"
         )
         jira_body = (
             "h3. BB sandbox interface drain\n\n"
             f"*Workflow:* [Open workflow|{stage_input.workflow_url}]\n"
             f"*Target:* {target}\n"
-            f"*Nautobot status:* {MAINTENANCE_STATUS}\n"
-            f"*Rendered interfaces config ID:* {stage_input.render_commit}\n"
+            f"*Nautobot status:* {nautobot_status}\n"
+            f"{rendered_jira}"
             f"*Reviewers:* {reviewers}\n"
-            f"*Deployment:* {stage_input.decision}\n\n"
+            f"*Result:* {result_jira}\n\n"
             "h4. Candidate diff\n"
             f"{_jira_diff(stage_input.diff)}"
+            f"{failure_jira}"
         )
         if not stage_input.jira:
             return self.AuditOutput(comment_id=None, display=summary)
@@ -649,48 +942,84 @@ class BBDrainInterfaceWorkflow(WorkflowMetadataMixin, _ApprovalMixin, DeviceMixi
                 jira=workflow_input.jira,
             )
         )
-        await self.update_intent(self.UpdateIntentInput(intent=resolved.intent))
-        rendered = await self.render_intended_configuration(
-            self.RenderInput(device_id=resolved.intent.device_id)
+        planned = await self.plan_proposed_configuration(self.PlanInput(intent=resolved.intent))
+        workflow_url = await self.workflow_url()
+        await self.record_change_plan(
+            self.RecordPlanInput(
+                jira=workflow_input.jira,
+                intent=resolved.intent,
+                diff=planned.diff,
+                workflow_url=workflow_url,
+            )
         )
         reviewed = await self.review_configuration_diff(
             self.ReviewDiffInput(
-                device=rendered.device,
-                intended_config=rendered.intended_config,
-                interface_name=resolved.intent.interface.name,
-                current_metric=(
-                    resolved.intent.interface.custom_fields.get("bb_isis_metric") or 10
-                ),
+                diff=planned.diff,
+                mocked=planned.mocked,
             )
         )
+        config_url: str | None = None
+        status = resolved.intent.interface.status
+        failure_reason: str | None = None
+        fresh_candidate_diff: str | None = None
+        render_diff: str | None = None
         if reviewed.diff and reviewed.approved:
-            await self.apply_drain(
-                self.ApplyInput(
-                    device=rendered.device,
-                    intended_config=rendered.intended_config,
-                    interface_name=resolved.intent.interface.name,
-                    current_metric=(
-                        resolved.intent.interface.custom_fields.get("bb_isis_metric") or 10
-                    ),
-                    approved_diff=reviewed.diff,
+            preflight = await self.preflight_approved_plan(
+                self.PreflightInput(
+                    intent=resolved.intent,
+                    approved_configuration=planned.intended_config,
+                    approved_candidate_diff=reviewed.diff,
                 )
             )
-            await self.validate_drain(
-                self.ValidateDrainInput(
-                    device_name=resolved.intent.device_name,
-                    interface_name=resolved.intent.interface.name,
+            if preflight.matched:
+                await self.persist_intent(self.PersistIntentInput(intent=resolved.intent))
+                rendered = await self.render_intended_configuration(
+                    self.RenderInput(
+                        device_id=resolved.intent.device_id,
+                        proposed_configuration=planned.intended_config,
+                    )
                 )
-            )
-            decision = "approved and applied to device"
+                config_url = rendered.config_url
+                status = MAINTENANCE_STATUS
+                await self.apply_drain(
+                    self.ApplyInput(
+                        device=rendered.device,
+                        intended_config=rendered.intended_config,
+                        interface_name=resolved.intent.interface.name,
+                        current_metric=resolved.intent.interface.isis_metric,
+                        approved_diff=reviewed.diff,
+                    )
+                )
+                await self.validate_drain(
+                    self.ValidateDrainInput(
+                        device_name=resolved.intent.device_name,
+                        interface_name=resolved.intent.interface.name,
+                    )
+                )
+                decision = "applied to device"
+            else:
+                self.set_stage_state("persist", StateEnum.UNREACHABLE)
+                self.set_stage_state("render", StateEnum.UNREACHABLE)
+                self.set_stage_state("apply", StateEnum.UNREACHABLE)
+                self.set_stage_state("validate", StateEnum.UNREACHABLE)
+                failure_reason = preflight.reason
+                fresh_candidate_diff = preflight.fresh_candidate_diff
+                render_diff = preflight.render_diff
+                decision = f"blocked: {preflight.reason}"
         elif reviewed.diff:
-            self.set_stage_state("apply_configuration", StateEnum.UNREACHABLE)
-            self.set_stage_state("validate_applied_configuration", StateEnum.UNREACHABLE)
-            decision = "device apply rejected; Nautobot intent remains Maintenance"
+            self.set_stage_state("preflight", StateEnum.UNREACHABLE)
+            self.set_stage_state("persist", StateEnum.UNREACHABLE)
+            self.set_stage_state("render", StateEnum.UNREACHABLE)
+            self.set_stage_state("apply", StateEnum.UNREACHABLE)
+            self.set_stage_state("validate", StateEnum.UNREACHABLE)
+            decision = "rejected; nothing changed"
         else:
-            self.set_stage_state("apply_configuration", StateEnum.UNREACHABLE)
-            self.set_stage_state("validate_applied_configuration", StateEnum.UNREACHABLE)
-            decision = "no device diff; Nautobot intent is Maintenance"
-        workflow_url = await self.workflow_url()
+            self.set_stage_state("preflight", StateEnum.UNREACHABLE)
+            self.set_stage_state("persist", StateEnum.UNREACHABLE)
+            self.set_stage_state("render", StateEnum.UNREACHABLE)
+            self.set_stage_state("apply", StateEnum.UNREACHABLE)
+            self.set_stage_state("validate", StateEnum.UNREACHABLE)
+            decision = "no device diff; nothing changed"
         await self.record_audit(
             self.AuditInput(
                 jira=workflow_input.jira,
@@ -698,15 +1027,18 @@ class BBDrainInterfaceWorkflow(WorkflowMetadataMixin, _ApprovalMixin, DeviceMixi
                 decision=decision,
                 reviewers=reviewed.reviewers,
                 diff=reviewed.diff,
-                render_commit=rendered.commit_id,
+                config_url=config_url,
                 workflow_url=workflow_url,
+                failure_reason=failure_reason,
+                fresh_candidate_diff=fresh_candidate_diff,
+                render_diff=render_diff,
             )
         )
         return DrainInterfaceOutput(
-            applied=bool(reviewed.diff and reviewed.approved),
+            applied=bool(reviewed.diff and reviewed.approved and config_url),
             device=resolved.intent.device_name,
             port=resolved.intent.interface.name,
-            status=MAINTENANCE_STATUS,
+            status=status,
             approvers=reviewed.reviewers,
             jira=workflow_input.jira,
         )

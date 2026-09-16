@@ -157,6 +157,14 @@ query ($id: ID!, $id_str: String) {
       }
     }
     interfaces {
+      status {
+        name
+      }
+      isis {
+        metric
+        level
+        passive
+      }
       role {
         name
       }

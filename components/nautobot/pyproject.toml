@@ -16,6 +16,7 @@ dependencies = [
     "nautobot-nvdatamodels>=0.17.0",
     "nautobot-bgp-models>=2.3.1",
     "nautobot-app-overlays",
+    "nautobot-app-routing",
     "nautobot-nv-config-manager",
     # Security: Fix idna vulnerability (GHSA-65pc-fj4g-8rjx)
     "idna>=3.15",
@@ -59,6 +60,7 @@ package = false
 [tool.uv.sources]
 nautobot-broker-nats = { git = "https://github.com/NVIDIA/nautobot-broker-nats.git", rev = "f8b46f8d3471157eaa64fe81e866e409076048dd" }
 nautobot-app-overlays = { path = "nautobot-app-overlays" }
+nautobot-app-routing = { path = "vendor/nautobot_app_routing-0.1.0-py3-none-any.whl" }
 nautobot-nv-config-manager = { path = "nautobot-nv-config-manager" }
 
 [build-system]

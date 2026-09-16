@@ -213,6 +213,7 @@ PLUGINS = [
     "nautobot_nvdatamodels",
     "nautobot_bgp_models",
     "nautobot_app_overlays",
+    "nautobot_app_routing",
 ]
 
 # Plugins configuration settings

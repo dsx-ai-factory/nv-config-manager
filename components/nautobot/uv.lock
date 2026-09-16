@@ -1114,6 +1114,32 @@ dev = [
 ]
 
 [[package]]
+name = "nautobot-app-routing"
+version = "0.1.0"
+source = { path = "vendor/nautobot_app_routing-0.1.0-py3-none-any.whl" }
+dependencies = [
+    { name = "nautobot" },
+    { name = "netutils" },
+]
+wheels = [
+    { filename = "nautobot_app_routing-0.1.0-py3-none-any.whl", hash = "sha256:c385ea980fb77a0aa0b319238914ff5d27942888319c43492186d40f8bfe4d2b" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "coverage", marker = "extra == 'dev'" },
+    { name = "django-debug-toolbar", marker = "extra == 'dev'" },
+    { name = "invoke", marker = "extra == 'dev'" },
+    { name = "ipython", marker = "extra == 'dev'" },
+    { name = "nautobot", specifier = ">=2.4.20,<2.5.0" },
+    { name = "netutils", specifier = ">=1.6.0" },
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pytest-django", marker = "extra == 'dev'" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "nautobot-bgp-models"
 version = "2.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1214,6 +1240,7 @@ dependencies = [
     { name = "idna" },
     { name = "nautobot" },
     { name = "nautobot-app-overlays" },
+    { name = "nautobot-app-routing" },
     { name = "nautobot-bgp-models" },
     { name = "nautobot-broker-nats" },
     { name = "nautobot-design-builder" },
@@ -1247,6 +1274,7 @@ requires-dist = [
     { name = "idna", specifier = ">=3.15" },
     { name = "nautobot", specifier = "==2.4.36" },
     { name = "nautobot-app-overlays", directory = "nautobot-app-overlays" },
+    { name = "nautobot-app-routing", path = "vendor/nautobot_app_routing-0.1.0-py3-none-any.whl" },
     { name = "nautobot-bgp-models", specifier = ">=2.3.1" },
     { name = "nautobot-broker-nats", git = "https://github.com/NVIDIA/nautobot-broker-nats.git?rev=f8b46f8d3471157eaa64fe81e866e409076048dd" },
     { name = "nautobot-design-builder", specifier = ">=2.1.0" },

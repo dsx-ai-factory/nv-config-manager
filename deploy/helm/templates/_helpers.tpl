@@ -1330,6 +1330,17 @@ Usage: {{ include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
 {{- end -}}
 
 {{/*
+Skip Vault in render templates.
+Usage: {{ include "nv-config-manager.renderSkipVaultEnv" . | nindent 8 }}
+*/}}
+{{- define "nv-config-manager.renderSkipVaultEnv" -}}
+{{- if .Values.renderService.skipVault }}
+- name: NV_CONFIG_MANAGER_SKIP_VAULT
+  value: "1"
+{{- end }}
+{{- end -}}
+
+{{/*
 Network ZTP storage env vars. Only Ceph uses env refs because Rook generates
 the endpoint and credentials Secret at runtime. Other storage settings render
 into the main INI.

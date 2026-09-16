@@ -16,15 +16,22 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
+from copy import deepcopy
 from typing import Any
 from uuid import UUID
 
+from nv_config_manager_templates.render import Renderer
 from pydantic import BaseModel, Field
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.common.config import ConfigStoreType, config_store_client
+from nv_config_manager.common.config import (
+    ConfigStoreType,
+    config_store_client,
+    pynautobot_client,
+)
 from nv_config_manager.temporal.client.device import (
     DiffChangedException,
     MockNetworkConnection,
@@ -44,6 +51,7 @@ class InterfaceIntent(BaseModel):
     id: str
     name: str
     status: str
+    isis_metric: int = 10
     addresses: list[str] = Field(default_factory=list)
     custom_fields: dict[str, Any] = Field(default_factory=dict)
 
@@ -68,6 +76,9 @@ class SetInterfaceStatusInput(BaseModel):
 
     interface_ids: list[str]
     status: str
+    isis_metric: int | None = None
+    expected_status: str | None = None
+    expected_isis_metric: int | None = None
 
 
 class NautobotMutationOutput(BaseModel):
@@ -217,6 +228,23 @@ class DrainCandidateOutput(BaseModel):
     mocked: bool
 
 
+class ProposedInterfaceRenderInput(BaseModel):
+    """Nautobot interface values to override for a non-persistent render."""
+
+    device_id: str
+    interface_name: str
+    status: str
+    isis_metric: int = Field(ge=1, le=16_777_214)
+    filename: str
+
+
+class ProposedInterfaceRenderOutput(BaseModel):
+    """Rendered configuration produced without changing Nautobot or Config Store."""
+
+    configuration: str
+    filename: str
+
+
 class DrainApplyInput(DrainCandidateInput):
     """Approved rendered Junos interfaces candidate."""
 
@@ -313,7 +341,7 @@ async def _lookup_one(
     payload = await client.get(path, params=params)
     results = _results(payload)
     if not results:
-        raise ApplicationError(f"{description} was not found in Nautobot", non_retryable=True)
+        raise ApplicationError(f"{description} not found in Nautobot", non_retryable=True)
     if len(results) > 1:
         raise ApplicationError(
             f"{description} is ambiguous ({len(results)} matches)", non_retryable=True
@@ -332,20 +360,82 @@ async def _resolve_device(client: NautobotClient, reference: str) -> dict[str, A
 
 
 def _interface_intent(interface: dict[str, Any]) -> InterfaceIntent:
-    status = interface.get("status") or {}
     addresses = [entry["address"] for entry in interface.get("ip_addresses") or []]
     return InterfaceIntent(
         id=str(interface["id"]),
         name=str(interface["name"]),
-        status=str(status.get("name") or status.get("display") or "Unknown"),
+        status=_status_label(interface),
         addresses=addresses,
         custom_fields=dict(interface.get("custom_fields") or {}),
     )
 
 
+def _status_id(interface: dict[str, Any]) -> str | None:
+    """Return an interface's status UUID from any REST serializer depth."""
+    status = interface.get("status")
+    if isinstance(status, str):
+        return status
+    if isinstance(status, dict) and status.get("id"):
+        return str(status["id"])
+    return None
+
+
+def _status_label(interface: dict[str, Any]) -> str:
+    """Return a human-readable status name, which depth-0 payloads omit."""
+    status = interface.get("status")
+    if not isinstance(status, dict):
+        return "Unknown"
+    return str(status.get("name") or status.get("display") or "Unknown")
+
+
 async def _resolve_status(client: NautobotClient, name: str) -> str:
     status = await _lookup_one(client, "extras/statuses/", {"name": name}, f"Status {name!r}")
     return str(status["id"])
+
+
+async def _isis_metric(client: NautobotClient, interface_id: str) -> int:
+    payload = await client.get(
+        "plugins/routing/isis-interfaces/",
+        params={"interface": interface_id},
+    )
+    results = _results(payload)
+    if not results:
+        return 10
+    if len(results) > 1:
+        raise ApplicationError(
+            f"Multiple IS-IS records for interface {interface_id}",
+            non_retryable=True,
+        )
+    return int(results[0]["metric"])
+
+
+async def _upsert_isis_interface(
+    client: NautobotClient,
+    interface_id: str,
+    metric: int,
+) -> str:
+    payload = await client.get(
+        "plugins/routing/isis-interfaces/",
+        params={"interface": interface_id},
+    )
+    results = _results(payload)
+    if len(results) > 1:
+        raise ApplicationError(
+            f"Multiple IS-IS records for interface {interface_id}",
+            non_retryable=True,
+        )
+    if results:
+        record_id = str(results[0]["id"])
+        await client.patch(
+            f"plugins/routing/isis-interfaces/{record_id}/",
+            data={"metric": metric},
+        )
+        return record_id
+    record = await client.post(
+        "plugins/routing/isis-interfaces/",
+        data={"interface": interface_id, "metric": metric, "level": "2", "passive": False},
+    )
+    return str(record["id"])
 
 
 def _point_to_point_addresses(prefix: str) -> tuple[str, str]:
@@ -371,26 +461,57 @@ async def resolve_drain_intent(activity_input: DrainLookupInput) -> DrainIntent:
             {"device": device["id"], "name": activity_input.port, "depth": 1},
             f"Interface {device['name']}:{activity_input.port}",
         )
-    return DrainIntent(
-        device_id=str(device["id"]),
-        device_name=str(device["name"]),
-        interface=_interface_intent(interface),
-    )
+        intent = _interface_intent(interface)
+        intent.isis_metric = await _isis_metric(client, intent.id)
+        return DrainIntent(
+            device_id=str(device["id"]),
+            device_name=str(device["name"]),
+            interface=intent,
+        )
 
 
 @activity.defn
 async def set_interface_status(
     activity_input: SetInterfaceStatusInput,
 ) -> NautobotMutationOutput:
-    """Apply an interface status to real Nautobot sandbox objects."""
+    """Apply an interface status after checking the expected Nautobot state."""
     client = NautobotClient()
     async with client:
+        expected_status_id = (
+            await _resolve_status(client, activity_input.expected_status)
+            if activity_input.expected_status is not None
+            else None
+        )
+        for interface_id in activity_input.interface_ids:
+            interface = await client.get(
+                f"dcim/interfaces/{interface_id}/",
+                params={"depth": 1},
+            )
+            current_status = _status_label(interface)
+            current_metric = await _isis_metric(client, interface_id)
+            status_changed = (
+                expected_status_id is not None and _status_id(interface) != expected_status_id
+            )
+            metric_changed = (
+                activity_input.expected_isis_metric is not None
+                and current_metric != activity_input.expected_isis_metric
+            )
+            if status_changed or metric_changed:
+                raise ApplicationError(
+                    f"Nautobot drift on {interface_id}: expected "
+                    f"{activity_input.expected_status}/metric "
+                    f"{activity_input.expected_isis_metric}, found "
+                    f"{current_status}/metric {current_metric}; nothing persisted",
+                    non_retryable=True,
+                )
         status_id = await _resolve_status(client, activity_input.status)
         for interface_id in activity_input.interface_ids:
             await client.patch(
                 f"dcim/interfaces/{interface_id}/",
                 data={"status": status_id},
             )
+            if activity_input.isis_metric is not None:
+                await _upsert_isis_interface(client, interface_id, activity_input.isis_metric)
     return NautobotMutationOutput(
         updated_ids=activity_input.interface_ids,
         status=activity_input.status,
@@ -670,16 +791,17 @@ async def activate_backbone_routing(
     client = NautobotClient()
     async with client:
         status_id = await _resolve_status(client, ACTIVE_STATUS)
+        updated_ids = []
         for interface_id in activity_input.interface_ids:
-            interface = await client.get(f"dcim/interfaces/{interface_id}/")
-            custom_fields = dict(interface.get("custom_fields") or {})
-            custom_fields["bb_isis_metric"] = activity_input.igp_metric
             await client.patch(
                 f"dcim/interfaces/{interface_id}/",
-                data={"status": status_id, "custom_fields": custom_fields},
+                data={"status": status_id},
+            )
+            updated_ids.append(
+                await _upsert_isis_interface(client, interface_id, activity_input.igp_metric)
             )
     return NautobotMutationOutput(
-        updated_ids=activity_input.interface_ids,
+        updated_ids=updated_ids,
         status=ACTIVE_STATUS,
     )
 
@@ -757,8 +879,7 @@ async def load_render_revision_diff(
         prior_versions = [version for version in versions if version < activity_input.to_version]
         if not prior_versions:
             raise ApplicationError(
-                f"No pre-change {activity_input.filename!r} render exists for "
-                f"{activity_input.device_name}; populate the BB sandbox baseline first",
+                f"No baseline {activity_input.filename} render for {activity_input.device_name}",
                 non_retryable=True,
             )
         from_version = prior_versions[-1]
@@ -782,6 +903,84 @@ def _mock_drain_diff(interface_name: str, current_metric: int) -> str:
         f"-   level 2 metric {current_metric};\n"
         f"+   level 2 metric {MOCK_DRAIN_METRIC};"
     )
+
+
+def _override_interface_render_data(
+    device_data: dict[str, Any],
+    interface_name: str,
+    status: str,
+    isis_metric: int,
+) -> dict[str, Any]:
+    """Copy render data and replace only the interface values the workflow will persist."""
+    proposed_data = deepcopy(device_data)
+    device = proposed_data.get("data", {}).get("device")
+    if not isinstance(device, dict):
+        raise ApplicationError("Render data has no device", non_retryable=True)
+    interfaces = device.get("interfaces")
+    if not isinstance(interfaces, list):
+        raise ApplicationError("Render data has no interfaces", non_retryable=True)
+    interface = next(
+        (
+            item
+            for item in interfaces
+            if isinstance(item, dict) and item.get("name") == interface_name
+        ),
+        None,
+    )
+    if interface is None:
+        raise ApplicationError(
+            f"Interface {interface_name} missing from render data",
+            non_retryable=True,
+        )
+    interface["status"] = {"name": status}
+    interface["isis"] = {
+        "metric": isis_metric,
+        "level": "2",
+        "passive": False,
+    }
+    return proposed_data
+
+
+def _render_proposed_interface_intent(
+    activity_input: ProposedInterfaceRenderInput,
+) -> ProposedInterfaceRenderOutput:
+    """Render an in-memory Nautobot interface proposal through the template library."""
+    nb = pynautobot_client()
+    renderer = Renderer(nb.base_url.replace("/api", ""), nb.token)
+    device_data, location_data, plugin_data = renderer.load_data(device_id=activity_input.device_id)
+    proposed_data = _override_interface_render_data(
+        device_data,
+        activity_input.interface_name,
+        activity_input.status,
+        activity_input.isis_metric,
+    )
+    rendered_files = {
+        entrypoint.split("/")[-1].removesuffix(".j2"): renderer.render(
+            entrypoint,
+            proposed_data,
+            location_data,
+            plugin_data,
+        )
+        for entrypoint in renderer.list_entrypoints(proposed_data)
+    }
+    configuration = rendered_files.get(activity_input.filename)
+    if configuration is None:
+        raise ApplicationError(
+            f"Proposed render produced no {activity_input.filename}",
+            non_retryable=True,
+        )
+    return ProposedInterfaceRenderOutput(
+        configuration=configuration,
+        filename=activity_input.filename,
+    )
+
+
+@activity.defn
+async def render_proposed_interface_intent(
+    activity_input: ProposedInterfaceRenderInput,
+) -> ProposedInterfaceRenderOutput:
+    """Render proposed interface intent without persisting it."""
+    return await asyncio.to_thread(_render_proposed_interface_intent, activity_input)
 
 
 @activity.defn
@@ -813,8 +1012,7 @@ def apply_drain_candidate(activity_input: DrainApplyInput) -> DrainApplyOutput:
         )
         if current_diff != activity_input.approved_diff:
             raise DiffChangedException(
-                f"Configuration diff for mock device {activity_input.device_data.name} "
-                "changed since approval"
+                f"Candidate diff for {activity_input.device_data.name} changed since approval"
             )
         return DrainApplyOutput(mocked=True)
     connection.commit_candidate_config(
@@ -907,6 +1105,7 @@ REGISTERED_ACTIVITIES = [
     activate_backbone_routing,
     build_mock_candidate_diff,
     load_render_revision_diff,
+    render_proposed_interface_intent,
     perform_drain_candidate_diff,
     apply_drain_candidate,
     mock_apply_candidate,

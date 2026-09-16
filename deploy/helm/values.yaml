@@ -1044,6 +1044,9 @@ ui:
 # =============================================================================
 renderService:
   enabled: true
+  # Skip Vault lookups in templates (path:key placeholders). Local mock clusters
+  # have no ~/.vault-token; Backbone templates fail without this.
+  skipVault: false
   # Gateway routing - subdomain based
   gateway:
     # Hostname: render.<baseHostname> (OIDC+JWT, browser access)

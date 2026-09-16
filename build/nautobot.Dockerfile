@@ -43,6 +43,7 @@ ARG NAUTOBOT_NV_CONFIG_MANAGER_VERSION=""
 COPY pyproject.toml uv.lock /opt/nautobot/
 COPY nautobot-app-overlays/pyproject.toml nautobot-app-overlays/README.md /opt/nautobot/nautobot-app-overlays/
 COPY nautobot-app-overlays/nautobot_app_overlays/ /opt/nautobot/nautobot-app-overlays/nautobot_app_overlays/
+COPY vendor/ /opt/nautobot/vendor/
 COPY nautobot-nv-config-manager/pyproject.toml nautobot-nv-config-manager/README.md /opt/nautobot/nautobot-nv-config-manager/
 COPY nautobot-nv-config-manager/nv_config_manager/ /opt/nautobot/nautobot-nv-config-manager/nv_config_manager/
 COPY nautobot_config.py /opt/nautobot/nautobot_config.py
@@ -64,6 +65,7 @@ RUN --mount=type=cache,id=nvcm-uv-cache,target=/root/.cache/uv \
     fi; \
     uv sync --frozen --no-dev --no-editable \
         --refresh-package nautobot-app-overlays \
+        --refresh-package nautobot-app-routing \
         --refresh-package nautobot-nv-config-manager
 
 RUN mkdir -p /opt/nautobot/static \

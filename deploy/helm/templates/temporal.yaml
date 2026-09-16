@@ -387,6 +387,10 @@ spec:
             memory: 64Mi
         {{- include "nv-config-manager.containerSecurityContext" . | nindent 8 }}
       {{- end }}
+      {{- if .Values.renderService.templatePlugins.enabled }}
+      {{- include "nv-config-manager.copyTemplatePluginImages" . | nindent 6 }}
+      {{- include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
+      {{- end }}
       containers:
       - name: worker
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -402,6 +406,11 @@ spec:
         {{- if .Values.localDev.enableLocalTestWorkflows }}
         - name: NVCM_ENABLE_LOCAL_TEST_WORKFLOWS
           value: "true"
+        {{- end }}
+        {{- include "nv-config-manager.renderSkipVaultEnv" . | nindent 8 }}
+        {{- if .Values.renderService.templatePlugins.enabled }}
+        - name: PYTHONPATH
+          value: "/opt/plugins:${PYTHONPATH:-}"
         {{- end }}
         {{- if .Values.secrets.vault.configSecrets.enabled }}
         - name: NV_CONFIG_MANAGER_CONFIG_SECRET_PATH
@@ -427,6 +436,11 @@ spec:
           mountPath: /var/run/secrets/spiffe
           readOnly: true
         {{- end }}
+        {{- if .Values.renderService.templatePlugins.enabled }}
+        - name: template-plugins-installed
+          mountPath: /opt/plugins
+          readOnly: true
+        {{- end }}
         {{- include "nv-config-manager.temporalClientTLSVolumeMount" . | nindent 8 }}
       {{- include "nv-config-manager.spiffeClientSidecar" (dict "root" .) | nindent 6 }}
       volumes:
@@ -436,6 +450,9 @@ spec:
       {{- include "nv-config-manager.temporalClientTLSVolume" . | nindent 6 }}
       {{- if .Values.secrets.vault.configSecrets.enabled }}
       {{- include "nv-config-manager.vaultAgent.configSecretsVolume" . | nindent 6 }}
+      {{- end }}
+      {{- if .Values.renderService.templatePlugins.enabled }}
+      {{- include "nv-config-manager.templatePluginVolumes" . | nindent 6 }}
       {{- end }}
       {{- /* SPIFFE volumes for outbound mTLS */ -}}
       {{- include "nv-config-manager.spiffeClientVolumes" (dict "root" .) | nindent 6 }}

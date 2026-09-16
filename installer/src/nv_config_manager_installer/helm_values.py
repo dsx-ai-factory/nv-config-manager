@@ -916,6 +916,8 @@ def build_values(
         "enabled": svc.render,
         "client": {"useInternalEndpoint": True},
     }
+    if config.cluster.mock_devices:
+        render_section["skipVault"] = True
     tpc = config.content.template_plugins_config
     if config.content.template_plugins:
         render_section["templatePlugins"] = {

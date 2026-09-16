@@ -72,6 +72,7 @@ spec:
         {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
         - name: NV_CONFIG_MANAGER_DEV_SALT
           value: "W585uq6K"
+        {{- include "nv-config-manager.renderSkipVaultEnv" . | nindent 8 }}
         {{- if .Values.secrets.vault.configSecrets.enabled }}
         - name: NV_CONFIG_MANAGER_CONFIG_SECRET_PATH
           value: {{ include "nv-config-manager.vaultAgent.configSecretsFilePath" (dict "root" . "path" .Values.renderService.configSecrets.path) | quote }}
@@ -209,6 +210,7 @@ spec:
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         - name: NV_CONFIG_MANAGER_DEV_SALT
           value: "W585uq6K"
+        {{- include "nv-config-manager.renderSkipVaultEnv" . | nindent 8 }}
         - name: NATS_CONSUMER
           value: "nautobot"
         {{- if .Values.secrets.vault.configSecrets.enabled }}
@@ -319,6 +321,7 @@ spec:
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         - name: NV_CONFIG_MANAGER_DEV_SALT
           value: "W585uq6K"
+        {{- include "nv-config-manager.renderSkipVaultEnv" . | nindent 8 }}
         - name: NATS_CONSUMER
           value: "device"
         {{- if .Values.secrets.vault.configSecrets.enabled }}
@@ -427,6 +430,7 @@ spec:
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         - name: NV_CONFIG_MANAGER_DEV_SALT
           value: "W585uq6K"
+        {{- include "nv-config-manager.renderSkipVaultEnv" . | nindent 8 }}
         - name: NV_CONFIG_MANAGER_TEMPLATE_UPDATE_CONCURRENCY
           value: {{ .Values.renderService.templateUpdater.concurrency | quote }}
         - name: NV_CONFIG_MANAGER_TEMPLATE_UPDATE_LOCK_TIMEOUT
