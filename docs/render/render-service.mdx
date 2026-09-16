@@ -30,6 +30,20 @@ Two specialized pull-based consumers process NATS JetStream events:
 
 ### External NATS administration
 
+External NATS deployments using password authentication must provide a `tls://` endpoint and enable TLS-first negotiation on the server. Add `handshake_first: true` to the server's existing `tls` block, retaining the deployment's certificate and verification settings:
+
+```text
+tls {
+    cert_file: "/path/to/server.crt"
+    key_file: "/path/to/server.key"
+    handshake_first: true
+}
+```
+
+The password-authenticated client performs TLS before reading the initial server `INFO` message and does not fall back to INFO-first negotiation. NATS defaults to sending `INFO` before TLS, so a server without this setting can cause a TLS error or connection timeout even when its certificates and credentials are valid. The Helm chart does not configure an externally managed server; coordinate this setting with its administrator before connecting.
+
+With the normal INFO-first order, credentials are encrypted once TLS is established; TLS-first also protects the initial `INFO` message. The client retains TLS-first to avoid relying on that unauthenticated message to request encryption before sending credentials. This requirement applies to external password authentication; the JWT connection path and the bundled `nats://` deployment retain their existing negotiation behavior.
+
 The bundled NATS deployment creates the streams automatically. The application creates missing durable consumers at runtime in both bundled and externally managed deployments. When NATS is owned outside the Config Manager deployment, coordinate the streams, account imports, and user permissions with the NATS administrator. An administrator can own consumer provisioning instead by omitting create permission and provisioning the fixed durables described below.
 
 The application uses three fixed durable names in every deployment:

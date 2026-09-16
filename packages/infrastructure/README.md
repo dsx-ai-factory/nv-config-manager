@@ -15,5 +15,10 @@ NATS is split by responsibility under `nv_config_manager_infrastructure.nats`:
 three client classes for compatibility.
 
 External password-authenticated NATS connections require a `tls://` endpoint
-and negotiate TLS before credentials are sent. The explicitly `local` bundled
+and a server configured with `handshake_first: true` in its `tls` block. The
+client performs the TLS handshake before reading the server's initial `INFO`
+message and does not fall back to INFO-first negotiation. A server using the
+default INFO-first order can fail with a TLS error or timeout. See the
+[external NATS setup guide](../../docs/render/render-service.mdx#external-nats-administration)
+for a server configuration example. The explicitly `local` bundled
 deployment retains its server-negotiated connection behavior.

@@ -560,6 +560,9 @@ externalServices:
   # NATS Configuration
   nats:
     # Server URL
+    # External password auth requires tls:// and handshake_first: true in the
+    # external server's tls block. There is no INFO-first fallback for this path.
+    # See docs/render/render-service.mdx (External NATS administration).
     server: "nats://nats:4222"
     # Username for password auth
     user: "nv-config-manager"
