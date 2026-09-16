@@ -72,9 +72,15 @@ jobs:
           if ! git merge-base --is-ancestor "$commit" "origin/${DEFAULT_BRANCH}"; then
             case "$SOURCE_REF" in
               release/*)
-                target_version="${SOURCE_REF#release/}"
-                .github/scripts/validate-maintenance-release-source \
-                  "$commit" "$target_version" "$DEFAULT_BRANCH"
+                release_ref="refs/remotes/origin/${SOURCE_REF}"
+                if ! git show-ref --verify --quiet "$release_ref"; then
+                  echo "Maintenance RC source must be an existing protected branch. Missing: ${release_ref}"
+                  exit 1
+                fi
+                if [ "$commit" != "$(git rev-parse "${release_ref}^{commit}")" ]; then
+                  echo "Maintenance RC source must be the exact tip of ${release_ref}."
+                  exit 1
+                fi
                 ;;
               *)
                 echo "Source commit ${commit} is not reachable from origin/${DEFAULT_BRANCH}."
