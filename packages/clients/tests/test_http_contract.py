@@ -38,6 +38,9 @@ from nv_config_manager_clients import (
 )
 from nv_config_manager_clients.generated.config_store import ApiClient, Configuration
 from nv_config_manager_clients.generated.config_store.api.default_api import DefaultApi
+from nv_config_manager_clients.generated.ztp import ApiClient as ZTPApiClient
+from nv_config_manager_clients.generated.ztp import Configuration as ZTPConfiguration
+from nv_config_manager_clients.generated.ztp.api.files_api import FilesApi
 
 
 @dataclass
@@ -57,6 +60,8 @@ class Server:
             }
         )
         status, body = self.responses.pop(0)
+        if isinstance(body, bytes):
+            return web.Response(status=status, body=body, content_type="application/octet-stream")
         if isinstance(body, str):
             return web.Response(status=status, text=body)
         return web.json_response(body, status=status)
@@ -255,6 +260,20 @@ async def test_dhcp_and_temporal_operations(server: Server) -> None:
     assert server.requests[3]["path"] == "/v1/workflow/ngc/backup"
     assert server.requests[3]["body"]["device_id"] == "device"
     assert server.requests[4]["body"] == {"custom": "value"}
+
+
+async def test_generated_ztp_download_preserves_binary_content(server: Server) -> None:
+    content = b"\x00\xff\x80firmware\r\n"
+    server.responses = [(200, content)]
+    configuration = ZTPConfiguration(host=server.url)
+
+    async with ZTPApiClient(configuration) as client:
+        downloaded = await FilesApi(client).load_object_v1_files_platform_version_filename_get(
+            platform="platform", version="1.0", filename="firmware.bin"
+        )
+
+    assert downloaded == content
+    assert server.requests[0]["path"] == "/v1/files/platform/1.0/firmware.bin"
 
 
 async def test_ztp_uses_head_and_preserves_missing_file_behavior(server: Server) -> None:

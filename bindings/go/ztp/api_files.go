@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -480,7 +481,7 @@ type ApiLoadObjectV1FilesPlatformVersionFilenameGetRequest struct {
 	filename   string
 }
 
-func (r ApiLoadObjectV1FilesPlatformVersionFilenameGetRequest) Execute() (*http.Response, error) {
+func (r ApiLoadObjectV1FilesPlatformVersionFilenameGetRequest) Execute() (*os.File, *http.Response, error) {
 	return r.ApiService.LoadObjectV1FilesPlatformVersionFilenameGetExecute(r)
 }
 
@@ -506,16 +507,19 @@ func (a *FilesAPIService) LoadObjectV1FilesPlatformVersionFilenameGet(ctx contex
 }
 
 // Execute executes the request
-func (a *FilesAPIService) LoadObjectV1FilesPlatformVersionFilenameGetExecute(r ApiLoadObjectV1FilesPlatformVersionFilenameGetRequest) (*http.Response, error) {
+//
+//	@return *os.File
+func (a *FilesAPIService) LoadObjectV1FilesPlatformVersionFilenameGetExecute(r ApiLoadObjectV1FilesPlatformVersionFilenameGetRequest) (*os.File, *http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodGet
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod  = http.MethodGet
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue *os.File
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "FilesAPIService.LoadObjectV1FilesPlatformVersionFilenameGet")
 	if err != nil {
-		return nil, &GenericOpenAPIError{error: err.Error()}
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
 	localVarPath := localBasePath + "/v1/files/{platform}/{version}/{filename}"
@@ -537,7 +541,7 @@ func (a *FilesAPIService) LoadObjectV1FilesPlatformVersionFilenameGetExecute(r A
 	}
 
 	// to determine the Accept header
-	localVarHTTPHeaderAccepts := []string{"application/json"}
+	localVarHTTPHeaderAccepts := []string{"application/octet-stream", "application/json"}
 
 	// set Accept header
 	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
@@ -546,19 +550,19 @@ func (a *FilesAPIService) LoadObjectV1FilesPlatformVersionFilenameGetExecute(r A
 	}
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
-		return nil, err
+		return localVarReturnValue, nil, err
 	}
 
 	localVarHTTPResponse, err := a.client.callAPI(req)
 	if err != nil || localVarHTTPResponse == nil {
-		return localVarHTTPResponse, err
+		return localVarReturnValue, localVarHTTPResponse, err
 	}
 
 	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
 	localVarHTTPResponse.Body.Close()
 	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
 	if err != nil {
-		return localVarHTTPResponse, err
+		return localVarReturnValue, localVarHTTPResponse, err
 	}
 
 	if localVarHTTPResponse.StatusCode >= 300 {
@@ -571,15 +575,24 @@ func (a *FilesAPIService) LoadObjectV1FilesPlatformVersionFilenameGetExecute(r A
 			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
-				return localVarHTTPResponse, newErr
+				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
 			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
 			newErr.model = v
 		}
-		return localVarHTTPResponse, newErr
+		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
 
-	return localVarHTTPResponse, nil
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
 type ApiUploadFileV1FilesPlatformVersionFilenamePostRequest struct {

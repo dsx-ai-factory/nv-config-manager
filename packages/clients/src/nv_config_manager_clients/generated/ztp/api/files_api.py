@@ -29,8 +29,8 @@ from pydantic import validate_call, Field, StrictFloat, StrictStr, StrictInt
 from typing import Any, Dict, List, Optional, Tuple, Union
 from typing_extensions import Annotated
 
-from pydantic import StrictBool, StrictStr
-from typing import List, Optional
+from pydantic import StrictBool, StrictBytes, StrictStr
+from typing import List, Optional, Tuple, Union
 from nv_config_manager_clients.generated.ztp.models.checksum_response import ChecksumResponse
 from nv_config_manager_clients.generated.ztp.models.file_info import FileInfo
 from nv_config_manager_clients.generated.ztp.models.object_info import ObjectInfo
@@ -1196,7 +1196,7 @@ class FilesApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> None:
+    ) -> bytes:
         """Load Object
 
         Load the firmware by platform and version.
@@ -1240,7 +1240,7 @@ class FilesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': None,
+            '200': "bytes",
             '404': None,
             '422': "HTTPValidationError",
         }
@@ -1273,7 +1273,7 @@ class FilesApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[None]:
+    ) -> ApiResponse[bytes]:
         """Load Object
 
         Load the firmware by platform and version.
@@ -1317,7 +1317,7 @@ class FilesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': None,
+            '200': "bytes",
             '404': None,
             '422': "HTTPValidationError",
         }
@@ -1394,7 +1394,7 @@ class FilesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': None,
+            '200': "bytes",
             '404': None,
             '422': "HTTPValidationError",
         }
@@ -1447,6 +1447,7 @@ class FilesApi:
         if 'Accept' not in _header_params:
             _header_params['Accept'] = self.api_client.select_header_accept(
                 [
+                    'application/octet-stream',
                     'application/json'
                 ]
             )

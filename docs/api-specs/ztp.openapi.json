@@ -778,7 +778,15 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response"
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Firmware file content"
           },
           "404": {
             "description": "Not found"

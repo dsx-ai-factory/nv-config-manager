@@ -42,7 +42,20 @@ async def check_object(platform: str, version: str, filename: str) -> Response:
         raise HTTPException(status_code=404, detail="File not found in storage.") from exc
 
 
-@router.get("/{platform}/{version}/{filename}", response_class=StreamingResponse)
+@router.get(
+    "/{platform}/{version}/{filename}",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": "Firmware file content",
+            "content": {
+                "application/octet-stream": {
+                    "schema": {"type": "string", "format": "binary"},
+                },
+            },
+        },
+    },
+)
 async def load_object(
     platform: str, version: str, filename: str, request: Request
 ) -> StreamingResponse:
