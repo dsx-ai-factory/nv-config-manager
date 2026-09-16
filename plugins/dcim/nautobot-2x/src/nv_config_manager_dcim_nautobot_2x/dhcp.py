@@ -29,6 +29,11 @@ logger = logging.getLogger(__name__)
 # Match other Nautobot GraphQL inventory pages. DHCP still needs a full snapshot;
 # paging only splits the Nautobot request so a large cell cannot 504 one query.
 GRAPHQL_PAGE_SIZE = 100
+# Nautobot exposes no cursor pagination, so pages are positional: a row deleted
+# mid-snapshot shifts every later row left and the next page would start past an
+# unread one. Re-reading the tail of each page absorbs a shift of up to this many
+# rows; callers collapse the repeats.
+GRAPHQL_PAGE_OVERLAP = 10
 _MAX_GRAPHQL_OFFSET = 1_000_000
 
 
@@ -224,8 +229,12 @@ class NautobotDHCPOperations:
         result_key: str,
         variables: dict[str, Any] | None = None,
         page_size: int = GRAPHQL_PAGE_SIZE,
+        overlap: int = GRAPHQL_PAGE_OVERLAP,
     ) -> list[Any]:
         """Fetch every page of a Nautobot GraphQL list field.
+
+        Consecutive requests re-read the last ``overlap`` rows, so callers must
+        collapse the repeated rows.
 
         Stops on an empty or short page. Raises if offset grows without bound,
         which would mean the server keeps returning full pages (or a mock that
@@ -233,6 +242,9 @@ class NautobotDHCPOperations:
         """
         if page_size < 1:
             raise ValueError(f"page_size must be >= 1, got {page_size}")
+        if overlap < 0:
+            raise ValueError(f"overlap must be >= 0, got {overlap}")
+        step = page_size - min(overlap, page_size - 1)
         collected: list[Any] = []
         extra = dict(variables or {})
         offset = 0
@@ -254,20 +266,21 @@ class NautobotDHCPOperations:
             collected.extend(page)
             if len(page) < page_size:
                 break
-            offset += len(page)
             logger.info(
-                "Fetched %d %s at offset %d (%d total)",
+                "Fetched %d %s at offset %d (%d fetched)",
                 len(page),
                 result_key,
-                offset - len(page),
+                offset,
                 len(collected),
             )
+            offset += step
         return collected
 
     async def load_dhcp_contexts(
         self,
         is_aggregate_managed: bool | None = None,
         page_size: int = GRAPHQL_PAGE_SIZE,
+        overlap: int = GRAPHQL_PAGE_OVERLAP,
     ) -> dict[str, dict[str, object]]:
         """Compatibility hook returning DHCP contexts from Nautobot GraphQL."""
         entries = await self._iter_graphql_pages(
@@ -275,7 +288,9 @@ class NautobotDHCPOperations:
             "config_manager_devices",
             variables={"is_aggregate_managed": is_aggregate_managed},
             page_size=page_size,
+            overlap=overlap,
         )
+        # Keying by device id is what collapses the rows repeated across pages.
         contexts: dict[str, dict[str, object]] = {}
         for entry in entries:
             device = entry.get("device") if isinstance(entry, dict) else None
@@ -296,6 +311,7 @@ class NautobotDHCPOperations:
         family: int = 4,
         is_aggregate_managed: bool | None = None,
         page_size: int = GRAPHQL_PAGE_SIZE,
+        overlap: int = GRAPHQL_PAGE_OVERLAP,
     ) -> list[dict[str, object]]:
         """Compatibility hook returning normalized automatic DHCP subnet data."""
         prefixes = _dedupe_keep_first(
@@ -303,6 +319,7 @@ class NautobotDHCPOperations:
                 load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_prefixes"),
                 "prefixes",
                 page_size=page_size,
+                overlap=overlap,
             ),
             "id",
         )
@@ -314,6 +331,7 @@ class NautobotDHCPOperations:
                 load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_pool_ips"),
                 "pool_ips",
                 page_size=page_size,
+                overlap=overlap,
             ),
             "id",
         )
@@ -322,6 +340,7 @@ class NautobotDHCPOperations:
                 load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_reserved_ips"),
                 "reserved_ips",
                 page_size=page_size,
+                overlap=overlap,
             ),
             "id",
         )
