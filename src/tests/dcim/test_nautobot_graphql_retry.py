@@ -114,3 +114,17 @@ async def test_graphql_query_does_not_retry_http_500(fast_graphql_retries: list[
 
     assert exc_info.value.status == 500
     assert fast_graphql_retries == []
+
+
+@pytest.mark.asyncio
+async def test_graphql_query_does_not_retry_mutations(fast_graphql_retries: list[float]) -> None:
+    """A gateway timeout must not repeat a mutation that may already have applied."""
+    with aioresponses() as mocked:
+        mocked.post(_GRAPHQL_URL, status=504)
+        mocked.post(_GRAPHQL_URL, payload={"data": {"ok": True}})
+        async with NautobotClient("https://nautobot.example", token="token") as client:
+            with pytest.raises(ClientResponseError) as exc_info:
+                await client.graphql_query("mutation { ok }")
+
+    assert exc_info.value.status == 504
+    assert fast_graphql_retries == []
