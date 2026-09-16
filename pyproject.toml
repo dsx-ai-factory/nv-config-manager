@@ -85,7 +85,7 @@ dependencies = [
     "ruamel-yaml>=0.18.6",
     # Git
     # Security: Fix GitPython vulnerability (GHSA-mv93-w799-cj2w)
-    "gitpython>=3.1.50",
+    "gitpython>=3.1.62",
     # Data Processing
     "numpy>=2.1.0,<3.0.0",
     "pandas>=2.3.0",
