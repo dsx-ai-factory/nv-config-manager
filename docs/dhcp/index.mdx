@@ -79,13 +79,13 @@ uv run nv-config-manager-dhcp-confgen generate-kea-configuration --ini-file nv-c
 uv run nv-config-manager-dhcp-confgen generate-kea-configuration --ini-file nv-config-manager.ini --ip-version 6
 ```
 
-### Sync running configuration
+### Refresh cached configuration
 
 ```bash
-# Sync DHCPv4 configuration to running Kea servers
+# Generate, validate, and publish the DHCPv4 configuration to Redis
 uv run nv-config-manager-dhcp-confgen refresh-kea-configuration --ini-file nv-config-manager.ini --ip-version 4
 
-# Sync DHCPv6 configuration to running Kea servers
+# Generate, validate, and publish the DHCPv6 configuration to Redis
 uv run nv-config-manager-dhcp-confgen refresh-kea-configuration --ini-file nv-config-manager.ini --ip-version 6
 ```
 
@@ -102,26 +102,26 @@ uv run nv-config-manager-dhcp-confgen generate-kea-configuration --help
 ### Advanced options
 
 ```bash
-# Generate configuration with custom output directory
+# Generate configuration to a file
 uv run nv-config-manager-dhcp-confgen generate-kea-configuration \
   --ini-file nv-config-manager.ini \
   --ip-version 4 \
-  --output-dir /etc/kea/
+  --output-file /etc/kea/kea-dhcp4.conf
 
-# Generate configuration with verbose logging
+# Generate configuration with debug tracebacks
 uv run nv-config-manager-dhcp-confgen generate-kea-configuration \
   --ini-file nv-config-manager.ini \
   --ip-version 4 \
-  --verbose
+  --debug
 
-# Dry run - validate configuration without applying
-uv run nv-config-manager-dhcp-confgen generate-kea-configuration \
+# Validate generated configuration against Kea without publishing it to Redis
+uv run nv-config-manager-dhcp-confgen refresh-kea-configuration \
   --ini-file nv-config-manager.ini \
   --ip-version 4 \
-  --dry-run
+  --check
 ```
 
-The generator runs on a 5-minute interval in the Kubernetes deployment, automatically syncing updated configuration to the running Kea servers.
+In Kubernetes, the refresh process generates and publishes desired configuration to Redis every five minutes. A sidecar in each Kea pod monitors Redis, applies changed configuration through the Kea Control Agent, and verifies the running configuration hash.
 
 ## Manage leases
 
