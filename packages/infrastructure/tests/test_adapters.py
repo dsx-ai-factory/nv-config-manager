@@ -78,15 +78,16 @@ async def test_password_connection_negotiates_tls_before_credentials() -> None:
     assert connect.await_args.kwargs["tls"] is not None
 
 
-async def test_external_password_connection_rejects_plaintext_endpoint() -> None:
+@pytest.mark.parametrize("scheme", ["nats", "ws"])
+async def test_external_password_connection_rejects_plaintext_endpoint(scheme: str) -> None:
     """External credentials cannot be sent to an endpoint without TLS-first semantics."""
-    client = NatsClient("nats://nats.example.test:4222", user="user", password="secret")
+    client = NatsClient(f"{scheme}://nats.example.test:4222", user="user", password="secret")
     with pytest.raises(ValueError, match="tls://"):
         await client.connect()
 
 
-async def test_jwt_connection_uses_standard_tls_negotiation() -> None:
-    """JWT authentication uses the server-advertised TLS handshake."""
+async def test_external_jwt_connection_negotiates_tls_before_credentials() -> None:
+    """External JWT authentication starts TLS before trusting server INFO."""
     conn = MagicMock(connected_url="tls://nats.example.test:4222")
     with patch(
         "nv_config_manager_infrastructure.nats.client.nats.connect",
@@ -100,13 +101,14 @@ async def test_jwt_connection_uses_standard_tls_negotiation() -> None:
 
     assert connect.await_args.kwargs["user_credentials"] == "/etc/nats/user.creds"
     assert connect.await_args.kwargs["tls"] is not None
-    assert "tls_handshake_first" not in connect.await_args.kwargs
+    assert connect.await_args.kwargs["tls_handshake_first"] is True
 
 
-async def test_external_jwt_connection_rejects_plaintext_endpoint() -> None:
+@pytest.mark.parametrize("scheme", ["nats", "ws"])
+async def test_external_jwt_connection_rejects_plaintext_endpoint(scheme: str) -> None:
     """External JWT credentials cannot be sent to an endpoint without TLS."""
     client = NatsClient(
-        "nats://nats.example.test:4222",
+        f"{scheme}://nats.example.test:4222",
         auth_method="JWT",
         creds_path="/etc/nats/user.creds",
     )
@@ -114,7 +116,35 @@ async def test_external_jwt_connection_rejects_plaintext_endpoint() -> None:
         await client.connect()
 
 
-async def test_bundled_password_connection_keeps_server_negotiated_tls() -> None:
+@pytest.mark.parametrize("auth_method", ["password", "JWT"])
+async def test_external_wss_connection_uses_encrypted_websocket(auth_method: str) -> None:
+    """WSS establishes TLS at transport connection time, before NATS INFO."""
+    conn = MagicMock(connected_url="wss://nats.example.test")
+    with patch(
+        "nv_config_manager_infrastructure.nats.client.nats.connect",
+        new=AsyncMock(return_value=conn),
+    ) as connect:
+        client = NatsClient(
+            "wss://nats.example.test",
+            auth_method=auth_method,
+            creds_path="/etc/nats/user.creds",
+            user="user",
+            password="secret",
+        )
+        await client.connect()
+
+    assert connect.await_args.args == ("wss://nats.example.test",)
+    assert connect.await_args.kwargs["tls"] is client.ssl_context
+    assert "tls_handshake_first" not in connect.await_args.kwargs
+    if auth_method == "JWT":
+        assert connect.await_args.kwargs["user_credentials"] == "/etc/nats/user.creds"
+    else:
+        assert connect.await_args.kwargs["user"] == "user"
+        assert connect.await_args.kwargs["password"] == "secret"
+
+
+@pytest.mark.parametrize("auth_method", ["password", "JWT"])
+async def test_bundled_connection_keeps_server_negotiated_tls(auth_method: str) -> None:
     """The explicitly local bundled server retains its existing INFO-first protocol."""
     conn = MagicMock(connected_url="nats://localhost:4222")
     with patch(
@@ -124,6 +154,8 @@ async def test_bundled_password_connection_keeps_server_negotiated_tls() -> None
         client = NatsClient(
             "nats://localhost:4222",
             local=True,
+            auth_method=auth_method,
+            creds_path="/etc/nats/user.creds",
             user="user",
             password="secret",
         )
