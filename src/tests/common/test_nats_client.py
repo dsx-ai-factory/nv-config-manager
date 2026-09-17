@@ -22,6 +22,7 @@ from nats.js.api import AckPolicy, DeliverPolicy
 from nats.js.errors import NotFoundError
 
 from nv_config_manager.common.client import DEFAULT_NATS_API_PREFIX, NatsClient, NatsConsumer
+from nv_config_manager.common.config import nats_connection
 
 TEST_SERVER = "nats://nats.example.local:4222"
 
@@ -41,6 +42,48 @@ def test_client_defaults_to_standard_api_prefix():
     """A client with no configured prefix uses the JetStream default."""
     client = NatsClient(server=TEST_SERVER)
     assert client.api_prefix == DEFAULT_NATS_API_PREFIX == "$JS.API"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("auth_method", ["password", "JWT"])
+@pytest.mark.parametrize("scheme,local", [("tls", False), ("wss", False), ("nats", True)])
+async def test_render_connection_tls_policy(auth_method: str, scheme: str, local: bool) -> None:
+    """Render uses TLS-first only for native TLS endpoints."""
+    server = f"{scheme}://nats.example.test:4222"
+    config = _config(
+        server=server,
+        local=str(local),
+        auth_method=auth_method,
+        user="test-user",
+        password="test-password",
+        credentials="/test/user.creds",
+    )
+    conn = MagicMock()
+    conn.jetstream.return_value.stream_info = AsyncMock()
+    reconnected = AsyncMock()
+    with (
+        patch("nv_config_manager.common.config.load_config", return_value=config),
+        patch(
+            "nv_config_manager.common.config.nats.connect", new=AsyncMock(return_value=conn)
+        ) as connect,
+    ):
+        assert await nats_connection(reconnected_cb=reconnected) is conn
+
+    assert connect.await_args.args == (server,)
+    options = connect.await_args.kwargs
+    if scheme == "tls":
+        assert options["tls_handshake_first"] is True
+    else:
+        assert "tls_handshake_first" not in options
+    assert options["tls"].check_hostname
+    assert options["reconnected_cb"] is reconnected
+    assert options["allow_reconnect"] is True
+    if auth_method == "JWT":
+        assert options["user_credentials"] == "/test/user.creds"
+    else:
+        assert options["user"] == "test-user"
+        assert options["password"] == "test-password"
+    assert conn.jetstream.return_value.stream_info.await_count == (2 if local else 0)
 
 
 def test_from_config_reads_config_manager_api_prefix():

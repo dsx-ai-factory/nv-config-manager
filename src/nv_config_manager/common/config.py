@@ -26,6 +26,7 @@ from collections.abc import Awaitable, Callable
 from configparser import ConfigParser, SectionProxy
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import certifi
 import nats
@@ -590,6 +591,11 @@ async def nats_connection(
             options["user"] = nats_config["user"]
         if "password" in nats_config:
             options["password"] = nats_config["password"]
+
+    # Match the native TLS-first policy used by the archive NATS client.
+    # WSS and bundled nats:// connections retain their transport behavior.
+    if urlparse(servers).scheme == "tls":
+        options["tls_handshake_first"] = True
 
     conn = await nats.connect(servers, **options)
 

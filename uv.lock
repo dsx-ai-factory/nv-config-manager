@@ -2119,6 +2119,9 @@ wheels = [
 ]
 
 [package.optional-dependencies]
+aiohttp = [
+    { name = "aiohttp" },
+]
 nkeys = [
     { name = "nkeys" },
 ]
@@ -2573,7 +2576,7 @@ version = "1.0.0"
 source = { editable = "packages/infrastructure" }
 dependencies = [
     { name = "certifi" },
-    { name = "nats-py" },
+    { name = "nats-py", extra = ["aiohttp", "nkeys"] },
     { name = "nv-config-manager-logging" },
     { name = "redis", extra = ["hiredis"] },
 ]
@@ -2581,7 +2584,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "certifi", specifier = ">=2024.8.30" },
-    { name = "nats-py", specifier = ">=2.9.0" },
+    { name = "nats-py", extras = ["nkeys", "aiohttp"], specifier = ">=2.9.0" },
     { name = "nv-config-manager-logging", editable = "packages/logging" },
     { name = "redis", extras = ["hiredis"], specifier = ">=5.2.1" },
 ]
