@@ -299,9 +299,7 @@ class ConfigStoreClient(ServiceClient):
                 return None
             skipped = set(result.get("skipped") or [])
             submitted = [
-                item["filename"]
-                for item in filtered_items
-                if item["filename"] not in skipped
+                item["filename"] for item in filtered_items if item["filename"] not in skipped
             ]
             if len(created) != len(submitted):
                 raise ValueError(
