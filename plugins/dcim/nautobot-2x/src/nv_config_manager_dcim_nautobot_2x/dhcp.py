@@ -302,6 +302,44 @@ class NautobotDHCPOperations:
             offset += step
         return collected
 
+    async def _load_stable_pages(
+        self,
+        query: str,
+        result_key: str,
+        variables: dict[str, Any] | None = None,
+        page_size: int = GRAPHQL_PAGE_SIZE,
+        overlap: int = GRAPHQL_PAGE_OVERLAP,
+    ) -> list[Any]:
+        """Page a list twice and keep the first walk only if unique ids match.
+
+        Nautobot GraphQL has no snapshot, so a tear can still skip rows after
+        overlap. A second full walk that disagrees means the table moved (or
+        tiled wrong); raising here skips Redis so Kea keeps the last good config.
+        """
+        first = await self._iter_graphql_pages(
+            query,
+            result_key,
+            variables=variables,
+            page_size=page_size,
+            overlap=overlap,
+        )
+        second = await self._iter_graphql_pages(
+            query,
+            result_key,
+            variables=variables,
+            page_size=page_size,
+            overlap=overlap,
+        )
+        first_ids = {_row_signature(row) for row in first}
+        second_ids = {_row_signature(row) for row in second}
+        if first_ids != second_ids:
+            raise DHCPDataError(
+                f"Nautobot {result_key} changed during paging "
+                f"({len(first_ids)} then {len(second_ids)} unique rows); "
+                "not publishing this cycle"
+            )
+        return first
+
     async def load_dhcp_contexts(
         self,
         is_aggregate_managed: bool | None = None,
@@ -309,7 +347,7 @@ class NautobotDHCPOperations:
         overlap: int = GRAPHQL_PAGE_OVERLAP,
     ) -> dict[str, dict[str, object]]:
         """Compatibility hook returning DHCP contexts from Nautobot GraphQL."""
-        entries = await self._iter_graphql_pages(
+        entries = await self._load_stable_pages(
             load_graphql_query("provider/dhcp.graphql", "dhcp_contexts"),
             "config_manager_devices",
             variables={"is_aggregate_managed": is_aggregate_managed},
@@ -341,7 +379,7 @@ class NautobotDHCPOperations:
     ) -> list[dict[str, object]]:
         """Compatibility hook returning normalized automatic DHCP subnet data."""
         prefixes = _dedupe_keep_first(
-            await self._iter_graphql_pages(
+            await self._load_stable_pages(
                 load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_prefixes"),
                 "prefixes",
                 page_size=page_size,
@@ -353,7 +391,7 @@ class NautobotDHCPOperations:
             return []
 
         all_pool_ips = _dedupe_keep_first(
-            await self._iter_graphql_pages(
+            await self._load_stable_pages(
                 load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_pool_ips"),
                 "pool_ips",
                 page_size=page_size,
@@ -362,7 +400,7 @@ class NautobotDHCPOperations:
             "id",
         )
         all_reserved_ips = _dedupe_keep_first(
-            await self._iter_graphql_pages(
+            await self._load_stable_pages(
                 load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_reserved_ips"),
                 "reserved_ips",
                 page_size=page_size,

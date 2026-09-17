@@ -49,6 +49,12 @@ class _PagingNautobotClient(NautobotClient):
 
 
 _PREFIX_QUERY = 'query { prefixes(tags: ["dhcp-subnet"]) { id } }'
+_RESERVED_QUERY = 'query { ip_addresses(tags: ["dhcp-reserve"]) { id } }'
+
+
+def _twice(calls: list[tuple[str, int, int]]) -> list[tuple[str, int, int]]:
+    """Each GraphQL list is walked twice; walks of one list are consecutive."""
+    return calls + calls
 
 
 class _DeletingNautobotClient(_PagingNautobotClient):
@@ -64,6 +70,23 @@ class _DeletingNautobotClient(_PagingNautobotClient):
         if not self._deleted and self.calls[-1][0] == self._delete_from:
             self._pages[self._delete_from] = self._pages[self._delete_from][1:]
             self._deleted = True
+        return response
+
+
+class _DeleteAfterFirstWalk(_PagingNautobotClient):
+    """Remove a row after the first walk of a key ends (short or empty page)."""
+
+    def __init__(self, pages: dict[str, list[Any]]) -> None:
+        super().__init__(pages)
+        self._deleted: set[str] = set()
+
+    async def graphql_query(self, query, variables=None):  # noqa: ANN001
+        response = await super().graphql_query(query, variables)
+        key, limit, _offset = self.calls[-1]
+        page = response["data"][key]
+        if key not in self._deleted and (not page or len(page) < limit):
+            self._pages[key] = self._pages[key][1:]
+            self._deleted.add(key)
         return response
 
 
@@ -117,18 +140,20 @@ async def test_load_dhcp_contexts_follows_limit_offset_pages() -> None:
 
     assert list(contexts) == [f"dev-{i}" for i in range(5)]
     assert contexts["dev-4"] == {"n": 4}
-    assert client.calls == [
-        ("config_manager_devices", 2, 0),
-        ("config_manager_devices", 2, 2),
-        ("config_manager_devices", 2, 4),
-    ]
+    assert client.calls == _twice(
+        [
+            ("config_manager_devices", 2, 0),
+            ("config_manager_devices", 2, 2),
+            ("config_manager_devices", 2, 4),
+        ]
+    )
 
 
 @pytest.mark.asyncio
 async def test_load_dhcp_contexts_empty_first_page() -> None:
     client = _PagingNautobotClient({"config_manager_devices": []})
     assert await client.load_dhcp_contexts(page_size=2) == {}
-    assert client.calls == [("config_manager_devices", 2, 0)]
+    assert client.calls == _twice([("config_manager_devices", 2, 0)])
 
 
 @pytest.mark.asyncio
@@ -181,21 +206,19 @@ async def test_load_auto_dhcp_subnets_pages_each_list_independently() -> None:
     assert len(prefix_0["pool_ips"]) == 4
     assert len(prefix_0["reservations"]) == 1
     # Four pool IPs fill two pages of size 2; the next request is empty and stops.
-    assert client.calls == [
-        ("prefixes", 2, 0),
-        ("prefixes", 2, 2),
-        ("pool_ips", 2, 0),
-        ("pool_ips", 2, 2),
-        ("pool_ips", 2, 4),
-        ("reserved_ips", 2, 0),
-    ]
+    # Each list is walked twice so a torn read cannot publish.
+    assert client.calls == (
+        _twice([("prefixes", 2, 0), ("prefixes", 2, 2)])
+        + _twice([("pool_ips", 2, 0), ("pool_ips", 2, 2), ("pool_ips", 2, 4)])
+        + _twice([("reserved_ips", 2, 0)])
+    )
 
 
 @pytest.mark.asyncio
 async def test_load_auto_dhcp_subnets_stops_without_ip_queries_when_no_prefixes() -> None:
     client = _PagingNautobotClient({"prefixes": [], "pool_ips": [{"address": "1.1.1.1/32"}]})
     assert await client.load_auto_dhcp_subnets(page_size=2) == []
-    assert client.calls == [("prefixes", 2, 0)]
+    assert client.calls == _twice([("prefixes", 2, 0)])
 
 
 @pytest.mark.asyncio
@@ -394,11 +417,11 @@ async def test_overlap_recovers_row_shifted_by_concurrent_delete(
         delete_from="reserved_ips",
     )
 
-    subnets = await client.load_auto_dhcp_subnets(
-        family=4, is_aggregate_managed=False, page_size=2, overlap=overlap
+    rows = await client._iter_graphql_pages(
+        _RESERVED_QUERY, "reserved_ips", page_size=2, overlap=overlap
     )
 
-    assert len(subnets[0]["reservations"]) == expected_reservations
+    assert len({row["id"] for row in rows}) == expected_reservations
 
 
 @pytest.mark.asyncio
@@ -420,3 +443,29 @@ async def test_load_auto_dhcp_subnets_keeps_same_address_with_distinct_ids() -> 
     by_id = {str(subnet["id"]): subnet for subnet in subnets}
     assert len(by_id["prefix-0"]["reservations"]) == 1
     assert len(by_id["prefix-1"]["reservations"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_load_stable_pages_returns_first_walk_when_ids_match() -> None:
+    client = _PagingNautobotClient({"prefixes": _prefix_page(3)})
+
+    rows = await client._load_stable_pages(_PREFIX_QUERY, "prefixes", page_size=2, overlap=0)
+
+    assert [row["id"] for row in rows] == ["prefix-0", "prefix-1", "prefix-2"]
+    assert client.calls == _twice([("prefixes", 2, 0), ("prefixes", 2, 2)])
+
+
+@pytest.mark.asyncio
+async def test_load_stable_pages_raises_when_walks_disagree() -> None:
+    client = _DeleteAfterFirstWalk({"prefixes": _prefix_page(3)})
+
+    with pytest.raises(DHCPDataError, match="changed during paging"):
+        await client._load_stable_pages(_PREFIX_QUERY, "prefixes", page_size=2, overlap=0)
+
+
+@pytest.mark.asyncio
+async def test_load_dhcp_contexts_raises_when_walks_disagree() -> None:
+    client = _DeleteAfterFirstWalk({"config_manager_devices": _device_page(3)})
+
+    with pytest.raises(DHCPDataError, match="changed during paging"):
+        await client.load_dhcp_contexts(page_size=2, overlap=0)
