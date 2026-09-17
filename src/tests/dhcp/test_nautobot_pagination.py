@@ -238,6 +238,27 @@ async def test_iter_graphql_pages_raises_when_a_page_only_reorders() -> None:
 
 
 @pytest.mark.asyncio
+async def test_iter_graphql_pages_raises_when_pages_cycle() -> None:
+    """Alternating pages look like progress against only the previous page."""
+
+    class _CyclingClient(NautobotClient):
+        def __init__(self) -> None:
+            super().__init__("https://nautobot.example.com/", "dummy")
+            self.requests = 0
+
+        async def graphql_query(self, query, variables=None):  # noqa: ANN001
+            self.requests += 1
+            first = [{"id": "prefix-0"}, {"id": "prefix-1"}]
+            second = [{"id": "prefix-2"}, {"id": "prefix-3"}]
+            return {"data": {"prefixes": first if self.requests % 2 else second}}
+
+    client = _CyclingClient()
+    with pytest.raises(DHCPDataError, match="ignoring limit/offset"):
+        await client._iter_graphql_pages(_PREFIX_QUERY, "prefixes", page_size=2)
+    assert client.requests == 3
+
+
+@pytest.mark.asyncio
 async def test_iter_graphql_pages_detects_a_stall_in_rows_without_ids() -> None:
     """Rows that carry no id fall back to a whole-row signature."""
 

@@ -264,7 +264,7 @@ class NautobotDHCPOperations:
         collected: list[Any] = []
         extra = dict(variables or {})
         offset = 0
-        previous_signatures: set[str] | None = None
+        seen_signatures: set[str] = set()
         while True:
             page_vars = {**extra, "limit": page_size, "offset": offset}
             rsp = await self.graphql_query(query, page_vars)
@@ -280,16 +280,18 @@ class NautobotDHCPOperations:
             if len(page) < page_size:
                 break
             # Overlapping pages repeat rows on purpose, but a full page that
-            # adds none means the server served the same rows for a new offset.
-            # Only full pages qualify: a short final page can legitimately fall
-            # entirely inside the previous page's overlap.
+            # adds none means the server served rows we already have for a new
+            # offset. Compare against every page so far, not just the one
+            # before: a server cycling between two pages would otherwise look
+            # like progress forever. Only full pages qualify, since a short
+            # final page can legitimately fall inside the previous overlap.
             signatures = {_row_signature(row) for row in page}
-            if previous_signatures is not None and signatures <= previous_signatures:
+            if signatures <= seen_signatures:
                 raise DHCPDataError(
                     f"Nautobot returned no new {result_key} rows at offset {offset}, "
                     "so it is ignoring limit/offset"
                 )
-            previous_signatures = signatures
+            seen_signatures |= signatures
             logger.info(
                 "Fetched %d %s at offset %d (%d fetched)",
                 len(page),
