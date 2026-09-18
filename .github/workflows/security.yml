@@ -29,11 +29,20 @@ jobs:
           persist-credentials: false
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@14229018fe157c83e03c008f27d183d8e99bc67c
-      - name: Scan for secrets
+      # Push scans only cover the newly pushed commits, so historical false
+      # positives do not need special handling here.
+      - name: Scan pushed commits for secrets
+        if: github.event_name == 'push'
         uses: trufflesecurity/trufflehog@bcfcf73aaf4759d4dadc2783177c245a02792318 # v3.97.0
         with:
           version: 3.97.0
           extra_args: --results=verified,unknown
+      # Scheduled and manually dispatched scans cover the full Git history.
+      # Filter their JSON output by immutable finding metadata so approved
+      # historical false positives do not disable an entire detector or path.
+      - name: Scan full history for secrets
+        if: github.event_name != 'push'
+        run: .github/scripts/run-trufflehog-full-history
 
   codeql:
     name: CodeQL (${{ matrix.language }})
