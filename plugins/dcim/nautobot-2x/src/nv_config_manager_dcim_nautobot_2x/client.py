@@ -25,6 +25,8 @@ from typing import Any, Self, cast
 
 import aiohttp
 from aiohttp import ClientTimeout, TCPConnector
+from aiohttp_retry import ExponentialRetry, RetryClient
+from graphql import GraphQLError, OperationDefinitionNode, OperationType, parse
 from nv_config_manager_dcim.errors import DCIMError
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,36 @@ _SAFE_REST_PATH = re.compile(r"[A-Za-z0-9._~/-]+")
 
 DEFAULT_TIMEOUT = 30
 """Request budget used when the deployment does not configure one."""
+
+_GRAPHQL_RETRY_OPTIONS = ExponentialRetry(
+    attempts=3,
+    start_timeout=1.0,
+    max_timeout=5.0,
+    factor=2.0,
+    statuses={502, 503, 504},
+    exceptions={TimeoutError},
+    retry_all_server_errors=False,
+)
+
+
+def _graphql_document_is_query_only(query: str) -> bool:
+    """Return True when every executable operation is a GraphQL query.
+
+    Render plugins can pass an arbitrary document into ``graphql_query``.
+    Retrying a mutation after a gateway timeout can apply it twice.
+    """
+    try:
+        document = parse(str(query))
+    except GraphQLError:
+        return False
+    operations = [
+        definition
+        for definition in document.definitions
+        if isinstance(definition, OperationDefinitionNode)
+    ]
+    return bool(operations) and all(
+        operation.operation == OperationType.QUERY for operation in operations
+    )
 
 
 class NautobotException(DCIMError):
@@ -214,6 +246,11 @@ class NautobotClient:
 
         Raises:
             NautobotException: If the query fails or returns errors
+
+        Transient HTTP 502/503/504 and request timeouts are retried by
+        ``RetryClient`` for query-only documents. Mutations and unparseable
+        documents use the non-retrying session so a completed write is not
+        repeated. REST mutations are also unchanged.
         """
         session = await self._ensure_session()
         payload = {"query": query, "variables": variables or {}}
@@ -224,7 +261,15 @@ class NautobotClient:
         logger.debug("Executing GraphQL query")
 
         request_timeout = aiohttp.ClientTimeout(total=timeout or self._timeout)
-        async with session.post(
+        requester: aiohttp.ClientSession | RetryClient = session
+        if _graphql_document_is_query_only(query):
+            # Wrap the shared session; do not close RetryClient or it closes Nautobot too.
+            requester = RetryClient(
+                client_session=session,
+                retry_options=_GRAPHQL_RETRY_OPTIONS,
+                logger=logger,
+            )
+        async with requester.post(
             self.graphql_endpoint,
             json=payload,
             timeout=request_timeout,
