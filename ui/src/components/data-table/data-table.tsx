@@ -714,6 +714,59 @@ export function DataTable<TData, TValue>({
   };
 
   const isFetchingNextPage = pendingPageIndex !== null;
+  const rows = table.getRowModel().rows;
+  const isLoadingCurrentPage =
+    isLoading &&
+    table.getState().pagination.pageIndex *
+      table.getState().pagination.pageSize >=
+      tableData.length;
+  let tableBodyContent: React.ReactNode;
+
+  if (isLoadingCurrentPage) {
+    tableBodyContent = (
+      <TableRow>
+        <TableCell
+          colSpan={table.getVisibleLeafColumns().length}
+          className="h-24 text-center"
+        >
+          <div className="flex items-center justify-center h-full">
+            <LoadingSpinner />
+          </div>
+        </TableCell>
+      </TableRow>
+    );
+  } else if (rows.length > 0) {
+    tableBodyContent = rows.map((row) => (
+      <TableRow
+        className="border-border/60 odd:bg-background/35 even:bg-muted/10 hover:bg-muted/30"
+        key={row.id}
+        data-state={row.getIsSelected() && "selected"}
+      >
+        {row.getVisibleCells().map((cell) => (
+          <TableCell
+            className={cn(
+              "overflow-hidden border-r border-border/30 px-3 py-3 last:border-r-0",
+              cell.column.columnDef.meta?.className
+            )}
+            key={cell.id}
+          >
+            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+          </TableCell>
+        ))}
+      </TableRow>
+    ));
+  } else {
+    tableBodyContent = (
+      <TableRow>
+        <TableCell
+          colSpan={table.getVisibleLeafColumns().length}
+          className="h-24 text-center"
+        >
+          No results.
+        </TableCell>
+      </TableRow>
+    );
+  }
 
   return (
     <>
@@ -832,55 +885,7 @@ export function DataTable<TData, TValue>({
               </TableRow>
             ))}
           </TableHeader>
-          <TableBody className="bg-card">
-            {isLoading &&
-            table.getState().pagination.pageIndex *
-              table.getState().pagination.pageSize >=
-              tableData.length ? (
-              <TableRow>
-                <TableCell
-                  colSpan={table.getVisibleLeafColumns().length}
-                  className="h-24 text-center"
-                >
-                  <div className="flex items-center justify-center h-full">
-                    <LoadingSpinner />
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow
-                  className="border-border/60 odd:bg-background/35 even:bg-muted/10 hover:bg-muted/30"
-                  key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell
-                      className={cn(
-                        "overflow-hidden border-r border-border/30 px-3 py-3 last:border-r-0",
-                        cell.column.columnDef.meta?.className
-                      )}
-                      key={cell.id}
-                    >
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell
-                  colSpan={table.getVisibleLeafColumns().length}
-                  className="h-24 text-center"
-                >
-                  No results.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
+          <TableBody className="bg-card">{tableBodyContent}</TableBody>
         </Table>
         <div className="flex items-center justify-between w-full border-t border-border/70 bg-muted/20 p-4">
           <div className="flex items-center space-x-2">

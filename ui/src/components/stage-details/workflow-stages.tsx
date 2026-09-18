@@ -153,6 +153,27 @@ function customUrlTransform(url: string) {
   return sanitizeUrl(defaultUrlTransform(url));
 }
 
+type IdentifiedHistoryEntry = StateHistory & { id: string };
+
+function identifyHistoryEntries(
+  entries: StateHistory[]
+): IdentifiedHistoryEntry[] {
+  const occurrences = new Map<string, number>();
+
+  return entries.map((entry) => {
+    // History is append-only, so an occurrence-qualified fingerprint remains
+    // stable while distinguishing otherwise identical entries.
+    const fingerprint = `${entry.time}\u0000${entry.state}`;
+    const occurrence = occurrences.get(fingerprint) ?? 0;
+    occurrences.set(fingerprint, occurrence + 1);
+
+    return {
+      ...entry,
+      id: `${fingerprint}\u0000${occurrence}`,
+    };
+  });
+}
+
 const StageOutput = ({ stage }: { stage: WorkflowStage }) => {
   const stageOutput = stage?.output as { display?: string } | null | undefined;
   const output = stageOutput?.display;
@@ -460,20 +481,22 @@ export const WorkflowClientComponent: React.FC<
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {stage.state_history.map((state, index) => (
-                              <TableRow key={index}>
-                                <TableCell>
-                                  <Badge
-                                    className={handleBadgeClassName(
-                                      state.state
-                                    )}
-                                  >
-                                    {state.state}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell>{state.time}</TableCell>
-                              </TableRow>
-                            ))}
+                            {identifyHistoryEntries(stage.state_history).map(
+                              (state) => (
+                                <TableRow key={state.id}>
+                                  <TableCell>
+                                    <Badge
+                                      className={handleBadgeClassName(
+                                        state.state
+                                      )}
+                                    >
+                                      {state.state}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell>{state.time}</TableCell>
+                                </TableRow>
+                              )
+                            )}
                           </TableBody>
                         </Table>
                       </AccordionContent>
