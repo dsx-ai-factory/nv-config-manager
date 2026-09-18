@@ -324,6 +324,15 @@ class NautobotDHCPOperations:
         Nautobot GraphQL has no snapshot, so a tear can still skip rows after
         overlap. A second full walk that disagrees means the table moved (or
         tiled wrong); raising here skips Redis so Kea keeps the last good config.
+
+        Deliberately compares ids, not row contents. The failure worth catching
+        is a row the pager missed entirely, which drops a device or a subnet
+        from the published config. A field edited while a walk is in flight is
+        ordinary for a read with no snapshot isolation -- it was equally true of
+        the single request this replaced -- and the next poll picks it up.
+        Comparing full rows would instead fail closed whenever anything in the
+        inventory changed during the walk, which on a live cell is most cycles,
+        and the config would stop being published at all.
         """
         first = await self._iter_graphql_pages(
             query,

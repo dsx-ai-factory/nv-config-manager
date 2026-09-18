@@ -944,7 +944,11 @@ async def _patched_refresh_loop(
 
 
 async def test_refresh_cycle_retries_an_unstable_inventory() -> None:
-    """One write landing mid-read is enough to fail a cycle; reading again clears it."""
+    """One write landing mid-read is enough to fail a cycle; reading again clears it.
+
+    The counter tracks skipped cycles, so a retry that goes on to publish must
+    leave it alone -- otherwise a healthy pod reports skips it never made.
+    """
     refresh = AsyncMock(side_effect=[DCIMInventoryUnstableError("prefixes moved"), False])
     before = _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.INVENTORY_UNSTABLE)
 
@@ -958,15 +962,17 @@ async def test_refresh_cycle_retries_an_unstable_inventory() -> None:
         )
 
     assert refresh.await_count == 2
-    assert (
-        _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.INVENTORY_UNSTABLE)
-        == before + 1
-    )
+    assert _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.INVENTORY_UNSTABLE) == before
 
 
 async def test_refresh_cycle_stops_retrying_an_inventory_that_keeps_moving() -> None:
-    """Every attempt re-reads the whole inventory, so the retries have to be bounded."""
+    """Every attempt re-reads the whole inventory, so the retries have to be bounded.
+
+    Counting per attempt instead of per cycle would report this single skip
+    twice and break any rate on the metric.
+    """
     refresh = AsyncMock(side_effect=DCIMInventoryUnstableError("prefixes moved"))
+    before = _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.INVENTORY_UNSTABLE)
 
     with (
         patch.object(cli, "_refresh_kea_configuration_async", refresh),
@@ -976,6 +982,10 @@ async def test_refresh_cycle_stops_retrying_an_inventory_that_keeps_moving() -> 
         await cli._refresh_cycle_async(MagicMock(), MagicMock(), MagicMock(), 4, check=False)
 
     assert refresh.await_count == cli.UNSTABLE_INVENTORY_ATTEMPTS
+    assert (
+        _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.INVENTORY_UNSTABLE)
+        == before + 1
+    )
 
 
 async def test_refresh_loop_skips_a_cycle_it_cannot_read_consistently() -> None:

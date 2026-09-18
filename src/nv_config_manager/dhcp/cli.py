@@ -426,8 +426,12 @@ async def _refresh_cycle_async(
                 dcim_client, kea_client, redis_client, ip_version, check
             )
         except DCIMInventoryUnstableError as exc:
-            DHCP_QUERY_ERRORS.labels(error_type=QueryErrorType.INVENTORY_UNSTABLE).inc()
             if attempt >= UNSTABLE_INVENTORY_ATTEMPTS:
+                # Counted once per cycle the caller goes on to skip, not once
+                # per attempt: a retry that succeeds published normally, and
+                # counting each attempt would make an exhausted cycle look like
+                # two skips.
+                DHCP_QUERY_ERRORS.labels(error_type=QueryErrorType.INVENTORY_UNSTABLE).inc()
                 raise
             logger.warning(
                 f"DCIM inventory changed while it was being read "
