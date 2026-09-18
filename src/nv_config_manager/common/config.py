@@ -24,13 +24,14 @@ import os
 import ssl
 from collections.abc import Awaitable, Callable
 from configparser import ConfigParser, SectionProxy
-from enum import Enum
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import certifi
 import nats
 import nats.js.errors
+from nv_config_manager_clients import ConfigStoreType
 
 # =============================================================================
 # CLIENT IMPORTS
@@ -63,18 +64,6 @@ from nv_config_manager.ztp.storage import ObjectStorageClient
 
 if TYPE_CHECKING:
     import nats.aio.client
-
-
-# =============================================================================
-# ENUMS
-# =============================================================================
-
-
-class ConfigStoreType(Enum):
-    """Config store file types."""
-
-    BACKUP = "backup"
-    INTENDED = "intended"
 
 
 # =============================================================================
@@ -602,6 +591,11 @@ async def nats_connection(
             options["user"] = nats_config["user"]
         if "password" in nats_config:
             options["password"] = nats_config["password"]
+
+    # Match the native TLS-first policy used by the archive NATS client.
+    # WSS and bundled nats:// connections retain their transport behavior.
+    if urlparse(servers).scheme == "tls":
+        options["tls_handshake_first"] = True
 
     conn = await nats.connect(servers, **options)
 

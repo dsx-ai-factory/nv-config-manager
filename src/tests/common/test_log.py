@@ -12,17 +12,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for nv_config_manager.common.log."""
+"""Tests for the standalone logging package and core compatibility exports."""
 
 import io
 import json
 import logging
 from unittest import mock
 
+import nv_config_manager_logging as log
 import pytest
 from pythonjsonlogger.json import JsonFormatter
 
-from nv_config_manager.common import log
 from nv_config_manager.common.log import EscapingFilter, escape_log_newlines, get_logger
 from nv_config_manager_workflows.log import WORKFLOW_LOG_CATEGORY
 

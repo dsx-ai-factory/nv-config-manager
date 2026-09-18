@@ -43,8 +43,8 @@ jobs:
       - run: uv sync --frozen
       - run: uv run ruff format --check src/ packages plugins/dcim/nautobot-2x .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py
       - run: uv run ruff check src/ packages plugins/dcim/nautobot-2x .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py
-      - run: uv run ty check src/nv_config_manager/ packages/dcim/src packages/workflows .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py
-      - run: uv run mypy src/nv_config_manager packages/dcim/src packages/workflows .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py --no-incremental
+      - run: uv run ty check src/nv_config_manager/ packages/clients/src packages/infrastructure/src packages/logging/src packages/dcim/src packages/workflows scripts/generate_python_bindings.py .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py
+      - run: uv run mypy src/nv_config_manager packages/clients/src packages/infrastructure/src packages/logging/src packages/dcim/src packages/workflows scripts/generate_python_bindings.py .github/scripts/check-cnpg-podmonitors.py .gitlab/ci/scripts/wait_for_argocd.py .gitlab/ci/scripts/test_wait_for_argocd.py --no-incremental
       - name: Installer lint
         working-directory: installer
         run: |
@@ -553,7 +553,7 @@ jobs:
           fi
 
           echo "failed=false" >> "$GITHUB_OUTPUT"
-          changed_files="$(git status --short --untracked-files=all -- docs/api-specs bindings/go)"
+          changed_files="$(git status --short --untracked-files=all -- docs/api-specs bindings/go packages/clients/src/nv_config_manager_clients/generated)"
           if [ -n "$changed_files" ]; then
             echo "drift=true" >> "$GITHUB_OUTPUT"
             {
@@ -589,9 +589,9 @@ jobs:
             | head -n 1)"
 
           if [ "$DRIFT" = "true" ]; then
-            body="$(printf '%s\n\n%s\n\n```text\n%s\n```\n\n%s\n\n```bash\nmake api-generate\ngit add docs/api-specs bindings/go\n```\n\n%s' \
+            body="$(printf '%s\n\n%s\n\n```text\n%s\n```\n\n%s\n\n```bash\nmake api-generate\ngit add docs/api-specs bindings/go packages/clients/src/nv_config_manager_clients/generated\n```\n\n%s' \
               "$marker" \
-              '⚠️ The committed OpenAPI specifications and Go bindings are out of sync.' \
+              '⚠️ The committed OpenAPI specifications and Go/Python bindings are out of sync.' \
               "$CHANGED_FILES" \
               'Regenerate them locally, review the changes, then commit and push the result:' \
               'This check will remain failing until the generated files are current.')"
@@ -601,7 +601,7 @@ jobs:
             fi
             body="$(printf '%s\n\n%s' \
               "$marker" \
-              '✅ The committed OpenAPI specifications and Go bindings are back in sync.')"
+              '✅ The committed OpenAPI specifications and Go/Python bindings are back in sync.')"
           fi
 
           if [ -n "$comment_id" ]; then

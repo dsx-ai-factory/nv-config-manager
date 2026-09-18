@@ -89,6 +89,7 @@ PYTHON_DIRS = [
     "plugins/dcim/nautobot-2x",
     "components/nautobot",
     "packages/templates",
+    "packages/clients",
     "development/",
     "installer/",
 ]
