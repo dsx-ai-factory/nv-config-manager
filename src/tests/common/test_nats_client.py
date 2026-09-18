@@ -22,6 +22,7 @@ from nats.js.api import AckPolicy, DeliverPolicy
 from nats.js.errors import NotFoundError
 
 from nv_config_manager.common.client import DEFAULT_NATS_API_PREFIX, NatsClient, NatsConsumer
+from nv_config_manager.common.config import nats_connection
 
 TEST_SERVER = "nats://nats.example.local:4222"
 
@@ -43,6 +44,48 @@ def test_client_defaults_to_standard_api_prefix():
     assert client.api_prefix == DEFAULT_NATS_API_PREFIX == "$JS.API"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("auth_method", ["password", "JWT"])
+@pytest.mark.parametrize("scheme,local", [("tls", False), ("wss", False), ("nats", True)])
+async def test_render_connection_tls_policy(auth_method: str, scheme: str, local: bool) -> None:
+    """Render uses TLS-first only for native TLS endpoints."""
+    server = f"{scheme}://nats.example.test:4222"
+    config = _config(
+        server=server,
+        local=str(local),
+        auth_method=auth_method,
+        user="test-user",
+        password="test-password",
+        credentials="/test/user.creds",
+    )
+    conn = MagicMock()
+    conn.jetstream.return_value.stream_info = AsyncMock()
+    reconnected = AsyncMock()
+    with (
+        patch("nv_config_manager.common.config.load_config", return_value=config),
+        patch(
+            "nv_config_manager.common.config.nats.connect", new=AsyncMock(return_value=conn)
+        ) as connect,
+    ):
+        assert await nats_connection(reconnected_cb=reconnected) is conn
+
+    assert connect.await_args.args == (server,)
+    options = connect.await_args.kwargs
+    if scheme == "tls":
+        assert options["tls_handshake_first"] is True
+    else:
+        assert "tls_handshake_first" not in options
+    assert options["tls"].check_hostname
+    assert options["reconnected_cb"] is reconnected
+    assert options["allow_reconnect"] is True
+    if auth_method == "JWT":
+        assert options["user_credentials"] == "/test/user.creds"
+    else:
+        assert options["user"] == "test-user"
+        assert options["password"] == "test-password"
+    assert conn.jetstream.return_value.stream_info.await_count == (2 if local else 0)
+
+
 def test_from_config_reads_config_manager_api_prefix():
     """from_config picks up the config-manager account prefix."""
     client = NatsClient.from_config(_config(config_manager_api_prefix="$JS.CUSTOM.API"))
@@ -62,7 +105,8 @@ async def test_external_connect_does_not_require_stream_info():
 
     with (
         patch(
-            "nv_config_manager.common.client.nats.nats.connect", new=AsyncMock(return_value=conn)
+            "nv_config_manager_infrastructure.nats.client.nats.connect",
+            new=AsyncMock(return_value=conn),
         ),
         patch.object(client, "_ensure_stream", new_callable=AsyncMock) as ensure_stream,
     ):
@@ -79,7 +123,8 @@ async def test_local_connect_keeps_stream_setup():
 
     with (
         patch(
-            "nv_config_manager.common.client.nats.nats.connect", new=AsyncMock(return_value=conn)
+            "nv_config_manager_infrastructure.nats.client.nats.connect",
+            new=AsyncMock(return_value=conn),
         ),
         patch.object(client, "_ensure_stream", new_callable=AsyncMock) as ensure_stream,
     ):
@@ -114,6 +159,7 @@ async def test_consumer_binds_existing_durable_with_configured_api_prefix():
         deliver_subject="nv-config-manager.archive.delivery",
     )
     conn = MagicMock()
+    conn.close = AsyncMock()
     conn.is_closed = True
     expected = consumer._expected_consumer_config()
     conn.jetstream.return_value.consumer_info = AsyncMock(return_value=MagicMock(config=expected))
@@ -152,6 +198,7 @@ async def test_consumer_creates_missing_durable_then_binds_it():
         deliver_subject="nv-config-manager.archive.delivery",
     )
     conn = MagicMock(is_closed=True)
+    conn.close = AsyncMock()
     jetstream = conn.jetstream.return_value
     created_info = MagicMock(config=consumer._expected_consumer_config())
     jetstream.consumer_info = AsyncMock(side_effect=NotFoundError)
@@ -185,6 +232,7 @@ async def test_consumer_creation_race_binds_confirmed_durable():
         deliver_subject="nv-config-manager.archive.delivery",
     )
     conn = MagicMock(is_closed=True)
+    conn.close = AsyncMock()
     jetstream = conn.jetstream.return_value
     existing_info = MagicMock(config=consumer._expected_consumer_config())
     jetstream.consumer_info = AsyncMock(side_effect=[NotFoundError, existing_info])
@@ -228,6 +276,7 @@ async def test_consumer_stays_alive_after_subscribing():
         deliver_subject="nv-config-manager.archive.delivery",
     )
     conn = MagicMock()
+    conn.close = AsyncMock()
     type(conn).is_closed = PropertyMock(side_effect=[False, True])
     conn.jetstream.return_value.consumer_info = AsyncMock(
         return_value=MagicMock(config=consumer._expected_consumer_config())
@@ -237,9 +286,100 @@ async def test_consumer_stays_alive_after_subscribing():
     with (
         patch.object(consumer, "connect", new_callable=AsyncMock, return_value=conn),
         patch(
-            "nv_config_manager.common.client.nats.asyncio.sleep", new_callable=AsyncMock
+            "nv_config_manager_infrastructure.nats.consumer.asyncio.sleep",
+            new_callable=AsyncMock,
         ) as sleep,
     ):
         await consumer.main()
 
     sleep.assert_awaited_once_with(1)
+    conn.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_point", ["ensure", "subscribe"])
+async def test_consumer_closes_connection_when_startup_fails(failure_point):
+    """A connection established before a startup failure is always closed."""
+    consumer = NatsConsumer(
+        stream="nautobot",
+        subject="nautobot",
+        queue_suffix="archive",
+        handler=AsyncMock(),
+        server=TEST_SERVER,
+        deliver_subject="nv-config-manager.archive.delivery",
+    )
+    conn = MagicMock()
+    conn.close = AsyncMock()
+    jetstream = conn.jetstream.return_value
+    consumer_info = MagicMock(config=consumer._expected_consumer_config())
+    startup_error = RuntimeError(f"{failure_point} failed")
+    ensure_side_effect = startup_error if failure_point == "ensure" else None
+    subscribe_side_effect = startup_error if failure_point == "subscribe" else None
+
+    with (
+        patch.object(consumer, "connect", new_callable=AsyncMock, return_value=conn),
+        patch.object(
+            consumer,
+            "_ensure_consumer",
+            new_callable=AsyncMock,
+            return_value=consumer_info,
+            side_effect=ensure_side_effect,
+        ),
+    ):
+        jetstream.subscribe_bind = AsyncMock(side_effect=subscribe_side_effect)
+        with pytest.raises(RuntimeError, match=f"{failure_point} failed"):
+            await consumer.main()
+
+    conn.close.assert_awaited_once()
+
+
+def test_consumer_run_closes_event_loop_when_main_fails():
+    """The event loop is closed even when the consumer coroutine raises."""
+    consumer = NatsConsumer(
+        stream="nautobot",
+        subject="nautobot",
+        queue_suffix="archive",
+        handler=AsyncMock(),
+        server=TEST_SERVER,
+        deliver_subject="nv-config-manager.archive.delivery",
+    )
+    loop = MagicMock()
+    loop.run_until_complete.side_effect = RuntimeError("startup failed")
+
+    with (
+        patch(
+            "nv_config_manager_infrastructure.nats.consumer.asyncio.get_running_loop",
+            side_effect=RuntimeError,
+        ),
+        patch(
+            "nv_config_manager_infrastructure.nats.consumer.asyncio.new_event_loop",
+            return_value=loop,
+        ),
+        patch.object(consumer, "main", new=MagicMock(return_value=MagicMock())),
+        pytest.raises(RuntimeError, match="startup failed"),
+    ):
+        consumer.run()
+
+    loop.close.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_consumer_run_rejects_running_event_loop():
+    """The synchronous runner does not take ownership of a caller's event loop."""
+    consumer = NatsConsumer(
+        stream="nautobot",
+        subject="nautobot",
+        queue_suffix="archive",
+        handler=AsyncMock(),
+        server=TEST_SERVER,
+        deliver_subject="nv-config-manager.archive.delivery",
+    )
+
+    with (
+        patch.object(consumer, "main", new=MagicMock()) as main,
+        pytest.raises(RuntimeError, match="cannot be called from a running event loop"),
+    ):
+        consumer.run()
+
+    main.assert_not_called()
+    assert consumer._loop is None

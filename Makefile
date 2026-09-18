@@ -1,6 +1,6 @@
 .PHONY: help install dev test lint format sort-check sort-fix clean docker-build docker-push ui-install ui-dev ui-build \
         local-up local-down local-destroy local-status local-logs deploy kind-up kind-up-sec kind-up-sec-kgateway kind-up-secure kind-down topology install-cert workflow-perf-seed \
-        openapi openapi-check go-bindings api-generate docs-assets docs-assets-check docs-format docs-lint docs-lint-fern docs-live docs-preview docs-publish docs-publish-in-ci docs-screenshots docs-air-sim-screenshots docs-ui-screenshots \
+        openapi openapi-check go-bindings python-bindings api-generate docs-assets docs-assets-check docs-format docs-lint docs-lint-fern docs-live docs-preview docs-publish docs-publish-in-ci docs-screenshots docs-air-sim-screenshots docs-ui-screenshots \
         obs-grafana obs-prometheus obs-loki obs-alloy obs-port-forward obs-port-forward-stop
 
 # Configuration
@@ -128,7 +128,8 @@ help:
 	@echo "  make openapi          - Generate OpenAPI specs for all FastAPI services"
 	@echo "  make openapi-check    - Check if OpenAPI specs are up-to-date"
 	@echo "  make go-bindings      - Generate Go clients from the committed OpenAPI specs"
-	@echo "  make api-generate     - Regenerate OpenAPI specs and Go clients"
+	@echo "  make python-bindings  - Generate Python clients from the committed OpenAPI specs"
+	@echo "  make api-generate     - Regenerate OpenAPI specs, Go and Python clients"
 	@echo "  make docs-assets      - Mirror source assets into Fern docs assets"
 	@echo "  make docs-assets-check - Check if mirrored docs assets are up-to-date"
 	@echo "  make docs-lint        - Lint documentation markdown with rumdl"
@@ -290,9 +291,13 @@ openapi-check:
 go-bindings:
 	./scripts/generate_go_bindings.sh
 
+python-bindings:
+	uv run python scripts/generate_python_bindings.py
+
 api-generate:
 	$(MAKE) openapi
 	$(MAKE) go-bindings
+	$(MAKE) python-bindings
 
 # Documentation targets
 docs-assets:

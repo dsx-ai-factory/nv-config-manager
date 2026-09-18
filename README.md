@@ -8,7 +8,8 @@ NVIDIA Config Manager (NVCM) is an open-source network automation and configurat
 NVCM is currently in Developer Preview and is not recommended for production use.
 
 [Hosted documentation](https://docs.nvidia.com/switch-infrastructure/config-manager/)
-· [Community questions and feature discussions](https://github.com/dsx-ai-factory/nv-config-manager/issues)
+· [AI Builders community](https://inviter.co/dsx-ai-factory)
+· [Issue tracker](https://github.com/dsx-ai-factory/nv-config-manager/issues)
 · [Public release process](RELEASE.md)
 
 ## Overview
@@ -327,6 +328,13 @@ Temporal workers --> selected DCIM provider, Render, Config Store, and managed d
 ```
 
 ## Testing
+
+Python integrations can use the [service clients SDK](packages/clients/README.md),
+which includes generated APIs and async convenience wrappers without server or
+workflow dependencies. Shared Redis, NATS, and locking adapters live in the
+separate [infrastructure package](packages/infrastructure/README.md).
+Shared structured logging is available independently through the
+[logging package](packages/logging/README.md).
 
 ```bash
 make test

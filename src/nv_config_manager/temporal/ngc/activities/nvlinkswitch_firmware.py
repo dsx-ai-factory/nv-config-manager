@@ -261,16 +261,16 @@ async def validate_target_files(activity_input: ValidateTargetFilesInput) -> Non
             component_info = bundle.components.get(component.lower())
             component_s3_paths[component] = component_info.source_path if component_info else None
 
-        ztp = ztp_client()
         missing_files = []
 
-        for component, s3_path in component_s3_paths.items():
-            if s3_path:
-                file_exists = await ztp.check_file_exists(s3_path)
-                if not file_exists:
-                    missing_files.append(f"{component}: {s3_path}")
-            else:
-                missing_files.append(f"{component}: no s3_path found in firmware info")
+        async with ztp_client() as ztp:
+            for component, s3_path in component_s3_paths.items():
+                if s3_path:
+                    file_exists = await ztp.check_file_exists(s3_path)
+                    if not file_exists:
+                        missing_files.append(f"{component}: {s3_path}")
+                else:
+                    missing_files.append(f"{component}: no s3_path found in firmware info")
 
         if missing_files:
             raise ApplicationError(f"Firmware files not found on ZTP server: {missing_files}")
