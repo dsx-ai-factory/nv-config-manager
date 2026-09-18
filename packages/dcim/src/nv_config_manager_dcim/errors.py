@@ -43,6 +43,15 @@ class DCIMInvalidDataError(DCIMError):
     """A provider returned data that does not satisfy the SDK contract."""
 
 
+class DCIMInventoryUnstableError(DCIMInvalidDataError):
+    """A provider could not read a self-consistent inventory this cycle.
+
+    Separate from its parent because the records themselves are fine: the list
+    moved while it was being read, so an identical call later can succeed.
+    Callers should retry or keep their last good result rather than fail hard.
+    """
+
+
 class DCIMOperationNotSupportedError(DCIMError):
     """The selected provider does not implement the requested SDK operation."""
 

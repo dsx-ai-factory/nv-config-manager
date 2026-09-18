@@ -17,7 +17,8 @@
 from typing import Any
 
 import pytest
-from nv_config_manager_dcim_nautobot_2x.dhcp import DHCPDataError
+from nv_config_manager_dcim.errors import DCIMInventoryUnstableError
+from nv_config_manager_dcim_nautobot_2x.dhcp import DHCPDataError, DHCPSnapshotError
 from nv_config_manager_dcim_nautobot_2x.provider import NautobotDCIMClient as NautobotClient
 
 
@@ -461,6 +462,21 @@ async def test_load_stable_pages_raises_when_walks_disagree() -> None:
 
     with pytest.raises(DHCPDataError, match="changed during paging"):
         await client._load_stable_pages(_PREFIX_QUERY, "prefixes", page_size=2, overlap=0)
+
+
+async def test_disagreeing_walks_raise_the_retryable_error() -> None:
+    """Confgen retries this one instead of restarting, so the type has to carry.
+
+    A malformed-record DHCPDataError is deterministic and must keep failing the
+    refresh; only a list that moved mid-read is worth reading again.
+    """
+    client = _DeleteAfterFirstWalk({"prefixes": _prefix_page(3)})
+
+    with pytest.raises(DCIMInventoryUnstableError) as excinfo:
+        await client._load_stable_pages(_PREFIX_QUERY, "prefixes", page_size=2, overlap=0)
+
+    assert isinstance(excinfo.value, DHCPSnapshotError)
+    assert not issubclass(DHCPDataError, DCIMInventoryUnstableError)
 
 
 @pytest.mark.asyncio

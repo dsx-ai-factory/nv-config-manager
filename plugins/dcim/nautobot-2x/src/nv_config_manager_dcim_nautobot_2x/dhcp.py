@@ -21,7 +21,7 @@ import json
 import logging
 from typing import Any, cast
 
-from nv_config_manager_dcim.errors import DCIMInvalidDataError
+from nv_config_manager_dcim.errors import DCIMInvalidDataError, DCIMInventoryUnstableError
 
 from nv_config_manager_dcim_nautobot_2x.queries import load_graphql_query
 
@@ -39,6 +39,15 @@ GRAPHQL_PAGE_OVERLAP = 10
 
 class DHCPDataError(DCIMInvalidDataError):
     """Nautobot returned invalid data required for DHCP configuration."""
+
+
+class DHCPSnapshotError(DHCPDataError, DCIMInventoryUnstableError):
+    """Two reads of the same Nautobot list disagreed, so neither is trusted.
+
+    Inherits DHCPDataError so existing provider error handling is unchanged, and
+    DCIMInventoryUnstableError so confgen can tell "inventory moved, try again"
+    apart from "these records are malformed", which no retry will fix.
+    """
 
 
 def _row_signature(row: dict[str, Any]) -> str:
@@ -333,7 +342,7 @@ class NautobotDHCPOperations:
         first_ids = {_row_signature(row) for row in first}
         second_ids = {_row_signature(row) for row in second}
         if first_ids != second_ids:
-            raise DHCPDataError(
+            raise DHCPSnapshotError(
                 f"Nautobot {result_key} changed during paging "
                 f"({len(first_ids)} then {len(second_ids)} unique rows); "
                 "not publishing this cycle"
