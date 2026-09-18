@@ -161,6 +161,51 @@ async def test_collect_config():
 
 
 @pytest.mark.asyncio
+async def test_workflows_collects_temporal_server_sizing():
+    config = NVConfigManagerInstallConfig()
+    config.temporal.history_replicas = 16
+    config.temporal.num_history_shards = 128
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("workflows")
+        screen = app._screens["workflows"]
+        replicas = screen.query_one("#temporal-history-replicas", Input)
+        shards = screen.query_one("#temporal-history-shards", Input)
+
+        assert replicas.value == "16"
+        assert shards.value == "128"
+
+        replicas.value = "8"
+        shards.value = "64"
+        app.collect_config()
+
+        assert app.config.temporal.history_replicas == 8
+        assert app.config.temporal.num_history_shards == 64
+
+
+@pytest.mark.asyncio
+async def test_workflows_temporal_sizing_blocks_negative_input():
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("workflows")
+        screen = app._screens["workflows"]
+        replicas = screen.query_one("#temporal-history-replicas", Input)
+        shards = screen.query_one("#temporal-history-shards", Input)
+
+        replicas.value = "-1"
+        shards.value = "-"
+        app.collect_config()
+
+        assert replicas.value == ""
+        assert shards.value == ""
+        assert app.config.temporal.history_replicas == 0
+        assert app.config.temporal.num_history_shards == 0
+
+
+@pytest.mark.asyncio
 async def test_infrastructure_loads_explicit_redis_metrics_preference():
     config = NVConfigManagerInstallConfig(
         infrastructure=InfrastructureConfig(
