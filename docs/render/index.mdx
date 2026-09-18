@@ -190,7 +190,8 @@ This implements role-specific blocks by including role-specific templates.
 {% extends "cumulus-linux/tan-leaf/base/startup.yaml.j2" %}
 ```
 
-This simply extends the role base. If version 5.6.0 needs specific changes, blocks can be overridden here.
+This extends the role base. If version 5.6.0 needs specific changes, override
+the blocks here.
 
 ### Include Template Inheritance
 
@@ -483,7 +484,7 @@ username admin secret {{ admin_pass|encrypt("sha512") }}
 tacacs-server key {{ tacacs_key|encrypt("ciscot7") }}
 ```
 
-## Nautobot Provider Source Mapping
+## Nautobot provider source mapping
 
 The following detail is specific to the bundled Nautobot provider's current
 render-data mapping. It is useful for maintaining the Nautobot provider, but
@@ -547,7 +548,7 @@ location
 └── uc_jumphost_prefixes[]: Jumphost prefixes
 ```
 
-### Provider Mapping
+### Provider mapping
 
 Nautobot's `config_context` field can contain policy JSON, but templates never
 receive that native object. The bundled provider maps the values it supports to
@@ -760,7 +761,7 @@ reference templates:
 
 1. **Immutable Data**: Use `frozen=True` dataclasses to prevent accidental mutations.
 
-### Provider Data Management
+### Provider data management
 
 1. **Consistent Naming**: Follow consistent naming conventions for devices, interfaces, VLANs, and so on.
 

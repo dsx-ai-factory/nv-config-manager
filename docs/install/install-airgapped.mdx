@@ -48,7 +48,9 @@ The following components are assumed to be pre-installed and configured by your 
    kubectl get ipaddresspool -n metallb-system -o yaml
    ```
 
-   The output of the second command will be similar to the following example. In this case, the output shows a pool of available IP addresses from `10.0.100.200` through `10.0.100.210`:
+   The output of the second command resembles the following example, which shows
+   a pool of available IP addresses from `10.0.100.200` through
+   `10.0.100.210`:
 
    ```yaml
    apiVersion: metallb.io/v1beta1
@@ -63,7 +65,8 @@ The following components are assumed to be pre-installed and configured by your 
 
 1. From the output of the second command, select two unused IP addresses for ZTP and DHCP services.
 
-   You will use these with the `--ztp-lb-ip` and `--dhcp-lb-ip` flags when deploying Config Manager.
+   Use these addresses with the `--ztp-lb-ip` and `--dhcp-lb-ip` flags when
+   deploying Config Manager.
 
 1. Set the `--lb-allowed-prefixes` flag for the deploy script to the OOB (out-of-band) management network CIDR(s) from which devices will reach these services.
 
@@ -192,7 +195,7 @@ The bootstrap script creates a local virtual environment from bundled wheels and
 Launch the TUI and save a repeatable installer configuration.
 
 ```bash
-./installer/nvcm-installer init install.yaml
+./installer/nvcm-installer init --config install.yaml
 ```
 
 At minimum, confirm the following sections before deploying:
@@ -278,11 +281,11 @@ Deploying Config Manager with the installer, including any post-deploy Nautobot 
 
 ### How Devices Get into Config Manager
 
-Devices enter Config Manager through Nautobot. You can create them manually, through the Nautobot API, or with a post-deploy job such as a Nautobot Design Builder topology loader. The local SuperPOD profile includes a mock topology Design Builder job in `development/mock_topology` that you can use as a model before building your own offline context or job bundle. See [Design Builder Data Loading](../nautobot/design-builder-data-loading.mdx) for the job structure.
+Devices enter Config Manager through the selected DCIM provider. With the bundled Nautobot provider, you can create them manually, through the Nautobot API, or with a post-deploy job such as a Nautobot Design Builder topology loader. The local SuperPOD profile includes a mock topology Design Builder job in `development/mock_topology` that you can use as a model before building your own offline context or job bundle. See [Design Builder Data Loading](../nautobot/design-builder-data-loading.mdx) for the job structure.
 
 ### How ZTP Starts
 
-ZTP is initiated by the device, not by Config Manager. As soon as Config Manager has sufficient Nautobot data, it serves DHCP on the configured network. When a device is cabled and powered on, it gets an IP address and boot file from DHCP, then retrieves its configuration and firmware from the ZTP service. Devices that successfully complete ZTP show a status of `Provisioned` in Nautobot.
+ZTP is initiated by the device, not by Config Manager. As soon as Config Manager has sufficient data from the selected DCIM provider, it serves DHCP on the configured network. When a device is cabled and powered on, it gets an IP address and boot file from DHCP, then retrieves its configuration and firmware from the ZTP service. The provider records successful ZTP completion; the bundled Nautobot provider sets the device status to `Provisioned`.
 
 ### If a Post-Deploy Job Fails
 
@@ -301,7 +304,7 @@ kubectl get pods -n nv-config-manager -l app=nv-config-manager-platform-render
 # Device-change consumer performs the actual render.
 kubectl logs -n nv-config-manager -l app=nv-config-manager-platform-render,component=consumer-device -f --tail=500
 
-# Nautobot consumer dispatches events.
+# DCIM event consumer dispatches provider events.
 kubectl logs -n nv-config-manager -l app=nv-config-manager-platform-render,component=consumer-nautobot -f --tail=500
 ```
 
@@ -309,7 +312,7 @@ Search log output for `RenderException`, `Error processing event`, or Python tra
 
 To verify that devices have DHCP reservations, call the DHCP config endpoint, usually `https://dhcp.config-manager.example.com/config?ip_version=4`, and search for the device by hostname, IP address, or device UUID.
 
-To verify that DHCP has sufficient data from Nautobot, check the logs of the `config-refresh-v4` container in the DHCP refresh pods.
+To verify that DHCP has sufficient data from the selected DCIM provider, check the logs of the `config-refresh-v4` container in the DHCP refresh pods.
 
 ```bash
 kubectl logs -n nv-config-manager -l app=nv-config-manager-platform-dhcp-refresh -c config-refresh-v4 -f --tail=200
@@ -317,7 +320,7 @@ kubectl logs -n nv-config-manager -l app=nv-config-manager-platform-dhcp-refresh
 
 ## Iterative Deployment and Post-Deploy Changes
 
-You do not need to redeploy from scratch when you change data, add images, update templates, or upgrade versions. Treat `install.yaml` as the source of truth: re-open it with `./installer/nvcm-installer init install.yaml`, adjust the configuration, and deploy again.
+You do not need to redeploy from scratch when you change data, add images, update templates, or upgrade versions. Treat `install.yaml` as the source of truth: re-open it with `./installer/nvcm-installer init --config install.yaml`, adjust the configuration, and deploy again.
 
 ```bash
 ./installer/nvcm-installer deploy install.yaml \

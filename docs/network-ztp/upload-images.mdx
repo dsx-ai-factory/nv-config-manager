@@ -125,7 +125,7 @@ infrastructure:
 Re-run:
 
 ```bash
-uv run nvcm-installer init nv-config-manager-install.yaml
+uv run nvcm-installer init --config nv-config-manager-install.yaml
 uv run nvcm-installer deploy nv-config-manager-install.yaml
 ```
 
@@ -141,18 +141,23 @@ If the PVC is NFS-backed and the API is not reachable, you can write the image s
 
    ```json
    {
-     "platform": "cumulus-linux",
-     "version": "5.14.0",
-     "filename": "cumulus-linux-5.14.0-mlx-amd64.bin",
-     "path": "cumulus-linux/5.14.0/cumulus-linux-5.14.0-mlx-amd64.bin",
-     "sha256": "7c0a9f...",
-     "tags": { "firmware-image": "" }
+     "images": [
+       {
+         "platform": "cumulus-linux",
+         "version": "5.14.0",
+         "filename": "cumulus-linux-5.14.0-mlx-amd64.bin",
+         "path": "cumulus-linux/5.14.0/cumulus-linux-5.14.0-mlx-amd64.bin",
+         "sha256": "7c0a9f...",
+         "tags": { "firmware-image": "" }
+       }
+     ]
    }
    ```
 
 The `tags.firmware-image` field is what marks this file as the OS image for the directory. Omit it for supporting files.
 
-Reach for this approach only when the API path is unavailable. The API and the installer keep the manifest consistent for you; hand edits are easy to get wrong.
+Use this approach only when the API is unavailable. The API and installer keep
+the manifest consistent and avoid errors from manual edits.
 
 ## Verify the upload
 

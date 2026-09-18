@@ -8,9 +8,10 @@ position: 10
 
 The NVIDIA Config Manager ZTP Server provides REST API endpoints for network device Zero Touch Provisioning (ZTP). The API serves boot scripts, rendered configurations, firmware images, and manages the provisioning workflow.
 
-API endpoints are organized into three main endpoint groups, detailed below. Refer to the [API Reference](api:ztp-api) for complete endpoint reference.
+The API has three endpoint groups. The [API reference](api:ztp-api) documents
+every endpoint.
 
-### Device Endpoints
+### Device endpoints
 
 Device-specific endpoints for boot scripts, configurations, firmware, and provisioning status:
 
@@ -21,14 +22,14 @@ Device-specific endpoints for boot scripts, configurations, firmware, and provis
 - `POST /v1/device/{device_uuid}/provisioned` - Mark device as provisioned
 - `POST /v1/device/{device_uuid}/validate_serial` - Validate device serial number
 
-### Firmware Endpoints
+### Firmware endpoints
 
 Platform and version-based firmware access:
 
 - `GET /v1/firmware/{platform}/{version}` - Download firmware by platform/version
 - `GET /v1/firmware/{platform}/{version}/checksum` - Get firmware checksum
 
-### File Endpoints
+### File endpoints
 
 Generic file storage and retrieval:
 
@@ -42,20 +43,20 @@ Generic file storage and retrieval:
 
 Contact your system administrator for the ZTP server URL for your environment.
 
-## Authentication & Authorization
+## Authentication & authorization
 
-### Device Endpoints
+### Device endpoints
 
 The device-specific endpoints listed above accept either a device-originated request or an authenticated user request:
 
 - Device-originated requests must come from an IP address associated with the device in the selected DCIM provider
 - User-originated requests must come through the Envoy gateway as an authenticated user when SSO is enabled for the deployment
 
-### Admin Endpoints
+### Admin endpoints
 
 Admin endpoints (file uploads, sync triggers) require an authenticated user request through the Envoy gateway when SSO is enabled for the deployment.
 
-## Error Responses
+## Error responses
 
 All endpoints may return standard HTTP error codes:
 
@@ -72,18 +73,18 @@ Error responses include a JSON body with error details:
 }
 ```
 
-## Streaming Responses
+## Streaming responses
 
-Endpoints that return large files (firmware images, files) use streaming responses:
+Endpoints that return large files use streaming responses:
 
-- Files are streamed efficiently for optimal performance
-- Proper cleanup occurs even if the client disconnects
+- Files are streamed instead of loaded into memory.
+- The server cleans up resources if the client disconnects.
 
-## OpenAPI Documentation
+## OpenAPI documentation
 
 Interactive API documentation is available at:
 
 - Swagger UI: `https://ztp.example.com/docs`
 - ReDoc: `https://ztp.example.com/redoc`
 
-The OpenAPI schema is automatically generated from the FastAPI application.
+The FastAPI application generates the OpenAPI schema.
