@@ -85,7 +85,7 @@ dependencies = [
     "ruamel-yaml>=0.18.6",
     # Git
     # Security: Fix GitPython vulnerability (GHSA-mv93-w799-cj2w)
-    "gitpython>=3.1.50",
+    "gitpython>=3.1.62",
     # Data Processing
     "numpy>=2.1.0,<3.0.0",
     "pandas>=2.3.0",
@@ -116,6 +116,9 @@ dependencies = [
     "nv-config-manager-dcim-nautobot-2x",
     # Shared workflow contracts and implementations imported by the Temporal services
     "nv-config-manager-workflows",
+    "nv-config-manager-clients",
+    "nv-config-manager-infrastructure",
+    "nv-config-manager-logging",
 ]
 
 [project.scripts]
@@ -182,7 +185,6 @@ dev = [
     # Type stubs
     "types-requests>=2.32.0",
     "types-pyyaml>=6.0.12.20240311",
-    "types-redis>=4.6.0.20241004",
     "types-paramiko>=3.4.0",
 
     # Utilities
@@ -209,9 +211,12 @@ docs = [
 package = true
 
 [tool.uv.workspace]
-members = ["packages/dcim", "packages/templates", "packages/workflows", "plugins/dcim/nautobot-2x"]
+members = ["packages/clients", "packages/infrastructure", "packages/logging", "packages/dcim", "packages/templates", "packages/workflows", "plugins/dcim/nautobot-2x"]
 
 [tool.uv.sources]
+nv-config-manager-clients = { workspace = true }
+nv-config-manager-infrastructure = { workspace = true }
+nv-config-manager-logging = { workspace = true }
 nv-config-manager-dcim = { workspace = true }
 nv-config-manager-dcim-nautobot-2x = { workspace = true }
 nv-config-manager-templates = { workspace = true }
@@ -232,6 +237,9 @@ testpaths = [
     "development/mock_topology/tests",
     "development/ufm_mock/tests",
     "packages/workflows/tests",
+    "packages/clients/tests",
+    "packages/infrastructure/tests",
+    "packages/logging/tests",
 ]
 timeout = 30  # Global timeout in seconds per test
 # Exclude integration tests by default (they require a running cluster)
@@ -253,11 +261,16 @@ venvPath = "."
 venv = ".venv"
 
 [tool.mypy]
+exclude = ['packages/clients/src/nv_config_manager_clients/generated/']
 cache_dir = ".cache/mypy_cache"
 python_version = "3.13"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["nv_config_manager_clients.generated.*"]
+ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = [
@@ -278,6 +291,7 @@ ignore_missing_imports = true
 line-length = 100
 target-version = "py313"
 exclude = [
+    "packages/clients/src/nv_config_manager_clients/generated",
     ".git",
     ".mypy_cache",
     ".pytest_cache",
@@ -362,6 +376,9 @@ min-similarity-lines = 16
 
 [tool.ty.analysis]
 respect-type-ignore-comments = true
+
+[tool.ty.src]
+exclude = ["packages/clients/src/nv_config_manager_clients/generated/**"]
 
 [tool.pydocstyle]
 convention = "google"

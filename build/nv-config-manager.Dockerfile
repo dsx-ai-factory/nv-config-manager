@@ -45,6 +45,9 @@ ARG TEMPLATE_ENGINE_VERSION=""
 COPY pyproject.toml uv.lock README.md /code/nv-config-manager/
 COPY src/nv_config_manager/ /code/nv-config-manager/src/nv_config_manager/
 COPY src/tests/ /code/nv-config-manager/src/tests/
+COPY packages/clients/ /code/nv-config-manager/packages/clients/
+COPY packages/infrastructure/ /code/nv-config-manager/packages/infrastructure/
+COPY packages/logging/ /code/nv-config-manager/packages/logging/
 COPY packages/dcim/pyproject.toml packages/dcim/README.md /code/nv-config-manager/packages/dcim/
 COPY packages/dcim/src/ /code/nv-config-manager/packages/dcim/src/
 COPY plugins/dcim/nautobot-2x/pyproject.toml plugins/dcim/nautobot-2x/README.md /code/nv-config-manager/plugins/dcim/nautobot-2x/
@@ -82,7 +85,7 @@ RUN --mount=type=cache,id=nvcm-uv-cache,target=/root/.cache/uv \
 # =============================================================================
 # Runtime stage - NVIDIA distroless Python
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/python:3.13-v4.1.1@sha256:6b49f6183eaec6dbd100219a43314bbf1d71b148eafcce62fdcc6472d066b5d9
+FROM nvcr.io/nvidia/distroless/python:3.13-v4.1.4@sha256:eb5be985571eab7eac5e2ff722ed17eedbf64d4cf584ae0cef34cc6497592556
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

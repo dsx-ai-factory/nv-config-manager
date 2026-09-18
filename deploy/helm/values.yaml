@@ -560,6 +560,10 @@ externalServices:
   # NATS Configuration
   nats:
     # Server URL
+    # External password/JWT auth requires tls:// or wss://. Native tls://
+    # requires handshake_first: true in the external server's tls block.
+    # WSS encrypts the WebSocket handshake before any NATS messages.
+    # See docs/render/render-service.mdx (External NATS administration).
     server: "nats://nats:4222"
     # Username for password auth
     user: "nv-config-manager"

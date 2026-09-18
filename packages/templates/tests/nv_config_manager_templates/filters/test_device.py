@@ -598,7 +598,7 @@ def test_firmware_bundle_filters() -> None:
                             "name": "bios",
                             "artifact": {
                                 "image_file": "custom_bios.fwpkg",
-                                "source_path": "custom/custom_bios.fwpkg",
+                                "source_path": "custom/1.2.2/custom_bios.fwpkg",
                             },
                         }
                     ],
@@ -634,6 +634,10 @@ def test_firmware_bundle_filters() -> None:
     assert firmware_component(mock_data_with_bundle, "bmc")["file"] == "new_bmc.fwpkg"
     assert firmware_component(mock_data_with_bundle, "cpld") is None
     assert firmware_component(mock_data_with_bundle, "bios")["file"] == "custom_bios.fwpkg"
+    assert (
+        firmware_component(mock_data_with_bundle, "bios")["s3_path"]
+        == "custom/1.2.2/custom_bios.fwpkg"
+    )
     assert firmware_component(mock_data_with_bundle, "nonexistent") is None
     assert nv_os_version(mock_data_with_bundle) == "25.02.2344"
     assert nv_os_image_file(mock_data_with_bundle, "1.2.0") == "nvos-amd64-25.02.2342.bin"
