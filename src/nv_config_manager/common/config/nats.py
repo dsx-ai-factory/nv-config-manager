@@ -27,6 +27,7 @@ import certifi
 import nats
 import nats.aio.client
 import nats.js.errors
+from nats import connect
 from nv_config_manager_infrastructure.nats.client import DEFAULT_NATS_API_PREFIX
 
 from nv_config_manager.common.client.nats import config_manager_api_prefix
@@ -239,7 +240,7 @@ async def nats_connection(
     if urlparse(servers).scheme == "tls":
         options["tls_handshake_first"] = True
 
-    conn = await nats.connect(servers, **options)
+    conn = await connect(servers, **options)
 
     # Create streams locally if needed
     if nats_config.getboolean("local", fallback=False):
