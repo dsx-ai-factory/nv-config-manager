@@ -62,7 +62,7 @@ async def test_render_connection_tls_policy(auth_method: str, scheme: str, local
     conn.jetstream.return_value.stream_info = AsyncMock()
     reconnected = AsyncMock()
     with (
-        patch("nv_config_manager.common.config.load_config", return_value=config),
+        patch("nv_config_manager.common.config.loader.load_config", return_value=config),
         patch(
             "nv_config_manager.common.config.nats.connect", new=AsyncMock(return_value=conn)
         ) as connect,

@@ -27,7 +27,8 @@ from nv_config_manager_infrastructure import lock as lock_primitives
 from nv_config_manager_infrastructure.lock import NoopLock as _FakeLock
 from redis.asyncio.lock import Lock as AsyncRedisLock
 
-from nv_config_manager.common.config import is_local_environment, redis_client
+from nv_config_manager.common.config import redis_client
+from nv_config_manager.common.config.environment import is_local_environment
 
 if TYPE_CHECKING:
     from nv_config_manager.common.client import RedisClient

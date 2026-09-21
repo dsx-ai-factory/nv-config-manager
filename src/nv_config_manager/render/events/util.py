@@ -25,9 +25,7 @@ from typing import TYPE_CHECKING
 import nats.js
 
 from nv_config_manager.common.config import (
-    LogCategory,
     NATSConnectionManager,
-    get_logger,
     is_aggregate_environment,
     is_local_environment,
     nats_config_manager_api_prefix,
@@ -35,6 +33,7 @@ from nv_config_manager.common.config import (
     nats_render_change_config,
     redis_client,
 )
+from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMClient, dcim_client_session
 
 if TYPE_CHECKING:
