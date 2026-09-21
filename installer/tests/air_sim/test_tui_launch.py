@@ -345,6 +345,7 @@ def test_dhcp_activity_helpers_include_refresh_and_config_events() -> None:
 
 
 def test_ztp_activity_helpers_include_sftp_requests() -> None:
+    """Recognize SFTP device requests while excluding health-check noise."""
     assert _is_interesting_ztp_line(
         "Request for path: /device/device-1/startup.yaml from 10.120.1.10"
     )
@@ -354,10 +355,12 @@ def test_ztp_activity_helpers_include_sftp_requests() -> None:
 def test_service_log_snapshots_include_dhcp_and_both_ztp_transports(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Collect DHCP, ZTP HTTP, and ZTP SFTP output in their service streams."""
     manager = AirSimulationManager.__new__(AirSimulationManager)
     commands: list[str] = []
 
     def fake_ssh_cmd(host: str, port: int) -> list[str]:
+        """Return a stable SSH prefix after checking the requested AIR worker."""
         assert host == PUBLIC_AIR_WORKER
         assert port == 17117
         return ["ssh", "nvcm@worker"]
@@ -369,6 +372,7 @@ def test_service_log_snapshots_include_dhcp_and_both_ztp_transports(
         text: bool,
         timeout: int,
     ) -> SimpleNamespace:
+        """Return representative output for each requested service container."""
         assert capture_output is True
         assert text is True
         assert timeout == 15
