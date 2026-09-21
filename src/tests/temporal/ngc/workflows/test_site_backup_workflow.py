@@ -226,7 +226,7 @@ async def test_execute_site_backup_workflow(
     mock_time,
     env,
 ):
-    """Run a site backup across multiple devices via child backup workflows."""
+    """Run a typed-location site backup across multiple child workflows."""
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -248,6 +248,7 @@ async def test_execute_site_backup_workflow(
     ):
         workflow_input = SiteBackupInput(
             site="demo-site",
+            site_type="Site",
             user="demo-user",
             user_domain="nvidia.com",
         )
