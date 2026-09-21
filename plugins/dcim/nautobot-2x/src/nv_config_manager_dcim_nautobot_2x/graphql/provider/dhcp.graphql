@@ -27,12 +27,18 @@ query site_dhcp_options {
   }
 }
 
-query dhcp_contexts($is_aggregate_managed: Boolean) {
+query dhcp_context_device_ids($is_aggregate_managed: Boolean) {
   config_manager_devices(ztp_enabled: true, is_aggregate_managed: $is_aggregate_managed) {
     device {
       id
-      config_context
     }
+  }
+}
+
+query dhcp_device_contexts($ids: [String]) {
+  devices(id: $ids) {
+    id
+    config_context
   }
 }
 
@@ -47,9 +53,6 @@ query auto_dhcp_subnets {
     id
     prefix
     ip_version
-    rel_prefix_to_gateway {
-      address
-    }
   }
   pool_ips: ip_addresses(tags: ["dhcp-pool"]) {
     address
@@ -69,6 +72,15 @@ query auto_dhcp_subnets {
     }
     interfaces {
       ...DHCPInterface
+    }
+  }
+}
+
+query dhcp_subnet_gateways($ids: [String]) {
+  prefixes(id: $ids) {
+    id
+    rel_prefix_to_gateway {
+      address
     }
   }
 }
