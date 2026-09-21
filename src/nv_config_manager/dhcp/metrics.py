@@ -83,15 +83,22 @@ class SyncState:
 class QueryErrorType:
     """Canonical ``error_type`` label values for DCIM read failures.
 
-    ``INVENTORY_UNSTABLE`` is deliberately separate from the generic generation
-    failure counter: it means the DCIM answered fine but its rows moved between
-    reads, so the cycle was skipped on purpose and Kea kept its last config.
+    Both are deliberately separate from the generic generation failure counter:
+    they mean the cycle was skipped on purpose and Kea kept its last config.
+    They stay separate from each other because the fix differs.
+    ``INVENTORY_UNSTABLE`` means the DCIM answered fine but its rows moved
+    between reads. ``READ_CANCELLED`` means its datastore killed the read,
+    which points at the DCIM's database rather than at churn in the inventory.
     """
 
     INVENTORY_UNSTABLE = "inventory_unstable"
+    READ_CANCELLED = "read_cancelled"
 
 
-REFRESH_PROCESS_QUERY_ERRORS = (QueryErrorType.INVENTORY_UNSTABLE,)
+REFRESH_PROCESS_QUERY_ERRORS = (
+    QueryErrorType.INVENTORY_UNSTABLE,
+    QueryErrorType.READ_CANCELLED,
+)
 
 
 DHCP_CONFIG_GENERATION_ERRORS = Counter(

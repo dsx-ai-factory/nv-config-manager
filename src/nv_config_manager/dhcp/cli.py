@@ -38,7 +38,12 @@ from nv_config_manager.common.log import (
     escape_log_newlines,
     get_logger,
 )
-from nv_config_manager.dcim import DCIMClient, DCIMInventoryUnstableError, dcim_client_session
+from nv_config_manager.dcim import (
+    DCIMClient,
+    DCIMInventoryUnstableError,
+    DCIMTransientReadError,
+    dcim_client_session,
+)
 from nv_config_manager.dhcp.heartbeat import (
     DEFAULT_HEARTBEAT_FILE,
     DEFAULT_MAX_AGE_SECONDS,
@@ -405,6 +410,13 @@ async def _refresh_kea_configuration_async(
     return False
 
 
+def _query_error_type(error: DCIMTransientReadError) -> str:
+    """Return the metric label naming why the DCIM could not be read."""
+    if isinstance(error, DCIMInventoryUnstableError):
+        return QueryErrorType.INVENTORY_UNSTABLE
+    return QueryErrorType.READ_CANCELLED
+
+
 async def _refresh_cycle_async(
     dcim_client: DCIMClient,
     kea_client: KeaClient,
@@ -412,11 +424,11 @@ async def _refresh_cycle_async(
     ip_version: int,
     check: bool,
 ) -> bool:
-    """Run one refresh, retrying while the DCIM inventory reads inconsistently.
+    """Run one refresh, retrying while the DCIM cannot be read this cycle.
 
-    Raises DCIMInventoryUnstableError once the attempts are spent, leaving the
-    caller to choose between skipping a periodic cycle and failing a one-shot
-    run.
+    Covers both a moving inventory and a read its datastore cancelled. Raises
+    DCIMTransientReadError once the attempts are spent, leaving the caller to
+    choose between skipping a periodic cycle and failing a one-shot run.
     """
     attempt = 0
     while True:
@@ -425,16 +437,16 @@ async def _refresh_cycle_async(
             return await _refresh_kea_configuration_async(
                 dcim_client, kea_client, redis_client, ip_version, check
             )
-        except DCIMInventoryUnstableError as exc:
+        except DCIMTransientReadError as exc:
             if attempt >= UNSTABLE_INVENTORY_ATTEMPTS:
                 # Counted once per cycle the caller goes on to skip, not once
                 # per attempt: a retry that succeeds published normally, and
                 # counting each attempt would make an exhausted cycle look like
                 # two skips.
-                DHCP_QUERY_ERRORS.labels(error_type=QueryErrorType.INVENTORY_UNSTABLE).inc()
+                DHCP_QUERY_ERRORS.labels(error_type=_query_error_type(exc)).inc()
                 raise
             logger.warning(
-                f"DCIM inventory changed while it was being read "
+                f"Could not read the DCIM this attempt "
                 f"(attempt {attempt}/{UNSTABLE_INVENTORY_ATTEMPTS}): "
                 f"{escape_log_newlines(str(exc))}"
             )
@@ -455,20 +467,21 @@ async def _refresh_loop_async(
         async with dcim_client_session(config) as dcim_client:
             while True:
                 # Leave errors uncaught so that they get raised and restart the
-                # container. An inventory that will not read consistently is the
-                # exception: restarting only re-reads the same moving table, and
-                # skipping the publish already keeps Kea on its last good config
-                # and freezes cache_last_refresh_timestamp, which the
-                # ten-minute refresh alert watches.
+                # container. A DCIM that cannot be read this cycle is the
+                # exception: restarting only re-reads the same moving table or
+                # re-runs into the same busy replica, and skipping the publish
+                # already keeps Kea on its last good config and freezes
+                # cache_last_refresh_timestamp, which the ten-minute refresh
+                # alert watches.
                 try:
                     should_exit = await _refresh_cycle_async(
                         dcim_client, kea_client, redis_client, ip_version, check
                     )
-                except DCIMInventoryUnstableError as exc:
+                except DCIMTransientReadError as exc:
                     if not refresh_interval:
                         raise
                     logger.error(
-                        f"Skipping this refresh; DCIM inventory never read consistently: "
+                        f"Skipping this refresh; could not read the DCIM: "
                         f"{escape_log_newlines(str(exc))}"
                     )
                 else:

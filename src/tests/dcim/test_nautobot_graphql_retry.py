@@ -17,13 +17,34 @@
 import pytest
 from aiohttp import ClientResponseError
 from aioresponses import aioresponses
+from nv_config_manager_dcim.errors import DCIMInvalidDataError, DCIMTransientReadError
 from nv_config_manager_dcim_nautobot_2x.client import (
     _GRAPHQL_RETRY_OPTIONS,
     NautobotClient,
     NautobotException,
+    NautobotReadCancelledError,
 )
 
 _GRAPHQL_URL = "https://nautobot.example/api/graphql/"
+
+_CANCELLED_BY_RECOVERY = {
+    "errors": [
+        {
+            "message": (
+                "canceling statement due to conflict with recovery\n"
+                "DETAIL:  User query might have needed to see row versions "
+                "that must be removed.\n"
+            ),
+            "locations": [{"line": 10, "column": 7}],
+            "path": ["config_manager_devices", 95, "device", "config_context"],
+        }
+    ]
+}
+"""Verbatim body a read replica returns, copied from a live refresh failure.
+
+Nautobot answers these with HTTP 200, which is what makes them invisible to a
+status-code-only retry.
+"""
 
 
 @pytest.fixture
@@ -127,4 +148,89 @@ async def test_graphql_query_does_not_retry_mutations(fast_graphql_retries: list
                 await client.graphql_query("mutation { ok }")
 
     assert exc_info.value.status == 504
+    assert fast_graphql_retries == []
+
+
+@pytest.mark.asyncio
+async def test_graphql_query_retries_a_read_the_datastore_cancelled(
+    fast_graphql_retries: list[float],
+) -> None:
+    """A cancelled read is retried even though it arrives as HTTP 200."""
+    with aioresponses() as mocked:
+        mocked.post(_GRAPHQL_URL, payload=_CANCELLED_BY_RECOVERY)
+        mocked.post(_GRAPHQL_URL, payload={"data": {"ok": True}})
+        async with NautobotClient("https://nautobot.example", token="token") as client:
+            result = await client.graphql_query("query { ok }")
+
+    assert result == {"data": {"ok": True}}
+    assert fast_graphql_retries == _retry_delays(1)
+
+
+@pytest.mark.asyncio
+async def test_graphql_query_reports_a_persistent_cancellation_as_retryable(
+    fast_graphql_retries: list[float],
+) -> None:
+    """Once the budget is spent the caller must be able to skip, not fail hard."""
+    with aioresponses() as mocked:
+        for _ in range(_GRAPHQL_RETRY_OPTIONS.attempts):
+            mocked.post(_GRAPHQL_URL, payload=_CANCELLED_BY_RECOVERY)
+        async with NautobotClient("https://nautobot.example", token="token") as client:
+            with pytest.raises(NautobotReadCancelledError) as exc_info:
+                await client.graphql_query("query { ok }")
+
+    assert fast_graphql_retries == _retry_delays(_GRAPHQL_RETRY_OPTIONS.attempts - 1)
+    # The refresh loop matches on the provider-neutral type to skip a cycle,
+    # and must not mistake this for data that failed validation.
+    assert isinstance(exc_info.value, DCIMTransientReadError)
+    assert not isinstance(exc_info.value, DCIMInvalidDataError)
+
+
+@pytest.mark.asyncio
+async def test_graphql_query_does_not_retry_an_ordinary_graphql_error(
+    fast_graphql_retries: list[float],
+) -> None:
+    """A query the schema rejects fails the same way on every attempt."""
+    with aioresponses() as mocked:
+        mocked.post(_GRAPHQL_URL, payload={"errors": [{"message": "Cannot query field 'nope'"}]})
+        async with NautobotClient("https://nautobot.example", token="token") as client:
+            with pytest.raises(NautobotException) as exc_info:
+                await client.graphql_query("query { nope }")
+
+    assert fast_graphql_retries == []
+    assert not isinstance(exc_info.value, DCIMTransientReadError)
+
+
+@pytest.mark.asyncio
+async def test_graphql_query_does_not_retry_a_partly_cancelled_response(
+    fast_graphql_retries: list[float],
+) -> None:
+    """A real failure alongside a cancellation recurs, so retrying only stalls."""
+    payload = {
+        "errors": [
+            *_CANCELLED_BY_RECOVERY["errors"],
+            {"message": "Cannot query field 'nope'"},
+        ]
+    }
+    with aioresponses() as mocked:
+        mocked.post(_GRAPHQL_URL, payload=payload)
+        async with NautobotClient("https://nautobot.example", token="token") as client:
+            with pytest.raises(NautobotException) as exc_info:
+                await client.graphql_query("query { ok }")
+
+    assert fast_graphql_retries == []
+    assert not isinstance(exc_info.value, DCIMTransientReadError)
+
+
+@pytest.mark.asyncio
+async def test_graphql_query_does_not_retry_a_cancelled_mutation(
+    fast_graphql_retries: list[float],
+) -> None:
+    """A cancelled mutation may still have applied, so it is never repeated."""
+    with aioresponses() as mocked:
+        mocked.post(_GRAPHQL_URL, payload=_CANCELLED_BY_RECOVERY)
+        mocked.post(_GRAPHQL_URL, payload={"data": {"ok": True}})
+        async with NautobotClient("https://nautobot.example", token="token") as client:
+            with pytest.raises(NautobotReadCancelledError):
+                await client.graphql_query("mutation { ok }")
+
     assert fast_graphql_retries == []

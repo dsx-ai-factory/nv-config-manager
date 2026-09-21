@@ -27,7 +27,7 @@ import aiohttp
 from aiohttp import ClientTimeout, TCPConnector
 from aiohttp_retry import ExponentialRetry, RetryClient
 from graphql import GraphQLError, OperationDefinitionNode, OperationType, parse
-from nv_config_manager_dcim.errors import DCIMError
+from nv_config_manager_dcim.errors import DCIMError, DCIMReadCancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,55 @@ _SAFE_REST_PATH = re.compile(r"[A-Za-z0-9._~/-]+")
 
 DEFAULT_TIMEOUT = 30
 """Request budget used when the deployment does not configure one."""
+
+_CANCELLED_BY_DATASTORE = re.compile(
+    r"canceling statement due to (conflict with recovery|user request|statement timeout)"
+    r"|terminating connection due to conflict with recovery",
+    re.IGNORECASE,
+)
+"""PostgreSQL cancellations Nautobot reports as a GraphQL error on an HTTP 200.
+
+A read replica cancels queries whose snapshot needs row versions that replay is
+about to remove. The request was well-formed and the same one can succeed
+moments later, so it is worth another attempt rather than a failed cycle.
+"""
+
+
+async def _graphql_response_is_final(response: aiohttp.ClientResponse) -> bool:
+    """Return False when a 200 carries a datastore cancellation worth retrying.
+
+    ``RetryClient`` only sees status codes, and Nautobot answers these with 200
+    and the failure in the GraphQL ``errors`` array. Reading the body here is
+    safe: aiohttp caches it, so the caller's own ``json()`` does not re-read the
+    socket.
+    """
+    if response.status != 200:
+        return True
+    try:
+        body = await response.json()
+    except (aiohttp.ClientError, ValueError):
+        # Not decodable as JSON: let the caller raise on it rather than spend
+        # attempts re-requesting something this layer cannot classify.
+        return True
+    return not _graphql_errors_were_cancellations(body)
+
+
+def _graphql_errors_were_cancellations(body: object) -> bool:
+    """Return True when a GraphQL body reports only datastore cancellations.
+
+    Requires every error to be a cancellation. A response mixing one with a
+    real failure is not worth retrying, since the real failure recurs.
+    """
+    if not isinstance(body, dict):
+        return False
+    errors = body.get("errors")
+    if not isinstance(errors, list) or not errors:
+        return False
+    return all(
+        isinstance(error, dict) and bool(_CANCELLED_BY_DATASTORE.search(str(error.get("message"))))
+        for error in errors
+    )
+
 
 _GRAPHQL_RETRY_OPTIONS = ExponentialRetry(
     attempts=3,
@@ -44,6 +93,7 @@ _GRAPHQL_RETRY_OPTIONS = ExponentialRetry(
     statuses={502, 503, 504},
     exceptions={TimeoutError},
     retry_all_server_errors=False,
+    evaluate_response_callback=_graphql_response_is_final,
 )
 
 
@@ -73,6 +123,14 @@ class NautobotException(DCIMError):
     def __init__(self, message: str, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+class NautobotReadCancelledError(NautobotException, DCIMReadCancelledError):
+    """Nautobot's datastore cancelled the read before it returned.
+
+    Also a DCIMReadCancelledError so callers that never import this provider
+    can tell "try again later" apart from "this query is wrong".
+    """
 
 
 class NautobotClient:
@@ -247,7 +305,8 @@ class NautobotClient:
         Raises:
             NautobotException: If the query fails or returns errors
 
-        Transient HTTP 502/503/504 and request timeouts are retried by
+        Transient HTTP 502/503/504, request timeouts, and datastore
+        cancellations returned as GraphQL errors on a 200 are retried by
         ``RetryClient`` for query-only documents. Mutations and unparseable
         documents use the non-retrying session so a completed write is not
         repeated. REST mutations are also unchanged.
@@ -282,6 +341,9 @@ class NautobotClient:
             result = await rsp.json()
 
             if "errors" in result:
+                if _graphql_errors_were_cancellations(result):
+                    # Reached only once the retries above are spent.
+                    raise NautobotReadCancelledError(f"GraphQL errors: {result['errors']}")
                 raise NautobotException(f"GraphQL errors: {result['errors']}")
 
             return cast(dict[str, Any], result)

@@ -55,6 +55,8 @@ from nv_config_manager.dcim.errors import (
     DCIMProviderError,
     DCIMProviderInitializationError,
     DCIMProviderNotFoundError,
+    DCIMReadCancelledError,
+    DCIMTransientReadError,
 )
 from nv_config_manager.dcim.models import (
     DCIM_EVENT_CONTRACT_VERSION,
@@ -147,7 +149,9 @@ __all__ = [
     "DCIMProviderInitializationError",
     "DCIMProviderMetadata",
     "DCIMProviderNotFoundError",
+    "DCIMReadCancelledError",
     "DCIMSelection",
+    "DCIMTransientReadError",
     "ConfigurationBackupIntent",
     "ConfigurationBackupMetadata",
     "DeviceMetadata",
