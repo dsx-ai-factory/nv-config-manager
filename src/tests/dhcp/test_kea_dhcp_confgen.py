@@ -36,6 +36,24 @@ from nv_config_manager.dhcp.redis import RedisClient
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+def _apply_graphql_page(payload: dict, variables: dict | None) -> dict:
+    """Slice GraphQL list fields the way Nautobot limit/offset would."""
+    if not variables or "limit" not in variables:
+        return payload
+    limit = variables["limit"]
+    offset = variables.get("offset", 0)
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return payload
+    return {
+        **payload,
+        "data": {
+            key: (value[offset : offset + limit] if isinstance(value, list) else value)
+            for key, value in data.items()
+        },
+    }
+
+
 class MockNautobotClient(NautobotClient):
     """Mock out the graphql call."""
 
@@ -52,7 +70,8 @@ class MockNautobotClient(NautobotClient):
             raise Exception(f"Unknown query: {query}")
 
         with open(path) as f:
-            return json.load(f)
+            payload = json.load(f)
+        return _apply_graphql_page(payload, variables)
 
 
 class MockRedisClient(RedisClient):
@@ -411,20 +430,23 @@ class MockNautobotClientWithMissingGateway(MockNautobotClient):
     async def graphql_query(self, query, variables=None):
         """Return GraphQL response with prefix missing gateway relationship."""
         if "auto_dhcp_subnets" in query:
-            return {
-                "data": {
-                    "prefixes": [
-                        {
-                            "id": "prefix-no-gateway",
-                            "prefix": "10.240.128.0/27",
-                            "ip_version": 4,
-                            "rel_prefix_to_gateway": None,  # No gateway set
-                        }
-                    ],
-                    "pool_ips": [],
-                    "reserved_ips": [],
-                }
-            }
+            return _apply_graphql_page(
+                {
+                    "data": {
+                        "prefixes": [
+                            {
+                                "id": "prefix-no-gateway",
+                                "prefix": "10.240.128.0/27",
+                                "ip_version": 4,
+                                "rel_prefix_to_gateway": None,  # No gateway set
+                            }
+                        ],
+                        "pool_ips": [],
+                        "reserved_ips": [],
+                    }
+                },
+                variables,
+            )
         # Delegate other queries to parent
         return await super().graphql_query(query, variables)
 
@@ -1069,30 +1091,33 @@ class MockErrorCasesClient(MockNautobotClient):
     async def graphql_query(self, query, variables=None):
         # Special case for no_ztp - return inline dhcp_contexts
         if "dhcp_contexts" in query and self.error_case == "no_ztp":
-            return {
-                "data": {
-                    "config_manager_devices": [
-                        {
-                            "device": {
-                                "id": "device-no-ztp-test",
-                                "config_context": {
-                                    "dhcp": {
-                                        "options": {
-                                            "interface_names": {
-                                                "eth0": {
-                                                    "reservation_options": {
-                                                        "boot-file-name": "http://{{ ztp_server }}/boot"
+            return _apply_graphql_page(
+                {
+                    "data": {
+                        "config_manager_devices": [
+                            {
+                                "device": {
+                                    "id": "device-no-ztp-test",
+                                    "config_context": {
+                                        "dhcp": {
+                                            "options": {
+                                                "interface_names": {
+                                                    "eth0": {
+                                                        "reservation_options": {
+                                                            "boot-file-name": "http://{{ ztp_server }}/boot"
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
-                                    }
-                                },
+                                    },
+                                }
                             }
-                        }
-                    ]
-                }
-            }
+                        ]
+                    }
+                },
+                variables,
+            )
 
         if "auto_dhcp_subnets" in query:
             path = os.path.join(_THIS_DIR, "resources/auto_dhcp_subnets_errors.json")
@@ -1240,7 +1265,7 @@ class MockErrorCasesClient(MockNautobotClient):
             # These cases override load_auto_dhcp_subnets directly, so no data modification needed here
             pass
 
-        return data
+        return _apply_graphql_page(data, variables)
 
     async def load_auto_dhcp_subnets(
         self, family: int = 4, is_aggregate_managed: bool | None = None

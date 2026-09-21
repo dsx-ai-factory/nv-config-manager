@@ -8,6 +8,7 @@ license = { text = "Apache-2.0" }
 requires-python = ">=3.13"
 dependencies = [
     "aiohttp[speedups]>=3.14.1",
+    "aiohttp-retry>=2.9.1",
     "graphql-core>=3.2.7,<3.3",
     "nv-config-manager-dcim",
 ]

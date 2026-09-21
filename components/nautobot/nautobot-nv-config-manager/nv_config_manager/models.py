@@ -104,6 +104,10 @@ class ConfigManagerDeviceStatus(PrimaryModel):  # pylint: disable=too-many-ances
     class Meta:
         """Meta Class Attributes."""
 
+        # Consumers page this model over GraphQL with limit/offset. Without a
+        # total order the database may walk the table differently per page, so
+        # a row can land in two pages or in none.
+        ordering = ["pk"]
         verbose_name = "Config Manager Device"
         verbose_name_plural = "Config Manager Devices"
 

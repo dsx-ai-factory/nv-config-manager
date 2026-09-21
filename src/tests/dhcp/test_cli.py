@@ -14,7 +14,9 @@
 # limitations under the License.
 """Tests for DHCP sync hash reconciliation and reconcile-loop observability."""
 
+import contextlib
 import logging
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -23,12 +25,15 @@ import click
 import pytest
 from aiohttp import ClientError
 
+from nv_config_manager.dcim import DCIMInventoryUnstableError, DCIMReadCancelledError
 from nv_config_manager.dhcp import cli
 from nv_config_manager.dhcp.kea import KeaException
 from nv_config_manager.dhcp.metrics import (
     DHCP_CONFIG_HASH_MISMATCHES,
     DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP,
+    DHCP_QUERY_ERRORS,
     DHCP_SYNC_FAILURES,
+    QueryErrorType,
     SyncOperation,
     SyncState,
     initialize_refresh_metrics,
@@ -913,6 +918,159 @@ async def test_refresh_counts_config_test_rejection() -> None:
         == before + 1
     )
     redis_client.persist_kea_config.assert_not_awaited()
+
+
+@contextlib.asynccontextmanager
+async def _patched_refresh_loop(
+    refresh: AsyncMock,
+) -> AsyncIterator[AsyncMock]:
+    """Run ``_refresh_loop_async`` against mocked dependencies and a mocked cycle."""
+
+    @contextlib.asynccontextmanager
+    async def _session(_config: Any) -> AsyncIterator[MagicMock]:
+        yield MagicMock()
+
+    with (
+        patch.object(cli, "load_config", MagicMock()),
+        patch.object(cli, "KeaClient", MagicMock(from_config=MagicMock(return_value=AsyncMock()))),
+        patch.object(
+            cli, "RedisClient", MagicMock(from_config=MagicMock(return_value=AsyncMock()))
+        ),
+        patch.object(cli, "dcim_client_session", _session),
+        patch.object(cli, "_refresh_kea_configuration_async", refresh),
+        patch.object(cli.asyncio, "sleep", AsyncMock()) as sleep,
+    ):
+        yield sleep
+
+
+async def test_refresh_cycle_retries_an_unstable_inventory() -> None:
+    """One write landing mid-read is enough to fail a cycle; reading again clears it.
+
+    The counter tracks skipped cycles, so a retry that goes on to publish must
+    leave it alone -- otherwise a healthy pod reports skips it never made.
+    """
+    refresh = AsyncMock(side_effect=[DCIMInventoryUnstableError("prefixes moved"), False])
+    before = _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.INVENTORY_UNSTABLE)
+
+    with (
+        patch.object(cli, "_refresh_kea_configuration_async", refresh),
+        patch.object(cli.asyncio, "sleep", AsyncMock()),
+    ):
+        assert (
+            await cli._refresh_cycle_async(MagicMock(), MagicMock(), MagicMock(), 4, check=False)
+            is False
+        )
+
+    assert refresh.await_count == 2
+    assert _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.INVENTORY_UNSTABLE) == before
+
+
+async def test_refresh_cycle_stops_retrying_an_inventory_that_keeps_moving() -> None:
+    """Every attempt re-reads the whole inventory, so the retries have to be bounded.
+
+    Counting per attempt instead of per cycle would report this single skip
+    twice and break any rate on the metric.
+    """
+    refresh = AsyncMock(side_effect=DCIMInventoryUnstableError("prefixes moved"))
+    before = _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.INVENTORY_UNSTABLE)
+
+    with (
+        patch.object(cli, "_refresh_kea_configuration_async", refresh),
+        patch.object(cli.asyncio, "sleep", AsyncMock()),
+        pytest.raises(DCIMInventoryUnstableError),
+    ):
+        await cli._refresh_cycle_async(MagicMock(), MagicMock(), MagicMock(), 4, check=False)
+
+    assert refresh.await_count == cli.UNSTABLE_INVENTORY_ATTEMPTS
+    assert (
+        _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.INVENTORY_UNSTABLE)
+        == before + 1
+    )
+
+
+async def test_refresh_loop_skips_a_cycle_it_cannot_read_consistently() -> None:
+    """Restarting would re-read the same moving table, and Kea keeps its last config.
+
+    The skip is still visible: ``cache_last_refresh_timestamp`` is written with
+    the config, so not publishing is what the ten-minute refresh alert sees.
+    """
+    refresh = AsyncMock(
+        side_effect=[DCIMInventoryUnstableError("devices moved")] * cli.UNSTABLE_INVENTORY_ATTEMPTS
+        + [True]
+    )
+
+    async with _patched_refresh_loop(refresh) as sleep:
+        await cli._refresh_loop_async(4, check=False, refresh_interval=300)
+
+    assert refresh.await_count == cli.UNSTABLE_INVENTORY_ATTEMPTS + 1
+    sleep.assert_any_await(300)
+
+
+async def test_refresh_loop_fails_a_one_shot_run_it_cannot_read_consistently() -> None:
+    """Without an interval there is no later cycle to recover in, so it must surface."""
+    refresh = AsyncMock(side_effect=DCIMInventoryUnstableError("devices moved"))
+
+    async with _patched_refresh_loop(refresh):
+        with pytest.raises(DCIMInventoryUnstableError):
+            await cli._refresh_loop_async(4, check=False, refresh_interval=0)
+
+
+async def test_refresh_cycle_retries_a_read_the_dcim_cancelled() -> None:
+    """A replica cancelling one read is not a reason to drop the cycle."""
+    refresh = AsyncMock(side_effect=[DCIMReadCancelledError("replica cancelled"), False])
+    before = _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.READ_CANCELLED)
+
+    with (
+        patch.object(cli, "_refresh_kea_configuration_async", refresh),
+        patch.object(cli.asyncio, "sleep", AsyncMock()),
+    ):
+        assert (
+            await cli._refresh_cycle_async(MagicMock(), MagicMock(), MagicMock(), 4, check=False)
+            is False
+        )
+
+    assert refresh.await_count == 2
+    assert _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.READ_CANCELLED) == before
+
+
+async def test_refresh_cycle_counts_a_cancelled_read_under_its_own_label() -> None:
+    """A busy replica and a moving table need different fixes, so they count apart."""
+    refresh = AsyncMock(side_effect=DCIMReadCancelledError("replica cancelled"))
+    before_cancelled = _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.READ_CANCELLED)
+    before_unstable = _counter_value(
+        DHCP_QUERY_ERRORS, error_type=QueryErrorType.INVENTORY_UNSTABLE
+    )
+
+    with (
+        patch.object(cli, "_refresh_kea_configuration_async", refresh),
+        patch.object(cli.asyncio, "sleep", AsyncMock()),
+        pytest.raises(DCIMReadCancelledError),
+    ):
+        await cli._refresh_cycle_async(MagicMock(), MagicMock(), MagicMock(), 4, check=False)
+
+    assert refresh.await_count == cli.UNSTABLE_INVENTORY_ATTEMPTS
+    assert (
+        _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.READ_CANCELLED)
+        == before_cancelled + 1
+    )
+    assert (
+        _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.INVENTORY_UNSTABLE)
+        == before_unstable
+    )
+
+
+async def test_refresh_loop_skips_a_cycle_whose_reads_kept_being_cancelled() -> None:
+    """The crash this replaces: the pod exited and re-ran straight into the same replica."""
+    refresh = AsyncMock(
+        side_effect=[DCIMReadCancelledError("replica cancelled")] * cli.UNSTABLE_INVENTORY_ATTEMPTS
+        + [True]
+    )
+
+    async with _patched_refresh_loop(refresh) as sleep:
+        await cli._refresh_loop_async(4, check=False, refresh_interval=300)
+
+    assert refresh.await_count == cli.UNSTABLE_INVENTORY_ATTEMPTS + 1
+    sleep.assert_any_await(300)
 
 
 async def test_refresh_check_mode_reports_invalid_config() -> None:

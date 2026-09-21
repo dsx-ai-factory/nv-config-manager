@@ -38,6 +38,22 @@ def test_circular_graphql_import_has_an_actionable_error():
         _LOADING_GRAPHQL_SOURCES.discard(filename)
 
 
+def test_dhcp_inventory_queries_page_with_limit_and_offset():
+    """DHCP dumps that used to be unbounded now take Nautobot limit/offset."""
+    contexts = load_graphql_query("provider/dhcp.graphql", "dhcp_contexts")
+    prefixes = load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_prefixes")
+    pool_ips = load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_pool_ips")
+    reserved_ips = load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_reserved_ips")
+
+    for query in (contexts, prefixes, pool_ips, reserved_ips):
+        assert "$limit: Int!" in query
+        assert "$offset: Int!" in query
+        assert "limit: $limit" in query
+        assert "offset: $offset" in query
+    assert "fragment DHCPInterface on InterfaceType" in pool_ips
+    assert "fragment DHCPInterface on InterfaceType" in reserved_ips
+
+
 def test_grouped_document_expands_reusable_fragments_and_selects_operation():
     """A grouped document carries the selected operation and imported fragments."""
     query = load_graphql_query("provider/events.graphql", "ListVRFAffectedDevices")

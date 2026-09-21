@@ -43,6 +43,31 @@ class DCIMInvalidDataError(DCIMError):
     """A provider returned data that does not satisfy the SDK contract."""
 
 
+class DCIMTransientReadError(DCIMError):
+    """A read failed for a reason an identical call later need not hit.
+
+    Nothing is wrong with the request or the records; the read lost a race.
+    Callers should retry or keep their last good result rather than fail hard.
+    """
+
+
+class DCIMInventoryUnstableError(DCIMInvalidDataError, DCIMTransientReadError):
+    """A provider could not read a self-consistent inventory this cycle.
+
+    Separate from DCIMInvalidDataError because the records themselves are fine:
+    the list moved while it was being read, so an identical call later can
+    succeed.
+    """
+
+
+class DCIMReadCancelledError(DCIMTransientReadError):
+    """The DCIM's own datastore cancelled a read before it returned.
+
+    Distinct from DCIMInventoryUnstableError: there the read completed and
+    disagreed with itself, here it never completed at all.
+    """
+
+
 class DCIMOperationNotSupportedError(DCIMError):
     """The selected provider does not implement the requested SDK operation."""
 

@@ -15,8 +15,10 @@
 """Tests for nv_config_manager models."""
 
 from datetime import timedelta
+from io import StringIO
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.management import call_command
 from django.db.utils import IntegrityError
 from django.test import TestCase
 from django.utils import timezone
@@ -203,6 +205,95 @@ class ConfigManagerDeviceStatusTestCase(TestCase):
         self.managed_device.save()
         self.managed_device.refresh_from_db()
         self.assertFalse(self.managed_device.is_aggregate_managed)
+
+
+class ConfigManagerDeviceStatusOrderingTestCase(TestCase):
+    """Guard the total order the DHCP provider's paginated GraphQL reads rely on.
+
+    Nautobot's GraphQL pager is plain limit/offset with no cursor or snapshot, so
+    whether consecutive pages tile the table is decided entirely by this model's
+    Meta.ordering. Without a unique sort key the database may walk the table
+    differently per request and a row can land in two pages or in none.
+    """
+
+    def setUp(self):
+        """Create enough managed devices to page over."""
+        self.site, self.device_type, self.device_role, _, _, _ = create_device_environment()
+        for index in range(6):
+            device = Device.objects.create(
+                device_type=self.device_type,
+                role=self.device_role,
+                name=f"{data.DEVICE_NAME}-page-{index}",
+                location=self.site,
+                status=Status.objects.get_for_model(Device).first(),
+            )
+            ConfigManagerDeviceStatus.objects.create(device=device)
+
+    def test_ordering_breaks_ties_on_a_unique_field(self):
+        """Non-unique leading fields are fine; the final tiebreak is what matters.
+
+        Ordering this model by something like device name would sort rows but not
+        order them totally, which is the defect tracked upstream in
+        nautobot/nautobot#8027.
+        """
+        ordering = ConfigManagerDeviceStatus._meta.ordering
+
+        self.assertTrue(ordering, "no Meta.ordering: limit/offset pages need not tile")
+        self.assertIn(
+            ordering[-1].lstrip("-"),
+            ("pk", "id"),
+            f"Meta.ordering {ordering} has no unique tiebreak; pages may repeat or skip rows",
+        )
+
+    def test_paged_reads_return_every_row_exactly_once(self):
+        """Walk the model the way the provider does and account for every row.
+
+        Also catches an ordering field that does not resolve, which fails the
+        query rather than the ordering assertion above.
+        """
+        page_size = 4
+        collected = []
+        offset = 0
+        while True:
+            page = list(ConfigManagerDeviceStatus.objects.all()[offset : offset + page_size])
+            collected.extend(page)
+            if len(page) < page_size:
+                break
+            offset += page_size
+
+        paged_pks = [status.pk for status in collected]
+        all_pks = set(ConfigManagerDeviceStatus.objects.values_list("pk", flat=True))
+
+        self.assertEqual(len(paged_pks), len(set(paged_pks)), "a row appeared in two pages")
+        self.assertEqual(set(paged_pks), all_pks, "paging skipped rows")
+
+
+class MigrationStateTestCase(TestCase):
+    """Model options must ship with the migration that records them.
+
+    Needs a database despite touching no models: makemigrations checks the
+    applied-migration history before it compares model state.
+    """
+
+    def test_no_model_changes_are_missing_a_migration(self):
+        """The Nautobot pod's init container applies migrations, not model state.
+
+        A Meta change with no migration leaves the deployed database describing
+        the old options, so the fix silently does not take effect.
+        """
+        output = StringIO()
+
+        try:
+            call_command(
+                "makemigrations",
+                "nv_config_manager",
+                "--check",
+                "--dry-run",
+                stdout=output,
+                stderr=output,
+            )
+        except SystemExit:
+            self.fail(f"nv_config_manager model changes have no migration:\n{output.getvalue()}")
 
 
 class IntendedConfigTestCase(TestCase):

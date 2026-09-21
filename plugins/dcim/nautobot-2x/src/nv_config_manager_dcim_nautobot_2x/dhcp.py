@@ -17,15 +17,70 @@
 from __future__ import annotations
 
 import ipaddress
+import json
+import logging
 from typing import Any, cast
 
-from nv_config_manager_dcim.errors import DCIMInvalidDataError
+from nv_config_manager_dcim.errors import DCIMInvalidDataError, DCIMInventoryUnstableError
 
 from nv_config_manager_dcim_nautobot_2x.queries import load_graphql_query
+
+logger = logging.getLogger(__name__)
+
+# Match other Nautobot GraphQL inventory pages. DHCP still needs a full snapshot;
+# paging only splits the Nautobot request so a large cell cannot 504 one query.
+GRAPHQL_PAGE_SIZE = 100
+# Nautobot exposes no cursor pagination, so pages are positional: a row deleted
+# mid-snapshot shifts every later row left and the next page would start past an
+# unread one. Re-reading the tail of each page absorbs a shift of up to this many
+# rows; callers collapse the repeats.
+GRAPHQL_PAGE_OVERLAP = 10
 
 
 class DHCPDataError(DCIMInvalidDataError):
     """Nautobot returned invalid data required for DHCP configuration."""
+
+
+class DHCPSnapshotError(DHCPDataError, DCIMInventoryUnstableError):
+    """Two reads of the same Nautobot list disagreed, so neither is trusted.
+
+    Inherits DHCPDataError so existing provider error handling is unchanged, and
+    DCIMInventoryUnstableError so confgen can tell "inventory moved, try again"
+    apart from "these records are malformed", which no retry will fix.
+    """
+
+
+def _row_signature(row: dict[str, Any]) -> str:
+    """Identify a row so repeated pages can be told from new ones.
+
+    Every DHCP query selects Nautobot's unique ``id``; ``dhcp_contexts`` carries
+    it on the wrapped device. Serializing the whole row is the fallback for
+    fixtures and future selections that omit it.
+    """
+    identity = row.get("id")
+    if identity is None:
+        device = row.get("device")
+        identity = device.get("id") if isinstance(device, dict) else None
+    if identity is not None:
+        return str(identity)
+    return json.dumps(row, sort_keys=True, default=str)
+
+
+def _dedupe_keep_first(items: list[Any], key: str) -> list[dict[str, Any]]:
+    """Drop later rows that repeat ``key`` (offset paging can overlap on a moving set).
+
+    DHCP IP records prefer Nautobot's unique ``id``. Fixtures that omit ``id``
+    still collapse overlapping pages by ``address``.
+    """
+    seen: set[Any] = set()
+    unique: list[dict[str, Any]] = []
+    for item in items:
+        value = item.get(key) or item.get("address")
+        if value in seen:
+            continue
+        seen.add(value)
+        unique.append(item)
+    return unique
 
 
 def _get_gateway_ip(
@@ -193,18 +248,138 @@ class NautobotDHCPOperations:
         contexts = response["data"].get("config_contexts", [])
         return contexts[0].get("data", {}) if contexts else {}
 
+    async def _iter_graphql_pages(
+        self,
+        query: str,
+        result_key: str,
+        variables: dict[str, Any] | None = None,
+        page_size: int = GRAPHQL_PAGE_SIZE,
+        overlap: int = GRAPHQL_PAGE_OVERLAP,
+    ) -> list[Any]:
+        """Fetch every page of a Nautobot GraphQL list field.
+
+        Consecutive requests re-read the last ``overlap`` rows, so callers must
+        collapse the repeated rows.
+
+        Stops on an empty or short page. Raises when a full page adds no rows
+        the page before it did not already have, which means the server (or a
+        mock) is ignoring limit/offset and would otherwise page forever.
+        """
+        if page_size < 1:
+            raise ValueError(f"page_size must be >= 1, got {page_size}")
+        if overlap < 0:
+            raise ValueError(f"overlap must be >= 0, got {overlap}")
+        step = page_size - min(overlap, page_size - 1)
+        collected: list[Any] = []
+        extra = dict(variables or {})
+        offset = 0
+        seen_signatures: set[str] = set()
+        while True:
+            page_vars = {**extra, "limit": page_size, "offset": offset}
+            rsp = await self.graphql_query(query, page_vars)
+            data = rsp.get("data")
+            if not isinstance(data, dict) or not isinstance(data.get(result_key), list):
+                raise DHCPDataError(f"Nautobot returned invalid {result_key} data")
+            page = data[result_key]
+            if not page:
+                break
+            if any(not isinstance(item, dict) for item in page):
+                raise DHCPDataError(f"Nautobot returned invalid {result_key} data")
+            collected.extend(page)
+            if len(page) < page_size:
+                break
+            # Overlapping pages repeat rows on purpose, but a full page that
+            # adds none means the server served rows we already have for a new
+            # offset. Compare against every page so far, not just the one
+            # before: a server cycling between two pages would otherwise look
+            # like progress forever. Only full pages qualify, since a short
+            # final page can legitimately fall inside the previous overlap.
+            signatures = {_row_signature(row) for row in page}
+            if signatures <= seen_signatures:
+                raise DHCPDataError(
+                    f"Nautobot returned no new {result_key} rows at offset {offset}, "
+                    "so it is ignoring limit/offset"
+                )
+            seen_signatures |= signatures
+            logger.info(
+                "Fetched %d %s at offset %d (%d fetched)",
+                len(page),
+                result_key,
+                offset,
+                len(collected),
+            )
+            offset += step
+        return collected
+
+    async def _load_stable_pages(
+        self,
+        query: str,
+        result_key: str,
+        variables: dict[str, Any] | None = None,
+        page_size: int = GRAPHQL_PAGE_SIZE,
+        overlap: int = GRAPHQL_PAGE_OVERLAP,
+    ) -> list[Any]:
+        """Page a list twice and keep the first walk only if unique ids match.
+
+        Nautobot GraphQL has no snapshot, so a tear can still skip rows after
+        overlap. A second full walk that disagrees means the table moved (or
+        tiled wrong); raising here skips Redis so Kea keeps the last good config.
+
+        Deliberately compares ids, not row contents. The failure worth catching
+        is a row the pager missed entirely, which drops a device or a subnet
+        from the published config. A field edited while a walk is in flight is
+        ordinary for a read with no snapshot isolation -- it was equally true of
+        the single request this replaced -- and the next poll picks it up.
+        Comparing full rows would instead fail closed whenever anything in the
+        inventory changed during the walk, which on a live cell is most cycles,
+        and the config would stop being published at all.
+        """
+        first = await self._iter_graphql_pages(
+            query,
+            result_key,
+            variables=variables,
+            page_size=page_size,
+            overlap=overlap,
+        )
+        second = await self._iter_graphql_pages(
+            query,
+            result_key,
+            variables=variables,
+            page_size=page_size,
+            overlap=overlap,
+        )
+        first_ids = {_row_signature(row) for row in first}
+        second_ids = {_row_signature(row) for row in second}
+        if first_ids != second_ids:
+            raise DHCPSnapshotError(
+                f"Nautobot {result_key} changed during paging "
+                f"({len(first_ids)} then {len(second_ids)} unique rows); "
+                "not publishing this cycle"
+            )
+        return first
+
     async def load_dhcp_contexts(
-        self, is_aggregate_managed: bool | None = None
+        self,
+        is_aggregate_managed: bool | None = None,
+        page_size: int = GRAPHQL_PAGE_SIZE,
+        overlap: int = GRAPHQL_PAGE_OVERLAP,
     ) -> dict[str, dict[str, object]]:
         """Compatibility hook returning DHCP contexts from Nautobot GraphQL."""
-        response = await self.graphql_query(
+        entries = await self._load_stable_pages(
             load_graphql_query("provider/dhcp.graphql", "dhcp_contexts"),
-            {"is_aggregate_managed": is_aggregate_managed},
+            "config_manager_devices",
+            variables={"is_aggregate_managed": is_aggregate_managed},
+            page_size=page_size,
+            overlap=overlap,
         )
-        return {
-            entry["device"]["id"]: entry["device"]["config_context"]
-            for entry in response["data"]["config_manager_devices"]
-        }
+        # Keying by device id is what collapses the rows repeated across pages.
+        contexts: dict[str, dict[str, object]] = {}
+        for entry in entries:
+            device = entry.get("device") if isinstance(entry, dict) else None
+            if not device:
+                continue
+            contexts[device["id"]] = device["config_context"]
+        return contexts
 
     async def load_static_data(self) -> list[dict[str, object]]:
         """Compatibility hook returning static DHCP contexts."""
@@ -214,17 +389,43 @@ class NautobotDHCPOperations:
         return [entry["data"] for entry in response["data"].get("config_contexts", [])]
 
     async def load_auto_dhcp_subnets(
-        self, family: int = 4, is_aggregate_managed: bool | None = None
+        self,
+        family: int = 4,
+        is_aggregate_managed: bool | None = None,
+        page_size: int = GRAPHQL_PAGE_SIZE,
+        overlap: int = GRAPHQL_PAGE_OVERLAP,
     ) -> list[dict[str, object]]:
         """Compatibility hook returning normalized automatic DHCP subnet data."""
-        response = await self.graphql_query(
-            load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets")
+        prefixes = _dedupe_keep_first(
+            await self._load_stable_pages(
+                load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_prefixes"),
+                "prefixes",
+                page_size=page_size,
+                overlap=overlap,
+            ),
+            "id",
         )
-        prefixes = response["data"].get("prefixes", [])
         if not prefixes:
             return []
-        all_pool_ips = response["data"].get("pool_ips", [])
-        all_reserved_ips = response["data"].get("reserved_ips", [])
+
+        all_pool_ips = _dedupe_keep_first(
+            await self._load_stable_pages(
+                load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_pool_ips"),
+                "pool_ips",
+                page_size=page_size,
+                overlap=overlap,
+            ),
+            "id",
+        )
+        all_reserved_ips = _dedupe_keep_first(
+            await self._load_stable_pages(
+                load_graphql_query("provider/dhcp.graphql", "auto_dhcp_subnets_reserved_ips"),
+                "reserved_ips",
+                page_size=page_size,
+                overlap=overlap,
+            ),
+            "id",
+        )
         subnets: list[dict[str, object]] = []
         for prefix_entry in prefixes:
             if prefix_entry["ip_version"] != family:
