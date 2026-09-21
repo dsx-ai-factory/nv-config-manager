@@ -13,11 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Sequence
+
 import pytest
 from pydantic import BaseModel
 from temporalio import activity
 
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.metadata import RequiredActivity, WorkflowMetadataMixin
 
 
 class WorkflowInput(BaseModel):
@@ -44,6 +46,19 @@ def test_metadata_defaults_fail_closed() -> None:
     assert not WorkflowMetadataMixin.workflow_mcp_enabled
     assert WorkflowMetadataMixin.workflow_api_endpoint is None
     assert WorkflowMetadataMixin.get_workflow_required_activities() == ()
+
+
+def test_required_activities_are_composed_across_the_mro() -> None:
+    class Publisher:
+        workflow_required_activities: Sequence[RequiredActivity] = (collect_facts,)
+
+    class ArchivedWorkflow(WorkflowMetadataMixin, Publisher):
+        workflow_required_activities: Sequence[RequiredActivity] = ("store_results",)
+
+    assert ArchivedWorkflow.get_workflow_required_activities() == (
+        collect_facts,
+        "store_results",
+    )
 
 
 def test_metadata_accessors_read_subclass_declarations() -> None:
