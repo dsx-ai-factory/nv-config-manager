@@ -14,7 +14,7 @@
 # limitations under the License.
 """Test NATS activities."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import nats.js.errors
 import pytest
@@ -24,43 +24,112 @@ from nv_config_manager.temporal.ngc.activities.nats import (
     PublishNatsInput,
     publish_nats,
 )
+from nv_config_manager_workflows import runtime as runtime_module
+from nv_config_manager_workflows.runtime import (
+    NatsNotConfiguredError,
+    NatsRuntime,
+    configure_nats,
+)
+
+
+@pytest.fixture
+def nats_publisher(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    """Configure an isolated NATS publisher for each activity test."""
+    monkeypatch.setattr(runtime_module, "_nats_provider", runtime_module._UNSET)
+    publisher = AsyncMock()
+    publisher.server = "nats://nats.example.test:4222"
+    configure_nats(
+        lambda: NatsRuntime(
+            publisher=publisher,
+            stream="nv-config-manager",
+            subject=ARCHIVE_SUBJECT,
+        )
+    )
+    return publisher
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer")
-async def test_publish_nats_publishes(mock_producer_cls):
-    """Publish is called with the given subject and message."""
-    mock_client = AsyncMock()
-    mock_producer_cls.return_value = mock_client
+async def test_publish_nats_fails_clearly_before_runtime_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unconfigured worker reports the missing NATS startup dependency."""
+    monkeypatch.setattr(runtime_module, "_nats_provider", runtime_module._UNSET)
 
+    with pytest.raises(NatsNotConfiguredError, match="configure_nats"):
+        await publish_nats(PublishNatsInput(message="payload"))
+
+
+@pytest.mark.asyncio
+async def test_publish_nats_publishes(nats_publisher: AsyncMock) -> None:
+    """Publish is called with the given subject and message."""
     await publish_nats(PublishNatsInput(subject=ARCHIVE_SUBJECT, message='{"workflow_id": "w1"}'))
 
-    mock_client.publish.assert_called_once_with(
+    nats_publisher.publish.assert_awaited_once_with(
         ARCHIVE_SUBJECT, '{"workflow_id": "w1"}', stream="nv-config-manager"
     )
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer")
-async def test_publish_nats_any_subject_publishes(mock_producer_cls):
-    """Any subject is published."""
-    mock_client = AsyncMock()
-    mock_producer_cls.return_value = mock_client
+async def test_publish_nats_uses_configured_subject(nats_publisher: AsyncMock) -> None:
+    """The configured subject is used when the activity input omits one."""
+    await publish_nats(PublishNatsInput(message="payload"))
 
+    nats_publisher.publish.assert_awaited_once_with(
+        ARCHIVE_SUBJECT, "payload", stream="nv-config-manager"
+    )
+
+
+@pytest.mark.asyncio
+async def test_publish_nats_any_subject_publishes(nats_publisher: AsyncMock) -> None:
+    """Any subject is published."""
     await publish_nats(PublishNatsInput(subject="other.subject", message="payload"))
 
-    mock_client.publish.assert_called_once_with(
+    nats_publisher.publish.assert_awaited_once_with(
         "other.subject", "payload", stream="nv-config-manager"
     )
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer")
-async def test_publish_nats_on_failure_raises(mock_producer_cls):
+async def test_publish_nats_input_subject_overrides_blank_default(
+    nats_publisher: AsyncMock,
+) -> None:
+    """An explicit activity subject remains usable without a configured default."""
+    configure_nats(
+        lambda: NatsRuntime(
+            publisher=nats_publisher,
+            stream="nv-config-manager",
+            subject="",
+        )
+    )
+
+    await publish_nats(PublishNatsInput(subject="other.subject", message="payload"))
+
+    nats_publisher.publish.assert_awaited_once_with(
+        "other.subject", "payload", stream="nv-config-manager"
+    )
+
+
+@pytest.mark.asyncio
+async def test_publish_nats_requires_an_effective_subject(nats_publisher: AsyncMock) -> None:
+    """A missing configured and input subject raises the named runtime error."""
+    configure_nats(
+        lambda: NatsRuntime(
+            publisher=nats_publisher,
+            stream="nv-config-manager",
+            subject="",
+        )
+    )
+
+    with pytest.raises(NatsNotConfiguredError, match="subject"):
+        await publish_nats(PublishNatsInput(message="payload"))
+
+    nats_publisher.publish.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_publish_nats_on_failure_raises(nats_publisher: AsyncMock) -> None:
     """When publish raises a NATS error, the activity re-raises for visibility."""
-    mock_client = AsyncMock()
-    mock_client.publish.side_effect = nats.js.errors.NoStreamResponseError()
-    mock_producer_cls.return_value = mock_client
+    nats_publisher.publish.side_effect = nats.js.errors.NoStreamResponseError()
 
     with pytest.raises(nats.js.errors.NoStreamResponseError):
         await publish_nats(PublishNatsInput(subject=ARCHIVE_SUBJECT, message="payload"))

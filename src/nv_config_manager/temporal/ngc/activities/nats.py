@@ -20,9 +20,8 @@ import nats.js.errors
 from pydantic import BaseModel
 from temporalio import activity
 
-from nv_config_manager.common.config import nats_archive_config
 from nv_config_manager.common.log import LogCategory, get_logger
-from nv_config_manager.temporal.client.nats import NatsProducer
+from nv_config_manager_workflows.runtime import NatsNotConfiguredError, get_nats_runtime
 
 logger = get_logger(__name__, category=LogCategory.NATS)
 
@@ -40,22 +39,25 @@ class PublishNatsInput(BaseModel):
 @activity.defn
 async def publish_nats(activity_input: PublishNatsInput) -> None:
     """Publish a NATS message to the workflow result bus."""
-    stream, configured_subject = nats_archive_config()
-    subject = activity_input.subject or configured_subject
+    runtime = get_nats_runtime()
+    subject = activity_input.subject or runtime.subject
+    if not subject:
+        raise NatsNotConfiguredError(
+            "NATS subject is not configured and the activity input did not provide one"
+        )
     logger.info(
         "Publishing to NATS stream=%s subject=%s (message_len=%d)",
-        stream,
+        runtime.stream,
         subject,
         len(activity_input.message),
     )
-    client = NatsProducer()
     try:
-        await client.publish(subject, activity_input.message, stream=stream)
+        await runtime.publisher.publish(subject, activity_input.message, stream=runtime.stream)
     except (nats.errors.Error, nats.js.errors.Error) as error:
         logger.error(
             "NATS publish failed: subject=%s server=%s error=%s",
             subject,
-            client.server,
+            runtime.publisher.server,
             error,
             exc_info=True,
         )

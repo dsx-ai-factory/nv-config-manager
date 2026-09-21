@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.common.lock import acquire_lock, release_lock, renew_lock
+from nv_config_manager_workflows.runtime import get_lock_backend
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class ReleaseWorkflowLockInput(BaseModel):
 @activity.defn
 async def acquire_workflow_lock(input: AcquireWorkflowLockInput) -> None:
     """Acquire the per-resource lock, waiting or failing on contention."""
-    acquired = await acquire_lock(
+    acquired = await get_lock_backend().acquire(
         input.key,
         input.token,
         timeout=input.ttl_seconds,
@@ -75,7 +75,7 @@ async def acquire_workflow_lock(input: AcquireWorkflowLockInput) -> None:
 @activity.defn
 async def renew_workflow_lock(input: RenewWorkflowLockInput) -> None:
     """Extend the lock's TTL; fail loudly if this run no longer owns it."""
-    if await renew_lock(input.key, input.token, timeout=input.ttl_seconds):
+    if await get_lock_backend().renew(input.key, input.token, timeout=input.ttl_seconds):
         return
 
     raise ApplicationError(
@@ -87,5 +87,5 @@ async def renew_workflow_lock(input: RenewWorkflowLockInput) -> None:
 @activity.defn
 async def release_workflow_lock(input: ReleaseWorkflowLockInput) -> None:
     """Release the lock. Best effort: an already-lost lock is not an error."""
-    if await release_lock(input.key, input.token):
+    if await get_lock_backend().release(input.key, input.token):
         log.info("Released workflow lock %s", input.key)

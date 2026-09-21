@@ -121,7 +121,7 @@ def mock_all_configs():
         patch("nv_config_manager.temporal.client.ufm.load_config", return_value=_ufm_config()),
         patch("nv_config_manager.common.config.load_config", return_value=_nb_config()),
         patch(
-            "nv_config_manager.temporal.ngc.activities.nats.NatsProducer",
+            "nv_config_manager.temporal.runtime.NatsProducer.from_config",
             return_value=mock_producer,
         ),
     ):
