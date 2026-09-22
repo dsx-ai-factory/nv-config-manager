@@ -29,8 +29,8 @@ dependency is merely unreachable.
 from __future__ import annotations
 
 import os
+import stat
 import time
-from pathlib import Path
 
 # Default location of the heartbeat file. Lives under /tmp because the sidecar
 # runs with a read-only root filesystem in most deployments and /tmp is an
@@ -58,7 +58,24 @@ def touch_heartbeat(path: str = DEFAULT_HEARTBEAT_FILE) -> None:
     after every completed attempt, including ones where a recoverable
     dependency error occurred.
     """
-    Path(path).touch(exist_ok=True)
+    # The default path is in /tmp, so do not use Path.touch(): it follows
+    # symlinks and could update an attacker-selected file. O_NOFOLLOW makes the
+    # name safe to open, while the descriptor checks protect against other
+    # unsafe file types and pre-created, publicly writable files.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    try:
+        file_stat = os.fstat(fd)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise OSError(f"heartbeat path is not a regular file: {path}")
+        if file_stat.st_uid != os.geteuid():
+            raise PermissionError(f"heartbeat file is not owned by the current user: {path}")
+        if file_stat.st_mode & 0o022:
+            raise PermissionError(f"heartbeat file is writable by other users: {path}")
+        os.fchmod(fd, 0o600)
+        os.utime(fd)
+    finally:
+        os.close(fd)
 
 
 def heartbeat_age_seconds(
@@ -71,12 +88,18 @@ def heartbeat_age_seconds(
     clean unhealthy verdict as a missing heartbeat rather than a traceback.
     """
     try:
-        mtime = os.stat(path).st_mtime
+        file_stat = os.stat(path, follow_symlinks=False)
     except OSError:
+        return None
+    if (
+        not stat.S_ISREG(file_stat.st_mode)
+        or file_stat.st_uid != os.geteuid()
+        or file_stat.st_mode & 0o022
+    ):
         return None
     if now is None:
         now = _now()
-    return now - mtime
+    return now - file_stat.st_mtime
 
 
 def age_is_fresh(age: float, max_age: float = DEFAULT_MAX_AGE_SECONDS) -> bool:
