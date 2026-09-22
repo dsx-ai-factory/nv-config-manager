@@ -478,6 +478,95 @@ class TestNautobotProviderEvents:
             restore_changes={"description": response.json().get("description") or ""},
         )
 
+    def test_vlan_delete_renders_after_nautobot_clears_interface_associations(
+        self,
+        nautobot_url: str,
+        nautobot_client: requests.Session,
+        render_api_url: str,
+        render_client: requests.Session,
+    ) -> None:
+        """Deleting an attached VLAN renders despite Nautobot removing its links first."""
+        target = _render_devices(nautobot_url, nautobot_client)[0]["device"]
+        active_status = next(
+            (
+                status
+                for status in _api_list(
+                    nautobot_url, nautobot_client, "extras/statuses", name="Active"
+                )
+                if status["name"] == "Active"
+            ),
+            None,
+        )
+        if active_status is None:
+            pytest.fail("Nautobot has no Active status for temporary VLAN records")
+        used_vids = {
+            vlan_record["vid"]
+            for vlan_record in _api_list(nautobot_url, nautobot_client, "ipam/vlans")
+        }
+        vlan_vid = next((vid for vid in range(3900, 4095) if vid not in used_vids), None)
+        if vlan_vid is None:
+            pytest.fail("Nautobot has no unused high VLAN ID for deletion validation")
+
+        suffix = uuid4().hex[:10]
+        vlan_response = nautobot_client.post(
+            f"{nautobot_url}/api/ipam/vlans/",
+            json={
+                "name": f"nvcm-delete-{suffix}",
+                "vid": vlan_vid,
+                "status": active_status["id"],
+            },
+            timeout=30,
+        )
+        vlan_response.raise_for_status()
+        vlan_record = vlan_response.json()
+        interface_id: str | None = None
+        try:
+            interface_response = nautobot_client.post(
+                f"{nautobot_url}/api/dcim/interfaces/",
+                json={
+                    "device": target["id"],
+                    "name": f"nvcm-vlan-delete-{suffix}",
+                    "type": "other",
+                    "status": active_status["id"],
+                    "mode": "access",
+                    "untagged_vlan": vlan_record["id"],
+                },
+                timeout=30,
+            )
+            interface_response.raise_for_status()
+            interface_id = interface_response.json()["id"]
+            _wait_for_queues_to_drain(render_api_url, render_client)
+            previous_message = _event_message_for_device(
+                nautobot_url, nautobot_client, target["id"]
+            )
+
+            delete_response = nautobot_client.delete(
+                f"{nautobot_url}/api/ipam/vlans/{vlan_record['id']}/", timeout=30
+            )
+            delete_response.raise_for_status()
+            _wait_for_event_render(
+                nautobot_url,
+                nautobot_client,
+                target["id"],
+                _event_prefix("ipam.vlan", "delete"),
+                previous_message,
+            )
+            _wait_for_queues_to_drain(render_api_url, render_client)
+        finally:
+            if interface_id is not None:
+                response = nautobot_client.delete(
+                    f"{nautobot_url}/api/dcim/interfaces/{interface_id}/", timeout=30
+                )
+                response.raise_for_status()
+            response = nautobot_client.get(
+                f"{nautobot_url}/api/ipam/vlans/{vlan_record['id']}/", timeout=30
+            )
+            if response.status_code == 200:
+                response = nautobot_client.delete(
+                    f"{nautobot_url}/api/ipam/vlans/{vlan_record['id']}/", timeout=30
+                )
+                response.raise_for_status()
+
     def test_helper_address_relationship_event_resolves_vlan_devices(
         self,
         nautobot_url: str,

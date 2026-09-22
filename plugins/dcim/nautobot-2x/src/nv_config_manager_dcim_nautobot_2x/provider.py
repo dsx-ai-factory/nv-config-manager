@@ -882,9 +882,9 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         devices = result.get("data", {}).get("vrf", {}).get("devices", [])
         return _render_enabled_ids(devices)
 
-    async def find_switches_by_vlan(self, vlan_vid: int) -> list[str]:
+    async def find_switches_by_vlan(self, vlan_id: str) -> list[str]:
         """Find switches with a tagged or untagged interface on a VLAN."""
-        result = await self.graphql_query(_FIND_SWITCHES_BY_VLAN_QUERY, {"vid": [vlan_vid]})
+        result = await self.graphql_query(_FIND_SWITCHES_BY_VLAN_QUERY, {"id": [vlan_id]})
         device_ids: set[str] = set()
         for vlan in result.get("data", {}).get("vlans", []):
             for field in ("interfaces_as_tagged", "interfaces_as_untagged"):

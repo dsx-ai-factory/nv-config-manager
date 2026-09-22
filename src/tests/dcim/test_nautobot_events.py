@@ -192,18 +192,22 @@ async def test_vlan_handler_renders_devices_with_assigned_interfaces():
 
     requests = await vlan(_event("ipam.vlan", {"id": "vlan-1", "vid": 900, "name": "data"}), client)
 
-    client.find_switches_by_vlan.assert_awaited_once_with(900)
+    client.find_switches_by_vlan.assert_awaited_once_with("vlan-1")
     assert [request.device_id for request in requests] == ["leaf-1", "leaf-2"]
 
 
 @pytest.mark.asyncio
-async def test_vlan_delete_is_ignored_after_interface_associations_are_gone():
-    """A deleted VLAN cannot have remaining interface owners to resolve."""
+async def test_vlan_delete_renders_all_managed_devices():
+    """A VLAN delete fans out because Nautobot has removed its interface links."""
     client = _client()
+    client.get_render_enabled_devices_matching = AsyncMock(return_value=["leaf-1", "leaf-2"])
     client.find_switches_by_vlan = AsyncMock()
 
-    assert await vlan(_event("ipam.vlan", {"id": "vlan-1"}, operation="delete"), client) == ()
+    requests = await vlan(_event("ipam.vlan", {"id": "vlan-1"}, operation="delete"), client)
+
+    client.get_render_enabled_devices_matching.assert_awaited_once_with({})
     client.find_switches_by_vlan.assert_not_awaited()
+    assert [request.device_id for request in requests] == ["leaf-1", "leaf-2"]
 
 
 @pytest.mark.asyncio
@@ -230,7 +234,7 @@ async def test_helper_address_relationship_renders_devices_using_its_vlan():
     requests = await relationshipassociation(event, client)
 
     client.get_relationship_source_record.assert_awaited_once_with(event.record)
-    client.find_switches_by_vlan.assert_awaited_once_with(900)
+    client.find_switches_by_vlan.assert_awaited_once_with("vlan-1")
     assert [request.device_id for request in requests] == ["leaf-1"]
     assert requests[0].commit_message.startswith(
         "Triggered from nb extras.relationshipassociation delete"
@@ -286,7 +290,7 @@ async def test_unsupported_relationship_source_is_ignored():
 
 
 @pytest.mark.asyncio
-async def test_find_switches_by_vlan_uses_vlan_reverse_relations():
+async def test_find_switches_by_vlan_uses_vlan_primary_key_and_reverse_relations():
     """The provider reads tagged and untagged interface owners directly from the VLAN."""
     client = _client()
     client.graphql_query = AsyncMock(
@@ -307,13 +311,13 @@ async def test_find_switches_by_vlan_uses_vlan_reverse_relations():
         }
     )
 
-    assert await client.find_switches_by_vlan(900) == ["leaf-1", "leaf-2"]
+    assert await client.find_switches_by_vlan("vlan-1") == ["leaf-1", "leaf-2"]
     query, variables = client.graphql_query.await_args.args
     assert "query FindSwitchesByVLAN" in query
-    assert "vlans(vid: $vid)" in query
+    assert "vlans(id: $id)" in query
     assert "interfaces_as_tagged" in query
     assert "interfaces_as_untagged" in query
-    assert variables == {"vid": [900]}
+    assert variables == {"id": ["vlan-1"]}
 
 
 @pytest.mark.asyncio

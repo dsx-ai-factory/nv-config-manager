@@ -43,7 +43,7 @@ class NautobotRenderEventClient(Protocol):
     async def get_render_enabled_devices_for_vrf(self, vrf_id: str) -> list[str]:
         """Resolve managed devices affected by a Nautobot VRF."""
 
-    async def find_switches_by_vlan(self, vlan_vid: int) -> list[str]:
+    async def find_switches_by_vlan(self, vlan_id: str) -> list[str]:
         """Find switches with an interface assigned to a Nautobot VLAN."""
 
     async def get_relationship_source_record(
@@ -247,14 +247,15 @@ async def vrf(event: DCIMChangeEvent, client: DCIMClient) -> tuple[RenderEventRe
 
 async def vlan(event: DCIMChangeEvent, client: DCIMClient) -> tuple[RenderEventRequest, ...]:
     """Handle an ``ipam.vlan`` event."""
+    nautobot_client = _nautobot_client(client)
+    # Nautobot clears interface associations before publishing a VLAN delete, so
+    # only a full managed-device fan-out guarantees that no required render is missed.
     if event.operation == "delete":
-        return ()
+        device_ids = await nautobot_client.get_render_enabled_devices_matching({})
+        return _requests(event, device_ids)
     record = _record(event)
-    try:
-        vlan_vid = int(record["vid"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise DCIMInvalidDataError("Nautobot VLAN event is missing a valid VID") from exc
-    device_ids = await _nautobot_client(client).find_switches_by_vlan(vlan_vid)
+    vlan_id = _id(record.get("id"), "VLAN id")
+    device_ids = await nautobot_client.find_switches_by_vlan(vlan_id)
     return _requests(event, device_ids)
 
 
