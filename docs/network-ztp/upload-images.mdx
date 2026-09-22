@@ -145,8 +145,10 @@ If the PVC is NFS-backed and the API is not reachable, you can write the image s
 
    Do not update the manifest unless the values match. If they differ, remove
    the copied file and repeat the download or copy.
-1. Edit `manifest.json` at the PVC root, adding (or updating) an entry that uses
-   the verified, vendor-published SHA256:
+1. Edit `manifest.json` at the PVC root. If an entry already has the same
+   `platform` and `version`, replace that entry. When the filename changes, do
+   not append a second entry; remove the existing entry before adding the new
+   one. Use the verified, vendor-published SHA256:
 
    ```json
    {
