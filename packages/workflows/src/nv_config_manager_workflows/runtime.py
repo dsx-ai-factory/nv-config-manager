@@ -20,6 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final, Protocol
 
+from nv_config_manager_infrastructure.lock import TokenLockBackend
 from temporalio.exceptions import ApplicationError
 
 
@@ -97,7 +98,7 @@ class SlackRuntime:
 type NatsRuntimeProvider = Callable[[], NatsRuntime | None]
 type SlackRuntimeProvider = Callable[[], SlackRuntime | None]
 type UIBaseURLProvider = Callable[[], str | None]
-type LockBackendProvider = Callable[[], LockBackend | None]
+type LockBackendProvider = Callable[[], LockBackend]
 
 
 class _Unset:
@@ -105,11 +106,12 @@ class _Unset:
 
 
 _UNSET: Final = _Unset()
+_NOOP_LOCK_BACKEND: Final[LockBackend] = TokenLockBackend(None)
 
 _nats_provider: NatsRuntimeProvider | None | _Unset = _UNSET
 _slack_provider: SlackRuntimeProvider | None | _Unset = _UNSET
 _ui_base_url_provider: UIBaseURLProvider | None | _Unset = _UNSET
-_lock_backend_provider: LockBackendProvider | None | _Unset = _UNSET
+_lock_backend_provider: LockBackendProvider | _Unset = _UNSET
 
 
 def configure_nats(provider: NatsRuntimeProvider | None) -> None:
@@ -130,10 +132,15 @@ def configure_ui_base_url(provider: UIBaseURLProvider | None) -> None:
     _ui_base_url_provider = provider
 
 
-def configure_lock(provider: LockBackendProvider | None) -> None:
-    """Configure workflow locking, or explicitly disable it with ``None``."""
+def _noop_lock_backend() -> LockBackend:
+    """Return the stable infrastructure-owned no-op lock backend."""
+    return _NOOP_LOCK_BACKEND
+
+
+def configure_lock_backend(provider: LockBackendProvider | None) -> None:
+    """Configure workflow locking, or explicitly use no-op locking with ``None``."""
     global _lock_backend_provider  # noqa: PLW0603
-    _lock_backend_provider = provider
+    _lock_backend_provider = _noop_lock_backend if provider is None else provider
 
 
 def get_nats_runtime() -> NatsRuntime:
@@ -188,16 +195,10 @@ def get_lock_backend() -> LockBackend:
     provider = _lock_backend_provider
     if isinstance(provider, _Unset):
         raise LockNotConfiguredError(
-            "Workflow lock backend is not configured. Call configure_lock(provider) or "
+            "Workflow lock backend is not configured. Call configure_lock_backend(provider) or "
             "configure_runtime() at worker startup."
         )
-    if provider is None:
-        raise LockNotConfiguredError("Workflow lock backend is disabled")
-
-    backend = provider()
-    if backend is None:
-        raise LockNotConfiguredError("Workflow lock backend is disabled")
-    return backend
+    return provider()
 
 
 def configure_runtime(
@@ -211,4 +212,4 @@ def configure_runtime(
     configure_nats(nats_provider)
     configure_slack(slack_provider)
     configure_ui_base_url(ui_base_url_provider)
-    configure_lock(lock_backend_provider)
+    configure_lock_backend(lock_backend_provider)

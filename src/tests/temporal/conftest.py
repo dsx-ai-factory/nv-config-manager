@@ -46,7 +46,7 @@ from nv_config_manager.temporal.common.search_attributes import (
 from nv_config_manager.temporal.converter import get_data_converter
 from nv_config_manager.temporal.ngc.activities.nats import PublishNatsInput
 from nv_config_manager.temporal.ngc.activities.slack import SlackMessageInput
-from nv_config_manager_workflows.runtime import configure_lock
+from nv_config_manager_workflows.runtime import configure_lock_backend
 
 _SEARCH_ATTRIBUTES = {
     USER_SEARCH_ATTRIBUTE: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
@@ -121,7 +121,7 @@ def disable_workflow_lock_io(mocker) -> dict[str, Any]:
     backend.acquire = mocks["acquire_lock"]
     backend.renew = mocks["renew_lock"]
     backend.release = mocks["release_lock"]
-    configure_lock(lambda: backend)
+    configure_lock_backend(lambda: backend)
 
     async def _never_renew(*_args: object, **_kwargs: object) -> None:
         await asyncio.Event().wait()

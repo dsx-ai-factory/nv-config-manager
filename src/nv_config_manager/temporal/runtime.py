@@ -20,52 +20,13 @@ from typing import cast
 
 from nv_config_manager.common.client import NatsProducer
 from nv_config_manager.common.config import load_config, nats_archive_config
-from nv_config_manager.common.lock import acquire_lock, release_lock, renew_lock
+from nv_config_manager.common.lock import token_lock_backend
 from nv_config_manager_workflows.runtime import (
-    LockBackend,
     NatsPublisher,
     NatsRuntime,
     SlackRuntime,
     configure_runtime,
 )
-
-
-class _ServiceLockBackend:
-    """Adapt the service-selected Redis/no-op lock backend for workflow activities."""
-
-    async def acquire(
-        self,
-        name: str,
-        token: str,
-        *,
-        timeout: int,
-        blocking_timeout: float | None = None,
-        blocking: bool = True,
-    ) -> bool:
-        """Acquire or refresh a workflow lock."""
-        return await acquire_lock(
-            name,
-            token,
-            timeout=timeout,
-            blocking_timeout=blocking_timeout,
-            blocking=blocking,
-        )
-
-    async def renew(self, name: str, token: str, *, timeout: int) -> bool:
-        """Renew a workflow lock."""
-        return await renew_lock(name, token, timeout=timeout)
-
-    async def release(self, name: str, token: str) -> bool:
-        """Release a workflow lock."""
-        return await release_lock(name, token)
-
-
-_SERVICE_LOCK_BACKEND = _ServiceLockBackend()
-
-
-def _lock_backend() -> LockBackend:
-    """Return the service-owned workflow lock adapter."""
-    return _SERVICE_LOCK_BACKEND
 
 
 def _nats_runtime() -> NatsRuntime | None:
@@ -104,5 +65,5 @@ def configure_workflow_runtime() -> None:
         nats_provider=_nats_runtime,
         slack_provider=_slack_runtime,
         ui_base_url_provider=_ui_base_url,
-        lock_backend_provider=_lock_backend,
+        lock_backend_provider=token_lock_backend,
     )

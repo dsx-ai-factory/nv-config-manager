@@ -2648,6 +2648,7 @@ source = { editable = "packages/workflows" }
 dependencies = [
     { name = "netaddr" },
     { name = "nv-config-manager-dcim" },
+    { name = "nv-config-manager-infrastructure" },
     { name = "py-markdown-table" },
     { name = "pydantic" },
     { name = "temporalio" },
@@ -2664,6 +2665,7 @@ dev = [
 requires-dist = [
     { name = "netaddr", specifier = ">=1.3.0" },
     { name = "nv-config-manager-dcim", editable = "packages/dcim" },
+    { name = "nv-config-manager-infrastructure", editable = "packages/infrastructure" },
     { name = "py-markdown-table", specifier = ">=1.1.0" },
     { name = "pydantic", specifier = ">=2.10.2" },
     { name = "temporalio", specifier = ">=1.29.0,<1.32.0" },

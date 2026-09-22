@@ -15,12 +15,17 @@
 """Reusable infrastructure behavior without application configuration."""
 
 from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from redis.exceptions import LockNotOwnedError
 
-from nv_config_manager_infrastructure.lock import acquire_lock, release_lock, renew_lock
+from nv_config_manager_infrastructure.lock import (
+    TokenLockBackend,
+    acquire_lock,
+    release_lock,
+    renew_lock,
+)
 from nv_config_manager_infrastructure.nats import NatsClient
 from nv_config_manager_infrastructure.nats.consumer import NatsConsumer
 from nv_config_manager_infrastructure.nats.producer import NatsProducer
@@ -54,6 +59,62 @@ async def test_token_locks_keep_ownership_semantics() -> None:
     lock.release.side_effect = LockNotOwnedError
     assert not await release_lock(lock, "other-owner")
     assert await acquire_lock(None, "owner")
+
+
+async def test_token_lock_backend_supports_explicit_noop_mode() -> None:
+    backend = TokenLockBackend(None)
+
+    assert await backend.acquire(
+        "workflow:site-1",
+        "owner",
+        timeout=30,
+        blocking_timeout=2.5,
+        blocking=False,
+    )
+    assert await backend.renew("workflow:site-1", "owner", timeout=30)
+    assert await backend.release("workflow:site-1", "owner")
+
+
+async def test_token_lock_backend_constructs_locks_and_delegates_operations() -> None:
+    redis = MagicMock()
+    lock = MagicMock()
+    acquire = AsyncMock(return_value=True)
+    renew = AsyncMock(return_value=True)
+    release = AsyncMock(return_value=True)
+
+    with (
+        patch(
+            "nv_config_manager_infrastructure.lock.AsyncRedisLock",
+            return_value=lock,
+        ) as lock_type,
+        patch("nv_config_manager_infrastructure.lock.acquire_lock", new=acquire),
+        patch("nv_config_manager_infrastructure.lock.renew_lock", new=renew),
+        patch("nv_config_manager_infrastructure.lock.release_lock", new=release),
+    ):
+        backend = TokenLockBackend(redis)
+        assert await backend.acquire(
+            "workflow:site-1",
+            "owner",
+            timeout=30,
+            blocking_timeout=2.5,
+            blocking=False,
+        )
+        assert await backend.renew("workflow:site-1", "owner", timeout=45)
+        assert await backend.release("workflow:site-1", "owner")
+
+    assert lock_type.call_args_list == [
+        call(redis, "workflow:site-1", timeout=30),
+        call(redis, "workflow:site-1", timeout=45),
+        call(redis, "workflow:site-1", timeout=1),
+    ]
+    acquire.assert_awaited_once_with(
+        lock,
+        "owner",
+        blocking_timeout=2.5,
+        blocking=False,
+    )
+    renew.assert_awaited_once_with(lock, "owner")
+    release.assert_awaited_once_with(lock, "owner")
 
 
 def test_clients_have_no_ini_factory() -> None:

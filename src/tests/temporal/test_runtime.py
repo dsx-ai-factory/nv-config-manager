@@ -87,7 +87,24 @@ def test_root_test_environment_installs_default_runtime_providers() -> None:
     assert get_slack_runtime() == SlackRuntime("DUMMY", "nv-config-manager-test")
     assert get_ui_base_url() == "https://config-manager.example.com"
     assert get_lock_backend() is not None
-    assert service_runtime._lock_backend() is service_runtime._SERVICE_LOCK_BACKEND
+
+
+def test_lock_backend_selection_remains_lazy_at_runtime_startup(
+    mocker: MockerFixture,
+) -> None:
+    """Startup installs the lock provider without selecting Redis or local mode."""
+    backend = mocker.Mock()
+    token_lock_backend = mocker.patch.object(
+        service_runtime,
+        "token_lock_backend",
+        return_value=backend,
+    )
+
+    service_runtime.configure_workflow_runtime()
+
+    token_lock_backend.assert_not_called()
+    assert get_lock_backend() is backend
+    token_lock_backend.assert_called_once_with()
 
 
 def test_service_providers_read_current_configuration(mocker: MockerFixture) -> None:

@@ -28,7 +28,7 @@ from nv_config_manager_workflows.runtime import (
     SlackNotConfiguredError,
     SlackRuntime,
     UIBaseURLNotConfiguredError,
-    configure_lock,
+    configure_lock_backend,
     configure_nats,
     configure_runtime,
     configure_slack,
@@ -119,7 +119,7 @@ def test_unconfigured_resources_raise_named_non_retryable_errors(
         get_slack_runtime()
     with pytest.raises(UIBaseURLNotConfiguredError, match="configure_ui_base_url") as ui_error:
         get_ui_base_url()
-    with pytest.raises(LockNotConfiguredError, match="configure_lock") as lock_error:
+    with pytest.raises(LockNotConfiguredError, match="configure_lock_backend") as lock_error:
         get_lock_backend()
 
     assert nats_error.value.non_retryable is True
@@ -128,20 +128,22 @@ def test_unconfigured_resources_raise_named_non_retryable_errors(
     assert lock_error.value.non_retryable is True
 
 
-def test_explicitly_disabled_resources_are_distinct_from_unconfigured() -> None:
-    """None records an intentional disabled state rather than an omitted startup call."""
+async def test_explicit_none_resources_are_distinct_from_unconfigured() -> None:
+    """None records an intentional disabled or no-op state, not an omitted startup call."""
     configure_nats(None)
     configure_slack(None)
     configure_ui_base_url(None)
-    configure_lock(None)
+    configure_lock_backend(None)
 
     with pytest.raises(NatsNotConfiguredError, match="disabled"):
         get_nats_runtime()
     assert get_slack_runtime() is None
     with pytest.raises(UIBaseURLNotConfiguredError, match="disabled"):
         get_ui_base_url()
-    with pytest.raises(LockNotConfiguredError, match="disabled"):
-        get_lock_backend()
+    lock = get_lock_backend()
+    assert await lock.acquire("resource", "owner", timeout=30)
+    assert await lock.renew("resource", "owner", timeout=30)
+    assert await lock.release("resource", "owner")
 
 
 def test_individual_configuration_is_idempotent() -> None:
@@ -154,7 +156,7 @@ def test_individual_configuration_is_idempotent() -> None:
         configure_nats(lambda: nats)
         configure_slack(lambda: slack)
         configure_ui_base_url(lambda: "https://config-manager.example")
-        configure_lock(lambda: lock)
+        configure_lock_backend(lambda: lock)
 
     assert get_nats_runtime() is nats
     assert get_slack_runtime() is slack
@@ -234,19 +236,6 @@ def test_provider_can_report_a_resource_as_disabled(
     getter = get_nats_runtime if provider_name == "nats_provider" else get_ui_base_url
     with pytest.raises(error, match="disabled"):
         getter()
-
-
-def test_lock_provider_can_report_backend_as_disabled() -> None:
-    """A reload-aware lock provider can disable the backend after startup."""
-    configure_runtime(
-        nats_provider=None,
-        slack_provider=None,
-        ui_base_url_provider=None,
-        lock_backend_provider=lambda: None,
-    )
-
-    with pytest.raises(LockNotConfiguredError, match="disabled"):
-        get_lock_backend()
 
 
 def test_nats_runtime_allows_activity_to_supply_subject() -> None:
