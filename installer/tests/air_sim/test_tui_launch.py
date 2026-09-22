@@ -40,6 +40,7 @@ from nv_config_manager_installer.tui.air_sim.screens.launch import (
     _create_deploy_log_path,
     _DeployStarted,
     _is_interesting_dhcp_line,
+    _is_interesting_ztp_line,
     _PodStatusWidget,
     _StreamTabsWidget,
     _TuiCallback,
@@ -349,11 +350,23 @@ def test_dhcp_activity_helpers_include_refresh_and_config_events() -> None:
     assert _is_interesting_dhcp_line(clean_config)
 
 
-def test_service_log_snapshots_include_dhcp_refresh_logs(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ztp_activity_helpers_include_sftp_requests() -> None:
+    """Recognize SFTP device requests while excluding health-check noise."""
+    assert _is_interesting_ztp_line(
+        "Request for path: /device/device-1/startup.yaml from 10.120.1.10"
+    )
+    assert not _is_interesting_ztp_line("Request for path: /healthcheck from 127.0.0.1")
+
+
+def test_service_log_snapshots_include_dhcp_and_both_ztp_transports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Collect DHCP, ZTP HTTP, and ZTP SFTP output in their service streams."""
     manager = AirSimulationManager.__new__(AirSimulationManager)
     commands: list[str] = []
 
     def fake_ssh_cmd(host: str, port: int) -> list[str]:
+        """Return a stable SSH prefix after checking the requested AIR worker."""
         assert host == PUBLIC_AIR_WORKER
         assert port == 17117
         return ["ssh", "nvcm@worker"]
@@ -365,6 +378,7 @@ def test_service_log_snapshots_include_dhcp_refresh_logs(monkeypatch: pytest.Mon
         text: bool,
         timeout: int,
     ) -> SimpleNamespace:
+        """Return representative output for each requested service container."""
         assert capture_output is True
         assert text is True
         assert timeout == 15
@@ -377,6 +391,16 @@ def test_service_log_snapshots_include_dhcp_refresh_logs(monkeypatch: pytest.Mon
             )
         if sim_manager_module.CONFIG_MANAGER_DHCP_DEPLOYMENT in remote_command:
             return SimpleNamespace(returncode=0, stdout="DHCP4_LEASE_ALLOC allocated lease\n")
+        if " -c http-lb " in remote_command:
+            return SimpleNamespace(
+                returncode=0,
+                stdout='10.120.1.10:12345 - "GET /v1/device/device-1/boot-script HTTP/1.1" 200\n',
+            )
+        if " -c sftp " in remote_command:
+            return SimpleNamespace(
+                returncode=0,
+                stdout="Request for path: /device/device-1/startup.yaml from 10.120.1.10\n",
+            )
         return SimpleNamespace(returncode=0, stdout="")
 
     monkeypatch.setattr(manager, "_ssh_cmd", fake_ssh_cmd)
@@ -387,9 +411,15 @@ def test_service_log_snapshots_include_dhcp_refresh_logs(monkeypatch: pytest.Mon
     assert any(
         sim_manager_module.CONFIG_MANAGER_DHCP_REFRESH_DEPLOYMENT in command for command in commands
     )
+    assert any(" -c http-lb " in command for command in commands)
+    assert any(" -c sftp " in command for command in commands)
     assert snapshots["dhcp"] == [
         "DHCP4_LEASE_ALLOC allocated lease",
         '{"message": "KEA DHCP4 Configuration Refresh Complete."}',
+    ]
+    assert snapshots["ztp"] == [
+        '10.120.1.10:12345 - "GET /v1/device/device-1/boot-script HTTP/1.1" 200',
+        "Request for path: /device/device-1/startup.yaml from 10.120.1.10",
     ]
 
 
