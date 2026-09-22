@@ -2143,22 +2143,31 @@ class AirSimulationManager:
         LOG.info(f"Waiting for SSH to become reachable on {host}:{port}...")
         start = time.monotonic()
         while time.monotonic() < deadline:
+            failure_reason = ""
             try:
                 result = subprocess.run(
                     [*ssh_base, "true"],
                     capture_output=True,
+                    text=True,
                     timeout=10,
                 )
                 if result.returncode == 0:
                     elapsed = int(time.monotonic() - start)
                     LOG.info(f"SSH is reachable (after {elapsed}s)")
                     break
+                failure_reason = (
+                    result.stderr.strip().splitlines()[-1] if result.stderr.strip() else ""
+                )
+                failure_reason = failure_reason.replace(self._require_ssh_password(), "<redacted>")
+                failure_reason = _ANSI_ESCAPE.sub("", failure_reason)[:300]
+                if not failure_reason:
+                    failure_reason = f"ssh exited with status {result.returncode}"
             except subprocess.TimeoutExpired:
-                pass
+                failure_reason = "SSH probe timed out after 10 seconds"
 
             elapsed = int(time.monotonic() - start)
             if elapsed % 30 < 10:
-                LOG.info(f"  [{elapsed}s] Still waiting for SSH...")
+                LOG.info(f"  [{elapsed}s] Still waiting for SSH: {failure_reason}")
             time.sleep(10)
         else:
             LOG.warning("Timed out waiting for SSH. Log in manually to check status.")
