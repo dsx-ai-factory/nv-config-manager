@@ -193,6 +193,9 @@ async def test_access_panel_upgrades_when_nautobot_is_ready() -> None:
 
         assert app.query_one("#btn-launch-browser").display is True
         assert app.query_one("#panel-ssh-unix").display is True
+        browser_command = str(app.query_one("#cmd-browser-unix", Static).render())
+        assert "https://nvcm.air" in browser_command
+        assert "https://nautobot.nvcm.air" not in browser_command
 
 
 @pytest.mark.asyncio

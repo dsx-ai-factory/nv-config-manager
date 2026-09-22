@@ -38,6 +38,7 @@ from textual.widgets import Button, Input, Label, Static, Tab, Tabs
 from textual.worker import Worker, WorkerState, get_current_worker
 
 from nv_config_manager_installer.air_sim.constants import (
+    CONFIG_MANAGER_HOSTNAME,
     CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
     DEFAULT_AIR_FRONTEND_URL,
     DEFAULT_AIR_INTERNAL_FRONTEND_URL,
@@ -138,7 +139,7 @@ class AirProviderStatus:
 DEFAULT_PROVIDER_STATUS = AirProviderStatus(
     display_name="Nautobot",
     web_pod_prefix=CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
-    access_url="https://nautobot.nvcm.air",
+    access_url=f"https://{CONFIG_MANAGER_HOSTNAME}",
     dependent_pod_prefixes=(
         "nv-config-manager-nautobot-celery",
         "nv-config-manager-nautobot-celery-beat",
