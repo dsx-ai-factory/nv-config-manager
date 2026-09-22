@@ -114,6 +114,7 @@ _MANAGED_DEVICE_METADATA_QUERY = load_graphql_query(
     "provider/devices.graphql", "ListManagedDeviceMetadata"
 )
 _DEVICE_SERIAL_QUERY = load_graphql_query("provider/devices.graphql", "GetDeviceSerial")
+_DEVICE_CONTEXTS_QUERY = load_graphql_query("provider/devices.graphql", "ListDeviceContexts")
 _RENDER_DATA_QUERY = load_graphql_query("query_config_data_by_device_id_v2.graphql")
 _LOCATION_DATA_QUERY = load_graphql_query("query_location_data.graphql")
 
@@ -125,6 +126,24 @@ def _is_existing_intended_configuration_error(error: NautobotException) -> bool:
     """Return whether Nautobot rejected a create for its one-per-device record."""
     message = str(error)
     return "returned 400" in message and "Intended Config Settings with this Device id" in message
+
+
+def _render_peer_devices(device: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Return every cabled peer device record in a render payload, by reference."""
+    peers: list[dict[str, Any]] = []
+    for interface in device.get("interfaces") or ():
+        if not isinstance(interface, Mapping):
+            continue
+        peer = interface.get("connected_interface")
+        if not isinstance(peer, Mapping):
+            continue
+        if isinstance(peer_device := peer.get("device"), dict):
+            peers.append(peer_device)
+        module = peer.get("module")
+        bay = module.get("parent_module_bay") if isinstance(module, Mapping) else None
+        if isinstance(bay, Mapping) and isinstance(parent := bay.get("parent_device"), dict):
+            peers.append(parent)
+    return peers
 
 
 def _parse_verify(value: object) -> bool | str:
@@ -675,6 +694,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             _RENDER_DATA_QUERY,
             {"id": device_id, "id_str": device_id},
         )
+        await self._attach_peer_contexts(device_id, device_data)
         try:
             location = device_data["data"]["device"]["location"]
             while location["location_type"]["name"] != "Site":
@@ -718,6 +738,38 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             plugin_data[name] = RenderDataExtension(schema=schema, version=1, data=data)
 
         return render_data.model_copy(update={"plugin_data": plugin_data})
+
+    async def _attach_peer_contexts(self, device_id: str, device_data: dict[str, Any]) -> None:
+        """Fill in each cabled peer's config context from one top-level read.
+
+        The render query selects only peer ids: nested under an interface,
+        Nautobot resolves config context once per interface, while a top-level
+        ``devices`` read annotates every requested device in one query.
+        """
+        device = (device_data.get("data") or {}).get("device")
+        if not isinstance(device, Mapping):
+            return
+        peers = _render_peer_devices(device)
+        if not peers:
+            return
+        peer_ids = {peer.get("id") for peer in peers}
+        if not all(isinstance(peer_id, str) and peer_id for peer_id in peer_ids):
+            raise DCIMInvalidDataError(
+                f"Nautobot returned a connected device without an id for {device_id}"
+            )
+
+        result = await self.graphql_query(_DEVICE_CONTEXTS_QUERY, {"ids": sorted(peer_ids)})
+        contexts: dict[str, object] = {}
+        for record in (result.get("data") or {}).get("devices") or ():
+            if isinstance(record, Mapping) and isinstance(record.get("id"), str):
+                contexts[record["id"]] = record.get("config_context")
+        if missing := peer_ids - contexts.keys():
+            raise DCIMInvalidDataError(
+                f"Nautobot returned no configuration context for {len(missing)} of "
+                f"{len(peer_ids)} connected devices of {device_id}"
+            )
+        for peer in peers:
+            peer["config_context"] = contexts[peer["id"]]
 
     async def get_render_device_status(self, device_id: str) -> RenderDeviceStatus | None:
         """Return the managed-device status needed before queueing a render."""
