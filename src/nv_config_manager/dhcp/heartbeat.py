@@ -58,10 +58,6 @@ def touch_heartbeat(path: str = DEFAULT_HEARTBEAT_FILE) -> None:
     after every completed attempt, including ones where a recoverable
     dependency error occurred.
     """
-    # The default path is in /tmp, so do not use Path.touch(): it follows
-    # symlinks and could update an attacker-selected file. O_NOFOLLOW makes the
-    # name safe to open, while the descriptor checks protect against other
-    # unsafe file types and pre-created, publicly writable files.
     flags = os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW
     fd = os.open(path, flags, 0o600)
     try:
