@@ -101,7 +101,7 @@ def _mock_nats():
     mock_producer.__aenter__ = AsyncMock(return_value=mock_producer)
     mock_producer.__aexit__ = AsyncMock(return_value=False)
     with patch(
-        "nv_config_manager.temporal.ngc.activities.nats.NatsProducer",
+        "nv_config_manager.temporal.runtime.NatsProducer.from_config",
         return_value=mock_producer,
     ):
         yield

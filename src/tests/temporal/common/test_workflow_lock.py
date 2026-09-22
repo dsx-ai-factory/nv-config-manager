@@ -137,21 +137,15 @@ class TestLockActivities:
     """The activities translate helper results into Temporal retry semantics."""
 
     @pytest.mark.asyncio
-    async def test_acquire_succeeds_silently(self, mocker):
-        mocker.patch(
-            "nv_config_manager.temporal.common.activities.lock.acquire_lock",
-            new=mocker.AsyncMock(return_value=True),
-        )
+    async def test_acquire_succeeds_silently(self, disable_workflow_lock_io):
         await acquire_workflow_lock(
             AcquireWorkflowLockInput(key="k", token="t", ttl_seconds=60, wait_timeout_seconds=5)
         )
+        disable_workflow_lock_io["acquire_lock"].assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_acquire_conflict_is_retryable_when_waiting(self, mocker):
-        mocker.patch(
-            "nv_config_manager.temporal.common.activities.lock.acquire_lock",
-            new=mocker.AsyncMock(return_value=False),
-        )
+    async def test_acquire_conflict_is_retryable_when_waiting(self, disable_workflow_lock_io):
+        disable_workflow_lock_io["acquire_lock"].return_value = False
         with pytest.raises(ApplicationError) as exc:
             await acquire_workflow_lock(
                 AcquireWorkflowLockInput(key="k", token="t", ttl_seconds=60, wait_timeout_seconds=5)
@@ -159,11 +153,8 @@ class TestLockActivities:
         assert exc.value.non_retryable is False
 
     @pytest.mark.asyncio
-    async def test_acquire_conflict_is_non_retryable_when_failing(self, mocker):
-        mocker.patch(
-            "nv_config_manager.temporal.common.activities.lock.acquire_lock",
-            new=mocker.AsyncMock(return_value=False),
-        )
+    async def test_acquire_conflict_is_non_retryable_when_failing(self, disable_workflow_lock_io):
+        disable_workflow_lock_io["acquire_lock"].return_value = False
         with pytest.raises(ApplicationError) as exc:
             await acquire_workflow_lock(
                 AcquireWorkflowLockInput(
@@ -177,23 +168,15 @@ class TestLockActivities:
         assert exc.value.non_retryable is True
 
     @pytest.mark.asyncio
-    async def test_acquire_blocks_while_waiting(self, mocker):
-        acquire = mocker.patch(
-            "nv_config_manager.temporal.common.activities.lock.acquire_lock",
-            new=mocker.AsyncMock(return_value=True),
-        )
+    async def test_acquire_blocks_while_waiting(self, disable_workflow_lock_io):
         await acquire_workflow_lock(
             AcquireWorkflowLockInput(key="k", token="t", ttl_seconds=60, wait_timeout_seconds=5)
         )
-        assert acquire.await_args.kwargs["blocking"] is True
+        assert disable_workflow_lock_io["acquire_lock"].await_args.kwargs["blocking"] is True
 
     @pytest.mark.asyncio
-    async def test_acquire_does_not_block_when_failing(self, mocker):
+    async def test_acquire_does_not_block_when_failing(self, disable_workflow_lock_io):
         """on_conflict='fail' must not wait out wait_timeout_seconds."""
-        acquire = mocker.patch(
-            "nv_config_manager.temporal.common.activities.lock.acquire_lock",
-            new=mocker.AsyncMock(return_value=True),
-        )
         await acquire_workflow_lock(
             AcquireWorkflowLockInput(
                 key="k",
@@ -203,23 +186,17 @@ class TestLockActivities:
                 fail_on_conflict=True,
             )
         )
-        assert acquire.await_args.kwargs["blocking"] is False
+        assert disable_workflow_lock_io["acquire_lock"].await_args.kwargs["blocking"] is False
 
     @pytest.mark.asyncio
-    async def test_renew_raises_when_lock_lost(self, mocker):
-        mocker.patch(
-            "nv_config_manager.temporal.common.activities.lock.renew_lock",
-            new=mocker.AsyncMock(return_value=False),
-        )
+    async def test_renew_raises_when_lock_lost(self, disable_workflow_lock_io):
+        disable_workflow_lock_io["renew_lock"].return_value = False
         with pytest.raises(ApplicationError, match="Lost workflow lock"):
             await renew_workflow_lock(RenewWorkflowLockInput(key="k", token="t", ttl_seconds=60))
 
     @pytest.mark.asyncio
-    async def test_release_never_raises(self, mocker):
-        mocker.patch(
-            "nv_config_manager.temporal.common.activities.lock.release_lock",
-            new=mocker.AsyncMock(return_value=False),
-        )
+    async def test_release_never_raises(self, disable_workflow_lock_io):
+        disable_workflow_lock_io["release_lock"].return_value = False
         # Should complete without raising even when the lock was already lost.
         await release_workflow_lock(ReleaseWorkflowLockInput(key="k", token="t"))
 

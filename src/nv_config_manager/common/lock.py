@@ -23,8 +23,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from nv_config_manager_infrastructure import lock as lock_primitives
 from nv_config_manager_infrastructure.lock import NoopLock as _FakeLock
+from nv_config_manager_infrastructure.lock import TokenLockBackend
 from redis.asyncio.lock import Lock as AsyncRedisLock
 
 from nv_config_manager.common.config import redis_client
@@ -85,12 +85,10 @@ async def create_lock(
 # ---------------------------------------------------------------------------
 
 
-def _redis_lock(name: str, timeout: int) -> AsyncRedisLock | None:
-    """Build a Redis-backed lock, or None in local single-process development."""
+def token_lock_backend() -> TokenLockBackend:
+    """Build a token lock backend from the current service-selected Redis client."""
     client = _get_lock_redis_client()
-    if client is None:
-        return None
-    return AsyncRedisLock(client.redis, name, timeout=timeout)
+    return TokenLockBackend(client.redis if client is not None else None)
 
 
 async def acquire_lock(
@@ -101,16 +99,20 @@ async def acquire_lock(
     blocking: bool = True,
 ) -> bool:
     """Acquire a token lock using the service-selected Redis backend."""
-    return await lock_primitives.acquire_lock(
-        _redis_lock(name, timeout), token, blocking_timeout, blocking
+    return await token_lock_backend().acquire(
+        name,
+        token,
+        timeout=timeout,
+        blocking_timeout=blocking_timeout,
+        blocking=blocking,
     )
 
 
 async def renew_lock(name: str, token: str, timeout: int) -> bool:
     """Renew a token lock using the service-selected Redis backend."""
-    return await lock_primitives.renew_lock(_redis_lock(name, timeout), token)
+    return await token_lock_backend().renew(name, token, timeout=timeout)
 
 
 async def release_lock(name: str, token: str) -> bool:
     """Release a token lock using the service-selected Redis backend."""
-    return await lock_primitives.release_lock(_redis_lock(name, 1), token)
+    return await token_lock_backend().release(name, token)

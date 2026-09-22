@@ -17,7 +17,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -267,7 +267,11 @@ async def mock_get_ui_base_url() -> str:
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow(
     _: Any,
@@ -723,7 +727,11 @@ async def test_execute_workflow(
 @patch("nv_config_manager.temporal.ngc.activities.backup.config_store_client")
 @patch("nv_config_manager.temporal.ngc.activities.deploy.config_store_client")
 @patch("nv_config_manager.temporal.ngc.activities.backup.create_dcim_client")
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow_no_diff(
     _: Any,
@@ -889,7 +897,11 @@ async def test_execute_workflow_no_diff(
 @patch("nv_config_manager.temporal.ngc.activities.backup.config_store_client")
 @patch("nv_config_manager.temporal.ngc.activities.deploy.config_store_client")
 @patch("nv_config_manager.temporal.ngc.activities.backup.create_dcim_client")
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow_rejected_diff(
     _: Any,
@@ -969,7 +981,11 @@ async def test_execute_workflow_rejected_diff(
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_tenant_deploy_workflow(
     _,
@@ -1377,7 +1393,11 @@ nv set vrf test-ryan-2 router bgp router-id 172.28.0.2
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_tenant_deploy_uses_full_intended_config_for_removals(
     _,
@@ -1447,7 +1467,11 @@ nv unset vrf test-vrf router bgp enable on
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_apply_config_with_ignore_fail_and_retry(
     _: Any,
@@ -1544,7 +1568,11 @@ async def test_apply_config_with_ignore_fail_and_retry(
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_tenant_deploy_workflow_invalid_config(
     _,
@@ -1613,7 +1641,11 @@ nv set interface swp1 ip address 10.0.0.1/24
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_tenant_deploy_workflow_newer_commit_allowed(
     _,
@@ -1699,7 +1731,11 @@ nv set interface swp2 ip vrf test-vrf
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_tenant_deploy_workflow_newer_commit_disallowed(
     _,
