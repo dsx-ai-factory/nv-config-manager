@@ -732,6 +732,8 @@ class AirSimulationManager:
         "-o",
         "UserKnownHostsFile=/dev/null",
         "-o",
+        "PreferredAuthentications=password",
+        "-o",
         "LogLevel=ERROR",
     ]
 
