@@ -699,13 +699,13 @@ def _populate_ssh_and_pods(
     provisioned: str = "4/6",
     pending: str = "Pending: tan-leaf-04, tan-leaf-05",
     show_access: bool = True,
-    nautobot_ready: bool = True,
+    provider_ready: bool = True,
 ) -> None:
     launch._host = MOCK_HOST
     launch._port = MOCK_PORT
     launch._ssh_cmd_text = _ssh_cmd()
     if show_access:
-        launch._show_proxy_panel(MOCK_HOST, MOCK_PORT, nautobot_ready=nautobot_ready)
+        launch._show_proxy_panel(MOCK_HOST, MOCK_PORT, provider_ready=provider_ready)
     pod_panel = launch.query_one("#pod-status-panel", _PodStatusWidget)
     pod_panel._host = MOCK_HOST
     pod_panel._port = MOCK_PORT
@@ -733,7 +733,7 @@ def _populate_running_launch(launch: LaunchScreen) -> None:
         launch,
         provisioned="0/6",
         pending="Waiting for first ZTP callback",
-        nautobot_ready=False,
+        provider_ready=False,
     )
     _populate_logs(launch)
 
