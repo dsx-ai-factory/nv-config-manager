@@ -38,7 +38,11 @@ from nv_config_manager.common.log import (
     escape_log_newlines,
     get_logger,
 )
-from nv_config_manager.dcim import DCIMClient, dcim_client_session
+from nv_config_manager.dcim import (
+    DCIMClient,
+    DCIMReadCancelledError,
+    dcim_client_session,
+)
 from nv_config_manager.dhcp.heartbeat import (
     DEFAULT_HEARTBEAT_FILE,
     DEFAULT_MAX_AGE_SECONDS,
@@ -53,7 +57,9 @@ from nv_config_manager.dhcp.metrics import (
     DHCP_CACHE_REFRESH_ERRORS,
     DHCP_CONFIG_HASH_MISMATCHES,
     DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP,
+    DHCP_QUERY_ERRORS,
     DHCP_SYNC_FAILURES,
+    QueryErrorType,
     SyncOperation,
     SyncState,
     initialize_refresh_metrics,
@@ -85,6 +91,14 @@ CONFGEN_METRICS_PORT = 9091
 # Overridable via env for operational tuning; read once at import.
 REDIS_OP_TIMEOUT_SECONDS = float(os.environ.get("CONFIG_SYNC_REDIS_TIMEOUT", "10"))
 KEA_OP_TIMEOUT_SECONDS = float(os.environ.get("CONFIG_SYNC_KEA_TIMEOUT", "15"))
+
+# The client already retries each cancelled request. A cycle-level attempt
+# re-reads the whole inventory, so one extra is the useful maximum: it usually
+# lands after the replica's replay burst and saves a whole refresh_interval of
+# staleness. Once the attempts are spent the cycle is skipped, so the cost of
+# giving up early is bounded by refresh_interval.
+CANCELLED_READ_ATTEMPTS = 2
+CANCELLED_READ_RETRY_DELAY_SECONDS = 5.0
 
 # The startup apply retries a fixed in-memory payload, so it must be bounded: a
 # config KEA deterministically rejects (config-set returns non-zero, surfacing
@@ -393,6 +407,42 @@ async def _refresh_kea_configuration_async(
     return False
 
 
+async def _refresh_cycle_async(
+    dcim_client: DCIMClient,
+    kea_client: KeaClient,
+    redis_client: RedisClient,
+    ip_version: int,
+    check: bool,
+) -> bool:
+    """Run one refresh, retrying while the DCIM's datastore cancels the read.
+
+    Raises DCIMReadCancelledError once the attempts are spent, leaving the
+    caller to choose between skipping a periodic cycle and failing a one-shot
+    run.
+    """
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return await _refresh_kea_configuration_async(
+                dcim_client, kea_client, redis_client, ip_version, check
+            )
+        except DCIMReadCancelledError as exc:
+            if attempt >= CANCELLED_READ_ATTEMPTS:
+                # Counted once per cycle the caller goes on to skip, not once
+                # per attempt: a retry that succeeds published normally, and
+                # counting each attempt would make an exhausted cycle look like
+                # two skips.
+                DHCP_QUERY_ERRORS.labels(error_type=QueryErrorType.READ_CANCELLED).inc()
+                raise
+            logger.warning(
+                f"Could not read the DCIM this attempt "
+                f"(attempt {attempt}/{CANCELLED_READ_ATTEMPTS}): "
+                f"{escape_log_newlines(str(exc))}"
+            )
+            await asyncio.sleep(CANCELLED_READ_RETRY_DELAY_SECONDS)
+
+
 async def _refresh_loop_async(
     ip_version: int,
     check: bool,
@@ -405,18 +455,29 @@ async def _refresh_loop_async(
 
     try:
         async with dcim_client_session(config) as dcim_client:
-            # Always run once
-            should_exit = await _refresh_kea_configuration_async(
-                dcim_client, kea_client, redis_client, ip_version, check
-            )
-            if should_exit or not refresh_interval:
-                return
-
             while True:
-                # Leave errors uncaught so that they get raised and restart the container
-                await _refresh_kea_configuration_async(
-                    dcim_client, kea_client, redis_client, ip_version, check
-                )
+                # Leave errors uncaught so that they get raised and restart the
+                # container. A read the DCIM's datastore cancelled is the
+                # exception: restarting only re-runs into the same busy
+                # replica, and skipping the publish
+                # already keeps Kea on its last good config and freezes
+                # cache_last_refresh_timestamp, which the ten-minute refresh
+                # alert watches.
+                try:
+                    should_exit = await _refresh_cycle_async(
+                        dcim_client, kea_client, redis_client, ip_version, check
+                    )
+                except DCIMReadCancelledError as exc:
+                    if not refresh_interval:
+                        raise
+                    logger.error(
+                        f"Skipping this refresh; could not read the DCIM: "
+                        f"{escape_log_newlines(str(exc))}"
+                    )
+                else:
+                    if should_exit or not refresh_interval:
+                        return
+
                 logger.info(f"Sleeping {refresh_interval}s...")
                 await asyncio.sleep(refresh_interval)
     finally:
