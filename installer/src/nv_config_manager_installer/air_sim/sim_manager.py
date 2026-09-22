@@ -734,6 +734,8 @@ class AirSimulationManager:
         "-o",
         "PreferredAuthentications=password",
         "-o",
+        "PasswordAuthentication=yes",
+        "-o",
         "LogLevel=ERROR",
     ]
 
