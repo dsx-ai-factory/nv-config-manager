@@ -701,6 +701,7 @@ def _populate_ssh_and_pods(
     show_access: bool = True,
     provider_ready: bool = True,
 ) -> None:
+    """Populate deterministic SSH, provider-readiness, and pod-status screenshot data."""
     launch._host = MOCK_HOST
     launch._port = MOCK_PORT
     launch._ssh_cmd_text = _ssh_cmd()
