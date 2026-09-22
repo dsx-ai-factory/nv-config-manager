@@ -27,7 +27,7 @@ flowchart TD
     Workflow["Workflow"]
     ConfigStore["Config Store"]
 
-    Device -->|"HTTP/HTTPS"| ZTP
+    Device -->|"HTTP/HTTPS/SFTP"| ZTP
     ZTP --> DevMgmt
     ZTP --> Storage
     ZTP --> Workflow
@@ -71,8 +71,8 @@ Device Boots
     ├─→ Device Downloads Firmware
     │   └─→ GET /v1/device/{uuid}/firmware
     │
-    ├─→ Device Loads Configuration
-    │   └─→ GET /v1/device/{uuid}/config/{configlet}
+    ├─→ Cumulus Device Loads Configuration over SFTP
+    │   └─→ /device/{uuid}/startup.yaml
     │
     ├─→ Device Validates Serial
     │   └─→ POST /v1/device/{uuid}/validate_serial
@@ -107,6 +107,8 @@ The system uses object storage for firmware and file storage:
 ### Data Protection
 
 - Sensitive configuration files are only accessible to registered devices or authenticated users
+- The default Cumulus template transfers rendered configuration over encrypted,
+  source-IP-authorized SFTP and stages it mode `0600`
 - Firmware images are served with checksums for verification
 
 ## Monitoring & Metrics
