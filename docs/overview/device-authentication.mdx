@@ -136,4 +136,9 @@ If render output does not include the expected account, check the provider's cre
 
 If a workflow cannot connect, confirm External Secrets Operator synced the runtime secret, `NV_CONFIG_MANAGER_CONFIG_SECRET_PATH` is mounted in the Temporal worker pod, the `[site.<slug>]` section exists, and the normalized device-site slug from the selected provider matches the section name.
 
-If a password rotation reports no diff, the intended configuration probably still points at the old secret revision. Confirm the new Vault/OpenBao key exists, the config context rotation changed, and render has regenerated the intended configuration before re-running the rotation workflow.
+If a password rotation reports no diff, the intended configuration probably
+still points at the old secret revision. Confirm that the new Vault/OpenBao key
+exists, the selected provider's credential mapping selects the new revision,
+and render has regenerated the intended configuration before re-running the
+rotation workflow. With the bundled Nautobot provider, confirm that the
+applicable `password_mappings` config context has the expected `rotation` value.

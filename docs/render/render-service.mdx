@@ -108,18 +108,20 @@ The rendering process is as follows:
 
 ## Template version management
 
-**Producer**: Runs as a Kubernetes job on service deployment. The producer queries the selected DCIM provider for devices with stale `template_version`, and publishes template-change events for outdated devices.
+**Template updater**: Runs as a Kubernetes job after Helm installs and upgrades.
+It queries the selected DCIM provider for devices with a stale `template_version`
+and renders those devices directly with bounded concurrency. Each update uses the
+device's Redis-backed render lock.
 
-**Version tracking**: The producer records the `nv_config_manager_templates`
-version through the DCIM provider. The template consumer rejects events for
-newer versions with a negative acknowledgement and a 30-second delay. During a
-rolling deployment, old pods can terminate before new pods process the backlog.
+**Version tracking**: A successful render records the
+`nv_config_manager_templates` version through the selected DCIM provider. The
+next template-updater job skips devices that already have the current version.
 
 ## Deployment
 
-The service uses three consumer deployments (DCIM, device, and template), a
-producer job that runs on Helm upgrades, and Redis for distributed locking. It
-exposes Prometheus metrics on port 8000.
+The service uses two consumer deployments (`nautobot` and `device`), a separate
+template-updater job that runs after Helm installs and upgrades, and Redis for
+distributed locking. It exposes Prometheus metrics on port 8000.
 
 The service is configured using a configuration file (`config.py`). The configuration file contains the selected DCIM provider settings, NATS connection details (TLS, credentials), Redis connection for locking, Config Store client settings, and environment-specific aggregate management flags. External providers configure `dcim_change_stream` and `dcim_change_subject`; empty Helm values retain the historical Nautobot stream and subject.
 
@@ -175,9 +177,10 @@ push-based subscriptions, which improves flow control and horizontal scaling.
 
 **Distributed locking**: Redis-backed locks prevent concurrent renders for the same device across multiple consumer instances.
 
-**Version-aware processing**: The template consumer compares its running
-version with the message version and rejects messages from newer versions
-during rolling deployments.
+**Version-aware processing**: The template-updater job compares the current
+template package version with the version recorded by the selected DCIM
+provider. It renders stale devices directly with bounded concurrency and
+per-device locks.
 
 **Provider-backed data access**: Render obtains normalized device data and managed-device state from the configured DCIM provider. Template rendering runs in a thread pool using `asyncio.to_thread()` to avoid blocking the event loop.
 
