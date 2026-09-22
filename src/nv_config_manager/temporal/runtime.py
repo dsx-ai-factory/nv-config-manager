@@ -35,6 +35,10 @@ def _nats_runtime() -> NatsRuntime | None:
     if not config.has_section("nats"):
         return None
 
+    server = config.get("nats", "server", fallback="").strip()
+    if not server:
+        return None
+
     stream, subject = nats_archive_config(config)
     return NatsRuntime(
         publisher=cast(NatsPublisher, NatsProducer.from_config(config)),

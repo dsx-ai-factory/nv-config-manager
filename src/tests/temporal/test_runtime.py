@@ -17,11 +17,13 @@
 from configparser import ConfigParser
 from unittest.mock import Mock
 
+import pytest
 from nv_config_manager_infrastructure.nats import NatsProducer as InfrastructureNatsProducer
 from pytest_mock import MockerFixture
 
 from nv_config_manager.temporal import runtime as service_runtime
 from nv_config_manager_workflows.runtime import (
+    NatsNotConfiguredError,
     NatsRuntime,
     SlackRuntime,
     get_lock_backend,
@@ -151,6 +153,29 @@ def test_missing_optional_sections_disable_resources(mocker: MockerFixture) -> N
     assert service_runtime._nats_runtime() is None
     assert service_runtime._slack_runtime() is None
     assert service_runtime._ui_base_url() is None
+    from_config.assert_not_called()
+
+
+@pytest.mark.parametrize("server", [None, "", "  "])
+def test_missing_or_blank_nats_server_disables_resource(
+    server: str | None,
+    mocker: MockerFixture,
+) -> None:
+    """An incomplete NATS endpoint is reported through the runtime error boundary."""
+    nats_settings = {
+        "archive_stream": "archive",
+        "archive_subject": "workflow.result",
+    }
+    if server is not None:
+        nats_settings["server"] = server
+    config = ConfigParser()
+    config.read_dict({"nats": nats_settings})
+    mocker.patch.object(service_runtime, "load_config", return_value=config)
+    from_config = mocker.patch.object(service_runtime.NatsProducer, "from_config")
+    service_runtime.configure_workflow_runtime()
+
+    with pytest.raises(NatsNotConfiguredError, match="disabled or incomplete"):
+        get_nats_runtime()
     from_config.assert_not_called()
 
 
