@@ -21,6 +21,11 @@ Device-specific endpoints for boot scripts, configurations, firmware, and provis
 - `POST /v1/device/{device_uuid}/provisioned` - Mark device as provisioned
 - `POST /v1/device/{device_uuid}/validate_serial` - Validate device serial number
 
+The source-IP-authorized SFTP service exposes the same rendered configuration
+at `/device/{device_uuid}/{configlet}` on TCP 2222. The default Cumulus boot
+script retrieves `/device/{device_uuid}/startup.yaml` over SFTP; the HTTP API
+remains available for compatibility.
+
 ### Firmware Endpoints
 
 Platform and version-based firmware access:
