@@ -26,7 +26,7 @@ from nv_config_manager_infrastructure.lock import (
     release_lock,
     renew_lock,
 )
-from nv_config_manager_infrastructure.nats import NatsClient
+from nv_config_manager_infrastructure.nats import NatsClient, nats_server_for_logging
 from nv_config_manager_infrastructure.nats.consumer import NatsConsumer
 from nv_config_manager_infrastructure.nats.producer import NatsProducer
 from nv_config_manager_infrastructure.redis import RedisClient
@@ -124,6 +124,27 @@ def test_clients_have_no_ini_factory() -> None:
     assert client.api_prefix == "$JS.custom.API"
     assert issubclass(NatsProducer, NatsClient)
     assert issubclass(NatsConsumer, NatsClient)
+
+
+@pytest.mark.parametrize(
+    ("server", "expected"),
+    [
+        (
+            "tls://alice:p%40ss@nats.example.test:4222/path?token=secret#fragment",
+            "tls://nats.example.test:4222",
+        ),
+        ("wss://alice:secret@[2001:db8::1]:443/ws", "wss://[2001:db8::1]:443"),
+        ("nats://nats.example.test:4222", "nats://nats.example.test:4222"),
+        ("nats://alice:secret@nats.example.test:not-a-port", "<redacted-nats-server>"),
+        ("not-a-url", "<redacted-nats-server>"),
+        (None, "<redacted-nats-server>"),
+    ],
+)
+def test_nats_server_for_logging_excludes_sensitive_url_components(
+    server: str | None,
+    expected: str,
+) -> None:
+    assert nats_server_for_logging(server) == expected
 
 
 async def test_password_connection_negotiates_tls_before_credentials() -> None:

@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock
 
 import nats.js.errors
 import pytest
+from pytest_mock import MockerFixture
 
 from nv_config_manager.temporal.ngc.activities.nats import (
     ARCHIVE_SUBJECT,
@@ -127,9 +128,23 @@ async def test_publish_nats_requires_an_effective_subject(nats_publisher: AsyncM
 
 
 @pytest.mark.asyncio
-async def test_publish_nats_on_failure_raises(nats_publisher: AsyncMock) -> None:
-    """When publish raises a NATS error, the activity re-raises for visibility."""
-    nats_publisher.publish.side_effect = nats.js.errors.NoStreamResponseError()
+async def test_publish_nats_on_failure_redacts_server_and_raises(
+    nats_publisher: AsyncMock,
+    mocker: MockerFixture,
+) -> None:
+    """A publish failure logs a safe endpoint and re-raises for visibility."""
+    error = nats.js.errors.NoStreamResponseError()
+    nats_publisher.server = "tls://alice:secret@nats.example.test:4222?token=secret"
+    nats_publisher.publish.side_effect = error
+    log_error = mocker.patch("nv_config_manager.temporal.ngc.activities.nats.logger.error")
 
     with pytest.raises(nats.js.errors.NoStreamResponseError):
         await publish_nats(PublishNatsInput(subject=ARCHIVE_SUBJECT, message="payload"))
+
+    log_error.assert_called_once_with(
+        "NATS publish failed: subject=%s server=%s error=%s",
+        ARCHIVE_SUBJECT,
+        "tls://nats.example.test:4222",
+        error,
+        exc_info=True,
+    )

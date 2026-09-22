@@ -17,6 +17,7 @@
 import nats
 import nats.errors
 import nats.js.errors
+from nv_config_manager_infrastructure.nats import nats_server_for_logging
 from pydantic import BaseModel
 from temporalio import activity
 
@@ -57,7 +58,7 @@ async def publish_nats(activity_input: PublishNatsInput) -> None:
         logger.error(
             "NATS publish failed: subject=%s server=%s error=%s",
             subject,
-            runtime.publisher.server,
+            nats_server_for_logging(runtime.publisher.server),
             error,
             exc_info=True,
         )
