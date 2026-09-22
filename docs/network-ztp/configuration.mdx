@@ -59,7 +59,7 @@ The ONIE installer will automatically append `.ztp` to the URL if it points to a
 Ensure devices can reach the ZTP server:
 
 - **DHCP traffic**: Devices must be able to exchange DHCP packets with the Config Manager DHCP service on UDP 67/68.
-- **ZTP service traffic**: Devices must be able to access the ZTP server on TCP 80 and/or TCP 443 for boot scripts, configuration, and firmware fetches.
+- **ZTP service traffic**: Devices must be able to access the configured HTTP or HTTPS bootstrap listener and TCP 2222 for the default Cumulus rendered-configuration download.
 - **DNS resolution**: Devices must be able to resolve the ZTP server hostname, which requires UDP/TCP 53 if hostnames are used.
 - **IP address registration**: Device IP addresses must be registered in the device management system.
 
@@ -112,6 +112,15 @@ Configuration files are retrieved using:
 curl https://ztp.example.com/v1/device/{device_uuid}/config/{configlet}
 ```
 
+The default Cumulus boot script instead retrieves `startup.yaml` through the
+source-IP-authorized SFTP service:
+
+```text
+sftp://ztp.example.com:2222/device/{device_uuid}/startup.yaml
+```
+
+The HTTP endpoint remains available for compatibility and troubleshooting.
+
 Common configuration file names:
 
 - `boot-script`: Cumulus Linux initial boot script
@@ -136,7 +145,7 @@ Contact your system administrator for the specific configuration file names for 
 
 1. Verify network connectivity from device to ZTP server
 1. Check DNS resolution: `nslookup ztp.example.com`
-1. Verify firewall rules allow HTTP/HTTPS traffic
+1. Verify firewall rules allow the configured HTTP/HTTPS bootstrap traffic and SFTP on TCP 2222
 1. Check that device IP is registered in device management system
 
 ### Authorization Failures
@@ -185,10 +194,10 @@ Contact your system administrator for the specific configuration file names for 
 
 ### Security
 
-1. **Use HTTPS**: Always use HTTPS endpoints in production
+1. **Protect rendered configuration**: Use the default SFTP transport for Cumulus `startup.yaml`; restrict bootstrap HTTP to the private provisioning network
 1. **Verify Checksums**: Always verify firmware checksums before installation
 1. **Validate Serial Numbers**: Use the serial validation endpoint before provisioning
-1. **Monitor Provisioning**: Monitor device provisioning status and logs
+1. **Monitor Provisioning**: Correlate the ZTP `http-lb` and `sftp` container logs during provisioning
 
 ### Reliability
 
