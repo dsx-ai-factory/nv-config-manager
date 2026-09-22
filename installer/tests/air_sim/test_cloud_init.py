@@ -63,3 +63,23 @@ def test_git_token_is_not_persisted_in_setup_script() -> None:
     assert git_token_file["permissions"] == "0600"
     assert git_token_file["owner"] == "root:root"
     assert git_token_file["content"] == token
+
+
+def test_setup_completion_marker_follows_cluster_status_check() -> None:
+    user_data = generate_server_cloud_init(
+        internal_mac="44:38:39:00:00:01",
+        oob_ssh_password="test-oob-password",
+        internal_ip="10.100.1.2/25",
+        site_name="SPO01",
+        oob_gateway="10.100.1.1",
+        config_manager_repo="https://github.com/NVIDIA/nv-config-manager.git",
+        config_manager_ref="main",
+    )
+
+    cloud_config = yaml.safe_load(user_data.removeprefix("#cloud-config\n"))
+    write_files = {entry["path"]: entry for entry in cloud_config["write_files"]}
+    setup_script = write_files["/opt/nvcm-setup.sh"]["content"]
+
+    assert setup_script.index("kubectl get nodes -o wide") < setup_script.index(
+        "NVCM DSX Air Setup Complete!"
+    )
