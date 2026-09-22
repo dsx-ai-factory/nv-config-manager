@@ -43,8 +43,10 @@ _REPRESENTED_EVENT_TYPES = frozenset(
         "dcim.device",
         "dcim.interface",
         "extras.configcontext",
+        "extras.relationshipassociation",
         "ipam.ipaddress",
         "ipam.prefix",
+        "ipam.vlan",
         "ipam.vrf",
         "nautobot_bgp_models.autonomoussystem",
         "nautobot_bgp_models.bgproutinginstance",
@@ -77,6 +79,12 @@ query {
         id
         name
         description
+        untagged_vlan {
+          id
+        }
+        tagged_vlans {
+          id
+        }
         vrf {
           id
           name
@@ -428,6 +436,219 @@ class TestNautobotProviderEvents:
             changes={"description": f"nvcm-provider-vrf-{uuid4().hex}"},
             restore_changes={"description": response.json().get("description") or ""},
         )
+
+    def test_vlan_event_resolves_interface_devices(
+        self,
+        nautobot_url: str,
+        nautobot_client: requests.Session,
+        render_api_url: str,
+        render_client: requests.Session,
+    ) -> None:
+        """A VLAN update renders a managed device with an interface using it."""
+        target: dict[str, Any] | None = None
+        vlan_record: dict[str, Any] | None = None
+        for managed_device in _render_devices(nautobot_url, nautobot_client):
+            for interface in managed_device["device"]["interfaces"]:
+                interface_vlans = [
+                    interface.get("untagged_vlan"),
+                    *(interface.get("tagged_vlans") or []),
+                ]
+                vlan_record = next((item for item in interface_vlans if item), None)
+                if vlan_record is not None:
+                    target = managed_device["device"]
+                    break
+            if target is not None:
+                break
+        if target is None or vlan_record is None:
+            pytest.fail("Mock topology has no render-enabled interface assigned to a VLAN")
+
+        response = nautobot_client.get(
+            f"{nautobot_url}/api/ipam/vlans/{vlan_record['id']}/", timeout=30
+        )
+        response.raise_for_status()
+        _patch_and_assert_event(
+            nautobot_url,
+            nautobot_client,
+            render_api_url,
+            render_client,
+            target_device_id=target["id"],
+            path=f"ipam/vlans/{vlan_record['id']}",
+            object_type="ipam.vlan",
+            changes={"description": f"nvcm-provider-vlan-{uuid4().hex}"},
+            restore_changes={"description": response.json().get("description") or ""},
+        )
+
+    def test_vlan_delete_renders_after_nautobot_clears_interface_associations(
+        self,
+        nautobot_url: str,
+        nautobot_client: requests.Session,
+        render_api_url: str,
+        render_client: requests.Session,
+    ) -> None:
+        """Deleting an attached VLAN renders despite Nautobot removing its links first."""
+        target = _render_devices(nautobot_url, nautobot_client)[0]["device"]
+        active_status = next(
+            (
+                status
+                for status in _api_list(
+                    nautobot_url, nautobot_client, "extras/statuses", name="Active"
+                )
+                if status["name"] == "Active"
+            ),
+            None,
+        )
+        if active_status is None:
+            pytest.fail("Nautobot has no Active status for temporary VLAN records")
+        used_vids = {
+            vlan_record["vid"]
+            for vlan_record in _api_list(nautobot_url, nautobot_client, "ipam/vlans")
+        }
+        vlan_vid = next((vid for vid in range(3900, 4095) if vid not in used_vids), None)
+        if vlan_vid is None:
+            pytest.fail("Nautobot has no unused high VLAN ID for deletion validation")
+
+        suffix = uuid4().hex[:10]
+        vlan_response = nautobot_client.post(
+            f"{nautobot_url}/api/ipam/vlans/",
+            json={
+                "name": f"nvcm-delete-{suffix}",
+                "vid": vlan_vid,
+                "status": active_status["id"],
+            },
+            timeout=30,
+        )
+        vlan_response.raise_for_status()
+        vlan_record = vlan_response.json()
+        interface_id: str | None = None
+        try:
+            interface_response = nautobot_client.post(
+                f"{nautobot_url}/api/dcim/interfaces/",
+                json={
+                    "device": target["id"],
+                    "name": f"nvcm-vlan-delete-{suffix}",
+                    "type": "other",
+                    "status": active_status["id"],
+                    "mode": "access",
+                    "untagged_vlan": vlan_record["id"],
+                },
+                timeout=30,
+            )
+            interface_response.raise_for_status()
+            interface_id = interface_response.json()["id"]
+            _wait_for_queues_to_drain(render_api_url, render_client)
+            previous_message = _event_message_for_device(
+                nautobot_url, nautobot_client, target["id"]
+            )
+
+            delete_response = nautobot_client.delete(
+                f"{nautobot_url}/api/ipam/vlans/{vlan_record['id']}/", timeout=30
+            )
+            delete_response.raise_for_status()
+            _wait_for_event_render(
+                nautobot_url,
+                nautobot_client,
+                target["id"],
+                _event_prefix("ipam.vlan", "delete"),
+                previous_message,
+            )
+            _wait_for_queues_to_drain(render_api_url, render_client)
+        finally:
+            if interface_id is not None:
+                response = nautobot_client.delete(
+                    f"{nautobot_url}/api/dcim/interfaces/{interface_id}/", timeout=30
+                )
+                response.raise_for_status()
+            response = nautobot_client.get(
+                f"{nautobot_url}/api/ipam/vlans/{vlan_record['id']}/", timeout=30
+            )
+            if response.status_code == 200:
+                response = nautobot_client.delete(
+                    f"{nautobot_url}/api/ipam/vlans/{vlan_record['id']}/", timeout=30
+                )
+                response.raise_for_status()
+            _wait_for_queues_to_drain(render_api_url, render_client)
+
+    def test_helper_address_relationship_event_resolves_vlan_devices(
+        self,
+        nautobot_url: str,
+        nautobot_client: requests.Session,
+        render_api_url: str,
+        render_client: requests.Session,
+    ) -> None:
+        """Adding and removing a VLAN helper address renders devices using that VLAN."""
+        target: dict[str, Any] | None = None
+        vlan_record: dict[str, Any] | None = None
+        for managed_device in _render_devices(nautobot_url, nautobot_client):
+            for interface in managed_device["device"]["interfaces"]:
+                interface_vlans = [
+                    interface.get("untagged_vlan"),
+                    *(interface.get("tagged_vlans") or []),
+                ]
+                vlan_record = next((item for item in interface_vlans if item), None)
+                if vlan_record is not None:
+                    target = managed_device["device"]
+                    break
+            if target is not None:
+                break
+        if target is None or vlan_record is None:
+            pytest.fail("Mock topology has no render-enabled interface assigned to a VLAN")
+
+        relationship = next(
+            (
+                candidate
+                for candidate in _api_list(
+                    nautobot_url,
+                    nautobot_client,
+                    "extras/relationships",
+                    key="vlan_to_helper_address",
+                )
+                if candidate.get("key") == "vlan_to_helper_address"
+            ),
+            None,
+        )
+        addresses = _api_list(nautobot_url, nautobot_client, "ipam/ip-addresses")
+        if relationship is None or not addresses:
+            pytest.fail("Mock topology lacks the VLAN helper relationship or an IP address")
+
+        previous_message = _event_message_for_device(nautobot_url, nautobot_client, target["id"])
+        rendered_message = previous_message
+        response = nautobot_client.post(
+            f"{nautobot_url}/api/extras/relationship-associations/",
+            json={
+                "relationship": relationship["id"],
+                "source_type": "ipam.vlan",
+                "source_id": vlan_record["id"],
+                "destination_type": "ipam.ipaddress",
+                "destination_id": addresses[0]["id"],
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        association = response.json()
+        try:
+            rendered_message = _wait_for_event_render(
+                nautobot_url,
+                nautobot_client,
+                target["id"],
+                _event_prefix("extras.relationshipassociation", "create"),
+                previous_message,
+            )
+            _wait_for_queues_to_drain(render_api_url, render_client)
+        finally:
+            response = nautobot_client.delete(
+                f"{nautobot_url}/api/extras/relationship-associations/{association['id']}/",
+                timeout=30,
+            )
+            response.raise_for_status()
+            if rendered_message != previous_message:
+                _wait_for_event_render(
+                    nautobot_url,
+                    nautobot_client,
+                    target["id"],
+                    _event_prefix("extras.relationshipassociation", "delete"),
+                    rendered_message,
+                )
+                _wait_for_queues_to_drain(render_api_url, render_client)
 
     def test_context_prefix_and_managed_device_events(
         self,
