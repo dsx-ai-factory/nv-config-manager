@@ -47,6 +47,7 @@ global:
 The chart serializes the map into `NV_CONFIG_MANAGER_CUSTOM_LABELS` for service containers and also applies those values as pod labels. PodMonitor resources promote the pod labels onto scraped samples.
 
 Custom label keys must work as Kubernetes labels, Prometheus labels, and Python log-record attributes. Use letters, numbers, and underscores, and avoid reserved fields such as `service`, `category`, `message`, `levelname`, `name`, `module`, and `lineno`. Values are truncated to 63 characters to stay within Kubernetes label limits.
+If a log call supplies an `extra` field with the same key as a custom label, the call-level value takes precedence so explicit event data is preserved.
 
 ## Metrics
 

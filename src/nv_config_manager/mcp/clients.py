@@ -275,6 +275,7 @@ def workflow_client(settings: MCPSettings) -> TemporalClient:
     return TemporalClient.for_mcp(
         base_url=settings.workflow_api_url,
         headers=mcp_downstream_auth_headers,
+        allow_insecure_auth=settings.use_internal_endpoints,
     )
 
 

@@ -34,10 +34,7 @@ from prometheus_client import Gauge, start_http_server
 
 from nv_config_manager.common.config import (
     DEFAULT_NATS_API_PREFIX,
-    LogCategory,
     NATSConnectionManager,
-    configure_logging,
-    get_logger,
     load_config,
     nats_config_manager_api_prefix,
     nats_connection,
@@ -46,6 +43,7 @@ from nv_config_manager.common.config import (
     nats_nautobot_change_config,
     nats_render_change_config,
 )
+from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
 from nv_config_manager.common.nats_admin import (
     CONSUMER_ACK_WAIT_SECONDS,
     CONSUMER_MAX_DELIVER,

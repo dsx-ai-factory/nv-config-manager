@@ -26,11 +26,10 @@ from nv_config_manager_templates.version import template_version_key
 from nv_config_manager.common.client.config_store import ConfigStoreFileNotFound
 from nv_config_manager.common.client.render import FileCommit
 from nv_config_manager.common.config import (
-    LogCategory,
     config_store_client,
     config_store_ui_url,
-    get_logger,
 )
+from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import (
     DCIMClient,
     IntendedConfigurationUpdate,

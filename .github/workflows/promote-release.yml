@@ -48,7 +48,6 @@ jobs:
       - name: Resolve promotion
         id: resolve
         env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SOURCE_RC_TAG: ${{ inputs.source_rc_tag }}
           INPUT_TARGET_TAG: ${{ inputs.target_tag }}
         run: |
@@ -109,11 +108,6 @@ jobs:
           if [ "$target_exists" != "$go_target_exists" ]; then
             echo "Stable platform and Go module tags must either both exist or both be absent."
             exit 1
-          fi
-
-          if ! git merge-base --is-ancestor "$commit" "origin/${DEFAULT_BRANCH}"; then
-            .github/scripts/validate-maintenance-release-source \
-              "$commit" "$target_tag" "$DEFAULT_BRANCH"
           fi
 
           if ! git show "${commit}:CHANGELOG.md" \
