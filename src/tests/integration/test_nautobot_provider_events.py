@@ -566,6 +566,7 @@ class TestNautobotProviderEvents:
                     f"{nautobot_url}/api/ipam/vlans/{vlan_record['id']}/", timeout=30
                 )
                 response.raise_for_status()
+            _wait_for_queues_to_drain(render_api_url, render_client)
 
     def test_helper_address_relationship_event_resolves_vlan_devices(
         self,
