@@ -221,6 +221,10 @@ async def _track_sync_operation[T](
     """Await ``awaitable``, recording a labeled failure before re-raising."""
     try:
         return await awaitable
+    except DCIMReadCancelledError:
+        # The refresh loop retries or skips the cycle and counts that itself;
+        # recording it here would log an error for a read a retry recovers.
+        raise
     except Exception as exc:
         _record_sync_failure(operation, ip_version, exc)
         raise
@@ -429,11 +433,6 @@ async def _refresh_cycle_async(
             )
         except DCIMReadCancelledError as exc:
             if attempt >= CANCELLED_READ_ATTEMPTS:
-                # Counted once per cycle the caller goes on to skip, not once
-                # per attempt: a retry that succeeds published normally, and
-                # counting each attempt would make an exhausted cycle look like
-                # two skips.
-                DHCP_QUERY_ERRORS.labels(error_type=QueryErrorType.READ_CANCELLED).inc()
                 raise
             logger.warning(
                 f"Could not read the DCIM this attempt "
@@ -470,6 +469,9 @@ async def _refresh_loop_async(
                 except DCIMReadCancelledError as exc:
                     if not refresh_interval:
                         raise
+                    # Counted once per skipped cycle, not per attempt: a retry
+                    # that succeeds published normally.
+                    DHCP_QUERY_ERRORS.labels(error_type=QueryErrorType.READ_CANCELLED).inc()
                     logger.error(
                         f"Skipping this refresh; could not read the DCIM: "
                         f"{escape_log_newlines(str(exc))}"
