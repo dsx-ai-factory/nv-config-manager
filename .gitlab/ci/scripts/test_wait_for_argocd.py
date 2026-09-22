@@ -144,6 +144,18 @@ class RolloutObserverTests(unittest.TestCase):
                 )
                 self.assertNotEqual(result.returncode, 0)
 
+    def test_kiwi_qa_environment_is_allowlisted(self) -> None:
+        target = "kiwi-qa|qa-branch|qa-namespace|qa-release|baseline.yaml|qa-state|qa-application"
+        result = subprocess.run(
+            ["bash", str(SCRIPT_DIRECTORY / "test_env_config.sh"), "kiwi-qa"],
+            check=True,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "NVCM_TEST_ENV_TARGETS": target},
+        )
+        self.assertIn("export NVCM_ENV=kiwi-qa", result.stdout)
+        self.assertIn("export NVCM_ENV_ARGOCD_APPLICATION=qa-application", result.stdout)
+
     def test_configuration_is_required_and_token_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             (Path(temporary_directory) / "deploy.env").write_text(

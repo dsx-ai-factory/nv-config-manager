@@ -1,17 +1,17 @@
 ---
 # =============================================================================
-# Protected promote pipeline for the SHARED TEST ENVIRONMENTS ONLY
+# Protected promote pipeline for the SHARED NON-PRODUCTION ENVIRONMENTS ONLY
 # =============================================================================
-# Promotes a PR build to test / test01 by publishing immutable artifacts and
+# Promotes a PR build to test / test01 / kiwi-qa by publishing immutable artifacts and
 # committing a deployment-state file to the env's branch in the downstream
 # ArgoCD values repository. This pipeline can NOT target production: every
-# rule requires NVCM_PROMOTE_ENV to be exactly "test" or "test01" (prod stays
+# rule requires NVCM_PROMOTE_ENV to be an explicitly allowlisted target (prod stays
 # on the tag-driven release flow in release.yml).
 #
 # How to deploy a PR:
 #   A push webhook for the vetted pull-request/<n> mirror sync creates a trusted
 #   default-branch request pipeline. Start promote-to-test or
-#   promote-to-test01 there; its child pipeline waits for the PR build if
+#   promote-to-test01 or promote-to-kiwi-qa there; its child pipeline waits for the PR build if
 #   necessary, and no variables are entered.
 #
 # How to rollback / free a test env (manual jobs):
@@ -33,7 +33,7 @@
 # =============================================================================
 
 .test-promote-rules: &test-promote-rules
-  - if: $CI_PIPELINE_SOURCE == "parent_pipeline" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_PR && $NVCM_PROMOTE_PR_SHA && $NVCM_PROMOTE_BUILD_PIPELINE_ID && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/ && $NVCM_PROMOTE_SOURCE_PIPELINE_ID && $NVCM_PROMOTE_SOURCE_REF && $NVCM_PROMOTE_SOURCE_SHA
+  - if: $CI_PIPELINE_SOURCE == "parent_pipeline" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_PR && $NVCM_PROMOTE_PR_SHA && $NVCM_PROMOTE_BUILD_PIPELINE_ID && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa)$/ && $NVCM_PROMOTE_SOURCE_PIPELINE_ID && $NVCM_PROMOTE_SOURCE_REF && $NVCM_PROMOTE_SOURCE_SHA
     when: always
   - when: never
 
@@ -51,7 +51,7 @@
   - when: never
 
 .test-env-ops-rules: &test-env-ops-rules
-  - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01)$/ && $NVCM_PROMOTE_PR == null
+  - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa)$/ && $NVCM_PROMOTE_PR == null
     when: manual
     allow_failure: true
   - when: never
@@ -135,6 +135,14 @@ promote-to-test01:
     NVCM_PROMOTE_ENV: test01
   environment:
     name: test01
+    action: prepare
+
+promote-to-kiwi-qa:
+  extends: .promote-request-button
+  variables:
+    NVCM_PROMOTE_ENV: kiwi-qa
+  environment:
+    name: kiwi-qa
     action: prepare
 
 # -----------------------------------------------------------------------------
