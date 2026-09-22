@@ -19,7 +19,11 @@ import pytest
 from pydantic import BaseModel
 from temporalio import activity
 
-from nv_config_manager_workflows.metadata import RequiredActivity, WorkflowMetadataMixin
+from nv_config_manager_workflows.metadata import (
+    RequiredActivity,
+    WorkflowLockSpec,
+    WorkflowMetadataMixin,
+)
 
 
 class WorkflowInput(BaseModel):
@@ -69,6 +73,19 @@ def test_metadata_accessors_read_subclass_declarations() -> None:
     assert DeviceBackupWorkflow.get_workflow_api_endpoint() == "/backup"
     assert DeviceBackupWorkflow.get_workflow_required_activities() == (collect_facts,)
     assert DeviceBackupWorkflow.get_workflow_cli_name() == "device-backup"
+
+
+def test_workflow_lock_accessor_reads_subclass_declaration() -> None:
+    spec = WorkflowLockSpec(key_fields=["device"])
+
+    class LockedWorkflow(WorkflowMetadataMixin):
+        workflow_lock = spec
+
+    assert LockedWorkflow.get_workflow_lock() is spec
+
+
+def test_workflow_lock_is_absent_by_default() -> None:
+    assert WorkflowMetadataMixin.get_workflow_lock() is None
 
 
 def test_missing_name_is_reported_by_the_accessor() -> None:

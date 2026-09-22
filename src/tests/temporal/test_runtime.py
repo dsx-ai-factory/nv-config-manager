@@ -91,6 +91,19 @@ def test_root_test_environment_installs_default_runtime_providers() -> None:
     assert get_lock_backend() is not None
 
 
+def test_api_runtime_configuration_installs_only_ui_provider(mocker: MockerFixture) -> None:
+    """API composition must not initialize worker-only runtime dependencies."""
+    configure_ui_base_url = mocker.patch.object(service_runtime, "configure_ui_base_url")
+    configure_runtime = mocker.patch.object(service_runtime, "configure_runtime")
+    token_lock_backend = mocker.patch.object(service_runtime, "token_lock_backend")
+
+    service_runtime.configure_workflow_ui_runtime()
+
+    configure_ui_base_url.assert_called_once_with(service_runtime._ui_base_url)
+    configure_runtime.assert_not_called()
+    token_lock_backend.assert_not_called()
+
+
 def test_lock_backend_selection_remains_lazy_at_runtime_startup(
     mocker: MockerFixture,
 ) -> None:

@@ -17,6 +17,7 @@
 from types import SimpleNamespace
 
 import pytest
+from nv_config_manager_infrastructure.lock import NoopLock
 from redis.asyncio.lock import Lock as AsyncRedisLock
 from redis.exceptions import LockNotOwnedError
 
@@ -37,6 +38,9 @@ def _reset_lock_client(monkeypatch):
 
 
 class TestFakeLock:
+    def test_is_infrastructure_noop_lock_alias(self):
+        assert _FakeLock is NoopLock
+
     @pytest.mark.asyncio
     async def test_acquire_and_release_are_noops(self):
         fake = _FakeLock()

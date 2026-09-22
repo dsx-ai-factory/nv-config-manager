@@ -127,7 +127,7 @@ def disable_workflow_lock_io(mocker) -> dict[str, Any]:
         await asyncio.Event().wait()
 
     mocker.patch(
-        "nv_config_manager.temporal.common.decorators.workflow._renew_loop",
+        "nv_config_manager_workflows.decorators.workflow._renew_loop",
         new=_never_renew,
     )
     return mocks
