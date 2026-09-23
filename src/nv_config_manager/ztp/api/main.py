@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
@@ -30,6 +32,7 @@ from nv_config_manager.common.telemetry import (
     setup_tracing,
 )
 from nv_config_manager.ztp.api import device_v1, files_v1, firmware_v1
+from nv_config_manager.ztp.api.device_reads import close_device_reads
 from nv_config_manager.ztp.api.metrics import device_http_requests
 
 configure_logging(service="ztp")
@@ -58,7 +61,16 @@ def main() -> None:
     )
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Close the shared DCIM client when the API shuts down."""
+    try:
+        yield
+    finally:
+        await close_device_reads()
+
+
+app = FastAPI(lifespan=lifespan)
 instrument_fastapi_app(app)
 
 # Include routers
