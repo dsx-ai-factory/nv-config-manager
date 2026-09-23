@@ -364,6 +364,14 @@ class WorkflowSummaryResponse(WorkflowResponse):
             failed_stage = False
             workflow_input = None
 
+        # Stage-state search attributes record the last state observed by the
+        # workflow. Termination does not give workflow code a chance to clear
+        # them, so a closed execution cannot still be awaiting approval.
+        pending_approval = (
+            description.status in WorkflowSummaryResponse._ACTIVE_WORKFLOW_STATUSES
+            and bool(pending_approval)
+        )
+
         try:
             user = cast(str, description.search_attributes[USER_SEARCH_ATTRIBUTE][0])
         except (KeyError, IndexError):
@@ -451,6 +459,13 @@ class WorkflowDetailResponse(WorkflowSummaryResponse):
             failed_stage = False
             workflow_input = None
             stages = []
+
+        # Closed executions can retain their final pending-approval search
+        # attribute because termination stops workflow cleanup from running.
+        pending_approval = (
+            description.status in WorkflowSummaryResponse._ACTIVE_WORKFLOW_STATUSES
+            and bool(pending_approval)
+        )
 
         result = None
         if description.status == WorkflowExecutionStatus.COMPLETED:

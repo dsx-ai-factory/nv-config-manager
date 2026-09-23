@@ -314,7 +314,7 @@ class SpXOverlayDeletionWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin
         StageMixin.__init__(self)
         self.define_stage(
             name="delete_spx_overlay",
-            description="Validate and delete DCIM VRFs tied to the VPC.",
+            description="Validate and delete DCIM VRFs tied to the SpX overlay.",
             requires_approval=False,
             depends_on=[],
         )
@@ -870,7 +870,7 @@ class SpXOverlayTenantChangeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
 
         self.define_stage(
             name="assign_spx_overlay",
-            description="Assign VPC to device and ports",
+            description="Assign SpX overlay to device and ports",
             requires_approval=False,
             depends_on=["get_device"],
         )

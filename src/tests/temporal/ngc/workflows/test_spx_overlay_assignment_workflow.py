@@ -93,6 +93,18 @@ def make_child_workflow_error(message: str, workflow_id: str) -> ChildWorkflowEr
     return error
 
 
+def test_spx_tenant_change_stage_uses_overlay_terminology():
+    """Describe the tenant-change assignment with current product terminology."""
+    with patch(
+        "nv_config_manager_workflows.stage.mixin.workflow.time",
+        return_value=float(0),
+    ):
+        workflow_instance = SpXOverlayTenantChangeWorkflow()
+
+    stage = workflow_instance.get_stage_by_name("assign_spx_overlay")
+    assert stage.description == "Assign SpX overlay to device and ports"
+
+
 @activity.defn(name="get_network_device")
 async def mock_get_network_device(
     activity_input: GetNetworkDeviceInput,
