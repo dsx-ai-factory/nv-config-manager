@@ -37,6 +37,14 @@ func TestRedactAddress(t *testing.T) {
 			"nats://kiwi:xxxxx@a:4222,nats://kiwi:xxxxx@b:4222",
 		},
 		{"unparseable", "nats://kiwi:s3cret@nats:bad port", "<unparseable address>"},
+		{"scheme-less user and password", "kiwi:s3cret@nats:4222", "nats://kiwi:xxxxx@nats:4222"},
+		{"scheme-less token", "s3cret@nats:4222", "nats://xxxxx@nats:4222"},
+		{"scheme-less host", "nats:4222", "nats://nats:4222"},
+		{
+			"scheme-less entry in server list",
+			"nats://a:4222, kiwi:s3cret@b:4222",
+			"nats://a:4222,nats://kiwi:xxxxx@b:4222",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -46,6 +54,26 @@ func TestRedactAddress(t *testing.T) {
 			}
 			if strings.Contains(got, "s3cret") {
 				t.Errorf("RedactAddress(%q) leaked the secret: %q", tt.address, got)
+			}
+		})
+	}
+}
+
+func TestNewRunnerRedactsInvalidAddress(t *testing.T) {
+	for _, address := range []string{
+		"nats://kiwi:s3cret@nats:bad port",
+		"kiwi:s3cret@nats:bad port",
+	} {
+		t.Run(address, func(t *testing.T) {
+			_, err := NewRunner(&NatsReadyConfig{Address: address})
+			if err == nil {
+				t.Fatalf("NewRunner(%q) succeeded, want a parse error", address)
+			}
+			if strings.Contains(err.Error(), "s3cret") {
+				t.Errorf("NewRunner(%q) error leaked the secret: %v", address, err)
+			}
+			if !strings.Contains(err.Error(), "invalid port") {
+				t.Errorf("NewRunner(%q) error lost the parse reason: %v", address, err)
 			}
 		})
 	}

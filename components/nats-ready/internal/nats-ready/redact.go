@@ -33,6 +33,11 @@ func RedactAddress(address string) string {
 }
 
 func redactServer(server string) string {
+	if server != "" && !strings.Contains(server, "://") {
+		// nats.Connect treats a scheme-less server as nats://; parse it the same
+		// way, or "user:pass@host" reads as scheme "user" with no userinfo.
+		server = "nats://" + server
+	}
 	u, err := url.Parse(server)
 	if err != nil {
 		// Unparseable input may still carry credentials; never echo it back.

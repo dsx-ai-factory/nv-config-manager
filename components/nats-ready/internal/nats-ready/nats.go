@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -89,6 +90,11 @@ func NewRunner(config *NatsReadyConfig) (Runner, error) {
 
 	nc, err := nats.Connect(config.Address)
 	if err != nil {
+		// url.Error embeds the full input URL, credentials included.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			return nil, fmt.Errorf("invalid NATS address %s: %w", RedactAddress(config.Address), urlErr.Err)
+		}
 		return nil, err
 	}
 	logger.Info().Msg("Connected to NATS server")
