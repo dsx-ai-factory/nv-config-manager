@@ -47,6 +47,24 @@ export const siteConfig = {
       enabled: true,
     },
     {
+      title: "BB Sandbox: Circuit Turn-up",
+      workflowName: "BBCircuitTurnupWorkflow",
+      slug: "bbcircuitturnupworkflow",
+      enabled: true,
+    },
+    {
+      title: "BB Sandbox: Circuit Reserve",
+      workflowName: "BBCircuitReserveWorkflow",
+      slug: "bbcircuitreserveworkflow",
+      enabled: true,
+    },
+    {
+      title: "BB Sandbox: Circuit Activate",
+      workflowName: "BBCircuitActivateWorkflow",
+      slug: "bbcircuitactivateworkflow",
+      enabled: true,
+    },
+    {
       title: "Configuration Backup",
       workflowName: "BackupWorkflow",
       slug: "backupworkflow",
@@ -172,7 +190,8 @@ export const siteConfig = {
       slug: "sitepasswordrotationworkflow",
       enabled: true,
     },
-    { // NOSONAR
+    {
+      // NOSONAR
       title: "Device Diagnostics",
       workflowName: "DiagnosticsWorkflow",
       slug: "diagnosticsworkflow",

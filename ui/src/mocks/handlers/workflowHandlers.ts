@@ -24,6 +24,9 @@ import { createGenericWorkflow } from "@/mocks/data/workflows/genericWorkflow";
 export const workflowTypes = [
   "BBDrainInterfaceWorkflow",
   "BBInternalBackboneBringupWorkflow",
+  "BBCircuitTurnupWorkflow",
+  "BBCircuitReserveWorkflow",
+  "BBCircuitActivateWorkflow",
   "BackupWorkflow",
   "SiteBackupWorkflow",
   "ConnectedHostMetadataWorkflow",
@@ -59,6 +62,9 @@ export const workflowTypes = [
 const workflowDisplayNames: Record<string, string> = {
   BBDrainInterfaceWorkflow: "BB Sandbox: Drain Interface",
   BBInternalBackboneBringupWorkflow: "BB Sandbox: Internal Backbone Bringup",
+  BBCircuitTurnupWorkflow: "BB Sandbox: Circuit Turn-up",
+  BBCircuitReserveWorkflow: "BB Sandbox: Circuit Reserve",
+  BBCircuitActivateWorkflow: "BB Sandbox: Circuit Activate",
   BackupWorkflow: "Configuration Backup",
   SiteBackupWorkflow: "Site Configuration Backup",
   ConnectedHostMetadataWorkflow: "Connected Host Metadata",
@@ -91,6 +97,9 @@ const workflowDisplayNames: Record<string, string> = {
 const workflowEndpoints: Record<string, string> = {
   BBDrainInterfaceWorkflow: "/bb_sandbox/drain_interface",
   BBInternalBackboneBringupWorkflow: "/bb_sandbox/internal_backbone_bringup",
+  BBCircuitTurnupWorkflow: "/bb_sandbox/circuit_turnup",
+  BBCircuitReserveWorkflow: "/bb_sandbox/circuit_reserve",
+  BBCircuitActivateWorkflow: "/bb_sandbox/circuit_activate",
   BackupWorkflow: "/ngc/backup",
   SiteBackupWorkflow: "/ngc/site_backup",
   ConnectedHostMetadataWorkflow: "/ngc/connected_host_metadata",
@@ -138,7 +147,9 @@ export const workflowMetadata = {
   workflows: workflowTypes.map((workflowType) => ({
     name: workflowType,
     display_name: workflowDisplayNames[workflowType] ?? workflowType,
-    description: `${workflowDisplayNames[workflowType] ?? workflowType} workflow`,
+    description: `${
+      workflowDisplayNames[workflowType] ?? workflowType
+    } workflow`,
     endpoint: getWorkflowEndpoint(workflowType),
     namespace: workflowType.startsWith("BB") ? "bb_sandbox" : "ngc",
     cli_name: workflowType.toLowerCase(),
@@ -207,14 +218,15 @@ type WorkflowFilters = {
   endTime: number;
 };
 
-const getWorkflowFilters = (searchParams: URLSearchParams): WorkflowFilters => ({
+const getWorkflowFilters = (
+  searchParams: URLSearchParams
+): WorkflowFilters => ({
   workflowType: searchParams.get("workflow_type"),
   workflowId: searchParams.get("workflow_id"),
   status: searchParams.get("status"),
   pendingApproval:
     searchParams.get("pending_approval")?.toLowerCase() === "true",
-  hideCompleted:
-    searchParams.get("hide_completed")?.toLowerCase() === "true",
+  hideCompleted: searchParams.get("hide_completed")?.toLowerCase() === "true",
   startTime: Date.parse(searchParams.get("start_time") ?? ""),
   endTime: Date.parse(searchParams.get("end_time") ?? ""),
 });

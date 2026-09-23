@@ -35,7 +35,7 @@ const schema = z.object({
     .string()
     .regex(
       /^[A-Za-z][A-Za-z0-9]+-\d+$/,
-      "Use a Jira key such as GNINWP-1274"
+      "Use a Jira key"
     ),
 });
 

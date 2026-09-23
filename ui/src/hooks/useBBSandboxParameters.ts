@@ -42,8 +42,11 @@ export const useBBDevices = () => {
   };
 };
 
-export const useBBCircuits = () => {
-  const result = useParameter<CircuitRecord[]>("/v1/parameter/bb-sandbox/circuits");
+export const useBBCircuits = (status?: string) => {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const result = useParameter<CircuitRecord[]>(
+    `/v1/parameter/bb-sandbox/circuits${query}`
+  );
   return {
     ...result,
     options: Array.isArray(result.data)
