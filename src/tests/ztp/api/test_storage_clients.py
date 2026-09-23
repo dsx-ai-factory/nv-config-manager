@@ -15,15 +15,96 @@
 """Tests for the shared ZTP storage / Config Store clients + backpressure."""
 
 import asyncio
+from configparser import ConfigParser
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from nv_config_manager.ztp.api import storage_clients
 from nv_config_manager.ztp.api.storage_clients import (
     StorageUnavailableError,
+    get_config_store_client,
+    get_object_storage_client,
     guarded_storage,
 )
+from nv_config_manager.ztp.filestore import FileStoreClient
 from nv_config_manager.ztp.s3 import S3NotFoundException
+
+
+def _storage_client() -> MagicMock:
+    client = MagicMock()
+    client.connect = AsyncMock()
+    client.close = AsyncMock()
+    return client
+
+
+async def test_object_storage_client_rebuilt_when_config_changes(monkeypatch):
+    """The pooled client is reused until the INI changes, then replaced and retired."""
+    config = ConfigParser()
+    monkeypatch.setattr(storage_clients, "load_config", lambda: config)
+    monkeypatch.setattr(storage_clients, "_RETIRE_GRACE", 0)
+    first, second = _storage_client(), _storage_client()
+    monkeypatch.setattr(
+        storage_clients, "_build_storage_client", MagicMock(side_effect=[first, second])
+    )
+
+    assert await get_object_storage_client() is first
+    assert await get_object_storage_client() is first
+
+    config = ConfigParser()
+    assert await get_object_storage_client() is second
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    first.close.assert_awaited_once()
+
+
+async def test_object_storage_connect_failure_closes_client(monkeypatch):
+    """A failed connect closes the partial client and does not cache it."""
+    broken = _storage_client()
+    broken.connect.side_effect = ConnectionError("no route")
+    monkeypatch.setattr(storage_clients, "_build_storage_client", lambda: broken)
+
+    with pytest.raises(ConnectionError):
+        await get_object_storage_client()
+
+    broken.close.assert_awaited_once()
+    assert storage_clients._object_storage_client is None
+
+
+async def test_file_storage_client_is_not_pooled(monkeypatch, tmp_path):
+    """File-backed storage reloads its manifest on every request."""
+    monkeypatch.setattr(
+        storage_clients, "_build_storage_client", lambda: FileStoreClient(base_path=str(tmp_path))
+    )
+
+    first = await get_object_storage_client()
+    second = await get_object_storage_client()
+
+    assert isinstance(first, FileStoreClient)
+    assert first is not second
+    assert storage_clients._object_storage_client is None
+
+
+async def test_config_store_client_shared_across_instances(monkeypatch):
+    """Devices on different instances share one client until the settings change."""
+    monkeypatch.setattr(storage_clients, "_RETIRE_GRACE", 0)
+    key = ("internal", "http://config-store", None)
+    monkeypatch.setattr(storage_clients, "_config_store_key", lambda: key)
+    built = [_storage_client(), _storage_client()]
+    devices = []
+    for instance in ("east", "west"):
+        device = MagicMock(config_store_instance=instance)
+        device.config_store_client = MagicMock(side_effect=lambda: built.pop(0))
+        devices.append(device)
+
+    first = get_config_store_client(devices[0])
+    assert get_config_store_client(devices[1]) is first
+
+    key = ("internal", "http://config-store-2", None)
+    assert get_config_store_client(devices[1]) is not first
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    first.close.assert_awaited_once()
 
 
 async def test_guarded_storage_returns_value():
