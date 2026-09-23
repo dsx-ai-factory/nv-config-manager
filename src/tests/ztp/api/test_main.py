@@ -26,6 +26,7 @@ from nv_config_manager.common.client import (
     ConfigStoreException,
     ConfigStoreFileNotFound,
 )
+from nv_config_manager.ztp.api.device_reads import DCIMUnavailableError
 from nv_config_manager.ztp.api.main import app, healthcheck
 from nv_config_manager.ztp.s3 import (
     S3ExistsException,
@@ -147,6 +148,21 @@ def test_device_v1_anonymous_reads_dcim_once(mock_request_client, mock_device_da
 
     assert rsp.status_code == 200
     assert mock_query.call_count == 1
+
+
+@patch("nv_config_manager.ztp.api.device_v1.Request.client")
+def test_device_v1_dcim_unavailable_returns_503(mock_request_client, client):
+    """A saturated DCIM sheds as a retryable 503."""
+    mock_request_client.host = "testclient"
+
+    with patch(
+        "nv_config_manager.ztp.api.device_v1.load_device",
+        new=AsyncMock(side_effect=DCIMUnavailableError("dcim busy")),
+    ):
+        rsp = client.get(f"/v1/device/{uuid4()}/boot-script")
+
+    assert rsp.status_code == 503
+    assert rsp.headers["retry-after"] == "5"
 
 
 @patch("nv_config_manager.ztp.api.device_v1.Request.client")

@@ -23,6 +23,11 @@ from nv_config_manager.common.client import ConfigStoreException, ConfigStoreFil
 from nv_config_manager.common.config import get_storage_client, temporal_client
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMNotFoundError, dcim_client_session
+from nv_config_manager.ztp.api.device_reads import (
+    DCIMUnavailableError,
+    forget_device,
+    load_device,
+)
 from nv_config_manager.ztp.api.schemas import ChecksumResponse
 from nv_config_manager.ztp.api.streaming import create_object_storage_streaming_response
 from nv_config_manager.ztp.device import DeviceData
@@ -34,9 +39,15 @@ router = APIRouter(prefix="/device", tags=["device"], responses={404: {"descript
 
 
 async def _get_device_data(device_uuid: str) -> DeviceData:
-    """Load ZTP device data through the selected DCIM provider."""
-    async with dcim_client_session() as client:
-        return DeviceData.from_dcim(await client.get_ztp_device(device_uuid))
+    """Load ZTP device data through the shared, cached DCIM read."""
+    try:
+        return await load_device(device_uuid)
+    except DCIMUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+            headers={"Retry-After": "5"},
+        ) from exc
 
 
 async def _authorize_request(request: Request, device_uuid: str) -> DeviceData | None:
@@ -172,6 +183,7 @@ async def mark_provisioned(device_uuid: str, request: Request) -> str:
     await _authorize_request(request, device_uuid)
     async with dcim_client_session() as client:
         await client.mark_ztp_device_provisioned(device_uuid)
+    forget_device(device_uuid)
     # Trigger a backup workflow
     try:
         workflow_client = temporal_client()
