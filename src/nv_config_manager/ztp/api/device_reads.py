@@ -101,6 +101,15 @@ class DeviceReadCache:
             task.add_done_callback(_discard)
         return await task
 
+    async def serial(self, device_id: str) -> str:
+        """Return the device serial through the shared client and limiter, uncached."""
+
+        async def _fetch() -> str:
+            client = await self._client_session()
+            return await client.get_device_serial(device_id)
+
+        return await self._guarded(_fetch)
+
     def forget(self, device_id: str) -> None:
         """Drop a cached device after a write that changes it."""
         self._cache.pop(device_id, None)
@@ -205,6 +214,11 @@ def _reads() -> DeviceReadCache:
 async def load_device(device_id: str) -> DeviceData:
     """Load one device through the shared cache."""
     return await _reads().load(device_id)
+
+
+async def load_device_serial(device_id: str) -> str:
+    """Load one device serial through the shared client and limiter."""
+    return await _reads().serial(device_id)
 
 
 def forget_device(device_id: str) -> None:

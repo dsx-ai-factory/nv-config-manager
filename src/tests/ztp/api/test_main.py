@@ -166,6 +166,32 @@ def test_device_v1_dcim_unavailable_returns_503(mock_request_client, client):
 
 
 @patch("nv_config_manager.ztp.api.device_v1.Request.client")
+def test_device_v1_validate_serial_dcim_unavailable_returns_503(
+    mock_request_client, mock_device_data, client
+):
+    """A saturated DCIM during serial validation sheds as a retryable 503."""
+    mock_request_client.host = "testclient"
+    mock_device_data["data"]["config_manager_device"]["device"]["interfaces"] = [
+        {"ip_addresses": [{"host": "testclient"}]}
+    ]
+
+    with (
+        patch(
+            "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+            return_value=mock_device_data,
+        ),
+        patch(
+            "nv_config_manager.ztp.api.device_v1.load_device_serial",
+            new=AsyncMock(side_effect=DCIMUnavailableError("dcim busy")),
+        ),
+    ):
+        rsp = client.post(f"/v1/device/{uuid4()}/validate_serial", json={"serial": "abc"})
+
+    assert rsp.status_code == 503
+    assert rsp.headers["retry-after"] == "5"
+
+
+@patch("nv_config_manager.ztp.api.device_v1.Request.client")
 def test_device_v1_anonymous_allowlist_does_not_mutate_device(
     mock_request_client, mock_device_data, client
 ):
