@@ -160,7 +160,7 @@ A successfully provisioned device always ends with a `POST` to the provisioned e
 Filter the render-service logs by namespace and device UUID:
 
 ```text
-{cluster="<cluster>", k8s_namespace_name="<config-manager-namespace>", k8s_container_name=~"render-service-api|render-service-render-service-device-consumer|render-service-template-consumer"} |= `<device-uuid>`
+{cluster="<cluster>", k8s_namespace_name="<config-manager-namespace>", k8s_container_name=~"api|consumer|template-updater"} | json category | category=~"render.*" |= `<device-uuid>`
 ```
 
 Or directly via `kubectl`:

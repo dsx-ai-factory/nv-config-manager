@@ -4,7 +4,7 @@ sidebar-title: Switch OS Upgrade
 position: 10
 ---
 
-The Switch OS Upgrade workflow upgrades a single Cumulus Linux or Juniper Junos switch to a new firmware version. It computes the version delta against the device's intended firmware in Nautobot, pauses for a human to approve the upgrade, backs up the current configuration, updates device-context state, drives the image install + reboot + ZTP cycle, and validates that the device came back on the right version. Multiple short-circuit paths exit safely when no work is required.
+The Switch OS Upgrade workflow upgrades a single Cumulus Linux or Juniper Junos switch to a new firmware version. It compares the device's current firmware intent with the target assigned to its location, pauses for a human to approve the upgrade, backs up the current configuration, updates device-context state, drives the factory-reset + ZTP cycle, and validates that the device came back on the right version. Multiple short-circuit paths exit safely when no work is required.
 
 <Note>
 The workflow uses the selected DCIM provider's normalized firmware-intent and
@@ -19,7 +19,7 @@ For NVLink switches, use [NVLink Switch Firmware Upgrade](../nvlink-switch-firmw
 Before running, complete the pre-work that drives the upgrade. The workflow does nothing until the firmware target moves.
 
 1. **Update the firmware target on the Config Context with the `location-firmware-targets` schema attached at the location level.**
-1. **Confirm the re-render has propagated** so the new target is visible to the diff. Without this the workflow short-circuits with "intended matches running."
+1. **Confirm the target differs from the device's current `intended-firmware.version`.** If the values match, the workflow short-circuits without requesting approval.
 
 Also confirm:
 
@@ -51,10 +51,10 @@ The workflow runs four stages in order. Only `approve_upgrade` requires approval
 
 1. **`approve_upgrade` — Compute the delta and request approval.**
 
-   Reads the device's current firmware off the running configuration and compares it against the intended firmware in Nautobot. Three outcomes:
+   Reads the device's current firmware intent and compares it with the target assigned to the device role and platform at its location. Three outcomes:
 
    - **Unsupported platform** — the workflow returns early, the approval stage is cleared, and downstream stages are marked UNREACHABLE.
-   - **Intended matches running** — no upgrade needed. The stage flips `requires_approval` to false at runtime and short-circuits; downstream stages are marked UNREACHABLE.
+   - **Current intent matches the location target** — no upgrade needed. The stage flips `requires_approval` to false at runtime and short-circuits; downstream stages are marked UNREACHABLE.
    - **Genuine version delta** — the stage transitions to `PENDING_APPROVAL` and waits indefinitely on `workflow.wait_condition` until a reviewer approves or rejects. Rejection marks `perform_backup`, `update_device_configuration`, and `perform_upgrade` as UNREACHABLE; no change is made.
 
 1. **`perform_backup` — Capture a pre-upgrade backup.**
@@ -67,10 +67,10 @@ The workflow runs four stages in order. Only `approve_upgrade` requires approval
 
 1. **`perform_upgrade` — Install the image and wait for the device to come back.**
 
-   Pushes the image to the device via the ZTP service and reboots. Cumulus uses NVUE factory-default; Junos uses `request system zeroize`. Two long-poll activities then wait for the device to converge:
+   Factory-resets the device so that it reboots and pulls the image from the ZTP service. Cumulus uses NVUE factory-default; Junos uses `request system zeroize`. Two long-poll activities then wait for the device to converge:
 
    - `poll_image` — 35-minute timeout (30 + 5 buffer), 3-minute heartbeat. If the post-reboot image does not match the intended firmware, raises `ApplicationError`.
-   - `poll_ztp_status` — 15-minute timeout (10 + 5 buffer). If ZTP does not complete in that window, raises `ApplicationError`.
+   - `poll_ztp_status` — 15-minute activity timeout. If the device does not report successful ZTP before the activity times out, the activity is retried according to the workflow retry policy.
 
      Retry policy: 3 attempts, with `FirmwareUpgradeException` non-retryable.
 
@@ -109,7 +109,7 @@ The device rebooted but did not come up on the intended firmware. This is most o
 
 **`poll_ztp_status` times out.**
 
-The image install succeeded but ZTP did not complete within 10 minutes after reboot. Use the [Monitoring DHCP and ZTP](../new-site-deployment/index.mdx#monitoring-dhcp-and-ztp) section of New Site Bringup to investigate.
+The image install succeeded but ZTP did not complete before the activity timeout. Use the [Monitoring DHCP and ZTP](../new-site-deployment/index.mdx#monitoring-dhcp-and-ztp) section of New Site Bringup to investigate.
 
 **`FirmwareUpgradeException` is raised.**
 
