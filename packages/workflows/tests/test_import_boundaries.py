@@ -25,23 +25,46 @@ def _is_service_module(module: str) -> bool:
     return module == "nv_config_manager" or module.startswith("nv_config_manager.")
 
 
-def test_workflows_package_does_not_import_service_modules() -> None:
-    """Reusable workflow modules must install and import without nv_config_manager."""
+def test_workflows_package_has_no_service_configuration_dependencies() -> None:
+    """Reusable workflows must not depend on service-owned configuration access."""
     violations: list[str] = []
+    forbidden_secret_calls = {
+        "ConfigParser",
+        "getenv",
+        "load_config",
+        "open",
+        "read_bytes",
+        "read_text",
+    }
 
     for path in sorted(_PACKAGE_ROOT.rglob("*.py")):
+        relative_path = path.relative_to(_PACKAGE_ROOT)
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                modules = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module is not None:
-                modules = [node.module]
-            else:
-                continue
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                if isinstance(node, ast.Import):
+                    modules = [alias.name for alias in node.names]
+                elif node.module is not None:
+                    modules = [node.module]
+                else:
+                    modules = []
 
-            for module in modules:
-                if _is_service_module(module):
-                    relative_path = path.relative_to(_PACKAGE_ROOT)
-                    violations.append(f"{relative_path}:{node.lineno}: {module}")
+                for module in modules:
+                    if (
+                        _is_service_module(module)
+                        or module == "configparser"
+                        or module.startswith("configparser.")
+                    ):
+                        violations.append(f"{relative_path}:{node.lineno}: {module}")
+
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name):
+                    name = node.func.id
+                elif isinstance(node.func, ast.Attribute):
+                    name = node.func.attr
+                else:
+                    continue
+                if name in forbidden_secret_calls:
+                    violations.append(f"{relative_path}:{node.lineno}: {name}")
 
     assert violations == []

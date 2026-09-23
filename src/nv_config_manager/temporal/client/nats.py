@@ -33,12 +33,10 @@ from nv_config_manager.common.client import (
 from nv_config_manager.common.client import (
     NatsProducer as BaseNatsProducer,
 )
-from nv_config_manager.common.client import config_manager_api_prefix
-from nv_config_manager.common.config import load_config
-
-
-def _stream_subjects(raw_subjects: str) -> list[str]:
-    return [subject.strip() for subject in raw_subjects.split(",") if subject.strip()]
+from nv_config_manager.common.config.client_settings import (
+    nats_client_settings,
+    nats_consumer_settings,
+)
 
 
 class NatsClient(BaseNatsClient):
@@ -46,27 +44,7 @@ class NatsClient(BaseNatsClient):
 
     def __init__(self) -> None:
         """Initialize the NATS client from config."""
-        config = load_config()
-        nats_config = config["nats"]
-
-        # Handle configparser string booleans
-        local_str = nats_config.get("local", "false")
-        local = local_str.lower() == "true" if isinstance(local_str, str) else bool(local_str)
-
-        super().__init__(
-            api_prefix=config_manager_api_prefix(nats_config),
-            server=nats_config["server"],
-            queue=nats_config.get("queue", "nv-config-manager"),
-            local=local,
-            auth_method=nats_config.get("auth_method", "password"),
-            user=nats_config.get("user"),
-            password=nats_config.get("password"),
-            creds_path=nats_config.get("creds_path"),
-            default_stream_name=nats_config.get("config_manager_stream", "nv-config-manager"),
-            default_stream_subjects=_stream_subjects(
-                nats_config.get("config_manager_subjects", "nv-config-manager.>")
-            ),
-        )
+        super().__init__(**nats_client_settings())
 
 
 class NatsProducer(BaseNatsProducer):
@@ -74,26 +52,7 @@ class NatsProducer(BaseNatsProducer):
 
     def __init__(self) -> None:
         """Initialize the NATS producer from config."""
-        config = load_config()
-        nats_config = config["nats"]
-
-        local_str = nats_config.get("local", "false")
-        local = local_str.lower() == "true" if isinstance(local_str, str) else bool(local_str)
-
-        super().__init__(
-            api_prefix=config_manager_api_prefix(nats_config),
-            server=nats_config["server"],
-            queue=nats_config.get("queue", "nv-config-manager"),
-            local=local,
-            auth_method=nats_config.get("auth_method", "password"),
-            user=nats_config.get("user"),
-            password=nats_config.get("password"),
-            creds_path=nats_config.get("creds_path"),
-            default_stream_name=nats_config.get("config_manager_stream", "nv-config-manager"),
-            default_stream_subjects=_stream_subjects(
-                nats_config.get("config_manager_subjects", "nv-config-manager.>")
-            ),
-        )
+        super().__init__(**nats_client_settings())
 
 
 class NatsConsumer(BaseNatsConsumer):
@@ -107,33 +66,10 @@ class NatsConsumer(BaseNatsConsumer):
         handler: Callable[[Msg], Awaitable[None]],
     ) -> None:
         """Initialize the consumer from config."""
-        config = load_config()
-        nats_config = config["nats"]
-
-        local_str = nats_config.get("local", "false")
-        local = local_str.lower() == "true" if isinstance(local_str, str) else bool(local_str)
-
         super().__init__(
             stream=stream,
             subject=subject,
             queue_suffix=queue_suffix,
             handler=handler,
-            durable_name=nats_config.get(
-                "archive_consumer_name", f"nv-config-manager-{queue_suffix}"
-            ),
-            deliver_subject=nats_config.get(
-                "archive_deliver_subject", "nv-config-manager.archive.delivery"
-            ),
-            api_prefix=config_manager_api_prefix(nats_config),
-            server=nats_config["server"],
-            queue=nats_config.get("queue", "nv-config-manager"),
-            local=local,
-            auth_method=nats_config.get("auth_method", "password"),
-            user=nats_config.get("user"),
-            password=nats_config.get("password"),
-            creds_path=nats_config.get("creds_path"),
-            default_stream_name=nats_config.get("config_manager_stream", "nv-config-manager"),
-            default_stream_subjects=_stream_subjects(
-                nats_config.get("config_manager_subjects", "nv-config-manager.>")
-            ),
+            **nats_consumer_settings(queue_suffix=queue_suffix),
         )
