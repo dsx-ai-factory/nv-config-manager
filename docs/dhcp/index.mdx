@@ -29,7 +29,7 @@ Key features include:
 - **IPv4 and IPv6**: Full support for both DHCP4 and DHCP6
 - **Configuration Validation**: Validate configs against Kea Control Agent API before deployment
 
-## Getting started
+## Getting Started
 
 For the bundled Nautobot provider, configure DHCP in Nautobot as follows:
 
@@ -37,23 +37,23 @@ Before you begin, make sure you understand the data model. Read [DHCP Modeling i
 
 Follow the procedures on this page to define and generate your DHCP configuration.
 
-### Set up subnets and gateways
+### Set up Subnets and Gateways
 
 1. Set up your prefixes. Tag network prefixes with `dhcp-subnet`.
 
 1. Define gateway relationships. Create `prefix-to-gateway` relationships for each subnet.
 
-### Set up reservations and pools
+### Set up Reservations and Pools
 
 1. Configure reservations. Tag device IPs with `dhcp-reserve` for static assignments.
 
 1. Define pools. Tag IP ranges with `dhcp-pool` for dynamic allocation.
 
-### Set up DHCP and ZTP options
+### Set up DHCP and ZTP Options
 
 1. Add config contexts. Provide DHCP options and ZTP URLs for devices.
 
-### Generate the DHCP configuration
+### Generate the DHCP Configuration
 
 1. Generate configuration. Run `nv-config-manager-dhcp-confgen` to create Kea configuration files.
 
@@ -67,9 +67,9 @@ The DHCP service consists of:
 - **PostgreSQL Lease Database**: Shared lease storage for high availability
 - **Redis Cache**: Stores previous configuration for subnet ID preservation
 
-## CLI usage
+## CLI Usage
 
-### Basic configuration generation
+### Basic Configuration Generation
 
 ```bash
 # Generate Kea DHCP4 configuration
@@ -79,7 +79,7 @@ uv run nv-config-manager-dhcp-confgen generate-kea-configuration --ini-file nv-c
 uv run nv-config-manager-dhcp-confgen generate-kea-configuration --ini-file nv-config-manager.ini --ip-version 6
 ```
 
-### Refresh cached configuration
+### Refresh Cached Configuration
 
 ```bash
 # Generate, validate, and publish the DHCPv4 configuration to Redis
@@ -89,7 +89,7 @@ uv run nv-config-manager-dhcp-confgen refresh-kea-configuration --ini-file nv-co
 uv run nv-config-manager-dhcp-confgen refresh-kea-configuration --ini-file nv-config-manager.ini --ip-version 6
 ```
 
-### Getting help
+### Getting Help
 
 ```bash
 # Show all available commands
@@ -99,7 +99,7 @@ uv run nv-config-manager-dhcp-confgen --help
 uv run nv-config-manager-dhcp-confgen generate-kea-configuration --help
 ```
 
-### Advanced options
+### Advanced Options
 
 ```bash
 # Generate configuration to a file
@@ -123,7 +123,7 @@ uv run nv-config-manager-dhcp-confgen refresh-kea-configuration \
 
 In Kubernetes, the refresh process generates and publishes desired configuration to Redis every five minutes. A sidecar in each Kea pod monitors Redis, applies changed configuration through the Kea Control Agent, and verifies the running configuration hash.
 
-## Manage leases
+## Manage Leases
 
 The DHCP dashboard summarizes active leases, reservations, configured pools,
 and the age of the last successful background configuration sync reported by
@@ -192,7 +192,7 @@ curl --fail-with-body --request DELETE "${DHCP_API_URL}/lease/7.245.196.5" \
 
 Lease responses use the Config Manager schema and include subnet prefixes. A successful delete returns `204 No Content`; a missing lease returns `404 Not Found`.
 
-## Related documentation
+## Related Documentation
 
 - [DHCP Modeling in Nautobot](nautobot-modeling.mdx) - Detailed guide on tagging and config contexts
 - [Network ZTP Service](../network-ztp/index.mdx) - Zero Touch Provisioning integration

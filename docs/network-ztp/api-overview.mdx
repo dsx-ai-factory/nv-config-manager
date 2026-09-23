@@ -11,7 +11,7 @@ The NVIDIA Config Manager ZTP Server provides REST API endpoints for network dev
 The API has three endpoint groups. The [API reference](api:ztp-api) documents
 every endpoint.
 
-### Device endpoints
+### Device Endpoints
 
 Device-specific endpoints for boot scripts, configurations, firmware, and provisioning status:
 
@@ -27,14 +27,14 @@ at `/device/{device_uuid}/{configlet}` on TCP 2222. The default Cumulus boot
 script retrieves `/device/{device_uuid}/startup.yaml` over SFTP; the HTTP API
 remains available for compatibility.
 
-### Firmware endpoints
+### Firmware Endpoints
 
 Platform and version-based firmware access:
 
 - `GET /v1/firmware/{platform}/{version}` - Download firmware by platform/version
 - `GET /v1/firmware/{platform}/{version}/checksum` - Get firmware checksum
 
-### File endpoints
+### File Endpoints
 
 Generic file storage and retrieval:
 
@@ -48,20 +48,20 @@ Generic file storage and retrieval:
 
 Contact your system administrator for the ZTP server URL for your environment.
 
-## Authentication & authorization
+## Authentication and Authorization
 
-### Device endpoints
+### Device Endpoints
 
 The device-specific endpoints listed above accept either a device-originated request or an authenticated user request:
 
 - Device-originated requests must come from an IP address associated with the device in the selected DCIM provider
 - User-originated requests must come through the Envoy gateway as an authenticated user when SSO is enabled for the deployment
 
-### Admin endpoints
+### Admin Endpoints
 
 Admin endpoints (file uploads, sync triggers) require an authenticated user request through the Envoy gateway when SSO is enabled for the deployment.
 
-## Error responses
+## Error Responses
 
 All endpoints may return standard HTTP error codes:
 
@@ -78,14 +78,14 @@ Error responses include a JSON body with error details:
 }
 ```
 
-## Streaming responses
+## Streaming Responses
 
 Endpoints that return large files use streaming responses:
 
 - Files are streamed instead of loaded into memory.
 - The server cleans up resources if the client disconnects.
 
-## OpenAPI documentation
+## OpenAPI Documentation
 
 Interactive API documentation is available at:
 

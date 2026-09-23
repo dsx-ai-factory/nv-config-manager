@@ -484,7 +484,7 @@ username admin secret {{ admin_pass|encrypt("sha512") }}
 tacacs-server key {{ tacacs_key|encrypt("ciscot7") }}
 ```
 
-## Nautobot provider source mapping
+## Nautobot Provider Source Mapping
 
 The following detail is specific to the bundled Nautobot provider's current
 render-data mapping. It is useful for maintaining the Nautobot provider, but
@@ -548,7 +548,7 @@ location
 └── uc_jumphost_prefixes[]: Jumphost prefixes
 ```
 
-### Provider mapping
+### Provider Mapping
 
 Nautobot's `config_context` field can contain policy JSON, but templates never
 receive that native object. The bundled provider maps the values it supports to
@@ -761,7 +761,7 @@ reference templates:
 
 1. **Immutable Data**: Use `frozen=True` dataclasses to prevent accidental mutations.
 
-### Provider data management
+### Provider Data Management
 
 1. **Consistent Naming**: Follow consistent naming conventions for devices, interfaces, VLANs, and so on.
 

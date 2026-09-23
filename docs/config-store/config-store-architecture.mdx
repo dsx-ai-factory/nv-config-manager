@@ -60,7 +60,7 @@ The API service is a FastAPI application that provides a REST API for configurat
 - Cache for selected-provider device metadata
 - Reduces load on the provider API
 
-#### DCIM provider
+#### DCIM Provider
 
 - Source of truth for normalized device metadata (site, platform, role, rack)
 - Accessed through the provider SDK; the provider owns its native REST,
@@ -153,7 +153,7 @@ Indexes: device+filename, device+filename+file_type, created_at, author
 - Each version is immutable (no updates, only new versions)
 - Full audit trail with author, commit message, and timestamp
 
-## DCIM provider integration
+## DCIM Provider Integration
 
 Device metadata is fetched through the selected provider and cached in Redis:
 

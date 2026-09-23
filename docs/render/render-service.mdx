@@ -20,7 +20,7 @@ You can use the render service's API endpoints to trigger the rendering of netwo
 - `POST /v1/render/all` - Queue renders for all devices that are enabled for rendering
 - `POST /v1/render/batch` - Queue renders for a list of devices
 
-### Event consumers
+### Event Consumers
 
 Two specialized pull-based consumers process NATS JetStream events:
 
@@ -93,11 +93,11 @@ An administrator-provisioned consumer should use the configured stream and filte
 
 If create permission is omitted and the durable is absent, the consumer logs the exact provisioning request. If delete permission is omitted, the reset API returns instructions to delete and recreate the exact durable at the stream head. Configuration mismatches likewise produce an administrator-ready update request in the consumer log.
 
-### Event dispatcher
+### Event Dispatcher
 
 The event dispatcher is a dynamic event routing system that maps normalized DCIM object types to handler functions. It maintains a dispatch table for supported render impacts and exposes Prometheus metrics for event processing.
 
-## Rendering process
+## Rendering Process
 
 The rendering process is as follows:
 
@@ -106,7 +106,7 @@ The rendering process is as follows:
 1. Persist the rendered files using the Config Store client.
 1. Record intended-configuration metadata through the DCIM provider.
 
-## Template version management
+## Template Version Management
 
 **Template updater**: Runs as a Kubernetes job after Helm installs and upgrades.
 It queries the selected DCIM provider for devices with a stale `template_version`
@@ -145,13 +145,6 @@ The service is configured using a configuration file (`config.py`). The configur
 - `nv_config_manager_nautobot_change_message_processing_time` - Render duration
 - `nv_config_manager_nautobot_change_message_end_to_end_time` - Nautobot publish to Config Store persist
 
-**Template changes**:
-
-- `nv_config_manager_template_change_messages_received` (by template_version)
-- `nv_config_manager_template_change_messages_processed`
-- `nv_config_manager_template_change_messages_failed`
-- `nv_config_manager_template_change_message_processing_time`
-
 ## Error handling
 
 **Exception types**:
@@ -165,7 +158,7 @@ The service is configured using a configuration file (`config.py`). The configur
 **Consumer behavior**:
 
 - **ACK**: Successful processing, render exceptions (will not succeed on retry), disabled devices
-- **NAK**: Transient failures, lock acquisition failures (5s delay), version mismatches (30s delay)
+- **NAK**: Transient failures and lock acquisition failures (5s delay)
 - **Consumer recreation**: Any fetch/heartbeat failure triggers automatic consumer rebuild
 
 ## Key design patterns
