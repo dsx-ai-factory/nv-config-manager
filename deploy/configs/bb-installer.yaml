@@ -100,6 +100,21 @@ rbac:
         - all
       execute_roles:
         - all
+    - name: BBCircuitTurnupWorkflow
+      read_roles:
+        - all
+      execute_roles:
+        - all
+    - name: BBCircuitReserveWorkflow
+      read_roles:
+        - all
+      execute_roles:
+        - all
+    - name: BBCircuitActivateWorkflow
+      read_roles:
+        - all
+      execute_roles:
+        - all
 
 infrastructure:
   gateway: envoyGateway

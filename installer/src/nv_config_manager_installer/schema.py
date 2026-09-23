@@ -677,6 +677,12 @@ class SlackConfig(BaseModel):
     channel: str = ""
 
 
+class JiraConfig(BaseModel):
+    """Jira ticketing configuration for workflows that audit to a ticket."""
+
+    base_url: str = ""
+
+
 class ExternalServicesConfig(BaseModel):
     """Out-of-cluster dependency configuration."""
 
@@ -684,6 +690,7 @@ class ExternalServicesConfig(BaseModel):
     postgres: ExternalPostgresConfig = Field(default_factory=ExternalPostgresConfig)
     temporal: ExternalTemporalConfig = Field(default_factory=ExternalTemporalConfig)
     slack: SlackConfig = Field(default_factory=SlackConfig)
+    jira: JiraConfig = Field(default_factory=JiraConfig)
 
 
 class InfrastructureConfig(BaseModel):

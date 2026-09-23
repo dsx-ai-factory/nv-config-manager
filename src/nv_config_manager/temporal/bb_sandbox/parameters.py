@@ -112,7 +112,9 @@ async def get_backbone_devices() -> list[BackboneDeviceParameter]:
 
 
 @router.get("/circuits")
-async def get_backbone_circuits() -> list[BackboneCircuitParameter]:
+async def get_backbone_circuits(
+    status: Annotated[str | None, Query()] = None,
+) -> list[BackboneCircuitParameter]:
     """Return circuit IDs available in the Nautobot sandbox."""
     client = NautobotClient()
     try:
@@ -120,18 +122,19 @@ async def get_backbone_circuits() -> list[BackboneCircuitParameter]:
             circuits = await client.get_all("circuits/circuits/", params={"depth": 1})
     except ApplicationError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    return sorted(
-        [
-            BackboneCircuitParameter(
-                id=str(circuit["id"]),
-                cid=str(circuit["cid"]),
-                status=_nested_name(circuit.get("status")),
-            )
-            for circuit in circuits
-            if circuit.get("cid")
-        ],
-        key=lambda circuit: circuit.cid.casefold(),
-    )
+    results = [
+        BackboneCircuitParameter(
+            id=str(circuit["id"]),
+            cid=str(circuit["cid"]),
+            status=_nested_name(circuit.get("status")),
+        )
+        for circuit in circuits
+        if circuit.get("cid")
+    ]
+    if status:
+        wanted = status.casefold()
+        results = [circuit for circuit in results if (circuit.status or "").casefold() == wanted]
+    return sorted(results, key=lambda circuit: circuit.cid.casefold())
 
 
 @router.get("/devices/{device_id}/interfaces")

@@ -35,6 +35,7 @@ from nv_config_manager_installer.schema import (
     ImagesConfig,
     ImageSource,
     InfrastructureConfig,
+    JiraConfig,
     JobPath,
     JobsConfig,
     JWTProvider,
@@ -171,9 +172,18 @@ class TestGenerateHelmValues:
         values = _gen(_make_config())
 
         assert values["renderService"]["client"]["useInternalEndpoint"] is True
+        assert "skipVault" not in values["renderService"]
         assert values["networkZtp"]["client"]["useInternalEndpoint"] is True
         assert values["temporal"]["client"]["useInternalEndpoint"] is True
         assert values["configStore"]["client"]["useInternalEndpoint"] is True
+
+    def test_mock_devices_skips_vault_in_render(self):
+        values = _gen(
+            _make_config(cluster=ClusterConfig(hostname="test.example.com", mock_devices=True))
+        )
+
+        assert values["renderService"]["skipVault"] is True
+        assert values["localDev"]["mockDevices"] is True
 
     def test_template_plugin_values_use_populated_pvc_and_updater_scheduling(self):
         config = _make_config(
@@ -640,6 +650,22 @@ class TestGenerateHelmValues:
     def test_no_slack_key_when_channel_empty(self):
         values = _gen(_make_config())
         assert "slack" not in values["externalServices"]
+
+    def test_jira_base_url_in_external_services(self):
+        config = _make_config(
+            external_services=ExternalServicesConfig(
+                jira=JiraConfig(base_url="https://jira.example.com")
+            ),
+        )
+        values = _gen(config)
+        assert values["externalServices"]["jira"] == {
+            "enabled": True,
+            "baseUrl": "https://jira.example.com",
+        }
+
+    def test_no_jira_key_when_base_url_empty(self):
+        values = _gen(_make_config())
+        assert "jira" not in values["externalServices"]
 
     def test_services_disabled(self):
         config = _make_config(services=ServicesConfig(render=False, dhcp=False))

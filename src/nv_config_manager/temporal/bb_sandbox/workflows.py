@@ -43,7 +43,14 @@ with workflow.unsafe.imports_passed_through():
         MAINTENANCE_STATUS,
         MOCK_DRAIN_METRIC,
         ActivateBackboneRoutingInput,
+        ActivationDeviceCheckInput,
+        ActivationDeviceCheckOutput,
         ApplyBackboneAddressingInput,
+        CircuitReservationLookupInput,
+        CircuitReservationPlan,
+        CircuitTurnupEndpoint,
+        CircuitTurnupIntent,
+        CircuitTurnupLookupInput,
         DrainApplyInput,
         DrainCandidateInput,
         DrainIntent,
@@ -56,23 +63,35 @@ with workflow.unsafe.imports_passed_through():
         MockNeighborInput,
         MockPingInput,
         MockRoutingInput,
+        PlannedCircuitObjects,
         ProposedInterfaceRenderInput,
+        ProposedNautobotMutation,
+        RelatedIgpChange,
         RenderRevisionDiffInput,
         SetInterfaceStatusInput,
         activate_backbone_routing,
+        activate_planned_circuit,
         apply_backbone_addressing,
         apply_drain_candidate,
+        build_circuit_turnup_plan,
+        check_activation_device_state,
         enable_backbone_interfaces,
         load_render_revision_diff,
         mock_apply_candidate,
         mock_ping_rtt,
         mock_validate_applied_intent,
+        mock_validate_circuit_turnup,
         mock_validate_neighbor,
         mock_validate_routing,
         perform_drain_candidate_diff,
+        persist_circuit_reservation,
+        persist_circuit_turnup_intent,
+        plan_circuit_reservation,
         render_proposed_interface_intent,
+        resolve_circuit_turnup_intent,
         resolve_drain_intent,
         resolve_internal_backbone_intent,
+        resolve_planned_circuit,
         set_interface_status,
     )
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin, NetworkDeviceData
@@ -112,6 +131,21 @@ def _jira_diff(diff: str) -> str:
     """Format a diff with Jira wiki markup that preserves whitespace."""
     content = diff.rstrip() or "(no configuration changes)"
     return f"{{noformat}}\n{content}\n{{noformat}}"
+
+
+def _jira_written_objects(mutations: list[ProposedNautobotMutation]) -> str:
+    if not mutations:
+        return ""
+    lines = "\n".join(f"* {item.model}: {item.summary}" for item in mutations)
+    return f"\n\nh4. Planned objects written\n{lines}"
+
+
+def _jira_validation_checks(checks: list[str], *, mocked: bool) -> str:
+    if not checks:
+        return ""
+    lines = "\n".join(f"* {check}" for check in checks)
+    notice = f"\n\n{MOCK_NOTICE}" if mocked else ""
+    return f"\n\nh4. Post-change validation\n{lines}{notice}"
 
 
 def _verify_execution_render(proposed: str, persisted: str) -> None:
@@ -164,6 +198,32 @@ class DrainPreflightComparison(BaseModel):
             reason="; ".join(reasons) or None,
             render_diff=render_diff,
             fresh_candidate_diff=fresh_candidate_diff,
+        )
+
+
+class ActivationPreflightComparison(BaseModel):
+    """Nautobot candidate drift plus device occupancy for circuit activate."""
+
+    matched: bool
+    reason: str | None = None
+    conflicts: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_checks(
+        cls,
+        *,
+        candidate_matched: bool,
+        conflicts: list[str],
+    ) -> ActivationPreflightComparison:
+        reasons: list[str] = []
+        if not candidate_matched:
+            reasons.append("candidate changed since approval")
+        if conflicts:
+            reasons.append("device already has reserved interfaces: " + "; ".join(conflicts))
+        return cls(
+            matched=not reasons,
+            reason="; ".join(reasons) or None,
+            conflicts=conflicts,
         )
 
 
@@ -1819,4 +1879,1327 @@ class BBInternalBackboneBringupWorkflow(WorkflowMetadataMixin, _ApprovalMixin):
         )
 
 
-REGISTERED_WORKFLOWS = [BBDrainInterfaceWorkflow, BBInternalBackboneBringupWorkflow]
+class CircuitTurnupInput(BaseModel):
+    """Operator input for a WAN circuit turn-up with related IGP retunes."""
+
+    circuit_id: str = Field(min_length=1, description="Circuit CID already modeled in Nautobot.")
+    jira: str = Field(
+        pattern=r"^[A-Za-z][A-Za-z0-9]+-\d+$",
+        description="Jira issue used for the plan and audit record.",
+    )
+    local_device: str = Field(min_length=1)
+    local_ports: list[str] = Field(min_length=1)
+    local_lag: str = Field(pattern=r"^ae\d+$")
+    remote_device: str = Field(min_length=1)
+    remote_ports: list[str] = Field(min_length=1)
+    remote_lag: str = Field(pattern=r"^ae\d+$")
+    ipv4_prefix: str
+    minimum_links: int = Field(ge=1)
+    path_metric: int = Field(ge=1, le=16_777_214)
+    macsec: bool = True
+    related_metrics: list[RelatedIgpChange] = Field(default_factory=list)
+    user: str | None = None
+
+    @field_validator("local_ports", "remote_ports")
+    @classmethod
+    def unique_ports(cls, ports: list[str]) -> list[str]:
+        """Reject duplicate or empty port names."""
+        normalized = [port.strip() for port in ports]
+        if any(not port for port in normalized):
+            raise ValueError("ports cannot contain empty names")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("ports must be unique")
+        return normalized
+
+    @field_validator("ipv4_prefix")
+    @classmethod
+    def validate_ipv4_prefix(cls, prefix: str) -> str:
+        """Require a canonical point-to-point IPv4 network."""
+        network = ipaddress.ip_network(prefix, strict=True)
+        if network.version != 4 or network.prefixlen != 31:
+            raise ValueError("ipv4_prefix must be an IPv4 /31 network")
+        return str(network)
+
+    @model_validator(mode="after")
+    def validate_endpoints(self) -> CircuitTurnupInput:
+        """Require distinct routers and feasible min-links."""
+        if self.local_device == self.remote_device:
+            raise ValueError("local and remote devices must be distinct")
+        if self.minimum_links > min(len(self.local_ports), len(self.remote_ports)):
+            raise ValueError("minimum_links cannot exceed either endpoint's member count")
+        return self
+
+
+class CircuitTurnupOutput(BaseModel):
+    """Final circuit turn-up result."""
+
+    applied: bool
+    persisted: bool
+    circuit_id: str
+    local_endpoint: str
+    remote_endpoint: str
+    impacted_devices: list[str]
+    approvers: list[str]
+    jira: str
+
+
+@workflow.defn
+class BBCircuitTurnupWorkflow(WorkflowMetadataMixin, _ApprovalMixin):
+    """Plan a WAN circuit turn-up, gate on the candidate, then mock persist and apply."""
+
+    workflow_name = "BB Sandbox: Circuit Turn-up"
+    workflow_description = (
+        "Plan a WAN circuit turn-up and related POP-pair IS-IS metric changes from "
+        "Nautobot, approve the candidate, then list the intended Nautobot writes"
+    )
+    workflow_input_class = CircuitTurnupInput
+    workflow_api_endpoint = "/bb_sandbox/circuit_turnup"
+    workflow_namespace = "bb_sandbox"
+    workflow_lock = WorkflowLockSpec(key_fields=["circuit_id"])
+
+    def __init__(self) -> None:
+        """Define the drain-style circuit turn-up stages."""
+        StageMixin.__init__(self)
+        self.define_stage(
+            name="resolve",
+            description="Resolve circuit, ports, LAG names, and POP-pair fan-out.",
+            requires_approval=False,
+            depends_on=[],
+        )
+        self.define_stage(
+            name="plan",
+            description="Build in-memory Junos candidates. Nautobot is unchanged.",
+            requires_approval=False,
+            depends_on=["resolve"],
+        )
+        self.define_stage(
+            name="record_plan",
+            description="Post the multi-device plan to Jira.",
+            requires_approval=False,
+            depends_on=["plan"],
+        )
+        self.define_stage(
+            name="review",
+            description="Approve or reject the plan.",
+            requires_approval=True,
+            approval_threshold=1,
+            depends_on=["record_plan"],
+        )
+        self.define_stage(
+            name="preflight",
+            description="Rebuild the plan and require an exact match.",
+            requires_approval=False,
+            depends_on=["review"],
+        )
+        self.define_stage(
+            name="persist",
+            description="List intended Nautobot writes.",
+            requires_approval=False,
+            depends_on=["preflight"],
+        )
+        self.define_stage(
+            name="apply",
+            description="Mock device commit of the approved plan.",
+            requires_approval=False,
+            depends_on=["persist"],
+        )
+        self.define_stage(
+            name="validate",
+            description="Mock LAG, MACsec, ISIS, MPLS, and RIB checks.",
+            requires_approval=False,
+            depends_on=["apply"],
+        )
+        self.define_stage(
+            name="audit",
+            description="Post the result to Jira.",
+            requires_approval=False,
+            depends_on=["review"],
+        )
+
+    class ResolveInput(StageInput):
+        """Circuit turn-up resolution input."""
+
+        request: CircuitTurnupInput
+
+    class ResolveOutput(StageOutput):
+        """Resolved turn-up intent."""
+
+        intent: CircuitTurnupIntent
+
+    @stage_executor("resolve")
+    async def resolve(self, stage_input: ResolveInput) -> ResolveOutput:
+        """Validate Jira and resolve Nautobot objects before proposing writes."""
+        request = stage_input.request
+        ticket = await workflow.execute_activity(
+            validate_ticket,
+            ValidateTicketInput(ticketing_platform="jira", issue_key=request.jira),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        intent = await workflow.execute_activity(
+            resolve_circuit_turnup_intent,
+            CircuitTurnupLookupInput(
+                circuit_id=request.circuit_id,
+                local_device=request.local_device,
+                local_ports=request.local_ports,
+                local_lag=request.local_lag,
+                remote_device=request.remote_device,
+                remote_ports=request.remote_ports,
+                remote_lag=request.remote_lag,
+                ipv4_prefix=request.ipv4_prefix,
+                minimum_links=request.minimum_links,
+                path_metric=request.path_metric,
+                macsec=request.macsec,
+                related_metrics=request.related_metrics,
+            ),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        notes = "\n".join(f"- {note}" for note in intent.preflight_notes)
+        note_block = f"\n\n### Preflight notes\n\n{notes}" if notes else ""
+        related = (
+            "\n".join(
+                f"- `{change.local_pop}-{change.remote_pop}`: metric `{change.metric}`"
+                for change in intent.related_metrics
+            )
+            or "- None"
+        )
+        impacted = "\n".join(f"- `{name}`" for name in intent.impacted_devices)
+        return self.ResolveOutput(
+            intent=intent,
+            display=(
+                f"Jira [{request.jira}]({ticket.url}): {ticket.summary}\n\n"
+                "### Circuit\n\n"
+                f"- **ID:** `{intent.circuit_id}`\n"
+                f"- **Local endpoint:** `{intent.local.device_name}:{intent.local.lag_name}`\n"
+                f"- **Remote endpoint:** `{intent.remote.device_name}:{intent.remote.lag_name}`\n"
+                f"- **Path metric:** `{intent.path_metric}`\n"
+                f"- **MACsec:** {'Enabled' if intent.macsec else 'Disabled'}\n\n"
+                f"### Related IGP\n\n{related}\n\n"
+                f"### Impacted devices\n\n{impacted}"
+                f"{note_block}"
+            ),
+        )
+
+    class PlanInput(StageInput):
+        """In-memory plan input."""
+
+        intent: CircuitTurnupIntent
+
+    class PlanOutput(StageOutput):
+        """Pinned combined candidate."""
+
+        combined_diff: str
+        mocked: bool
+
+    @stage_executor("plan")
+    async def plan_proposed_configuration(self, stage_input: PlanInput) -> PlanOutput:
+        """Render proposed Junos without changing Nautobot or Config Store."""
+        planned = await workflow.execute_activity(
+            build_circuit_turnup_plan,
+            stage_input.intent,
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        return self.PlanOutput(
+            combined_diff=planned.combined_diff,
+            mocked=planned.mocked,
+            display=(
+                "Built an in-memory candidate for every impacted device. "
+                "Nautobot and Config Store are unchanged.\n\n"
+                f"{_markdown_diff(planned.combined_diff)}"
+            ),
+        )
+
+    class RecordPlanInput(StageInput):
+        """Jira plan comment input."""
+
+        jira: str
+        intent: CircuitTurnupIntent
+        diff: str
+        workflow_url: str
+
+    class RecordPlanOutput(StageOutput):
+        """Jira plan comment result."""
+
+        comment_id: str | None
+
+    @stage_executor("record_plan")
+    async def record_change_plan(self, stage_input: RecordPlanInput) -> RecordPlanOutput:
+        """Publish the generated plan before waiting for approval."""
+        devices = ", ".join(f"`{name}`" for name in stage_input.intent.impacted_devices)
+        summary = (
+            "### Proposed circuit turn-up\n\n"
+            f"- **Workflow:** [Open workflow]({stage_input.workflow_url})\n"
+            f"- **Circuit:** `{stage_input.intent.circuit_id}`\n"
+            f"- **Devices:** {devices}\n"
+            "- **Nautobot:** unchanged pending approval\n\n"
+            f"#### Proposed candidate\n\n{_markdown_diff(stage_input.diff)}"
+        )
+        jira_body = (
+            "h3. Proposed BB sandbox circuit turn-up\n\n"
+            f"*Workflow:* [Open workflow|{stage_input.workflow_url}]\n"
+            f"*Circuit:* {stage_input.intent.circuit_id}\n"
+            f"*Devices:* {', '.join(stage_input.intent.impacted_devices)}\n"
+            "*Nautobot:* unchanged pending approval\n\n"
+            "h4. Proposed candidate\n"
+            f"{_jira_diff(stage_input.diff)}"
+        )
+        result = await workflow.execute_activity(
+            add_ticket_comment,
+            AddCommentInput(
+                ticketing_platform="jira",
+                issue_key=stage_input.jira,
+                body=jira_body,
+            ),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        return self.RecordPlanOutput(
+            comment_id=result.comment_id,
+            display=f"Recorded change plan `{result.comment_id}` on {stage_input.jira}.\n\n{summary}",
+        )
+
+    class ReviewInput(StageInput):
+        """Approval wait input."""
+
+        diff: str
+        mocked: bool
+
+    class ReviewOutput(StageOutput):
+        """Approval result."""
+
+        approved: bool
+        reviewers: list[str]
+        diff: str
+
+    @stage_executor("review")
+    async def review_configuration_diff(self, stage_input: ReviewInput) -> ReviewOutput:
+        """Wait for the drain-style plan gate."""
+        approved, reviewers = await self.wait_for_review(
+            "review", stage_input.diff, mocked=stage_input.mocked
+        )
+        decision = "Approved" if approved else "Rejected"
+        reviewer_list = ", ".join(reviewers) or "none"
+        return self.ReviewOutput(
+            approved=approved,
+            reviewers=reviewers,
+            diff=stage_input.diff,
+            display=(
+                f"### {decision}\n\n"
+                f"- **Reviewers:** {reviewer_list}\n\n"
+                f"{_markdown_diff(stage_input.diff)}"
+            ),
+        )
+
+    class PreflightInput(StageInput):
+        """Stale-plan check input."""
+
+        intent: CircuitTurnupIntent
+        approved_diff: str
+
+    class PreflightOutput(StageOutput):
+        """Stale-plan check result."""
+
+        matched: bool
+        reason: str | None = None
+        fresh_diff: str
+
+    @stage_executor("preflight")
+    async def preflight_approved_plan(self, stage_input: PreflightInput) -> PreflightOutput:
+        """Reject execution when the in-memory plan drifted after approval."""
+        planned = await workflow.execute_activity(
+            build_circuit_turnup_plan,
+            stage_input.intent,
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        matched = planned.combined_diff == stage_input.approved_diff
+        reason = None if matched else "candidate changed since approval"
+        display = (
+            "Approved plan is still current."
+            if matched
+            else (
+                "Plan drifted after approval; Nautobot was not written.\n\n"
+                f"{_markdown_diff(planned.combined_diff)}"
+            )
+        )
+        return self.PreflightOutput(
+            matched=matched,
+            reason=reason,
+            fresh_diff=planned.combined_diff,
+            display=display,
+        )
+
+    class PersistInput(StageInput):
+        """Approved persist input."""
+
+        intent: CircuitTurnupIntent
+
+    class PersistOutput(StageOutput):
+        """Listed Nautobot mutations."""
+
+        written: bool
+
+    @stage_executor("persist")
+    async def persist_intent(self, stage_input: PersistInput) -> PersistOutput:
+        """Show intended Nautobot writes without issuing them."""
+        result = await workflow.execute_activity(
+            persist_circuit_turnup_intent,
+            stage_input.intent,
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        lines = "\n".join(
+            f"- `{mutation.model}`: {mutation.summary}" for mutation in result.mutations
+        )
+        return self.PersistOutput(
+            written=result.written,
+            display=f"### Intended Nautobot mutations\n\n{lines}",
+        )
+
+    class ApplyInput(StageInput):
+        """Mock apply input."""
+
+        intent: CircuitTurnupIntent
+        diff: str
+
+    class ApplyOutput(StageOutput):
+        """Mock apply result."""
+
+        applied: bool
+
+    @stage_executor("apply")
+    async def apply_plan(self, stage_input: ApplyInput) -> ApplyOutput:
+        """Simulate the device commit of the approved candidate."""
+        await workflow.execute_activity(
+            mock_apply_candidate,
+            MockDiffInput(
+                phase="routing",
+                device=stage_input.intent.local.device_name,
+                ports=stage_input.intent.local.ports,
+                remote_device=stage_input.intent.remote.device_name,
+                remote_ports=stage_input.intent.remote.ports,
+                lag_name=stage_input.intent.local.lag_name,
+                remote_lag=stage_input.intent.remote.lag_name,
+                igp_metric=stage_input.intent.path_metric,
+            ),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        return self.ApplyOutput(
+            applied=True,
+            display=f"Mock-applied the approved candidate.\n\n{MOCK_NOTICE}",
+        )
+
+    class ValidateInput(StageInput):
+        """Mock validation input."""
+
+        intent: CircuitTurnupIntent
+
+    class ValidateOutput(StageOutput):
+        """Mock validation result."""
+
+        healthy: bool
+        checks: list[str]
+        mocked: bool
+
+    @stage_executor("validate")
+    async def validate_turnup(self, stage_input: ValidateInput) -> ValidateOutput:
+        """Simulate GNI post-change operational checks."""
+        result = await workflow.execute_activity(
+            mock_validate_circuit_turnup,
+            stage_input.intent,
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        checks = "\n".join(f"- {check}" for check in result.checks)
+        return self.ValidateOutput(
+            healthy=result.healthy,
+            checks=result.checks,
+            mocked=result.mocked,
+            display=f"Mock validation passed.\n\n{checks}\n\n{MOCK_NOTICE}",
+        )
+
+    class AuditInput(StageInput):
+        """Final Jira audit input."""
+
+        jira: str
+        intent: CircuitTurnupIntent
+        decision: str
+        reviewers: list[str]
+        diff: str
+        workflow_url: str
+        checks: list[str] = Field(default_factory=list)
+        checks_mocked: bool = True
+
+    class AuditOutput(StageOutput):
+        """Jira audit result."""
+
+        comment_id: str | None
+
+    @stage_executor("audit")
+    async def record_audit(self, stage_input: AuditInput) -> AuditOutput:
+        """Write the review result to Jira."""
+        reviewers = ", ".join(stage_input.reviewers) or "none"
+        validation = _jira_validation_checks(
+            stage_input.checks,
+            mocked=stage_input.checks_mocked,
+        )
+        summary = (
+            "### Circuit turn-up\n\n"
+            f"- **Workflow:** [Open workflow]({stage_input.workflow_url})\n"
+            f"- **Circuit:** `{stage_input.intent.circuit_id}`\n"
+            f"- **Reviewers:** {reviewers}\n"
+            f"- **Result:** {stage_input.decision}\n\n"
+            f"#### Candidate\n\n{_markdown_diff(stage_input.diff)}"
+        )
+        jira_body = (
+            "h3. BB sandbox circuit turn-up\n\n"
+            f"*Workflow:* [Open workflow|{stage_input.workflow_url}]\n"
+            f"*Circuit:* {stage_input.intent.circuit_id}\n"
+            f"*Reviewers:* {reviewers}\n"
+            f"*Result:* {stage_input.decision}\n\n"
+            "h4. Candidate\n"
+            f"{_jira_diff(stage_input.diff)}"
+            f"{validation}"
+        )
+        result = await workflow.execute_activity(
+            add_ticket_comment,
+            AddCommentInput(
+                ticketing_platform="jira",
+                issue_key=stage_input.jira,
+                body=jira_body,
+            ),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        return self.AuditOutput(
+            comment_id=result.comment_id,
+            display=(
+                f"Recorded audit comment `{result.comment_id}` on {stage_input.jira}.\n\n{summary}"
+            ),
+        )
+
+    def _skip_after_review(self) -> None:
+        for name in ("preflight", "persist", "apply", "validate"):
+            self.set_stage_state(name, StateEnum.UNREACHABLE)
+
+    @run_nv_config_manager_workflow
+    async def run(self, workflow_input: CircuitTurnupInput) -> CircuitTurnupOutput:  # type: ignore[override, ty:invalid-method-override]
+        """Execute the circuit turn-up workflow."""
+        self.set_input(workflow_input)
+        workflow.upsert_search_attributes({ISSUE_KEY_SEARCH_ATTRIBUTE: [workflow_input.jira]})
+        resolved = await self.resolve(self.ResolveInput(request=workflow_input))
+        planned = await self.plan_proposed_configuration(self.PlanInput(intent=resolved.intent))
+        workflow_url = await self.workflow_url()
+        await self.record_change_plan(
+            self.RecordPlanInput(
+                jira=workflow_input.jira,
+                intent=resolved.intent,
+                diff=planned.combined_diff,
+                workflow_url=workflow_url,
+            )
+        )
+        reviewed = await self.review_configuration_diff(
+            self.ReviewInput(diff=planned.combined_diff, mocked=planned.mocked)
+        )
+        persisted = False
+        applied = False
+        checks: list[str] = []
+        checks_mocked = True
+        if reviewed.approved:
+            preflight = await self.preflight_approved_plan(
+                self.PreflightInput(
+                    intent=resolved.intent,
+                    approved_diff=reviewed.diff,
+                )
+            )
+            if preflight.matched:
+                persist = await self.persist_intent(self.PersistInput(intent=resolved.intent))
+                persisted = persist.written
+                await self.apply_plan(self.ApplyInput(intent=resolved.intent, diff=reviewed.diff))
+                validated = await self.validate_turnup(self.ValidateInput(intent=resolved.intent))
+                checks = validated.checks
+                checks_mocked = validated.mocked
+                applied = True
+                decision = "approved; Nautobot writes listed but not issued; mock apply completed"
+            else:
+                self.set_stage_state("persist", StateEnum.UNREACHABLE)
+                self.set_stage_state("apply", StateEnum.UNREACHABLE)
+                self.set_stage_state("validate", StateEnum.UNREACHABLE)
+                decision = f"blocked: {preflight.reason}"
+        else:
+            self._skip_after_review()
+            decision = "rejected; nothing changed"
+        await self.record_audit(
+            self.AuditInput(
+                jira=workflow_input.jira,
+                intent=resolved.intent,
+                decision=decision,
+                reviewers=reviewed.reviewers,
+                diff=reviewed.diff,
+                workflow_url=workflow_url,
+                checks=checks,
+                checks_mocked=checks_mocked,
+            )
+        )
+        return CircuitTurnupOutput(
+            applied=applied,
+            persisted=persisted,
+            circuit_id=resolved.intent.circuit_id,
+            local_endpoint=f"{resolved.intent.local.device_name}:{resolved.intent.local.lag_name}",
+            remote_endpoint=f"{resolved.intent.remote.device_name}:{resolved.intent.remote.lag_name}",
+            impacted_devices=resolved.intent.impacted_devices,
+            approvers=reviewed.reviewers,
+            jira=workflow_input.jira,
+        )
+
+
+class CircuitReserveInput(BaseModel):
+    """Allocate unused WAN resources and write them as Planned."""
+
+    local_device: str = Field(min_length=1)
+    remote_device: str = Field(min_length=1)
+    jira: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9]+-\d+$")
+    circuit_id: str | None = Field(default=None)
+    path_metric: int = Field(default=750, ge=1, le=16_777_214)
+    macsec: bool = True
+    minimum_links: int = Field(default=1, ge=1)
+    user: str | None = None
+
+    @field_validator("circuit_id")
+    @classmethod
+    def empty_circuit_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @model_validator(mode="after")
+    def distinct_devices(self) -> CircuitReserveInput:
+        if self.local_device == self.remote_device:
+            raise ValueError("local and remote devices must be distinct")
+        return self
+
+
+class CircuitReserveOutput(BaseModel):
+    """Planned objects written to Nautobot."""
+
+    written: bool
+    circuit_id: str
+    local_endpoint: str
+    remote_endpoint: str
+    ipv4_prefix: str
+    approvers: list[str]
+    jira: str
+
+
+@workflow.defn
+class BBCircuitReserveWorkflow(WorkflowMetadataMixin, _ApprovalMixin):
+    """Allocate ports, LAG, and prefix, then write them as Planned after approval."""
+
+    workflow_name = "BB Sandbox: Circuit Reserve"
+    workflow_description = (
+        "Pick the next unused member ports, LAG names, and /31, then write them "
+        "to Nautobot as Planned"
+    )
+    workflow_input_class = CircuitReserveInput
+    workflow_api_endpoint = "/bb_sandbox/circuit_reserve"
+    workflow_namespace = "bb_sandbox"
+    workflow_lock = WorkflowLockSpec(key_fields=["local_device", "remote_device"])
+
+    def __init__(self) -> None:
+        StageMixin.__init__(self)
+        self.define_stage(
+            name="resolve",
+            description="Allocate unused ports, LAG names, and a /31.",
+            requires_approval=False,
+            depends_on=[],
+        )
+        self.define_stage(
+            name="review",
+            description="Approve the reservation before writing Nautobot.",
+            requires_approval=True,
+            approval_threshold=1,
+            depends_on=["resolve"],
+        )
+        self.define_stage(
+            name="persist",
+            description="Write Planned LAG, IP, circuit, and member bindings.",
+            requires_approval=False,
+            depends_on=["review"],
+        )
+        self.define_stage(
+            name="audit",
+            description="Post the result to Jira.",
+            requires_approval=False,
+            depends_on=["review"],
+        )
+
+    class ResolveInput(StageInput):
+        request: CircuitReserveInput
+
+    class ResolveOutput(StageOutput):
+        plan: CircuitReservationPlan
+
+    @stage_executor("resolve")
+    async def resolve(self, stage_input: ResolveInput) -> ResolveOutput:
+        request = stage_input.request
+        ticket = await workflow.execute_activity(
+            validate_ticket,
+            ValidateTicketInput(ticketing_platform="jira", issue_key=request.jira),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        plan = await workflow.execute_activity(
+            plan_circuit_reservation,
+            CircuitReservationLookupInput(
+                local_device=request.local_device,
+                remote_device=request.remote_device,
+                jira=request.jira,
+                circuit_id=request.circuit_id,
+                path_metric=request.path_metric,
+                macsec=request.macsec,
+                minimum_links=request.minimum_links,
+            ),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        intent = plan.intent
+        create = "Create" if plan.create_circuit else "Attach"
+        return self.ResolveOutput(
+            plan=plan,
+            display=(
+                f"Jira [{request.jira}]({ticket.url}): {ticket.summary}\n\n"
+                "### Reservation\n\n"
+                f"- **Circuit:** `{intent.circuit_id}` ({create.lower()})\n"
+                f"- **Local:** `{intent.local.device_name}` "
+                f"`{intent.local.ports[0]}` → `{intent.local.lag_name}` "
+                f"`{intent.local.ipv4_address}`\n"
+                f"- **Remote:** `{intent.remote.device_name}` "
+                f"`{intent.remote.ports[0]}` → `{intent.remote.lag_name}` "
+                f"`{intent.remote.ipv4_address}`\n"
+                f"- **Prefix:** `{intent.ipv4_prefix}` from `{plan.parent_prefix}`\n"
+                f"- **Path metric:** `{intent.path_metric}`\n"
+                f"- **MACsec:** {'Enabled' if intent.macsec else 'Disabled'}\n\n"
+                "Nautobot is unchanged until this reservation is approved."
+            ),
+        )
+
+    class ReviewInput(StageInput):
+        plan: CircuitReservationPlan
+
+    class ReviewOutput(StageOutput):
+        approved: bool
+        reviewers: list[str]
+        plan: CircuitReservationPlan
+
+    @stage_executor("review")
+    async def review_reservation(self, stage_input: ReviewInput) -> ReviewOutput:
+        summary = (
+            f"{stage_input.plan.intent.local.device_name}:"
+            f"{stage_input.plan.intent.local.lag_name} ↔ "
+            f"{stage_input.plan.intent.remote.device_name}:"
+            f"{stage_input.plan.intent.remote.lag_name}"
+        )
+        approved, reviewers = await self.wait_for_review("review", summary, mocked=False)
+        decision = "Approved" if approved else "Rejected"
+        reviewer_list = ", ".join(reviewers) or "none"
+        return self.ReviewOutput(
+            approved=approved,
+            reviewers=reviewers,
+            plan=stage_input.plan,
+            display=f"### {decision}\n\n- **Reviewers:** {reviewer_list}\n- **Reservation:** `{summary}`",
+        )
+
+    class PersistInput(StageInput):
+        plan: CircuitReservationPlan
+
+    class PersistOutput(StageOutput):
+        written: bool
+        circuit_uuid: str
+        mutations: list[ProposedNautobotMutation]
+
+    @stage_executor("persist")
+    async def persist_reservation(self, stage_input: PersistInput) -> PersistOutput:
+        result = await workflow.execute_activity(
+            persist_circuit_reservation,
+            stage_input.plan,
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        lines = "\n".join(
+            f"- `{mutation.model}`: {mutation.summary}" for mutation in result.mutations
+        )
+        return self.PersistOutput(
+            written=result.written,
+            circuit_uuid=result.circuit_uuid,
+            mutations=result.mutations,
+            display=f"### Planned objects written\n\n{lines}",
+        )
+
+    class AuditInput(StageInput):
+        jira: str
+        intent: CircuitTurnupIntent
+        decision: str
+        reviewers: list[str]
+        workflow_url: str
+        mutations: list[ProposedNautobotMutation] = Field(default_factory=list)
+
+    class AuditOutput(StageOutput):
+        comment_id: str | None
+
+    @stage_executor("audit")
+    async def record_audit(self, stage_input: AuditInput) -> AuditOutput:
+        reviewers = ", ".join(stage_input.reviewers) or "none"
+        objects = _jira_written_objects(stage_input.mutations)
+        jira_body = (
+            "h3. BB sandbox circuit reserve\n\n"
+            f"*Workflow:* [Open workflow|{stage_input.workflow_url}]\n"
+            f"*Circuit:* {stage_input.intent.circuit_id}\n"
+            f"*Reviewers:* {reviewers}\n"
+            f"*Result:* {stage_input.decision}"
+            f"{objects}"
+        )
+        result = await workflow.execute_activity(
+            add_ticket_comment,
+            AddCommentInput(
+                ticketing_platform="jira",
+                issue_key=stage_input.jira,
+                body=jira_body,
+            ),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        return self.AuditOutput(
+            comment_id=result.comment_id,
+            display=f"Recorded audit comment `{result.comment_id}` on {stage_input.jira}.",
+        )
+
+    @run_nv_config_manager_workflow
+    async def run(self, workflow_input: CircuitReserveInput) -> CircuitReserveOutput:  # type: ignore[override, ty:invalid-method-override]
+        self.set_input(workflow_input)
+        workflow.upsert_search_attributes({ISSUE_KEY_SEARCH_ATTRIBUTE: [workflow_input.jira]})
+        resolved = await self.resolve(self.ResolveInput(request=workflow_input))
+        reviewed = await self.review_reservation(self.ReviewInput(plan=resolved.plan))
+        written = False
+        mutations: list[ProposedNautobotMutation] = []
+        if reviewed.approved:
+            persist = await self.persist_reservation(self.PersistInput(plan=reviewed.plan))
+            written = persist.written
+            mutations = persist.mutations
+            decision = "approved; Planned objects written"
+        else:
+            self.set_stage_state("persist", StateEnum.UNREACHABLE)
+            decision = "rejected; nothing written"
+        workflow_url = await self.workflow_url()
+        await self.record_audit(
+            self.AuditInput(
+                jira=workflow_input.jira,
+                intent=resolved.plan.intent,
+                decision=decision,
+                reviewers=reviewed.reviewers,
+                workflow_url=workflow_url,
+                mutations=mutations,
+            )
+        )
+        intent = resolved.plan.intent
+        return CircuitReserveOutput(
+            written=written,
+            circuit_id=intent.circuit_id,
+            local_endpoint=f"{intent.local.device_name}:{intent.local.lag_name}",
+            remote_endpoint=f"{intent.remote.device_name}:{intent.remote.lag_name}",
+            ipv4_prefix=intent.ipv4_prefix,
+            approvers=reviewed.reviewers,
+            jira=workflow_input.jira,
+        )
+
+
+class CircuitActivateInput(BaseModel):
+    """Activate a Planned circuit reservation during a maintenance window."""
+
+    circuit_id: str = Field(min_length=1)
+    jira: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9]+-\d+$")
+    user: str | None = None
+
+
+class CircuitActivateOutput(BaseModel):
+    """Activation result."""
+
+    activated: bool
+    applied: bool
+    circuit_id: str
+    local_endpoint: str
+    remote_endpoint: str
+    approvers: list[str]
+    jira: str
+
+
+@workflow.defn
+class BBCircuitActivateWorkflow(WorkflowMetadataMixin, _ApprovalMixin):
+    """Flip a Planned reservation to Active, then mock apply and validate."""
+
+    workflow_name = "BB Sandbox: Circuit Activate"
+    workflow_description = (
+        "Load a Planned circuit reservation, approve the candidate, then set those "
+        "objects Active and mock the device push"
+    )
+    workflow_input_class = CircuitActivateInput
+    workflow_api_endpoint = "/bb_sandbox/circuit_activate"
+    workflow_namespace = "bb_sandbox"
+    workflow_lock = WorkflowLockSpec(key_fields=["circuit_id"])
+
+    def __init__(self) -> None:
+        StageMixin.__init__(self)
+        self.define_stage(
+            name="resolve",
+            description="Load the Planned circuit reservation from Nautobot.",
+            requires_approval=False,
+            depends_on=[],
+        )
+        self.define_stage(
+            name="plan",
+            description="Build the Junos candidate that Active status would render.",
+            requires_approval=False,
+            depends_on=["resolve"],
+        )
+        self.define_stage(
+            name="record_plan",
+            description="Post the candidate to Jira.",
+            requires_approval=False,
+            depends_on=["plan"],
+        )
+        self.define_stage(
+            name="review",
+            description="Approve or reject the activation.",
+            requires_approval=True,
+            approval_threshold=1,
+            depends_on=["record_plan"],
+        )
+        self.define_stage(
+            name="preflight",
+            description="Confirm the reservation is still Planned and the devices are clear.",
+            requires_approval=False,
+            depends_on=["review"],
+        )
+        self.define_stage(
+            name="persist",
+            description="Set reserved objects to Active.",
+            requires_approval=False,
+            depends_on=["preflight"],
+        )
+        self.define_stage(
+            name="apply",
+            description="Mock device commit of the approved plan.",
+            requires_approval=False,
+            depends_on=["persist"],
+        )
+        self.define_stage(
+            name="validate",
+            description="Mock LAG, MACsec, ISIS, MPLS, and RIB checks.",
+            requires_approval=False,
+            depends_on=["apply"],
+        )
+        self.define_stage(
+            name="audit",
+            description="Post the result to Jira.",
+            requires_approval=False,
+            depends_on=["review"],
+        )
+
+    class ResolveInput(StageInput):
+        request: CircuitActivateInput
+
+    class ResolveOutput(StageOutput):
+        objects: PlannedCircuitObjects
+
+    @stage_executor("resolve")
+    async def resolve(self, stage_input: ResolveInput) -> ResolveOutput:
+        request = stage_input.request
+        ticket = await workflow.execute_activity(
+            validate_ticket,
+            ValidateTicketInput(ticketing_platform="jira", issue_key=request.jira),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        objects = await workflow.execute_activity(
+            resolve_planned_circuit,
+            request.circuit_id,
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        intent = objects.intent
+        return self.ResolveOutput(
+            objects=objects,
+            display=(
+                f"Jira [{request.jira}]({ticket.url}): {ticket.summary}\n\n"
+                "### Planned circuit\n\n"
+                f"- **ID:** `{intent.circuit_id}`\n"
+                f"- **Local:** `{intent.local.device_name}:{intent.local.lag_name}` "
+                f"({', '.join(intent.local.ports)})\n"
+                f"- **Remote:** `{intent.remote.device_name}:{intent.remote.lag_name}` "
+                f"({', '.join(intent.remote.ports)})\n"
+                f"- **Prefix:** `{intent.ipv4_prefix}`\n"
+                f"- **Path metric:** `{intent.path_metric}`"
+            ),
+        )
+
+    class PlanInput(StageInput):
+        intent: CircuitTurnupIntent
+
+    class PlanOutput(StageOutput):
+        combined_diff: str
+        mocked: bool
+
+    @stage_executor("plan")
+    async def plan_activation(self, stage_input: PlanInput) -> PlanOutput:
+        planned = await workflow.execute_activity(
+            build_circuit_turnup_plan,
+            stage_input.intent,
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        return self.PlanOutput(
+            combined_diff=planned.combined_diff,
+            mocked=planned.mocked,
+            display=(
+                "Candidate if these Planned objects become Active:\n\n"
+                f"{_markdown_diff(planned.combined_diff)}"
+            ),
+        )
+
+    class RecordPlanInput(StageInput):
+        jira: str
+        intent: CircuitTurnupIntent
+        diff: str
+        workflow_url: str
+
+    class RecordPlanOutput(StageOutput):
+        comment_id: str | None
+
+    @stage_executor("record_plan")
+    async def record_change_plan(self, stage_input: RecordPlanInput) -> RecordPlanOutput:
+        jira_body = (
+            "h3. Proposed BB sandbox circuit activate\n\n"
+            f"*Workflow:* [Open workflow|{stage_input.workflow_url}]\n"
+            f"*Circuit:* {stage_input.intent.circuit_id}\n"
+            "*Nautobot:* Planned objects unchanged pending approval\n\n"
+            "h4. Proposed candidate\n"
+            f"{_jira_diff(stage_input.diff)}"
+        )
+        result = await workflow.execute_activity(
+            add_ticket_comment,
+            AddCommentInput(
+                ticketing_platform="jira",
+                issue_key=stage_input.jira,
+                body=jira_body,
+            ),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        return self.RecordPlanOutput(
+            comment_id=result.comment_id,
+            display=(
+                f"Recorded change plan `{result.comment_id}` on {stage_input.jira}.\n\n"
+                f"{_markdown_diff(stage_input.diff)}"
+            ),
+        )
+
+    class ReviewInput(StageInput):
+        diff: str
+        mocked: bool
+
+    class ReviewOutput(StageOutput):
+        approved: bool
+        reviewers: list[str]
+        diff: str
+
+    @stage_executor("review")
+    async def review_activation(self, stage_input: ReviewInput) -> ReviewOutput:
+        approved, reviewers = await self.wait_for_review(
+            "review", stage_input.diff, mocked=stage_input.mocked
+        )
+        decision = "Approved" if approved else "Rejected"
+        reviewer_list = ", ".join(reviewers) or "none"
+        return self.ReviewOutput(
+            approved=approved,
+            reviewers=reviewers,
+            diff=stage_input.diff,
+            display=(
+                f"### {decision}\n\n- **Reviewers:** {reviewer_list}\n\n"
+                f"{_markdown_diff(stage_input.diff)}"
+            ),
+        )
+
+    class PreflightInput(StageInput):
+        circuit_id: str
+        approved_diff: str
+
+    class PreflightOutput(StageOutput):
+        matched: bool
+        objects: PlannedCircuitObjects | None = None
+        reason: str | None = None
+
+    @stage_executor("preflight")
+    async def preflight_activation(self, stage_input: PreflightInput) -> PreflightOutput:
+        objects = await workflow.execute_activity(
+            resolve_planned_circuit,
+            stage_input.circuit_id,
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        planned = await workflow.execute_activity(
+            build_circuit_turnup_plan,
+            objects.intent,
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        local_check = await self._check_activation_endpoint(objects.intent.local)
+        remote_check = await self._check_activation_endpoint(objects.intent.remote)
+        comparison = ActivationPreflightComparison.from_checks(
+            candidate_matched=planned.combined_diff == stage_input.approved_diff,
+            conflicts=[*local_check.conflicts, *remote_check.conflicts],
+        )
+        if comparison.matched:
+            mocked = local_check.mocked and remote_check.mocked
+            device_line = (
+                "Mock devices have no reserved LAG, member, or address configuration."
+                if mocked
+                else "Both devices still lack the reserved LAG, members, and addresses."
+            )
+            display = f"Reservation is still Planned and the candidate matches. {device_line}"
+        else:
+            occupancy = ""
+            if comparison.conflicts:
+                lines = "\n".join(f"- {item}" for item in comparison.conflicts)
+                occupancy = f"\n\n#### Device occupancy\n\n{lines}"
+            display = f"Blocked: {comparison.reason}.{occupancy}"
+        return self.PreflightOutput(
+            matched=comparison.matched,
+            objects=objects if comparison.matched else None,
+            reason=comparison.reason,
+            display=display,
+        )
+
+    async def _check_activation_endpoint(
+        self, endpoint: CircuitTurnupEndpoint
+    ) -> ActivationDeviceCheckOutput:
+        device_result = await workflow.execute_activity(
+            get_network_device,
+            GetNetworkDeviceInput(device_id=endpoint.device_id),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        DeviceMixin.attach_device_search_attributes(device_result.device)
+        return await workflow.execute_activity(
+            check_activation_device_state,
+            ActivationDeviceCheckInput(
+                device_data=device_result.device,
+                lag_name=endpoint.lag_name,
+                member_port=endpoint.ports[0],
+                ipv4_address=endpoint.ipv4_address,
+            ),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+
+    class PersistInput(StageInput):
+        objects: PlannedCircuitObjects
+
+    class PersistOutput(StageOutput):
+        activated: bool
+
+    @stage_executor("persist")
+    async def persist_activation(self, stage_input: PersistInput) -> PersistOutput:
+        result = await workflow.execute_activity(
+            activate_planned_circuit,
+            stage_input.objects,
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        return self.PersistOutput(
+            activated=True,
+            display=f"Set {len(result.updated_ids)} objects to Active.",
+        )
+
+    class ApplyInput(StageInput):
+        intent: CircuitTurnupIntent
+
+    class ApplyOutput(StageOutput):
+        applied: bool
+
+    @stage_executor("apply")
+    async def apply_activation(self, stage_input: ApplyInput) -> ApplyOutput:
+        await workflow.execute_activity(
+            mock_apply_candidate,
+            MockDiffInput(
+                phase="routing",
+                device=stage_input.intent.local.device_name,
+                ports=stage_input.intent.local.ports,
+                remote_device=stage_input.intent.remote.device_name,
+                remote_ports=stage_input.intent.remote.ports,
+                lag_name=stage_input.intent.local.lag_name,
+                remote_lag=stage_input.intent.remote.lag_name,
+                igp_metric=stage_input.intent.path_metric,
+            ),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        return self.ApplyOutput(
+            applied=True,
+            display=f"Mock-applied the Active candidate.\n\n{MOCK_NOTICE}",
+        )
+
+    class ValidateInput(StageInput):
+        intent: CircuitTurnupIntent
+
+    class ValidateOutput(StageOutput):
+        healthy: bool
+        checks: list[str]
+        mocked: bool
+
+    @stage_executor("validate")
+    async def validate_activation(self, stage_input: ValidateInput) -> ValidateOutput:
+        result = await workflow.execute_activity(
+            mock_validate_circuit_turnup,
+            stage_input.intent,
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        checks = "\n".join(f"- {check}" for check in result.checks)
+        return self.ValidateOutput(
+            healthy=result.healthy,
+            checks=result.checks,
+            mocked=result.mocked,
+            display=f"Mock validation passed.\n\n{checks}\n\n{MOCK_NOTICE}",
+        )
+
+    class AuditInput(StageInput):
+        jira: str
+        intent: CircuitTurnupIntent
+        decision: str
+        reviewers: list[str]
+        diff: str
+        workflow_url: str
+        checks: list[str] = Field(default_factory=list)
+        checks_mocked: bool = True
+
+    class AuditOutput(StageOutput):
+        comment_id: str | None
+
+    @stage_executor("audit")
+    async def record_audit(self, stage_input: AuditInput) -> AuditOutput:
+        reviewers = ", ".join(stage_input.reviewers) or "none"
+        validation = _jira_validation_checks(
+            stage_input.checks,
+            mocked=stage_input.checks_mocked,
+        )
+        jira_body = (
+            "h3. BB sandbox circuit activate\n\n"
+            f"*Workflow:* [Open workflow|{stage_input.workflow_url}]\n"
+            f"*Circuit:* {stage_input.intent.circuit_id}\n"
+            f"*Reviewers:* {reviewers}\n"
+            f"*Result:* {stage_input.decision}\n\n"
+            "h4. Candidate\n"
+            f"{_jira_diff(stage_input.diff)}"
+            f"{validation}"
+        )
+        result = await workflow.execute_activity(
+            add_ticket_comment,
+            AddCommentInput(
+                ticketing_platform="jira",
+                issue_key=stage_input.jira,
+                body=jira_body,
+            ),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        return self.AuditOutput(
+            comment_id=result.comment_id,
+            display=f"Recorded audit comment `{result.comment_id}` on {stage_input.jira}.",
+        )
+
+    def _skip_after_review(self) -> None:
+        for name in ("preflight", "persist", "apply", "validate"):
+            self.set_stage_state(name, StateEnum.UNREACHABLE)
+
+    @run_nv_config_manager_workflow
+    async def run(self, workflow_input: CircuitActivateInput) -> CircuitActivateOutput:  # type: ignore[override, ty:invalid-method-override]
+        self.set_input(workflow_input)
+        workflow.upsert_search_attributes({ISSUE_KEY_SEARCH_ATTRIBUTE: [workflow_input.jira]})
+        resolved = await self.resolve(self.ResolveInput(request=workflow_input))
+        planned = await self.plan_activation(self.PlanInput(intent=resolved.objects.intent))
+        workflow_url = await self.workflow_url()
+        await self.record_change_plan(
+            self.RecordPlanInput(
+                jira=workflow_input.jira,
+                intent=resolved.objects.intent,
+                diff=planned.combined_diff,
+                workflow_url=workflow_url,
+            )
+        )
+        reviewed = await self.review_activation(
+            self.ReviewInput(diff=planned.combined_diff, mocked=planned.mocked)
+        )
+        activated = False
+        applied = False
+        checks: list[str] = []
+        checks_mocked = True
+        if reviewed.approved:
+            preflight = await self.preflight_activation(
+                self.PreflightInput(
+                    circuit_id=workflow_input.circuit_id,
+                    approved_diff=reviewed.diff,
+                )
+            )
+            if preflight.matched and preflight.objects is not None:
+                await self.persist_activation(self.PersistInput(objects=preflight.objects))
+                activated = True
+                await self.apply_activation(self.ApplyInput(intent=preflight.objects.intent))
+                validated = await self.validate_activation(
+                    self.ValidateInput(intent=preflight.objects.intent)
+                )
+                checks = validated.checks
+                checks_mocked = validated.mocked
+                applied = True
+                decision = "approved; objects set Active; mock apply completed"
+            else:
+                self.set_stage_state("persist", StateEnum.UNREACHABLE)
+                self.set_stage_state("apply", StateEnum.UNREACHABLE)
+                self.set_stage_state("validate", StateEnum.UNREACHABLE)
+                decision = f"blocked: {preflight.reason}"
+        else:
+            self._skip_after_review()
+            decision = "rejected; objects remain Planned"
+        await self.record_audit(
+            self.AuditInput(
+                jira=workflow_input.jira,
+                intent=resolved.objects.intent,
+                decision=decision,
+                reviewers=reviewed.reviewers,
+                diff=reviewed.diff,
+                workflow_url=workflow_url,
+                checks=checks,
+                checks_mocked=checks_mocked,
+            )
+        )
+        intent = resolved.objects.intent
+        return CircuitActivateOutput(
+            activated=activated,
+            applied=applied,
+            circuit_id=intent.circuit_id,
+            local_endpoint=f"{intent.local.device_name}:{intent.local.lag_name}",
+            remote_endpoint=f"{intent.remote.device_name}:{intent.remote.lag_name}",
+            approvers=reviewed.reviewers,
+            jira=workflow_input.jira,
+        )
+
+
+REGISTERED_WORKFLOWS = [
+    BBDrainInterfaceWorkflow,
+    BBInternalBackboneBringupWorkflow,
+    BBCircuitTurnupWorkflow,
+    BBCircuitReserveWorkflow,
+    BBCircuitActivateWorkflow,
+]

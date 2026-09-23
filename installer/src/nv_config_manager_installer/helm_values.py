@@ -670,6 +670,9 @@ def _build_external_services(config: NVConfigManagerInstallConfig) -> dict[str, 
     if es.slack.channel:
         ext["slack"] = {"channel": es.slack.channel}
 
+    if es.jira.base_url:
+        ext["jira"] = {"enabled": True, "baseUrl": es.jira.base_url}
+
     return ext
 
 
