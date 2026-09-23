@@ -25,6 +25,7 @@ from nv_config_manager_clients import RenderClient as PackageRenderClient
 from nv_config_manager_infrastructure.nats import DEFAULT_NATS_API_PREFIX
 from nv_config_manager_infrastructure.nats import NatsClient as PackageNatsClient
 from nv_config_manager_infrastructure.redis import RedisClient as PackageRedisClient
+from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.common.config import (
     config_store_client,
@@ -45,6 +46,7 @@ from nv_config_manager.common.config.client_settings import (
 )
 from nv_config_manager.common.config.http import get_internal_auth_headers
 from nv_config_manager.temporal.common.secrets import clear_secrets_cache
+from nv_config_manager_workflows.clients.redfish import RedfishVendor
 
 
 def _config(*, internal: bool = False) -> ConfigParser:
@@ -255,51 +257,117 @@ def test_redfish_settings_preserve_host_precedence_and_ini_managed_password() ->
         }
     }
 
-    assert redfish_client_settings(
+    lenovo_settings = redfish_client_settings(
         config,
-        vendor="Lenovo",
+        vendor=RedfishVendor.LENOVO,
         mac="AA-BB",
         credential_kind="default",
         bmc_credentials=credentials,
-    ) == {
-        "username": "host-user",
-        "password": "host-default",
-        "config_manager_password": "lenovo-managed",
-    }
-    assert redfish_client_settings(
+    )
+    assert lenovo_settings["username"] == "host-user"
+    assert lenovo_settings["password"] == "host-default"
+    assert callable(lenovo_settings["config_manager_password"])
+    assert lenovo_settings["config_manager_password"]() == "lenovo-managed"
+
+    bluefield_settings = redfish_client_settings(
         config,
-        vendor="Nvidia",
+        vendor=RedfishVendor.BLUEFIELD,
         mac="AA-BB",
         credential_kind="config_manager",
         bmc_credentials=credentials,
-    ) == {
-        "username": "host-user",
-        "password": "host-managed",
-        "config_manager_password": "bluefield-managed",
-    }
+    )
+    assert bluefield_settings["username"] == "host-user"
+    assert bluefield_settings["password"] == "host-managed"
+    assert callable(bluefield_settings["config_manager_password"])
+    assert bluefield_settings["config_manager_password"]() == "bluefield-managed"
 
 
 def test_redfish_settings_preserve_fallback_and_dell_behavior() -> None:
     config = _config()
 
-    assert redfish_client_settings(
+    settings = redfish_client_settings(
         config,
-        vendor="Lenovo",
+        vendor=RedfishVendor.LENOVO,
         mac=None,
         bmc_credentials={},
-    ) == {
-        "username": "lenovo-user",
-        "password": "lenovo-default",
-        "config_manager_password": "lenovo-managed",
-    }
+    )
+    assert settings["username"] == "lenovo-user"
+    assert settings["password"] == "lenovo-default"
+    assert callable(settings["config_manager_password"])
+    assert settings["config_manager_password"]() == "lenovo-managed"
 
-    with pytest.raises(ValueError, match="host-specific mapping"):
+    with pytest.raises(ApplicationError, match="host-specific mapping"):
         redfish_client_settings(
             config,
-            vendor="Dell",
+            vendor=RedfishVendor.DELL,
             mac=None,
             bmc_credentials={},
         )
+
+
+@pytest.mark.parametrize(
+    ("vendor", "expected_username"),
+    [
+        ("lenovo", "lenovo-user"),
+        ("LENOVO", "lenovo-user"),
+        ("nvidia", "bluefield-user"),
+        ("NVIDIA", "bluefield-user"),
+        ("bluefield", "bluefield-user"),
+        ("BLUEFIELD", "bluefield-user"),
+    ],
+)
+def test_redfish_settings_preserve_vendor_string_normalization(
+    vendor: str,
+    expected_username: str,
+) -> None:
+    settings = redfish_client_settings(
+        _config(),
+        vendor=vendor,
+        mac=None,
+        bmc_credentials={},
+    )
+
+    assert settings["username"] == expected_username
+
+
+def test_redfish_settings_wrap_dell_password_in_provider() -> None:
+    settings = redfish_client_settings(
+        vendor="dell",
+        mac="AA-BB",
+        bmc_credentials={
+            "AA-BB": {
+                "default_user": "dell-user",
+                "default_password": "dell-default",
+            }
+        },
+    )
+
+    assert settings["username"] == "dell-user"
+    assert settings["password"] == "dell-default"
+    assert settings["config_manager_password"]() == "dell-default"
+
+
+def test_redfish_mapped_login_does_not_require_managed_password_ini() -> None:
+    credentials = {
+        "AA-BB": {
+            "default_user": "host-user",
+            "default_password": "host-default",
+            "config_manager_password": "host-managed",
+        }
+    }
+
+    settings = redfish_client_settings(
+        ConfigParser(),
+        vendor=RedfishVendor.LENOVO,
+        mac="AA-BB",
+        credential_kind="config_manager",
+        bmc_credentials=credentials,
+    )
+    assert settings["username"] == "host-user"
+    assert settings["password"] == "host-managed"
+    assert callable(settings["config_manager_password"])
+    with pytest.raises(KeyError, match="redfish"):
+        settings["config_manager_password"]()
 
 
 def test_redfish_rejects_unknown_vendor_before_configuration_or_file_access() -> None:
@@ -329,7 +397,7 @@ def test_redfish_rejects_unknown_vendor_before_configuration_or_file_access() ->
         lambda config: ticketing_client_settings(config, platform="jira"),
         lambda config: redfish_client_settings(
             config,
-            vendor="Lenovo",
+            vendor=RedfishVendor.LENOVO,
             mac=None,
             bmc_credentials={},
         ),

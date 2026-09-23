@@ -2652,6 +2652,7 @@ dependencies = [
     { name = "nv-config-manager-logging" },
     { name = "py-markdown-table" },
     { name = "pydantic" },
+    { name = "requests" },
     { name = "temporalio" },
 ]
 
@@ -2659,6 +2660,7 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "responses" },
     { name = "ruff" },
 ]
 
@@ -2670,6 +2672,7 @@ requires-dist = [
     { name = "nv-config-manager-logging", editable = "packages/logging" },
     { name = "py-markdown-table", specifier = ">=1.1.0" },
     { name = "pydantic", specifier = ">=2.10.2" },
+    { name = "requests", specifier = ">=2.33.0" },
     { name = "temporalio", specifier = ">=1.29.0,<1.32.0" },
 ]
 
@@ -2677,6 +2680,7 @@ requires-dist = [
 dev = [
     { name = "pytest", specifier = ">=8.3.3" },
     { name = "pytest-asyncio", specifier = ">=0.23.7" },
+    { name = "responses", specifier = ">=0.25.3" },
     { name = "ruff", specifier = "==0.16.3" },
 ]
 
