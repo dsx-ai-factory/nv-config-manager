@@ -38,8 +38,12 @@ without a lifecycle change would close the pool mid-flight.
 What this provides
 ------------------
 * A single, pre-connected object-storage client reused across requests
-  (keepalive + a real pool cap instead of one pool per request).
-* Config Store clients cached per endpoint (connector/pool reuse).
+  (keepalive + a real pool cap instead of one pool per request). File-backed
+  storage is not pooled: its manifest is read at connect time and must stay
+  current with uploads.
+* One Config Store client keyed by its effective endpoint and TLS settings.
+* Pooled clients are rebuilt when the INI (or a TLS file it names) changes;
+  replaced clients close after in-flight operations have had time to finish.
 * A bounded concurrency semaphore + short per-op timeout so a saturated or
   stuck storage/Config Store call sheds load fast as a retryable
   :class:`StorageUnavailableError` (surfaced as HTTP 503 ``Retry-After``)
@@ -50,16 +54,20 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from configparser import ConfigParser
+from typing import TYPE_CHECKING, Protocol
 
 from nv_config_manager.common.client import ConfigStoreClient
 from nv_config_manager.common.config import get_storage_client as _build_storage_client
 from nv_config_manager.common.config import load_config
+from nv_config_manager.common.ini import file_fingerprint
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager.ztp.filestore import FileStoreClient
+from nv_config_manager.ztp.storage import ObjectStorageClient
 
 if TYPE_CHECKING:
+    # device.py imports this module at top level; a runtime import would be circular.
     from nv_config_manager.ztp.device import DeviceData
-    from nv_config_manager.ztp.storage import ObjectStorageClient
 
 logger = get_logger(__name__, category=LogCategory.ZTP_API)
 
@@ -73,9 +81,22 @@ _OP_TIMEOUT = 8.0
 
 _semaphore = asyncio.Semaphore(_MAX_CONCURRENCY)
 
+# Replaced clients stay open this long so operations already using them finish.
+_RETIRE_GRACE = _OP_TIMEOUT + 1.0
+
+type _ConfigStoreKey = tuple[object, ...]
+
+
+class _Closeable(Protocol):
+    async def close(self) -> None: ...
+
+
 _object_storage_client: ObjectStorageClient | None = None
+_object_storage_config: ConfigParser | None = None
 _object_storage_lock = asyncio.Lock()
-_config_store_clients: dict[str, ConfigStoreClient] = {}
+_config_store_client: ConfigStoreClient | None = None
+_config_store_client_key: _ConfigStoreKey | None = None
+_retiring: dict[asyncio.Task[None], _Closeable] = {}
 
 
 class StorageUnavailableError(Exception):
@@ -117,43 +138,93 @@ async def get_object_storage_client() -> ObjectStorageClient:
     Created and connected lazily behind a lock so concurrent first requests
     don't each build (and leak) their own client. Safe to share: the underlying
     aiobotocore client multiplexes concurrent calls over its connection pool.
+    The client is rebuilt when the INI changes. File-backed storage returns a
+    fresh client each call so its manifest reflects the latest uploads.
     """
-    global _object_storage_client
-    if _object_storage_client is not None:
+    global _object_storage_client, _object_storage_config
+    config = load_config()
+    if _object_storage_client is not None and _object_storage_config is config:
         return _object_storage_client
     async with _object_storage_lock:
-        if _object_storage_client is None:
-            client = _build_storage_client()
-            await client.connect()
-            _object_storage_client = client
-    return _object_storage_client
+        config = load_config()
+        if _object_storage_client is not None and _object_storage_config is config:
+            return _object_storage_client
+        client = await _connect_storage_client()
+        if isinstance(client, FileStoreClient):
+            return client
+        previous = _object_storage_client
+        _object_storage_client, _object_storage_config = client, config
+        if previous is not None:
+            _retire(previous)
+        return client
 
 
-def _config_store_key(device_data: DeviceData) -> str:
-    """Cache key for a device's Config Store client.
+async def _connect_storage_client() -> ObjectStorageClient:
+    client = _build_storage_client()
+    try:
+        await guarded_storage(client.connect)
+    except BaseException:
+        await _close_quietly(client)
+        raise
+    return client
 
-    Internal-endpoint deployments (all devices share one service URL) collapse
-    to a single client; external mTLS deployments key by per-device endpoint so
-    each distinct Config Store instance gets its own pooled client.
-    """
+
+def _config_store_key() -> _ConfigStoreKey:
+    """Identify the settings that DeviceData.config_store_client() builds from."""
     cfg = load_config()
-    if cfg.getboolean("config_store.client", "use_internal_endpoint", fallback=False):
-        return "internal"
-    return device_data.config_store_instance or "default"
+    section = "config_store.client"
+    ui_url = cfg.get(section, "ui_url", fallback=None)
+    if cfg.getboolean(section, "use_internal_endpoint", fallback=False):
+        return ("internal", cfg.get(section, "api_service", fallback=None), ui_url)
+    cert = cfg.get("mtls", "tls_client_cert_path", fallback=None)
+    key = cfg.get("mtls", "tls_client_key_path", fallback=None)
+    verify = cfg.get(section, "verify", fallback=None)
+    return (
+        "external",
+        cfg.get(section, "api_url", fallback=None),
+        ui_url,
+        verify,
+        cert,
+        key,
+        file_fingerprint(cert),
+        file_fingerprint(key),
+        file_fingerprint(verify),
+    )
 
 
 def get_config_store_client(device_data: DeviceData) -> ConfigStoreClient:
-    """Return a shared Config Store client for this device's endpoint.
+    """Return the shared Config Store client for the current settings.
 
-    Reuses one client (and its connection pool) per distinct endpoint instead
-    of building a new connector + SSL context on every ``load_file`` call.
+    Every device reaches the same endpoint, so one client (and its connection
+    pool) serves all of them. A settings or TLS file change builds a new client.
     """
-    key = _config_store_key(device_data)
-    client = _config_store_clients.get(key)
-    if client is None:
-        client = device_data.config_store_client()
-        _config_store_clients[key] = client
-    return client
+    global _config_store_client, _config_store_client_key
+    key = _config_store_key()
+    if _config_store_client is not None and _config_store_client_key == key:
+        return _config_store_client
+    previous = _config_store_client
+    _config_store_client = device_data.config_store_client()
+    _config_store_client_key = key
+    if previous is not None:
+        _retire(previous)
+    return _config_store_client
+
+
+def _retire(client: _Closeable) -> None:
+    async def _close_later() -> None:
+        await asyncio.sleep(_RETIRE_GRACE)
+        await _close_quietly(client)
+
+    task = asyncio.ensure_future(_close_later())
+    _retiring[task] = client
+    task.add_done_callback(lambda done: _retiring.pop(done, None))
+
+
+async def _close_quietly(client: _Closeable) -> None:
+    try:
+        await client.close()
+    except Exception as exc:  # noqa: BLE001 - cleanup is best-effort
+        logger.warning("Error closing storage client: %s", exc)
 
 
 async def warm_storage_clients() -> None:
@@ -170,22 +241,27 @@ async def warm_storage_clients() -> None:
 
 async def close_storage_clients() -> None:
     """Close all shared storage + Config Store clients (called on app shutdown)."""
-    global _object_storage_client
-    if _object_storage_client is not None:
-        try:
-            await _object_storage_client.close()
-        finally:
-            _object_storage_client = None
-    for client in _config_store_clients.values():
-        try:
-            await client.close()
-        except Exception as exc:  # noqa: BLE001 - shutdown cleanup is best-effort
-            logger.warning("Error closing Config Store client: %s", exc)
-    _config_store_clients.clear()
+    global _object_storage_client, _object_storage_config
+    global _config_store_client, _config_store_client_key
+    clients: list[_Closeable] = [
+        c for c in (_object_storage_client, _config_store_client) if c is not None
+    ]
+    for task, client in list(_retiring.items()):
+        task.cancel()
+        clients.append(client)
+    _retiring.clear()
+    _object_storage_client = _object_storage_config = None
+    _config_store_client = _config_store_client_key = None
+    for client in clients:
+        await _close_quietly(client)
 
 
 def reset_storage_clients() -> None:
     """Drop shared clients without awaiting (test isolation helper)."""
-    global _object_storage_client
-    _object_storage_client = None
-    _config_store_clients.clear()
+    global _object_storage_client, _object_storage_config
+    global _config_store_client, _config_store_client_key
+    for task in _retiring:
+        task.cancel()
+    _retiring.clear()
+    _object_storage_client = _object_storage_config = None
+    _config_store_client = _config_store_client_key = None
