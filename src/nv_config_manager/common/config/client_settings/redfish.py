@@ -18,21 +18,31 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from configparser import ConfigParser
+from functools import partial
 from typing import Literal, TypedDict, cast
 
-from nv_config_manager.common.config.loader import resolve_config
+from temporalio.exceptions import ApplicationError
+
+from nv_config_manager.common.config.loader import resolve_config, resolve_section
+from nv_config_manager_workflows.clients.redfish.models import RedfishVendor
 
 type RedfishCredentialKind = Literal["default", "config_manager"]
 type RedfishCredentials = Mapping[str, str]
 type BmcCredentials = Mapping[str, RedfishCredentials]
 
-_INI_PREFIXES: Mapping[str, str | None] = {
-    "lenovo": "lenovo",
-    "nvidia": "bluefield",
-    "bluefield": "bluefield",
-    "dell": None,
+_INI_PREFIXES: Mapping[RedfishVendor, str | None] = {
+    RedfishVendor.LENOVO: "lenovo",
+    RedfishVendor.BLUEFIELD: "bluefield",
+    RedfishVendor.DELL: None,
+}
+
+_VENDOR_ALIASES: Mapping[str, RedfishVendor] = {
+    "lenovo": RedfishVendor.LENOVO,
+    "nvidia": RedfishVendor.BLUEFIELD,
+    "bluefield": RedfishVendor.BLUEFIELD,
+    "dell": RedfishVendor.DELL,
 }
 
 
@@ -41,7 +51,7 @@ class RedfishClientSettings(TypedDict):
 
     username: str
     password: str
-    config_manager_password: str
+    config_manager_password: Callable[[], str]
 
 
 def get_bmc_credentials() -> dict[str, dict[str, str]]:
@@ -51,47 +61,52 @@ def get_bmc_credentials() -> dict[str, dict[str, str]]:
         return cast(dict[str, dict[str, str]], json.load(credentials_file))
 
 
+def _rotation_password(prefix: str, config_loader: Callable[[], ConfigParser]) -> str:
+    """Read the current vendor password used for credential rotation."""
+    return config_loader()["redfish"][f"{prefix}_config_manager_password"]
+
+
 def redfish_client_settings(
     config: ConfigParser | None = None,
     *,
-    vendor: str,
+    vendor: RedfishVendor | str,
     mac: str | None,
     credential_kind: RedfishCredentialKind = "default",
     bmc_credentials: BmcCredentials | None = None,
+    config_loader: Callable[[], ConfigParser] | None = None,
 ) -> RedfishClientSettings:
     """Resolve host-specific or INI fallback credentials for a Redfish vendor."""
-    normalized_vendor = vendor.lower()
-    if normalized_vendor not in _INI_PREFIXES:
-        raise NotImplementedError(f"No Redfish settings implemented for vendor {vendor!r}")
+    try:
+        normalized_vendor = _VENDOR_ALIASES[vendor.lower()]
+    except KeyError as exc:
+        raise NotImplementedError(f"No Redfish settings implemented for vendor {vendor!r}") from exc
+    prefix = _INI_PREFIXES[normalized_vendor]
     if credential_kind not in ("default", "config_manager"):
         raise ValueError(f"Unknown Redfish credential kind: {credential_kind!r}")
 
-    credentials = get_bmc_credentials() if bmc_credentials is None else bmc_credentials
-    host_credentials = credentials.get(mac) if mac is not None else None
-    prefix = _INI_PREFIXES[normalized_vendor]
+    credentials_by_mac = get_bmc_credentials() if bmc_credentials is None else bmc_credentials
+    credentials = credentials_by_mac.get(mac) if mac is not None else None
+    use_config_manager_password = (
+        credential_kind == "config_manager" and normalized_vendor != RedfishVendor.DELL
+    )
+    password_key = "config_manager_password" if use_config_manager_password else "default_password"
 
-    if host_credentials:
-        username = host_credentials["default_user"]
-        password_key = (
-            "config_manager_password"
-            if credential_kind == "config_manager" and prefix is not None
-            else "default_password"
-        )
-        password = host_credentials[password_key]
+    if credentials:
+        username = credentials["default_user"]
+        password = credentials[password_key]
     else:
         if prefix is None:
-            raise ValueError(f"{vendor} Redfish credentials require a host-specific mapping")
-        redfish = resolve_config(config)["redfish"]
+            raise ApplicationError(f"{vendor} Redfish credentials require a host-specific mapping")
+        redfish = resolve_section("redfish", config)
         username = redfish[f"{prefix}_default_user"]
-        password_key = (
-            "config_manager_password" if credential_kind == "config_manager" else "default_password"
-        )
         password = redfish[f"{prefix}_{password_key}"]
 
-    if prefix is None:
-        managed_password = password
-    else:
-        managed_password = resolve_config(config)["redfish"][f"{prefix}_config_manager_password"]
+    rotation_config_loader = config_loader or partial(resolve_config, config)
+    managed_password = (
+        partial(_rotation_password, prefix, rotation_config_loader)
+        if prefix is not None
+        else lambda: password
+    )
 
     return {
         "username": username,
