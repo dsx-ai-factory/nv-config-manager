@@ -16,7 +16,12 @@
 
 import pytest
 
-from nv_config_manager.temporal.ngc.activities.config import build_workflow_url
+from nv_config_manager.temporal.ngc.activities.config import build_workflow_url, get_ui_base_url
+from nv_config_manager_workflows import runtime as runtime_module
+from nv_config_manager_workflows.runtime import (
+    UIBaseURLNotConfiguredError,
+    configure_ui_base_url,
+)
 
 
 class TestBuildWorkflowUrl:
@@ -68,3 +73,21 @@ class TestBuildWorkflowUrl:
     def test_various_workflow_ids(self, workflow_id: str) -> None:
         url = build_workflow_url("https://temporal.example.com", workflow_id)
         assert url == f"https://temporal.example.com/workflows/{workflow_id}"
+
+
+class TestGetUIBaseURL:
+    """Tests for the NVCM UI base URL activity."""
+
+    def test_returns_configured_runtime_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(runtime_module, "_ui_base_url_provider", runtime_module._UNSET)
+        configure_ui_base_url(lambda: "https://config-manager.example")
+
+        assert get_ui_base_url() == "https://config-manager.example"
+
+    def test_fails_clearly_before_runtime_configuration(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(runtime_module, "_ui_base_url_provider", runtime_module._UNSET)
+
+        with pytest.raises(UIBaseURLNotConfiguredError, match="configure_ui_base_url"):
+            get_ui_base_url()

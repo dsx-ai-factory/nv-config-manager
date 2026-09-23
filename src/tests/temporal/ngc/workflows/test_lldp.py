@@ -15,7 +15,7 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio import activity
@@ -86,7 +86,11 @@ async def mock_load_neighbor_data_by_switch_port(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow(
     mock_time,

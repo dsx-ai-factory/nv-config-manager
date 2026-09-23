@@ -19,7 +19,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio import activity
@@ -128,7 +128,11 @@ async def mock_delete_overlay(input: DeleteOverlayInput) -> DeleteOverlayOutput:
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_creation_workflow(
     mock_time,
@@ -363,7 +367,11 @@ async def test_spx_overlay_creation_workflow(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_deletion_workflow(
     mock_time,

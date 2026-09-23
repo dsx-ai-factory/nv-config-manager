@@ -17,6 +17,7 @@
 from types import SimpleNamespace
 
 import pytest
+from nv_config_manager_infrastructure.lock import NoopLock
 from redis.asyncio.lock import Lock as AsyncRedisLock
 from redis.exceptions import LockNotOwnedError
 
@@ -37,6 +38,9 @@ def _reset_lock_client(monkeypatch):
 
 
 class TestFakeLock:
+    def test_is_infrastructure_noop_lock_alias(self):
+        assert _FakeLock is NoopLock
+
     @pytest.mark.asyncio
     async def test_acquire_and_release_are_noops(self):
         fake = _FakeLock()
@@ -101,6 +105,21 @@ class TestTokenHelpersLocalNoop:
         assert await release_lock("k", "token") is True
 
 
+@pytest.mark.parametrize("client", [None, SimpleNamespace(redis=object())])
+def test_token_lock_backend_uses_service_selected_redis(client, monkeypatch):
+    selected: list[object | None] = []
+    backend = object()
+    monkeypatch.setattr(lock_module, "_get_lock_redis_client", lambda: client)
+    monkeypatch.setattr(
+        lock_module,
+        "TokenLockBackend",
+        lambda redis: selected.append(redis) or backend,
+    )
+
+    assert lock_module.token_lock_backend() is backend
+    assert selected == [client.redis if client is not None else None]
+
+
 class _FakeRedisLock:
     """Minimal async Lock stand-in that models single-owner reentrancy."""
 
@@ -135,7 +154,9 @@ class TestAcquireLockReentrancy:
     def use_fake(self, monkeypatch):
         def _install(owner: bytes | None) -> _FakeRedisLock:
             fake = _FakeRedisLock(owner=owner)
-            monkeypatch.setattr(lock_module, "_redis_lock", lambda name, timeout: fake)
+            backend = lock_module.TokenLockBackend(None)
+            monkeypatch.setattr(backend, "_lock", lambda name, timeout: fake)
+            monkeypatch.setattr(lock_module, "token_lock_backend", lambda: backend)
             return fake
 
         return _install
