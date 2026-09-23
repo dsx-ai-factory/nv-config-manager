@@ -10,6 +10,7 @@ dependencies = [
     "netaddr>=1.3.0",
     "nv-config-manager-dcim",
     "nv-config-manager-infrastructure",
+    "nv-config-manager-logging",
     "py-markdown-table>=1.1.0",
     "pydantic>=2.10.2",
     "temporalio>=1.29.0,<1.32.0",
