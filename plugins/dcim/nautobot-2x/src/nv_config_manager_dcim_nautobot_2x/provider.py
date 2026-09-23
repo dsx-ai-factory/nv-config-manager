@@ -76,9 +76,15 @@ _MANAGED_DEVICES_QUERY = load_graphql_query(
 _VRF_AFFECTED_DEVICES_QUERY = load_graphql_query(
     "provider/events.graphql", "ListVRFAffectedDevices"
 )
+_FIND_SWITCHES_BY_VLAN_QUERY = load_graphql_query("provider/events.graphql", "FindSwitchesByVLAN")
 _IP_ADDRESS_AFFECTED_DEVICES_QUERY = load_graphql_query(
     "provider/events.graphql", "ListIPAddressAffectedDevices"
 )
+
+_RELATIONSHIP_SOURCE_PATHS = {
+    "ipam.prefix": "ipam/prefixes",
+    "ipam.vlan": "ipam/vlans",
+}
 _AUTONOMOUS_SYSTEM_AFFECTED_DEVICES_QUERY = load_graphql_query(
     "provider/events.graphql", "ListAutonomousSystemAffectedDevices"
 )
@@ -875,6 +881,38 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         result = await self.graphql_query(_VRF_AFFECTED_DEVICES_QUERY, {"id": vrf_id})
         devices = result.get("data", {}).get("vrf", {}).get("devices", [])
         return _render_enabled_ids(devices)
+
+    async def find_switches_by_vlan(self, vlan_id: str) -> list[str]:
+        """Find switches with a tagged or untagged interface on a VLAN."""
+        result = await self.graphql_query(_FIND_SWITCHES_BY_VLAN_QUERY, {"id": [vlan_id]})
+        device_ids: set[str] = set()
+        for vlan in result.get("data", {}).get("vlans", []):
+            for field in ("interfaces_as_tagged", "interfaces_as_untagged"):
+                for interface in vlan.get(field, []):
+                    device = interface.get("device") or {}
+                    device_id = device.get("id")
+                    if device_id:
+                        device_ids.add(device_id)
+        return sorted(device_ids)
+
+    async def get_relationship_source_record(
+        self, association: Mapping[str, Any]
+    ) -> tuple[str, Mapping[str, Any]] | None:
+        """Return a supported source record for a relationship association."""
+        source_type = association.get("source_type")
+        if not isinstance(source_type, str):
+            raise DCIMInvalidDataError(
+                "Nautobot relationship-association event is missing its source type"
+            )
+        source_path = _RELATIONSHIP_SOURCE_PATHS.get(source_type)
+        if source_path is None:
+            return None
+        source_id = association.get("source_id")
+        if not source_id:
+            raise DCIMInvalidDataError(
+                "Nautobot relationship-association event is missing its source id"
+            )
+        return source_type, await self.get(f"{source_path}/{source_id}/")
 
     async def get_render_enabled_devices_for_ip_address(self, ip_address_id: str) -> list[str]:
         """Resolve Nautobot-managed devices affected by an IP-address event."""

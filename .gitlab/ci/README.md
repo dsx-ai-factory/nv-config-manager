@@ -136,14 +136,14 @@ scan time, and applies the configured internal policy file fetched from
 `NVCM_CONTAINER_SCAN_POLICY_PROJECT`. The matrix also scans the exact pinned
 upstream oauth2-proxy image shipped by the Helm chart on both architectures.
 
-## Test-Environment Promote Pipeline (test / test01)
+## Non-Production Promote Pipeline (test / test01 / kiwi-qa)
 
 The GitOps promote flow (`pr-build.yml` + `promote-test-envs.yml`) builds a PR
 once into immutable artifacts (a versioned OCI Helm chart plus images referenced
 by digest) and promotes them by committing a machine-written `deploy-state.yaml`
 to the environment's branch in the downstream ArgoCD values repository. It
-targets ONLY the shared test environments; production stays on the tag-driven
-release flow.
+targets ONLY the explicitly allowlisted non-production environments;
+production stays on the tag-driven release flow.
 
 Security model: after copy-pr-bot's `/ok to test` gate, the image build runs
 automatically on the unprotected `pull-request/<n>` mirror ref with no secrets
@@ -165,9 +165,9 @@ Protected** - unprotected variables are visible to the untrusted
 | `NVCM_TEST_ENV_TARGETS` | One record per env: `env\|env_branch\|namespace\|release_name\|baseline_values\|state_dir\|argocd_application` (see `scripts/test_env_config.sh`) |
 | `NVCM_CHART_REPO` | Helm repo URL ArgoCD reads the promoted chart from, e.g. `https://helm.ngc.nvidia.com/nvidian/cfa` (must match the `ngc` target in `NVCM_CHART_TARGETS`); written into deploy-state as `chartRepo` |
 | `NVCM_ARGOCD_SERVER` | ArgoCD API base URL used by the post-deployment health gate |
-| `NVCM_ARGOCD_AUTH_TOKEN` | Protected, masked, and hidden token for a read-only ArgoCD role allowed to `get` only the shared test Applications; disable **Expand variable reference** and confirm the saved variable remains masked |
-| `NVCM_ARGOCD_APPLICATION_NAMESPACE` | Optional namespace containing the shared test Applications; uses the deployment default when unset |
-| `NVCM_ARGOCD_PROJECT` | Required ArgoCD project containing the shared test Applications |
+| `NVCM_ARGOCD_AUTH_TOKEN` | Protected, masked, and hidden token for a read-only ArgoCD role allowed to `get` only the allowlisted Applications; disable **Expand variable reference** and confirm the saved variable remains masked |
+| `NVCM_ARGOCD_APPLICATION_NAMESPACE` | Optional namespace containing the allowlisted Applications; uses the deployment default when unset |
+| `NVCM_ARGOCD_PROJECT` | Required ArgoCD project containing the allowlisted Applications |
 | `NVCM_ARGOCD_SYNC_TIMEOUT` / `NVCM_ARGOCD_POLL_INTERVAL` | Optional health-gate tuning in seconds; defaults to 1800 / 10. The sync timeout may be lowered but must not exceed 1800, preserving headroom under the job's 35-minute timeout; the poll interval must be greater than zero |
 | `NVCM_UPSTREAM_GITHUB_REPO` | Optional override for the upstream GitHub repo checked by the stale-HEAD guard (default `dsx-ai-factory/nv-config-manager`) |
 
@@ -177,7 +177,7 @@ The ArgoCD token should come from a project role with only this policy:
 p, proj:<project>:nvcm-promoter, applications, get, <project>/<test-application>, allow
 ```
 
-Add the policy line once for each shared test Application, substituting
+Add the policy line once for each allowlisted Application, substituting
 the deployment's project and Application names.
 
 The observer cannot start or terminate an ArgoCD operation. Keep its token
@@ -189,7 +189,8 @@ Runbooks:
 
 - **Deploy a PR**: a vetted `pull-request/<n>` mirror sync automatically starts
   the no-secrets build and a protected `main` request pipeline named for the
-  PR. Select **promote-to-test** or **promote-to-test01**; there is no separate
+  PR. Select **promote-to-test**, **promote-to-test01**, or
+  **promote-to-kiwi-qa**; there is no separate
   **Run pipeline** step and no variables to enter. The runnerless button creates
   a same-project child pipeline, which waits for the build if necessary. The
   request validator does not occupy a runner while the PR build runs, and the
@@ -259,7 +260,7 @@ Project settings required (GitLab UI):
 - On GitLab Self-Managed, the administrator must allow webhook requests to the
   instance's own hostname (Settings > Network > Outbound requests), or add that
   hostname to the local-request allowlist.
-- Protect the `test` and `test01` GitLab environments and grant deploy access
+- Protect the `test`, `test01`, and `kiwi-qa` GitLab environments and grant deploy access
   only to the people or groups allowed to use the promotion buttons.
 - The **values repo** (`NVCM_VALUES_REPO_PATH`) must allow this project in its
   inbound **job token allowlist**. `test-promote-chart` reads the baseline and
