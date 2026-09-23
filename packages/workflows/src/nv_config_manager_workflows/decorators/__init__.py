@@ -12,10 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Deprecated import path for the reusable workflow run decorator.
-
-Import from :mod:`nv_config_manager_workflows.decorators.workflow` in new code.
-"""
+"""Decorators for reusable Temporal workflows."""
 
 from nv_config_manager_workflows.decorators.workflow import (
     WorkflowRuntimeFailure,

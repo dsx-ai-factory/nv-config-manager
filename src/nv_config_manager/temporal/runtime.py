@@ -26,6 +26,7 @@ from nv_config_manager_workflows.runtime import (
     NatsRuntime,
     SlackRuntime,
     configure_runtime,
+    configure_ui_base_url,
 )
 
 
@@ -71,3 +72,8 @@ def configure_workflow_runtime() -> None:
         ui_base_url_provider=_ui_base_url,
         lock_backend_provider=token_lock_backend,
     )
+
+
+def configure_workflow_ui_runtime() -> None:
+    """Install only the reload-aware NVCM UI provider for API processes."""
+    configure_ui_base_url(_ui_base_url)
