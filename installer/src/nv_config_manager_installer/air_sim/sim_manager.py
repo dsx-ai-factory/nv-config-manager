@@ -2162,8 +2162,10 @@ class AirSimulationManager:
                 failure_reason = (
                     result.stderr.strip().splitlines()[-1] if result.stderr.strip() else ""
                 )
-                failure_reason = failure_reason.replace(self._require_ssh_password(), "<redacted>")
-                failure_reason = _ANSI_ESCAPE.sub("", failure_reason)[:300]
+                failure_reason = _ANSI_ESCAPE.sub("", failure_reason)
+                failure_reason = failure_reason.replace(self._require_ssh_password(), "<redacted>")[
+                    :300
+                ]
                 if not failure_reason:
                     failure_reason = f"ssh exited with status {result.returncode}"
             except subprocess.TimeoutExpired:
