@@ -165,6 +165,30 @@ class TestGenerateHelmValues:
 
         assert values["global"]["deploymentStrategy"] == {"type": "Recreate"}
 
+    def test_local_tls_uses_private_gateway_ca(self):
+        values = _gen(
+            _make_config(
+                cluster=ClusterConfig(hostname="local.test", environment="local-sec"),
+                infrastructure=InfrastructureConfig(tls=True),
+            )
+        )
+
+        assert values["gateway"]["certificates"] == {
+            "enabled": True,
+            "selfSigned": True,
+            "localCA": True,
+        }
+
+    def test_non_local_tls_preserves_legacy_self_signed_issuer(self):
+        values = _gen(
+            _make_config(
+                cluster=ClusterConfig(hostname="lab.example.com", environment="lab"),
+                infrastructure=InfrastructureConfig(tls=True),
+            )
+        )
+
+        assert values["gateway"]["certificates"] == {"enabled": True, "selfSigned": True}
+
     def test_key_names_match_chart(self):
         values = _gen(_make_config())
 

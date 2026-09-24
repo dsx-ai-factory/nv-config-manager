@@ -33,8 +33,9 @@ Cached OIDC tokens are stored in `~/.nv-config-manager/token.json`.
 # Authenticate against a deployment. This opens a browser for OIDC PKCE.
 uv run workflow-cli login -H config-manager.example.com
 
-# Local deployments with self-signed certificates commonly need -k.
-uv run workflow-cli login -H config-manager.local -k
+# Installer-managed local deployments should trust the local CA first.
+make install-cert
+uv run workflow-cli login -H config-manager.local
 
 # Check or clear the cached token.
 uv run workflow-cli auth-status
@@ -66,7 +67,7 @@ Every generated workflow command accepts the same target and authentication opti
 | `--issuer` | OIDC issuer URL. Optional when gateway discovery works. |
 | `--client-id` | OIDC client ID. Optional when gateway discovery works. |
 | `--force-auth-refresh` | Force token refresh before a workflow request. |
-| `-k, --insecure` | Disable TLS certificate verification for local development with self-signed certificates. |
+| `-k, --insecure` | Disable TLS certificate verification temporarily for diagnostics or a separately managed self-signed deployment. |
 
 Use either `--hostname` directly:
 
@@ -215,6 +216,6 @@ The gateway did not accept the CLI bearer token. Re-run `uv run workflow-cli log
 
 **Local TLS verification fails.**
 
-Use `-k` only for local development or other environments using self-signed certificates.
+For installer-managed local deployments, run `make install-cert` instead of disabling verification. Use `-k` only for diagnostics or a separately managed self-signed deployment.
 
 For API details, see the [Temporal API Reference](api:temporal-api) and [Workflow Documentation](workflows/index.mdx).
