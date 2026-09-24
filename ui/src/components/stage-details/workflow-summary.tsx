@@ -80,8 +80,8 @@ const WorkflowSummary: React.FC<WorkflowClientComponentProps> = ({
   return (
     <div className="p-4">
       <ul>
-        {getSummaryData(workflow).map((item, index) => (
-          <li key={index}>
+        {getSummaryData(workflow).map((item) => (
+          <li key={item.label}>
             <span className="font-semibold">{item.label}:</span> {item.value}
           </li>
         ))}
