@@ -7,7 +7,7 @@ license = { text = "Apache-2.0" }
 requires-python = ">=3.13"
 dependencies = [
     "redis[hiredis]>=5.2.1",
-    "nats-py[nkeys,aiohttp]>=2.9.0",
+    "nats-py[nkeys,aiohttp]>=2.15.0",
     "certifi>=2024.8.30",
     "nv-config-manager-logging",
 ]
