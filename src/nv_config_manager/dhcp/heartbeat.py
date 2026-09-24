@@ -29,8 +29,8 @@ dependency is merely unreachable.
 from __future__ import annotations
 
 import os
+import stat
 import time
-from pathlib import Path
 
 # Default location of the heartbeat file. Lives under /tmp because the sidecar
 # runs with a read-only root filesystem in most deployments and /tmp is an
@@ -51,6 +51,40 @@ DEFAULT_MAX_AGE_SECONDS = 90.0
 _last_successful_reconciliation: float | None = None
 
 
+def _validate_heartbeat_file(fd: int, path: str) -> None:
+    """Reject an open heartbeat descriptor that is unsafe to update."""
+    file_stat = os.fstat(fd)
+    if not stat.S_ISREG(file_stat.st_mode):
+        raise OSError(f"heartbeat path is not a regular file: {path}")
+    if file_stat.st_uid != os.geteuid():
+        raise PermissionError(f"heartbeat file is not owned by the current user: {path}")
+    if file_stat.st_mode & 0o022:
+        raise PermissionError(f"heartbeat file is writable by other users: {path}")
+
+
+def _open_heartbeat_for_write(path: str) -> int:
+    """Open a validated heartbeat file, repairing owner-read-only mode if needed."""
+    common_flags = os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+    write_flags = os.O_WRONLY | os.O_CREAT | common_flags
+    try:
+        fd = os.open(path, write_flags, 0o600)
+    except PermissionError:
+        repair_fd = os.open(path, os.O_RDONLY | common_flags)
+        try:
+            _validate_heartbeat_file(repair_fd, path)
+            os.fchmod(repair_fd, 0o600)
+        finally:
+            os.close(repair_fd)
+        fd = os.open(path, write_flags, 0o600)
+
+    try:
+        _validate_heartbeat_file(fd, path)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
 def touch_heartbeat(path: str = DEFAULT_HEARTBEAT_FILE) -> None:
     """Advance the heartbeat by updating the file's mtime (creating it if needed).
 
@@ -58,7 +92,12 @@ def touch_heartbeat(path: str = DEFAULT_HEARTBEAT_FILE) -> None:
     after every completed attempt, including ones where a recoverable
     dependency error occurred.
     """
-    Path(path).touch(exist_ok=True)
+    fd = _open_heartbeat_for_write(path)
+    try:
+        os.fchmod(fd, 0o600)
+        os.utime(fd)
+    finally:
+        os.close(fd)
 
 
 def heartbeat_age_seconds(
@@ -71,12 +110,18 @@ def heartbeat_age_seconds(
     clean unhealthy verdict as a missing heartbeat rather than a traceback.
     """
     try:
-        mtime = os.stat(path).st_mtime
+        file_stat = os.stat(path, follow_symlinks=False)
     except OSError:
+        return None
+    if (
+        not stat.S_ISREG(file_stat.st_mode)
+        or file_stat.st_uid != os.geteuid()
+        or file_stat.st_mode & 0o022
+    ):
         return None
     if now is None:
         now = _now()
-    return now - mtime
+    return now - file_stat.st_mtime
 
 
 def age_is_fresh(age: float, max_age: float = DEFAULT_MAX_AGE_SECONDS) -> bool:

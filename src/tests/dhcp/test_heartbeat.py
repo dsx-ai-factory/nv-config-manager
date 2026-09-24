@@ -25,6 +25,7 @@ Covers:
 
 import asyncio
 import os
+import stat
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -53,17 +54,69 @@ def _error_count() -> float:
 
 
 def test_touch_heartbeat_creates_and_refreshes(tmp_path) -> None:
+    """Heartbeat updates create an owner-only file and refresh its timestamp."""
     hb = str(tmp_path / "hb")
     assert heartbeat.heartbeat_age_seconds(hb) is None
 
     heartbeat.touch_heartbeat(hb)
     assert os.path.exists(hb)
+    assert stat.S_IMODE(os.stat(hb).st_mode) == 0o600
 
     old = time.time() - 1000
     os.utime(hb, (old, old))
     heartbeat.touch_heartbeat(hb)
     # mtime moved back to ~now, so age is small again.
     assert heartbeat.heartbeat_age_seconds(hb) < 5
+
+
+def test_touch_heartbeat_rejects_symlink(tmp_path) -> None:
+    """Heartbeat updates do not follow a link to an attacker-selected file."""
+    target = tmp_path / "target"
+    target.write_text("")
+    old = time.time() - 1000
+    os.utime(target, (old, old))
+    hb = tmp_path / "hb"
+    hb.symlink_to(target)
+
+    with pytest.raises(OSError):
+        heartbeat.touch_heartbeat(str(hb))
+
+    assert os.stat(target).st_mtime == pytest.approx(old)
+    assert heartbeat.heartbeat_age_seconds(str(hb)) is None
+
+
+def test_heartbeat_rejects_publicly_writable_file(tmp_path) -> None:
+    """Heartbeat updates and reads reject files writable by other users."""
+    hb = tmp_path / "hb"
+    hb.write_text("")
+    hb.chmod(0o666)
+
+    with pytest.raises(PermissionError):
+        heartbeat.touch_heartbeat(str(hb))
+
+    assert heartbeat.heartbeat_age_seconds(str(hb)) is None
+
+
+@pytest.mark.timeout(1)
+def test_touch_heartbeat_rejects_fifo_without_blocking(tmp_path) -> None:
+    """Heartbeat updates fail promptly when the configured path is a FIFO."""
+    hb = tmp_path / "hb"
+    os.mkfifo(hb)
+
+    with pytest.raises(OSError):
+        heartbeat.touch_heartbeat(str(hb))
+
+
+def test_touch_heartbeat_repairs_owner_read_only_file(tmp_path) -> None:
+    """An owner-read-only heartbeat is safely restored to writable mode."""
+    hb = tmp_path / "hb"
+    hb.write_text("")
+    hb.chmod(0o400)
+
+    heartbeat.touch_heartbeat(str(hb))
+
+    assert stat.S_IMODE(os.stat(hb).st_mode) == 0o600
+    assert heartbeat.heartbeat_age_seconds(str(hb)) < 5
 
 
 def test_heartbeat_is_fresh_vs_stale(tmp_path) -> None:
