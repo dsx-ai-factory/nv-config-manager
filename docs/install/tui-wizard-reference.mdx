@@ -188,16 +188,25 @@ If a PVC is `ReadWriteOnce`, it can only mount on the node where it was first bo
 
 ## 9. Workflows
 
-Configure Temporal workflow RBAC defaults and per-workflow overrides.
+Configure the managed Temporal server and workflow RBAC defaults and overrides.
 
 | Field | Description |
 | :---- | :---------- |
+| History Replicas | Optional History service pod count. Leave blank to use the deployment size profile and chart default. |
+| History Shards | Optional persisted History shard count. Leave blank to derive it from the History replica count. |
 | Admin Roles | Roles with full admin access to all workflows |
 | Default Read Roles | Default read access for all workflows |
 | Default Execute Roles | Default execute access for all workflows |
 | Per-Workflow Overrides | Override read or execute roles for specific workflows |
 
 The workflow list is generated from the Helm RBAC values file.
+
+<Warning>
+Blank History Shards follows History Replicas. After Temporal has initialized
+its database, confirm and pin the persisted shard count before changing
+replicas. Temporal ignores shard-count changes after the first run; changing
+the persisted count requires migration to a separate Temporal cluster.
+</Warning>
 
 ![Workflows section screen](../assets/images/installer/09-workflows.svg)
 
