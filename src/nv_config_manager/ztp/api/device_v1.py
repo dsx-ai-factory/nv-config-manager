@@ -23,6 +23,12 @@ from nv_config_manager.common.client import ConfigStoreException, ConfigStoreFil
 from nv_config_manager.common.config import get_storage_client, temporal_client
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMNotFoundError, dcim_client_session
+from nv_config_manager.ztp.api.device_reads import (
+    DCIMUnavailableError,
+    forget_device,
+    load_device,
+    load_device_serial,
+)
 from nv_config_manager.ztp.api.schemas import ChecksumResponse
 from nv_config_manager.ztp.api.streaming import create_object_storage_streaming_response
 from nv_config_manager.ztp.device import DeviceData
@@ -33,10 +39,16 @@ logger = get_logger(__name__, category=LogCategory.ZTP_API)
 router = APIRouter(prefix="/device", tags=["device"], responses={404: {"description": "Not found"}})
 
 
+def _dcim_unavailable(exc: DCIMUnavailableError) -> HTTPException:
+    return HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "5"})
+
+
 async def _get_device_data(device_uuid: str) -> DeviceData:
-    """Load ZTP device data through the selected DCIM provider."""
-    async with dcim_client_session() as client:
-        return DeviceData.from_dcim(await client.get_ztp_device(device_uuid))
+    """Load ZTP device data through the shared, cached DCIM read."""
+    try:
+        return await load_device(device_uuid)
+    except DCIMUnavailableError as exc:
+        raise _dcim_unavailable(exc) from exc
 
 
 async def _authorize_request(request: Request, device_uuid: str) -> DeviceData | None:
@@ -172,6 +184,7 @@ async def mark_provisioned(device_uuid: str, request: Request) -> str:
     await _authorize_request(request, device_uuid)
     async with dcim_client_session() as client:
         await client.mark_ztp_device_provisioned(device_uuid)
+    forget_device(device_uuid)
     # Trigger a backup workflow
     try:
         workflow_client = temporal_client()
@@ -207,8 +220,7 @@ async def validate_serial(device_uuid: str, body: ValidateSerialBody, request: R
     """Validate the device serial number matches the selected DCIM."""
     await _authorize_request(request, device_uuid)
     try:
-        async with dcim_client_session() as client:
-            expected_serial = await client.get_device_serial(device_uuid)
+        expected_serial = await load_device_serial(device_uuid)
         if not _compare_serials(expected_serial, body.serial):
             logger.error(
                 "Serial number mismatch observed on device %s, expected: %s, observed: %s.",
@@ -223,3 +235,5 @@ async def validate_serial(device_uuid: str, body: ValidateSerialBody, request: R
         return "OK"
     except DCIMNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DCIMUnavailableError as exc:
+        raise _dcim_unavailable(exc) from exc
