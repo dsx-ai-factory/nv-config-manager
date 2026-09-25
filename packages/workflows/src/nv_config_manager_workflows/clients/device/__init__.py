@@ -16,9 +16,6 @@
 
 from __future__ import annotations
 
-import logging
-
-import urllib3
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData
 
 from nv_config_manager_workflows.clients.device.arista import AristaConnection
@@ -49,11 +46,6 @@ from nv_config_manager_workflows.clients.device.models import (
     is_mac_address,
 )
 from nv_config_manager_workflows.clients.device.settings import DeviceConnectionSettings
-
-logging.getLogger("paramiko").setLevel(logging.WARNING)
-
-# Suppress SSL warnings for network devices which typically use self-signed certificates
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 __all__ = [
     "COMMIT_CONFIRM_ROLLBACK_SECONDS",

@@ -39,12 +39,13 @@ from nv_config_manager_workflows.clients.redfish import RedfishHost as RedfishHo
 from nv_config_manager_workflows.clients.redfish import RedfishNic as RedfishNic
 from nv_config_manager_workflows.clients.redfish import RedfishServer as RedfishServer
 from nv_config_manager_workflows.clients.redfish import RedfishVendor as RedfishVendor
+
+# isort: off
 from nv_config_manager_workflows.clients.redfish import (
-    get_config_manager_connection as _package_get_config_manager_connection,
+    get_config_manager_connection as _get_config_manager_connection,
+    get_default_connection as _get_default_connection,
 )
-from nv_config_manager_workflows.clients.redfish import (
-    get_default_connection as _package_get_default_connection,
-)
+# isort: on
 
 
 def get_bmc_creds() -> dict[str, dict[str, str]]:
@@ -75,13 +76,13 @@ def _connection_settings(
 def get_default_connection(redfish_host: RedfishHost) -> RedfishConnection:
     """Construct a Redfish client using the service's default credentials."""
     settings = _connection_settings(redfish_host, "default")
-    return _package_get_default_connection(redfish_host, **settings)
+    return _get_default_connection(redfish_host, **settings)
 
 
 def get_config_manager_connection(redfish_host: RedfishHost) -> RedfishConnection:
     """Construct a Redfish client using the service's managed credentials."""
     settings = _connection_settings(redfish_host, "config_manager")
-    return _package_get_config_manager_connection(redfish_host, **settings)
+    return _get_config_manager_connection(redfish_host, **settings)
 
 
 __all__ = [
