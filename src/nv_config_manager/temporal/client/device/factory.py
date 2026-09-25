@@ -12,44 +12,56 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Factory for platform-specific network connections."""
+"""Service factory for platform-specific network connections."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import assert_never
+from configparser import ConfigParser
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config.loader import resolve_config
 from nv_config_manager.temporal.client.device.base import NetworkConnection
-from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
+from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
+
+# isort: off
+from nv_config_manager_workflows.clients.device import (
+    AristaConnection as _AristaConnection,
+    CumulusConnection as _CumulusConnection,
+    JuniperConnection as _JuniperConnection,
+    MellanoxConnection as _MellanoxConnection,
+    MockNetworkConnection as _MockNetworkConnection,
+    NVOSConnection as _NVOSConnection,
+    connection_class_for_platform,
+)
+# isort: on
 
 
-def from_device_data(device_data: NetworkDeviceData) -> NetworkConnection:
-    """Return a NetworkConnection for a given device."""
-    # Avoid circular import with device/__init__.py. Resolve classes from the
-    # public package so unittest patches of device.CumulusConnection still apply.
-    from nv_config_manager.temporal.client import device as device_clients
+def from_device_data(
+    device_data: NetworkDeviceData,
+    *,
+    config: ConfigParser | None = None,
+) -> NetworkConnection:
+    """Return a service adapter for an inventoried device."""
+    resolved_config = resolve_config(config)
+    workflow_class = connection_class_for_platform(
+        device_data.platform,
+        mock=resolved_config["device"].getboolean("mock", fallback=False),
+    )
 
-    config = load_config()
-    connection_cls: Callable[..., NetworkConnection]
-    if config["device"].getboolean("mock", fallback=False):
-        connection_cls = device_clients.MockNetworkConnection
-    else:
-        match device_data.platform:
-            case Platform.ARISTA_EOS:
-                connection_cls = device_clients.AristaConnection
-            case Platform.CUMULUS_LINUX:
-                connection_cls = device_clients.CumulusConnection
-            case Platform.NV_OS:
-                connection_cls = device_clients.NVOSConnection
-            case Platform.MLNX_OS:
-                connection_cls = device_clients.MellanoxConnection
-            case Platform.JUNIPER_JUNOS:
-                connection_cls = device_clients.JuniperConnection
-            case Platform.UFM:
-                raise NotImplementedError(
-                    f"No NetworkConnection for platform {device_data.platform}; use UFMClient"
-                )
-            case _ as unreachable:
-                assert_never(unreachable)
-    return connection_cls(device_data.host, site=device_data.site)
+    # Import locally to avoid a cycle through device/__init__.py while this
+    # factory resolves workflow classes to patch-compatible service adapters.
+    from nv_config_manager.temporal.client import device as service_clients
+
+    service_classes: dict[object, type[NetworkConnection]] = {
+        _AristaConnection: service_clients.AristaConnection,
+        _CumulusConnection: service_clients.CumulusConnection,
+        _NVOSConnection: service_clients.NVOSConnection,
+        _JuniperConnection: service_clients.JuniperConnection,
+        _MellanoxConnection: service_clients.MellanoxConnection,
+        _MockNetworkConnection: service_clients.MockNetworkConnection,
+    }
+    connection_class = service_classes[workflow_class]
+    return connection_class(
+        device_data.host,
+        site=device_data.site,
+        config=resolved_config,
+    )

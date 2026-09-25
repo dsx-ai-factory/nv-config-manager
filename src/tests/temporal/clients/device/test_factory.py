@@ -18,13 +18,49 @@ from unittest.mock import patch
 
 import pytest
 
+from nv_config_manager.temporal.client import device as service_device
 from nv_config_manager.temporal.client.device import (
+    AristaConnection,
     CumulusConnection,
     JuniperConnection,
+    MellanoxConnection,
     MockNetworkConnection,
     NetworkConnection,
+    NVOSConnection,
 )
-from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
+from nv_config_manager.temporal.client.device import arista as service_arista
+from nv_config_manager.temporal.client.device import base as service_base
+from nv_config_manager.temporal.client.device import cumulus as service_cumulus
+from nv_config_manager.temporal.client.device import juniper as service_juniper
+from nv_config_manager.temporal.client.device import mellanox as service_mellanox
+from nv_config_manager.temporal.client.device import mock as service_mock
+from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
+from nv_config_manager_workflows.clients import device as workflow_device
+
+_EXPECTED_PUBLIC_EXPORTS = [
+    "COMMIT_CONFIRM_ROLLBACK_SECONDS",
+    "AristaConnection",
+    "ConfigApplyFailureException",
+    "ConfigSyntaxException",
+    "CumulusConnection",
+    "DeviceArpTable",
+    "DeviceMacEntry",
+    "DeviceMacTable",
+    "DeviceNeighborData",
+    "DiffChangedException",
+    "DiffValidationError",
+    "InterfaceNeighborData",
+    "InvalidConfigException",
+    "JuniperConnection",
+    "MellanoxConnection",
+    "MockNetworkConnection",
+    "NVOSConnection",
+    "NetworkConnection",
+    "NetworkDeviceData",
+    "NetworkDeviceException",
+    "format_mac",
+    "is_mac_address",
+]
 
 _CUMULUS_DEVICE = NetworkDeviceData(
     id="c8f7a95e-4b2a-4e8c-9d5f-1a2b3c4d5e6f",
@@ -69,59 +105,149 @@ def _mock_config(*, mock: bool | None = False) -> ConfigParser:
     return config
 
 
-@patch("nv_config_manager.temporal.client.device.factory.load_config")
-@patch("nv_config_manager.temporal.client.device.base.load_config")
-def test_from_device_data_returns_mock_when_config_mock_true(mock_base_load, mock_factory_load):
+def test_service_package_public_exports_match_main() -> None:
+    assert service_device.__all__ == _EXPECTED_PUBLIC_EXPORTS
+
+
+@pytest.mark.parametrize(
+    ("module", "name", "public_class", "workflow_class"),
+    [
+        (service_arista, "AristaConnection", AristaConnection, workflow_device.AristaConnection),
+        (
+            service_cumulus,
+            "CumulusConnection",
+            CumulusConnection,
+            workflow_device.CumulusConnection,
+        ),
+        (service_cumulus, "NVOSConnection", NVOSConnection, workflow_device.NVOSConnection),
+        (
+            service_juniper,
+            "JuniperConnection",
+            JuniperConnection,
+            workflow_device.JuniperConnection,
+        ),
+        (
+            service_mellanox,
+            "MellanoxConnection",
+            MellanoxConnection,
+            workflow_device.MellanoxConnection,
+        ),
+        (
+            service_mock,
+            "MockNetworkConnection",
+            MockNetworkConnection,
+            workflow_device.MockNetworkConnection,
+        ),
+    ],
+)
+def test_connection_adapters_are_exported_through_remaining_submodules(
+    module: object,
+    name: str,
+    public_class: type[NetworkConnection],
+    workflow_class: type[object],
+) -> None:
+    assert getattr(module, name) is public_class
+    assert issubclass(public_class, service_base.NetworkConnection)
+    assert issubclass(public_class, workflow_class)
+
+
+def test_shared_compatibility_exports_are_canonical() -> None:
+    assert service_device.COMMIT_CONFIRM_ROLLBACK_SECONDS == (
+        workflow_device.COMMIT_CONFIRM_ROLLBACK_SECONDS
+    )
+    assert service_device.NetworkDeviceData is workflow_device.NetworkDeviceData
+
+
+def test_base_factory_entry_point_delegates_to_service_factory() -> None:
+    config = _mock_config(mock=False)
+    expected = object()
+    with patch(
+        "nv_config_manager.temporal.client.device.factory.from_device_data",
+        return_value=expected,
+    ) as service_factory:
+        result = NetworkConnection.from_device_data(_CUMULUS_DEVICE, config=config)
+
+    assert result is expected
+    service_factory.assert_called_once_with(_CUMULUS_DEVICE, config=config)
+
+
+def test_from_device_data_returns_mock_when_config_mock_true():
     """Config with [device] mock = true → from_device_data() returns MockNetworkConnection."""
     config = _mock_config(mock=True)
-    mock_factory_load.return_value = config
-    mock_base_load.return_value = config
-    conn = NetworkConnection.from_device_data(_CUMULUS_DEVICE)
+    conn = NetworkConnection.from_device_data(_CUMULUS_DEVICE, config=config)
     assert isinstance(conn, MockNetworkConnection)
 
 
-@patch("nv_config_manager.temporal.client.device.factory.load_config")
-@patch("nv_config_manager.temporal.client.device.base.load_config")
-def test_from_device_data_returns_cumulus_when_mock_false(mock_base_load, mock_factory_load):
+def test_from_device_data_returns_cumulus_when_mock_false():
     """Config with [device] mock = false + cumulus-linux platform → returns CumulusConnection."""
     config = _mock_config(mock=False)
-    mock_factory_load.return_value = config
-    mock_base_load.return_value = config
-    conn = NetworkConnection.from_device_data(_CUMULUS_DEVICE)
+    conn = NetworkConnection.from_device_data(_CUMULUS_DEVICE, config=config)
     assert isinstance(conn, CumulusConnection)
 
 
-@patch("nv_config_manager.temporal.client.device.factory.load_config")
-@patch("nv_config_manager.temporal.client.device.base.load_config")
-def test_from_device_data_returns_juniper_when_mock_false(mock_base_load, mock_factory_load):
+def test_from_device_data_returns_juniper_when_mock_false():
     """Config with mock = false + juniper-junos platform → JuniperConnection on the NETCONF port."""
     config = _mock_config(mock=False)
-    mock_factory_load.return_value = config
-    mock_base_load.return_value = config
-    conn = NetworkConnection.from_device_data(_JUNIPER_DEVICE)
+    conn = NetworkConnection.from_device_data(_JUNIPER_DEVICE, config=config)
     assert isinstance(conn, JuniperConnection)
     assert conn._port == 830
 
 
-@patch("nv_config_manager.temporal.client.device.factory.load_config")
-@patch("nv_config_manager.temporal.client.device.base.load_config")
-def test_from_device_data_selects_platform_when_mock_option_missing(
-    mock_base_load, mock_factory_load
-):
+def test_from_device_data_selects_platform_when_mock_option_missing():
     """A [device] section without mock continues with normal platform selection."""
     config = _mock_config(mock=None)
-    mock_factory_load.return_value = config
-    mock_base_load.return_value = config
-    conn = NetworkConnection.from_device_data(_CUMULUS_DEVICE)
+    conn = NetworkConnection.from_device_data(_CUMULUS_DEVICE, config=config)
     assert isinstance(conn, CumulusConnection)
 
 
-@patch("nv_config_manager.temporal.client.device.factory.load_config")
-@patch("nv_config_manager.temporal.client.device.base.load_config")
-def test_from_device_data_rejects_ufm_platform(mock_base_load, mock_factory_load):
+@pytest.mark.parametrize(
+    ("platform", "expected_class"),
+    [
+        (Platform.ARISTA_EOS, AristaConnection),
+        (Platform.CUMULUS_LINUX, CumulusConnection),
+        (Platform.NV_OS, NVOSConnection),
+        (Platform.MLNX_OS, MellanoxConnection),
+        (Platform.JUNIPER_JUNOS, JuniperConnection),
+    ],
+)
+def test_from_device_data_maps_every_workflow_selection_to_service_adapter(
+    platform: Platform,
+    expected_class: type[NetworkConnection],
+) -> None:
+    device = _CUMULUS_DEVICE.model_copy(update={"platform": platform})
+
+    with patch.object(AristaConnection, "_connect"):
+        connection = NetworkConnection.from_device_data(
+            device,
+            config=_mock_config(mock=False),
+        )
+
+    assert isinstance(connection, expected_class)
+
+
+def test_from_device_data_mock_mode_precedes_ufm_rejection() -> None:
+    connection = NetworkConnection.from_device_data(
+        _UFM_DEVICE,
+        config=_mock_config(mock=True),
+    )
+
+    assert isinstance(connection, MockNetworkConnection)
+
+
+def test_from_device_data_loads_service_config_when_not_injected() -> None:
+    config = _mock_config(mock=False)
+    with patch(
+        "nv_config_manager.common.config.loader.load_config",
+        return_value=config,
+    ) as load_config:
+        connection = NetworkConnection.from_device_data(_CUMULUS_DEVICE)
+
+    assert isinstance(connection, CumulusConnection)
+    load_config.assert_called_once_with()
+
+
+def test_from_device_data_rejects_ufm_platform():
     """UFM is inventoried as a platform but is not a NetworkConnection."""
     config = _mock_config(mock=False)
-    mock_factory_load.return_value = config
-    mock_base_load.return_value = config
     with pytest.raises(NotImplementedError, match="use UFMClient"):
-        NetworkConnection.from_device_data(_UFM_DEVICE)
+        NetworkConnection.from_device_data(_UFM_DEVICE, config=config)

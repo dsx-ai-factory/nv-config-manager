@@ -20,7 +20,6 @@ import responses
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.temporal.client.device import (
-    COMMIT_CONFIRM_ROLLBACK_SECONDS,
     ConfigApplyFailureException,
     InvalidConfigException,
 )
@@ -35,6 +34,7 @@ from nv_config_manager.temporal.ngc.activities.deploy import (
     perform_candidate_diff,
     wait_for_tenant_render,
 )
+from nv_config_manager_workflows.clients.device import COMMIT_CONFIRM_ROLLBACK_SECONDS
 from tests.temporal.ngc.activities.test_device_data import (
     CUMULUS_DHCP_DIFF,
     CUMULUS_DIFF,
@@ -574,7 +574,7 @@ def _get_revision_patch_bodies():
 
 
 @responses.activate
-@patch("nv_config_manager.temporal.client.device.cumulus.time.sleep")
+@patch("nv_config_manager_workflows.clients.device.cumulus.time.sleep")
 def test_apply_approved_configuration_cumulus_commit_confirm_true(mock_sleep):
     """With commit_confirm=True, Cumulus sends PATCH with confirm_yes/state-controls and a second confirm PATCH."""
     rev = "rev-abc"
@@ -615,7 +615,7 @@ def test_apply_approved_configuration_cumulus_commit_confirm_true(mock_sleep):
 
 
 @responses.activate
-@patch("nv_config_manager.temporal.client.device.cumulus.time.sleep")
+@patch("nv_config_manager_workflows.clients.device.cumulus.time.sleep")
 def test_apply_approved_configuration_cumulus_commit_confirm_false(mock_sleep):
     """With commit_confirm=False, Cumulus sends single PATCH without confirm_yes/state-controls, no confirm PATCH."""
     rev = "rev-xyz"

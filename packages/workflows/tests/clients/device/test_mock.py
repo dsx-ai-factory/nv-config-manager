@@ -15,31 +15,40 @@
 
 import json
 
-from nv_config_manager.temporal.client.device import MockNetworkConnection
+from nv_config_manager_workflows.clients.device import (
+    DeviceConnectionSettings,
+    MockNetworkConnection,
+)
+
+_SETTINGS: DeviceConnectionSettings = {
+    "username": "admin",
+    "passwords": ["password"],
+    "mock": True,
+}
 
 _TEST_HOST = "192.0.2.1"
 
 
-def test_mock_run_diagnostic_command_returns_valid_json():
+def test_mock_run_diagnostic_command_returns_valid_json() -> None:
     """run_diagnostic_command returns a valid JSON string with the expected keys."""
-    conn = MockNetworkConnection(_TEST_HOST)
+    conn = MockNetworkConnection(_TEST_HOST, settings=_SETTINGS)
     raw = conn.run_diagnostic_command("show_version")
     parsed = json.loads(raw)
     assert "mock" in parsed
     assert "command" in parsed
 
 
-def test_mock_run_diagnostic_command_includes_command_name():
+def test_mock_run_diagnostic_command_includes_command_name() -> None:
     """The 'command' field in the returned JSON matches the input name."""
-    conn = MockNetworkConnection(_TEST_HOST)
+    conn = MockNetworkConnection(_TEST_HOST, settings=_SETTINGS)
     raw = conn.run_diagnostic_command("show_bgp_summary")
     parsed = json.loads(raw)
     assert parsed["command"] == "show_bgp_summary"
 
 
-def test_mock_get_tech_support_bundle_returns_bytes():
+def test_mock_get_tech_support_bundle_returns_bytes() -> None:
     """get_tech_support_bundle returns (bytes, log_str)."""
-    conn = MockNetworkConnection(_TEST_HOST)
+    conn = MockNetworkConnection(_TEST_HOST, settings=_SETTINGS)
     content, log = conn.get_tech_support_bundle()
     assert isinstance(content, bytes)
     assert content == b"[mock tech-support bundle]"
