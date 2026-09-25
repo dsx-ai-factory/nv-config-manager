@@ -16,35 +16,44 @@
 
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.common.config import load_config
 from nv_config_manager.common.config.client_settings.redfish import (
     RedfishClientSettings,
     RedfishCredentialKind,
     get_bmc_credentials,
     redfish_client_settings,
 )
-from nv_config_manager_workflows.clients.redfish import (
+from nv_config_manager.common.config.loader import load_config
+from nv_config_manager_workflows.clients.redfish.base import (
+    RedfishConnection as RedfishConnection,
+)
+from nv_config_manager_workflows.clients.redfish.bluefield import (
     Bluefield3RedfishConnection as Bluefield3RedfishConnection,
 )
-from nv_config_manager_workflows.clients.redfish import (
+from nv_config_manager_workflows.clients.redfish.dell import (
     DellRedfishConnection as DellRedfishConnection,
 )
-from nv_config_manager_workflows.clients.redfish import (
-    LenovoRedfishConnection as LenovoRedfishConnection,
-)
-from nv_config_manager_workflows.clients.redfish import RedfishConnection as RedfishConnection
-from nv_config_manager_workflows.clients.redfish import RedfishDpu as RedfishDpu
-from nv_config_manager_workflows.clients.redfish import RedfishDpuPort as RedfishDpuPort
-from nv_config_manager_workflows.clients.redfish import RedfishHost as RedfishHost
-from nv_config_manager_workflows.clients.redfish import RedfishNic as RedfishNic
-from nv_config_manager_workflows.clients.redfish import RedfishServer as RedfishServer
-from nv_config_manager_workflows.clients.redfish import RedfishVendor as RedfishVendor
 
 # isort: off
-from nv_config_manager_workflows.clients.redfish import (
+from nv_config_manager_workflows.clients.redfish.factory import (
     get_config_manager_connection as _get_config_manager_connection,
     get_default_connection as _get_default_connection,
 )
+
+# isort: on
+from nv_config_manager_workflows.clients.redfish.lenovo import (
+    LenovoRedfishConnection as LenovoRedfishConnection,
+)
+
+# isort: off
+from nv_config_manager_workflows.clients.redfish.models import (
+    RedfishDpu as RedfishDpu,
+    RedfishDpuPort as RedfishDpuPort,
+    RedfishHost as RedfishHost,
+    RedfishNic as RedfishNic,
+    RedfishServer as RedfishServer,
+    RedfishVendor as RedfishVendor,
+)
+
 # isort: on
 
 

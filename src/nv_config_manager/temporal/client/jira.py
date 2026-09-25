@@ -18,11 +18,15 @@ from __future__ import annotations
 
 from typing import Self
 
-from nv_config_manager.common.config.client_settings import ticketing_client_settings
-from nv_config_manager_workflows.clients.ticketing import JiraClientError, JiraSettings
-from nv_config_manager_workflows.clients.ticketing import (
+from nv_config_manager.common.config.client_settings.ticketing import ticketing_client_settings
+
+# isort: off
+from nv_config_manager_workflows.clients.ticketing.jira import (
+    JiraClientError,
+    JiraSettings,
     JiraTicketingProvider as _JiraTicketingProvider,
 )
+# isort: on
 
 
 class JiraTicketingProvider(_JiraTicketingProvider):

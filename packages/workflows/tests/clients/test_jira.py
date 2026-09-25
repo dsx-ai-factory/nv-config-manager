@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nv_config_manager_workflows.clients.ticketing import (
+from nv_config_manager_workflows.clients.ticketing.jira import (
     JiraClientError,
     JiraTicketingProvider,
 )

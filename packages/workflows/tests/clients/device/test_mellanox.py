@@ -17,11 +17,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nv_config_manager_workflows.clients.device import (
+from nv_config_manager_workflows.clients.device.exceptions import (
     DiffChangedException,
-    MellanoxConnection,
     NetworkDeviceException,
 )
+from nv_config_manager_workflows.clients.device.mellanox import MellanoxConnection
 
 
 def _mellanox_connection(*, port: int = 22) -> MellanoxConnection:

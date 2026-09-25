@@ -14,15 +14,18 @@
 # limitations under the License.
 """Service configuration adapter for reusable ticketing providers."""
 
-from nv_config_manager.common.config.client_settings import ticketing_client_settings
-from nv_config_manager_workflows.clients.ticketing import (
-    TICKETING_PROVIDERS,
+from nv_config_manager.common.config.client_settings.ticketing import ticketing_client_settings
+from nv_config_manager_workflows.clients.ticketing.base import (
     TicketingProvider,
     TicketingSettings,
 )
-from nv_config_manager_workflows.clients.ticketing import (
+
+# isort: off
+from nv_config_manager_workflows.clients.ticketing.registry import (
+    TICKETING_PROVIDERS,
     get_ticketing_provider as _get_ticketing_provider,
 )
+# isort: on
 
 
 def get_ticketing_provider(platform: str) -> TicketingProvider:

@@ -19,6 +19,8 @@ from unittest.mock import patch
 import pytest
 
 from nv_config_manager.temporal.client import device as service_device
+
+# isort: off
 from nv_config_manager.temporal.client.device import (
     AristaConnection,
     CumulusConnection,
@@ -27,15 +29,37 @@ from nv_config_manager.temporal.client.device import (
     MockNetworkConnection,
     NetworkConnection,
     NVOSConnection,
+    arista as service_arista,
+    base as service_base,
+    cumulus as service_cumulus,
+    juniper as service_juniper,
+    mellanox as service_mellanox,
+    mock as service_mock,
 )
-from nv_config_manager.temporal.client.device import arista as service_arista
-from nv_config_manager.temporal.client.device import base as service_base
-from nv_config_manager.temporal.client.device import cumulus as service_cumulus
-from nv_config_manager.temporal.client.device import juniper as service_juniper
-from nv_config_manager.temporal.client.device import mellanox as service_mellanox
-from nv_config_manager.temporal.client.device import mock as service_mock
+# isort: on
+
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
-from nv_config_manager_workflows.clients import device as workflow_device
+from nv_config_manager_workflows.clients.device.arista import (
+    AristaConnection as WorkflowAristaConnection,
+)
+from nv_config_manager_workflows.clients.device.base import COMMIT_CONFIRM_ROLLBACK_SECONDS
+
+# isort: off
+from nv_config_manager_workflows.clients.device.cumulus import (
+    CumulusConnection as WorkflowCumulusConnection,
+    NVOSConnection as WorkflowNVOSConnection,
+)
+# isort: on
+
+from nv_config_manager_workflows.clients.device.juniper import (
+    JuniperConnection as WorkflowJuniperConnection,
+)
+from nv_config_manager_workflows.clients.device.mellanox import (
+    MellanoxConnection as WorkflowMellanoxConnection,
+)
+from nv_config_manager_workflows.clients.device.mock import (
+    MockNetworkConnection as WorkflowMockNetworkConnection,
+)
 
 _EXPECTED_PUBLIC_EXPORTS = [
     "COMMIT_CONFIRM_ROLLBACK_SECONDS",
@@ -112,31 +136,31 @@ def test_service_package_public_exports_match_main() -> None:
 @pytest.mark.parametrize(
     ("module", "name", "public_class", "workflow_class"),
     [
-        (service_arista, "AristaConnection", AristaConnection, workflow_device.AristaConnection),
+        (service_arista, "AristaConnection", AristaConnection, WorkflowAristaConnection),
         (
             service_cumulus,
             "CumulusConnection",
             CumulusConnection,
-            workflow_device.CumulusConnection,
+            WorkflowCumulusConnection,
         ),
-        (service_cumulus, "NVOSConnection", NVOSConnection, workflow_device.NVOSConnection),
+        (service_cumulus, "NVOSConnection", NVOSConnection, WorkflowNVOSConnection),
         (
             service_juniper,
             "JuniperConnection",
             JuniperConnection,
-            workflow_device.JuniperConnection,
+            WorkflowJuniperConnection,
         ),
         (
             service_mellanox,
             "MellanoxConnection",
             MellanoxConnection,
-            workflow_device.MellanoxConnection,
+            WorkflowMellanoxConnection,
         ),
         (
             service_mock,
             "MockNetworkConnection",
             MockNetworkConnection,
-            workflow_device.MockNetworkConnection,
+            WorkflowMockNetworkConnection,
         ),
     ],
 )
@@ -152,10 +176,8 @@ def test_connection_adapters_are_exported_through_remaining_submodules(
 
 
 def test_shared_compatibility_exports_are_canonical() -> None:
-    assert service_device.COMMIT_CONFIRM_ROLLBACK_SECONDS == (
-        workflow_device.COMMIT_CONFIRM_ROLLBACK_SECONDS
-    )
-    assert service_device.NetworkDeviceData is workflow_device.NetworkDeviceData
+    assert service_device.COMMIT_CONFIRM_ROLLBACK_SECONDS == COMMIT_CONFIRM_ROLLBACK_SECONDS
+    assert service_device.NetworkDeviceData is NetworkDeviceData
 
 
 def test_base_factory_entry_point_delegates_to_service_factory() -> None:

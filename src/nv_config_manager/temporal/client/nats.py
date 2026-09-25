@@ -24,16 +24,15 @@ from collections.abc import Awaitable, Callable
 
 from nats.aio.msg import Msg
 
+# isort: off
 from nv_config_manager.common.client import (
     NatsClient as BaseNatsClient,
-)
-from nv_config_manager.common.client import (
     NatsConsumer as BaseNatsConsumer,
-)
-from nv_config_manager.common.client import (
     NatsProducer as BaseNatsProducer,
 )
-from nv_config_manager.common.config.client_settings import (
+# isort: on
+
+from nv_config_manager.common.config.client_settings.nats import (
     nats_client_settings,
     nats_consumer_settings,
 )

@@ -28,7 +28,7 @@ with workflow.unsafe.imports_passed_through():
         TicketingProvider,
         get_ticketing_provider,
     )
-    from nv_config_manager_workflows.clients.ticketing import (
+    from nv_config_manager_workflows.clients.ticketing.jira import (
         JiraTicketingProvider as PackageJiraTicketingProvider,
     )
 

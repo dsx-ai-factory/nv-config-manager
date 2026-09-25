@@ -18,6 +18,7 @@ import ast
 from pathlib import Path
 
 _PACKAGE_ROOT = Path(__file__).parents[1] / "src" / "nv_config_manager_workflows"
+_CLIENT_ROOT = _PACKAGE_ROOT / "clients"
 _JUNIPER_CLIENT_PATH = Path("clients/device/juniper.py")
 _FORBIDDEN_CONFIGURATION_CALLS = {
     "ConfigParser",
@@ -81,6 +82,19 @@ def test_workflows_package_has_no_service_configuration_dependencies() -> None:
                 name = _forbidden_configuration_call(node, relative_path)
                 if name is not None:
                     violations.append(f"{relative_path}:{node.lineno}: {name}")
+
+    assert violations == []
+
+
+def test_client_package_initializers_do_not_import_implementations() -> None:
+    """Client package imports must not eagerly load implementations or SDKs."""
+    violations: list[str] = []
+
+    for path in sorted(_CLIENT_ROOT.rglob("__init__.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                violations.append(f"{path.relative_to(_PACKAGE_ROOT)}:{node.lineno}")
 
     assert violations == []
 

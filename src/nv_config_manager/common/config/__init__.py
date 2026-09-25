@@ -38,10 +38,12 @@ from nv_config_manager.common.client import (  # noqa: F401
     ZTPClient,
     config_manager_api_prefix,
 )
-from nv_config_manager.common.config.client_settings import (
+from nv_config_manager.common.config.client_settings.config_store import (
     config_store_client_settings,
-    nats_client_settings,
-    redis_settings,
+)
+from nv_config_manager.common.config.client_settings.nats import nats_client_settings
+from nv_config_manager.common.config.client_settings.redis import redis_settings
+from nv_config_manager.common.config.client_settings.render import (
     render_client_settings,
 )
 from nv_config_manager.common.config.environment import (  # noqa: F401

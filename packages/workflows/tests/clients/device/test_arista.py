@@ -18,8 +18,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from nv_config_manager_workflows.clients.device import (
-    AristaConnection,
+from nv_config_manager_workflows.clients.device.arista import AristaConnection
+from nv_config_manager_workflows.clients.device.exceptions import (
     ConfigSyntaxException,
     DiffChangedException,
     NetworkDeviceException,

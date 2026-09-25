@@ -19,7 +19,7 @@ import paramiko
 import pytest
 import requests
 
-from nv_config_manager_workflows.clients.device import CumulusConnection
+from nv_config_manager_workflows.clients.device.cumulus import CumulusConnection
 
 _TEST_HOST = "192.0.2.1"
 

@@ -14,17 +14,30 @@
 # limitations under the License.
 """Tests for service-owned client settings adapters."""
 
+import subprocess
+import sys
 from collections.abc import Callable, Iterator
 from configparser import ConfigParser
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from nv_config_manager_clients import ConfigStoreClient as PackageConfigStoreClient
-from nv_config_manager_clients import ConfigStoreType
-from nv_config_manager_clients import RenderClient as PackageRenderClient
-from nv_config_manager_infrastructure.nats import DEFAULT_NATS_API_PREFIX
-from nv_config_manager_infrastructure.nats import NatsClient as PackageNatsClient
+
+# isort: off
+from nv_config_manager_clients import (
+    ConfigStoreClient as PackageConfigStoreClient,
+    ConfigStoreType,
+    RenderClient as PackageRenderClient,
+)
+# isort: on
+
+# isort: off
+from nv_config_manager_infrastructure.nats import (
+    DEFAULT_NATS_API_PREFIX,
+    NatsClient as PackageNatsClient,
+)
+# isort: on
+
 from nv_config_manager_infrastructure.redis import RedisClient as PackageRedisClient
 from temporalio.exceptions import ApplicationError
 
@@ -34,24 +47,30 @@ from nv_config_manager.common.config import (
     redis_client,
     render_client,
 )
-from nv_config_manager.common.config.client_settings import (
-    DeviceConnectionSettings,
+from nv_config_manager.common.config.client_settings.config_store import (
     config_store_client_settings,
+)
+from nv_config_manager.common.config.client_settings.device import (
+    DeviceConnectionSettings,
     device_connection_settings,
+)
+from nv_config_manager.common.config.client_settings.nats import (
     nats_client_settings,
     nats_consumer_settings,
-    redfish_client_settings,
-    redis_settings,
-    render_client_settings,
-    ticketing_client_settings,
-    ufm_client_settings,
 )
+from nv_config_manager.common.config.client_settings.redfish import (
+    redfish_client_settings,
+)
+from nv_config_manager.common.config.client_settings.redis import redis_settings
+from nv_config_manager.common.config.client_settings.render import render_client_settings
+from nv_config_manager.common.config.client_settings.ticketing import ticketing_client_settings
+from nv_config_manager.common.config.client_settings.ufm import ufm_client_settings
 from nv_config_manager.common.config.http import get_internal_auth_headers
 from nv_config_manager.temporal.common.secrets import clear_secrets_cache
 from nv_config_manager_workflows.clients.device.settings import (
     DeviceConnectionSettings as WorkflowDeviceConnectionSettings,
 )
-from nv_config_manager_workflows.clients.redfish import RedfishVendor
+from nv_config_manager_workflows.clients.redfish.models import RedfishVendor
 
 
 def _config(*, internal: bool = False) -> ConfigParser:
@@ -128,6 +147,37 @@ def _config(*, internal: bool = False) -> ConfigParser:
         }
     )
     return config
+
+
+def test_common_config_import_does_not_load_workflow_client_implementations() -> None:
+    """Common configuration must not pull vendor SDKs into unrelated services."""
+    code = """
+import sys
+
+import nv_config_manager.common.config
+
+forbidden_prefixes = (
+    "nv_config_manager_workflows.clients.device",
+    "nv_config_manager_workflows.clients.redfish",
+    "nv_config_manager_workflows.clients.ticketing",
+    "nv_config_manager_workflows.clients.ufm",
+)
+loaded = sorted(
+    module
+    for module in sys.modules
+    if module.startswith(forbidden_prefixes)
+)
+if loaded:
+    raise SystemExit(f"unexpected workflow client imports: {loaded}")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.fixture(autouse=True)
