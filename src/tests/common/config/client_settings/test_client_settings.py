@@ -309,9 +309,7 @@ def test_device_settings_use_site_rotation_passwords(
 ) -> None:
     secrets_path = tmp_path / "config-secrets.ini"
     secrets_path.write_text(
-        "[site.site-a]\n"
-        "api_user_key_r1 = site-old\n"
-        "api_user_key_r3 = site-new\n"
+        "[site.site-a]\napi_user_key_r1 = site-old\napi_user_key_r3 = site-new\n"
     )
     monkeypatch.setenv("NV_CONFIG_MANAGER_CONFIG_SECRET_PATH", str(secrets_path))
     clear_secrets_cache()
