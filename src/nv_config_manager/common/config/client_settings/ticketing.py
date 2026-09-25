@@ -34,7 +34,6 @@ def ticketing_client_settings(
     config: ConfigParser | None = None,
     *,
     platform: str,
-    site: str | None = None,
 ) -> TicketingClientSettings:
     """Translate a supported ticketing section into explicit settings."""
     if platform != "jira":
@@ -42,6 +41,6 @@ def ticketing_client_settings(
 
     resolved = resolve_config(config)
     return {
-        "base_url": get_credential(resolved, platform, "base_url", site),
-        "api_token": get_credential(resolved, platform, "api_token", site),
+        "base_url": get_credential(resolved, platform, "base_url"),
+        "api_token": get_credential(resolved, platform, "api_token"),
     }

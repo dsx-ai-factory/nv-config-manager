@@ -38,10 +38,9 @@ from typing import Any, Self
 
 import aiohttp
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config.client_settings import ticketing_client_settings
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.temporal.client.ticketing import TICKETING_PROVIDERS, TicketingProvider
-from nv_config_manager.temporal.common.secrets import get_credential
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
 logger.setLevel(logging.INFO)
@@ -83,11 +82,7 @@ class JiraTicketingProvider(TicketingProvider):
     @classmethod
     def from_config(cls) -> JiraTicketingProvider:
         """Instantiate from the [jira] section of nv-config-manager.ini."""
-        config = load_config()
-        return cls(
-            base_url=get_credential(config, "jira", "base_url"),
-            api_token=get_credential(config, "jira", "api_token"),
-        )
+        return cls(**ticketing_client_settings(platform="jira"))
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         """Lazily create and return the shared aiohttp session."""

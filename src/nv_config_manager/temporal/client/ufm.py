@@ -16,40 +16,12 @@
 
 from __future__ import annotations
 
-from configparser import ConfigParser
-
 from nv_config_manager.common.config.client_settings.ufm import (
     ufm_client_settings,
 )
-from nv_config_manager.common.config.loader import resolve_config
-from nv_config_manager_workflows.clients.ufm import UFMSSL
 from nv_config_manager_workflows.clients.ufm import UFMAuthError as UFMAuthError
 from nv_config_manager_workflows.clients.ufm import UFMClient as _UFMClient
 from nv_config_manager_workflows.clients.ufm import UFMClientError as UFMClientError
-
-
-def create_ufm_client(
-    host: str,
-    config: ConfigParser | None = None,
-    *,
-    site: str | None = None,
-    max_passwords: int = 2,
-    ssl: UFMSSL = False,
-    timeout_seconds: int = 30,
-) -> _UFMClient:
-    """Construct a reusable UFM client from service-owned configuration."""
-    settings = ufm_client_settings(
-        resolve_config(config),
-        site=site,
-        max_passwords=max_passwords,
-    )
-    return _UFMClient(
-        base_url=f"https://{host}/ufmRest",
-        username=settings["username"],
-        passwords=settings["passwords"],
-        ssl=ssl,
-        timeout_seconds=timeout_seconds,
-    )
 
 
 class UFMClient(_UFMClient):
