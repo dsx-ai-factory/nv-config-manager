@@ -13,3 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Clients used by reusable workflow activities."""
+
+from nv_config_manager_workflows.clients.ticketing import (
+    TICKETING_PROVIDERS,
+    JiraClientError,
+    JiraSettings,
+    JiraTicketingProvider,
+    TicketingProvider,
+    TicketingSettings,
+    get_ticketing_provider,
+)
+
+__all__ = [
+    "JiraClientError",
+    "JiraSettings",
+    "JiraTicketingProvider",
+    "TICKETING_PROVIDERS",
+    "TicketingProvider",
+    "TicketingSettings",
+    "get_ticketing_provider",
+]
