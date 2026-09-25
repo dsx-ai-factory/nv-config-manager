@@ -18,6 +18,15 @@ import ast
 from pathlib import Path
 
 _PACKAGE_ROOT = Path(__file__).parents[1] / "src" / "nv_config_manager_workflows"
+_JUNIPER_CLIENT_PATH = Path("clients/device/juniper.py")
+_FORBIDDEN_CONFIGURATION_CALLS = {
+    "ConfigParser",
+    "getenv",
+    "load_config",
+    "open",
+    "read_bytes",
+    "read_text",
+}
 
 
 def _is_service_module(module: str) -> bool:
@@ -25,17 +34,28 @@ def _is_service_module(module: str) -> bool:
     return module == "nv_config_manager" or module.startswith("nv_config_manager.")
 
 
+def _forbidden_configuration_call(node: ast.Call, relative_path: Path) -> str | None:
+    """Return the forbidden call name, allowing only PyEZ's connection open."""
+    if isinstance(node.func, ast.Name):
+        name = node.func.id
+    elif isinstance(node.func, ast.Attribute):
+        name = node.func.attr
+        if (
+            name == "open"
+            and relative_path == _JUNIPER_CLIENT_PATH
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "device"
+        ):
+            # PyEZ Device.open() establishes a NETCONF connection.
+            return None
+    else:
+        return None
+    return name if name in _FORBIDDEN_CONFIGURATION_CALLS else None
+
+
 def test_workflows_package_has_no_service_configuration_dependencies() -> None:
     """Reusable workflows must not depend on service-owned configuration access."""
     violations: list[str] = []
-    forbidden_secret_calls = {
-        "ConfigParser",
-        "getenv",
-        "load_config",
-        "open",
-        "read_bytes",
-        "read_text",
-    }
 
     for path in sorted(_PACKAGE_ROOT.rglob("*.py")):
         relative_path = path.relative_to(_PACKAGE_ROOT)
@@ -58,13 +78,35 @@ def test_workflows_package_has_no_service_configuration_dependencies() -> None:
                         violations.append(f"{relative_path}:{node.lineno}: {module}")
 
             if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Name):
-                    name = node.func.id
-                elif isinstance(node.func, ast.Attribute):
-                    name = node.func.attr
-                else:
-                    continue
-                if name in forbidden_secret_calls:
+                name = _forbidden_configuration_call(node, relative_path)
+                if name is not None:
                     violations.append(f"{relative_path}:{node.lineno}: {name}")
 
     assert violations == []
+
+
+def test_configuration_boundary_allows_only_pyez_device_open() -> None:
+    """Only the PyEZ connection call may use the otherwise forbidden open name."""
+
+    def parse_call(expression: str) -> ast.Call:
+        node = ast.parse(expression, mode="eval").body
+        assert isinstance(node, ast.Call)
+        return node
+
+    pyez_open = parse_call("device.open()")
+    assert _forbidden_configuration_call(pyez_open, _JUNIPER_CLIENT_PATH) is None
+    assert _forbidden_configuration_call(pyez_open, Path("other.py")) == "open"
+
+    filesystem_opens = (
+        "open(path)",
+        "Path(path).open()",
+        "path.open()",
+        "os.open(path, flags)",
+        "io.open(path)",
+        "codecs.open(path)",
+        "builtins.open(path)",
+        "filesystem.open(path)",
+    )
+    for expression in filesystem_opens:
+        call = parse_call(expression)
+        assert _forbidden_configuration_call(call, _JUNIPER_CLIENT_PATH) == "open", expression

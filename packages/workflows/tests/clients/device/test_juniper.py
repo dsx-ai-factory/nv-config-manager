@@ -13,9 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# mypy: disable-error-code="no-untyped-def"
+
 import json
-from configparser import ConfigParser
+from collections.abc import Generator
 from types import SimpleNamespace
+from typing import Literal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,16 +31,17 @@ from jnpr.junos.exception import (
     ProbeError,
     RpcError,
 )
-from lxml import etree
+from lxml import etree  # type: ignore[import-untyped]  # ty: ignore[unresolved-import]
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.temporal.client.device import (
+from nv_config_manager_workflows.clients.device import (
     ConfigSyntaxException,
+    DeviceConnectionSettings,
     DiffChangedException,
     JuniperConnection,
     NetworkDeviceException,
 )
-from nv_config_manager.temporal.client.device.juniper import _junos_list
+from nv_config_manager_workflows.clients.device.juniper import _junos_list
 
 
 class _FakeConfigCM:
@@ -49,7 +53,7 @@ class _FakeConfigCM:
     def __enter__(self) -> MagicMock:
         return self._cu
 
-    def __exit__(self, *exc: object) -> bool:
+    def __exit__(self, *exc: object) -> Literal[False]:
         return False
 
 
@@ -62,21 +66,21 @@ def _rpc_error_rsp(message: str, severity: str = "error") -> etree._Element:
 
 
 @pytest.fixture
-def juniper_conn():
-    """A JuniperConnection built with load_config patched (no network at init)."""
-    config = ConfigParser()
-    config.add_section("device")
-    config.set("device", "username", "shooks")
-    config.set("device", "password", "pw")
-    with patch("nv_config_manager.temporal.client.device.base.load_config", return_value=config):
-        yield JuniperConnection("192.0.2.10", password="pw")
+def juniper_conn() -> Generator[JuniperConnection]:
+    """A JuniperConnection with explicit settings (no network at init)."""
+    settings: DeviceConnectionSettings = {
+        "username": "shooks",
+        "passwords": ["pw"],
+        "mock": False,
+    }
+    yield JuniperConnection("192.0.2.10", settings=settings)
 
 
 def test_get_device_connects_once_and_caches(juniper_conn):
     """The NETCONF session is opened lazily on first use and reused afterwards."""
     fake_device = MagicMock()
     with patch(
-        "nv_config_manager.temporal.client.device.juniper.Device", return_value=fake_device
+        "nv_config_manager_workflows.clients.device.juniper.Device", return_value=fake_device
     ) as mock_device:
         first = juniper_conn._get_device()
         second = juniper_conn._get_device()
@@ -112,7 +116,7 @@ def test_perform_candidate_diff_uses_config_op_timeout(juniper_conn):
 
     with (
         patch.object(juniper_conn, "_get_device", return_value=device),
-        patch("nv_config_manager.temporal.client.device.juniper.Config", return_value=cu),
+        patch("nv_config_manager_workflows.clients.device.juniper.Config", return_value=cu),
         patch.object(juniper_conn, "_load_full_config"),
     ):
         assert juniper_conn.perform_candidate_diff("system { host-name RTR1; }") == "diff"
@@ -123,7 +127,7 @@ def test_perform_candidate_diff_uses_config_op_timeout(juniper_conn):
 
 def test_connect_rotates_then_raises_on_auth_failure(juniper_conn):
     """Genuine auth failures exhaust password rotation and raise NetworkDeviceException."""
-    with patch("nv_config_manager.temporal.client.device.juniper.Device") as mock_device:
+    with patch("nv_config_manager_workflows.clients.device.juniper.Device") as mock_device:
         mock_device.return_value.open.side_effect = ConnectAuthError(
             dev=SimpleNamespace(hostname="test-router")
         )
@@ -133,7 +137,7 @@ def test_connect_rotates_then_raises_on_auth_failure(juniper_conn):
 
 def test_connect_raises_clear_error_on_probe_failure(juniper_conn):
     """A probe (reachability) failure raises immediately with a NETCONF-specific message."""
-    with patch("nv_config_manager.temporal.client.device.juniper.Device") as mock_device:
+    with patch("nv_config_manager_workflows.clients.device.juniper.Device") as mock_device:
         mock_device.return_value.open.side_effect = ProbeError(
             dev=SimpleNamespace(hostname="test-router")
         )
@@ -385,7 +389,7 @@ def test_perform_candidate_diff_loads_full_config_rolls_back_and_returns_diff(ju
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
     ):
@@ -398,7 +402,7 @@ def test_perform_candidate_diff_loads_full_config_rolls_back_and_returns_diff(ju
 
 def test_perform_candidate_diff_rejects_partial(juniper_conn):
     """Partial diffs are rejected; no config session is opened."""
-    with patch("nv_config_manager.temporal.client.device.juniper.Config") as mock_config:
+    with patch("nv_config_manager_workflows.clients.device.juniper.Config") as mock_config:
         with pytest.raises(NetworkDeviceException, match="Partial configuration is not supported"):
             juniper_conn.perform_candidate_diff("system { host-name RTR1; }", partial=True)
     mock_config.assert_not_called()
@@ -406,7 +410,7 @@ def test_perform_candidate_diff_rejects_partial(juniper_conn):
 
 def test_commit_candidate_config_rejects_partial(juniper_conn):
     """Partial commits are rejected; no config session is opened."""
-    with patch("nv_config_manager.temporal.client.device.juniper.Config") as mock_config:
+    with patch("nv_config_manager_workflows.clients.device.juniper.Config") as mock_config:
         with pytest.raises(NetworkDeviceException, match="Partial configuration is not supported"):
             juniper_conn.commit_candidate_config(
                 "system { host-name RTR1; }", approved_diff="d", partial=True
@@ -421,7 +425,7 @@ def test_perform_candidate_diff_raises_config_syntax_on_load_error(juniper_conn)
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
     ):
@@ -437,7 +441,7 @@ def test_perform_candidate_diff_rolls_back_when_diff_rpc_fails(juniper_conn):
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
         patch.object(juniper_conn, "_load_full_config"),
@@ -454,7 +458,7 @@ def test_commit_candidate_config_raises_when_diff_changed(juniper_conn):
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
     ):
@@ -471,7 +475,7 @@ def test_commit_candidate_config_no_diff_confirms_pending_commit(juniper_conn):
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
     ):
@@ -488,7 +492,7 @@ def test_commit_candidate_config_no_diff_direct_does_not_commit(juniper_conn):
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
     ):
@@ -504,7 +508,7 @@ def test_commit_candidate_config_commit_confirm_then_confirms(juniper_conn):
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
     ):
@@ -522,7 +526,7 @@ def test_commit_candidate_config_direct_commit(juniper_conn):
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
     ):
@@ -539,7 +543,7 @@ def test_commit_candidate_config_raises_on_commit_error(juniper_conn):
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
     ):
@@ -559,7 +563,7 @@ def test_get_rollback_diff_returns_diff(juniper_conn):
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
     ):
@@ -576,7 +580,7 @@ def test_rollback_configuration_commits_when_diff(juniper_conn):
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
     ):
@@ -592,7 +596,7 @@ def test_rollback_configuration_noop_when_no_diff(juniper_conn):
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
     ):
@@ -606,7 +610,7 @@ def test_save_rescue_configuration_calls_rescue_save(juniper_conn):
     """save_rescue_configuration issues a rescue save."""
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
-        patch("nv_config_manager.temporal.client.device.juniper.Config") as mock_config,
+        patch("nv_config_manager_workflows.clients.device.juniper.Config") as mock_config,
     ):
         juniper_conn.save_rescue_configuration()
     mock_config.return_value.rescue.assert_called_once_with(action="save")
@@ -662,7 +666,7 @@ def test_delete_rescue_configuration_calls_rescue_delete(juniper_conn):
     """delete_rescue_configuration issues a rescue delete."""
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
-        patch("nv_config_manager.temporal.client.device.juniper.Config") as mock_config,
+        patch("nv_config_manager_workflows.clients.device.juniper.Config") as mock_config,
     ):
         juniper_conn.delete_rescue_configuration()
     mock_config.return_value.rescue.assert_called_once_with(action="delete")
@@ -676,7 +680,7 @@ def test_rollback_to_rescue_reloads_and_commits(juniper_conn):
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
     ):
@@ -693,7 +697,7 @@ def test_rollback_to_rescue_noop_when_no_diff(juniper_conn):
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
     ):
@@ -709,7 +713,7 @@ def test_rollback_to_rescue_raises_when_rescue_missing(juniper_conn):
     with (
         patch.object(juniper_conn, "_get_device", return_value=MagicMock()),
         patch(
-            "nv_config_manager.temporal.client.device.juniper.Config",
+            "nv_config_manager_workflows.clients.device.juniper.Config",
             return_value=_FakeConfigCM(cu),
         ),
     ):
@@ -926,8 +930,10 @@ def test_get_mac_table_skips_entry_with_invalid_mac(juniper_conn):
 
 def _raise_unsupported_switching_table(*_args: object, **_kwargs: object) -> None:
     """Raise the RpcError Junos actually returns for a backbone router with no bridging."""
-    cause = Exception()
-    cause.message = "the l2-learning subsystem is not running"  # matches jnpr RpcError.message
+    class JunosRpcCause(Exception):
+        message = "the l2-learning subsystem is not running"
+
+    cause = JunosRpcCause()
     raise NetworkDeviceException("RPC get-ethernet-switching-table-information failed") from cause
 
 

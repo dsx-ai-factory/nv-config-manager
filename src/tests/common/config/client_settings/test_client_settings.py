@@ -16,6 +16,7 @@
 
 from collections.abc import Callable, Iterator
 from configparser import ConfigParser
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -34,6 +35,7 @@ from nv_config_manager.common.config import (
     render_client,
 )
 from nv_config_manager.common.config.client_settings import (
+    DeviceConnectionSettings,
     config_store_client_settings,
     device_connection_settings,
     nats_client_settings,
@@ -46,6 +48,9 @@ from nv_config_manager.common.config.client_settings import (
 )
 from nv_config_manager.common.config.http import get_internal_auth_headers
 from nv_config_manager.temporal.common.secrets import clear_secrets_cache
+from nv_config_manager_workflows.clients.device.settings import (
+    DeviceConnectionSettings as WorkflowDeviceConnectionSettings,
+)
 from nv_config_manager_workflows.clients.redfish import RedfishVendor
 
 
@@ -239,6 +244,82 @@ def test_workflow_client_settings_preserve_global_values_and_rotation_order() ->
     assert ticketing_client_settings(config, platform="jira") == {
         "base_url": "https://jira.example.com",
         "api_token": "jira-secret",
+    }
+
+
+def test_device_settings_type_is_owned_by_workflow_package() -> None:
+    assert DeviceConnectionSettings is WorkflowDeviceConnectionSettings
+
+
+def test_device_settings_preserve_legacy_explicit_overrides() -> None:
+    assert device_connection_settings(
+        _config(),
+        username="explicit-user",
+        password="explicit-password",
+        mock=False,
+    ) == {
+        "username": "explicit-user",
+        "passwords": ["explicit-password"],
+        "mock": False,
+    }
+
+
+def test_device_settings_empty_overrides_fall_back_to_configuration() -> None:
+    assert device_connection_settings(_config(), username="", password="") == {
+        "username": "device-user",
+        "passwords": ["device-new", "device-old"],
+        "mock": True,
+    }
+
+
+def test_device_settings_log_credential_source_without_values(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = _config()
+    logger_name = "nv_config_manager.common.config.client_settings.device"
+
+    with caplog.at_level("DEBUG", logger=logger_name):
+        device_connection_settings(config)
+
+    assert "Loaded 2 device rotation password(s)" in caplog.text
+    assert "device-user" not in caplog.text
+    assert "device-new" not in caplog.text
+    assert "device-old" not in caplog.text
+
+    caplog.clear()
+    with caplog.at_level("DEBUG", logger=logger_name):
+        device_connection_settings(config, password="explicit-password")
+
+    assert "Using explicit device password" in caplog.text
+    assert "explicit-password" not in caplog.text
+
+    config.remove_option("device", "api_user_key_r1")
+    config.remove_option("device", "api_user_key_r3")
+    caplog.clear()
+    with caplog.at_level("DEBUG", logger=logger_name):
+        device_connection_settings(config)
+
+    assert "Using fallback device password (no rotation keys found)" in caplog.text
+    assert "device-fallback" not in caplog.text
+
+
+def test_device_settings_use_site_rotation_passwords(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    secrets_path = tmp_path / "config-secrets.ini"
+    secrets_path.write_text(
+        "[site.site-a]\n"
+        "api_user_key_r1 = site-old\n"
+        "api_user_key_r3 = site-new\n"
+    )
+    monkeypatch.setenv("NV_CONFIG_MANAGER_CONFIG_SECRET_PATH", str(secrets_path))
+    clear_secrets_cache()
+
+    assert device_connection_settings(_config(), site="Site A") == {
+        "username": "device-user",
+        "passwords": ["site-new", "site-old"],
+        "mock": True,
     }
 
 

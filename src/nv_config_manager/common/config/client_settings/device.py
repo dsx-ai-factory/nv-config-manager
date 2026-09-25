@@ -17,39 +17,49 @@
 from __future__ import annotations
 
 from configparser import ConfigParser
-from typing import TypedDict
 
 from nv_config_manager.common.config.loader import resolve_config
+from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.temporal.common.secrets import (
     get_credential,
     get_rotation_passwords,
     resolve_config_section,
 )
+from nv_config_manager_workflows.clients.device.settings import DeviceConnectionSettings
 
-
-class DeviceConnectionSettings(TypedDict):
-    """Resolved settings for the network-connection hierarchy."""
-
-    username: str
-    passwords: list[str]
-    mock: bool
+logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
 
 
 def device_connection_settings(
     config: ConfigParser | None = None,
     *,
     site: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
+    mock: bool | None = None,
 ) -> DeviceConnectionSettings:
-    """Resolve global device settings and site-aware authentication values."""
+    """Resolve service configuration and legacy overrides into plain settings.
+
+    Truthy explicit credentials take precedence, matching the legacy service
+    constructors. Site-specific secrets affect passwords only; usernames fall
+    back to the global device section.
+    """
     resolved = resolve_config(config)
-    credential_config, credential_section = resolve_config_section(resolved, "device", site)
-    passwords = get_rotation_passwords(credential_config, credential_section)
-    if not passwords:
-        fallback = get_credential(resolved, "device", "password", site)
-        passwords = [fallback] if fallback else []
+    if password:
+        passwords = [password]
+        logger.debug("Using explicit device password")
+    else:
+        credential_config, credential_section = resolve_config_section(resolved, "device", site)
+        passwords = get_rotation_passwords(credential_config, credential_section)
+        if passwords:
+            logger.debug("Loaded %d device rotation password(s)", len(passwords))
+        else:
+            fallback = get_credential(resolved, "device", "password", site)
+            passwords = [fallback] if fallback else []
+            logger.debug("Using fallback device password (no rotation keys found)")
 
     return {
-        "username": resolved["device"]["username"],
+        "username": username or resolved["device"]["username"],
         "passwords": passwords,
-        "mock": resolved["device"].getboolean("mock", fallback=False),
+        "mock": mock if mock is not None else resolved["device"].getboolean("mock", fallback=False),
     }
