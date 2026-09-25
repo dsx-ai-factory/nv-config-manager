@@ -930,6 +930,7 @@ def test_get_mac_table_skips_entry_with_invalid_mac(juniper_conn):
 
 def _raise_unsupported_switching_table(*_args: object, **_kwargs: object) -> None:
     """Raise the RpcError Junos actually returns for a backbone router with no bridging."""
+
     class JunosRpcCause(Exception):
         message = "the l2-learning subsystem is not running"
 

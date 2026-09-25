@@ -12,30 +12,26 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Service configuration adapter for reusable ticketing providers."""
+"""Configuration-independent ticketing providers."""
 
-from nv_config_manager.common.config.client_settings import ticketing_client_settings
-from nv_config_manager_workflows.clients.ticketing import (
-    TICKETING_PROVIDERS,
+from nv_config_manager_workflows.clients.ticketing.base import (
     TicketingProvider,
     TicketingSettings,
 )
-from nv_config_manager_workflows.clients.ticketing import (
-    get_ticketing_provider as _get_ticketing_provider,
+from nv_config_manager_workflows.clients.ticketing.jira import (
+    JiraClientError,
+    JiraSettings,
+    JiraTicketingProvider,
+)
+from nv_config_manager_workflows.clients.ticketing.registry import (
+    TICKETING_PROVIDERS,
+    get_ticketing_provider,
 )
 
-
-def get_ticketing_provider(platform: str) -> TicketingProvider:
-    """Construct a package-owned provider from service-owned configuration."""
-    if platform not in TICKETING_PROVIDERS:
-        raise ValueError(
-            f"Unknown ticketing platform: {platform!r}. Registered: {list(TICKETING_PROVIDERS)}"
-        )
-    settings = ticketing_client_settings(platform=platform)
-    return _get_ticketing_provider(platform, settings)
-
-
 __all__ = [
+    "JiraClientError",
+    "JiraSettings",
+    "JiraTicketingProvider",
     "TICKETING_PROVIDERS",
     "TicketingProvider",
     "TicketingSettings",

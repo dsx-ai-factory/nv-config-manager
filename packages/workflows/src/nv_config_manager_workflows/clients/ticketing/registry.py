@@ -12,32 +12,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Service configuration adapter for reusable ticketing providers."""
+"""Ticketing provider registration and explicit-settings construction."""
 
-from nv_config_manager.common.config.client_settings import ticketing_client_settings
-from nv_config_manager_workflows.clients.ticketing import (
-    TICKETING_PROVIDERS,
+from nv_config_manager_workflows.clients.ticketing.base import (
     TicketingProvider,
     TicketingSettings,
 )
-from nv_config_manager_workflows.clients.ticketing import (
-    get_ticketing_provider as _get_ticketing_provider,
-)
+
+TICKETING_PROVIDERS: dict[str, type[TicketingProvider]] = {}
 
 
-def get_ticketing_provider(platform: str) -> TicketingProvider:
-    """Construct a package-owned provider from service-owned configuration."""
-    if platform not in TICKETING_PROVIDERS:
+def get_ticketing_provider(
+    platform: str,
+    settings: TicketingSettings,
+) -> TicketingProvider:
+    """Resolve and construct a ticketing provider from explicit settings."""
+    provider_type = TICKETING_PROVIDERS.get(platform)
+    if provider_type is None:
         raise ValueError(
             f"Unknown ticketing platform: {platform!r}. Registered: {list(TICKETING_PROVIDERS)}"
         )
-    settings = ticketing_client_settings(platform=platform)
-    return _get_ticketing_provider(platform, settings)
-
-
-__all__ = [
-    "TICKETING_PROVIDERS",
-    "TicketingProvider",
-    "TicketingSettings",
-    "get_ticketing_provider",
-]
+    return provider_type.from_settings(settings)
