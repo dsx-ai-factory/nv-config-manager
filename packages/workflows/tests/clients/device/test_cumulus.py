@@ -19,13 +19,13 @@ import paramiko
 import pytest
 import requests
 
-from nv_config_manager.temporal.client.device import CumulusConnection
+from nv_config_manager_workflows.clients.device.cumulus import CumulusConnection
 
 _TEST_HOST = "192.0.2.1"
 
 
-@patch("nv_config_manager.temporal.client.device.cumulus.paramiko.SSHClient")
-def test_sftp_download_closes_client_when_connect_fails(mock_ssh_client):
+@patch("nv_config_manager_workflows.clients.device.cumulus.paramiko.SSHClient")
+def test_sftp_download_closes_client_when_connect_fails(mock_ssh_client: MagicMock) -> None:
     """SFTP closes the SSH client when connection setup fails."""
     ssh = mock_ssh_client.return_value
     ssh.connect.side_effect = paramiko.SSHException("connection failed")
@@ -39,7 +39,7 @@ def test_sftp_download_closes_client_when_connect_fails(mock_ssh_client):
     ssh.close.assert_called_once_with()
 
 
-def test_close_closes_nvue_session():
+def test_close_closes_nvue_session() -> None:
     """closing() must release the pooled requests session."""
     conn = CumulusConnection.__new__(CumulusConnection)
     conn._host = _TEST_HOST
@@ -53,7 +53,7 @@ def test_close_closes_nvue_session():
     conn.close()
 
 
-def test_get_diff_raises_when_added_direction_response_fails():
+def test_get_diff_raises_when_added_direction_response_fails() -> None:
     """A failed added-direction GET must not be flattened into nv set lines."""
 
     conn = CumulusConnection.__new__(CumulusConnection)
@@ -64,7 +64,7 @@ def test_get_diff_raises_when_added_direction_response_fails():
     added = MagicMock()
     added.raise_for_status.side_effect = requests.HTTPError("500")
     added.json.return_value = {"interface": {"swp1": {"description": "should-not-apply"}}}
-    conn.get = MagicMock(side_effect=[removed, added])
+    setattr(conn, "get", MagicMock(side_effect=[removed, added]))
 
     with pytest.raises(requests.HTTPError):
         conn._get_diff("rev-1")

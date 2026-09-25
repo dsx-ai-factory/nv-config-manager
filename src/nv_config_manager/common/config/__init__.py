@@ -38,6 +38,14 @@ from nv_config_manager.common.client import (  # noqa: F401
     ZTPClient,
     config_manager_api_prefix,
 )
+from nv_config_manager.common.config.client_settings.config_store import (
+    config_store_client_settings,
+)
+from nv_config_manager.common.config.client_settings.nats import nats_client_settings
+from nv_config_manager.common.config.client_settings.redis import redis_settings
+from nv_config_manager.common.config.client_settings.render import (
+    render_client_settings,
+)
 from nv_config_manager.common.config.environment import (  # noqa: F401
     is_aggregate_environment,
     is_local_environment,
@@ -91,8 +99,7 @@ def config_store_client(
         Configured ConfigStoreClient instance
     """
 
-    config = resolve_config(config)
-    return ConfigStoreClient.from_config(config, file_type=file_type)
+    return ConfigStoreClient(**config_store_client_settings(config, file_type=file_type))
 
 
 def config_store_ui_url(config: ConfigParser | None = None) -> str:
@@ -164,8 +171,7 @@ def redis_client(
         Configured RedisClient instance
     """
 
-    config = resolve_config(config)
-    return RedisClient.from_config(config, db_key=db_key)
+    return RedisClient(**redis_settings(config, db_key=db_key))
 
 
 def nats_client(config: ConfigParser | None = None) -> NatsClient:
@@ -178,8 +184,7 @@ def nats_client(config: ConfigParser | None = None) -> NatsClient:
         Configured NatsClient instance
     """
 
-    config = resolve_config(config)
-    return NatsClient.from_config(config)
+    return NatsClient(**nats_client_settings(config))
 
 
 def render_client(config: ConfigParser | None = None) -> RenderClient:
@@ -192,8 +197,7 @@ def render_client(config: ConfigParser | None = None) -> RenderClient:
         Configured RenderClient instance
     """
 
-    config = resolve_config(config)
-    return RenderClient.from_config(config)
+    return RenderClient(**render_client_settings(config))
 
 
 def temporal_client(config: ConfigParser | None = None) -> TemporalClient:

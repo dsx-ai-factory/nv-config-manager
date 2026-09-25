@@ -74,7 +74,7 @@ def reset_secrets_cache():
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.ufm.load_config")
+@patch("nv_config_manager.common.config.loader.load_config")
 async def test_get_ib_ports_success_healthy_ports(mock_config):
     """Test get_ib_ports with healthy ports."""
     mock_config.return_value = _create_config(
@@ -106,7 +106,7 @@ async def test_get_ib_ports_success_healthy_ports(mock_config):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.ufm.load_config")
+@patch("nv_config_manager.common.config.loader.load_config")
 async def test_get_ib_ports_success_unhealthy_ports(mock_config):
     """Test get_ib_ports with unhealthy ports."""
     mock_config.return_value = _create_config(
@@ -138,7 +138,7 @@ async def test_get_ib_ports_success_unhealthy_ports(mock_config):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.ufm.load_config")
+@patch("nv_config_manager.common.config.loader.load_config")
 async def test_get_ib_ports_failure(mock_config):
     """Test get_ib_ports with failed API call."""
     mock_config.return_value = _create_config(
@@ -162,7 +162,7 @@ async def test_get_ib_ports_failure(mock_config):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.ufm.load_config")
+@patch("nv_config_manager.common.config.loader.load_config")
 async def test_get_ib_ports_http_error(mock_config):
     """Test get_ib_ports with HTTP error."""
     mock_config.return_value = _create_config(
@@ -187,7 +187,7 @@ async def test_get_ib_ports_http_error(mock_config):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.ufm.load_config")
+@patch("nv_config_manager.common.config.loader.load_config")
 async def test_get_ib_ports_auth_failure_all_passwords(mock_config):
     """Test get_ib_ports raises UFMAuthError when all passwords fail."""
     mock_config.return_value = _create_config(
@@ -211,7 +211,7 @@ async def test_get_ib_ports_auth_failure_all_passwords(mock_config):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.ufm.load_config")
+@patch("nv_config_manager.common.config.loader.load_config")
 async def test_get_ib_ports_password_rotation_success(mock_config):
     """Test get_ib_ports succeeds on second password after first fails."""
     mock_config.return_value = _create_config(
@@ -248,7 +248,7 @@ async def test_get_ib_ports_password_rotation_success(mock_config):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.ufm.load_config")
+@patch("nv_config_manager.common.config.loader.load_config")
 async def test_get_ib_ports_fallback_to_global_credentials(mock_config):
     """Test get_ib_ports falls back to global [ufm] when site section missing."""
     mock_config.return_value = _create_config(

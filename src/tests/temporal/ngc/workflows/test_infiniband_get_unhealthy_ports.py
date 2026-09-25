@@ -106,7 +106,7 @@ async def test_execute_workflow_healthy_ports(env):
     """Test workflow execution with healthy ports."""
     task_queue_name = str(uuid.uuid4())
 
-    with patch("nv_config_manager.temporal.client.ufm.load_config") as mock_config:
+    with patch("nv_config_manager.common.config.loader.load_config") as mock_config:
         mock_config.return_value = _create_config(
             {"ufm": {"ufm_api_user": "user", "ufm_api_token_r1": "pass"}}
         )
@@ -145,7 +145,7 @@ async def test_execute_workflow_unhealthy_ports(env):
     """Test workflow execution with unhealthy ports."""
     task_queue_name = str(uuid.uuid4())
 
-    with patch("nv_config_manager.temporal.client.ufm.load_config") as mock_config:
+    with patch("nv_config_manager.common.config.loader.load_config") as mock_config:
         mock_config.return_value = _create_config(
             {"ufm": {"ufm_api_user": "user", "ufm_api_token_r1": "pass"}}
         )
