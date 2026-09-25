@@ -27,7 +27,6 @@ from nv_config_manager_workflows.clients.ticketing.base import (
     TicketingProvider,
     TicketingSettings,
 )
-from nv_config_manager_workflows.clients.ticketing.registry import TICKETING_PROVIDERS
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
 logger.setLevel(logging.INFO)
@@ -153,6 +152,3 @@ class JiraTicketingProvider(TicketingProvider):
         comment_id = str(data["id"])
         logger.debug("Added comment %s to %s", comment_id, issue_key)
         return comment_id
-
-
-TICKETING_PROVIDERS["jira"] = JiraTicketingProvider

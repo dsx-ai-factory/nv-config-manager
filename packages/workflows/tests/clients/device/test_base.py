@@ -21,10 +21,8 @@ from unittest.mock import Mock, patch
 import pytest
 from nv_config_manager_logging import LogCategory
 
-from nv_config_manager_workflows.clients.device import (
-    NetworkConnection,
-    NetworkDeviceException,
-)
+from nv_config_manager_workflows.clients.device.base import NetworkConnection
+from nv_config_manager_workflows.clients.device.exceptions import NetworkDeviceException
 
 
 def _connection(*, passwords: list[str] | None = None) -> NetworkConnection:

@@ -34,14 +34,13 @@ from jnpr.junos.exception import (
 from lxml import etree  # type: ignore[import-untyped]  # ty: ignore[unresolved-import]
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager_workflows.clients.device import (
+from nv_config_manager_workflows.clients.device.exceptions import (
     ConfigSyntaxException,
-    DeviceConnectionSettings,
     DiffChangedException,
-    JuniperConnection,
     NetworkDeviceException,
 )
-from nv_config_manager_workflows.clients.device.juniper import _junos_list
+from nv_config_manager_workflows.clients.device.juniper import JuniperConnection, _junos_list
+from nv_config_manager_workflows.clients.device.settings import DeviceConnectionSettings
 
 
 class _FakeConfigCM:

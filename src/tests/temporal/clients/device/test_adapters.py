@@ -29,7 +29,7 @@ from nv_config_manager.temporal.client.device import (
     NetworkConnection,
     NVOSConnection,
 )
-from nv_config_manager_workflows.clients.device import DeviceConnectionSettings
+from nv_config_manager_workflows.clients.device.settings import DeviceConnectionSettings
 
 _SETTINGS: DeviceConnectionSettings = {
     "username": "user",

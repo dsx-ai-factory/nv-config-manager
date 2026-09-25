@@ -21,22 +21,19 @@ import pytest
 import requests
 from nv_config_manager_dcim.workflow_models import Platform
 
-from nv_config_manager_workflows.clients import device as device_clients
-from nv_config_manager_workflows.clients.device import (
-    AristaConnection,
-    CumulusConnection,
-    DeviceConnectionSettings,
-    JuniperConnection,
-    MellanoxConnection,
-    MockNetworkConnection,
-    NetworkDeviceException,
-    NVOSConnection,
-)
-from nv_config_manager_workflows.clients.device import factory as device_factory
+import nv_config_manager_workflows.clients.device as device_clients
+import nv_config_manager_workflows.clients.device.factory as device_factory
+from nv_config_manager_workflows.clients.device.arista import AristaConnection
+from nv_config_manager_workflows.clients.device.cumulus import CumulusConnection, NVOSConnection
+from nv_config_manager_workflows.clients.device.exceptions import NetworkDeviceException
 from nv_config_manager_workflows.clients.device.factory import (
     DeviceConnectionClass,
     connection_class_for_platform,
 )
+from nv_config_manager_workflows.clients.device.juniper import JuniperConnection
+from nv_config_manager_workflows.clients.device.mellanox import MellanoxConnection
+from nv_config_manager_workflows.clients.device.mock import MockNetworkConnection
+from nv_config_manager_workflows.clients.device.settings import DeviceConnectionSettings
 
 
 @pytest.mark.parametrize(
@@ -84,8 +81,9 @@ def test_ufm_remains_unsupported() -> None:
         connection_class_for_platform(Platform.UFM, mock=False)
 
 
-def test_package_exposes_selection_but_not_construction_factory() -> None:
-    assert device_clients.connection_class_for_platform is connection_class_for_platform
+def test_package_initializer_does_not_reexport_implementations() -> None:
+    assert not hasattr(device_clients, "connection_class_for_platform")
+    assert not hasattr(device_clients, "AristaConnection")
     assert not hasattr(device_clients, "from_device_data")
     assert not hasattr(device_factory, "from_device_data")
 

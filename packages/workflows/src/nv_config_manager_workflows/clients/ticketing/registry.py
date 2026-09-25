@@ -18,8 +18,11 @@ from nv_config_manager_workflows.clients.ticketing.base import (
     TicketingProvider,
     TicketingSettings,
 )
+from nv_config_manager_workflows.clients.ticketing.jira import JiraTicketingProvider
 
-TICKETING_PROVIDERS: dict[str, type[TicketingProvider]] = {}
+TICKETING_PROVIDERS: dict[str, type[TicketingProvider]] = {
+    "jira": JiraTicketingProvider,
+}
 
 
 def get_ticketing_provider(

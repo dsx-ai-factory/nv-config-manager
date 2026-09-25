@@ -18,10 +18,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nv_config_manager_workflows.clients.ticketing import (
+from nv_config_manager_workflows.clients.ticketing.base import TicketingProvider
+from nv_config_manager_workflows.clients.ticketing.jira import JiraTicketingProvider
+from nv_config_manager_workflows.clients.ticketing.registry import (
     TICKETING_PROVIDERS,
-    JiraTicketingProvider,
-    TicketingProvider,
     get_ticketing_provider,
 )
 

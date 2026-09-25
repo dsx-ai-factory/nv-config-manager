@@ -19,17 +19,19 @@ from collections.abc import Callable
 import pytest
 from pydantic import ValidationError
 
-from nv_config_manager_workflows.clients.redfish import (
-    Bluefield3RedfishConnection,
-    DellRedfishConnection,
-    LenovoRedfishConnection,
-    RedfishConnection,
+from nv_config_manager_workflows.clients.redfish.base import RedfishConnection
+from nv_config_manager_workflows.clients.redfish.bluefield import Bluefield3RedfishConnection
+from nv_config_manager_workflows.clients.redfish.dell import DellRedfishConnection
+from nv_config_manager_workflows.clients.redfish.factory import (
+    get_config_manager_connection,
+    get_default_connection,
+)
+from nv_config_manager_workflows.clients.redfish.lenovo import LenovoRedfishConnection
+from nv_config_manager_workflows.clients.redfish.models import (
     RedfishDpu,
     RedfishHost,
     RedfishServer,
     RedfishVendor,
-    get_config_manager_connection,
-    get_default_connection,
 )
 
 

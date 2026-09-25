@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nv_config_manager_workflows.clients.device import ConfigSyntaxException
+from nv_config_manager_workflows.clients.device.exceptions import ConfigSyntaxException
 
 
 def test_format_nvue_config_syntax_error() -> None:

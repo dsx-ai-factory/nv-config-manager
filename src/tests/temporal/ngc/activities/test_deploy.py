@@ -34,7 +34,7 @@ from nv_config_manager.temporal.ngc.activities.deploy import (
     perform_candidate_diff,
     wait_for_tenant_render,
 )
-from nv_config_manager_workflows.clients.device import COMMIT_CONFIRM_ROLLBACK_SECONDS
+from nv_config_manager_workflows.clients.device.base import COMMIT_CONFIRM_ROLLBACK_SECONDS
 from tests.temporal.ngc.activities.test_device_data import (
     CUMULUS_DHCP_DIFF,
     CUMULUS_DIFF,

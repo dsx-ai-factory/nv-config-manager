@@ -12,28 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Configuration-independent ticketing providers."""
+"""Configuration-independent ticketing providers.
 
-from nv_config_manager_workflows.clients.ticketing.base import (
-    TicketingProvider,
-    TicketingSettings,
-)
-from nv_config_manager_workflows.clients.ticketing.jira import (
-    JiraClientError,
-    JiraSettings,
-    JiraTicketingProvider,
-)
-from nv_config_manager_workflows.clients.ticketing.registry import (
-    TICKETING_PROVIDERS,
-    get_ticketing_provider,
-)
-
-__all__ = [
-    "JiraClientError",
-    "JiraSettings",
-    "JiraTicketingProvider",
-    "TICKETING_PROVIDERS",
-    "TicketingProvider",
-    "TicketingSettings",
-    "get_ticketing_provider",
-]
+Import provider contracts, implementations, and registry functions from their
+concrete modules so importing this package has no registration side effects.
+"""

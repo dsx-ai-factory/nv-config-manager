@@ -21,18 +21,29 @@ from configparser import ConfigParser
 from nv_config_manager.common.config.loader import resolve_config
 from nv_config_manager.temporal.client.device.base import NetworkConnection
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
+from nv_config_manager_workflows.clients.device.arista import (
+    AristaConnection as _AristaConnection,
+)
 
 # isort: off
-from nv_config_manager_workflows.clients.device import (
-    AristaConnection as _AristaConnection,
+from nv_config_manager_workflows.clients.device.cumulus import (
     CumulusConnection as _CumulusConnection,
-    JuniperConnection as _JuniperConnection,
-    MellanoxConnection as _MellanoxConnection,
-    MockNetworkConnection as _MockNetworkConnection,
     NVOSConnection as _NVOSConnection,
-    connection_class_for_platform,
 )
 # isort: on
+
+from nv_config_manager_workflows.clients.device.factory import (
+    connection_class_for_platform,
+)
+from nv_config_manager_workflows.clients.device.juniper import (
+    JuniperConnection as _JuniperConnection,
+)
+from nv_config_manager_workflows.clients.device.mellanox import (
+    MellanoxConnection as _MellanoxConnection,
+)
+from nv_config_manager_workflows.clients.device.mock import (
+    MockNetworkConnection as _MockNetworkConnection,
+)
 
 
 def from_device_data(

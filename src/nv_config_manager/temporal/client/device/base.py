@@ -19,11 +19,11 @@ from __future__ import annotations
 from configparser import ConfigParser
 from typing import ClassVar
 
-from nv_config_manager.common.config.client_settings import device_connection_settings
+from nv_config_manager.common.config.client_settings.device import device_connection_settings
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
 
 # isort: off
-from nv_config_manager_workflows.clients.device import (
+from nv_config_manager_workflows.clients.device.base import (
     COMMIT_CONFIRM_ROLLBACK_SECONDS as COMMIT_CONFIRM_ROLLBACK_SECONDS,
     NetworkConnection as _NetworkConnection,
 )

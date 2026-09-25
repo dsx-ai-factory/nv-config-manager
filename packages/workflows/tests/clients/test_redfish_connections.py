@@ -24,13 +24,10 @@ import responses
 from responses import matchers
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager_workflows.clients.redfish import (
-    Bluefield3RedfishConnection,
-    DellRedfishConnection,
-    LenovoRedfishConnection,
-    RedfishHost,
-    RedfishVendor,
-)
+from nv_config_manager_workflows.clients.redfish.bluefield import Bluefield3RedfishConnection
+from nv_config_manager_workflows.clients.redfish.dell import DellRedfishConnection
+from nv_config_manager_workflows.clients.redfish.lenovo import LenovoRedfishConnection
+from nv_config_manager_workflows.clients.redfish.models import RedfishHost, RedfishVendor
 
 type VendorConnection = (
     LenovoRedfishConnection | Bluefield3RedfishConnection | DellRedfishConnection

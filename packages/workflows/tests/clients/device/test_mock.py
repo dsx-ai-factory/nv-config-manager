@@ -15,10 +15,8 @@
 
 import json
 
-from nv_config_manager_workflows.clients.device import (
-    DeviceConnectionSettings,
-    MockNetworkConnection,
-)
+from nv_config_manager_workflows.clients.device.mock import MockNetworkConnection
+from nv_config_manager_workflows.clients.device.settings import DeviceConnectionSettings
 
 _SETTINGS: DeviceConnectionSettings = {
     "username": "admin",
