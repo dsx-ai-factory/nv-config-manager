@@ -103,7 +103,7 @@ from fastapi.responses import JSONResponse
 from jwt.types import Options as JWTDecodeOptions
 from pydantic import BaseModel
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
 
 logger = get_logger(__name__, category=LogCategory.AUTH)
