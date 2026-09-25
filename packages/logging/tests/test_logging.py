@@ -115,6 +115,11 @@ def test_call_fields_take_precedence_over_custom_labels(
     logging_config.configure_logging()
 
     logger = get_logger("test.shared.logging.custom-labels", category=LogCategory.NATS)
+    # Other repository suites may configure the shared ``test.*`` hierarchy.
+    # Make this test depend only on the root handler configured above.
+    logger.logger.disabled = False
+    logger.logger.propagate = True
+    logger.logger.setLevel(logging.INFO)
     logger.info("connected", extra={"server": "call.example.test"})
 
     emitted = json.loads(capsys.readouterr().err)
