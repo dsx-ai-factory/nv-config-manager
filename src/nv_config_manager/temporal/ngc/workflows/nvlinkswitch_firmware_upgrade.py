@@ -36,13 +36,18 @@ from nv_config_manager.temporal.common.workflow_references import DeviceReferenc
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager.temporal.ngc.workflows.backup import (
+        BackupInput,
+        BackupWorkflow,
+        TriggerEnum,
+    )
+    from nv_config_manager_workflows.activities.dcim import (
         CheckRecordedConfigDriftInput,
         GetNetworkDeviceInput,
         check_recorded_config_drift,
         get_network_device,
     )
-    from nv_config_manager.temporal.ngc.activities.nvlinkswitch_firmware import (
+    from nv_config_manager_workflows.activities.nvlinkswitch_firmware import (
         CompareRunningDesiredInput,
         GetRunningFirmwareInput,
         # ValidateTargetFilesInput,
@@ -56,7 +61,7 @@ with workflow.unsafe.imports_passed_through():
         update_device_context,
         validate_render_targets,
     )
-    from nv_config_manager.temporal.ngc.activities.os import (
+    from nv_config_manager_workflows.activities.os import (
         ExecuteZTPInput,
         GetCurrentOSInput,
         PollZTPStatusInput,
@@ -65,11 +70,6 @@ with workflow.unsafe.imports_passed_through():
         get_current_os,
         poll_ztp_status,
         wait_reboot,
-    )
-    from nv_config_manager.temporal.ngc.workflows.backup import (
-        BackupInput,
-        BackupWorkflow,
-        TriggerEnum,
     )
 
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(

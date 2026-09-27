@@ -15,13 +15,17 @@
 """Hello World Activities."""
 
 from nv_config_manager.temporal.hello_world.activities.hello_world import (
+    HELLO_WORLD_ACTIVITIES,
     hello_world_activity,
     hello_world_prompt_activity,
     hello_world_reject_activity,
 )
 
-REGISTERED_ACTIVITIES = [
-    hello_world_activity,
-    hello_world_prompt_activity,
-    hello_world_reject_activity,
+REGISTERED_ACTIVITIES = list(HELLO_WORLD_ACTIVITIES)
+
+__all__ = [
+    "REGISTERED_ACTIVITIES",
+    "hello_world_activity",
+    "hello_world_prompt_activity",
+    "hello_world_reject_activity",
 ]

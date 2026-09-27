@@ -48,11 +48,11 @@ from nv_config_manager.temporal.common.workflow_references import LocationRefere
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin, NetworkDeviceData
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDevicesInput,
         get_network_devices,
     )
-    from nv_config_manager.temporal.ngc.activities.hardware_validation import (
+    from nv_config_manager_workflows.activities.hardware_validation import (
         CreateConsolidatedExcelInput,
         HardwareValidationInput,
         HardwareValidationOutput,

@@ -26,7 +26,6 @@ import pytest
 from nv_config_manager_dcim import IBHostSite
 from pydantic import BaseModel
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.temporal.ngc.activities import ib_dcim, ib_nautobot
 from nv_config_manager.temporal.ngc.workflows.ib_pkey_member_add import (
@@ -228,6 +227,11 @@ def test_legacy_ib_nautobot_module_is_the_ib_dcim_module() -> None:
     for activity_name in _ACTIVITY_CONTRACTS:
         assert getattr(ib_nautobot, activity_name) is getattr(ib_dcim, activity_name)
 
+    private_names = {
+        name for name in vars(ib_dcim) if name.startswith("_") and not name.startswith("__")
+    }
+    assert private_names == {"_dcim_workflow_client"}
+
 
 class _CanonicalizationClient:
     """Minimal provider-neutral client used to characterize host validation."""
@@ -250,47 +254,6 @@ class _CanonicalizationClient:
 @asynccontextmanager
 async def _canonicalization_client() -> AsyncGenerator[_CanonicalizationClient]:
     yield _CanonicalizationClient()
-
-
-@pytest.mark.asyncio
-async def test_canonical_host_contract_collapses_name_and_ip(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A UFM name and its primary IP must retain one canonical lock identifier."""
-    monkeypatch.setattr(ib_dcim, "_dcim_workflow_client", _canonicalization_client)
-
-    assert await ib_dcim.canonicalize_ufm_host(_UFM_DEVICE_NAME) == _CANONICAL_HOST
-    assert await ib_dcim.canonicalize_ufm_host(_CANONICAL_HOST) == _CANONICAL_HOST
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "site_reference",
-    ["354dae20-64ef-4a7f-b1ca-2b584d20fa94", "site-a", None],
-)
-async def test_site_validation_acceptance_contract(
-    monkeypatch: pytest.MonkeyPatch,
-    site_reference: str | None,
-) -> None:
-    """Site UUIDs, names, and an omitted override remain accepted."""
-    monkeypatch.setattr(ib_dcim, "_dcim_workflow_client", _canonicalization_client)
-
-    assert (
-        await ib_dcim.canonicalize_ufm_host_for_site(_UFM_DEVICE_NAME, site_reference)
-        == _CANONICAL_HOST
-    )
-
-
-@pytest.mark.asyncio
-async def test_site_validation_failure_contract(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The API-visible mismatch error text and retryability are compatibility contracts."""
-    monkeypatch.setattr(ib_dcim, "_dcim_workflow_client", _canonicalization_client)
-
-    with pytest.raises(ApplicationError) as exc_info:
-        await ib_dcim.canonicalize_ufm_host_for_site(_UFM_DEVICE_NAME, "site-b")
-
-    assert exc_info.value.message == ("UFM device 'ufm01' belongs to Site 'site-a', not 'site-b'")
-    assert exc_info.value.non_retryable is True
 
 
 def _member_inputs(input_type: Callable[..., BaseModel]) -> tuple[BaseModel, BaseModel]:

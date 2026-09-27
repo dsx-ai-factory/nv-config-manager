@@ -51,23 +51,24 @@ from nv_config_manager.temporal.common.workflow_references import OptionalLocati
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin, NetworkDeviceData
-    from nv_config_manager.temporal.ngc.activities.config import build_workflow_url, get_ui_base_url
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager.temporal.ngc.workflows.backup import (
+        BackupInput,
+        BackupWorkflow,
+        TriggerEnum,
+    )
+    from nv_config_manager_workflows.activities.config import get_ui_base_url
+    from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDevicesInput,
         get_network_devices,
     )
-    from nv_config_manager.temporal.ngc.activities.deploy import (
+    from nv_config_manager_workflows.activities.deploy import (
         ConfigApplyActivityInput,
         DiffActivityInput,
         apply_approved_configuration,
         load_intended_configuration,
         perform_candidate_diff,
     )
-    from nv_config_manager.temporal.ngc.workflows.backup import (
-        BackupInput,
-        BackupWorkflow,
-        TriggerEnum,
-    )
+    from nv_config_manager_workflows.workflow_urls import build_workflow_url
 
 
 CLONE_SEARCH_ATTRS = [

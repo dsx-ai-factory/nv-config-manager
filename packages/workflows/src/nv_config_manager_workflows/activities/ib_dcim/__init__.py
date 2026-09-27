@@ -58,8 +58,8 @@ from nv_config_manager_workflows.activities.ib_dcim.normalization import (
 )
 from nv_config_manager_workflows.activities.ib_dcim.resolution import (
     SITE_LOCATION_TYPE_NAME,  # noqa: F401 - compatibility re-export
-    _index_resolved_interfaces,
-    _normalize_ib_guid,
+    index_resolved_interfaces,
+    normalize_ib_guid,
 )
 
 log = logging.getLogger(__name__)
@@ -203,7 +203,7 @@ async def resolve_guids_to_interfaces(
             display="No GUIDs to resolve",
         )
 
-    deduped = sorted({_normalize_ib_guid(g) for g in input.guids if _normalize_ib_guid(g)})
+    deduped = sorted({normalize_ib_guid(g) for g in input.guids if normalize_ib_guid(g)})
     if not deduped:
         raise ApplicationError("All provided GUIDs were empty", non_retryable=True)
 
@@ -216,7 +216,7 @@ async def resolve_guids_to_interfaces(
                 non_retryable=True,
             )
         for guid, membership in zip(input.guids, input.guid_memberships, strict=True):
-            key = _normalize_ib_guid(guid)
+            key = normalize_ib_guid(guid)
             if key:
                 membership_by_guid[key] = membership
 
@@ -232,7 +232,7 @@ async def resolve_guids_to_interfaces(
         }
         for record in records
     ]
-    by_guid = _index_resolved_interfaces(interfaces, input.default_membership, membership_by_guid)
+    by_guid = index_resolved_interfaces(interfaces, input.default_membership, membership_by_guid)
 
     missing = [g for g in deduped if g not in by_guid]
     if missing:

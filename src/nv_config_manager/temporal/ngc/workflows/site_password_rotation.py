@@ -50,19 +50,19 @@ with workflow.unsafe.imports_passed_through():
         NetworkDeviceData,
         Platform,
     )
-    from nv_config_manager.temporal.ngc.activities.config import get_ui_base_url
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager.temporal.ngc.workflows.device_password_rotation import (
+        DevicePasswordRotationInput,
+        DevicePasswordRotationWorkflow,
+    )
+    from nv_config_manager_workflows.activities.config import get_ui_base_url
+    from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDevicesInput,
         GetNetworkDevicesOutput,
         get_network_devices,
     )
-    from nv_config_manager.temporal.ngc.activities.device_password_rotation import (
+    from nv_config_manager_workflows.activities.device_password_rotation import (
         FormatPasswordRotationResultsInput,
         format_password_rotation_results,
-    )
-    from nv_config_manager.temporal.ngc.workflows.device_password_rotation import (
-        DevicePasswordRotationInput,
-        DevicePasswordRotationWorkflow,
     )
 
 # Default configurations

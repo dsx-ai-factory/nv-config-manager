@@ -29,26 +29,26 @@ from temporalio.worker import Worker
 
 from nv_config_manager.temporal.client.device import ConfigSyntaxException
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
-from nv_config_manager.temporal.ngc.activities.backup import (
-    PersistConfigBackupInput,
-    RecordBackupConfigManagerPluginInput,
-)
-from nv_config_manager.temporal.ngc.activities.deploy import DiffActivityInput
 from nv_config_manager.temporal.ngc.activities.nats import PublishNatsInput
 from nv_config_manager.temporal.ngc.activities.nautobot import (
     GetNetworkDeviceInput,
     GetNetworkDeviceOutput,
 )
-from nv_config_manager.temporal.ngc.activities.os import (
-    ExecuteZTPInput,
-    ExecuteZTPOutput,
-    PollZTPStatusInput,
-    PollZTPStatusOutput,
-)
 from nv_config_manager.temporal.ngc.workflows.backup import BackupWorkflow
 from nv_config_manager.temporal.ngc.workflows.reprovision import (
     ReprovisionInput,
     ReprovisionWorkflow,
+)
+from nv_config_manager_workflows.activities.backup import (
+    PersistConfigBackupInput,
+    RecordBackupConfigManagerPluginInput,
+)
+from nv_config_manager_workflows.activities.deploy import DiffActivityInput
+from nv_config_manager_workflows.activities.os import (
+    ExecuteZTPInput,
+    ExecuteZTPOutput,
+    PollZTPStatusInput,
+    PollZTPStatusOutput,
 )
 
 # Test-specific retry policy and timeout

@@ -25,25 +25,20 @@ from temporalio.worker import Worker
 
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
-from nv_config_manager.temporal.common.activities import REGISTERED_COMMON_ACTIVITIES
 from nv_config_manager.temporal.converter import get_data_converter
-from nv_config_manager.temporal.hello_world.activities import (
-    REGISTERED_ACTIVITIES as HELLO_WORLD_REGISTERED_ACTIVITIES,
-)
 from nv_config_manager.temporal.hello_world.workflows import (
     LOCAL_TEST_WORKFLOWS as HELLO_WORLD_LOCAL_TEST_WORKFLOWS,
 )
 from nv_config_manager.temporal.hello_world.workflows import (
     REGISTERED_WORKFLOWS as HELLO_WORLD_REGISTERED_WORKFLOWS,
 )
-from nv_config_manager.temporal.ngc.activities import (
-    REGISTERED_ACTIVITIES as NGC_REGISTERED_ACTIVITIES,
-)
 from nv_config_manager.temporal.ngc.workflows import (
     REGISTERED_WORKFLOWS as NGC_REGISTERED_WORKFLOWS,
 )
 from nv_config_manager.temporal.runtime import configure_workflow_runtime
 from nv_config_manager.temporal.telemetry import setup_telemetry
+from nv_config_manager_workflows.registration.registry import WorkflowRegistry
+from nv_config_manager_workflows.registration.validation import validate_workflow_catalog
 
 configure_logging(service="temporal-worker")
 
@@ -66,13 +61,17 @@ async def main() -> None:
         runtime=runtime,
     )
 
-    # Every core workflow is relevant to every supported DCIM provider.
-    all_activities = [
-        *NGC_REGISTERED_ACTIVITIES,
-        *HELLO_WORLD_REGISTERED_ACTIVITIES,
-        *REGISTERED_COMMON_ACTIVITIES,
-    ]
-    workflows: list[type[Any]] = [*NGC_REGISTERED_WORKFLOWS, *HELLO_WORLD_REGISTERED_WORKFLOWS]
+    registry = WorkflowRegistry.build()
+    workflows: list[type[Any]] = list(
+        dict.fromkeys(
+            [
+                *NGC_REGISTERED_WORKFLOWS,
+                *HELLO_WORLD_REGISTERED_WORKFLOWS,
+                *registry.all_workflows,
+            ]
+        )
+    )
+    validate_workflow_catalog(workflows, activities=registry.all_activities)
     if _enabled_env_flag("NVCM_ENABLE_LOCAL_TEST_WORKFLOWS"):
         workflows.extend(HELLO_WORLD_LOCAL_TEST_WORKFLOWS)
 
@@ -83,7 +82,7 @@ async def main() -> None:
         client,
         task_queue="default-task-queue",
         workflows=workflows,
-        activities=all_activities,  # type: ignore[arg-type]
+        activities=registry.all_activities,  # type: ignore[arg-type]
         activity_executor=ThreadPoolExecutor(100),
     )
 

@@ -21,7 +21,7 @@ from nv_config_manager_workflows.activities.ib_dcim.normalization import (
     DEFAULT_MEMBERSHIP_TYPE,
     _normalize_membership_override,
 )
-from nv_config_manager_workflows.stage import StageOutput
+from nv_config_manager_workflows.stage.models import StageOutput
 
 
 class CreatePartitionInDCIMInput(BaseModel):

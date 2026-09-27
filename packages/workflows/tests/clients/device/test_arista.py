@@ -14,11 +14,12 @@
 # limitations under the License.
 
 from typing import cast
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 
 from nv_config_manager_workflows.clients.device.arista import AristaConnection
+from nv_config_manager_workflows.clients.device.base import COMMIT_CONFIRM_ROLLBACK_SECONDS
 from nv_config_manager_workflows.clients.device.exceptions import (
     ConfigSyntaxException,
     DiffChangedException,
@@ -57,6 +58,40 @@ def test_commit_wraps_other_failures_as_network_device_exception() -> None:
 
     with pytest.raises(NetworkDeviceException, match="Failed to commit session sess-1"):
         conn.commit_candidate_config("config", "new-diff", commit_confirm=False)
+
+
+@pytest.mark.parametrize("commit_confirm", [True, False])
+def test_commit_confirm_controls_arista_commit_timer(commit_confirm: bool) -> None:
+    conn = _arista_connection()
+    setattr(conn, "_diff_eq", MagicMock(return_value=True))
+    conn._node = MagicMock()
+
+    conn.commit_candidate_config(
+        "configuration",
+        "new-diff",
+        commit_confirm=commit_confirm,
+    )
+
+    if commit_confirm:
+        minutes, seconds = divmod(COMMIT_CONFIRM_ROLLBACK_SECONDS, 60)
+        hours, minutes = divmod(minutes, 60)
+        conn._node.run_commands.assert_called_once_with(
+            [
+                "configure session sess-1",
+                f"commit timer {hours:02d}:{minutes:02d}:{seconds:02d}",
+                "commit",
+            ]
+        )
+        assert conn._node.enable.call_args_list == [
+            call("configure session sess-1 commit"),
+            call("copy running-config startup-config"),
+        ]
+    else:
+        conn._node.run_commands.assert_not_called()
+        assert conn._node.enable.call_args_list == [
+            call("configure session sess-1 commit"),
+            call("copy running-config startup-config"),
+        ]
 
 
 def test_commit_preserves_diff_changed_when_abort_fails() -> None:
@@ -151,3 +186,69 @@ def test_load_candidate_includes_rollback_on_full_load() -> None:
     assert commands[0].startswith("configure session ")
     assert commands[1] == "rollback clean-config"
     assert commands[2:] == ["hostname leaf1", "end"]
+
+
+def test_get_arp_table_parses_eapi_neighbors_and_multiple_interfaces() -> None:
+    conn = _arista_connection()
+    conn._node = MagicMock()
+    conn._node.enable.return_value = [
+        {
+            "result": {
+                "ipV4Neighbors": [
+                    {
+                        "address": "192.0.2.10",
+                        "hwAddress": "00:11:22:33:44:55",
+                        "interface": "Vlan100, Ethernet1",
+                    }
+                ]
+            }
+        }
+    ]
+
+    table = conn.get_arp_table()
+
+    assert table.ip_to_mac == {"192.0.2.10": ["00-11-22-33-44-55"]}
+    assert table.interface_to_mac == {
+        "Vlan100": ["00-11-22-33-44-55"],
+        "Ethernet1": ["00-11-22-33-44-55"],
+    }
+
+
+def test_get_interface_connections_combines_eapi_lldp_and_link_state() -> None:
+    conn = _arista_connection()
+    conn._node = MagicMock()
+    conn._node.enable.side_effect = [
+        [
+            {
+                "result": {
+                    "lldpNeighbors": {
+                        "Ethernet1": {
+                            "lldpNeighborInfo": [
+                                {
+                                    "systemName": "spine-1",
+                                    "neighborInterfaceInfo": {"interfaceId": "Ethernet51"},
+                                }
+                            ]
+                        },
+                        "Ethernet2": {"lldpNeighborInfo": []},
+                    }
+                }
+            }
+        ],
+        [
+            {
+                "result": {
+                    "interfaceStatuses": {
+                        "Ethernet1": {"linkStatus": "connected"},
+                        "Ethernet2": {"linkStatus": "disabled"},
+                    }
+                }
+            }
+        ],
+    ]
+
+    output = conn.get_interface_connections()
+
+    assert output.neighbors["Ethernet1"].device_name == "spine-1"
+    assert output.neighbors["Ethernet1"].name == "Ethernet51"
+    assert output.link_states == {"Ethernet1": True, "Ethernet2": False}

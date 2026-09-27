@@ -13,7 +13,50 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nv_config_manager_workflows.clients.device.exceptions import ConfigSyntaxException
+import json
+
+import pytest
+
+from nv_config_manager_workflows.clients.device.exceptions import (
+    ConfigApplyFailureException,
+    ConfigSyntaxException,
+)
+
+
+@pytest.mark.parametrize(
+    "transition",
+    [{}, {"state": "ignore_fail"}, {"issue": {}}, {"other": 1}],
+)
+def test_format_nvue_apply_error_without_issues_includes_raw_transition(
+    transition: dict[str, object],
+) -> None:
+    result = ConfigApplyFailureException.format_nvue_apply_error(transition)
+
+    assert "Configuration apply failed" in result
+    assert json.dumps(transition) in result
+
+
+def test_format_nvue_apply_error_formats_issues_and_defaults() -> None:
+    transition = {
+        "progress": "Failure during apply. Ignore?",
+        "issue": {
+            "00000": {
+                "code": "systemctl",
+                "message": "Unable to reload-or-restart services (frr)",
+                "severity": "error",
+            }
+        },
+    }
+
+    result = ConfigApplyFailureException.format_nvue_apply_error(transition)
+    defaulted = ConfigApplyFailureException.format_nvue_apply_error(
+        {"issue": {"00000": {"message": "Only message"}}}
+    )
+
+    assert "Failure during apply. Ignore?" in result
+    assert "[ERROR] systemctl: Unable to reload-or-restart services (frr)" in result
+    assert "Configuration apply failed" in defaulted
+    assert "[UNKNOWN] unknown: Only message" in defaulted
 
 
 def test_format_nvue_config_syntax_error() -> None:

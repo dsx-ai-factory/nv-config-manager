@@ -37,6 +37,7 @@ from nv_config_manager_workflows.registration.validation import (
     REQUIRED_WORKFLOW_BASES,
     validate_plugins,
     validate_workflow_bases,
+    validate_workflow_catalog,
 )
 from nv_config_manager_workflows.stage import StageMixin
 
@@ -316,6 +317,18 @@ class TestAcceptedPlugins:
     def test_two_plugins_may_re_export_one_shared_workflow(self) -> None:
         """A plugin built on another's catalog contributes the same objects."""
         validate_plugins(installed(alpha_plugin(), alpha_plugin("downstream-plugin")))
+
+
+class TestRuntimeWorkflowCatalog:
+    def test_rejects_a_plugin_temporal_type_that_conflicts_with_a_core_workflow(self) -> None:
+        with pytest.raises(
+            WorkflowConflictError,
+            match='Duplicate Temporal workflow type "AlphaWorkflow"',
+        ):
+            validate_workflow_catalog(
+                (AlphaWorkflow, AlphaTypeTwinWorkflow),
+                activities=(collect_facts,),
+            )
 
 
 class TestTemporalDefinitionRequired:

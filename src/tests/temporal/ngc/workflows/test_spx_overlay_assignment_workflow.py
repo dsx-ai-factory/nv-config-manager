@@ -31,10 +31,6 @@ from temporalio.worker import Worker
 
 from nv_config_manager.temporal.common.mixins.device import InterfaceData, NetworkDeviceData
 from nv_config_manager.temporal.common.mixins.stage import StateEnum
-from nv_config_manager.temporal.ngc.activities.deploy import (
-    WaitForTenantRenderInput,
-    WaitForTenantRenderOutput,
-)
 from nv_config_manager.temporal.ngc.activities.nats import publish_nats
 from nv_config_manager.temporal.ngc.activities.nautobot import (
     AssignVrfToDeviceInput,
@@ -54,16 +50,20 @@ from nv_config_manager.temporal.ngc.activities.nautobot import (
     RemoveUnmappedDeviceVrfsOutput,
     Vrf,
 )
-from nv_config_manager.temporal.ngc.activities.render import (
-    ExecuteRenderInput,
-    ExecuteRenderOutput,
-)
 from nv_config_manager.temporal.ngc.workflows.deploy import TenantDeployInput
 from nv_config_manager.temporal.ngc.workflows.spx_overlay import (
     SpXOverlayAssignmentInput,
     SpXOverlayAssignmentWorkflow,
     SpXOverlayTenantChangeInput,
     SpXOverlayTenantChangeWorkflow,
+)
+from nv_config_manager_workflows.activities.deploy import (
+    WaitForTenantRenderInput,
+    WaitForTenantRenderOutput,
+)
+from nv_config_manager_workflows.activities.render import (
+    ExecuteRenderInput,
+    ExecuteRenderOutput,
 )
 
 

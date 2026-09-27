@@ -29,14 +29,14 @@ from nv_config_manager.temporal.common.mixins.stage import (
     StateEnum,
     stage_executor,
 )
-from nv_config_manager.temporal.hello_world.activities.hello_world import (
+from nv_config_manager_workflows.activities.hello_world import (
     hello_world_activity,
     hello_world_prompt_activity,
     hello_world_reject_activity,
 )
 
 with workflow.unsafe.imports_passed_through():
-    from nv_config_manager.temporal.ngc.activities.slack import (
+    from nv_config_manager_workflows.activities.slack import (
         SlackMessageInput,
         send_slack_message,
     )

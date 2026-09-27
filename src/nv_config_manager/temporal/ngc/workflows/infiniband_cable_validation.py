@@ -36,15 +36,15 @@ from nv_config_manager.temporal.common.workflow_references import (
 )
 
 with workflow.unsafe.imports_passed_through():
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
         get_network_device,
     )
-    from nv_config_manager.temporal.ngc.activities.device import (
+    from nv_config_manager_workflows.activities.device import (
         NetworkDeviceData,
         get_device_intended_neighbors,
     )
-    from nv_config_manager.temporal.ngc.activities.ufm import (
+    from nv_config_manager_workflows.activities.ufm import (
         GetUFMPortsInput,
         get_ib_ports,
     )

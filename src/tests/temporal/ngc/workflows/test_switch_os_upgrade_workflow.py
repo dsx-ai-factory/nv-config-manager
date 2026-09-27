@@ -27,18 +27,24 @@ from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
-from nv_config_manager.temporal.ngc.activities.backup import (
-    PersistConfigBackupInput,
-    RecordBackupConfigManagerPluginInput,
-)
-from nv_config_manager.temporal.ngc.activities.deploy import DiffActivityInput
 from nv_config_manager.temporal.ngc.activities.nats import PublishNatsInput
 from nv_config_manager.temporal.ngc.activities.nautobot import (
     CheckRecordedConfigDriftInput,
     GetNetworkDeviceInput,
     GetNetworkDeviceOutput,
 )
-from nv_config_manager.temporal.ngc.activities.os import (
+from nv_config_manager.temporal.ngc.workflows.backup import BackupWorkflow
+from nv_config_manager.temporal.ngc.workflows.os_upgrade import (
+    SUPPORTED_PLATFORMS,
+    SwitchOSUpgradeInput,
+    SwitchOSUpgradeWorkflow,
+)
+from nv_config_manager_workflows.activities.backup import (
+    PersistConfigBackupInput,
+    RecordBackupConfigManagerPluginInput,
+)
+from nv_config_manager_workflows.activities.deploy import DiffActivityInput
+from nv_config_manager_workflows.activities.os import (
     ExecuteZTPInput,
     GetOSImageVersionsInput,
     GetOSImageVersionsOutput,
@@ -48,13 +54,7 @@ from nv_config_manager.temporal.ngc.activities.os import (
     PollZTPStatusOutput,
     UpdateIntendedOSImageInput,
 )
-from nv_config_manager.temporal.ngc.activities.render import ValidateRenderedImageChangeInput
-from nv_config_manager.temporal.ngc.workflows.backup import BackupWorkflow
-from nv_config_manager.temporal.ngc.workflows.os_upgrade import (
-    SUPPORTED_PLATFORMS,
-    SwitchOSUpgradeInput,
-    SwitchOSUpgradeWorkflow,
-)
+from nv_config_manager_workflows.activities.render import ValidateRenderedImageChangeInput
 
 # Test-specific retry policy and timeout
 TEST_RETRY_POLICY = RetryPolicy(maximum_attempts=1)

@@ -43,17 +43,17 @@ from nv_config_manager.temporal.common.search_attributes import (
     FAILED_STAGE_SEARCH_ATTRIBUTE,
     PENDING_APPROVAL_SEARCH_ATTRIBUTE,
 )
-from nv_config_manager.temporal.hello_world.activities.hello_world import (
-    hello_world_activity,
-    hello_world_prompt_activity,
-    hello_world_reject_activity,
-)
 from nv_config_manager.temporal.hello_world.workflows.hello_world_workflow import (
     HelloWorld,
     HelloWorldApproval,
     HelloWorldInput,
 )
-from nv_config_manager.temporal.ngc.activities.slack import SlackMessageInput, SlackMessageOutput
+from nv_config_manager_workflows.activities.hello_world import (
+    hello_world_activity,
+    hello_world_prompt_activity,
+    hello_world_reject_activity,
+)
+from nv_config_manager_workflows.activities.slack import SlackMessageInput, SlackMessageOutput
 
 
 def test_stage_mixin_reads_terminate_on_failure_from_workflow_input() -> None:

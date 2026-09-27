@@ -37,7 +37,7 @@ query ($guids: [String]) {
 """
 
 
-def _normalize_ib_guid(guid: str) -> str:
+def normalize_ib_guid(guid: str) -> str:
     """Normalize an IB GUID for matching: trim, drop an optional ``0x`` prefix, lowercase.
 
     UFM and the DCIM store port GUIDs as bare hex (e.g. ``946dae0300598000``),
@@ -50,7 +50,7 @@ def _normalize_ib_guid(guid: str) -> str:
     return normalized
 
 
-def _index_resolved_interfaces(
+def index_resolved_interfaces(
     interfaces: list[dict[str, Any]],
     default_membership: str,
     membership_by_guid: dict[str, str] | None = None,
@@ -66,7 +66,7 @@ def _index_resolved_interfaces(
     grouped: dict[str, list[ResolvedInterface]] = {}
     for iface in interfaces:
         original_guid = iface.get("cf_ib_guid") or ""
-        guid_key = _normalize_ib_guid(original_guid)
+        guid_key = normalize_ib_guid(original_guid)
         if not guid_key:
             continue
         device = (iface.get("device") or {}).get("name") or ""

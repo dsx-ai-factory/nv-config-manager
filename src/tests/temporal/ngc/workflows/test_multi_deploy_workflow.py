@@ -28,17 +28,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
-from nv_config_manager.temporal.ngc.activities.backup import (
-    load_running_configuration,
-    persist_config_backup,
-    record_backup_config_manager_plugin,
-)
 from nv_config_manager.temporal.ngc.activities.config import get_ui_base_url
-from nv_config_manager.temporal.ngc.activities.deploy import (
-    apply_approved_configuration,
-    load_intended_configuration,
-    perform_candidate_diff,
-)
 from nv_config_manager.temporal.ngc.activities.nautobot import (
     GetNetworkDeviceInput,
     GetNetworkDeviceOutput,
@@ -54,6 +44,16 @@ from nv_config_manager.temporal.ngc.workflows.multi_deploy import (
     MultiDeployInput,
     MultiDeployWorkflow,
     _format_batch_status,
+)
+from nv_config_manager_workflows.activities.backup import (
+    load_running_configuration,
+    persist_config_backup,
+    record_backup_config_manager_plugin,
+)
+from nv_config_manager_workflows.activities.deploy import (
+    apply_approved_configuration,
+    load_intended_configuration,
+    perform_candidate_diff,
 )
 
 

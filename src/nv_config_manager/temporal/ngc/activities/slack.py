@@ -12,54 +12,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Slack activities."""
+"""Deprecated service import path for the reusable Slack activity."""
 
-from pydantic import BaseModel
-from slack_sdk import WebClient
-from temporalio import activity
+# isort: off
+from nv_config_manager_workflows.activities.slack import (
+    SLACK_ACTIVITIES as SLACK_ACTIVITIES,
+    SlackMessageInput as SlackMessageInput,
+    SlackMessageOutput as SlackMessageOutput,
+    send_slack_message as send_slack_message,
+)
+# isort: on
 
-from nv_config_manager.common.log import LogCategory, get_logger
-from nv_config_manager_workflows.runtime import get_slack_runtime, get_ui_base_url
-
-logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
-
-
-class SlackMessageInput(BaseModel):
-    """Slack message input."""
-
-    message: str
-    thread_ts: str | None = None
-    link_workflow: bool = False
-
-
-class SlackMessageOutput(BaseModel):
-    """Slack message output."""
-
-    thread_ts: str | None = None
-
-
-@activity.defn
-async def send_slack_message(input: SlackMessageInput) -> SlackMessageOutput:
-    """Send a message to Slack. No-op when Slack is not configured."""
-    runtime = get_slack_runtime()
-    if runtime is None:
-        logger.info("Slack is not configured; skipping notification.")
-        return SlackMessageOutput()
-
-    bot_token = runtime.token.strip()
-    channel_name = runtime.channel.strip()
-    if not bot_token or not channel_name:
-        logger.info("Slack is not configured; skipping notification.")
-        return SlackMessageOutput()
-
-    client = WebClient(token=bot_token)
-    channel = f"#{channel_name}"
-
-    message = input.message
-    if input.link_workflow:
-        ui_url = get_ui_base_url().rstrip("/")
-        workflow_id = activity.info().workflow_id
-        message += f"\nView workflow: {ui_url}/workflows/{workflow_id}"
-
-    result = client.chat_postMessage(channel=channel, text=message, thread_ts=input.thread_ts)
-    return SlackMessageOutput(thread_ts=result["ts"])
+__all__ = [
+    "SLACK_ACTIVITIES",
+    "SlackMessageInput",
+    "SlackMessageOutput",
+    "send_slack_message",
+]

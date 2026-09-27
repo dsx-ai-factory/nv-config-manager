@@ -37,11 +37,11 @@ from nv_config_manager.temporal.common.workflow_references import DeviceReferenc
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin, NetworkDeviceData
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
         get_network_device,
     )
-    from nv_config_manager.temporal.ngc.activities.diagnostics import (
+    from nv_config_manager_workflows.activities.diagnostics import (
         RunDiagnosticsInput,
         RunDiagnosticsOutput,
         TechSupportInput,
@@ -50,7 +50,7 @@ with workflow.unsafe.imports_passed_through():
         get_available_commands,
         run_diagnostic_commands,
     )
-    from nv_config_manager.temporal.ngc.activities.ticketing import (
+    from nv_config_manager_workflows.activities.ticketing import (
         AddCommentInput,
         UploadAttachmentInput,
         UploadTechSupportFromRedisInput,

@@ -89,3 +89,20 @@ async def release_workflow_lock(input: ReleaseWorkflowLockInput) -> None:
     """Release the lock. Best effort: an already-lost lock is not an error."""
     if await get_lock_backend().release(input.key, input.token):
         log.info("Released workflow lock %s", input.key)
+
+
+LOCK_ACTIVITIES = (
+    acquire_workflow_lock,
+    renew_workflow_lock,
+    release_workflow_lock,
+)
+
+__all__ = [
+    "LOCK_ACTIVITIES",
+    "AcquireWorkflowLockInput",
+    "ReleaseWorkflowLockInput",
+    "RenewWorkflowLockInput",
+    "acquire_workflow_lock",
+    "release_workflow_lock",
+    "renew_workflow_lock",
+]

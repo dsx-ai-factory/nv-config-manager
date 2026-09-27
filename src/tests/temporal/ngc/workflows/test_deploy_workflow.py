@@ -28,15 +28,6 @@ from temporalio.worker import Worker
 from nv_config_manager.temporal.client.device import ConfigApplyFailureException
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
 from nv_config_manager.temporal.converter import get_data_converter
-from nv_config_manager.temporal.ngc.activities.backup import (
-    load_running_configuration,
-)
-from nv_config_manager.temporal.ngc.activities.deploy import (
-    LoadPartialConfigurationActivityInput,
-    apply_approved_configuration,
-    perform_candidate_diff,
-    validate_config_diff,
-)
 from nv_config_manager.temporal.ngc.activities.nats import publish_nats
 from nv_config_manager.temporal.ngc.activities.nautobot import (
     GetNetworkDeviceInput,
@@ -50,6 +41,15 @@ from nv_config_manager.temporal.ngc.workflows.deploy import (
     DeployWorkflow,
     TenantDeployInput,
     TenantDeployWorkflow,
+)
+from nv_config_manager_workflows.activities.backup import (
+    load_running_configuration,
+)
+from nv_config_manager_workflows.activities.deploy import (
+    LoadPartialConfigurationActivityInput,
+    apply_approved_configuration,
+    perform_candidate_diff,
+    validate_config_diff,
 )
 from tests.temporal.conftest import mock_send_slack_message
 
@@ -724,9 +724,6 @@ async def test_execute_workflow(
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
-@patch("nv_config_manager.temporal.ngc.activities.backup.config_store_client")
-@patch("nv_config_manager.temporal.ngc.activities.deploy.config_store_client")
-@patch("nv_config_manager.temporal.ngc.activities.backup.create_dcim_client")
 @patch(
     "nv_config_manager.temporal.runtime.NatsProducer.from_config",
     autospec=True,
@@ -736,9 +733,6 @@ async def test_execute_workflow(
 async def test_execute_workflow_no_diff(
     _: Any,
     mock_nats_client: Any,
-    _mock_nb_client: Any,
-    _mock_gitlab_client_deploy: Any,
-    _mock_gitlab_client_backup: Any,
     mock_cumulus_connection: Any,
     env: Any,
 ) -> None:
@@ -894,9 +888,6 @@ async def test_execute_workflow_no_diff(
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
-@patch("nv_config_manager.temporal.ngc.activities.backup.config_store_client")
-@patch("nv_config_manager.temporal.ngc.activities.deploy.config_store_client")
-@patch("nv_config_manager.temporal.ngc.activities.backup.create_dcim_client")
 @patch(
     "nv_config_manager.temporal.runtime.NatsProducer.from_config",
     autospec=True,
@@ -906,9 +897,6 @@ async def test_execute_workflow_no_diff(
 async def test_execute_workflow_rejected_diff(
     _: Any,
     mock_nats_client: Any,
-    _mock_nb_client: Any,
-    _mock_gitlab_client_deploy: Any,
-    _mock_gitlab_client_backup: Any,
     mock_cumulus_connection: Any,
     env: Any,
 ) -> None:
