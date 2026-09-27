@@ -20,10 +20,16 @@ from nv_config_manager_workflows.mixins.archive import (
 )
 from nv_config_manager_workflows.mixins.base import BaseMixin
 from nv_config_manager_workflows.mixins.device import DeviceMixin
+from nv_config_manager_workflows.mixins.ib_pkey import (
+    UFMHostLockMixin,
+    UFMHostSiteValidationMixin,
+)
 
 __all__ = [
     "ArchiveMixin",
     "BaseMixin",
     "DeviceMixin",
+    "UFMHostLockMixin",
+    "UFMHostSiteValidationMixin",
     "WorkflowResultLog",
 ]

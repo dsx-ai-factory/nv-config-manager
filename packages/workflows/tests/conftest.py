@@ -15,11 +15,12 @@
 """Shared fixtures for the independently runnable workflows package."""
 
 from collections.abc import Generator
-from typing import Any
+from typing import Any, cast
 from unittest.mock import Mock, patch
 
 import pytest
 from aiohttp import ClientResponse
+from nv_config_manager_dcim.api import DCIMClient
 
 from nv_config_manager_workflows import runtime as runtime_module
 from nv_config_manager_workflows.runtime import NatsRuntime, configure_runtime
@@ -82,6 +83,7 @@ def configured_workflow_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runtime_module, "_slack_provider", runtime_module._UNSET)
     monkeypatch.setattr(runtime_module, "_ui_base_url_provider", runtime_module._UNSET)
     monkeypatch.setattr(runtime_module, "_lock_backend_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_dcim_client_provider", runtime_module._UNSET)
 
     nats = NatsRuntime(
         publisher=_TestNatsPublisher(),
@@ -89,11 +91,13 @@ def configured_workflow_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
         subject="test.workflow.result",
     )
     lock = _TestLockBackend()
+    dcim_client = cast(DCIMClient, object())
     configure_runtime(
         nats_provider=lambda: nats,
         slack_provider=None,
         ui_base_url_provider=lambda: "https://workflow-ui.test",
         lock_backend_provider=lambda: lock,
+        dcim_client_provider=lambda: dcim_client,
     )
 
 
@@ -107,3 +111,4 @@ def unconfigured_workflow_runtime(
     monkeypatch.setattr(runtime_module, "_slack_provider", runtime_module._UNSET)
     monkeypatch.setattr(runtime_module, "_ui_base_url_provider", runtime_module._UNSET)
     monkeypatch.setattr(runtime_module, "_lock_backend_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_dcim_client_provider", runtime_module._UNSET)

@@ -14,6 +14,7 @@
 # limitations under the License.
 """The built-in plugin: this package's own contribution to the registry."""
 
+from nv_config_manager_workflows.activities.ib_dcim import IB_DCIM_ACTIVITIES
 from nv_config_manager_workflows.registration.descriptor import WorkflowPluginDescriptor
 
 BUILTIN_PLUGIN_NAME = "builtin"
@@ -24,6 +25,6 @@ def builtin_plugin() -> WorkflowPluginDescriptor:
     return WorkflowPluginDescriptor(
         name=BUILTIN_PLUGIN_NAME,
         workflows=(),
-        activities=(),
+        activities=IB_DCIM_ACTIVITIES,
         schedulers=(),
     )

@@ -210,6 +210,7 @@ def mock_ini_config(mocker: MockerFixture) -> Generator[None]:
     mocker.patch.object(workflow_runtime, "_slack_provider", workflow_runtime._UNSET)
     mocker.patch.object(workflow_runtime, "_ui_base_url_provider", workflow_runtime._UNSET)
     mocker.patch.object(workflow_runtime, "_lock_backend_provider", workflow_runtime._UNSET)
+    mocker.patch.object(workflow_runtime, "_dcim_client_provider", workflow_runtime._UNSET)
     configure_workflow_runtime()
 
     yield

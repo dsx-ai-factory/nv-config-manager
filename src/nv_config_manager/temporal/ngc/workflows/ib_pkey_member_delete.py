@@ -32,16 +32,6 @@ from nv_config_manager.temporal.ngc.workflows._ib_pkey_lock import UFMHostLockMi
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
-    from nv_config_manager.temporal.ngc.activities.ib_dcim import (
-        CleanupEmptyPartitionInput,
-        CleanupEmptyPartitionOutput,
-        InterfaceRef,
-        RemovePKeyAssignmentsInput,
-        RemovePKeyAssignmentsOutput,
-        ResolvedInterface,
-        cleanup_empty_pkey_partition,
-        remove_pkey_assignments,
-    )
     from nv_config_manager.temporal.ngc.activities.ib_pkey import (
         RemoveGuidsInput,
         RemoveGuidsOutput,
@@ -56,6 +46,16 @@ with workflow.unsafe.imports_passed_through():
         resolve_members,
         validate_interfaces_xor_guids,
         validate_pkey_format,
+    )
+    from nv_config_manager_workflows.activities.ib_dcim import (
+        CleanupEmptyPartitionInput,
+        CleanupEmptyPartitionOutput,
+        InterfaceRef,
+        RemovePKeyAssignmentsInput,
+        RemovePKeyAssignmentsOutput,
+        ResolvedInterface,
+        cleanup_empty_pkey_partition,
+        remove_pkey_assignments,
     )
 
 

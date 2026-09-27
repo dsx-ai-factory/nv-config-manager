@@ -29,6 +29,12 @@ from nv_config_manager.temporal.ngc.workflows.cable_validation import (
     DeviceCableValidationInput,
     DeviceCableValidationWorkflow,
 )
+from nv_config_manager.temporal.ngc.workflows.ib_pkey_member_add import (
+    IBPKeyMemberAddInput,
+    IBPKeyMemberAddWorkflow,
+)
+from nv_config_manager_workflows.activities import ib_dcim
+from nv_config_manager_workflows.metadata import build_workflow_lock_key
 
 
 class _Input(BaseModel):
@@ -74,6 +80,59 @@ async def test_endpoint_canonicalizes_input_before_start(mocker):
 
     assert response.id == "wid-1"
     assert cast(_Input, captured["body"]).host == "canonical"
+
+
+@pytest.mark.asyncio
+async def test_ib_pkey_endpoint_submits_canonical_lock_input(mocker):
+    """UFM canonicalization precedes submission and therefore lock acquisition."""
+    events: list[str] = []
+    captured: dict[str, BaseModel] = {}
+
+    async def _canonicalize_host(host: str) -> str:
+        assert host == "ufm01"
+        events.append("canonicalize")
+        return "10.0.0.5"
+
+    async def _fake_start(request, workflow_class, body):
+        events.append("start")
+        captured["body"] = body
+        return "wid-1"
+
+    mocker.patch.object(ib_dcim, "canonicalize_ufm_host", new=_canonicalize_host)
+    mocker.patch.object(dynamic_endpoints, "start_workflow", new=_fake_start)
+    endpoint = create_workflow_endpoint(
+        IBPKeyMemberAddWorkflow,
+        IBPKeyMemberAddInput,
+        "/ngc/ib_pkey_member_add",
+    )
+    request = MagicMock()
+    request.state.user = "user@nvidia.com"
+
+    response = await endpoint(
+        IBPKeyMemberAddInput(
+            host="ufm01",
+            pkey="0x100",
+            guids=["0002c903000e0b72"],
+        ),
+        request,
+    )
+
+    submitted = cast(IBPKeyMemberAddInput, captured["body"])
+    lock_spec = IBPKeyMemberAddWorkflow.get_workflow_lock()
+    assert lock_spec is not None
+    assert response.id == "wid-1"
+    assert events == ["canonicalize", "start"]
+    assert submitted.host == "10.0.0.5"
+    assert submitted.pkey == "0x0100"
+    assert (
+        build_workflow_lock_key(
+            lock_spec,
+            workflow_name=IBPKeyMemberAddWorkflow.get_workflow_name(),
+            namespace=IBPKeyMemberAddWorkflow.get_workflow_namespace(),
+            workflow_input=submitted,
+        )
+        == "wf-lock:ngc:host=10.0.0.5:pkey=0x0100"
+    )
 
 
 @pytest.mark.asyncio

@@ -12,14 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""This package's own contribution to the registry.
+"""This package's own contribution to the registry."""
 
-The built-in catalog is still empty while the workflows themselves are being
-moved into this package, so what these tests pin is that it is a plugin like any
-other: it reaches the registry through its own entry point, satisfies the same
-descriptor contract, and passes the same checks the installed plugins do.
-"""
-
+from nv_config_manager_workflows.activities.ib_dcim import IB_DCIM_ACTIVITIES
 from nv_config_manager_workflows.registration.builtin import BUILTIN_PLUGIN_NAME, builtin_plugin
 from nv_config_manager_workflows.registration.descriptor import (
     UNKNOWN_PLUGIN_VERSION,
@@ -38,11 +33,11 @@ class TestBuiltinPlugin:
     def test_it_is_an_ordinary_plugin_descriptor(self) -> None:
         assert isinstance(builtin_plugin(), WorkflowPluginDescriptor)
 
-    def test_it_contributes_nothing_yet(self) -> None:
+    def test_it_contributes_the_package_owned_ib_dcim_activities(self) -> None:
         descriptor = builtin_plugin()
 
         assert descriptor.workflows == ()
-        assert descriptor.activities == ()
+        assert descriptor.activities == IB_DCIM_ACTIVITIES
         assert descriptor.schedulers == ()
 
     def test_its_version_is_left_to_the_installed_distribution(self) -> None:
@@ -55,6 +50,7 @@ class TestBuiltinPlugin:
         registry = WorkflowRegistry.build({BUILTIN_PLUGIN_NAME: builtin_plugin()})
 
         assert registry.all_workflows == []
+        assert registry.all_activities == list(IB_DCIM_ACTIVITIES)
         assert [info.name for info in registry.plugin_diagnostics] == [BUILTIN_PLUGIN_NAME]
 
 

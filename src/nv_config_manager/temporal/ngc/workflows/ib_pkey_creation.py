@@ -40,13 +40,6 @@ from nv_config_manager.temporal.ngc.workflows._ib_pkey_lock import UFMHostSiteVa
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
-    from nv_config_manager.temporal.ngc.activities.ib_dcim import (
-        RecordIBPKeyInDCIMInput,
-        RecordIBPKeyInDCIMOutput,
-        RecordIBPKeyInNautobotInput,
-        record_ib_pkey_in_dcim,
-        record_ib_pkey_in_nautobot,
-    )
     from nv_config_manager.temporal.ngc.activities.ib_pkey import (
         CreatePKeyInput,
         CreatePKeyOutput,
@@ -60,6 +53,13 @@ with workflow.unsafe.imports_passed_through():
     )
     from nv_config_manager.temporal.ngc.workflows._ib_pkey_helpers import (
         call_resolve_ib_site_for_host,
+    )
+    from nv_config_manager_workflows.activities.ib_dcim import (
+        RecordIBPKeyInDCIMInput,
+        RecordIBPKeyInDCIMOutput,
+        RecordIBPKeyInNautobotInput,
+        record_ib_pkey_in_dcim,
+        record_ib_pkey_in_nautobot,
     )
 
 

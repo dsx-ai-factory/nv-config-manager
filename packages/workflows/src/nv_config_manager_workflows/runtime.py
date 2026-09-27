@@ -20,6 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final, Protocol
 
+from nv_config_manager_dcim.api import DCIMClient
 from nv_config_manager_infrastructure.lock import TokenLockBackend
 from temporalio.exceptions import ApplicationError
 
@@ -46,6 +47,10 @@ class UIBaseURLNotConfiguredError(RuntimeConfigurationError):
 
 class LockNotConfiguredError(RuntimeConfigurationError):
     """Raised when workflow locking is used without an available backend."""
+
+
+class DCIMNotConfiguredError(RuntimeConfigurationError):
+    """Raised when a DCIM client is used without an available provider."""
 
 
 class NatsPublisher(Protocol):
@@ -99,6 +104,7 @@ type NatsRuntimeProvider = Callable[[], NatsRuntime | None]
 type SlackRuntimeProvider = Callable[[], SlackRuntime | None]
 type UIBaseURLProvider = Callable[[], str | None]
 type LockBackendProvider = Callable[[], LockBackend]
+type DCIMClientProvider = Callable[[], DCIMClient]
 
 
 class _Unset:
@@ -112,6 +118,7 @@ _nats_provider: NatsRuntimeProvider | None | _Unset = _UNSET
 _slack_provider: SlackRuntimeProvider | None | _Unset = _UNSET
 _ui_base_url_provider: UIBaseURLProvider | None | _Unset = _UNSET
 _lock_backend_provider: LockBackendProvider | _Unset = _UNSET
+_dcim_client_provider: DCIMClientProvider | None | _Unset = _UNSET
 
 
 def configure_nats(provider: NatsRuntimeProvider | None) -> None:
@@ -141,6 +148,12 @@ def configure_lock_backend(provider: LockBackendProvider | None) -> None:
     """Configure workflow locking, or explicitly use no-op locking with ``None``."""
     global _lock_backend_provider  # noqa: PLW0603
     _lock_backend_provider = _noop_lock_backend if provider is None else provider
+
+
+def configure_dcim_client(provider: DCIMClientProvider | None) -> None:
+    """Configure DCIM client creation, or explicitly disable it with ``None``."""
+    global _dcim_client_provider  # noqa: PLW0603
+    _dcim_client_provider = provider
 
 
 def get_nats_runtime() -> NatsRuntime:
@@ -201,15 +214,34 @@ def get_lock_backend() -> LockBackend:
     return provider()
 
 
+def get_dcim_client() -> DCIMClient:
+    """Create a current DCIM client or raise a named configuration error."""
+    provider = _dcim_client_provider
+    if isinstance(provider, _Unset):
+        raise DCIMNotConfiguredError(
+            "DCIM client is not configured. Call configure_dcim_client(provider) or "
+            "configure_runtime() at process startup."
+        )
+    if provider is None:
+        raise DCIMNotConfiguredError("DCIM client is disabled")
+
+    client = provider()
+    if client is None:
+        raise DCIMNotConfiguredError("DCIM client is disabled or incomplete")
+    return client
+
+
 def configure_runtime(
     *,
     nats_provider: NatsRuntimeProvider | None,
     slack_provider: SlackRuntimeProvider | None,
     ui_base_url_provider: UIBaseURLProvider | None,
     lock_backend_provider: LockBackendProvider | None,
+    dcim_client_provider: DCIMClientProvider | None = None,
 ) -> None:
     """Apply every currently supported workflow activity dependency."""
     configure_nats(nats_provider)
     configure_slack(slack_provider)
     configure_ui_base_url(ui_base_url_provider)
     configure_lock_backend(lock_backend_provider)
+    configure_dcim_client(dcim_client_provider)

@@ -34,20 +34,6 @@ from nv_config_manager.temporal.ngc.workflows._ib_pkey_lock import UFMHostLockMi
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
-    from nv_config_manager.temporal.ngc.activities.ib_dcim import (
-        CurrentAssignment,
-        FetchPKeyAssignmentsInput,
-        FetchPKeyAssignmentsOutput,
-        InterfaceRef,
-        ResolvedInterface,
-        ResolveGuidsToInterfacesInput,
-        ResolveGuidsToInterfacesOutput,
-        SyncPKeyAssignmentsInput,
-        SyncPKeyAssignmentsOutput,
-        fetch_pkey_assignments,
-        resolve_guids_to_interfaces,
-        sync_pkey_assignments,
-    )
     from nv_config_manager.temporal.ngc.activities.ib_pkey import (
         FetchPKeyMembersInput,
         FetchPKeyMembersOutput,
@@ -69,6 +55,20 @@ with workflow.unsafe.imports_passed_through():
         validate_guid_memberships,
         validate_interfaces_xor_guids,
         validate_pkey_format,
+    )
+    from nv_config_manager_workflows.activities.ib_dcim import (
+        CurrentAssignment,
+        FetchPKeyAssignmentsInput,
+        FetchPKeyAssignmentsOutput,
+        InterfaceRef,
+        ResolvedInterface,
+        ResolveGuidsToInterfacesInput,
+        ResolveGuidsToInterfacesOutput,
+        SyncPKeyAssignmentsInput,
+        SyncPKeyAssignmentsOutput,
+        fetch_pkey_assignments,
+        resolve_guids_to_interfaces,
+        sync_pkey_assignments,
     )
 
 

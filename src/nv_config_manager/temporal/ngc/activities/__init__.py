@@ -94,22 +94,6 @@ from nv_config_manager.temporal.ngc.activities.hardware_validation import (
     get_platform_environment_voltage,
     get_platform_inventory,
 )
-from nv_config_manager.temporal.ngc.activities.ib_dcim import (
-    cleanup_empty_pkey_partition,
-    create_partition_in_dcim,
-    create_partition_in_nautobot,
-    fetch_pkey_assignments,
-    record_ib_pkey_in_dcim,
-    record_ib_pkey_in_nautobot,
-    record_pkey_assignments,
-    remove_pkey_assignments,
-    resolve_guids_to_interfaces,
-    resolve_ib_context,
-    resolve_ib_context_for_add,
-    resolve_ib_site_for_host,
-    resolve_interface_guids,
-    sync_pkey_assignments,
-)
 from nv_config_manager.temporal.ngc.activities.ib_guid_discovery import (
     discover_ib_port_guids,
     sync_ib_guid_on_interface,
@@ -161,6 +145,23 @@ from nv_config_manager.temporal.ngc.activities.ticketing import (
     validate_ticket,
 )
 from nv_config_manager.temporal.ngc.activities.ufm import get_ib_ports
+from nv_config_manager_workflows.activities.ib_dcim import (  # noqa: F401 - compatibility re-exports
+    IB_DCIM_ACTIVITIES,
+    cleanup_empty_pkey_partition,
+    create_partition_in_dcim,
+    create_partition_in_nautobot,
+    fetch_pkey_assignments,
+    record_ib_pkey_in_dcim,
+    record_ib_pkey_in_nautobot,
+    record_pkey_assignments,
+    remove_pkey_assignments,
+    resolve_guids_to_interfaces,
+    resolve_ib_context,
+    resolve_ib_context_for_add,
+    resolve_ib_site_for_host,
+    resolve_interface_guids,
+    sync_pkey_assignments,
+)
 
 REGISTERED_ACTIVITIES = [
     get_ui_base_url,
@@ -252,20 +253,7 @@ REGISTERED_ACTIVITIES = [
     verify_pkey_created,
     add_guids_to_pkey,
     verify_pkey_members,
-    record_ib_pkey_in_dcim,
-    record_ib_pkey_in_nautobot,
-    create_partition_in_dcim,
-    create_partition_in_nautobot,
-    resolve_interface_guids,
-    resolve_guids_to_interfaces,
-    resolve_ib_context,
-    resolve_ib_context_for_add,
-    resolve_ib_site_for_host,
-    record_pkey_assignments,
-    fetch_pkey_assignments,
-    sync_pkey_assignments,
-    remove_pkey_assignments,
-    cleanup_empty_pkey_partition,
+    *IB_DCIM_ACTIVITIES,
     remove_guids_from_pkey,
     set_pkey_members,
     verify_pkey_members_absent,

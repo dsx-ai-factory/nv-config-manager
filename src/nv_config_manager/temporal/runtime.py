@@ -18,13 +18,17 @@ from __future__ import annotations
 
 from typing import cast
 
+from nv_config_manager_dcim.api import DCIMClient
+
 from nv_config_manager.common.client import NatsProducer
 from nv_config_manager.common.config import load_config, nats_archive_config
 from nv_config_manager.common.lock import token_lock_backend
+from nv_config_manager.dcim.registry import create_dcim_client
 from nv_config_manager_workflows.runtime import (
     NatsPublisher,
     NatsRuntime,
     SlackRuntime,
+    configure_dcim_client,
     configure_runtime,
     configure_ui_base_url,
 )
@@ -64,6 +68,11 @@ def _ui_base_url() -> str | None:
     return url or None
 
 
+def _dcim_client() -> DCIMClient:
+    """Create a DCIM client from the service's current provider configuration."""
+    return create_dcim_client()
+
+
 def configure_workflow_runtime() -> None:
     """Install reload-aware workflow activity providers for this service."""
     configure_runtime(
@@ -71,9 +80,11 @@ def configure_workflow_runtime() -> None:
         slack_provider=_slack_runtime,
         ui_base_url_provider=_ui_base_url,
         lock_backend_provider=token_lock_backend,
+        dcim_client_provider=_dcim_client,
     )
 
 
 def configure_workflow_ui_runtime() -> None:
-    """Install only the reload-aware NVCM UI provider for API processes."""
+    """Install reload-aware dependencies used by workflow API processes."""
     configure_ui_base_url(_ui_base_url)
+    configure_dcim_client(_dcim_client)

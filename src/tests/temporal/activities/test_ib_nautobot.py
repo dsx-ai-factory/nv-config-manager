@@ -27,10 +27,12 @@ from nv_config_manager.temporal.ngc.activities.ib_nautobot import (
     CleanupEmptyPartitionInput,
     CreatePartitionInNautobotInput,
     ResolveGuidsToInterfacesInput,
-    _is_auto_created_overlay_name,
     cleanup_empty_pkey_partition,
     create_partition_in_nautobot,
     resolve_guids_to_interfaces,
+)
+from nv_config_manager_workflows.activities.ib_dcim.resolution import (
+    _is_auto_created_overlay_name,
 )
 
 NB_URL = "https://nautobot.example.com"

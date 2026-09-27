@@ -19,7 +19,19 @@ from pathlib import Path
 
 _PACKAGE_ROOT = Path(__file__).parents[1] / "src" / "nv_config_manager_workflows"
 _CLIENT_ROOT = _PACKAGE_ROOT / "clients"
+_IB_DCIM_ROOT = _PACKAGE_ROOT / "activities" / "ib_dcim"
 _JUNIPER_CLIENT_PATH = Path("clients/device/juniper.py")
+_IB_DCIM_BOUNDARY_PATHS = (
+    _PACKAGE_ROOT / "runtime.py",
+    _PACKAGE_ROOT / "activities" / "dcim.py",
+    _PACKAGE_ROOT / "mixins" / "ib_pkey.py",
+    *_IB_DCIM_ROOT.glob("*.py"),
+)
+_ALLOWED_IB_DCIM_SDK_MODULES = {
+    "nv_config_manager_dcim.api",
+    "nv_config_manager_dcim.errors",
+    "nv_config_manager_dcim.models",
+}
 _FORBIDDEN_CONFIGURATION_CALLS = {
     "ConfigParser",
     "getenv",
@@ -33,6 +45,11 @@ _FORBIDDEN_CONFIGURATION_CALLS = {
 def _is_service_module(module: str) -> bool:
     """Return whether an import targets the service package rather than this package."""
     return module == "nv_config_manager" or module.startswith("nv_config_manager.")
+
+
+def _is_concrete_dcim_provider_module(module: str) -> bool:
+    """Return whether an import targets an installed provider implementation."""
+    return module.startswith("nv_config_manager_dcim_")
 
 
 def _forbidden_configuration_call(node: ast.Call, relative_path: Path) -> str | None:
@@ -75,8 +92,49 @@ def test_workflows_package_has_no_service_configuration_dependencies() -> None:
                         _is_service_module(module)
                         or module == "configparser"
                         or module.startswith("configparser.")
+                        or _is_concrete_dcim_provider_module(module)
                     ):
                         violations.append(f"{relative_path}:{node.lineno}: {module}")
+
+            if isinstance(node, ast.Call):
+                name = _forbidden_configuration_call(node, relative_path)
+                if name is not None:
+                    violations.append(f"{relative_path}:{node.lineno}: {name}")
+
+    assert violations == []
+
+
+def test_ib_dcim_slice_uses_only_provider_neutral_dcim_contracts() -> None:
+    """The moved IB/DCIM slice must not select configuration or provider implementations."""
+    violations: list[str] = []
+
+    for path in sorted(_IB_DCIM_BOUNDARY_PATHS):
+        relative_path = path.relative_to(_PACKAGE_ROOT)
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+                lineno = node.lineno
+            elif isinstance(node, ast.ImportFrom) and node.module is not None:
+                modules = [node.module]
+                lineno = node.lineno
+            else:
+                modules = []
+                lineno = None
+
+            for module in modules:
+                if (
+                    _is_service_module(module)
+                    or module == "configparser"
+                    or module.startswith("configparser.")
+                    or _is_concrete_dcim_provider_module(module)
+                    or (
+                        module.startswith("nv_config_manager_dcim")
+                        and module not in _ALLOWED_IB_DCIM_SDK_MODULES
+                    )
+                ):
+                    assert lineno is not None
+                    violations.append(f"{relative_path}:{lineno}: {module}")
 
             if isinstance(node, ast.Call):
                 name = _forbidden_configuration_call(node, relative_path)

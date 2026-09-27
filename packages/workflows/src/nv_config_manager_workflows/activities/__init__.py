@@ -14,6 +14,7 @@
 # limitations under the License.
 """Reusable Temporal activities."""
 
+from nv_config_manager_workflows.activities.dcim import dcim_client_session
 from nv_config_manager_workflows.activities.lock import (
     AcquireWorkflowLockInput,
     ReleaseWorkflowLockInput,
@@ -28,6 +29,7 @@ __all__ = [
     "ReleaseWorkflowLockInput",
     "RenewWorkflowLockInput",
     "acquire_workflow_lock",
+    "dcim_client_session",
     "release_workflow_lock",
     "renew_workflow_lock",
 ]

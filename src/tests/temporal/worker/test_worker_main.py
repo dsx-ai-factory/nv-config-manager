@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock
 from pytest_mock import MockerFixture
 
 from nv_config_manager.temporal.worker import main as worker_main
+from nv_config_manager_workflows.activities.ib_dcim import IB_DCIM_ACTIVITIES
 
 
 async def test_runtime_is_configured_before_worker_construction(mocker: MockerFixture) -> None:
@@ -42,9 +43,11 @@ async def test_runtime_is_configured_before_worker_construction(mocker: MockerFi
     mocker.patch.object(worker_main.Client, "connect", side_effect=connect)
     worker = mocker.Mock()
     worker.run = AsyncMock(side_effect=lambda: startup_events.append("run-worker"))
+    worker_options: dict[str, Any] = {}
 
     def build_worker(*args: Any, **kwargs: Any) -> Any:
         startup_events.append("construct-worker")
+        worker_options.update(kwargs)
         return worker
 
     mocker.patch.object(worker_main, "Worker", side_effect=build_worker)
@@ -57,3 +60,8 @@ async def test_runtime_is_configured_before_worker_construction(mocker: MockerFi
         "construct-worker",
         "run-worker",
     ]
+    registered_activities = worker_options["activities"]
+    assert [item for item in registered_activities if item in IB_DCIM_ACTIVITIES] == list(
+        IB_DCIM_ACTIVITIES
+    )
+    assert all(registered_activities.count(item) == 1 for item in IB_DCIM_ACTIVITIES)

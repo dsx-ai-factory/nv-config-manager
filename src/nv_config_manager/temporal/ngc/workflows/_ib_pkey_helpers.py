@@ -21,7 +21,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
-    from nv_config_manager.temporal.ngc.activities.ib_dcim import (
+    from nv_config_manager_workflows.activities.ib_dcim import (
         DEFAULT_MEMBERSHIP_TYPE,
         InterfaceRef,
         ResolvedInterface,

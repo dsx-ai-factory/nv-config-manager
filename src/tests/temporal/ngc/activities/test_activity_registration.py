@@ -15,10 +15,31 @@
 """Ensure all activities are registered."""
 
 import inspect
+from collections import Counter
+from importlib import import_module
 from pathlib import Path
 
 from nv_config_manager.temporal.ngc import activities
 from nv_config_manager.temporal.ngc.activities import REGISTERED_ACTIVITIES
+from nv_config_manager_workflows.activities.ib_dcim import IB_DCIM_ACTIVITIES
+from nv_config_manager_workflows.registration import activity_name
+
+_EXPECTED_IB_DCIM_ACTIVITY_NAMES = [
+    "record_ib_pkey_in_dcim",
+    "record_ib_pkey_in_nautobot",
+    "create_partition_in_dcim",
+    "create_partition_in_nautobot",
+    "resolve_interface_guids",
+    "resolve_guids_to_interfaces",
+    "resolve_ib_context",
+    "resolve_ib_context_for_add",
+    "resolve_ib_site_for_host",
+    "record_pkey_assignments",
+    "fetch_pkey_assignments",
+    "sync_pkey_assignments",
+    "remove_pkey_assignments",
+    "cleanup_empty_pkey_partition",
+]
 
 
 def _load_all_activity_methods():
@@ -28,7 +49,7 @@ def _load_all_activity_methods():
     for path in activity_path.glob("*.py"):
         if path.stem == "__init__":
             continue
-        module = getattr(activities, path.stem)
+        module = import_module(f"{activities.__name__}.{path.stem}")
 
         for _, obj in inspect.getmembers(module, inspect.isfunction):
             # Risky if temporal SDK changes, but not finding a better method
@@ -46,3 +67,34 @@ def test_activity_registration():
         assert activity_method in REGISTERED_ACTIVITIES, (
             f"Activity {activity_method.__name__} not registered"
         )
+
+
+def test_ib_dcim_activities_are_registered_once_in_stable_order() -> None:
+    """The service catalog contains the package slice once without reordering it."""
+    first_index = REGISTERED_ACTIVITIES.index(IB_DCIM_ACTIVITIES[0])
+
+    assert (
+        tuple(REGISTERED_ACTIVITIES[first_index : first_index + len(IB_DCIM_ACTIVITIES)])
+        == IB_DCIM_ACTIVITIES
+    )
+    assert all(REGISTERED_ACTIVITIES.count(item) == 1 for item in IB_DCIM_ACTIVITIES)
+    assert [activity_name(item) for item in IB_DCIM_ACTIVITIES] == (
+        _EXPECTED_IB_DCIM_ACTIVITY_NAMES
+    )
+
+
+def test_service_package_root_reexports_package_ib_dcim_activities() -> None:
+    """Existing service-root imports resolve to the package function objects."""
+    for activity_method in IB_DCIM_ACTIVITIES:
+        assert getattr(activities, activity_method.__name__) is activity_method
+
+
+def test_registered_temporal_activity_names_are_unique() -> None:
+    """Modern and legacy names are present without duplicate worker handlers."""
+    names = [activity_name(item) for item in REGISTERED_ACTIVITIES]
+    counts = Counter(names)
+
+    assert None not in counts
+    assert {name: count for name, count in counts.items() if count > 1} == {}
+    assert "create_partition_in_nautobot" in counts
+    assert "record_ib_pkey_in_nautobot" in counts
