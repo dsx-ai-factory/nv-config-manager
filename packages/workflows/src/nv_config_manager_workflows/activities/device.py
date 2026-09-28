@@ -14,6 +14,8 @@
 # limitations under the License.
 """Provider-neutral network device activities."""
 
+from contextlib import closing
+
 import netaddr
 from nv_config_manager_dcim.errors import DCIMError
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData
@@ -83,7 +85,8 @@ def get_device_actual_neighbors(
     device_data: NetworkDeviceData,
 ) -> DeviceNeighborData:
     """Get current connections from a device, excluding empty neighbor entries."""
-    result = get_device_connection(device_data).get_interface_connections()
+    with closing(get_device_connection(device_data)) as connection:
+        result = connection.get_interface_connections()
     neighbors = {
         name: value for name, value in result.neighbors.items() if _has_neighbor_data(value)
     }
@@ -99,13 +102,15 @@ def get_device_actual_neighbors(
 @activity.defn
 def get_device_mac_table(device_data: NetworkDeviceData) -> DeviceMacTable:
     """Get the MAC entries from a device FDB."""
-    return get_device_connection(device_data).get_mac_table()
+    with closing(get_device_connection(device_data)) as connection:
+        return connection.get_mac_table()
 
 
 @activity.defn
 def get_device_arp_table(device_data: NetworkDeviceData) -> DeviceArpTable:
     """Get the ARP entries from a device."""
-    return get_device_connection(device_data).get_arp_table()
+    with closing(get_device_connection(device_data)) as connection:
+        return connection.get_arp_table()
 
 
 class ValidateHostnameActivityOutput(BaseModel):
@@ -117,7 +122,8 @@ class ValidateHostnameActivityOutput(BaseModel):
 @activity.defn
 def validate_hostname(device_data: NetworkDeviceData) -> ValidateHostnameActivityOutput:
     """Get the hostname from a device and verify it against the DCIM record."""
-    hostname = get_device_connection(device_data).get_hostname()
+    with closing(get_device_connection(device_data)) as connection:
+        hostname = connection.get_hostname()
     if hostname.lower() != device_data.name.lower():
         raise ApplicationError(
             f"Hostname on {device_data.primary_ip4 or device_data.primary_ip6} "
@@ -139,7 +145,8 @@ def load_neighbor_data_by_switch_port(
     activity_input: SwitchPortNeighborActivityInput,
 ) -> InterfaceNeighborData | None:
     """Load neighbor data by switch port."""
-    return get_device_connection(activity_input.device_data).get_lldp_data(activity_input.interface)
+    with closing(get_device_connection(activity_input.device_data)) as connection:
+        return connection.get_lldp_data(activity_input.interface)
 
 
 DEVICE_ACTIVITIES = (

@@ -173,6 +173,7 @@ def test_actual_neighbors_filter_only_empty_entries_and_preserve_metadata() -> N
     assert output.ts_info == {"swp4": "Cable is unplugged."}
     assert output.ignore == ["swp5"]
     assert output.link_state_only == ["swp4"]
+    connection.close.assert_called_once_with()
 
 
 def test_mac_and_arp_activities_return_provider_results_unchanged() -> None:
@@ -199,6 +200,18 @@ def test_mac_and_arp_activities_return_provider_results_unchanged() -> None:
 
     assert get_device_mac_table(device) is mac_table
     assert get_device_arp_table(device) is arp_table
+    assert connection.close.call_count == 2
+
+
+def test_device_connection_is_closed_when_operation_fails() -> None:
+    device = _device()
+    connection = _device_connection(device)
+    connection.get_mac_table.side_effect = RuntimeError("device unavailable")
+
+    with pytest.raises(RuntimeError, match="device unavailable"):
+        get_device_mac_table(device)
+
+    connection.close.assert_called_once_with()
 
 
 def test_validate_hostname_is_case_insensitive_and_preserves_returned_value() -> None:
@@ -209,6 +222,7 @@ def test_validate_hostname_is_case_insensitive_and_preserves_returned_value() ->
     output = validate_hostname(device)
 
     assert output.hostname == "leaf-1"
+    connection.close.assert_called_once_with()
 
 
 def test_validate_hostname_mismatch_preserves_address_message_and_retryability() -> None:
@@ -223,6 +237,7 @@ def test_validate_hostname_mismatch_preserves_address_message_and_retryability()
         "Hostname on 2001:db8::1 (leaf-2) does not match the DCIM record (leaf-1)."
     )
     assert exc_info.value.non_retryable is True
+    connection.close.assert_called_once_with()
 
 
 def test_switch_port_neighbor_lookup_preserves_interface_and_optional_result() -> None:
@@ -236,3 +251,4 @@ def test_switch_port_neighbor_lookup_preserves_interface_and_optional_result() -
     assert load_neighbor_data_by_switch_port(activity_input) is None
     assert connection.get_lldp_data.call_args_list[0].args == ("swp1",)
     assert connection.get_lldp_data.call_args_list[1].args == ("swp1",)
+    assert connection.close.call_count == 2
