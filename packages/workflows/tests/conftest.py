@@ -14,10 +14,32 @@
 # limitations under the License.
 """Shared fixtures for the independently runnable workflows package."""
 
+from collections.abc import Generator
+from typing import Any
+from unittest.mock import Mock, patch
+
 import pytest
+from aiohttp import ClientResponse
 
 from nv_config_manager_workflows import runtime as runtime_module
 from nv_config_manager_workflows.runtime import NatsRuntime, configure_runtime
+
+_CLIENT_RESPONSE_INIT = ClientResponse.__init__
+
+
+def _client_response_init_with_stream_writer(
+    self: ClientResponse, *args: Any, **kwargs: Any
+) -> None:
+    """Bridge aioresponses to the aiohttp 3.14 ClientResponse signature."""
+    kwargs.setdefault("stream_writer", Mock(output_size=0))
+    _CLIENT_RESPONSE_INIT(self, *args, **kwargs)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def aiohttp_mock_response_compatibility() -> Generator[None]:
+    """Supply the argument omitted by the latest aioresponses release."""
+    with patch.object(ClientResponse, "__init__", _client_response_init_with_stream_writer):
+        yield
 
 
 class _TestNatsPublisher:

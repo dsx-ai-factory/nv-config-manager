@@ -5,8 +5,8 @@ sidebar-title: Contribute a DCIM Provider
 
 NVIDIA Config Manager (NVCM) separates its service code from the network
 source of truth through the `nv-config-manager-dcim` SDK. A DCIM provider is a
-separately installable Python package that translates one DCIM's native API,
-data model, and events into the SDK's provider-neutral contracts.
+separately installable Python package that translates a DCIM system's native
+API, data model, and events into the SDK's provider-neutral contracts.
 
 The bundled Nautobot package is the reference implementation, not a
 requirement. A provider may use REST, GraphQL, a client library, event
@@ -32,7 +32,7 @@ import `nv_config_manager` service modules or use service-specific models.
 Likewise, services must not import the provider's client class or native data
 types. Both sides meet only through `nv_config_manager_dcim`.
 
-All existing workflows are provider agnostic. Do not add provider-name checks
+All existing workflows are provider-agnostic. Do not add provider-name checks
 or a Nautobot fallback to a workflow to make a provider work. Implement the
 corresponding SDK operation instead. If an operation genuinely is unavailable
 from a DCIM, raise `DCIMOperationNotSupportedError` with a useful explanation.
@@ -56,10 +56,9 @@ dependencies = ["nv-config-manager-dcim"]
 example = "example_dcim.provider:ExampleProvider"
 ```
 
-Packages are currently installed from Git or sibling checkouts while the
-publishing story is finalized. For local provider development from a checkout
-next to this repository, install the SDK and provider into the same
-environment:
+Provider packages are installed from Git or sibling checkouts until they are
+published. For local development from a checkout next to this repository,
+install the SDK and provider into the same environment:
 
 ```bash
 uv run --no-project \
@@ -135,16 +134,17 @@ Location identifiers are not assumed to share one provider-wide namespace.
 Return `DCIMSelection.location_type` from `list_locations()` and
 `get_location_metadata()` when the provider distinguishes location types.
 Nautobot uses `LocationType.name`; a NetBox provider uses the source model name
-as its location type, such as `Region`, `SiteGroup`, `Site`, or `Location`. Location-taking
-operations accept `DCIMLocationReference(id=..., location_type=...)` as well as legacy
-bare string IDs. Providers with a single identifier namespace can ignore an
-absent location type, while providers with overlapping IDs use it to select the correct
-namespace. Apply the requested location types in `list_locations()` rather than filtering a
-partial result in the service.
+as its location type, such as `Region`, `SiteGroup`, `Site`, or `Location`.
+Operations that accept locations support both
+`DCIMLocationReference(id=..., location_type=...)` and legacy bare string IDs.
+Providers with a single identifier namespace can ignore an absent location
+type. Providers with overlapping IDs use it to select the correct namespace.
+Apply the requested location types in `list_locations()` instead of filtering
+a partial result in the service.
 
-Workflow request fields remain bare strings for API compatibility. Optional companion
-fields such as `site_type` and `location_type` carry the discriminator when it is
-available; omitting them retains the legacy single-namespace behavior.
+Workflow request fields remain bare strings for API compatibility. Optional
+companion fields such as `site_type` and `location_type` carry the discriminator
+when available. Omitting them retains the legacy single-namespace behavior.
 
 The SDK validates provider metadata during discovery. It rejects duplicate
 entry-point names, a metadata-name mismatch, and providers that do not support
@@ -241,8 +241,8 @@ conversion in the provider. Template fixtures use only the portable
 Required values must fail at the boundary with `DCIMInvalidDataError` and a
 provider/object/field-specific message. Values that are optional in the SDK
 remain optional; a filter that requires one raises `FilterException` naming the
-typed field. This gives operators a useful correction path without making a
-workflow retry opaque validation failures.
+typed field. This gives operators a useful correction path without turning
+opaque validation failures into workflow retries.
 
 When a template plugin needs extension data, it declares provider-neutral
 render-data requirements with `get_render_data_requirements()`. A deployment's
@@ -319,9 +319,9 @@ service surface instead.
 In an NVCM service configuration, `[dcim] provider` chooses the entry-point
 name. NVCM assembles provider settings from `[dcim]`, `[dcim.options]`, and
 `[dcim.<provider>]`, with later portable or provider-specific values taking
-precedence, then passes a plain mapping into the SDK. Keep names, endpoint and non-secret provider options in the
-application configuration; keep tokens and other sensitive values in the
-deployment's secret mechanism.
+precedence, then passes a plain mapping into the SDK. Keep the provider name,
+endpoint, and other nonsecret options in the application configuration. Keep
+tokens and other sensitive values in the deployment's secret mechanism.
 
 `template-cli` is distributed with `nv-config-manager-templates` and talks to
 the SDK directly. Its provider config is intentionally service-level TOML, so
