@@ -320,8 +320,9 @@ class NautobotClient:
         logger.debug("Executing GraphQL query")
 
         request_timeout = aiohttp.ClientTimeout(total=timeout or self._timeout)
+        query_only = _graphql_document_is_query_only(query)
         requester: aiohttp.ClientSession | RetryClient = session
-        if _graphql_document_is_query_only(query):
+        if query_only:
             # Wrap the shared session; do not close RetryClient or it closes Nautobot too.
             requester = RetryClient(
                 client_session=session,
@@ -341,8 +342,10 @@ class NautobotClient:
             result = await rsp.json()
 
             if "errors" in result:
-                if _graphql_errors_were_cancellations(result):
-                    # Reached only once the retries above are spent.
+                if query_only and _graphql_errors_were_cancellations(result):
+                    # Reached only once the retries above are spent. A mutation
+                    # stays a plain NautobotException so the workflow layer
+                    # keeps it non-retryable.
                     raise NautobotReadCancelledError(f"GraphQL errors: {result['errors']}")
                 raise NautobotException(f"GraphQL errors: {result['errors']}")
 

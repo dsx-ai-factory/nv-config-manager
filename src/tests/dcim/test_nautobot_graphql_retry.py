@@ -230,7 +230,10 @@ async def test_graphql_query_does_not_retry_a_cancelled_mutation(
         mocked.post(_GRAPHQL_URL, payload=_CANCELLED_BY_RECOVERY)
         mocked.post(_GRAPHQL_URL, payload={"data": {"ok": True}})
         async with NautobotClient("https://nautobot.example", token="token") as client:
-            with pytest.raises(NautobotReadCancelledError):
+            with pytest.raises(NautobotException) as exc_info:
                 await client.graphql_query("mutation { ok }")
 
     assert fast_graphql_retries == []
+    # The workflow client re-raises DCIMReadCancelledError for Temporal to
+    # retry, which would replay the mutation at the activity level.
+    assert not isinstance(exc_info.value, DCIMReadCancelledError)
