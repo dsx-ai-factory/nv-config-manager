@@ -367,9 +367,8 @@ class WorkflowSummaryResponse(WorkflowResponse):
         # Stage-state search attributes record the last state observed by the
         # workflow. Termination does not give workflow code a chance to clear
         # them, so a closed execution cannot still be awaiting approval.
-        pending_approval = (
-            description.status in WorkflowSummaryResponse._ACTIVE_WORKFLOW_STATUSES
-            and bool(pending_approval)
+        pending_approval = description.status == WorkflowExecutionStatus.RUNNING and bool(
+            pending_approval
         )
 
         try:
@@ -462,9 +461,8 @@ class WorkflowDetailResponse(WorkflowSummaryResponse):
 
         # Closed executions can retain their final pending-approval search
         # attribute because termination stops workflow cleanup from running.
-        pending_approval = (
-            description.status in WorkflowSummaryResponse._ACTIVE_WORKFLOW_STATUSES
-            and bool(pending_approval)
+        pending_approval = description.status == WorkflowExecutionStatus.RUNNING and bool(
+            pending_approval
         )
 
         result = None
@@ -748,7 +746,8 @@ async def get_workflows(  # pylint: disable=R0913,R0914
             pending_approval_filter = True
         elif sanitized_status.upper() in _FAILED_STATUS_VALUES:
             filters.append(
-                f"(ExecutionStatus = 'Failed' or {FAILED_STAGE_SEARCH_ATTRIBUTE} = true)"
+                "(ExecutionStatus = 'Failed' or "
+                f"(ExecutionStatus = 'Running' and {FAILED_STAGE_SEARCH_ATTRIBUTE} = true))"
             )
         else:
             filters.append(f"ExecutionStatus = '{_format_visibility_status(sanitized_status)}'")
