@@ -91,7 +91,7 @@ def reset_secrets_cache():
 
 @pytest.fixture()
 def mock_ufm_config():
-    with patch("nv_config_manager.temporal.client.ufm.load_config") as mock:
+    with patch("nv_config_manager.common.config.loader.load_config") as mock:
         mock.return_value = _ufm_config()
         yield mock
 

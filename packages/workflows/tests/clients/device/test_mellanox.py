@@ -17,11 +17,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nv_config_manager.temporal.client.device import (
+from nv_config_manager_workflows.clients.device.exceptions import (
     DiffChangedException,
-    MellanoxConnection,
     NetworkDeviceException,
 )
+from nv_config_manager_workflows.clients.device.mellanox import MellanoxConnection
 
 
 def _mellanox_connection(*, port: int = 22) -> MellanoxConnection:
@@ -35,8 +35,8 @@ def _mellanox_connection(*, port: int = 22) -> MellanoxConnection:
     return conn
 
 
-@patch("nv_config_manager.temporal.client.device.mellanox.ConnectHandler")
-def test_connect_passes_configured_ssh_port(mock_connect_handler):
+@patch("nv_config_manager_workflows.clients.device.mellanox.ConnectHandler")
+def test_connect_passes_configured_ssh_port(mock_connect_handler: MagicMock) -> None:
     """ConnectHandler receives the connection's SSH port, not only the default 22."""
     mock_connect_handler.return_value = MagicMock()
     conn = _mellanox_connection(port=2222)
@@ -47,25 +47,29 @@ def test_connect_passes_configured_ssh_port(mock_connect_handler):
     assert mock_connect_handler.call_args.kwargs["host"] == "192.0.2.1"
 
 
-def test_commit_preserves_diff_changed_exception():
+def test_commit_preserves_diff_changed_exception() -> None:
     """A mismatched approved diff raises DiffChangedException, not a wrapped failure."""
     conn = _mellanox_connection()
-    conn.perform_candidate_diff = MagicMock(return_value="new-diff")
+    setattr(conn, "perform_candidate_diff", MagicMock(return_value="new-diff"))
 
     with pytest.raises(DiffChangedException, match="changed since approval"):
         conn.commit_candidate_config("config", "old-diff")
 
 
-def test_commit_wraps_other_failures_as_network_device_exception():
+def test_commit_wraps_other_failures_as_network_device_exception() -> None:
     """Unexpected commit errors stay wrapped as NetworkDeviceException."""
     conn = _mellanox_connection()
-    conn.perform_candidate_diff = MagicMock(side_effect=RuntimeError("ssh dropped"))
+    setattr(
+        conn,
+        "perform_candidate_diff",
+        MagicMock(side_effect=RuntimeError("ssh dropped")),
+    )
 
     with pytest.raises(NetworkDeviceException, match="Failed to commit candidate configuration"):
         conn.commit_candidate_config("config", "old-diff")
 
 
-def test_close_disconnects_netmiko_client():
+def test_close_disconnects_netmiko_client() -> None:
     """closing() must disconnect the SSH session and tolerate a second close."""
     conn = _mellanox_connection()
     client = MagicMock()

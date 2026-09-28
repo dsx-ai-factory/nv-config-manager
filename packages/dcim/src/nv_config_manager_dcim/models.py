@@ -18,9 +18,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, model_validator
 
 from nv_config_manager_dcim.errors import DCIMInvalidDataError
 
@@ -104,7 +104,28 @@ class DCIMLocationReference(DCIMModel):
         return self.id
 
 
-type DCIMLocationIdentifier = str | DCIMLocationReference
+def _normalize_isolated_location_reference(value: Any) -> Any:
+    """Serialize location references loaded under an isolated runtime.
+
+    Temporal's workflow sandbox can load this model with a distinct class
+    identity from the activity-side model. Pydantic otherwise rejects that
+    value even though it has the same module, class name, and fields.
+    """
+    value_type = type(value)
+    if (
+        value_type.__module__ == DCIMLocationReference.__module__
+        and value_type.__name__ == DCIMLocationReference.__name__
+    ):
+        model_dump = getattr(value, "model_dump", None)
+        if callable(model_dump):
+            return model_dump()
+    return value
+
+
+type DCIMLocationIdentifier = Annotated[
+    str | DCIMLocationReference,
+    BeforeValidator(_normalize_isolated_location_reference),
+]
 """A typed location reference or a legacy bare provider identifier."""
 
 type DCIMLocationType = str

@@ -42,7 +42,7 @@ Set the deployment identity, site list, and resource size profile. These values 
 
 Each size profile selects a matching Helm values overlay, such as `values-local-small.yaml`, that tunes CPU, memory, and replica counts across services.
 
-Sites represent data centers managed by this Config Manager deployment. Each site name must match the slug of the corresponding Nautobot Location. Sites scope per-site network secrets such as device login credentials and BGP passwords.
+Sites represent data centers managed by this Config Manager deployment. Each site name must match the slug form of the site name returned by the selected DCIM provider; for the bundled Nautobot provider, use the corresponding Location slug. Sites scope per-site network secrets such as device login credentials and BGP passwords.
 
 ![Cluster section screen](../assets/images/installer/01-cluster.svg)
 
