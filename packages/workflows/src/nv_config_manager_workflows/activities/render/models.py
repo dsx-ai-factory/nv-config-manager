@@ -14,15 +14,8 @@
 # limitations under the License.
 """Temporal payload models for render service activities."""
 
-from datetime import timedelta
-
 from nv_config_manager_clients.render import FileCommit
-from nv_config_manager_dcim.workflow_models import NetworkDeviceData
 from pydantic import BaseModel, Field
-
-_IMAGE_RENDER_POLL_TIMEOUT = timedelta(minutes=5)
-_IMAGE_RENDER_POLL_INTERVAL_SECONDS = 30
-_JUNIPER_INTENDED_CONFIG_FILE = "full-config"
 
 
 class ExecuteRenderInput(BaseModel):
@@ -43,23 +36,7 @@ class ExecuteRenderOutput(BaseModel):
         return next((fc.commit for fc in self.snapshot_files if fc.filename == filename), None)
 
 
-class ValidateRenderedImageChangeInput(BaseModel):
-    """Input for validating the rendered image change."""
-
-    device_data: NetworkDeviceData
-    desired_image: str
-
-
-class ValidateRenderedPasswordChangeInput(BaseModel):
-    """Input for validating the rendered password change."""
-
-    device_data: NetworkDeviceData
-    desired_password_string: str
-
-
 __all__ = [
     "ExecuteRenderInput",
     "ExecuteRenderOutput",
-    "ValidateRenderedImageChangeInput",
-    "ValidateRenderedPasswordChangeInput",
 ]

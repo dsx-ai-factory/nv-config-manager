@@ -53,8 +53,8 @@ from nv_config_manager_workflows.activities.os import (
     PollZTPStatusInput,
     PollZTPStatusOutput,
     UpdateIntendedOSImageInput,
+    ValidateRenderedImageChangeInput,
 )
-from nv_config_manager_workflows.activities.render import ValidateRenderedImageChangeInput
 
 # Test-specific retry policy and timeout
 TEST_RETRY_POLICY = RetryPolicy(maximum_attempts=1)

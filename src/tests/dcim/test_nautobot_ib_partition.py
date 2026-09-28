@@ -23,7 +23,7 @@ from aioresponses import aioresponses
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.dcim import DCIMLocationReference
-from nv_config_manager_workflows.activities.ib_dcim import (
+from nv_config_manager_workflows.activities.ib_pkey import (
     CleanupEmptyPartitionInput,
     CreatePartitionInNautobotInput,
     ResolveGuidsToInterfacesInput,

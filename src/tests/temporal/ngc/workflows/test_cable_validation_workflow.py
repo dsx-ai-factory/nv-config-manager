@@ -918,7 +918,7 @@ async def test_execute_device_cable_validation_workflow_dpu_mac_offset(_, env):
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager_workflows.activities.cable_validation.get_dcim_client")
+@patch("nv_config_manager_workflows.activities.cable_validation.activities.get_dcim_client")
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_cable_validation_workflow_all_valid(_, mock_nb_client, env):
     task_queue_name = str(uuid.uuid4())
@@ -2300,7 +2300,7 @@ async def test_execute_device_cable_validation_workflow_invalid(env):
     @activity.defn(name="decorate_result")
     async def _decorate_result_with_mock(activity_input: DecorateResultActivityInput):
         with patch(
-            "nv_config_manager_workflows.activities.cable_validation.get_dcim_client",
+            "nv_config_manager_workflows.activities.cable_validation.activities.get_dcim_client",
             mock_nb_class,
         ):
             return await decorate_result(activity_input)

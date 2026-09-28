@@ -33,8 +33,8 @@ from nv_config_manager.temporal.ngc.workflows.ib_pkey_member_add import (
     IBPKeyMemberAddInput,
     IBPKeyMemberAddWorkflow,
 )
-from nv_config_manager_workflows.activities import ib_dcim
 from nv_config_manager_workflows.metadata import build_workflow_lock_key
+from nv_config_manager_workflows.mixins import ib_pkey as ib_pkey_mixins
 
 
 class _Input(BaseModel):
@@ -98,7 +98,7 @@ async def test_ib_pkey_endpoint_submits_canonical_lock_input(mocker):
         captured["body"] = body
         return "wid-1"
 
-    mocker.patch.object(ib_dcim, "canonicalize_ufm_host", new=_canonicalize_host)
+    mocker.patch.object(ib_pkey_mixins, "_canonicalize_ufm_host", new=_canonicalize_host)
     mocker.patch.object(dynamic_endpoints, "start_workflow", new=_fake_start)
     endpoint = create_workflow_endpoint(
         IBPKeyMemberAddWorkflow,

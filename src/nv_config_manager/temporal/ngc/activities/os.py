@@ -37,6 +37,7 @@ from nv_config_manager_workflows.activities.os import (
     ReloadMlnxOSInput,
     ReloadMlnxOSOutput,
     UpdateIntendedOSImageInput,
+    ValidateRenderedImageChangeInput,
     WaitRebootInput,
     WaitRebootOutput,
     cleanup_mlnx_os,
@@ -50,10 +51,13 @@ from nv_config_manager_workflows.activities.os import (
     poll_ztp_status,
     reload_mlnx_os,
     update_intended_os_image,
+    validate_rendered_image_change,
     wait_reboot,
 )
 
 __all__ = [
+    "validate_rendered_image_change",
+    "ValidateRenderedImageChangeInput",
     "OS_ACTIVITIES",
     "CleanupMlnxOSInput",
     "CleanupMlnxOSOutput",

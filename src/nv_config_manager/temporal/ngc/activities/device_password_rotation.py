@@ -25,14 +25,18 @@ from nv_config_manager_workflows.activities.device_password_rotation import (
     ValidatePasswordDiffOutput,
     ValidatePlatformSupportInput,
     ValidatePlatformSupportOutput,
+    ValidateRenderedPasswordChangeInput,
     build_workflow_url,
     format_password_rotation_results,
     get_password_mappings,
     validate_password_diff,
     validate_platform_support,
+    validate_rendered_password_change,
 )
 
 __all__ = [
+    "validate_rendered_password_change",
+    "ValidateRenderedPasswordChangeInput",
     "DEVICE_PASSWORD_ROTATION_ACTIVITIES",
     "FormatPasswordRotationResultsInput",
     "GetPasswordMappingsInput",

@@ -24,7 +24,6 @@ from nv_config_manager_dcim.models import ConfigurationBackupMetadata
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from pytest_mock import MockerFixture
 
-from nv_config_manager_workflows.activities import backup as backup_activities
 from nv_config_manager_workflows.activities.backup import (
     PersistConfigBackupInput,
     RecordBackupConfigManagerPluginInput,
@@ -32,6 +31,7 @@ from nv_config_manager_workflows.activities.backup import (
     persist_config_backup,
     record_backup_config_manager_plugin,
 )
+from nv_config_manager_workflows.activities.backup import activities as backup_activities
 from nv_config_manager_workflows.clients.device.base import NetworkConnection
 from nv_config_manager_workflows.runtime import ConfigStoreRuntime
 

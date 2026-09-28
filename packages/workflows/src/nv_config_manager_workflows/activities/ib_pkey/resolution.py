@@ -19,7 +19,7 @@ from typing import Any
 
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager_workflows.activities.ib_dcim.models import ResolvedInterface
+from nv_config_manager_workflows.activities.ib_pkey.models import ResolvedInterface
 
 _PKEY_PATTERN = re.compile(r"^0[xX][0-9a-fA-F]{1,4}$")
 

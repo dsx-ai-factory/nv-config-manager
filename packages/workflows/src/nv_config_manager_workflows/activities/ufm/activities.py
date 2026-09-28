@@ -12,66 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Infiniband/UFM Temporal Activities."""
+"""UFM port retrieval activity implementation."""
 
-import csv
-from io import StringIO
-from typing import Any
-
-from pydantic import BaseModel
 from temporalio import activity
 
+from nv_config_manager_workflows.activities.ufm.helpers import _generate_ports_csv
+from nv_config_manager_workflows.activities.ufm.models import GetUFMPortsInput, GetUFMPortsOutput
 from nv_config_manager_workflows.runtime import get_ufm_client
-from nv_config_manager_workflows.stage.models import StageOutput
-
-
-class GetUFMPortsInput(BaseModel):
-    """Inputs for UFM ports API."""
-
-    host: str
-    unhealthy: bool = False
-    site: str | None = None
-
-
-class GetUFMPortsOutput(StageOutput):
-    """Output for getting UFM ports."""
-
-    csv_data: str
-    display: str
-    ports: list[dict[str, Any]]
-
-
-def _generate_ports_csv(ports: list[dict[str, Any]]) -> str:
-    """Generate CSV string from port data.
-
-    Args:
-        ports: List of port dictionaries
-
-    Returns:
-        CSV formatted string
-    """
-    if not ports:
-        return ""
-
-    output = StringIO()
-    writer = csv.DictWriter(
-        output,
-        fieldnames=[
-            "system_name",
-            "port",
-            "label",
-            "description",
-            "physical_state",
-            "logical_state",
-            "peer_node_name",
-            "peer_port",
-            "peer_node_description",
-            "guid",
-        ],
-    )
-    writer.writeheader()
-    writer.writerows(ports)
-    return output.getvalue()
 
 
 @activity.defn
@@ -97,13 +44,3 @@ async def get_ib_ports(input: GetUFMPortsInput) -> GetUFMPortsOutput:
             csv_data=csv_data,
             display="UFM ports retrieved successfully.",
         )
-
-
-UFM_ACTIVITIES = (get_ib_ports,)
-
-__all__ = [
-    "GetUFMPortsInput",
-    "GetUFMPortsOutput",
-    "UFM_ACTIVITIES",
-    "get_ib_ports",
-]

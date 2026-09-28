@@ -25,7 +25,6 @@ from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from pytest_mock import MockerFixture
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager_workflows.activities import nvlinkswitch_firmware
 from nv_config_manager_workflows.activities.nvlinkswitch_firmware import (
     CompareRunningDesiredInput,
     GetRunningFirmwareInput,
@@ -40,6 +39,9 @@ from nv_config_manager_workflows.activities.nvlinkswitch_firmware import (
     update_device_context,
     validate_render_targets,
     validate_target_files,
+)
+from nv_config_manager_workflows.activities.nvlinkswitch_firmware import (
+    activities as nvlinkswitch_firmware,
 )
 from nv_config_manager_workflows.runtime import (
     ConfigStoreNotConfiguredError,

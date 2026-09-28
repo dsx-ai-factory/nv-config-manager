@@ -44,7 +44,7 @@ def test_diagnostics_activity_names_signatures_and_callable_forms_are_frozen() -
         diagnostics.collect_tech_support_bundle: ("collect_tech_support_bundle", False),
         ticketing.validate_ticket: ("validate_ticket", True),
         ticketing.upload_attachment: ("upload_attachment", True),
-        ticketing.upload_tech_support_from_redis: ("upload_tech_support_from_redis", True),
+        diagnostics.upload_tech_support_from_redis: ("upload_tech_support_from_redis", True),
         ticketing.add_ticket_comment: ("add_ticket_comment", True),
     }
     for function, (name, is_async) in expected.items():
@@ -94,11 +94,11 @@ def test_diagnostics_catalogs_and_legacy_paths_are_frozen() -> None:
     assert diagnostics.DIAGNOSTICS_ACTIVITIES == (
         diagnostics.run_diagnostic_commands,
         diagnostics.collect_tech_support_bundle,
+        diagnostics.upload_tech_support_from_redis,
     )
     assert ticketing.TICKETING_ACTIVITIES == (
         ticketing.validate_ticket,
         ticketing.upload_attachment,
-        ticketing.upload_tech_support_from_redis,
         ticketing.add_ticket_comment,
     )
     for legacy, canonical in (

@@ -14,13 +14,29 @@
 # limitations under the License.
 """Private helpers for operating-system image activities."""
 
+import asyncio
 from datetime import datetime
 
+from nv_config_manager_clients._types import ConfigStoreType
+from nv_config_manager_clients.config_store import ConfigStoreClient, ConfigStoreFileNotFound
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData
+from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
+from nv_config_manager_workflows.activities.os.models import (
+    _IMAGE_RENDER_POLL_INTERVAL_SECONDS,
+    _IMAGE_RENDER_POLL_TIMEOUT,
+    _JUNIPER_INTENDED_CONFIG_FILE,
+    ValidateRenderedImageChangeInput,
+)
 from nv_config_manager_workflows.clients.device.base import NetworkConnection
 from nv_config_manager_workflows.clients.device.mellanox import MellanoxConnection
-from nv_config_manager_workflows.runtime import get_device_connection
+from nv_config_manager_workflows.runtime import (
+    FirmwareStorage,
+    get_config_store_runtime,
+    get_device_connection,
+    get_firmware_storage,
+)
 
 
 def _verify_device_rebooted(
@@ -57,3 +73,74 @@ def mellanox_connection(device_data: NetworkDeviceData) -> MellanoxConnection:
     if not isinstance(connection, MellanoxConnection):
         raise ValueError("Failed to create MellanoxConnection")
     return connection
+
+
+def _heartbeat_render_poll(start_time: datetime) -> None:
+    elapsed_minutes = (datetime.now() - start_time).total_seconds() / 60
+    activity.heartbeat(f"Validating render ({elapsed_minutes:.0f}m)")
+
+
+async def validate_cumulus_boot_script_image(
+    activity_input: ValidateRenderedImageChangeInput,
+) -> bool:
+    """Poll until the boot-script names the desired Cumulus VERSION_ID."""
+    config_client = get_config_store_runtime().client(ConfigStoreType.INTENDED)
+    desired = activity_input.desired_image
+    start_time = datetime.now()
+    async with config_client:
+        while datetime.now() - start_time < _IMAGE_RENDER_POLL_TIMEOUT:
+            _heartbeat_render_poll(start_time)
+            config_file = await config_client.load_file(
+                device_uuid=activity_input.device_data.id, filename="boot-script"
+            )
+            if f"VERSION_ID={desired}" in config_file.content:
+                return True
+            await asyncio.sleep(_IMAGE_RENDER_POLL_INTERVAL_SECONDS)
+    raise ApplicationError(
+        f"Timeout waiting for image version {desired} to be present in boot script"
+    )
+
+
+async def _juniper_firmware_present(
+    storage: FirmwareStorage,
+    platform: str,
+    desired: str,
+) -> bool:
+    return await storage.firmware_exists(platform, desired)
+
+
+async def _juniper_full_config_present(
+    config_client: ConfigStoreClient,
+    device_id: str,
+) -> bool:
+    try:
+        await config_client.load_file(
+            device_uuid=device_id,
+            filename=_JUNIPER_INTENDED_CONFIG_FILE,
+        )
+        return True
+    except ConfigStoreFileNotFound:
+        return False
+
+
+async def validate_juniper_upgrade_artifacts(
+    activity_input: ValidateRenderedImageChangeInput,
+) -> bool:
+    """Poll until the Junos image is available and full-config is rendered."""
+    desired = activity_input.desired_image
+    device_id = activity_input.device_data.id
+    platform = str(activity_input.device_data.platform)
+    config_client = get_config_store_runtime().client(ConfigStoreType.INTENDED)
+    storage = get_firmware_storage()
+    start_time = datetime.now()
+    async with config_client, storage:
+        while datetime.now() - start_time < _IMAGE_RENDER_POLL_TIMEOUT:
+            _heartbeat_render_poll(start_time)
+            firmware_ready = await _juniper_firmware_present(storage, platform, desired)
+            config_ready = await _juniper_full_config_present(config_client, device_id)
+            if firmware_ready and config_ready:
+                return True
+            await asyncio.sleep(_IMAGE_RENDER_POLL_INTERVAL_SECONDS)
+    raise ApplicationError(
+        f"Timeout waiting for Juniper firmware {desired} and full-config for device {device_id}"
+    )

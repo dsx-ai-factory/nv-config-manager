@@ -23,20 +23,18 @@ from aioresponses import CallbackResult, aioresponses
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.temporal.common.secrets import clear_secrets_cache
-from nv_config_manager_workflows.activities.ib_dcim import (
+from nv_config_manager_workflows.activities.ib_pkey import (
+    AddGuidsInput,
     InterfaceRef,
     RecordPKeyAssignmentsInput,
     ResolvedInterface,
     ResolveInterfaceGuidsInput,
-    record_pkey_assignments,
-    resolve_interface_guids,
-)
-from nv_config_manager_workflows.activities.ib_pkey import (
-    AddGuidsInput,
     VerifyPKeyMembersAbsentInput,
     VerifyPKeyMembersAbsentOutput,
     VerifyPKeyMembersInput,
     add_guids_to_pkey,
+    record_pkey_assignments,
+    resolve_interface_guids,
     verify_pkey_members,
     verify_pkey_members_absent,
 )

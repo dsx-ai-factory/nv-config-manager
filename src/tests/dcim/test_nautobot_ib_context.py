@@ -25,14 +25,18 @@ from aioresponses import aioresponses
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.temporal.common.secrets import clear_secrets_cache
-from nv_config_manager_workflows.activities.ib_dcim import (
+from nv_config_manager_workflows.activities.ib_pkey import (
     ResolveIBContextInput,
     ResolveIBSiteForHostInput,
-    canonicalize_ufm_host,
-    canonicalize_ufm_host_for_site,
     resolve_ib_context,
     resolve_ib_context_for_add,
     resolve_ib_site_for_host,
+)
+from nv_config_manager_workflows.mixins.ib_pkey import (
+    _canonicalize_ufm_host as canonicalize_ufm_host,
+)
+from nv_config_manager_workflows.mixins.ib_pkey import (
+    _canonicalize_ufm_host_for_site as canonicalize_ufm_host_for_site,
 )
 
 NB_URL = "https://nautobot.example.com"

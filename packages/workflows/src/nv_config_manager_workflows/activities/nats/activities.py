@@ -12,40 +12,27 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Activities for publishing workflow results to NATS."""
+"""NATS publish activity implementation."""
 
 import nats
 import nats.errors
 import nats.js.errors
 from nv_config_manager_infrastructure.nats import nats_server_for_logging
 from nv_config_manager_logging import LogCategory, get_logger
-from pydantic import BaseModel
 from temporalio import activity
 
-from nv_config_manager_workflows.runtime import NatsNotConfiguredError, get_nats_runtime
+from nv_config_manager_workflows.activities.nats.helpers import resolve_subject
+from nv_config_manager_workflows.activities.nats.models import PublishNatsInput
+from nv_config_manager_workflows.runtime import get_nats_runtime
 
 logger = get_logger(__name__, category=LogCategory.NATS)
-
-# Default subject used when no archive subject is configured.
-ARCHIVE_SUBJECT = "nv-config-manager.workflow.result"
-
-
-class PublishNatsInput(BaseModel):
-    """Input for publish activity."""
-
-    subject: str | None = None
-    message: str
 
 
 @activity.defn
 async def publish_nats(activity_input: PublishNatsInput) -> None:
     """Publish a NATS message to the workflow result bus."""
     runtime = get_nats_runtime()
-    subject = activity_input.subject or runtime.subject
-    if not subject:
-        raise NatsNotConfiguredError(
-            "NATS subject is not configured and the activity input did not provide one"
-        )
+    subject = resolve_subject(activity_input.subject, runtime.subject)
     logger.info(
         "Publishing to NATS stream=%s subject=%s (message_len=%d)",
         runtime.stream,
@@ -63,13 +50,3 @@ async def publish_nats(activity_input: PublishNatsInput) -> None:
             exc_info=True,
         )
         raise
-
-
-NATS_ACTIVITIES = (publish_nats,)
-
-__all__ = [
-    "ARCHIVE_SUBJECT",
-    "NATS_ACTIVITIES",
-    "PublishNatsInput",
-    "publish_nats",
-]

@@ -26,18 +26,26 @@ from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from pytest_mock import MockerFixture
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager_workflows.activities import render as render_activities
+from nv_config_manager_workflows.activities import render as render_root
+from nv_config_manager_workflows.activities.device_password_rotation import (
+    ValidateRenderedPasswordChangeInput,
+    validate_rendered_password_change,
+)
+from nv_config_manager_workflows.activities.device_password_rotation import (
+    activities as password_activities,
+)
+from nv_config_manager_workflows.activities.os import (
+    ValidateRenderedImageChangeInput,
+    validate_rendered_image_change,
+)
+from nv_config_manager_workflows.activities.os import helpers as os_helpers
+from nv_config_manager_workflows.activities.os import models as os_models
 from nv_config_manager_workflows.activities.render import (
     ExecuteRenderInput,
     ExecuteRenderOutput,
-    ValidateRenderedImageChangeInput,
-    ValidateRenderedPasswordChangeInput,
     execute_render,
-    validate_rendered_image_change,
-    validate_rendered_password_change,
 )
-from nv_config_manager_workflows.activities.render import helpers as render_helpers
-from nv_config_manager_workflows.activities.render import models as render_models
+from nv_config_manager_workflows.activities.render import activities as render_activities
 from nv_config_manager_workflows.runtime import ConfigStoreRuntime, FirmwareStorage
 
 
@@ -65,7 +73,8 @@ def _configure_config_store(mocker: MockerFixture, client: MagicMock) -> MagicMo
     runtime = MagicMock(spec=ConfigStoreRuntime)
     runtime.client.return_value = client
     mocker.patch.object(render_activities, "get_config_store_runtime", return_value=runtime)
-    mocker.patch.object(render_helpers, "get_config_store_runtime", return_value=runtime)
+    mocker.patch.object(password_activities, "get_config_store_runtime", return_value=runtime)
+    mocker.patch.object(os_helpers, "get_config_store_runtime", return_value=runtime)
     return runtime
 
 
@@ -163,10 +172,10 @@ def test_render_root_does_not_bind_private_helper_implementation_details() -> No
         "_validate_juniper_upgrade_artifacts",
     )
 
-    assert all(not hasattr(render_activities, name) for name in private_names)
+    assert all(not hasattr(render_root, name) for name in private_names)
 
 
-def test_render_models_preserve_polling_defaults_and_first_matching_commit() -> None:
+def test_os_models_preserve_polling_defaults_and_first_matching_commit() -> None:
     output = ExecuteRenderOutput(
         snapshot_files=[
             FileCommit(filename="startup.yaml", commit="7"),
@@ -176,9 +185,9 @@ def test_render_models_preserve_polling_defaults_and_first_matching_commit() -> 
 
     assert output.get_commit("startup.yaml") == "7"
     assert output.get_commit("missing.yaml") is None
-    assert render_models._IMAGE_RENDER_POLL_TIMEOUT == timedelta(minutes=5)
-    assert render_models._IMAGE_RENDER_POLL_INTERVAL_SECONDS == 30
-    assert render_models._JUNIPER_INTENDED_CONFIG_FILE == "full-config"
+    assert os_models._IMAGE_RENDER_POLL_TIMEOUT == timedelta(minutes=5)
+    assert os_models._IMAGE_RENDER_POLL_INTERVAL_SECONDS == 30
+    assert os_models._JUNIPER_INTENDED_CONFIG_FILE == "full-config"
 
 
 async def test_validate_cumulus_image_matches_exact_version_substring(
@@ -189,8 +198,8 @@ async def test_validate_cumulus_image_matches_exact_version_substring(
         return_value=SimpleNamespace(content="#!/bin/sh\nVERSION_ID=5.0.0\n")
     )
     _configure_config_store(mocker, client)
-    heartbeat = mocker.patch.object(render_helpers, "_heartbeat_render_poll")
-    sleep = mocker.patch.object(render_helpers.asyncio, "sleep", new_callable=AsyncMock)
+    heartbeat = mocker.patch.object(os_helpers, "_heartbeat_render_poll")
+    sleep = mocker.patch.object(os_helpers.asyncio, "sleep", new_callable=AsyncMock)
 
     result = await validate_rendered_image_change(
         ValidateRenderedImageChangeInput(
@@ -214,7 +223,7 @@ async def test_validate_cumulus_image_timeout_message(
     client = _async_client(ConfigStoreClient)
     _configure_config_store(mocker, client)
     start = datetime(2026, 1, 1)
-    datetime_mock = mocker.patch.object(render_helpers, "datetime")
+    datetime_mock = mocker.patch.object(os_helpers, "datetime")
     datetime_mock.now.side_effect = [start, start + timedelta(minutes=5)]
 
     with pytest.raises(ApplicationError) as exc_info:
@@ -235,11 +244,11 @@ async def test_juniper_full_config_missing_is_not_ready_but_other_errors_propaga
     client = _async_client(ConfigStoreClient)
     client.load_file = AsyncMock(side_effect=ConfigStoreFileNotFound("missing"))
 
-    assert await render_helpers._juniper_full_config_present(client, "device-id") is False
+    assert await os_helpers._juniper_full_config_present(client, "device-id") is False
 
     client.load_file.side_effect = RuntimeError("unavailable")
     with pytest.raises(RuntimeError, match="unavailable"):
-        await render_helpers._juniper_full_config_present(client, "device-id")
+        await os_helpers._juniper_full_config_present(client, "device-id")
 
 
 async def test_validate_juniper_waits_for_firmware_and_full_config(
@@ -250,8 +259,8 @@ async def test_validate_juniper_waits_for_firmware_and_full_config(
     _configure_config_store(mocker, client)
     storage = _async_client()
     storage.firmware_exists = AsyncMock(return_value=True)
-    mocker.patch.object(render_helpers, "get_firmware_storage", return_value=storage)
-    mocker.patch.object(render_helpers, "_heartbeat_render_poll")
+    mocker.patch.object(os_helpers, "get_firmware_storage", return_value=storage)
+    mocker.patch.object(os_helpers, "_heartbeat_render_poll")
 
     result = await validate_rendered_image_change(
         ValidateRenderedImageChangeInput(
@@ -277,9 +286,9 @@ async def test_validate_juniper_timeout_preserves_message(
     _configure_config_store(mocker, client)
     storage = _async_client()
     storage.firmware_exists = AsyncMock(return_value=False)
-    mocker.patch.object(render_helpers, "get_firmware_storage", return_value=storage)
+    mocker.patch.object(os_helpers, "get_firmware_storage", return_value=storage)
     start = datetime(2026, 1, 1)
-    datetime_mock = mocker.patch.object(render_helpers, "datetime")
+    datetime_mock = mocker.patch.object(os_helpers, "datetime")
     datetime_mock.now.side_effect = [start, start + timedelta(minutes=5)]
 
     with pytest.raises(ApplicationError) as exc_info:
@@ -311,9 +320,9 @@ async def test_validate_password_change_preserves_match_and_heartbeat(
     client = _async_client(ConfigStoreClient)
     client.load_file = AsyncMock(return_value=SimpleNamespace(content="hashed-password secret"))
     _configure_config_store(mocker, client)
-    heartbeat = mocker.patch.object(render_activities.activity, "heartbeat")
+    heartbeat = mocker.patch.object(password_activities.activity, "heartbeat")
     start = datetime(2026, 1, 1)
-    datetime_mock = mocker.patch.object(render_activities, "datetime")
+    datetime_mock = mocker.patch.object(password_activities, "datetime")
     datetime_mock.now.side_effect = [start, start, start]
 
     result = await validate_rendered_password_change(
@@ -354,7 +363,7 @@ async def test_validate_password_change_timeout_does_not_expose_password(
     client = _async_client(ConfigStoreClient)
     _configure_config_store(mocker, client)
     start = datetime(2026, 1, 1)
-    datetime_mock = mocker.patch.object(render_activities, "datetime")
+    datetime_mock = mocker.patch.object(password_activities, "datetime")
     datetime_mock.now.side_effect = [start, start + timedelta(minutes=5)]
 
     with pytest.raises(ApplicationError) as exc_info:

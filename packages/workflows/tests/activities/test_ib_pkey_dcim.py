@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Provider-neutral tests for InfiniBand host canonicalization."""
+"""Provider-neutral tests for InfiniBand PKey DCIM activities."""
 
 from __future__ import annotations
 
@@ -29,9 +29,11 @@ from nv_config_manager_dcim import (
     IBPKeyContext,
     IBPKeyPartition,
 )
+from pydantic import BaseModel
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager_workflows.activities.ib_dcim import (
+from nv_config_manager_workflows.activities.ib_pkey import (
+    IB_PKEY_ACTIVITIES,
     CleanupEmptyPartitionInput,
     CreatePartitionInDCIMInput,
     FetchPKeyAssignmentsInput,
@@ -45,12 +47,12 @@ from nv_config_manager_workflows.activities.ib_dcim import (
     ResolveIBSiteForHostInput,
     ResolveInterfaceGuidsInput,
     SyncPKeyAssignmentsInput,
-    canonicalize_ufm_host,
-    canonicalize_ufm_host_for_site,
     cleanup_empty_pkey_partition,
     create_partition_in_dcim,
+    create_partition_in_nautobot,
     fetch_pkey_assignments,
     record_ib_pkey_in_dcim,
+    record_ib_pkey_in_nautobot,
     record_pkey_assignments,
     remove_pkey_assignments,
     resolve_guids_to_interfaces,
@@ -60,10 +62,14 @@ from nv_config_manager_workflows.activities.ib_dcim import (
     resolve_interface_guids,
     sync_pkey_assignments,
 )
-from nv_config_manager_workflows.activities.ib_dcim.resolution import (
+from nv_config_manager_workflows.activities.ib_pkey.resolution import (
     _is_auto_created_overlay_name,
     _normalize_pkey,
     _select_pkey_match,
+)
+from nv_config_manager_workflows.mixins.ib_pkey import (
+    UFMHostLockMixin,
+    UFMHostSiteValidationMixin,
 )
 from nv_config_manager_workflows.runtime import configure_dcim_client
 
@@ -71,6 +77,36 @@ _DEVICE_NAME = "ufm01"
 _DEVICE_IP = "10.0.0.5"
 _SITE_ID = "354dae20-64ef-4a7f-b1ca-2b584d20fa94"
 _SITE_NAME = "site-a"
+
+
+def test_pkey_catalog_preserves_dcim_activity_order() -> None:
+    """The combined catalog registers all fourteen DCIM activities in order."""
+    assert len(IB_PKEY_ACTIVITIES) == 23
+    assert IB_PKEY_ACTIVITIES[9:] == (
+        record_ib_pkey_in_dcim,
+        record_ib_pkey_in_nautobot,
+        create_partition_in_dcim,
+        create_partition_in_nautobot,
+        resolve_interface_guids,
+        resolve_guids_to_interfaces,
+        resolve_ib_context,
+        resolve_ib_context_for_add,
+        resolve_ib_site_for_host,
+        record_pkey_assignments,
+        fetch_pkey_assignments,
+        sync_pkey_assignments,
+        remove_pkey_assignments,
+        cleanup_empty_pkey_partition,
+    )
+
+
+class _HostInput(BaseModel):
+    host: str
+
+
+class _HostSiteInput(BaseModel):
+    host: str
+    site: str | None = None
 
 
 class StubIBDCIMClient:
@@ -281,8 +317,12 @@ async def test_hostname_and_ip_canonicalize_to_the_same_identifier() -> None:
     """Equivalent UFM identifiers collapse before workflow lock construction."""
     client = _configure_client()
 
-    assert await canonicalize_ufm_host(_DEVICE_NAME) == _DEVICE_IP
-    assert await canonicalize_ufm_host(_DEVICE_IP) == _DEVICE_IP
+    first = _HostInput(host=_DEVICE_NAME)
+    second = _HostInput(host=_DEVICE_IP)
+
+    assert await UFMHostLockMixin.canonicalize_input(first) is first
+    assert await UFMHostLockMixin.canonicalize_input(second) is second
+    assert (first.host, second.host) == (_DEVICE_IP, _DEVICE_IP)
     assert client.canonicalized_hosts == [_DEVICE_NAME, _DEVICE_IP]
 
 
@@ -290,7 +330,10 @@ async def test_site_canonicalization_falls_back_to_device_name_without_primary_i
     """A managed UFM without a primary IP still has a stable identifier."""
     client = _configure_client(primary_ip=None)
 
-    assert await canonicalize_ufm_host_for_site(_DEVICE_NAME, None) == _DEVICE_NAME
+    body = _HostSiteInput(host=_DEVICE_NAME)
+
+    assert await UFMHostSiteValidationMixin.canonicalize_input(body) is body
+    assert body.host == _DEVICE_NAME
     assert client.resolved_hosts == [_DEVICE_NAME]
 
 
@@ -301,7 +344,10 @@ async def test_site_canonicalization_accepts_site_references(
     """Site IDs, names, and an omitted override validate against the provider result."""
     _configure_client()
 
-    assert await canonicalize_ufm_host_for_site(_DEVICE_NAME, site_reference) == _DEVICE_IP
+    body = _HostSiteInput(host=_DEVICE_NAME, site=site_reference)
+
+    assert await UFMHostSiteValidationMixin.canonicalize_input(body) is body
+    assert body.host == _DEVICE_IP
 
 
 async def test_site_canonicalization_preserves_mismatch_error_contract() -> None:
@@ -309,7 +355,9 @@ async def test_site_canonicalization_preserves_mismatch_error_contract() -> None
     _configure_client()
 
     with pytest.raises(ApplicationError) as exc_info:
-        await canonicalize_ufm_host_for_site(_DEVICE_NAME, "site-b")
+        await UFMHostSiteValidationMixin.canonicalize_input(
+            _HostSiteInput(host=_DEVICE_NAME, site="site-b")
+        )
 
     assert exc_info.value.message == ("UFM device 'ufm01' belongs to Site 'site-a', not 'site-b'")
     assert exc_info.value.non_retryable is True

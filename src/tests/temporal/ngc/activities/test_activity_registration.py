@@ -40,7 +40,6 @@ from nv_config_manager_workflows.activities.diagnostics import DIAGNOSTICS_ACTIV
 from nv_config_manager_workflows.activities.hardware_validation import (
     HARDWARE_VALIDATION_ACTIVITIES,
 )
-from nv_config_manager_workflows.activities.ib_dcim import IB_DCIM_ACTIVITIES
 from nv_config_manager_workflows.activities.ib_guid_discovery import (
     IB_GUID_DISCOVERY_ACTIVITIES,
 )
@@ -56,7 +55,7 @@ from nv_config_manager_workflows.activities.ticketing import TICKETING_ACTIVITIE
 from nv_config_manager_workflows.activities.ufm import UFM_ACTIVITIES
 from nv_config_manager_workflows.registration import activity_name
 
-_EXPECTED_IB_DCIM_ACTIVITY_NAMES = [
+_EXPECTED_IB_PKEY_DCIM_ACTIVITY_NAMES = [
     "record_ib_pkey_in_dcim",
     "record_ib_pkey_in_nautobot",
     "create_partition_in_dcim",
@@ -111,6 +110,7 @@ _EXPECTED_IB_PKEY_ACTIVITY_NAMES = [
     "set_pkey_members",
     "verify_pkey_members_absent",
     "fetch_pkey_members",
+    *_EXPECTED_IB_PKEY_DCIM_ACTIVITY_NAMES,
 ]
 _EXPECTED_IB_GUID_DISCOVERY_ACTIVITY_NAMES = [
     "discover_ib_port_guids",
@@ -131,8 +131,6 @@ _EXPECTED_DEPLOY_ACTIVITY_NAMES = [
 ]
 _EXPECTED_RENDER_ACTIVITY_NAMES = [
     "execute_render",
-    "validate_rendered_image_change",
-    "validate_rendered_password_change",
 ]
 _EXPECTED_OS_ACTIVITY_NAMES = [
     "get_current_os",
@@ -147,6 +145,7 @@ _EXPECTED_OS_ACTIVITY_NAMES = [
     "install_mlnx_os",
     "reload_mlnx_os",
     "cleanup_mlnx_os",
+    "validate_rendered_image_change",
 ]
 _EXPECTED_NVLINKSWITCH_FIRMWARE_ACTIVITY_NAMES = [
     "get_running_firmware",
@@ -202,7 +201,6 @@ def test_service_root_reexports_package_activity_catalogs() -> None:
         "DEPLOY_ACTIVITIES": DEPLOY_ACTIVITIES,
         "UFM_ACTIVITIES": UFM_ACTIVITIES,
         "IB_PKEY_ACTIVITIES": IB_PKEY_ACTIVITIES,
-        "IB_DCIM_ACTIVITIES": IB_DCIM_ACTIVITIES,
         "IB_GUID_DISCOVERY_ACTIVITIES": IB_GUID_DISCOVERY_ACTIVITIES,
         "CABLE_VALIDATION_ACTIVITIES": CABLE_VALIDATION_ACTIVITIES,
         "BMC_ACTIVITIES": BMC_ACTIVITIES,
@@ -216,9 +214,9 @@ def test_service_root_reexports_package_activity_catalogs() -> None:
         assert getattr(activities, name) is catalog
 
 
-def test_ib_dcim_activities_are_registered_once() -> None:
-    """The service catalog contains every package IB/DCIM activity exactly once."""
-    assert all(REGISTERED_ACTIVITIES.count(item) == 1 for item in IB_DCIM_ACTIVITIES)
+def test_ib_pkey_dcim_activities_are_registered_once() -> None:
+    """The service catalog contains every PKey DCIM activity exactly once."""
+    assert all(REGISTERED_ACTIVITIES.count(item) == 1 for item in IB_PKEY_ACTIVITIES[9:])
 
 
 def test_backup_and_deploy_activities_are_registered_once() -> None:
@@ -258,7 +256,7 @@ def test_device_operation_activities_are_registered_once() -> None:
         *DEVICE_PASSWORD_ROTATION_ACTIVITIES,
     )
 
-    assert len(device_operation_activities) == 25
+    assert len(device_operation_activities) == 26
     assert all(REGISTERED_ACTIVITIES.count(item) == 1 for item in device_operation_activities)
 
 
@@ -274,9 +272,9 @@ def test_dcim_activities_are_registered_once() -> None:
     """The service catalog contains every package DCIM activity exactly once."""
     assert all(REGISTERED_ACTIVITIES.count(item) == 1 for item in DCIM_ACTIVITIES)
     assert [activity_name(item) for item in DCIM_ACTIVITIES] == _EXPECTED_DCIM_ACTIVITY_NAMES
-    assert all(REGISTERED_ACTIVITIES.count(item) == 1 for item in IB_DCIM_ACTIVITIES)
-    assert [activity_name(item) for item in IB_DCIM_ACTIVITIES] == (
-        _EXPECTED_IB_DCIM_ACTIVITY_NAMES
+    assert all(REGISTERED_ACTIVITIES.count(item) == 1 for item in IB_PKEY_ACTIVITIES[9:])
+    assert [activity_name(item) for item in IB_PKEY_ACTIVITIES[9:]] == (
+        _EXPECTED_IB_PKEY_DCIM_ACTIVITY_NAMES
     )
 
 
@@ -308,9 +306,9 @@ def test_ib_guid_discovery_activities_are_registered_once() -> None:
     )
 
 
-def test_service_package_root_reexports_package_ib_dcim_activities() -> None:
+def test_service_package_root_reexports_package_ib_pkey_dcim_activities() -> None:
     """Existing service-root imports resolve to the package function objects."""
-    for activity_method in IB_DCIM_ACTIVITIES:
+    for activity_method in IB_PKEY_ACTIVITIES[9:]:
         assert getattr(activities, activity_method.__name__) is activity_method
 
 

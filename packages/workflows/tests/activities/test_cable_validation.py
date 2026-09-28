@@ -41,6 +41,9 @@ from nv_config_manager_workflows.activities.cable_validation import (
     update_cable_statuses,
     validate_device_neighbors,
 )
+from nv_config_manager_workflows.activities.cable_validation import (
+    activities as cable_validation_activities,
+)
 from nv_config_manager_workflows.registration import activity_name
 
 
@@ -132,7 +135,7 @@ async def test_update_cable_statuses_is_noop_for_unsupported_provider(
             self.closed = True
 
     client = UnsupportedClient()
-    monkeypatch.setattr(cable_validation, "get_dcim_client", lambda: client)
+    monkeypatch.setattr(cable_validation_activities, "get_dcim_client", lambda: client)
 
     await update_cable_statuses(
         UpdateCableStatusesInput(
@@ -168,7 +171,7 @@ async def test_update_cable_statuses_passes_workflow_provenance(
             self.updates.append(update)
 
     client = SupportedClient()
-    monkeypatch.setattr(cable_validation, "get_dcim_client", lambda: client)
+    monkeypatch.setattr(cable_validation_activities, "get_dcim_client", lambda: client)
 
     await update_cable_statuses(
         UpdateCableStatusesInput(
@@ -209,7 +212,7 @@ async def test_update_cable_statuses_writes_concurrently(
             self.active -= 1
 
     client = SupportedClient()
-    monkeypatch.setattr(cable_validation, "get_dcim_client", lambda: client)
+    monkeypatch.setattr(cable_validation_activities, "get_dcim_client", lambda: client)
 
     await update_cable_statuses(
         UpdateCableStatusesInput(
@@ -257,7 +260,7 @@ async def test_decorate_result_uses_runtime_dcim_provider_without_mutating_input
             ),
         ]
     )
-    monkeypatch.setattr(cable_validation, "get_dcim_client", Mock(return_value=client))
+    monkeypatch.setattr(cable_validation_activities, "get_dcim_client", Mock(return_value=client))
     activity_input = DecorateResultActivityInput(
         devices={
             "leaf-1": CableValidationResultData(
@@ -298,7 +301,7 @@ async def test_decorate_result_skips_dcim_lookup_without_mac_addresses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider = Mock(side_effect=AssertionError("DCIM provider should not be requested"))
-    monkeypatch.setattr(cable_validation, "get_dcim_client", provider)
+    monkeypatch.setattr(cable_validation_activities, "get_dcim_client", provider)
     activity_input = DecorateResultActivityInput(
         devices={
             "leaf-1": CableValidationResultData(

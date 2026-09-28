@@ -18,16 +18,18 @@ from contextlib import closing
 
 import netaddr
 from nv_config_manager_dcim.errors import DCIMError
-from nv_config_manager_dcim.workflow_models import NetworkDeviceData
-from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager_workflows.clients.device.models import (
+from nv_config_manager_workflows.activities.device.helpers import _has_neighbor_data
+from nv_config_manager_workflows.activities.device.models import (
     DeviceArpTable,
     DeviceMacTable,
     DeviceNeighborData,
     InterfaceNeighborData,
+    NetworkDeviceData,
+    SwitchPortNeighborActivityInput,
+    ValidateHostnameActivityOutput,
 )
 from nv_config_manager_workflows.runtime import get_dcim_client, get_device_connection
 
@@ -75,11 +77,6 @@ async def get_device_intended_neighbors(
     )
 
 
-def _has_neighbor_data(neighbor: InterfaceNeighborData) -> bool:
-    """Return whether a neighbor entry has any LLDP or connection data."""
-    return neighbor.name is not None or bool(neighbor.device_name) or bool(neighbor.macs)
-
-
 @activity.defn
 def get_device_actual_neighbors(
     device_data: NetworkDeviceData,
@@ -113,12 +110,6 @@ def get_device_arp_table(device_data: NetworkDeviceData) -> DeviceArpTable:
         return connection.get_arp_table()
 
 
-class ValidateHostnameActivityOutput(BaseModel):
-    """Validate hostname activity input."""
-
-    hostname: str
-
-
 @activity.defn
 def validate_hostname(device_data: NetworkDeviceData) -> ValidateHostnameActivityOutput:
     """Get the hostname from a device and verify it against the DCIM record."""
@@ -133,13 +124,6 @@ def validate_hostname(device_data: NetworkDeviceData) -> ValidateHostnameActivit
     return ValidateHostnameActivityOutput(hostname=hostname)
 
 
-class SwitchPortNeighborActivityInput(BaseModel):
-    """Switch Port Neighbor Input."""
-
-    device_data: NetworkDeviceData
-    interface: str
-
-
 @activity.defn
 def load_neighbor_data_by_switch_port(
     activity_input: SwitchPortNeighborActivityInput,
@@ -147,26 +131,3 @@ def load_neighbor_data_by_switch_port(
     """Load neighbor data by switch port."""
     with closing(get_device_connection(activity_input.device_data)) as connection:
         return connection.get_lldp_data(activity_input.interface)
-
-
-DEVICE_ACTIVITIES = (
-    get_device_intended_neighbors,
-    get_device_actual_neighbors,
-    get_device_mac_table,
-    get_device_arp_table,
-    validate_hostname,
-    load_neighbor_data_by_switch_port,
-)
-
-__all__ = [
-    "DEVICE_ACTIVITIES",
-    "NetworkDeviceData",
-    "SwitchPortNeighborActivityInput",
-    "ValidateHostnameActivityOutput",
-    "get_device_actual_neighbors",
-    "get_device_arp_table",
-    "get_device_intended_neighbors",
-    "get_device_mac_table",
-    "load_neighbor_data_by_switch_port",
-    "validate_hostname",
-]

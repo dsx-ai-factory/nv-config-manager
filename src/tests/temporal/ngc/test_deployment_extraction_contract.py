@@ -37,6 +37,9 @@ from nv_config_manager.temporal.ngc.activities import REGISTERED_ACTIVITIES as N
 from nv_config_manager.temporal.ngc.activities import backup as backup_activities
 from nv_config_manager.temporal.ngc.activities import deploy as deploy_activities
 from nv_config_manager.temporal.ngc.activities import (
+    device_password_rotation as password_activities,
+)
+from nv_config_manager.temporal.ngc.activities import (
     nvlinkswitch_firmware as nvlink_activities,
 )
 from nv_config_manager.temporal.ngc.activities import os as os_activities
@@ -60,12 +63,9 @@ _ACTIVITY_EXPORTS = {
         "validate_config_diff",
         "wait_for_tenant_render",
     ),
-    render_activities: (
-        "execute_render",
-        "validate_rendered_image_change",
-        "validate_rendered_password_change",
-    ),
+    render_activities: ("execute_render",),
     os_activities: (
+        "validate_rendered_image_change",
         "get_current_os",
         "get_os_image_versions",
         "update_intended_os_image",
@@ -79,6 +79,7 @@ _ACTIVITY_EXPORTS = {
         "reload_mlnx_os",
         "cleanup_mlnx_os",
     ),
+    password_activities: ("validate_rendered_password_change",),
     nvlink_activities: (
         "get_running_firmware",
         "compare_running_desired",
@@ -226,13 +227,9 @@ _MODEL_EXPORTS = {
         "WaitForTenantRenderInput",
         "WaitForTenantRenderOutput",
     ),
-    render_activities: (
-        "ExecuteRenderInput",
-        "ExecuteRenderOutput",
-        "ValidateRenderedImageChangeInput",
-        "ValidateRenderedPasswordChangeInput",
-    ),
+    render_activities: ("ExecuteRenderInput", "ExecuteRenderOutput"),
     os_activities: (
+        "ValidateRenderedImageChangeInput",
         "GetCurrentOSInput",
         "GetCurrentOSOutput",
         "GetOSImageVersionsInput",
@@ -257,6 +254,7 @@ _MODEL_EXPORTS = {
         "CleanupMlnxOSInput",
         "CleanupMlnxOSOutput",
     ),
+    password_activities: ("ValidateRenderedPasswordChangeInput",),
     nvlink_activities: (
         "GetRunningFirmwareInput",
         "GetRunningFirmwareOutput",

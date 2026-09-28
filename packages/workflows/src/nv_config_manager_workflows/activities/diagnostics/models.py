@@ -39,9 +39,17 @@ class TechSupportOutput(BaseModel):
     cl_support_log: str = ""  # full text output from the cl-support command
 
 
+class UploadTechSupportFromRedisInput(BaseModel):
+    ticketing_platform: str
+    issue_key: str
+    device_name: str
+    redis_key: str  # key used by collect_tech_support_bundle to store the bundle
+
+
 __all__ = [
     "RunDiagnosticsInput",
     "RunDiagnosticsOutput",
     "TechSupportInput",
     "TechSupportOutput",
+    "UploadTechSupportFromRedisInput",
 ]

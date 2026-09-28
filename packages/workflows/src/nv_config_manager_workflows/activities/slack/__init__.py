@@ -12,10 +12,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Compatibility alias for the package-owned InfiniBand DCIM activities."""
+"""Activities for sending Slack notifications."""
 
-import sys
+from nv_config_manager_workflows.activities.slack.activities import send_slack_message
+from nv_config_manager_workflows.activities.slack.models import (
+    SlackMessageInput,
+    SlackMessageOutput,
+)
 
-from nv_config_manager_workflows.activities import ib_dcim
+SLACK_ACTIVITIES = (send_slack_message,)
 
-sys.modules[__name__] = ib_dcim
+__all__ = [
+    "SLACK_ACTIVITIES",
+    "SlackMessageInput",
+    "SlackMessageOutput",
+    "send_slack_message",
+]

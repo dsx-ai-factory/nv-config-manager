@@ -21,12 +21,12 @@ import nats.js.errors
 import pytest
 
 from nv_config_manager_workflows import runtime as runtime_module
-from nv_config_manager_workflows.activities import nats as nats_activities
 from nv_config_manager_workflows.activities.nats import (
     ARCHIVE_SUBJECT,
     PublishNatsInput,
     publish_nats,
 )
+from nv_config_manager_workflows.activities.nats import activities as nats_activities
 from nv_config_manager_workflows.runtime import (
     NatsNotConfiguredError,
     NatsRuntime,

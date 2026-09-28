@@ -57,7 +57,6 @@ from nv_config_manager_workflows.activities.dcim import (
     SwitchPortByMacActivityInput,
     Vrf,
     VrfDeletionActivityInput,
-    _vni_from_rd,
     assign_vrf_to_device,
     assign_vrf_to_interface,
     check_recorded_config_drift,
@@ -79,6 +78,7 @@ from nv_config_manager_workflows.activities.dcim import (
     reconcile_spx_overlay_assignments,
     remove_unmapped_device_vrfs,
 )
+from nv_config_manager_workflows.activities.dcim.activities import _vni_from_rd
 from nv_config_manager_workflows.runtime import (
     DCIMNotConfiguredError,
     configure_dcim_client,
@@ -712,7 +712,9 @@ async def test_reconcile_assignments_preserves_arguments_counts_and_retry_signal
     )
 
     changed = await reconcile_spx_overlay_assignments(activity_input)
-    with patch("nv_config_manager_workflows.activities.dcim.activity.info") as activity_info:
+    with patch(
+        "nv_config_manager_workflows.activities.dcim.activities.activity.info"
+    ) as activity_info:
         activity_info.return_value.attempt = 2
         retried = await reconcile_spx_overlay_assignments(activity_input)
 

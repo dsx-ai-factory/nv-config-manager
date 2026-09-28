@@ -14,15 +14,19 @@
 # limitations under the License.
 """Compatibility exports for package-owned render activities."""
 
+from nv_config_manager_workflows.activities.device_password_rotation import (
+    ValidateRenderedPasswordChangeInput,
+    validate_rendered_password_change,
+)
+from nv_config_manager_workflows.activities.os import (
+    ValidateRenderedImageChangeInput,
+    validate_rendered_image_change,
+)
 from nv_config_manager_workflows.activities.render import (
     RENDER_ACTIVITIES,
     ExecuteRenderInput,
     ExecuteRenderOutput,
-    ValidateRenderedImageChangeInput,
-    ValidateRenderedPasswordChangeInput,
     execute_render,
-    validate_rendered_image_change,
-    validate_rendered_password_change,
 )
 
 __all__ = [

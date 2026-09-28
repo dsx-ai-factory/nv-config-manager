@@ -106,8 +106,6 @@ from nv_config_manager.temporal.ngc.activities.os import (
 from nv_config_manager.temporal.ngc.activities.render import (
     RENDER_ACTIVITIES,  # noqa: F401
     execute_render,
-    validate_rendered_image_change,
-    validate_rendered_password_change,
 )
 from nv_config_manager.temporal.ngc.activities.ufm import (
     UFM_ACTIVITIES,  # noqa: F401
@@ -142,11 +140,13 @@ from nv_config_manager_workflows.activities.device_password_rotation import (
     get_password_mappings,
     validate_password_diff,
     validate_platform_support,
+    validate_rendered_password_change,
 )
 from nv_config_manager_workflows.activities.diagnostics import (
     DIAGNOSTICS_ACTIVITIES,  # noqa: F401
     collect_tech_support_bundle,
     run_diagnostic_commands,
+    upload_tech_support_from_redis,
 )
 from nv_config_manager_workflows.activities.hardware_validation import (
     HARDWARE_VALIDATION_ACTIVITIES,  # noqa: F401
@@ -159,8 +159,7 @@ from nv_config_manager_workflows.activities.hardware_validation import (
     get_platform_environment_voltage,
     get_platform_inventory,
 )
-from nv_config_manager_workflows.activities.ib_dcim import (  # noqa: F401 - compatibility re-exports
-    IB_DCIM_ACTIVITIES,
+from nv_config_manager_workflows.activities.ib_pkey import (  # noqa: F401 - compatibility re-exports
     cleanup_empty_pkey_partition,
     create_partition_in_dcim,
     create_partition_in_nautobot,
@@ -180,6 +179,7 @@ from nv_config_manager_workflows.activities.nats import (
     NATS_ACTIVITIES,  # noqa: F401
     publish_nats,
 )
+from nv_config_manager_workflows.activities.os import validate_rendered_image_change
 from nv_config_manager_workflows.activities.slack import (
     SLACK_ACTIVITIES,  # noqa: F401
     send_slack_message,
@@ -188,7 +188,6 @@ from nv_config_manager_workflows.activities.ticketing import (
     TICKETING_ACTIVITIES,  # noqa: F401
     add_ticket_comment,
     upload_attachment,
-    upload_tech_support_from_redis,
     validate_ticket,
 )
 

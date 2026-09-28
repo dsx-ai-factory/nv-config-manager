@@ -32,7 +32,6 @@ from nv_config_manager_workflows.activities.hardware_validation import (
     HARDWARE_VALIDATION_ACTIVITIES,
 )
 from nv_config_manager_workflows.activities.hello_world import HELLO_WORLD_ACTIVITIES
-from nv_config_manager_workflows.activities.ib_dcim import IB_DCIM_ACTIVITIES
 from nv_config_manager_workflows.activities.ib_guid_discovery import (
     IB_GUID_DISCOVERY_ACTIVITIES,
 )
@@ -117,7 +116,6 @@ def test_builtin_catalog_contains_121_unique_named_activity_objects() -> None:
         *DCIM_ACTIVITIES,
         *DEVICE_ACTIVITIES,
         *HELLO_WORLD_ACTIVITIES,
-        *IB_DCIM_ACTIVITIES,
         *IB_GUID_DISCOVERY_ACTIVITIES,
         *IB_PKEY_ACTIVITIES,
         *LOCK_ACTIVITIES,
@@ -171,8 +169,6 @@ def test_deployment_domain_catalogs_are_immutable_and_collision_free() -> None:
     }
     assert {activity_name(item) for item in RENDER_ACTIVITIES} == {
         "execute_render",
-        "validate_rendered_image_change",
-        "validate_rendered_password_change",
     }
     assert {activity_name(item) for item in OS_ACTIVITIES} == {
         "cleanup_mlnx_os",
@@ -186,6 +182,7 @@ def test_deployment_domain_catalogs_are_immutable_and_collision_free() -> None:
         "poll_ztp_status",
         "reload_mlnx_os",
         "update_intended_os_image",
+        "validate_rendered_image_change",
         "wait_reboot",
     }
     assert {activity_name(item) for item in NVLINKSWITCH_FIRMWARE_ACTIVITIES} == {
@@ -199,7 +196,7 @@ def test_deployment_domain_catalogs_are_immutable_and_collision_free() -> None:
 
 
 def test_device_operation_catalogs_are_immutable_and_collision_free() -> None:
-    """Device-operation catalogs contain all 25 moved activities exactly once."""
+    """Device-operation catalogs contain all 26 activities exactly once."""
     catalogs = (
         CABLE_VALIDATION_ACTIVITIES,
         BMC_ACTIVITIES,
@@ -209,7 +206,7 @@ def test_device_operation_catalogs_are_immutable_and_collision_free() -> None:
     activities = tuple(item for catalog in catalogs for item in catalog)
 
     assert all(isinstance(catalog, tuple) for catalog in catalogs)
-    assert len(activities) == 25
+    assert len(activities) == 26
     assert len(activities) == len({id(item) for item in activities})
     assert {activity_name(item) for item in activities} == {
         "create_consolidated_excel_export",
@@ -237,6 +234,7 @@ def test_device_operation_catalogs_are_immutable_and_collision_free() -> None:
         "validate_device_neighbors",
         "validate_password_diff",
         "validate_platform_support",
+        "validate_rendered_password_change",
     }
 
 

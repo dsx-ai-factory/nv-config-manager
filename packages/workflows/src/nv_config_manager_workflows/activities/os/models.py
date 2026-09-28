@@ -14,8 +14,21 @@
 # limitations under the License.
 """Temporal payload models for operating-system image activities."""
 
+from datetime import timedelta
+
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData
 from pydantic import BaseModel
+
+_IMAGE_RENDER_POLL_TIMEOUT = timedelta(minutes=5)
+_IMAGE_RENDER_POLL_INTERVAL_SECONDS = 30
+_JUNIPER_INTENDED_CONFIG_FILE = "full-config"
+
+
+class ValidateRenderedImageChangeInput(BaseModel):
+    """Input for validating the rendered image change."""
+
+    device_data: NetworkDeviceData
+    desired_image: str
 
 
 class GetCurrentOSInput(BaseModel):
@@ -195,4 +208,5 @@ __all__ = [
     "UpdateIntendedOSImageInput",
     "WaitRebootInput",
     "WaitRebootOutput",
+    "ValidateRenderedImageChangeInput",
 ]

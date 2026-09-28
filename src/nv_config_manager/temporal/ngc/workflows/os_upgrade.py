@@ -53,14 +53,12 @@ with workflow.unsafe.imports_passed_through():
         PollImageInput,
         PollZTPStatusInput,
         UpdateIntendedOSImageInput,
+        ValidateRenderedImageChangeInput,
         execute_ztp,
         get_os_image_versions,
         poll_image,
         poll_ztp_status,
         update_intended_os_image,
-    )
-    from nv_config_manager_workflows.activities.render import (
-        ValidateRenderedImageChangeInput,
         validate_rendered_image_change,
     )
 

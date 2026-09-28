@@ -20,12 +20,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from nv_config_manager_workflows import runtime as runtime_module
-from nv_config_manager_workflows.activities import slack as slack_activities
 from nv_config_manager_workflows.activities.slack import (
     SlackMessageInput,
     SlackMessageOutput,
     send_slack_message,
 )
+from nv_config_manager_workflows.activities.slack import activities as slack_activities
 from nv_config_manager_workflows.runtime import (
     SlackNotConfiguredError,
     SlackRuntime,

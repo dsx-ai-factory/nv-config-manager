@@ -24,7 +24,7 @@ from nv_config_manager_dcim.workflow_models import NetworkDeviceData, OSImageVer
 from pytest_mock import MockerFixture
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager_workflows.activities import os as os_activities
+from nv_config_manager_workflows.activities import os as os_root
 from nv_config_manager_workflows.activities.os import (
     CleanupMlnxOSInput,
     DownloadMlnxOSInput,
@@ -38,7 +38,6 @@ from nv_config_manager_workflows.activities.os import (
     ReloadMlnxOSInput,
     UpdateIntendedOSImageInput,
     WaitRebootInput,
-    check_ztp_success,
     cleanup_mlnx_os,
     download_mlnx_os,
     execute_ztp,
@@ -53,6 +52,7 @@ from nv_config_manager_workflows.activities.os import (
     update_intended_os_image,
     wait_reboot,
 )
+from nv_config_manager_workflows.activities.os import activities as os_activities
 from nv_config_manager_workflows.clients.device.base import NetworkConnection
 from nv_config_manager_workflows.clients.device.mellanox import MellanoxConnection
 
@@ -215,10 +215,10 @@ def test_ztp_success_helpers_preserve_timestamp_semantics(mocker: MockerFixture)
     _mock_now(mocker, execution_time + timedelta(minutes=2))
 
     assert helpers._verify_device_rebooted(device, execution_time) is True
-    assert check_ztp_success(device, None) is True
+    assert helpers.check_ztp_success(device, None) is True
 
     device.get_ztp_status.return_value = "in-progress"
-    assert check_ztp_success(device, execution_time) is False
+    assert helpers.check_ztp_success(device, execution_time) is False
 
 
 def test_verify_device_rebooted_swallows_connection_failure() -> None:
@@ -234,7 +234,7 @@ def test_os_root_does_not_bind_private_helper_implementation_details() -> None:
         "_verify_device_rebooted",
     )
 
-    assert all(not hasattr(os_activities, name) for name in private_names)
+    assert all(not hasattr(os_root, name) for name in private_names)
 
 
 def test_poll_ztp_status_supports_legacy_missing_timestamp(mocker: MockerFixture) -> None:

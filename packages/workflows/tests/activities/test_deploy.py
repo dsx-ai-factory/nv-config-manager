@@ -24,7 +24,6 @@ from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from pytest_mock import MockerFixture
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager_workflows.activities import deploy as deploy_activities
 from nv_config_manager_workflows.activities.deploy import (
     ConfigApplyActivityInput,
     DiffActivityInput,
@@ -38,6 +37,7 @@ from nv_config_manager_workflows.activities.deploy import (
     validate_config_diff,
     wait_for_tenant_render,
 )
+from nv_config_manager_workflows.activities.deploy import activities as deploy_activities
 from nv_config_manager_workflows.clients.device.base import NetworkConnection
 from nv_config_manager_workflows.runtime import ConfigStoreRuntime
 

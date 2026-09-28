@@ -12,31 +12,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Simple reusable Hello World activities."""
-
-from temporalio import activity
+"""Reusable helpers for configuration backup activities."""
 
 
-@activity.defn
-async def hello_world_activity(name: str) -> str:
-    """Say hello."""
-    return f"Hello, {name}!"
+def resolve_user_domain(user_domain: str | None, default_user_domain: str) -> str:
+    """Use the configured user domain only when one was not supplied."""
+    return default_user_domain if user_domain is None else user_domain
 
 
-@activity.defn
-async def hello_world_prompt_activity() -> str:
-    """Ask whether the caller would like to be greeted."""
-    return "Would you like to be greeted?"
+def backup_filename(path: str) -> str:
+    """Return the final component of a Config Store backup path."""
+    return path.split("/")[-1]
 
 
-@activity.defn
-async def hello_world_reject_activity() -> str:
-    """Reject the greeting."""
-    return "Goodbye!"
+def format_backup_markdown(url: str) -> str:
+    """Format a link to a configuration backup for workflow output."""
+    return f"[Configuration Backup]({url})"
 
 
-HELLO_WORLD_ACTIVITIES = (
-    hello_world_activity,
-    hello_world_prompt_activity,
-    hello_world_reject_activity,
-)
+__all__ = ["backup_filename", "format_backup_markdown", "resolve_user_domain"]

@@ -20,6 +20,13 @@ from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from pydantic import BaseModel
 
 
+class ValidateRenderedPasswordChangeInput(BaseModel):
+    """Input for validating the rendered password change."""
+
+    device_data: NetworkDeviceData
+    desired_password_string: str
+
+
 class ValidatePasswordDiffInput(BaseModel):
     """Input for validating password diff."""
 
@@ -79,4 +86,5 @@ __all__ = [
     "ValidatePasswordDiffOutput",
     "ValidatePlatformSupportInput",
     "ValidatePlatformSupportOutput",
+    "ValidateRenderedPasswordChangeInput",
 ]

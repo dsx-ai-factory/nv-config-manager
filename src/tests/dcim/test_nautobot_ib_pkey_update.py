@@ -31,20 +31,18 @@ from aioresponses import CallbackResult, aioresponses
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.temporal.common.secrets import clear_secrets_cache
-from nv_config_manager_workflows.activities.ib_dcim import (
-    FetchPKeyAssignmentsInput,
-    ResolvedInterface,
-    SyncPKeyAssignmentsInput,
-    fetch_pkey_assignments,
-    sync_pkey_assignments,
-)
 from nv_config_manager_workflows.activities.ib_pkey import (
+    FetchPKeyAssignmentsInput,
     FetchPKeyMembersInput,
     RemoveGuidsInput,
+    ResolvedInterface,
     SetGuidsInput,
+    SyncPKeyAssignmentsInput,
+    fetch_pkey_assignments,
     fetch_pkey_members,
     remove_guids_from_pkey,
     set_pkey_members,
+    sync_pkey_assignments,
 )
 from nv_config_manager_workflows.clients.ufm import UFMClientError
 

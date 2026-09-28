@@ -22,13 +22,19 @@ from nv_config_manager_workflows.activities.diagnostics import (
     RunDiagnosticsOutput,
     TechSupportInput,
     TechSupportOutput,
+    UploadAttachmentOutput,
+    UploadTechSupportFromRedisInput,
     collect_tech_support_bundle,
     get_available_commands,
     run_diagnostic_commands,
+    upload_tech_support_from_redis,
     validate_commands,
 )
 
 __all__ = [
+    "upload_tech_support_from_redis",
+    "UploadAttachmentOutput",
+    "UploadTechSupportFromRedisInput",
     "COMMAND_DESCRIPTIONS",
     "DIAGNOSTICS_ACTIVITIES",
     "PLATFORM_COMMANDS",

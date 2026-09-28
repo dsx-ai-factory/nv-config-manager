@@ -22,6 +22,7 @@ import pytest
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 
 from nv_config_manager_workflows.activities import diagnostics
+from nv_config_manager_workflows.activities.diagnostics import activities as diagnostics_activities
 from nv_config_manager_workflows.activities.diagnostics import helpers, models
 from nv_config_manager_workflows.tech_support import TECH_SUPPORT_BUNDLE_TTL, tech_support_key
 
@@ -73,7 +74,7 @@ def test_run_diagnostics_uses_one_closed_connection_and_captures_each_error(
     connection = MagicMock()
     connection.run_diagnostic_command.side_effect = ["version output", RuntimeError("failed")]
     provider = Mock(return_value=connection)
-    monkeypatch.setattr(diagnostics, "get_device_connection", provider)
+    monkeypatch.setattr(diagnostics_activities, "get_device_connection", provider)
 
     result = diagnostics.run_diagnostic_commands(
         diagnostics.RunDiagnosticsInput(
@@ -120,19 +121,21 @@ def test_collect_tech_support_stores_raw_bytes_and_reports_heartbeats(
     cache = Mock()
     cache.set = AsyncMock()
     heartbeats = Mock()
-    monkeypatch.setattr(diagnostics, "get_device_connection", Mock(return_value=connection))
-    monkeypatch.setattr(diagnostics, "get_redis_client", Mock(return_value=cache))
     monkeypatch.setattr(
-        diagnostics, "get_api_base_url", Mock(return_value="https://api.example.test/")
+        diagnostics_activities, "get_device_connection", Mock(return_value=connection)
+    )
+    monkeypatch.setattr(diagnostics_activities, "get_redis_client", Mock(return_value=cache))
+    monkeypatch.setattr(
+        diagnostics_activities, "get_api_base_url", Mock(return_value="https://api.example.test/")
     )
     monkeypatch.setattr(
-        diagnostics.activity,
+        diagnostics_activities.activity,
         "info",
         Mock(return_value=Mock(workflow_id="workflow: 42")),
     )
-    monkeypatch.setattr(diagnostics.activity, "heartbeat", heartbeats)
+    monkeypatch.setattr(diagnostics_activities.activity, "heartbeat", heartbeats)
     monkeypatch.setattr(
-        diagnostics, "time", Mock(monotonic=Mock(side_effect=[100.0, 121.9, 145.8]))
+        diagnostics_activities, "time", Mock(monotonic=Mock(side_effect=[100.0, 121.9, 145.8]))
     )
 
     result = diagnostics.collect_tech_support_bundle(
@@ -170,12 +173,18 @@ def test_collect_tech_support_allows_intentionally_blank_api_url(
     connection = MagicMock()
     connection.get_tech_support_bundle.return_value = (b"bundle", "")
     cache = Mock(set=AsyncMock())
-    monkeypatch.setattr(diagnostics, "get_device_connection", Mock(return_value=connection))
-    monkeypatch.setattr(diagnostics, "get_redis_client", Mock(return_value=cache))
-    monkeypatch.setattr(diagnostics, "get_api_base_url", Mock(return_value=""))
-    monkeypatch.setattr(diagnostics.activity, "info", Mock(return_value=Mock(workflow_id="wf")))
-    monkeypatch.setattr(diagnostics.activity, "heartbeat", Mock())
-    monkeypatch.setattr(diagnostics, "time", Mock(monotonic=Mock(side_effect=[1.0, 2.0])))
+    monkeypatch.setattr(
+        diagnostics_activities, "get_device_connection", Mock(return_value=connection)
+    )
+    monkeypatch.setattr(diagnostics_activities, "get_redis_client", Mock(return_value=cache))
+    monkeypatch.setattr(diagnostics_activities, "get_api_base_url", Mock(return_value=""))
+    monkeypatch.setattr(
+        diagnostics_activities.activity, "info", Mock(return_value=Mock(workflow_id="wf"))
+    )
+    monkeypatch.setattr(diagnostics_activities.activity, "heartbeat", Mock())
+    monkeypatch.setattr(
+        diagnostics_activities, "time", Mock(monotonic=Mock(side_effect=[1.0, 2.0]))
+    )
 
     result = diagnostics.collect_tech_support_bundle(
         diagnostics.TechSupportInput(device_data=TEST_DEVICE)
@@ -188,7 +197,9 @@ def test_collect_tech_support_requires_workflow_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Collection still rejects execution outside a workflow context."""
-    monkeypatch.setattr(diagnostics.activity, "info", Mock(return_value=Mock(workflow_id=None)))
+    monkeypatch.setattr(
+        diagnostics_activities.activity, "info", Mock(return_value=Mock(workflow_id=None))
+    )
 
     try:
         diagnostics.collect_tech_support_bundle(

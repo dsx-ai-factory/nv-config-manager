@@ -43,21 +43,19 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.ngc.workflows._ib_pkey_helpers import (
         call_resolve_ib_site_for_host,
     )
-    from nv_config_manager_workflows.activities.ib_dcim import (
-        RecordIBPKeyInDCIMInput,
-        RecordIBPKeyInDCIMOutput,
-        RecordIBPKeyInNautobotInput,
-        record_ib_pkey_in_dcim,
-        record_ib_pkey_in_nautobot,
-    )
     from nv_config_manager_workflows.activities.ib_pkey import (
         CreatePKeyInput,
         CreatePKeyOutput,
+        RecordIBPKeyInDCIMInput,
+        RecordIBPKeyInDCIMOutput,
+        RecordIBPKeyInNautobotInput,
         ValidatePKeyInput,
         ValidatePKeyOutput,
         VerifyPKeyInput,
         VerifyPKeyOutput,
         create_pkey_on_ufm,
+        record_ib_pkey_in_dcim,
+        record_ib_pkey_in_nautobot,
         validate_pkey_available,
         verify_pkey_created,
     )

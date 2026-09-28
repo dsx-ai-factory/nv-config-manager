@@ -70,9 +70,9 @@ def test_package_reexports_models_and_helpers() -> None:
     assert not hasattr(device_password_rotation, "_validate_junos_diff")
 
 
-def test_password_rotation_catalog_has_four_unique_activities() -> None:
-    assert len(DEVICE_PASSWORD_ROTATION_ACTIVITIES) == 4
-    assert len({activity_name(item) for item in DEVICE_PASSWORD_ROTATION_ACTIVITIES}) == 4
+def test_password_rotation_catalog_has_five_unique_activities() -> None:
+    assert len(DEVICE_PASSWORD_ROTATION_ACTIVITIES) == 5
+    assert len({activity_name(item) for item in DEVICE_PASSWORD_ROTATION_ACTIVITIES}) == 5
 
 
 @pytest.mark.asyncio

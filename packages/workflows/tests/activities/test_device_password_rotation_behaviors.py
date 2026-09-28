@@ -257,7 +257,7 @@ class TestGetPasswordMappings:
         input_data = GetPasswordMappingsInput(device=device, username="cumulus")
 
         with patch(
-            "nv_config_manager_workflows.activities.device_password_rotation.get_dcim_client",
+            "nv_config_manager_workflows.activities.device_password_rotation.activities.get_dcim_client",
             return_value=_password_mapping_client({"cumulus"}),
         ):
             result = asyncio.run(get_password_mappings(input_data))
@@ -285,7 +285,7 @@ class TestGetPasswordMappings:
         input_data = GetPasswordMappingsInput(device=device, username="admin")
 
         with patch(
-            "nv_config_manager_workflows.activities.device_password_rotation.get_dcim_client",
+            "nv_config_manager_workflows.activities.device_password_rotation.activities.get_dcim_client",
             return_value=_password_mapping_client({"cumulus", "admin"}),
         ):
             result = asyncio.run(get_password_mappings(input_data))
@@ -314,7 +314,7 @@ class TestGetPasswordMappings:
 
         with (
             patch(
-                "nv_config_manager_workflows.activities.device_password_rotation.get_dcim_client",
+                "nv_config_manager_workflows.activities.device_password_rotation.activities.get_dcim_client",
                 return_value=_password_mapping_client(set()),
             ),
             pytest.raises(ApplicationError) as exc_info,

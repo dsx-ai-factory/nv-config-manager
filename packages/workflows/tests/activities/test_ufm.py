@@ -19,9 +19,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 from nv_config_manager_workflows.activities.ufm import (
     GetUFMPortsInput,
-    _generate_ports_csv,
     get_ib_ports,
 )
+from nv_config_manager_workflows.activities.ufm.helpers import _generate_ports_csv
 from nv_config_manager_workflows.clients.ufm import UFMClient
 from nv_config_manager_workflows.runtime import configure_ufm_client
 

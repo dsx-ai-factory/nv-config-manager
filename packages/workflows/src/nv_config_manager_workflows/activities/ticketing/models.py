@@ -61,19 +61,11 @@ class AddCommentOutput(BaseModel):
     comment_id: str
 
 
-class UploadTechSupportFromRedisInput(BaseModel):
-    ticketing_platform: str
-    issue_key: str
-    device_name: str
-    redis_key: str  # key used by collect_tech_support_bundle to store the bundle
-
-
 __all__ = [
     "AddCommentInput",
     "AddCommentOutput",
     "UploadAttachmentInput",
     "UploadAttachmentOutput",
-    "UploadTechSupportFromRedisInput",
     "ValidateTicketInput",
     "ValidateTicketOutput",
 ]

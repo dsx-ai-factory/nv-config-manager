@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Freeze the service contracts for the planned IB/DCIM package extraction."""
+"""Freeze the DCIM activity contracts in the combined IB PKey package."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from nv_config_manager_dcim import IBHostSite
 from pydantic import BaseModel
 from temporalio import activity
 
-from nv_config_manager.temporal.ngc.activities import ib_dcim, ib_nautobot
+from nv_config_manager.temporal.ngc.activities import ib_nautobot
 from nv_config_manager.temporal.ngc.workflows.ib_pkey_member_add import (
     IBPKeyMemberAddInput,
     IBPKeyMemberAddWorkflow,
@@ -40,8 +40,10 @@ from nv_config_manager.temporal.ngc.workflows.ib_pkey_member_update import (
     IBPKeyMemberUpdateInput,
     IBPKeyMemberUpdateWorkflow,
 )
-from nv_config_manager_workflows.activities.ib_dcim import IB_DCIM_ACTIVITIES
+from nv_config_manager_workflows.activities import ib_pkey
+from nv_config_manager_workflows.activities.ib_pkey import IB_PKEY_ACTIVITIES
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin, build_workflow_lock_key
+from nv_config_manager_workflows.mixins import ib_pkey as ib_pkey_mixins
 
 _CANONICAL_HOST = "10.0.0.5"
 _UFM_DEVICE_NAME = "ufm01"
@@ -139,12 +141,12 @@ def _schema_digest(model: type[BaseModel]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def test_ib_dcim_activity_names_and_payload_types_are_frozen() -> None:
+def test_ib_pkey_dcim_activity_names_and_payload_types_are_frozen() -> None:
     """Moving implementations must not change names recorded in workflow history."""
     actual_contracts: dict[str, tuple[str, str]] = {}
 
     for attribute_name, (input_name, output_name) in _ACTIVITY_CONTRACTS.items():
-        activity_callable = getattr(ib_dcim, attribute_name)
+        activity_callable = getattr(ib_pkey, attribute_name)
         assert inspect.iscoroutinefunction(activity_callable)
         definition = activity._Definition.must_from_callable(activity_callable)
         assert definition.name == attribute_name
@@ -159,9 +161,9 @@ def test_ib_dcim_activity_names_and_payload_types_are_frozen() -> None:
         assert actual_contracts[definition.name] == (input_name, output_name)
 
     assert actual_contracts == _ACTIVITY_CONTRACTS
-    assert len(actual_contracts) == len(IB_DCIM_ACTIVITIES) == 14
+    assert len(actual_contracts) == len(IB_PKEY_ACTIVITIES[9:]) == 14
     assert {
-        activity._Definition.must_from_callable(item).name for item in IB_DCIM_ACTIVITIES
+        activity._Definition.must_from_callable(item).name for item in IB_PKEY_ACTIVITIES[9:]
     } == set(_ACTIVITY_CONTRACTS)
 
 
@@ -202,35 +204,30 @@ def test_legacy_activity_contracts_remain_explicit(
     modern_output: str,
 ) -> None:
     """Legacy names retain their own Temporal entries and modern payload types."""
-    legacy_definition = activity._Definition.must_from_callable(getattr(ib_dcim, legacy_activity))
-    modern_definition = activity._Definition.must_from_callable(getattr(ib_dcim, modern_activity))
+    legacy_definition = activity._Definition.must_from_callable(getattr(ib_pkey, legacy_activity))
+    modern_definition = activity._Definition.must_from_callable(getattr(ib_pkey, modern_activity))
 
     assert legacy_definition.name == legacy_activity
     assert modern_definition.name == modern_activity
-    assert getattr(ib_dcim, legacy_input) is getattr(ib_dcim, modern_input)
-    assert getattr(ib_dcim, legacy_output) is getattr(ib_dcim, modern_output)
+    assert getattr(ib_pkey, legacy_input) is getattr(ib_pkey, modern_input)
+    assert getattr(ib_pkey, legacy_output) is getattr(ib_pkey, modern_output)
 
 
-def test_ib_dcim_temporal_payload_schemas_are_frozen() -> None:
+def test_ib_pkey_dcim_temporal_payload_schemas_are_frozen() -> None:
     """The activity move must retain the JSON shapes already stored in histories."""
     actual = {
-        model_name: _schema_digest(getattr(ib_dcim, model_name))
+        model_name: _schema_digest(getattr(ib_pkey, model_name))
         for model_name in _PAYLOAD_SCHEMA_SHA256
     }
 
     assert actual == _PAYLOAD_SCHEMA_SHA256
 
 
-def test_legacy_ib_nautobot_module_is_the_ib_dcim_module() -> None:
+def test_legacy_ib_nautobot_module_is_the_ib_pkey_module() -> None:
     """The oldest service import path must keep exposing the same objects."""
-    assert ib_nautobot is ib_dcim
+    assert ib_nautobot is ib_pkey
     for activity_name in _ACTIVITY_CONTRACTS:
-        assert getattr(ib_nautobot, activity_name) is getattr(ib_dcim, activity_name)
-
-    private_names = {
-        name for name in vars(ib_dcim) if name.startswith("_") and not name.startswith("__")
-    }
-    assert private_names == {"_dcim_workflow_client"}
+        assert getattr(ib_nautobot, activity_name) is getattr(ib_pkey, activity_name)
 
 
 class _CanonicalizationClient:
@@ -294,7 +291,7 @@ async def test_canonicalization_preserves_member_workflow_lock_keys(
     inputs: tuple[BaseModel, BaseModel],
 ) -> None:
     """Equivalent UFM identifiers must retain the exact same distributed lock key."""
-    monkeypatch.setattr(ib_dcim, "_dcim_workflow_client", _canonicalization_client)
+    monkeypatch.setattr(ib_pkey_mixins, "dcim_client_session", _canonicalization_client)
     lock_spec = workflow_class.get_workflow_lock()
     assert lock_spec is not None
     assert lock_spec.key_fields == ["host", "pkey"]

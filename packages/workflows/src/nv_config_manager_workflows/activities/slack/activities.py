@@ -12,30 +12,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Activities for sending Slack notifications."""
+"""Slack notification activity implementation."""
 
 from nv_config_manager_logging import LogCategory, get_logger
-from pydantic import BaseModel
 from slack_sdk import WebClient
 from temporalio import activity
 
+from nv_config_manager_workflows.activities.slack.helpers import build_message
+from nv_config_manager_workflows.activities.slack.models import (
+    SlackMessageInput,
+    SlackMessageOutput,
+)
 from nv_config_manager_workflows.runtime import get_slack_runtime, get_ui_base_url
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
-
-
-class SlackMessageInput(BaseModel):
-    """Slack message input."""
-
-    message: str
-    thread_ts: str | None = None
-    link_workflow: bool = False
-
-
-class SlackMessageOutput(BaseModel):
-    """Slack message output."""
-
-    thread_ts: str | None = None
 
 
 @activity.defn
@@ -57,12 +47,11 @@ async def send_slack_message(input: SlackMessageInput) -> SlackMessageOutput:
 
     message = input.message
     if input.link_workflow:
-        ui_url = get_ui_base_url().rstrip("/")
-        workflow_id = activity.info().workflow_id
-        message += f"\nView workflow: {ui_url}/workflows/{workflow_id}"
+        message = build_message(
+            message,
+            ui_base_url=get_ui_base_url(),
+            workflow_id=activity.info().workflow_id,
+        )
 
     result = client.chat_postMessage(channel=channel, text=message, thread_ts=input.thread_ts)
     return SlackMessageOutput(thread_ts=result["ts"])
-
-
-SLACK_ACTIVITIES = (send_slack_message,)

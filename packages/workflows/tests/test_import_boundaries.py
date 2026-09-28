@@ -19,48 +19,53 @@ from pathlib import Path
 
 _PACKAGE_ROOT = Path(__file__).parents[1] / "src" / "nv_config_manager_workflows"
 _CLIENT_ROOT = _PACKAGE_ROOT / "clients"
-_DCIM_ROOT = _PACKAGE_ROOT / "activities" / "dcim"
-_IB_DCIM_ROOT = _PACKAGE_ROOT / "activities" / "ib_dcim"
+_ACTIVITIES_ROOT = _PACKAGE_ROOT / "activities"
+_DCIM_ROOT = _ACTIVITIES_ROOT / "dcim"
+_IB_PKEY_ROOT = _ACTIVITIES_ROOT / "ib_pkey"
 _JUNIPER_CLIENT_PATH = Path("clients/device/juniper.py")
 _CORE_BOUNDARY_PATHS = (
-    _PACKAGE_ROOT / "activities" / "builtin.py",
-    _PACKAGE_ROOT / "activities" / "config.py",
-    _PACKAGE_ROOT / "activities" / "hello_world.py",
-    _PACKAGE_ROOT / "activities" / "nats.py",
-    _PACKAGE_ROOT / "activities" / "slack.py",
+    _ACTIVITIES_ROOT / "builtin.py",
+    *(_ACTIVITIES_ROOT / "config").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "hello_world").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "nats").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "slack").glob("*.py"),
     _PACKAGE_ROOT / "tech_support.py",
 )
-_IB_DCIM_BOUNDARY_PATHS = (
+_IB_PKEY_DCIM_BOUNDARY_PATHS = (
     _PACKAGE_ROOT / "runtime.py",
+    _PACKAGE_ROOT / "dcim_session.py",
     _PACKAGE_ROOT / "mixins" / "ib_pkey.py",
     *_DCIM_ROOT.glob("*.py"),
-    *_IB_DCIM_ROOT.glob("*.py"),
+    *(
+        _IB_PKEY_ROOT / name
+        for name in ("dcim_activities.py", "models.py", "normalization.py", "resolution.py")
+    ),
 )
 _DCIM_DEVICE_INFINIBAND_ACTIVITY_PATHS = (
     *_DCIM_ROOT.glob("*.py"),
-    _PACKAGE_ROOT / "activities" / "device.py",
-    _PACKAGE_ROOT / "activities" / "ufm.py",
-    *(_PACKAGE_ROOT / "activities" / "ib_pkey").glob("*.py"),
-    *(_PACKAGE_ROOT / "activities" / "ib_guid_discovery").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "device").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "ufm").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "ib_pkey").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "ib_guid_discovery").glob("*.py"),
 )
 _DEPLOYMENT_ACTIVITY_PATHS = (
-    _PACKAGE_ROOT / "activities" / "backup.py",
-    *(_PACKAGE_ROOT / "activities" / "deploy").glob("*.py"),
-    *(_PACKAGE_ROOT / "activities" / "render").glob("*.py"),
-    *(_PACKAGE_ROOT / "activities" / "os").glob("*.py"),
-    *(_PACKAGE_ROOT / "activities" / "nvlinkswitch_firmware").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "backup").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "deploy").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "render").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "os").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "nvlinkswitch_firmware").glob("*.py"),
 )
 _DEVICE_OPERATION_ACTIVITY_PATHS = (
-    *(_PACKAGE_ROOT / "activities" / "cable_validation").glob("*.py"),
-    *(_PACKAGE_ROOT / "activities" / "hardware_validation").glob("*.py"),
-    *(_PACKAGE_ROOT / "activities" / "device_password_rotation").glob("*.py"),
-    *(_PACKAGE_ROOT / "activities" / "bmc").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "cable_validation").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "hardware_validation").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "device_password_rotation").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "bmc").glob("*.py"),
 )
 _DIAGNOSTICS_ACTIVITY_PATHS = (
-    *(_PACKAGE_ROOT / "activities" / "diagnostics").glob("*.py"),
-    *(_PACKAGE_ROOT / "activities" / "ticketing").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "diagnostics").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "ticketing").glob("*.py"),
 )
-_ALLOWED_IB_DCIM_SDK_MODULES = {
+_ALLOWED_IB_PKEY_DCIM_SDK_MODULES = {
     "nv_config_manager_dcim.api",
     "nv_config_manager_dcim.errors",
     "nv_config_manager_dcim.models",
@@ -170,11 +175,11 @@ def test_workflows_package_has_no_service_configuration_dependencies() -> None:
     assert violations == []
 
 
-def test_ib_dcim_slice_uses_only_provider_neutral_dcim_contracts() -> None:
-    """The moved IB/DCIM slice must not select configuration or provider implementations."""
+def test_ib_pkey_dcim_slice_uses_only_provider_neutral_dcim_contracts() -> None:
+    """The PKey DCIM slice must not select configuration or provider implementations."""
     violations: list[str] = []
 
-    for path in sorted(_IB_DCIM_BOUNDARY_PATHS):
+    for path in sorted(_IB_PKEY_DCIM_BOUNDARY_PATHS):
         relative_path = path.relative_to(_PACKAGE_ROOT)
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
@@ -196,7 +201,7 @@ def test_ib_dcim_slice_uses_only_provider_neutral_dcim_contracts() -> None:
                     or _is_concrete_dcim_provider_module(module)
                     or (
                         module.startswith("nv_config_manager_dcim")
-                        and module not in _ALLOWED_IB_DCIM_SDK_MODULES
+                        and module not in _ALLOWED_IB_PKEY_DCIM_SDK_MODULES
                     )
                 ):
                     assert lineno is not None

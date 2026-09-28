@@ -14,6 +14,10 @@
 # limitations under the License.
 """Compatibility facade for package-owned ticketing activities."""
 
+from nv_config_manager_workflows.activities.diagnostics import (
+    UploadTechSupportFromRedisInput,
+    upload_tech_support_from_redis,
+)
 from nv_config_manager_workflows.activities.ticketing import (
     TICKETING_ACTIVITIES,
     AddCommentInput,
@@ -21,12 +25,10 @@ from nv_config_manager_workflows.activities.ticketing import (
     JiraClientError,
     UploadAttachmentInput,
     UploadAttachmentOutput,
-    UploadTechSupportFromRedisInput,
     ValidateTicketInput,
     ValidateTicketOutput,
     add_ticket_comment,
     upload_attachment,
-    upload_tech_support_from_redis,
     validate_ticket,
 )
 

@@ -12,18 +12,23 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Configuration-related activities and utilities for Temporal workflows."""
+"""Simple reusable Hello World activities."""
 
-from temporalio import activity
+from nv_config_manager_workflows.activities.hello_world.activities import (
+    hello_world_activity,
+    hello_world_prompt_activity,
+    hello_world_reject_activity,
+)
 
-from nv_config_manager_workflows.runtime import get_ui_base_url as configured_ui_base_url
-from nv_config_manager_workflows.workflow_urls import build_workflow_url as build_workflow_url
+HELLO_WORLD_ACTIVITIES = (
+    hello_world_activity,
+    hello_world_prompt_activity,
+    hello_world_reject_activity,
+)
 
-
-@activity.defn
-def get_ui_base_url() -> str:
-    """Return the configured NVCM UI base URL."""
-    return configured_ui_base_url()
-
-
-CONFIG_ACTIVITIES = (get_ui_base_url,)
+__all__ = [
+    "HELLO_WORLD_ACTIVITIES",
+    "hello_world_activity",
+    "hello_world_prompt_activity",
+    "hello_world_reject_activity",
+]

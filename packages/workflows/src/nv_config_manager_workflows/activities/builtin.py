@@ -31,7 +31,6 @@ from nv_config_manager_workflows.activities.hardware_validation import (
     HARDWARE_VALIDATION_ACTIVITIES,
 )
 from nv_config_manager_workflows.activities.hello_world import HELLO_WORLD_ACTIVITIES
-from nv_config_manager_workflows.activities.ib_dcim import IB_DCIM_ACTIVITIES
 from nv_config_manager_workflows.activities.ib_guid_discovery import (
     IB_GUID_DISCOVERY_ACTIVITIES,
 )
@@ -55,7 +54,6 @@ BUILTIN_ACTIVITIES = (
     *DCIM_ACTIVITIES,
     *UFM_ACTIVITIES,
     *IB_PKEY_ACTIVITIES,
-    *IB_DCIM_ACTIVITIES,
     *IB_GUID_DISCOVERY_ACTIVITIES,
     *HELLO_WORLD_ACTIVITIES,
     *LOCK_ACTIVITIES,

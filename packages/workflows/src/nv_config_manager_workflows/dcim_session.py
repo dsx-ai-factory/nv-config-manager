@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Runtime-provided DCIM client session."""
+"""Runtime-provided DCIM client session shared by activities and API input handling."""
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -36,6 +36,3 @@ async def dcim_client_session() -> AsyncGenerator[DCIMClient]:
             str(error),
             non_retryable=bool(getattr(error, "non_retryable", False)),
         ) from error
-
-
-__all__ = ["dcim_client_session"]

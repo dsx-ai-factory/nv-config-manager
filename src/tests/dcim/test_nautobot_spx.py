@@ -502,7 +502,7 @@ async def test_reconcile_spx_overlay_assignments_retry_retains_completed_change_
             await reconcile_spx_overlay_assignments(activity_input)
 
         with patch(
-            "nv_config_manager_workflows.activities.dcim.activity.info"
+            "nv_config_manager_workflows.activities.dcim.activities.activity.info"
         ) as mock_activity_info:
             mock_activity_info.return_value.attempt = 2
             result = await reconcile_spx_overlay_assignments(activity_input)

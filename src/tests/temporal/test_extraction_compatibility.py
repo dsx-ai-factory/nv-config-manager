@@ -230,15 +230,21 @@ def test_backup_and_deploy_compatibility_paths_export_canonical_objects() -> Non
 
 
 def test_render_compatibility_path_exports_canonical_objects() -> None:
-    """The moved Render path exposes exact package-owned models and activities."""
-    assert legacy_render_activities.__all__ == canonical_render_activities.__all__
+    """The Render service path retains validators moved to their owning domains."""
+    assert set(canonical_render_activities.__all__) <= set(legacy_render_activities.__all__)
     for name in canonical_render_activities.__all__:
         assert getattr(legacy_render_activities, name) is getattr(canonical_render_activities, name)
+    for name in ("ValidateRenderedImageChangeInput", "validate_rendered_image_change"):
+        assert getattr(legacy_render_activities, name) is getattr(canonical_os_activities, name)
+    for name in ("ValidateRenderedPasswordChangeInput", "validate_rendered_password_change"):
+        assert getattr(legacy_render_activities, name) is getattr(
+            canonical_device_password_rotation_activities, name
+        )
 
 
 def test_os_compatibility_path_exports_canonical_objects() -> None:
     """The moved OS path exposes exact package-owned models and activities."""
-    assert legacy_os_activities.__all__ == canonical_os_activities.__all__
+    assert set(legacy_os_activities.__all__) == set(canonical_os_activities.__all__)
     for name in canonical_os_activities.__all__:
         assert getattr(legacy_os_activities, name) is getattr(canonical_os_activities, name)
 
@@ -281,7 +287,7 @@ def test_device_operation_compatibility_paths_export_canonical_objects(
     canonical_module: ModuleType,
 ) -> None:
     """Moved device-operation paths expose exact package-owned supported objects."""
-    assert legacy_module.__all__ == canonical_module.__all__
+    assert set(legacy_module.__all__) == set(canonical_module.__all__)
     for name in canonical_module.__all__:
         assert getattr(legacy_module, name) is getattr(canonical_module, name)
 
@@ -292,9 +298,13 @@ def test_diagnostics_compatibility_paths_export_canonical_objects() -> None:
         (legacy_diagnostics_activities, canonical_diagnostics_activities),
         (legacy_ticketing_activities, canonical_ticketing_activities),
     ):
-        assert legacy_module.__all__ == canonical_module.__all__
+        assert set(canonical_module.__all__) <= set(legacy_module.__all__)
         for name in canonical_module.__all__:
             assert getattr(legacy_module, name) is getattr(canonical_module, name)
+    for name in ("UploadTechSupportFromRedisInput", "upload_tech_support_from_redis"):
+        assert getattr(legacy_ticketing_activities, name) is getattr(
+            canonical_diagnostics_activities, name
+        )
 
 
 def test_activity_facades_do_not_bind_private_implementation_names() -> None:
@@ -354,8 +364,9 @@ def test_ufm_activity_compatibility_path_exports_canonical_objects() -> None:
 
 
 def test_ib_pkey_activity_compatibility_path_exports_canonical_objects() -> None:
-    """The legacy PKey path exposes package-owned models, constants, and activities."""
-    for name in canonical_ib_pkey_activities.__all__:
+    """The legacy PKey path retains its UFM exports after the package merge."""
+    assert set(legacy_ib_pkey_activities.__all__) <= set(canonical_ib_pkey_activities.__all__)
+    for name in legacy_ib_pkey_activities.__all__:
         assert getattr(legacy_ib_pkey_activities, name) is getattr(
             canonical_ib_pkey_activities, name
         )

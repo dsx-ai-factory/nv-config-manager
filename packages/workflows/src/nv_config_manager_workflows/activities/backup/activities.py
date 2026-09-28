@@ -19,9 +19,17 @@ from contextlib import closing
 from nv_config_manager_clients._types import ConfigStoreType
 from nv_config_manager_dcim.models import ConfigurationBackupIntent
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData
-from pydantic import BaseModel
 from temporalio import activity
 
+from nv_config_manager_workflows.activities.backup.helpers import (
+    backup_filename,
+    format_backup_markdown,
+    resolve_user_domain,
+)
+from nv_config_manager_workflows.activities.backup.models import (
+    PersistConfigBackupInput,
+    RecordBackupConfigManagerPluginInput,
+)
 from nv_config_manager_workflows.runtime import (
     get_config_store_runtime,
     get_dcim_client,
@@ -36,25 +44,14 @@ def load_running_configuration(device_data: NetworkDeviceData) -> str:
         return connection.get_running_configuration()
 
 
-class PersistConfigBackupInput(BaseModel):
-    """Input class for persist_config_backup activity."""
-
-    device_data: NetworkDeviceData
-    device_running_config: str
-    commit_message: str
-    user: str
-    user_domain: str | None
-
-
 @activity.defn
 async def persist_config_backup(activity_input: PersistConfigBackupInput) -> str:
     """Persist the config backup to the Config Store."""
     runtime = get_config_store_runtime()
     client = runtime.client(ConfigStoreType.BACKUP)
-    user_domain = (
-        activity_input.user_domain
-        if activity_input.user_domain is not None
-        else runtime.default_user_domain
+    user_domain = resolve_user_domain(
+        activity_input.user_domain,
+        runtime.default_user_domain,
     )
 
     async with client:
@@ -74,18 +71,6 @@ async def persist_config_backup(activity_input: PersistConfigBackupInput) -> str
         return file.commit
 
 
-class RecordBackupConfigManagerPluginInput(BaseModel):
-    """Input class for record_backup_config_manager_plugin activity."""
-
-    workflow_id: str
-    device_id: str
-    commit_id: str
-    path: str
-    user: str
-    commit_message: str
-    deployed_commit_id: str | None
-
-
 @activity.defn
 async def record_backup_config_manager_plugin(
     activity_input: RecordBackupConfigManagerPluginInput,
@@ -93,9 +78,11 @@ async def record_backup_config_manager_plugin(
     """Record configuration-backup metadata in the configured DCIM."""
     config_store = get_config_store_runtime()
     csclient = config_store.client(ConfigStoreType.BACKUP)
-    fname = activity_input.path.split("/")[-1]
+    fname = backup_filename(activity_input.path)
 
-    markdown = f"[Configuration Backup]({csclient.file_url(device_uuid=activity_input.device_id, filename=fname)})"
+    markdown = format_backup_markdown(
+        csclient.file_url(device_uuid=activity_input.device_id, filename=fname)
+    )
 
     client = get_dcim_client()
     async with client:
@@ -135,19 +122,3 @@ async def record_backup_config_manager_plugin(
     if config_store_changed:
         return True, f"Persisted new backup configuration:\n{markdown}"
     return False, f"No diff to previous backup execution:\n{markdown}"
-
-
-BACKUP_ACTIVITIES = (
-    load_running_configuration,
-    persist_config_backup,
-    record_backup_config_manager_plugin,
-)
-
-__all__ = [
-    "BACKUP_ACTIVITIES",
-    "PersistConfigBackupInput",
-    "RecordBackupConfigManagerPluginInput",
-    "load_running_configuration",
-    "persist_config_backup",
-    "record_backup_config_manager_plugin",
-]

@@ -39,22 +39,20 @@ with workflow.unsafe.imports_passed_through():
         validate_interfaces_xor_guids,
         validate_pkey_format,
     )
-    from nv_config_manager_workflows.activities.ib_dcim import (
+    from nv_config_manager_workflows.activities.ib_pkey import (
         CleanupEmptyPartitionInput,
         CleanupEmptyPartitionOutput,
         InterfaceRef,
+        RemoveGuidsInput,
+        RemoveGuidsOutput,
         RemovePKeyAssignmentsInput,
         RemovePKeyAssignmentsOutput,
         ResolvedInterface,
-        cleanup_empty_pkey_partition,
-        remove_pkey_assignments,
-    )
-    from nv_config_manager_workflows.activities.ib_pkey import (
-        RemoveGuidsInput,
-        RemoveGuidsOutput,
         VerifyPKeyMembersAbsentInput,
         VerifyPKeyMembersAbsentOutput,
+        cleanup_empty_pkey_partition,
         remove_guids_from_pkey,
+        remove_pkey_assignments,
         verify_pkey_members_absent,
     )
 
