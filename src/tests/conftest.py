@@ -15,15 +15,18 @@
 """Top-level pytest configuration and shared fixtures."""
 
 import configparser
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
 from aiohttp import ClientResponse
+from pytest_mock import MockerFixture
 
 from nv_config_manager.common import auth as auth_mod
 from nv_config_manager.common.config import clear_config_cache
+from nv_config_manager.temporal.runtime import configure_workflow_runtime
+from nv_config_manager_workflows import runtime as workflow_runtime
 
 _CLIENT_RESPONSE_INIT = ClientResponse.__init__
 
@@ -120,7 +123,7 @@ grpc_service = temporal-frontend.example.local:7233
 api_service = http://temporal-api.example.local:9000
 api_url = https://temporal-api.example.com
 temporal_ui_url = https://temporal-ui.example.com
-ui_url = https://temporal-ui.example.com
+ui_url = https://config-manager.example.com
 use_internal_endpoint = true
 
 [temporal.elasticsearch]
@@ -177,7 +180,7 @@ def _clear_auth_config_cache() -> None:
 
 
 @pytest.fixture(autouse=True)
-def mock_ini_config(mocker):
+def mock_ini_config(mocker: MockerFixture) -> Generator[None]:
     """
     Auto-use fixture that mocks ConfigParser.read with comprehensive test config.
 
@@ -193,11 +196,21 @@ def mock_ini_config(mocker):
 
     read_func = configparser.ConfigParser.read
 
-    def mock_func(self, filenames, *args, **kwargs):
+    def mock_func(
+        self: configparser.ConfigParser,
+        filenames: Any,
+        *args: Any,
+        **kwargs: Any,
+    ) -> list[str]:
         self.read_string(_current_ini["content"])
         return read_func(self, filenames, *args, **kwargs)
 
     mocker.patch("configparser.ConfigParser.read", new=mock_func)
+    mocker.patch.object(workflow_runtime, "_nats_provider", workflow_runtime._UNSET)
+    mocker.patch.object(workflow_runtime, "_slack_provider", workflow_runtime._UNSET)
+    mocker.patch.object(workflow_runtime, "_ui_base_url_provider", workflow_runtime._UNSET)
+    mocker.patch.object(workflow_runtime, "_lock_backend_provider", workflow_runtime._UNSET)
+    configure_workflow_runtime()
 
     yield
 
@@ -207,7 +220,7 @@ def mock_ini_config(mocker):
 
 
 @pytest.fixture()
-def custom_ini():
+def custom_ini() -> Callable[[str], None]:
     """
     Fixture to override INI config with custom content for specific tests.
 
@@ -222,7 +235,7 @@ def custom_ini():
     Note: This also clears the load_config() cache to ensure the new config is used.
     """
 
-    def _set_ini(ini_content: str):
+    def _set_ini(ini_content: str) -> None:
         # Update the shared INI content
         _current_ini["content"] = ini_content
         # Clear the cached config so it will be reloaded with new settings

@@ -15,13 +15,18 @@
 """Reusable infrastructure behavior without application configuration."""
 
 from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from redis.exceptions import LockNotOwnedError
 
-from nv_config_manager_infrastructure.lock import acquire_lock, release_lock, renew_lock
-from nv_config_manager_infrastructure.nats import NatsClient
+from nv_config_manager_infrastructure.lock import (
+    TokenLockBackend,
+    acquire_lock,
+    release_lock,
+    renew_lock,
+)
+from nv_config_manager_infrastructure.nats import NatsClient, nats_server_for_logging
 from nv_config_manager_infrastructure.nats.consumer import NatsConsumer
 from nv_config_manager_infrastructure.nats.producer import NatsProducer
 from nv_config_manager_infrastructure.redis import RedisClient
@@ -56,6 +61,62 @@ async def test_token_locks_keep_ownership_semantics() -> None:
     assert await acquire_lock(None, "owner")
 
 
+async def test_token_lock_backend_supports_explicit_noop_mode() -> None:
+    backend = TokenLockBackend(None)
+
+    assert await backend.acquire(
+        "workflow:site-1",
+        "owner",
+        timeout=30,
+        blocking_timeout=2.5,
+        blocking=False,
+    )
+    assert await backend.renew("workflow:site-1", "owner", timeout=30)
+    assert await backend.release("workflow:site-1", "owner")
+
+
+async def test_token_lock_backend_constructs_locks_and_delegates_operations() -> None:
+    redis = MagicMock()
+    lock = MagicMock()
+    acquire = AsyncMock(return_value=True)
+    renew = AsyncMock(return_value=True)
+    release = AsyncMock(return_value=True)
+
+    with (
+        patch(
+            "nv_config_manager_infrastructure.lock.AsyncRedisLock",
+            return_value=lock,
+        ) as lock_type,
+        patch("nv_config_manager_infrastructure.lock.acquire_lock", new=acquire),
+        patch("nv_config_manager_infrastructure.lock.renew_lock", new=renew),
+        patch("nv_config_manager_infrastructure.lock.release_lock", new=release),
+    ):
+        backend = TokenLockBackend(redis)
+        assert await backend.acquire(
+            "workflow:site-1",
+            "owner",
+            timeout=30,
+            blocking_timeout=2.5,
+            blocking=False,
+        )
+        assert await backend.renew("workflow:site-1", "owner", timeout=45)
+        assert await backend.release("workflow:site-1", "owner")
+
+    assert lock_type.call_args_list == [
+        call(redis, "workflow:site-1", timeout=30),
+        call(redis, "workflow:site-1", timeout=45),
+        call(redis, "workflow:site-1", timeout=1),
+    ]
+    acquire.assert_awaited_once_with(
+        lock,
+        "owner",
+        blocking_timeout=2.5,
+        blocking=False,
+    )
+    renew.assert_awaited_once_with(lock, "owner")
+    release.assert_awaited_once_with(lock, "owner")
+
+
 def test_clients_have_no_ini_factory() -> None:
     assert not hasattr(RedisClient, "from_config")
     assert not hasattr(NatsClient, "from_config")
@@ -63,6 +124,27 @@ def test_clients_have_no_ini_factory() -> None:
     assert client.api_prefix == "$JS.custom.API"
     assert issubclass(NatsProducer, NatsClient)
     assert issubclass(NatsConsumer, NatsClient)
+
+
+@pytest.mark.parametrize(
+    ("server", "expected"),
+    [
+        (
+            "tls://alice:p%40ss@nats.example.test:4222/path?token=secret#fragment",
+            "tls://nats.example.test:4222",
+        ),
+        ("wss://alice:secret@[2001:db8::1]:443/ws", "wss://[2001:db8::1]:443"),
+        ("nats://nats.example.test:4222", "nats://nats.example.test:4222"),
+        ("nats://alice:secret@nats.example.test:not-a-port", "<redacted-nats-server>"),
+        ("not-a-url", "<redacted-nats-server>"),
+        (None, "<redacted-nats-server>"),
+    ],
+)
+def test_nats_server_for_logging_excludes_sensitive_url_components(
+    server: str | None,
+    expected: str,
+) -> None:
+    assert nats_server_for_logging(server) == expected
 
 
 async def test_password_connection_negotiates_tls_before_credentials() -> None:

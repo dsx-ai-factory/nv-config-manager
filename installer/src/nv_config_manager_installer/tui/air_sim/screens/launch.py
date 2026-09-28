@@ -38,6 +38,7 @@ from textual.widgets import Button, Input, Label, Static, Tab, Tabs
 from textual.worker import Worker, WorkerState, get_current_worker
 
 from nv_config_manager_installer.air_sim.constants import (
+    CONFIG_MANAGER_HOSTNAME,
     CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
     DEFAULT_AIR_FRONTEND_URL,
     DEFAULT_AIR_INTERNAL_FRONTEND_URL,
@@ -120,6 +121,7 @@ class AirProviderStatus:
     display_name: str
     web_pod_prefix: str
     access_url: str
+    access_display_name: str | None = None
     dependent_pod_prefixes: tuple[str, ...] = ()
     excluded_web_pod_prefixes: tuple[str, ...] = ()
 
@@ -138,7 +140,8 @@ class AirProviderStatus:
 DEFAULT_PROVIDER_STATUS = AirProviderStatus(
     display_name="Nautobot",
     web_pod_prefix=CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
-    access_url="https://nautobot.nvcm.air",
+    access_url=f"https://{CONFIG_MANAGER_HOSTNAME}",
+    access_display_name="Config Manager",
     dependent_pod_prefixes=(
         "nv-config-manager-nautobot-celery",
         "nv-config-manager-nautobot-celery-beat",
@@ -1545,7 +1548,9 @@ class LaunchScreen(Container):
             proxy,
             self._ssh_cmd_text,
             provider_ready=provider_ready,
-            provider_name=self._provider_status.display_name,
+            provider_name=(
+                self._provider_status.access_display_name or self._provider_status.display_name
+            ),
             id="proxy-access",
         )
         self.query_one("#stream-viewer", _StreamTabsWidget).set_access_widget(widget)

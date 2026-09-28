@@ -16,12 +16,13 @@
 
 from __future__ import annotations
 
+import shlex
 from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
 from textual.app import ComposeResult
-from textual.widgets import Input, Static
+from textual.widgets import Input, Label, Static
 
 import nv_config_manager_installer.air_sim.sim_manager as sim_manager_module
 from nv_config_manager_installer.air_sim.orchestrator import (
@@ -194,6 +195,11 @@ async def test_access_panel_upgrades_when_nautobot_is_ready() -> None:
 
         assert app.query_one("#btn-launch-browser").display is True
         assert app.query_one("#panel-ssh-unix").display is True
+        browser_command = str(app.query_one("#cmd-browser-unix", Static).render())
+        browser_args = shlex.split(browser_command)
+        assert browser_args[-1] == "https://nvcm.air"
+        access_hint = str(app.query_one("#proxy-hint", Label).render())
+        assert access_hint.startswith("Config Manager is ready.")
 
 
 @pytest.mark.asyncio

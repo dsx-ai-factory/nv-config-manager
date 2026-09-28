@@ -16,6 +16,8 @@
 
 from temporalio import activity
 
+from nv_config_manager_workflows.runtime import get_ui_base_url as configured_ui_base_url
+
 
 def build_workflow_url(ui_base_url: str, workflow_id: str) -> str:
     """Build a full UI URL for a workflow, handling scheme and trailing slashes."""
@@ -27,17 +29,12 @@ def build_workflow_url(ui_base_url: str, workflow_id: str) -> str:
 
 @activity.defn
 def get_ui_base_url() -> str:
-    """Get the UI base URL from configuration.
+    """Get the configured NVCM UI base URL.
 
     Returns:
-        The UI base URL string from the configuration file.
+        The current NVCM UI base URL.
 
     Raises:
-        KeyError: If the configuration is missing the required ui_url setting.
-        FileNotFoundError: If the configuration file cannot be found.
+        UIBaseURLNotConfiguredError: If worker startup omitted or disabled the URL.
     """
-    from nv_config_manager.common.config import load_config
-
-    # Load configuration to get UI URL
-    config = load_config()
-    return config["temporal"]["ui_url"]
+    return configured_ui_base_url()

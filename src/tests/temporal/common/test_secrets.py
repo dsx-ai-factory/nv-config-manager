@@ -14,13 +14,36 @@
 # limitations under the License.
 """Tests for site-specific secrets INI loading."""
 
+from pathlib import Path
+
+import pytest
+
 from nv_config_manager.temporal.common.secrets import (
     clear_secrets_cache,
     load_secrets_config,
 )
 
 
-def test_secrets_config_reloads_after_file_update(monkeypatch, tmp_path):
+def test_secrets_config_reuses_cached_parser_when_file_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    secrets_file = tmp_path / "config-secrets.ini"
+    secrets_file.write_text("[site.test]\napi_user_key_r1 = secret\n")
+    monkeypatch.setenv("NV_CONFIG_MANAGER_CONFIG_SECRET_PATH", str(secrets_file))
+    clear_secrets_cache()
+
+    first, first_found = load_secrets_config()
+    second, second_found = load_secrets_config()
+
+    assert first_found is second_found is True
+    assert second is first
+
+
+def test_secrets_config_reloads_after_file_update(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     secrets_file = tmp_path / "config-secrets.ini"
     secrets_file.write_text("[site.test]\napi_user_key_r1 = old-secret\n")
     monkeypatch.setenv("NV_CONFIG_MANAGER_CONFIG_SECRET_PATH", str(secrets_file))

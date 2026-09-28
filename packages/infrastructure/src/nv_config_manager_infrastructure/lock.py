@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 from types import TracebackType
 
+from redis.asyncio import Redis
 from redis.asyncio.lock import Lock as AsyncRedisLock
 from redis.exceptions import LockError, LockNotOwnedError
 
@@ -125,3 +126,42 @@ async def release_lock(lock: AsyncRedisLock | None, token: str) -> bool:
     except (LockNotOwnedError, LockError):
         log.warning("Lock was not owned at release time.")
         return False
+
+
+class TokenLockBackend:
+    """Redis-backed token lock operations with an explicit no-op mode."""
+
+    def __init__(self, redis: Redis | None) -> None:
+        """Use ``redis`` for distributed locks, or ``None`` for no-op locks."""
+        self._redis = redis
+
+    def _lock(self, name: str, timeout: int) -> AsyncRedisLock | None:
+        """Build a configured Redis lock when a connection is available."""
+        if self._redis is None:
+            return None
+        return AsyncRedisLock(self._redis, name, timeout=timeout)
+
+    async def acquire(
+        self,
+        name: str,
+        token: str,
+        *,
+        timeout: int,
+        blocking_timeout: float | None = None,
+        blocking: bool = True,
+    ) -> bool:
+        """Acquire or refresh the named lock for ``token``."""
+        return await acquire_lock(
+            self._lock(name, timeout),
+            token,
+            blocking_timeout=blocking_timeout,
+            blocking=blocking,
+        )
+
+    async def renew(self, name: str, token: str, *, timeout: int) -> bool:
+        """Renew the named lock when it is still held by ``token``."""
+        return await renew_lock(self._lock(name, timeout), token)
+
+    async def release(self, name: str, token: str) -> bool:
+        """Release the named lock when it is still held by ``token``."""
+        return await release_lock(self._lock(name, 1), token)

@@ -42,6 +42,7 @@ from nv_config_manager.temporal.ngc.activities import (
 from nv_config_manager.temporal.ngc.workflows import (
     REGISTERED_WORKFLOWS as NGC_REGISTERED_WORKFLOWS,
 )
+from nv_config_manager.temporal.runtime import configure_workflow_runtime
 from nv_config_manager.temporal.telemetry import setup_telemetry
 
 configure_logging(service="temporal-worker")
@@ -54,6 +55,7 @@ def _enabled_env_flag(name: str) -> bool:
 
 async def main() -> None:
     """Run the temporal worker."""
+    configure_workflow_runtime()
     runtime = setup_telemetry("nv-config-manager-temporal-worker")
 
     client = await Client.connect(

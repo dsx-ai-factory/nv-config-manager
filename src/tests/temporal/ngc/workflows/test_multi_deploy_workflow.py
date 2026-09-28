@@ -19,7 +19,7 @@ import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio import activity, workflow
@@ -304,7 +304,11 @@ def test_child_stage_serialization_excludes_operational_device_payloads(_):
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_basic_flow(
     _,
@@ -463,7 +467,11 @@ def test_format_batch_status_with_backup_failure():
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_no_devices(
     _,
@@ -527,7 +535,11 @@ async def test_multi_deploy_workflow_no_devices(
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_no_diffs(
     _,
@@ -588,7 +600,11 @@ async def test_multi_deploy_workflow_no_diffs(
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_grouping_logic(
     _,
@@ -658,7 +674,11 @@ async def test_multi_deploy_workflow_grouping_logic(
 
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.client.device.CumulusConnection")
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_batch_deploy_workflow_directly(
     _,

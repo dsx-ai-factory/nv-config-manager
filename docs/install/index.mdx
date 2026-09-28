@@ -22,7 +22,7 @@ Before you start, install the following tools and confirm you have access to the
 | :-------- | :------ |
 | `kubectl` | Connects to the Kubernetes cluster where Config Manager will be installed |
 | Helm 3.x | Installs and upgrades the Config Manager chart and optional operators |
-| Python 3.11+ and `uv` | Runs or installs the `nvcm-installer` CLI |
+| Python 3.13+ and `uv` | Runs or installs the `nvcm-installer` CLI |
 | Docker | Builds local images when using the local image workflow |
 | Kind | Loads locally built images into a Kind cluster when using a local or remote-VM Kubernetes test environment |
 | Vault or OpenBao access | Required only when using External Secrets Operator instead of Kubernetes secrets |
@@ -81,7 +81,7 @@ uv sync
 uv run nvcm-installer init
 
 # Re-open an existing configuration.
-uv run nvcm-installer init nv-config-manager-install.yaml
+uv run nvcm-installer init --config nv-config-manager-install.yaml
 
 # Validate the configuration without deploying.
 uv run nvcm-installer validate nv-config-manager-install.yaml
@@ -180,7 +180,7 @@ In CI environments where in-cluster pulls are unreliable or rate limited, `--loa
 | Flag | Default | Description |
 | :--- | :------ | :---------- |
 | `--chart-dir` | `deploy/helm` | Path to the Helm chart |
-| `--image-source` | `local` | `local` or `nvcr` |
+| `--image-source` | `local` | `local` or `registry` |
 | `--ngc-api-key` | `""` | NGC API key for NVCR authentication |
 | `--build-images` | `false` | Build Docker images locally |
 | `--load-kind` | `false` | Load images into a Kind cluster |
@@ -316,11 +316,11 @@ Deploying Config Manager with the installer, including any post-deploy Nautobot 
 
 ### How Devices get into Config Manager
 
-Devices enter Config Manager through Nautobot. You can create them manually, through the Nautobot API, or with a post-deploy job such as a Nautobot Design Builder topology loader. The local SuperPOD profile uses the bundled mock topology Design Builder job in `development/mock_topology` as an example. See [Design Builder Data Loading](../nautobot/design-builder-data-loading.mdx) for the job structure and the context-only customization path.
+Devices enter Config Manager through the selected DCIM provider. With the bundled Nautobot provider, you can create them manually, through the Nautobot API, or with a post-deploy job such as a Nautobot Design Builder topology loader. The local SuperPOD profile uses the bundled mock topology Design Builder job in `development/mock_topology` as an example. Refer to [Design Builder Data Loading](../nautobot/design-builder-data-loading.mdx) for the job structure and the context-only customization path.
 
 ### How ZTP Starts
 
-**ZTP is initiated by the device**, not by Config Manager. As soon as Config Manager has sufficient Nautobot data, it serves DHCP on the configured network. When a device is cabled and powered on, it gets an IP address and boot file from DHCP, then retrieves its configuration and firmware from the ZTP service. Devices that successfully complete ZTP show a status of `Provisioned` in Nautobot.
+**ZTP is initiated by the device**, not by Config Manager. As soon as Config Manager has sufficient data from the selected DCIM provider, it serves DHCP on the configured network. When a device is cabled and powered on, it gets an IP address and boot file from DHCP, then retrieves its configuration and firmware from the ZTP service. The provider records successful ZTP completion; the bundled Nautobot provider sets the device status to `Provisioned`.
 
 ### If a Post-Deploy Job Fails
 
@@ -335,10 +335,10 @@ Open the Config Store UI from the Config Manager interface, such as `https://con
 kubectl get pods -n <namespace> -l app.kubernetes.io/component=render-service
 
 # Device-change consumer performs the actual render.
-kubectl logs -n <namespace> -l app.kubernetes.io/component=render-service --all-containers -f --tail=500
+kubectl logs -n <namespace> -l component=consumer-device -c consumer -f --tail=500
 
-# Nautobot consumer dispatches events.
-kubectl logs -n <namespace> -l app.kubernetes.io/component=render-service --all-containers -f --tail=500
+# DCIM event consumer dispatches provider events.
+kubectl logs -n <namespace> -l component=consumer-nautobot -c consumer -f --tail=500
 ```
 
 Search log output for `RenderException`, `Error processing event`, or Python tracebacks to identify the failing device and cause.
@@ -353,7 +353,7 @@ kubectl logs -n <namespace> -l app.kubernetes.io/component=network-dhcp -c confi
 
 ## Iterative Deployment and Post-Deploy Changes
 
-You do not need to redeploy from scratch when you change data, add images, update templates, or upgrade versions. Treat `nv-config-manager-install.yaml` as the source of truth: re-open it with `nvcm-installer init nv-config-manager-install.yaml`, adjust the configuration, and deploy again. The deployer applies updates through Helm and only restarts services when relevant inputs have changed.
+You do not need to redeploy from scratch when you change data, add images, update templates, or upgrade versions. Treat `nv-config-manager-install.yaml` as the source of truth: re-open it with `nvcm-installer init --config nv-config-manager-install.yaml`, adjust the configuration, and deploy again. The deployer applies updates through Helm and only restarts services when relevant inputs have changed.
 
 ### Update Nautobot or Site Data
 

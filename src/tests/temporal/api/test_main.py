@@ -15,6 +15,7 @@
 import asyncio
 from configparser import ConfigParser
 from datetime import datetime
+from importlib import reload
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -25,6 +26,8 @@ from pydantic import BaseModel
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 
 from nv_config_manager.dcim import DCIMSelection, DeviceMetadata
+from nv_config_manager.temporal import runtime as service_runtime
+from nv_config_manager.temporal.api import main as temporal_main
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
 from nv_config_manager.temporal.api.main import app
 from nv_config_manager.temporal.api.workflow_v1 import (
@@ -65,6 +68,20 @@ def test_healthcheck():
     rsp = client.get("/healthcheck")
     assert rsp.status_code == 200
     assert rsp.json() == "OK"
+
+
+def test_api_startup_configures_only_workflow_ui_runtime() -> None:
+    """API startup installs the UI provider without initializing worker lock state."""
+    with (
+        patch.object(service_runtime, "configure_workflow_ui_runtime") as configure_ui,
+        patch.object(service_runtime, "configure_workflow_runtime") as configure_worker,
+        patch.object(service_runtime, "configure_runtime") as configure_all,
+    ):
+        reload(temporal_main)
+
+    configure_ui.assert_called_once_with()
+    configure_worker.assert_not_called()
+    configure_all.assert_not_called()
 
 
 def test_openapi_operation_tags_are_unique():
@@ -1685,11 +1702,7 @@ def test_cors_middleware_configured(custom_ini):
         """
     )
 
-    # Need to reimport app to pick up new config
-    from importlib import reload
-
-    from nv_config_manager.temporal.api import main as temporal_main
-
+    # Reload the app to pick up the new config.
     reload(temporal_main)
 
     client = TestClient(temporal_main.app)
@@ -1726,11 +1739,7 @@ def test_cors_middleware_not_configured_when_section_missing(custom_ini):
         """
     )
 
-    # Need to reimport app to pick up new config
-    from importlib import reload
-
-    from nv_config_manager.temporal.api import main as temporal_main
-
+    # Reload the app to pick up the new config.
     reload(temporal_main)
 
     client = TestClient(temporal_main.app)

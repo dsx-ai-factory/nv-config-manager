@@ -4,7 +4,11 @@ sidebar-title: DHCP Service
 position: 0
 ---
 
-NVIDIA Config Manager's DHCP service provides automated ISC Kea DHCP server configuration management, generating configurations dynamically from data supplied by the selected DCIM provider. This enables automated IP address assignment, DHCP reservations, and Zero Touch Provisioning (ZTP) for network devices. The bundled Nautobot provider's data model is documented separately.
+NVIDIA Config Manager's DHCP service generates and manages ISC Kea DHCP server
+configurations from data supplied by the selected DCIM provider. The service
+automates IP address assignment, DHCP reservations, and Zero Touch Provisioning
+(ZTP) for network devices. The bundled Nautobot provider's data model is
+documented separately.
 
 ## Overview
 
@@ -75,13 +79,13 @@ uv run nv-config-manager-dhcp-confgen generate-kea-configuration --ini-file nv-c
 uv run nv-config-manager-dhcp-confgen generate-kea-configuration --ini-file nv-config-manager.ini --ip-version 6
 ```
 
-### Sync Running Configuration
+### Refresh Cached Configuration
 
 ```bash
-# Sync DHCPv4 configuration to running Kea servers
+# Generate, validate, and publish the DHCPv4 configuration to Redis
 uv run nv-config-manager-dhcp-confgen refresh-kea-configuration --ini-file nv-config-manager.ini --ip-version 4
 
-# Sync DHCPv6 configuration to running Kea servers
+# Generate, validate, and publish the DHCPv6 configuration to Redis
 uv run nv-config-manager-dhcp-confgen refresh-kea-configuration --ini-file nv-config-manager.ini --ip-version 6
 ```
 
@@ -98,30 +102,36 @@ uv run nv-config-manager-dhcp-confgen generate-kea-configuration --help
 ### Advanced Options
 
 ```bash
-# Generate configuration with custom output directory
+# Generate configuration to a file
 uv run nv-config-manager-dhcp-confgen generate-kea-configuration \
   --ini-file nv-config-manager.ini \
   --ip-version 4 \
-  --output-dir /etc/kea/
+  --output-file /etc/kea/kea-dhcp4.conf
 
-# Generate configuration with verbose logging
+# Generate configuration with debug tracebacks
 uv run nv-config-manager-dhcp-confgen generate-kea-configuration \
   --ini-file nv-config-manager.ini \
   --ip-version 4 \
-  --verbose
+  --debug
 
-# Dry run - validate configuration without applying
-uv run nv-config-manager-dhcp-confgen generate-kea-configuration \
+# Validate generated configuration against Kea without publishing it to Redis
+uv run nv-config-manager-dhcp-confgen refresh-kea-configuration \
   --ini-file nv-config-manager.ini \
   --ip-version 4 \
-  --dry-run
+  --check
 ```
 
-The generator runs on a 5-minute interval in the Kubernetes deployment, automatically syncing updated configuration to the running Kea servers.
+In Kubernetes, the refresh process generates and publishes desired configuration to Redis every five minutes. A sidecar in each Kea pod monitors Redis, applies changed configuration through the Kea Control Agent, and verifies the running configuration hash.
 
 ## Manage Leases
 
-The dedicated DHCP dashboard summarizes active leases, reservations, configured pools, and the age of the last successful background configuration sync reported by the DHCP API's `/metrics` endpoint. A config age older than 10 minutes appears yellow, and an age older than 30 minutes appears red. Use the config-age help tooltip when troubleshooting: a stale value likely indicates a problem with DHCP config generation, so consult the service logs for details. When `monitoring.grafanaUrl` is configured for the environment, **View Grafana** opens the configured dashboard in a new tab.
+The DHCP dashboard summarizes active leases, reservations, configured pools,
+and the age of the last successful background configuration sync reported by
+the DHCP API's `/metrics` endpoint. A configuration age older than 10 minutes
+appears yellow; an age older than 30 minutes appears red. A stale value can
+indicate a problem with DHCP configuration generation. Use the configuration-age
+tooltip and service logs to troubleshoot it. When `monitoring.grafanaUrl` is
+configured, **View Grafana** opens the dashboard in a new tab.
 
 Leases, reservations, and pools load 100 at a time as you scroll so the dashboard remains responsive with thousands of records. Summary counts are calculated independently from the detail rows loaded in the browser. Use the filter to search the selected collection by its displayed fields. Reservation and pool results show exact filtered totals. Select the **Active leases**, **Reservations**, or **Pools** tab to inspect each view. You can also clear an active lease after confirming the action.
 

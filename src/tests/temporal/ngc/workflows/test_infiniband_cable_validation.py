@@ -107,7 +107,7 @@ async def test_execute_workflow_valid_cables(env):
     """Test workflow execution with valid cable connections."""
     task_queue_name = str(uuid.uuid4())
 
-    with patch("nv_config_manager.temporal.client.ufm.load_config") as mock_config:
+    with patch("nv_config_manager.common.config.loader.load_config") as mock_config:
         mock_config.return_value = _create_config(
             {"ufm": {"ufm_api_user": "user", "ufm_api_token_r1": "pass"}}
         )
@@ -163,7 +163,7 @@ async def test_execute_workflow_mismatched_cables(env):
         }
     ]
 
-    with patch("nv_config_manager.temporal.client.ufm.load_config") as mock_config:
+    with patch("nv_config_manager.common.config.loader.load_config") as mock_config:
         mock_config.return_value = _create_config(
             {"ufm": {"ufm_api_user": "user", "ufm_api_token_r1": "pass"}}
         )

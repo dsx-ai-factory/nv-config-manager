@@ -127,6 +127,55 @@ def test_device_v1_bootscript(
 
 
 @patch("nv_config_manager.ztp.api.device_v1.Request.client")
+def test_device_v1_anonymous_reads_dcim_once(mock_request_client, mock_device_data, client):
+    """The IP allowlist check and the handler share a single DCIM read."""
+    mock_request_client.host = "testclient"
+    mock_device_data["data"]["config_manager_device"]["device"]["interfaces"] = [
+        {"ip_addresses": [{"host": "testclient"}]}
+    ]
+
+    with patch(
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+        return_value=mock_device_data,
+    ) as mock_query:
+        with patch(
+            "nv_config_manager.ztp.device.DeviceData.load_file",
+            new_callable=AsyncMock,
+            return_value="boot-script content",
+        ):
+            rsp = client.get(f"/v1/device/{uuid4()}/boot-script")
+
+    assert rsp.status_code == 200
+    assert mock_query.call_count == 1
+
+
+@patch("nv_config_manager.ztp.api.device_v1.Request.client")
+def test_device_v1_anonymous_allowlist_does_not_mutate_device(
+    mock_request_client, mock_device_data, client
+):
+    """The loopback entry is added to a copy, not to the shared device data."""
+    mock_request_client.host = "testclient"
+    mock_device_data["data"]["config_manager_device"]["device"]["interfaces"] = [
+        {"ip_addresses": [{"host": "testclient"}]}
+    ]
+    seen = []
+
+    async def _capture(self, filename):
+        seen.append(list(self.addresses))
+        return "boot-script content"
+
+    with patch(
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+        return_value=mock_device_data,
+    ):
+        with patch("nv_config_manager.ztp.device.DeviceData.load_file", _capture):
+            rsp = client.get(f"/v1/device/{uuid4()}/boot-script")
+
+    assert rsp.status_code == 200
+    assert seen == [["testclient"]]
+
+
+@patch("nv_config_manager.ztp.api.device_v1.Request.client")
 def test_device_v1_config(mock_request_client, mock_device_data, mock_not_found_data, client):
     """Test device config v1 endpoint."""
     mock_request_client.host = "testclient"
