@@ -75,6 +75,9 @@ class TriggerEnum(StrEnum):
     API = "API"
 
 
+UNATTENDED_TRIGGERS = frozenset({TriggerEnum.SCHEDULED, TriggerEnum.SYSLOG})
+
+
 class BackupInput(StageWorkflowInput):
     """Backup Workflow Input Definiton."""
 
@@ -314,6 +317,11 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
             # therefore the user did not get set.
             raise ApplicationError("Missing user for backup attribution.")
         self.set_input(workflow_input)
+        if workflow_input.trigger in UNATTENDED_TRIGGERS:
+            # Nobody sends a retry signal to these runs. A run left waiting for one is
+            # closed by the server's execution timeout, which never evicts it from the
+            # worker's workflow cache, so unattended failures would accumulate in memory.
+            self.set_terminate_on_failure(True)
 
         # Execute load_running_configuration and check_drift in parallel
         load_config_output, drift_output = await asyncio.gather(
