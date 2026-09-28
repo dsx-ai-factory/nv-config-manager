@@ -28,6 +28,7 @@ import nats
 import nats.aio.client
 import nats.js.errors
 from nats import connect
+from nats.js.api import DiscardPolicy, RetentionPolicy, StorageType, StreamConfig
 from nv_config_manager_infrastructure.nats.client import DEFAULT_NATS_API_PREFIX
 
 from nv_config_manager.common.client.nats import config_manager_api_prefix
@@ -39,6 +40,15 @@ DEFAULT_CONFIG_MANAGER_DEVICE_CHANGE_SUBJECT = "nv-config-manager.devicechange"
 DEFAULT_CONFIG_MANAGER_ARCHIVE_SUBJECT = "nv-config-manager.workflow.result"
 DEFAULT_NAUTOBOT_NATS_STREAM = "nautobot"
 DEFAULT_NAUTOBOT_NATS_SUBJECT = "nautobot"
+
+# Must match the stream settings nats-ready applies (the embedded configs in
+# components/nats-ready, or natsReady.streamMaxBytes with the nats CLI) so a
+# stream re-created here is not later rewritten by nats-ready. The chart
+# renders local_stream_max_bytes to the value nats-ready will use.
+LOCAL_STREAM_MAX_BYTES = 21474836480
+LOCAL_STREAM_DUPLICATE_WINDOW_SECONDS = 120.0
+# JetStream error code for "stream name already in use" (a concurrent creator won).
+_STREAM_NAME_IN_USE_ERR_CODE = 10058
 
 
 class _NATS_ENUM(StrEnum):
@@ -241,17 +251,81 @@ async def nats_connection(
         options["tls_handshake_first"] = True
 
     conn = await connect(servers, **options)
-
-    # Create streams locally if needed
-    if nats_config.getboolean("local", fallback=False):
-        jetstream = conn.jetstream()
-        for stream in ["nv-config-manager", "nautobot"]:
-            try:
-                await jetstream.stream_info(stream)
-            except nats.js.errors.NotFoundError:
-                # nv-config-manager uses hierarchical subjects (nv_config_manager.render.events, etc.)
-                # nautobot uses exact subject (nautobot_broker_nats publishes to "nautobot")
-                subjects = [f"{stream}.>"] if stream == "nv-config-manager" else [stream]
-                await jetstream.add_stream(name=stream, subjects=subjects)
-
+    await ensure_local_streams(conn)
     return conn
+
+
+def _split_subjects(raw_subjects: str) -> list[str]:
+    return [subject.strip() for subject in raw_subjects.split(",") if subject.strip()]
+
+
+def local_stream_subjects(config: ConfigParser | None = None) -> dict[str, list[str]]:
+    """Return the subjects of each stream the bundled NATS deployment provides."""
+    nats_config = _nats_section(config)
+    config_manager_stream = nats_config.get(
+        "config_manager_stream", DEFAULT_CONFIG_MANAGER_NATS_STREAM
+    )
+    nautobot_stream = nats_config.get("nautobot_stream", DEFAULT_NAUTOBOT_NATS_STREAM)
+    streams = {
+        config_manager_stream: _split_subjects(
+            nats_config.get("config_manager_subjects", f"{config_manager_stream}.>")
+        ),
+        nautobot_stream: _split_subjects(nats_config.get("nautobot_subjects", nautobot_stream)),
+    }
+    dcim_stream, dcim_subject = nats_dcim_change_config(config)
+    streams.setdefault(dcim_stream, [dcim_subject])
+    return streams
+
+
+async def ensure_local_streams(
+    conn: nats.aio.client.Client,
+    config: ConfigParser | None = None,
+    streams: list[str] | None = None,
+) -> list[str]:
+    """Create any missing bundled-NATS streams and return the names created.
+
+    Only runs when ``local`` is true. Externally managed NATS owns its own
+    streams, and runtime accounts there are not allowed to create them.
+
+    Args:
+        conn: Connected NATS client
+        config: Optional config override
+        streams: Limit creation to these stream names
+
+    Returns:
+        Names of the streams this call created
+    """
+    nats_config = _nats_section(config)
+    if not nats_config.getboolean("local", fallback=False):
+        return []
+
+    max_bytes = nats_config.getint("local_stream_max_bytes", fallback=LOCAL_STREAM_MAX_BYTES)
+    jetstream = conn.jetstream()
+    created: list[str] = []
+    for name, subjects in local_stream_subjects(config).items():
+        if streams is not None and name not in streams:
+            continue
+        try:
+            await jetstream.stream_info(name)
+            continue
+        except nats.js.errors.NotFoundError:
+            pass
+        try:
+            await jetstream.add_stream(
+                StreamConfig(
+                    name=name,
+                    subjects=subjects,
+                    retention=RetentionPolicy.LIMITS,
+                    storage=StorageType.FILE,
+                    discard=DiscardPolicy.OLD,
+                    max_bytes=max_bytes,
+                    duplicate_window=LOCAL_STREAM_DUPLICATE_WINDOW_SECONDS,
+                    num_replicas=1,
+                )
+            )
+        except nats.js.errors.BadRequestError as e:
+            if e.err_code != _STREAM_NAME_IN_USE_ERR_CODE:
+                raise
+            continue
+        created.append(name)
+    return created

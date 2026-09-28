@@ -18,11 +18,12 @@ from configparser import ConfigParser
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
-from nats.js.api import AckPolicy, DeliverPolicy
-from nats.js.errors import NotFoundError
+from nats.js.api import AckPolicy, DeliverPolicy, DiscardPolicy, RetentionPolicy, StorageType
+from nats.js.errors import BadRequestError, NotFoundError
 
 from nv_config_manager.common.client import DEFAULT_NATS_API_PREFIX, NatsClient, NatsConsumer
-from nv_config_manager.common.config import nats_connection
+from nv_config_manager.common.config import ensure_local_streams, nats_connection
+from nv_config_manager.common.config.nats import LOCAL_STREAM_MAX_BYTES
 
 TEST_SERVER = "nats://nats.example.local:4222"
 
@@ -84,6 +85,131 @@ async def test_render_connection_tls_policy(auth_method: str, scheme: str, local
         assert options["user"] == "test-user"
         assert options["password"] == "test-password"
     assert conn.jetstream.return_value.stream_info.await_count == (2 if local else 0)
+
+
+def _local_conn(missing: set[str]) -> MagicMock:
+    """Return a connection whose JetStream reports the given streams as missing."""
+    conn = MagicMock()
+    jetstream = conn.jetstream.return_value
+
+    async def stream_info(name: str) -> MagicMock:
+        if name in missing:
+            raise NotFoundError(code=404, err_code=10059, description="stream not found")
+        return MagicMock()
+
+    jetstream.stream_info = AsyncMock(side_effect=stream_info)
+    jetstream.add_stream = AsyncMock()
+    return conn
+
+
+def _local_config(**overrides: str) -> ConfigParser:
+    settings = {
+        "local": "true",
+        "config_manager_stream": "kiwi",
+        "config_manager_subjects": "kiwi.>",
+        "nautobot_stream": "nautobot",
+        "nautobot_subjects": "nautobot",
+    }
+    return _config(**{**settings, **overrides})
+
+
+@pytest.mark.asyncio
+async def test_ensure_local_streams_creates_missing_streams_like_nats_ready():
+    """Missing bundled streams use the configured names and nats-ready's limits."""
+    conn = _local_conn(missing={"kiwi", "nautobot"})
+
+    created = await ensure_local_streams(conn, _local_config())
+
+    assert created == ["kiwi", "nautobot"]
+    configs = {
+        call.args[0].name: call.args[0]
+        for call in conn.jetstream.return_value.add_stream.await_args_list
+    }
+    assert configs["kiwi"].subjects == ["kiwi.>"]
+    assert configs["nautobot"].subjects == ["nautobot"]
+    for config in configs.values():
+        assert config.max_bytes == LOCAL_STREAM_MAX_BYTES
+        assert config.storage == StorageType.FILE
+        assert config.retention == RetentionPolicy.LIMITS
+        assert config.discard == DiscardPolicy.OLD
+        assert config.duplicate_window == 120.0
+
+
+@pytest.mark.asyncio
+async def test_ensure_local_streams_skips_existing_streams():
+    """Streams that already exist are left untouched."""
+    conn = _local_conn(missing=set())
+
+    assert await ensure_local_streams(conn, _local_config()) == []
+    conn.jetstream.return_value.add_stream.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ensure_local_streams_is_noop_for_external_nats():
+    """Externally managed NATS owns its streams, so nothing is looked up or created."""
+    conn = _local_conn(missing={"kiwi", "nautobot"})
+
+    assert await ensure_local_streams(conn, _local_config(local="false")) == []
+    conn.jetstream.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ensure_local_streams_can_target_one_stream():
+    """A consumer recovering its own stream does not touch the others."""
+    conn = _local_conn(missing={"kiwi", "nautobot"})
+
+    created = await ensure_local_streams(conn, _local_config(), streams=["nautobot"])
+
+    assert created == ["nautobot"]
+    conn.jetstream.return_value.stream_info.assert_awaited_once_with("nautobot")
+
+
+@pytest.mark.asyncio
+async def test_ensure_local_streams_uses_configured_max_bytes():
+    """The chart-rendered limit wins so both creators agree on small dev installs."""
+    conn = _local_conn(missing={"nautobot"})
+
+    await ensure_local_streams(conn, _local_config(local_stream_max_bytes="104857600"))
+
+    config = conn.jetstream.return_value.add_stream.await_args.args[0]
+    assert config.max_bytes == 104857600
+
+
+@pytest.mark.asyncio
+async def test_ensure_local_streams_includes_separate_dcim_stream():
+    """A distinct DCIM event stream is created alongside the Nautobot stream."""
+    conn = _local_conn(missing={"dcim"})
+
+    created = await ensure_local_streams(
+        conn, _local_config(dcim_change_stream="dcim", dcim_change_subject="dcim.events")
+    )
+
+    assert created == ["dcim"]
+    config = conn.jetstream.return_value.add_stream.await_args.args[0]
+    assert config.subjects == ["dcim.events"]
+
+
+@pytest.mark.asyncio
+async def test_ensure_local_streams_tolerates_concurrent_creation():
+    """Another replica creating the stream first is not an error."""
+    conn = _local_conn(missing={"nautobot"})
+    conn.jetstream.return_value.add_stream.side_effect = BadRequestError(
+        code=400, err_code=10058, description="stream name already in use"
+    )
+
+    assert await ensure_local_streams(conn, _local_config()) == []
+
+
+@pytest.mark.asyncio
+async def test_ensure_local_streams_raises_other_creation_errors():
+    """Unexpected creation failures surface to the caller."""
+    conn = _local_conn(missing={"nautobot"})
+    conn.jetstream.return_value.add_stream.side_effect = BadRequestError(
+        code=400, err_code=10047, description="insufficient storage resources available"
+    )
+
+    with pytest.raises(BadRequestError):
+        await ensure_local_streams(conn, _local_config())
 
 
 def test_from_config_reads_config_manager_api_prefix():
