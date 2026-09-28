@@ -18,9 +18,7 @@ Each activity resolves its provider via get_ticketing_provider(platform), so
 the workflow only needs to pass a platform name string (e.g. "jira") rather
 than knowing anything about the underlying client.
 
-The side-effect import of nv_config_manager.temporal.client.jira ensures that
-JiraTicketingProvider is registered in TICKETING_PROVIDERS before any
-activity runs.  Adding a new backend only requires adding a similar import.
+Provider registration is owned by the reusable workflows package.
 """
 
 from __future__ import annotations
@@ -31,7 +29,6 @@ from pydantic import BaseModel, field_validator
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-import nv_config_manager.temporal.client.jira  # noqa: F401 — registers JiraTicketingProvider
 from nv_config_manager.common.config import load_config
 from nv_config_manager.temporal.client.jira import JiraClientError
 from nv_config_manager.temporal.client.redis import RedisClient

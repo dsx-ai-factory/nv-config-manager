@@ -54,7 +54,7 @@ def reset_secrets_cache():
 
 @pytest.fixture()
 def mock_config():
-    with patch("nv_config_manager.temporal.client.ufm.load_config") as mock:
+    with patch("nv_config_manager.common.config.loader.load_config") as mock:
         mock.return_value = _create_config(
             {"ufm": {"ufm_api_user": "admin", "ufm_api_token_r1": "password"}}
         )

@@ -118,7 +118,7 @@ def mock_all_configs():
     mock_producer = AsyncMock()
     mock_producer.publish = AsyncMock(return_value=None)
     with (
-        patch("nv_config_manager.temporal.client.ufm.load_config", return_value=_ufm_config()),
+        patch("nv_config_manager.common.config.loader.load_config", return_value=_ufm_config()),
         patch("nv_config_manager.common.config.load_config", return_value=_nb_config()),
         patch(
             "nv_config_manager.temporal.runtime.NatsProducer.from_config",
