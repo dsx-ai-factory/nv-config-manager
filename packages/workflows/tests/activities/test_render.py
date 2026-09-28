@@ -348,6 +348,31 @@ async def test_validate_password_change_rejects_missing_filename(
     assert exc_info.value.message == "No intended config filename found for device leaf-1"
 
 
+async def test_validate_password_change_timeout_does_not_expose_password(
+    mocker: MockerFixture,
+) -> None:
+    client = _async_client(ConfigStoreClient)
+    _configure_config_store(mocker, client)
+    start = datetime(2026, 1, 1)
+    datetime_mock = mocker.patch.object(render_activities, "datetime")
+    datetime_mock.now.side_effect = [start, start + timedelta(minutes=5)]
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await validate_rendered_password_change(
+            ValidateRenderedPasswordChangeInput(
+                device_data=_device(),
+                desired_password_string="hashed-password secret",
+            )
+        )
+
+    assert exc_info.value.message == (
+        "Timeout waiting for the desired password string to be present in "
+        "startup.yaml for device leaf-1"
+    )
+    assert "hashed-password secret" not in exc_info.value.message
+    client.load_file.assert_not_awaited()
+
+
 def test_firmware_storage_protocol_remains_narrow() -> None:
     assert set(FirmwareStorage.__dict__) >= {
         "__aenter__",

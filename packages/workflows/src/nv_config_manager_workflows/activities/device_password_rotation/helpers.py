@@ -35,7 +35,9 @@ def _validate_cumulus_diff(diff: str, username: str) -> ValidatePasswordDiffOutp
     valid_lines = []
     invalid_lines = []
 
-    password_pattern = f"^nv (un)?set system aaa user {username} (hashed-)?password \\S+$"
+    password_pattern = (
+        f"^nv (un)?set system aaa user {re.escape(username)} (hashed-)?password \\S+$"
+    )
 
     for line in lines:
         if re.match(password_pattern, line):

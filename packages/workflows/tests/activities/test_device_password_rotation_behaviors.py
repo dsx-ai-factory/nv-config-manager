@@ -95,6 +95,16 @@ nv set system aaa user admin hashed-password $6$newpassword"""
         assert len(result.invalid_lines) == 2
         assert all("admin" in line for line in result.invalid_lines)
 
+    def test_cumulus_username_regex_characters_are_literal(self) -> None:
+        """Test that regex characters in a username cannot match a different user."""
+        diff = "nv set system aaa user axb hashed-password $6$newpassword"
+
+        result = _validate_cumulus_diff(diff, "a.b")
+
+        assert result.is_valid is False
+        assert result.invalid_lines == [diff]
+        assert result.valid_lines == []
+
     def test_no_password_changes_fails(self) -> None:
         """Test that diff with no password changes fails."""
         diff = """nv set system hostname new-hostname

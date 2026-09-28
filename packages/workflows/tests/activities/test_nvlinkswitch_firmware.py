@@ -338,6 +338,37 @@ async def test_validate_render_targets_reports_missing_bundle_component(
     )
 
 
+async def test_validate_render_targets_reports_load_failure(
+    mocker: MockerFixture,
+) -> None:
+    mocker.patch.object(
+        nvlinkswitch_firmware,
+        "get_firmware_bundle",
+        new=AsyncMock(return_value=_bundle()),
+    )
+    config_client = _async_client()
+    config_client.load_file = AsyncMock(side_effect=RuntimeError("store unavailable"))
+    runtime = MagicMock(spec=ConfigStoreRuntime)
+    runtime.client.return_value = config_client
+    mocker.patch.object(nvlinkswitch_firmware, "get_config_store_runtime", return_value=runtime)
+    start = datetime(2026, 1, 1)
+    now = mocker.patch.object(nvlinkswitch_firmware, "datetime")
+    now.now.side_effect = [start, start, start, start + timedelta(minutes=3)]
+    mocker.patch.object(nvlinkswitch_firmware.asyncio, "sleep", new_callable=AsyncMock)
+    mocker.patch.object(nvlinkswitch_firmware.activity, "heartbeat")
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await validate_render_targets(
+            ValidateRenderTargetsInput(device_data=_device(), desired_firmware={"cpld": "1.2.3"})
+        )
+
+    assert exc_info.value.message == (
+        "Failed to validate render targets: Timeout waiting for firmware commands "
+        "to be rendered with new targets. Unable to load file "
+        "(path: fwupdate-commands.txt). Last exception: store unavailable"
+    )
+
+
 async def test_validate_render_targets_preserves_configuration_errors(
     mocker: MockerFixture,
 ) -> None:

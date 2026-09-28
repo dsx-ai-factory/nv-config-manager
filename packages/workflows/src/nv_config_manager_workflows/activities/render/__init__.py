@@ -107,8 +107,8 @@ async def validate_rendered_password_change(
             await asyncio.sleep(poll_interval)
 
     raise ApplicationError(
-        f"Timeout waiting for password string {activity_input.desired_password_string} "
-        "to be present in configuration"
+        "Timeout waiting for the desired password string to be present in "
+        f"{filename} for device {activity_input.device_data.name}"
     )
 
 

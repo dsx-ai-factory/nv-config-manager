@@ -171,7 +171,7 @@ async def validate_render_targets(activity_input: ValidateRenderTargetsInput) ->
             error_msg += f"Last check showed missing files: {missing_files}"
         elif last_exception:
             error_msg += (
-                f"Unable to load file (path: {fw_commands_file}). "
+                f"Unable to load file (path: {fw_commands_filename}). "
                 f"Last exception: {str(last_exception)}"
             )
         else:
