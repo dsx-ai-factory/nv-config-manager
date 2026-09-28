@@ -48,15 +48,26 @@ about to remove. The request was well-formed and the same one can succeed
 moments later, so it is worth another attempt rather than a failed cycle.
 """
 
+_RETRYABLE_GATEWAY_STATUSES = frozenset({502, 503, 504})
+
 
 async def _graphql_response_is_final(response: aiohttp.ClientResponse) -> bool:
-    """Return False when a 200 carries a datastore cancellation worth retrying.
+    """Return False for a gateway error or a datastore cancellation worth retrying.
 
-    ``RetryClient`` only sees status codes, and Nautobot answers these with 200
-    and the failure in the GraphQL ``errors`` array. Reading the body here is
-    safe: aiohttp caches it, so the caller's own ``json()`` does not re-read the
-    socket.
+    ``RetryClient`` only sees status codes, and Nautobot answers cancellations
+    with 200 and the failure in the GraphQL ``errors`` array. Reading the body
+    here is safe: aiohttp caches it, so the caller's own ``json()`` does not
+    re-read the socket.
+
+    Gateway statuses are decided here rather than through ``statuses`` because
+    ``RetryClient`` drops a retried response without releasing it, which would
+    leave its connection checked out of the shared session's pool. The last
+    attempt never reaches this callback, so the response the caller raises on
+    stays readable.
     """
+    if response.status in _RETRYABLE_GATEWAY_STATUSES:
+        response.release()
+        return False
     if response.status != 200:
         return True
     try:
@@ -90,7 +101,6 @@ _GRAPHQL_RETRY_OPTIONS = ExponentialRetry(
     start_timeout=1.0,
     max_timeout=5.0,
     factor=2.0,
-    statuses={502, 503, 504},
     exceptions={TimeoutError},
     retry_all_server_errors=False,
     evaluate_response_callback=_graphql_response_is_final,

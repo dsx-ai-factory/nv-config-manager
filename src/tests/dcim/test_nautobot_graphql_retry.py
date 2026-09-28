@@ -15,7 +15,7 @@
 """Tests for Nautobot GraphQL gateway retries."""
 
 import pytest
-from aiohttp import ClientResponseError
+from aiohttp import ClientResponse, ClientResponseError
 from aioresponses import aioresponses
 from nv_config_manager_dcim.errors import DCIMInvalidDataError, DCIMReadCancelledError
 from nv_config_manager_dcim_nautobot_2x.client import (
@@ -91,6 +91,32 @@ async def test_graphql_query_gives_up_after_retryable_504s(
 
     assert exc_info.value.status == 504
     assert fast_graphql_retries == _retry_delays(_GRAPHQL_RETRY_OPTIONS.attempts - 1)
+
+
+@pytest.mark.asyncio
+async def test_graphql_query_releases_each_retried_gateway_response(
+    fast_graphql_retries: list[float],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A retried 504 must hand its connection back before the next attempt."""
+    released: list[int] = []
+    original_release = ClientResponse.release
+
+    def _release(response: ClientResponse) -> None:
+        released.append(response.status)
+        original_release(response)
+
+    monkeypatch.setattr(ClientResponse, "release", _release)
+    with aioresponses() as mocked:
+        mocked.post(_GRAPHQL_URL, status=504)
+        mocked.post(_GRAPHQL_URL, status=502)
+        mocked.post(_GRAPHQL_URL, payload={"data": {"ok": True}})
+        async with NautobotClient("https://nautobot.example", token="token") as client:
+            result = await client.graphql_query("query { ok }")
+
+    assert result == {"data": {"ok": True}}
+    assert released[:2] == [504, 502]
+    assert fast_graphql_retries == _retry_delays(2)
 
 
 @pytest.mark.asyncio
