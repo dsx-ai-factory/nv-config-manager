@@ -11,14 +11,14 @@ ARG TEMPORAL_SERVER_VERSION=1.30.7@sha256:dc8dc6fffa29de3bad7f5c39cb406db3104053
 # command-line tools.
 ARG TEMPORAL_ADMIN_TOOLS_VERSION=1.30.7@sha256:bbdf5fe91b288c17442efbbfb42daa3668d09cfa8ebeb078d6fd475a97f66b81
 # The UI is independently deployable and does not change Temporal persistence.
-ARG TEMPORAL_UI_VERSION=2.52.1@sha256:b839b5c798770896c78058db1647d325a19b3acef7fa1fbd9a23fabb1dd7feb2
+ARG TEMPORAL_UI_VERSION=2.54.1@sha256:ff0943fe532b8e33c46cd28b29e81e0ce0b6f55b9ee50a38ef1b437cc4de3fa5
 
 FROM temporalio/server:${TEMPORAL_SERVER_VERSION} AS server-upstream
 FROM temporalio/admin-tools:${TEMPORAL_ADMIN_TOOLS_VERSION} AS admin-tools-upstream
 FROM temporalio/ui:${TEMPORAL_UI_VERSION} AS ui-upstream
 
-FROM golang:1.26.6-alpine@sha256:3889b425f035be855a72fb4755265311293b6d414521f0a519d819df32222d83 AS dockerize-builder
-RUN CGO_ENABLED=0 GOBIN=/out go install github.com/jwilder/dockerize@v0.13.0
+FROM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS dockerize-builder
+RUN CGO_ENABLED=0 GOBIN=/out go install github.com/jwilder/dockerize@v0.15.1
 
 FROM golang:1.26.6-alpine@sha256:3889b425f035be855a72fb4755265311293b6d414521f0a519d819df32222d83 AS bootstrap-builder
 WORKDIR /src
@@ -36,9 +36,9 @@ RUN ui_version="${TEMPORAL_UI_VERSION%%@*}" && \
     go mod download github.com/temporalio/ui-server/v2@v${ui_version} && \
     cp -R /go/pkg/mod/github.com/temporalio/ui-server/v2@v${ui_version}/. . && \
     chmod -R u+w . && \
-    go get golang.org/x/crypto@v0.53.0 \
-        golang.org/x/net@v0.56.0 \
-        golang.org/x/text@v0.39.0 \
+    go get golang.org/x/crypto@v0.55.0 \
+        golang.org/x/net@v0.57.0 \
+        golang.org/x/text@v0.41.0 \
         google.golang.org/grpc@v1.82.1 && \
     CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/ui-server ./cmd/server/main.go
 
