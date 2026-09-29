@@ -524,7 +524,11 @@ class SimOrchestrator:
         self._step("wait-setup", StepStatus.SUCCESS)
 
         self._step("upload-files", StepStatus.RUNNING)
-        runtime_cfg = self._stage_local_sources(manager, host, port, cfg, topology_path)
+        try:
+            runtime_cfg = self._stage_local_sources(manager, host, port, cfg, topology_path)
+        except Exception as exc:
+            self._step("upload-files", StepStatus.FAILED, str(exc))
+            raise
         install_yaml = self._generate_install_yaml(
             runtime_cfg,
             site_name=builder.site_name,

@@ -25,6 +25,7 @@ import pytest
 from nv_config_manager_installer.air_sim.constants import DEFAULT_MOCK_TOPOLOGY_PATH
 from nv_config_manager_installer.air_sim.orchestrator import (
     SimOrchestrator,
+    StepStatus,
     _monitor_setup_command,
 )
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
@@ -240,6 +241,52 @@ def test_staging_rejects_content_missing_locally(
         orchestrator._stage_local_sources(manager, "worker.example", 17117, cfg, cfg.topology_path)
     assert resolved_missing in str(exc.value)
     manager.upload_to_server.assert_not_called()
+
+
+@pytest.mark.parametrize("error_type", [FileNotFoundError, RuntimeError])
+def test_staging_failure_marks_upload_step_failed(
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: type[Exception],
+) -> None:
+    """Missing content and failed transfers must not leave the UI step running."""
+    cfg = SimConfig(topology_path="fabric.yaml", no_aggressive_dhcp=True)
+    callback = Mock(spec=_Callback)
+    orchestrator = SimOrchestrator(cfg, callback)
+    manager = Mock(spec=AirSimulationManager)
+    manager.create_ssh_service.return_value = ("worker.example", 17117)
+    builder = Mock(
+        devices={
+            cfg.oob_server_name: SimpleNamespace(interface_macs={"eth1": "00:11:22:33:44:55"})
+        },
+        lb_allowed_prefixes=[],
+        relay_return_prefixes=[],
+    )
+    builder.cumulus_firmware_versions.return_value = []
+    builder.build_topology.return_value = {"nodes": {}, "links": []}
+    module = "nv_config_manager_installer.air_sim.orchestrator"
+    monkeypatch.setattr(f"{module}.AirTopologyBuilder", Mock(return_value=builder))
+    monkeypatch.setattr(
+        f"{module}._resolve_oob_server_ips_from_topology",
+        Mock(return_value=("192.0.2.2", "192.0.2.1")),
+    )
+    monkeypatch.setattr(f"{module}.generate_server_cloud_init", Mock(return_value="cloud-init"))
+    monkeypatch.setattr(f"{module}.shutil.which", Mock(return_value="/usr/bin/sshpass"))
+    monkeypatch.setattr(orchestrator, "_create_simulation_manager", Mock(return_value=manager))
+    error = error_type("staging failed")
+    monkeypatch.setattr(orchestrator, "_stage_local_sources", Mock(side_effect=error))
+
+    with pytest.raises(error_type) as exc:
+        orchestrator._run_impl()
+
+    assert exc.value is error
+    upload_calls = [
+        call.args for call in callback.on_step.call_args_list if call.args[0] == "upload-files"
+    ]
+    assert upload_calls == [
+        ("upload-files", StepStatus.RUNNING, ""),
+        ("upload-files", StepStatus.FAILED, "staging failed"),
+    ]
+    manager.run_deploy.assert_not_called()
 
 
 def test_derived_orchestrator_replaces_provider_post_deploy_behavior() -> None:
