@@ -48,6 +48,23 @@ def _enabled_env_flag(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _registered_workflows(registry: WorkflowRegistry) -> list[type[Any]]:
+    """Compose the transition-period catalog without duplicate canonical classes."""
+    workflows: list[type[Any]] = list(
+        dict.fromkeys(
+            [
+                *NGC_REGISTERED_WORKFLOWS,
+                *HELLO_WORLD_REGISTERED_WORKFLOWS,
+                *registry.all_workflows,
+            ]
+        )
+    )
+    validate_workflow_catalog(workflows, activities=registry.all_activities)
+    if _enabled_env_flag("NVCM_ENABLE_LOCAL_TEST_WORKFLOWS"):
+        workflows.extend(HELLO_WORLD_LOCAL_TEST_WORKFLOWS)
+    return workflows
+
+
 async def main() -> None:
     """Run the temporal worker."""
     configure_workflow_runtime()
@@ -62,18 +79,7 @@ async def main() -> None:
     )
 
     registry = WorkflowRegistry.build()
-    workflows: list[type[Any]] = list(
-        dict.fromkeys(
-            [
-                *NGC_REGISTERED_WORKFLOWS,
-                *HELLO_WORLD_REGISTERED_WORKFLOWS,
-                *registry.all_workflows,
-            ]
-        )
-    )
-    validate_workflow_catalog(workflows, activities=registry.all_activities)
-    if _enabled_env_flag("NVCM_ENABLE_LOCAL_TEST_WORKFLOWS"):
-        workflows.extend(HELLO_WORLD_LOCAL_TEST_WORKFLOWS)
+    workflows = _registered_workflows(registry)
 
     # The TracingInterceptor is registered on the client above, which already
     # covers worker activity/workflow calls. Registering it again here would

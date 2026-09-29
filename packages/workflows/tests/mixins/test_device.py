@@ -16,6 +16,7 @@
 
 import pytest
 from nv_config_manager_dcim.workflow_models import DeviceData, NetworkDeviceData, Platform
+from pydantic import BaseModel
 
 from nv_config_manager_workflows import search_attributes
 from nv_config_manager_workflows.mixins import DeviceMixin
@@ -66,3 +67,37 @@ def test_network_device_platform_is_attached(upserted: list[dict[str, list[objec
     DeviceMixin.attach_device_search_attributes(device)
 
     assert upserted[0]["DevicePlatform"] == [Platform.CUMULUS_LINUX]
+
+
+def test_sandbox_equivalent_network_device_platform_is_attached(
+    upserted: list[dict[str, list[object]]],
+) -> None:
+    """A sandbox-reloaded model has a distinct identity but the same contract."""
+
+    class SandboxedNetworkDeviceData(BaseModel):
+        id: str
+        name: str
+        role: str
+        site: str
+        platform: Platform
+
+    device = SandboxedNetworkDeviceData(
+        id="7",
+        name="leaf01",
+        role="leaf",
+        site="rdu",
+        platform=Platform.CUMULUS_LINUX,
+    )
+    assert not isinstance(device, NetworkDeviceData)
+
+    DeviceMixin.attach_device_search_attributes(device)  # type: ignore[arg-type]
+
+    assert upserted == [
+        {
+            "DeviceID": ["7"],
+            "DeviceRole": ["leaf"],
+            "Site": ["rdu"],
+            "DeviceName": ["leaf01"],
+            "DevicePlatform": [Platform.CUMULUS_LINUX],
+        }
+    ]

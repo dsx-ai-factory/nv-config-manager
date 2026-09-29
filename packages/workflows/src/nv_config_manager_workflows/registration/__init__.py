@@ -53,10 +53,12 @@ from nv_config_manager_workflows.registration.validation import (
     validate_workflow_bases,
     validate_workflow_catalog,
 )
+from nv_config_manager_workflows.workflows.builtin import BUILTIN_WORKFLOWS
 
 __all__ = [
     "BUILTIN_PLUGIN_NAME",
     "BUILTIN_ACTIVITIES",
+    "BUILTIN_WORKFLOWS",
     "METADATA_ATTRIBUTES",
     "WORKFLOW_PLUGIN_ENTRY_POINT_GROUP",
     "PluginInfo",

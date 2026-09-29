@@ -4,9 +4,11 @@
 Manager. It provides reusable activities, workflow metadata and behavior, staged
 execution, runtime dependency boundaries, and worker plugin registration.
 
-Core service workflows and worker startup live under `src/nv_config_manager/`.
-This package contains the reusable building blocks they consume and can also
-discover workflows and activities contributed by installed plugins.
+Built-in workflow definitions live in `nv_config_manager_workflows.workflows`.
+The service retains worker startup, runtime configuration, RBAC, and API/CLI/MCP
+presentation under `src/nv_config_manager/`, together with compatibility import
+paths for downstream callers. The package can also discover workflows and
+activities contributed by installed plugins.
 
 ## Package boundaries
 
@@ -71,12 +73,14 @@ API. API-enabled workflows define `workflow_name`,
 `workflow_description`, a Pydantic `workflow_input_class`, and
 `workflow_api_endpoint`.
 
-The package exposes its built-in activities through the
+The package exposes its 33 built-in workflows and built-in activities through the
 `nv_config_manager.workflows` entry point declared in `pyproject.toml`.
 `WorkflowRegistry` discovers all installed entries in that group and merges
-their workflow and activity catalogs. The NVIDIA Config Manager worker combines
-discovered workflows with its service-owned workflows and registers the
-discovered activities.
+their workflow and activity catalogs. During the compatibility period, the
+NVIDIA Config Manager worker deduplicates the package-owned classes exposed
+through the legacy service catalogs and the plugin registry. The local-only
+`HelloWorldRunning` latency fixture is kept out of the built-in plugin and is
+registered only when its service environment flag is enabled.
 
 ### Registering a workflow plugin
 
@@ -131,10 +135,10 @@ Changes to workflow definitions, scheduled activity arguments or options, and
 serialized activity payloads can make existing workflow histories incompatible.
 Preserve Temporal type names and payload schemas during refactors.
 
-Replay histories for service-owned workflows live under
-`src/tests/temporal/replay/fixtures/`; update them whenever durable commands may
-change. Plugins must maintain replay histories and tests for their contributed
-workflows in their own distributions.
+Replay histories for built-in workflows live under
+`packages/workflows/tests/workflows/replay/fixtures/`; update them whenever
+durable commands may change. Plugins must maintain replay histories and tests
+for their contributed workflows in their own distributions.
 
 ## Development
 
@@ -149,7 +153,7 @@ uv run pytest packages/workflows/tests
 When workflow commands or Temporal payloads may be affected, also run:
 
 ```sh
-uv run pytest src/tests/temporal/replay
+uv run pytest packages/workflows/tests/workflows/replay
 ```
 
 See the repository [contribution guide](../../CONTRIBUTING.md) for the broader
