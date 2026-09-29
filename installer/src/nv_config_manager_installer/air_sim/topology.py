@@ -189,7 +189,7 @@ class AirTopologyBuilder:
             {
                 device.firmware_version
                 for device in self.devices.values()
-                if "Cumulus" in device.platform and device.firmware_version
+                if ("Cumulus" in device.platform and device.firmware_version and device.air_enabled)
             }
         )
 
@@ -263,6 +263,7 @@ class AirTopologyBuilder:
             device_type = device.get("device_type", {})
             model = device_type.get("model", "Unknown")
             air_config = device.get("_air", {})
+            air_enabled = air_config.get("enabled", True) is not False
             raw_serial = device.get("serial", "")
             serial = "" if raw_serial == "auto" else raw_serial
             needs_auto = raw_serial == "auto"
@@ -284,6 +285,7 @@ class AirTopologyBuilder:
                     serial=serial,
                     nvcm_enabled=nvcm_enabled,
                     air_config=air_config,
+                    air_enabled=air_enabled,
                 )
                 cumulus_count += 1
             else:
@@ -296,6 +298,7 @@ class AirTopologyBuilder:
                     serial=serial,
                     nvcm_enabled=False,
                     air_config=air_config,
+                    air_enabled=air_enabled,
                 )
                 server_count += 1
 
@@ -391,6 +394,8 @@ class AirTopologyBuilder:
         for device in self.devices.values():
             if "Cumulus" not in device.platform:
                 continue
+            if not device.air_enabled:
+                continue
             if "eth0" not in device.interfaces or not device.interface_macs.get("eth0"):
                 raise ValueError(
                     f"Cumulus device {device.name} must define eth0 with an explicit "
@@ -468,6 +473,8 @@ class AirTopologyBuilder:
 
         # Create a node for each device
         for device in self.devices.values():
+            if not device.air_enabled:
+                continue
             is_cumulus = "Cumulus" in device.platform
 
             if is_cumulus:
@@ -502,6 +509,11 @@ class AirTopologyBuilder:
         connected_intfs: set[tuple[str, str]] = set()
 
         for conn in self.connections:
+            if (
+                conn.source_device not in topology["nodes"]
+                or conn.dest_device not in topology["nodes"]
+            ):
+                continue
             topology["links"].append(
                 [
                     self._make_link_endpoint(conn.source_device, conn.source_interface),
@@ -530,6 +542,8 @@ class AirTopologyBuilder:
         # Add "exit" links for SSH access (public-facing interfaces)
         if hasattr(self, "exit_interfaces"):
             for device_name, intf_name in self.exit_interfaces:
+                if device_name not in topology["nodes"]:
+                    continue
                 topology["links"].append([self._make_link_endpoint(device_name, intf_name), "exit"])
 
         # Add NVCM server node if configured
@@ -586,7 +600,7 @@ class AirTopologyBuilder:
             )
 
         # Validate the attach switch exists
-        if self.nvcm_server.attach_switch not in self.devices:
+        if self.nvcm_server.attach_switch not in topology["nodes"]:
             LOG.warning(
                 f"Switch '{self.nvcm_server.attach_switch}' not found in topology. "
                 f"Available switches: {list(self.devices.keys())[:10]}..."
@@ -663,6 +677,8 @@ class AirTopologyBuilder:
         device_groups: dict[str, dict[str, Any]] = {}
 
         for device in self.devices.values():
+            if not device.air_enabled:
+                continue
             # Create group key
             key = f"{device.model}-{device.role}-{device.firmware_version}".replace(
                 ".", "-"

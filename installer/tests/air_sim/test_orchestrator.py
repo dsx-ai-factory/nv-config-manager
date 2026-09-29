@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -56,8 +57,10 @@ def test_resolve_topology_prefers_direct_path() -> None:
 def test_resolve_topology_generates_from_mock_context(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
 
-    def fake_write_site_design_from_mock_context(blueprint: str, deployment_name: str) -> str:
-        calls.append((blueprint, deployment_name))
+    def fake_write_site_design_from_mock_context(
+        blueprint: str, deployment_name: str, *, context_root: Path
+    ) -> str:
+        calls.append((blueprint, deployment_name, context_root))
         return "/tmp/generated.yaml"
 
     monkeypatch.setattr(
@@ -73,7 +76,7 @@ def test_resolve_topology_generates_from_mock_context(monkeypatch: pytest.Monkey
     orchestrator = SimOrchestrator(cfg, _Callback())
 
     assert orchestrator._resolve_topology_path(cfg) == "/tmp/generated.yaml"
-    assert calls == [("air_trial", "demo")]
+    assert calls == [("air_trial", "demo", Path(cfg.mock_topology_path) / "context")]
 
 
 def test_resolve_topology_generation_is_independent_from_dcim_population(
@@ -81,7 +84,7 @@ def test_resolve_topology_generation_is_independent_from_dcim_population(
 ) -> None:
     monkeypatch.setattr(
         "nv_config_manager_installer.air_sim.orchestrator.write_site_design_from_mock_context",
-        lambda blueprint, deployment_name: f"/tmp/{blueprint}-{deployment_name}.yaml",
+        lambda blueprint, deployment_name, **_kwargs: f"/tmp/{blueprint}-{deployment_name}.yaml",
     )
     cfg = SimConfig(
         topology_path="",
@@ -101,6 +104,67 @@ def test_monitor_setup_command_uses_password_placeholder() -> None:
     assert command.startswith("sshpass -p '<password>'")
     assert "worker.example" in command
     assert "17117" in command
+
+
+def test_local_repository_path_accepts_checkout_and_file_url(tmp_path: Path) -> None:
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+
+    assert SimOrchestrator._local_repository_path(str(checkout)) == checkout.resolve()
+    assert SimOrchestrator._local_repository_path(checkout.as_uri()) == checkout.resolve()
+    assert SimOrchestrator._local_repository_path("https://example.com/repo.git") is None
+    assert SimOrchestrator._is_local_repository_reference(str(checkout)) is True
+    assert SimOrchestrator._is_local_repository_reference(checkout.as_uri()) is True
+    assert SimOrchestrator._is_local_repository_reference("https://example.com/repo.git") is False
+
+
+def test_stage_local_sources_uploads_repo_and_content(tmp_path: Path) -> None:
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    topology = tmp_path / "fabric.yaml"
+    topology.write_text("devices: []\n")
+    mock_topology = tmp_path / "mock_topology"
+    (mock_topology / "context" / "demo").mkdir(parents=True)
+    plugin = tmp_path / "plugin"
+    plugin.mkdir()
+    job = tmp_path / "job.py"
+    job.write_text("# job\n")
+
+    uploads: list[tuple[str, str, set[str]]] = []
+
+    class Manager:
+        def upload_to_server(self, host, port, local_path, remote_path):
+            local = Path(local_path)
+            contents = {str(path.relative_to(local)) for path in local.rglob("*")}
+            uploads.append((local_path, remote_path, contents))
+            return True
+
+    cfg = SimConfig(
+        config_manager_repo=str(checkout),
+        topology_path=str(topology),
+        mock_blueprint="custom",
+        mock_topology_path=str(mock_topology),
+        template_plugin_paths=[str(plugin)],
+        extra_job_paths=[str(job)],
+    )
+    orchestrator = SimOrchestrator(cfg, _Callback())
+
+    staged = orchestrator._stage_local_sources(
+        Manager(), "worker.example", 17117, cfg, str(topology)
+    )
+
+    assert uploads[0][0] == str(checkout.resolve())
+    assert uploads[0][1] == "/home/nvcm/nv-config-manager"
+    assert uploads[1][1] == "/home/nvcm/air-content"
+    assert "topologies/fabric.yaml" in uploads[1][2]
+    assert "mock-topology/mock_topology" in uploads[1][2]
+    assert "template-plugins/00-plugin" in uploads[1][2]
+    assert "jobs/00-job.py" in uploads[1][2]
+    assert staged.topology_path == "/home/nvcm/air-content/topologies/fabric.yaml"
+    assert staged.mock_topology_path == "/home/nvcm/air-content/mock-topology/mock_topology"
+    assert staged.template_plugin_paths == ["/home/nvcm/air-content/template-plugins/00-plugin"]
+    assert staged.extra_job_paths == ["/home/nvcm/air-content/jobs/00-job.py"]
+    assert getattr(cfg, "_air_remote_mock_topology_path") == staged.mock_topology_path
 
 
 def test_derived_orchestrator_replaces_provider_post_deploy_behavior() -> None:
@@ -169,3 +233,32 @@ def test_derived_orchestrator_replaces_provider_post_deploy_behavior() -> None:
     manager.create_nautobot_demo_user.assert_not_called()
     manager.wait_for_intended_configs.assert_not_called()
     manager.ensure_temporal_search_attributes.assert_called_once_with("worker.example", 17117)
+
+
+def test_post_deploy_does_not_reset_inventory_only_switches() -> None:
+    cfg = SimConfig()
+    orchestrator = SimOrchestrator(cfg, _Callback())
+    manager = Mock(spec=AirSimulationManager)
+    builder = SimpleNamespace(
+        relay_return_prefixes=[],
+        devices={
+            name: SimpleNamespace(name=name, platform="Cumulus Linux", air_enabled=enabled)
+            for name, enabled in [("simulated", True), ("inventory-only", False)]
+        },
+    )
+
+    orchestrator._run_post_deploy(
+        manager,
+        cfg,
+        builder,
+        "simulation-id",
+        "worker.example",
+        17117,
+        "00:11:22:33:44:55",
+        "192.0.2.1",
+    )
+
+    manager.reset_cumulus_nodes.assert_called_once_with("simulation-id", ["simulated"])
+    manager.wait_for_intended_configs.assert_called_once_with(
+        "worker.example", 17117, expected_total=1
+    )

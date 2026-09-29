@@ -92,6 +92,10 @@ class SimConfig:
     no_aggressive_dhcp: bool = False
     no_reset_before_dhcp: bool = False
 
+    # Runtime-only paths populated after local content is copied to the AIR box.
+    _air_remote_mock_topology_path: str = field(default="", init=False, repr=False)
+    _air_content_staged: bool = field(default=False, init=False, repr=False)
+
     def __post_init__(self) -> None:
         if not self.oob_ssh_password:
             self.oob_ssh_password = generate_oob_ssh_password()
@@ -106,8 +110,11 @@ class SimConfig:
     def to_yaml(self, path: Path) -> None:
         """Persist config to a YAML file with 0600 permissions."""
         path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            key: value for key, value in dataclasses.asdict(self).items() if not key.startswith("_")
+        }
         with open(path, "w") as f:
-            yaml.safe_dump(dataclasses.asdict(self), f, default_flow_style=False, sort_keys=False)
+            yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
         path.chmod(0o600)
 
     @classmethod
@@ -115,7 +122,7 @@ class SimConfig:
         """Load config from a YAML file, ignoring unknown keys."""
         with open(path) as f:
             data = yaml.safe_load(f) or {}
-        known = {field.name for field in dataclasses.fields(cls)}
+        known = {field.name for field in dataclasses.fields(cls) if field.init}
         return cls(**{key: value for key, value in data.items() if key in known})
 
     @classmethod

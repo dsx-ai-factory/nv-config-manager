@@ -103,15 +103,22 @@ def build_content_jobs(cfg: SimConfig) -> tuple[list[dict[str, str]], list[dict[
     return jobs, run_after_deploy
 
 
-def build_template_plugins(cfg: SimConfig) -> list[dict[str, str]]:
-    """Return installer content.template_plugins entries."""
+def template_plugin_paths(cfg: SimConfig) -> list[str]:
+    """Return configured and inferred local template-plugin paths."""
     paths = [path for path in cfg.template_plugin_paths if path]
 
-    if cfg.mock_blueprint in _DEMO_TEMPLATE_BLUEPRINTS:
+    if cfg.mock_blueprint in _DEMO_TEMPLATE_BLUEPRINTS and not cfg._air_content_staged:
         default_path = DEFAULT_AIR_DEMO_TEMPLATE_PLUGIN_PATH.as_posix()
         default_remote_path = _remote_repo_path(default_path)
         if all(_remote_repo_path(path) != default_remote_path for path in paths):
             paths.append(default_path)
+
+    return paths
+
+
+def build_template_plugins(cfg: SimConfig) -> list[dict[str, str]]:
+    """Return installer content.template_plugins entries."""
+    paths = template_plugin_paths(cfg)
 
     return [{"path": _remote_repo_path(path)} for path in paths]
 

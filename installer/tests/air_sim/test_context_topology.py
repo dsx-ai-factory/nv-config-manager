@@ -206,3 +206,82 @@ def test_air_topology_builder_preserves_explicit_oob_server_cpu_mode(tmp_path: P
 
     assert topology["nodes"]["oob-mgmt-server"]["cpu_mode"] == "host-model"
     assert "cpu_mode" not in topology["nodes"]["oob-mleaf-01"]
+
+
+def test_air_topology_builder_omits_inventory_only_devices_and_their_cables(
+    tmp_path: Path,
+) -> None:
+    _write_context(tmp_path)
+    site_design = build_site_design_from_mock_context(
+        "demo_blueprint", "demo", context_root=tmp_path
+    )
+    site_design["devices"].append(
+        {
+            "name": "inventory-only-node",
+            "role": "GPU-Node",
+            "platform": "Ubuntu",
+            "device_type": {"manufacturer": "NVIDIA", "model": "Compute Tray"},
+            "_air": {"enabled": False},
+        }
+    )
+    site_design["interfaces"].extend(
+        [
+            {
+                "device": "inventory-only-node",
+                "name": "bmc",
+                "type": "1000base-t",
+            },
+            {
+                "device": "oob-mleaf-01",
+                "name": "swp2",
+                "type": "1000base-t",
+            },
+        ]
+    )
+    site_design["cabling_assignments"]["connections"].append(
+        {
+            "source": {"device": "inventory-only-node", "component": {"name": "bmc"}},
+            "destination": {"device": "oob-mleaf-01", "component": {"name": "swp2"}},
+        }
+    )
+    topology_path = tmp_path / "site-design.yaml"
+    _write_yaml(topology_path, site_design)
+
+    builder = AirTopologyBuilder(str(topology_path))
+    topology = builder.build_topology()
+
+    assert "inventory-only-node" in builder.devices
+    assert "inventory-only-node" not in topology["nodes"]
+    assert not any(
+        isinstance(endpoint, dict) and endpoint.get("node") == "inventory-only-node"
+        for link in topology["links"]
+        for endpoint in link
+    )
+    assert [
+        {"node": "oob-mleaf-01", "interface": "swp2"},
+        "unconnected",
+    ] in topology["links"]
+
+
+def test_air_topology_builder_omits_inventory_only_devices_in_minimal_mode(
+    tmp_path: Path,
+) -> None:
+    _write_context(tmp_path)
+    site_design = build_site_design_from_mock_context(
+        "demo_blueprint", "demo", context_root=tmp_path
+    )
+    site_design["devices"].append(
+        {
+            "name": "inventory-only-node",
+            "role": "GPU-Node",
+            "platform": "Ubuntu",
+            "device_type": {"manufacturer": "NVIDIA", "model": "Compute Tray"},
+            "_air": {"enabled": False},
+        }
+    )
+    topology_path = tmp_path / "site-design.yaml"
+    _write_yaml(topology_path, site_design)
+
+    topology = AirTopologyBuilder(str(topology_path), minimal_mode=True).build_topology()
+
+    assert all("Compute-Tray" not in node for node in topology["nodes"])
