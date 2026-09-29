@@ -56,5 +56,5 @@ certificate verification, and transport I/O use the real client library.
 To verify the minimum supported nats-py version in an isolated dependency overlay:
 
 ```sh
-NVCM_TEST_NATS_DOCKER=1 uv run --with 'nats-py[nkeys]==2.9.0' pytest packages/infrastructure/tests/ -v
+NVCM_TEST_NATS_DOCKER=1 uv run --with 'nats-py[nkeys]==2.15.0' pytest packages/infrastructure/tests/ -v
 ```
