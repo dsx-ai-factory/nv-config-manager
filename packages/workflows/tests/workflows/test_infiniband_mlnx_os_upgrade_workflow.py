@@ -18,10 +18,11 @@ import asyncio
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from typing import Any
 from unittest.mock import patch
 
 import pytest
-from nv_config_manager_dcim.workflow_models import NetworkDeviceData
+from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from temporalio import activity
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
@@ -64,7 +65,7 @@ async def mock_get_network_device(
             id=activity_input.device_id,
             name="ib-switch-01",
             role="infiniband-switch",
-            platform="mlnx-os",
+            platform=Platform.MLNX_OS,
             site="SITEA",
             device_type="sn4600",
             primary_ip4="10.0.0.1",
@@ -152,9 +153,9 @@ def mock_cleanup_mlnx_os(
 @pytest.mark.timeout(60)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_single_stage_already_on_target(
-    _,
-    env,
-):
+    _: Any,
+    env: Any,
+) -> None:
     """Test single stage workflow when device is already on target version."""
     task_queue_name = str(uuid.uuid4())
 
@@ -179,9 +180,6 @@ async def test_execute_single_stage_already_on_target(
             InfinibandMlnxOSUpgradeWorkflow.run,
             InfinibandMlnxOSUpgradeInput(
                 device_id="test-device-id",
-                intended_version="3.10.4000",
-                approved=True,
-                approved_by=["TestUser"],
             ),
             id=workflow_id,
             task_queue=task_queue_name,
@@ -196,7 +194,7 @@ async def test_execute_single_stage_already_on_target(
 @pytest.mark.asyncio
 @pytest.mark.timeout(30)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_execute_single_stage_with_approval(_, time_skipping_env):
+async def test_execute_single_stage_with_approval(_: Any, time_skipping_env: Any) -> None:
     """Test single stage workflow with approval signal and full completion."""
     async with time_skipping_env() as env:
         task_queue_name = str(uuid.uuid4())
@@ -223,7 +221,6 @@ async def test_execute_single_stage_with_approval(_, time_skipping_env):
                 InfinibandMlnxOSUpgradeWorkflow.run,
                 InfinibandMlnxOSUpgradeInput(
                     device_id="test-device-id",
-                    intended_version="3.10.4000",
                 ),
                 id=workflow_id,
                 task_queue=task_queue_name,

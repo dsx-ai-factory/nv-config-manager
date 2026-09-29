@@ -14,6 +14,8 @@
 # limitations under the License.
 """Device workflow mixin tests."""
 
+from typing import cast
+
 import pytest
 from nv_config_manager_dcim.workflow_models import DeviceData, NetworkDeviceData, Platform
 from pydantic import BaseModel
@@ -90,7 +92,7 @@ def test_sandbox_equivalent_network_device_platform_is_attached(
     )
     assert not isinstance(device, NetworkDeviceData)
 
-    DeviceMixin.attach_device_search_attributes(device)  # type: ignore[arg-type]
+    DeviceMixin.attach_device_search_attributes(cast(DeviceData, device))
 
     assert upserted == [
         {

@@ -16,8 +16,10 @@
 
 import uuid
 from datetime import timedelta
+from typing import Any
 
 import pytest
+from nv_config_manager_dcim.workflow_models import Platform
 from temporalio import activity
 from temporalio.client import WorkflowHandle
 from temporalio.worker import Worker
@@ -75,12 +77,11 @@ async def mock_get_network_device(
             id=activity_input.device_id,
             name="mock_device",
             role="mock_role",
-            platform="mlnx-os",
+            platform=Platform.MLNX_OS,
             site="mock_site",
             device_type="mock_device_type",
             primary_ip4="10.0.0.1",
             primary_ip6=None,
-            host="10.0.0.1",
         )
     )
 
@@ -95,7 +96,7 @@ async def mock_get_ib_ports(_activity_input: GetUFMPortsInput) -> GetUFMPortsOut
 
 
 @pytest.mark.asyncio
-async def test_execute_workflow_healthy_ports(env):
+async def test_execute_workflow_healthy_ports(env: Any) -> None:
     """Test workflow execution with healthy ports."""
     global _ufm_ports  # noqa: PLW0603
     _ufm_ports = []
@@ -122,7 +123,7 @@ async def test_execute_workflow_healthy_ports(env):
 
 
 @pytest.mark.asyncio
-async def test_execute_workflow_unhealthy_ports(env):
+async def test_execute_workflow_unhealthy_ports(env: Any) -> None:
     """Test workflow execution with unhealthy ports."""
     global _ufm_ports  # noqa: PLW0603
     _ufm_ports = UFM_UNHEALTHY_PORTS

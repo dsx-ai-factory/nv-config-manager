@@ -17,9 +17,10 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from typing import Any
 
 import pytest
-from nv_config_manager_dcim.workflow_models import NetworkDeviceData
+from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from temporalio import activity
 from temporalio.client import WorkflowHandle
 from temporalio.common import RetryPolicy
@@ -76,14 +77,12 @@ async def mock_get_network_device(
         device=NetworkDeviceData(
             id="mock_device_uuid",
             name="test-nvswitch",
-            host="192.168.1.100",
-            platform="nv-os",
+            platform=Platform.NV_OS,
             role="nvlink_switch",
             site="test_site",
             device_type="ConnectX-7",
             primary_ip4="192.168.1.100",
             primary_ip6=None,
-            intended_config_path="test/path/startup.yaml",
             render_enabled=True,
             deploy_enabled=True,
             backup_enabled=True,
@@ -258,7 +257,7 @@ async def mock_publish_nats(activity_input: PublishNatsInput) -> None:
 
 
 @pytest.mark.asyncio
-async def test_nvlinkswitch_firmware_upgrade_workflow_success(env):
+async def test_nvlinkswitch_firmware_upgrade_workflow_success(env: Any) -> None:
     """Test successful NVLinkSwitch firmware upgrade workflow."""
     # Reset the global counter for this test
     global _compare_calls_count
@@ -340,7 +339,7 @@ async def test_nvlinkswitch_firmware_upgrade_workflow_success(env):
 
 
 @pytest.mark.asyncio
-async def test_nvlinkswitch_firmware_upgrade_workflow_no_upgrade_needed(env):
+async def test_nvlinkswitch_firmware_upgrade_workflow_no_upgrade_needed(env: Any) -> None:
     """Test NVLinkSwitch firmware upgrade workflow when no upgrade is needed."""
     task_queue_name = str(uuid.uuid4())
 
@@ -419,20 +418,18 @@ async def mock_get_network_device_unsupported(
         device=NetworkDeviceData(
             id="mock_device_uuid",
             name="test-switch",
-            host="192.168.1.100",
-            platform="cumulus-linux",  # Unsupported platform
+            platform=Platform.CUMULUS_LINUX,  # Unsupported platform
             role="switch",
             site="test_site",
             device_type="switch",
             primary_ip4="192.168.1.100",
             primary_ip6=None,
-            intended_config_path="test/path/startup.yaml",
         )
     )
 
 
 @pytest.mark.asyncio
-async def test_nvlinkswitch_firmware_upgrade_workflow_unsupported_platform(env):
+async def test_nvlinkswitch_firmware_upgrade_workflow_unsupported_platform(env: Any) -> None:
     """Test NVLinkSwitch firmware upgrade workflow with unsupported platform."""
     task_queue_name = str(uuid.uuid4())
 

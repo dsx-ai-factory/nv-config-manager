@@ -15,10 +15,11 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from typing import Any
 from unittest.mock import patch
 
 import pytest
-from nv_config_manager_dcim.workflow_models import NetworkDeviceData
+from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from temporalio import activity
 from temporalio.client import WorkflowHandle
 from temporalio.worker import Worker
@@ -53,7 +54,7 @@ async def mock_get_network_device(
             id=activity_input.device_id,
             name="mock_device",
             role="mock_role",
-            platform="cumulus-linux",
+            platform=Platform.CUMULUS_LINUX,
             site="SITEA",
             device_type="sn4200",
             primary_ip4="10.0.0.1",
@@ -70,7 +71,7 @@ async def mock_get_network_device(
 @activity.defn(name="get_switch_port_by_remote_mac_address")
 async def mock_get_switch_port_by_remote_mac_address(
     input: SwitchPortByMacActivityInput,
-) -> str:
+) -> SwitchPortByMacActivityOutput:
     device = await mock_get_network_device(GetNetworkDeviceInput(device_id="mock_device_id"))
     return SwitchPortByMacActivityOutput(
         device=device.device,
@@ -88,10 +89,10 @@ async def mock_load_neighbor_data_by_switch_port(
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow(
-    mock_time,
-    mock_nats_client,
-    env,
-):
+    mock_time: Any,
+    mock_nats_client: Any,
+    env: Any,
+) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -240,7 +241,7 @@ async def test_execute_workflow(
         # By Switch and Port
         input = PortLLDPInfoInput(device_id="mock_device_id", interface="swp1")
         workflow_id = str(uuid.uuid4())
-        handle: WorkflowHandle = await env.client.start_workflow(
+        handle = await env.client.start_workflow(
             PortLLDPInfoWorkflow.run,
             input,
             id=workflow_id,

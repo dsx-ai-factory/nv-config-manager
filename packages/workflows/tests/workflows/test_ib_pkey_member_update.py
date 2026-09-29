@@ -1,9 +1,23 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Package-owned behavior tests for reconciling InfiniBand PKey members."""
 
 import asyncio
 import uuid
+from collections.abc import Callable, Sequence
+from typing import Any, cast
 
 import pytest
 from temporalio.worker import Worker
@@ -36,7 +50,7 @@ def pkey_runtime(configured_workflow_runtime: None) -> PKeyRuntime:
     return runtime
 
 
-async def _wait_for_pending_approval(handle, timeout: float = 10.0) -> None:
+async def _wait_for_pending_approval(handle: Any, timeout: float = 10.0) -> None:
     async def _poll() -> None:
         while await handle.query("pending_approval") is False:
             await asyncio.sleep(0.05)
@@ -45,7 +59,7 @@ async def _wait_for_pending_approval(handle, timeout: float = 10.0) -> None:
 
 
 async def _execute(
-    env,
+    env: Any,
     workflow_input: IBPKeyMemberUpdateInput,
     *,
     approve: bool = False,
@@ -55,7 +69,7 @@ async def _execute(
         env.client,
         task_queue=task_queue,
         workflows=[IBPKeyMemberUpdateWorkflow],
-        activities=PKEY_WORKFLOW_ACTIVITIES,
+        activities=cast(Sequence[Callable[..., Any]], PKEY_WORKFLOW_ACTIVITIES),
     ):
         handle = await env.client.start_workflow(
             IBPKeyMemberUpdateWorkflow.run,
@@ -66,7 +80,7 @@ async def _execute(
         if approve:
             await _wait_for_pending_approval(handle)
             await handle.signal("approve", {"stage_name": "validate_diff", "user": "Test"})
-        return await handle.result()
+        return cast(IBPKeyMemberUpdateOutput, await handle.result())
 
 
 def test_unresolved_guid_values_detects_missing_removal_resolution() -> None:
@@ -83,7 +97,7 @@ def test_unresolved_guid_values_detects_missing_removal_resolution() -> None:
 
 
 @pytest.mark.asyncio
-async def test_additions_only_are_auto_approved(env, pkey_runtime: PKeyRuntime) -> None:
+async def test_additions_only_are_auto_approved(env: Any, pkey_runtime: PKeyRuntime) -> None:
     result = await _execute(
         env,
         IBPKeyMemberUpdateInput(
@@ -100,7 +114,7 @@ async def test_additions_only_are_auto_approved(env, pkey_runtime: PKeyRuntime) 
 
 
 @pytest.mark.asyncio
-async def test_membership_only_change_is_sent_to_ufm(env, pkey_runtime: PKeyRuntime) -> None:
+async def test_membership_only_change_is_sent_to_ufm(env: Any, pkey_runtime: PKeyRuntime) -> None:
     assignment_id = pkey_runtime.dcim.seed_assignment(INTERFACE_ID_1, GUID_1, "full")
     pkey_runtime.ufm.set_pkey(PKEY, members={GUID_1: "full"})
 
@@ -121,7 +135,7 @@ async def test_membership_only_change_is_sent_to_ufm(env, pkey_runtime: PKeyRunt
 
 @pytest.mark.asyncio
 async def test_idempotent_update_still_reconciles_exact_ufm_state(
-    env, pkey_runtime: PKeyRuntime
+    env: Any, pkey_runtime: PKeyRuntime
 ) -> None:
     pkey_runtime.dcim.seed_assignment(INTERFACE_ID_1, GUID_1)
     pkey_runtime.ufm.set_pkey(PKEY, members={GUID_1: "full"})
@@ -142,7 +156,7 @@ async def test_idempotent_update_still_reconciles_exact_ufm_state(
 
 @pytest.mark.asyncio
 async def test_full_swap_requires_approval_and_uses_one_atomic_put(
-    env, pkey_runtime: PKeyRuntime
+    env: Any, pkey_runtime: PKeyRuntime
 ) -> None:
     pkey_runtime.dcim.seed_assignment(INTERFACE_ID_1, GUID_1)
     pkey_runtime.ufm.set_pkey(PKEY, members={GUID_1: "full"})
@@ -166,7 +180,7 @@ async def test_full_swap_requires_approval_and_uses_one_atomic_put(
 
 @pytest.mark.asyncio
 async def test_guids_only_path_reverse_resolves_dcim_interfaces(
-    env, pkey_runtime: PKeyRuntime
+    env: Any, pkey_runtime: PKeyRuntime
 ) -> None:
     result = await _execute(
         env,
@@ -179,7 +193,7 @@ async def test_guids_only_path_reverse_resolves_dcim_interfaces(
 
 
 @pytest.mark.asyncio
-async def test_ufm_only_member_triggers_approval(env, pkey_runtime: PKeyRuntime) -> None:
+async def test_ufm_only_member_triggers_approval(env: Any, pkey_runtime: PKeyRuntime) -> None:
     """An untracked UFM member is gated because the exact-set PUT removes it."""
     pkey_runtime.dcim.seed_assignment(INTERFACE_ID_1, GUID_1)
     pkey_runtime.ufm.set_pkey(PKEY, members={GUID_1: "full", GUID_2: "full"})
@@ -200,7 +214,7 @@ async def test_ufm_only_member_triggers_approval(env, pkey_runtime: PKeyRuntime)
 
 
 @pytest.mark.asyncio
-async def test_update_preserves_existing_ip_over_ib(env, pkey_runtime: PKeyRuntime) -> None:
+async def test_update_preserves_existing_ip_over_ib(env: Any, pkey_runtime: PKeyRuntime) -> None:
     pkey_runtime.dcim.seed_assignment(INTERFACE_ID_1, GUID_1)
     pkey_runtime.ufm.set_pkey(PKEY, members={GUID_1: "full"}, ip_over_ib=False)
 
@@ -218,8 +232,8 @@ async def test_update_preserves_existing_ip_over_ib(env, pkey_runtime: PKeyRunti
     assert pkey_runtime.ufm.put_payloads[-1]["ip_over_ib"] is False
 
 
-def _update_input(**overrides) -> IBPKeyMemberUpdateInput:
-    params = {
+def _update_input(**overrides: Any) -> IBPKeyMemberUpdateInput:
+    params: dict[str, Any] = {
         "host": "ufm.example.com",
         "pkey": PKEY,
         "interfaces": [InterfaceRef(device="hca01", interface="mlx5_0")],

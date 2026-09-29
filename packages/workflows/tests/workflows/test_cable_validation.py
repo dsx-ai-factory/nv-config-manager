@@ -21,6 +21,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 import pytest
@@ -38,7 +39,7 @@ from .cable_validation_data import (
 )
 
 with workflow.unsafe.imports_passed_through():
-    from nv_config_manager_dcim.workflow_models import InterfaceData, NetworkDeviceData
+    from nv_config_manager_dcim.workflow_models import InterfaceData, NetworkDeviceData, Platform
     from nv_config_manager_dcim_nautobot_2x.workflow_models import (
         network_device_from_nautobot_graphql,
     )
@@ -88,7 +89,7 @@ with workflow.unsafe.imports_passed_through():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("patch_enabled", [False, True])
 @pytest.mark.parametrize("defer", [False, True])
-async def test_device_report_stage_waits_for_persistence(patch_enabled, defer):
+async def test_device_report_stage_waits_for_persistence(patch_enabled: Any, defer: Any) -> None:
     device = NetworkDeviceData.model_construct(id="device-1", name="leaf-1")
     stage_input = DeviceCableValidationWorkflow.ValidateConnectionsStageInput(
         device=device,
@@ -107,14 +108,14 @@ async def test_device_report_stage_waits_for_persistence(patch_enabled, defer):
     calls = []
     instance = MagicMock(spec=DeviceCableValidationWorkflow)
 
-    async def persist(stage_name, report, updates):
+    async def persist(stage_name: Any, report: Any, updates: Any) -> None:
         assert format_device_validation_result in calls
         assert report.display == "All cable connections are valid."
         assert instance.set_stage_state.call_args == call("validate_connections", "IN_PROGRESS")
 
     instance.persist_cable_statuses_after_report = AsyncMock(side_effect=persist)
 
-    async def execute_activity(activity_callable, *_args, **_kwargs):
+    async def execute_activity(activity_callable: Any, *_args: Any, **_kwargs: Any) -> Any:
         calls.append(activity_callable)
         if activity_callable is validate_device_neighbors:
             return validation_result
@@ -153,7 +154,9 @@ async def test_device_report_stage_waits_for_persistence(patch_enabled, defer):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("patch_enabled", [False, True])
 @pytest.mark.parametrize("defer", [False, True])
-async def test_device_passes_persistence_deferral_to_report_stage(patch_enabled, defer):
+async def test_device_passes_persistence_deferral_to_report_stage(
+    patch_enabled: Any, defer: Any
+) -> None:
     device = NetworkDeviceData.model_construct(id="device-1", name="leaf-1")
     instance = MagicMock(spec=DeviceCableValidationWorkflow)
     instance.get_device_data = AsyncMock(return_value=SimpleNamespace(device=device))
@@ -183,7 +186,7 @@ async def test_device_passes_persistence_deferral_to_report_stage(patch_enabled,
             "nv_config_manager_workflows.workflows.cable_validation.DeviceMixin.attach_device_search_attributes"
         ),
     ):
-        result = await DeviceCableValidationWorkflow.run.__wrapped__(
+        result = await cast(Any, DeviceCableValidationWorkflow.run).__wrapped__(
             instance,
             DeviceCableValidationInput(
                 device_id="device-1", device=device, defer_cable_status_updates=defer
@@ -197,7 +200,7 @@ async def test_device_passes_persistence_deferral_to_report_stage(patch_enabled,
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("patch_enabled", [False, True])
-async def test_site_passes_pending_updates_to_report_stage(patch_enabled):
+async def test_site_passes_pending_updates_to_report_stage(patch_enabled: Any) -> None:
     device = NetworkDeviceData.model_construct(id="device-1", name="leaf-1")
     pending = UpdateCableStatusesInput(
         device_id="device-1", cable_statuses={"p": CableStatus.CONNECTED}, workflow_id="child-1"
@@ -217,7 +220,7 @@ async def test_site_passes_pending_updates_to_report_stage(patch_enabled):
             "nv_config_manager_workflows.workflows.cable_validation.upsert_missing_search_attributes"
         ),
     ):
-        result = await SiteCableValidationWorkflow.run.__wrapped__(
+        result = await cast(Any, SiteCableValidationWorkflow.run).__wrapped__(
             instance, SiteCableValidationInput(site="site-1")
         )
     assert result.markdown == "Report"
@@ -227,14 +230,14 @@ async def test_site_passes_pending_updates_to_report_stage(patch_enabled):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("patch_enabled", [False, True])
-async def test_site_report_stage_waits_for_persistence(patch_enabled):
+async def test_site_report_stage_waits_for_persistence(patch_enabled: Any) -> None:
     instance = MagicMock(spec=SiteCableValidationWorkflow)
     instance.FormatResultStageOutput = SiteCableValidationWorkflow.FormatResultStageOutput
     pending = UpdateCableStatusesInput(
         device_id="device-1", cable_statuses={"p": CableStatus.CONNECTED}, workflow_id="workflow-1"
     )
 
-    async def persist(stage_name, report, updates):
+    async def persist(stage_name: Any, report: Any, updates: Any) -> None:
         assert updates == [pending]
         assert report.display == "Report with Excel link"
         assert instance.set_stage_state.call_args == call("format_result", "IN_PROGRESS")
@@ -257,14 +260,14 @@ async def test_site_report_stage_waits_for_persistence(patch_enabled):
 
 
 @pytest.mark.asyncio
-async def test_dcim_persistence_keeps_report_visible_until_complete():
+async def test_dcim_persistence_keeps_report_visible_until_complete() -> None:
     pending = UpdateCableStatusesInput(
         device_id="device-1", cable_statuses={"p": CableStatus.CONNECTED}, workflow_id="workflow-1"
     )
     report = SiteCableValidationWorkflow.FormatResultStageOutput(display="Report")
     instance = MagicMock(spec=SiteCableValidationWorkflow)
 
-    async def persist(updates):
+    async def persist(updates: Any) -> None:
         assert updates == [pending]
         assert instance.set_stage_output.call_args == call(
             "format_result",
@@ -291,7 +294,7 @@ async def test_dcim_persistence_keeps_report_visible_until_complete():
 
 
 @pytest.mark.asyncio
-async def test_dcim_persistence_failure_preserves_report_and_propagates_error():
+async def test_dcim_persistence_failure_preserves_report_and_propagates_error() -> None:
     pending = UpdateCableStatusesInput(
         device_id="device-1", cable_statuses={"p": CableStatus.CONNECTED}, workflow_id="workflow-1"
     )
@@ -318,11 +321,11 @@ async def test_dcim_persistence_failure_preserves_report_and_propagates_error():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("timeout_enabled", [False, True])
-async def test_site_records_child_timeout_and_continues(timeout_enabled):
+async def test_site_records_child_timeout_and_continues(timeout_enabled: Any) -> None:
     device = NetworkDeviceData.model_construct(id="device-1", name="leaf-1")
     instance = MagicMock(spec=SiteCableValidationWorkflow)
     instance.ValidateDevicesStageOutput = SiteCableValidationWorkflow.ValidateDevicesStageOutput
-    child = asyncio.get_running_loop().create_future()
+    child = cast(Any, asyncio.get_running_loop().create_future())
     child.id = "child-1"
     error = ChildWorkflowError(
         "Child timed out",
@@ -351,7 +354,7 @@ async def test_site_records_child_timeout_and_continues(timeout_enabled):
             ),
         ),
     ):
-        result = await SiteCableValidationWorkflow.validate_devices.__wrapped__(
+        result = await cast(Any, SiteCableValidationWorkflow.validate_devices).__wrapped__(
             instance, SiteCableValidationWorkflow.ValidateDevicesStageInput(devices=[device])
         )
     assert start_child.call_args.kwargs["execution_timeout"] == (
@@ -398,6 +401,7 @@ async def mock_get_network_devices(
 async def mock_get_network_devices_hostname_mismatch(
     activity_input: GetNetworkDevicesInput,
 ) -> GetNetworkDevicesOutput:
+    assert isinstance(activity_input.site, str)
     return GetNetworkDevicesOutput(
         devices=[
             network_device_from_nautobot_graphql(device)
@@ -413,11 +417,9 @@ async def mock_get_network_devices_hostname_mismatch(
                 role="cin-core",
                 site=activity_input.site,
                 device_type="mock_device_type",
-                platform="cumulus-linux",
+                platform=Platform.CUMULUS_LINUX,
                 primary_ip4="172.0.0.200",
                 primary_ip6=None,
-                device_bays=[],
-                interfaces=[],
                 render_enabled=True,
                 deploy_enabled=True,
                 backup_enabled=True,
@@ -503,17 +505,17 @@ async def mock_get_device_actual_neighbors_for_mac_validation(
 
 
 @activity.defn(name="get_device_mac_table")
-async def mock_get_device_mac_table(_) -> DeviceMacTable:
+async def mock_get_device_mac_table(_: Any) -> DeviceMacTable:
     return DEVICE_CONNECTION_DATA_MAC_TABLE
 
 
 @activity.defn(name="get_device_mac_table")
-async def mock_get_device_mac_table_invalid(_) -> DeviceMacTable:
+async def mock_get_device_mac_table_invalid(_: Any) -> DeviceMacTable:
     return DEVICE_CONNECTION_DATA_MAC_TABLE_INVALID
 
 
 @activity.defn(name="get_device_arp_table")
-async def mock_get_device_arp_table(_):
+async def mock_get_device_arp_table(_: Any) -> Any:
     """Mock ARP table for testing."""
     return DeviceArpTable(
         ip_to_mac={"10.0.0.1": ["00-00-00-00-00-01"]},
@@ -523,7 +525,7 @@ async def mock_get_device_arp_table(_):
 
 
 @activity.defn(name="get_device_arp_table")
-async def mock_get_device_arp_table_invalid(_):
+async def mock_get_device_arp_table_invalid(_: Any) -> Any:
     """Mock invalid ARP table for testing."""
     return DeviceArpTable(
         ip_to_mac={"10.0.0.2": ["00-00-00-00-00-02"]},
@@ -541,7 +543,7 @@ async def mock_get_ui_base_url() -> str:
 @workflow.defn(name="DeviceCableValidationWorkflow")
 class MockedDeviceCableValidationAllValid:
     @run_nv_config_manager_workflow
-    async def run(self, _) -> DeviceCableValidationResult:
+    async def run(self, _: Any) -> DeviceCableValidationResult:
         return DeviceCableValidationResult()
 
 
@@ -549,7 +551,9 @@ class MockedDeviceCableValidationAllValid:
 class MockedDeviceCableValidationSomeInvalid:
     @run_nv_config_manager_workflow
     async def run(self, workflow_input: DeviceCableValidationInput) -> DeviceCableValidationResult:
-        if workflow_input.device.name == "mock_device1":
+        device = workflow_input.device
+        assert device is not None
+        if device.name == "mock_device1":
             return DeviceCableValidationResult(
                 interfaces=(
                     {
@@ -613,7 +617,7 @@ class MockedDeviceCableValidationSomeInvalid:
                     }
                 )
             )
-        elif workflow_input.device.name == "mock_device2":
+        elif device.name == "mock_device2":
             return DeviceCableValidationResult(
                 interfaces=(
                     {
@@ -656,7 +660,7 @@ class MockedDeviceCableValidationSomeInvalid:
                     }
                 )
             )
-        elif workflow_input.device.name == "mock_device3":
+        elif device.name == "mock_device3":
             return DeviceCableValidationResult(
                 interfaces=(
                     {
@@ -724,7 +728,7 @@ class MockedDeviceCableValidationSomeInvalid:
                     }
                 )
             )
-        elif workflow_input.device.name == "MOCK-LEAF-04":
+        elif device.name == "MOCK-LEAF-04":
             return DeviceCableValidationResult(
                 interfaces=(
                     {
@@ -742,7 +746,7 @@ class MockedDeviceCableValidationSomeInvalid:
                     }
                 )
             )
-        elif workflow_input.device.name == "mock_device_mismatch":
+        elif device.name == "mock_device_mismatch":
             raise StageRuntimeFailure(
                 (
                     "Activity validate_hostname:0 in validate_device_hostname has failed "
@@ -776,7 +780,7 @@ def mock_validate_hostname_mismatch(
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_execute_device_cable_validation_workflow_dpu_mac_offset(_, env):
+async def test_execute_device_cable_validation_workflow_dpu_mac_offset(_: Any, env: Any) -> None:
     """Test DPU MAC offset validation where actual MAC is expected MAC + 0x10."""
 
     @activity.defn(name="get_device_actual_neighbors")
@@ -871,6 +875,7 @@ async def test_execute_device_cable_validation_workflow_dpu_mac_offset(_, env):
             ),
             device_id=DEVICE_CONNECTION_DATA_INVALID["mock_device1"]["id"],
         )
+        assert workflow_input.device is not None
         workflow_id = str(uuid.uuid4())
         handle = await env.client.start_workflow(
             DeviceCableValidationWorkflow.run,
@@ -920,7 +925,7 @@ async def test_execute_device_cable_validation_workflow_dpu_mac_offset(_, env):
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.activities.cable_validation.activities.get_dcim_client")
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_cable_validation_workflow_all_valid(_, mock_nb_client, env):
+async def test_cable_validation_workflow_all_valid(_: Any, mock_nb_client: Any, env: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -991,7 +996,7 @@ EXPECTED_CABLE_TABLE = (
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_cable_validation_workflow_some_invalid(_, env):
+async def test_cable_validation_workflow_some_invalid(_: Any, env: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -1031,7 +1036,7 @@ async def test_cable_validation_workflow_some_invalid(_, env):
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_cable_validation_workflow_hostname_mismatch(_, env):
+async def test_cable_validation_workflow_hostname_mismatch(_: Any, env: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -1973,7 +1978,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_, env):
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_execute_device_cable_validation_workflow_valid(_, env):
+async def test_execute_device_cable_validation_workflow_valid(_: Any, env: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -1999,6 +2004,7 @@ async def test_execute_device_cable_validation_workflow_valid(_, env):
             ),
             device_id=DEVICE_CONNECTION_DATA_INVALID["mock_device1"]["id"],
         )
+        assert workflow_input.device is not None
 
         workflow_id = str(uuid.uuid4())
         handle = await env.client.start_workflow(
@@ -2057,6 +2063,7 @@ async def test_execute_device_cable_validation_workflow_valid(_, env):
             ),
             device_id=DEVICE_CONNECTION_DATA_VALID["MOCK-LEAF-04"]["id"],
         )
+        assert workflow_input.device is not None
         workflow_id = str(uuid.uuid4())
         handle = await env.client.start_workflow(
             DeviceCableValidationWorkflow.run,
@@ -2102,7 +2109,7 @@ async def test_execute_device_cable_validation_workflow_valid(_, env):
 
 
 @pytest.mark.asyncio
-async def test_execute_device_cable_validation_workflow_invalid(env):
+async def test_execute_device_cable_validation_workflow_invalid(env: Any) -> None:
     # Test scenarios for cable validation:
     # swp1: intended present, actual link down, no lldp or mac data
     # swp2: mac table matches intended mac, no lldp
@@ -2286,7 +2293,7 @@ async def test_execute_device_cable_validation_workflow_invalid(env):
         ),
     ]
 
-    async def _mock_get_interface_hosts_by_mac(*args, **kwargs):
+    async def _mock_get_interface_hosts_by_mac(*args: Any, **kwargs: Any) -> Any:
         return mock_interfaces
 
     mock_nb_instance = AsyncMock()
@@ -2296,7 +2303,7 @@ async def test_execute_device_cable_validation_workflow_invalid(env):
     mock_nb_class = MagicMock(return_value=mock_nb_instance)
 
     @activity.defn(name="decorate_result")
-    async def _decorate_result_with_mock(activity_input: DecorateResultActivityInput):
+    async def _decorate_result_with_mock(activity_input: DecorateResultActivityInput) -> Any:
         with patch(
             "nv_config_manager_workflows.activities.cable_validation.activities.get_dcim_client",
             mock_nb_class,
@@ -2328,6 +2335,7 @@ async def test_execute_device_cable_validation_workflow_invalid(env):
             ),
             device_id=DEVICE_CONNECTION_DATA_INVALID["mock_device1"]["id"],
         )
+        assert workflow_input.device is not None
         workflow_id = str(uuid.uuid4())
         handle = await env.client.start_workflow(
             DeviceCableValidationWorkflow.run,
@@ -2480,9 +2488,9 @@ async def test_execute_device_cable_validation_workflow_invalid(env):
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_device_cable_validation_workflow_mac_validation_all_valid(
-    _,
-    env,
-):
+    _: Any,
+    env: Any,
+) -> None:
     # Test 4 healthy scenarios:
     # swp2: mac table matches intended mac, no lldp
     # swp3: lldp matches intended, no mac
@@ -2624,6 +2632,7 @@ async def test_execute_device_cable_validation_workflow_mac_validation_all_valid
             ),
             device_id=DEVICE_CONNECTION_DATA_MAC_VALIDATION["MOCK-IPMITOR-01"]["id"],
         )
+        assert workflow_input.device is not None
         workflow_id = str(uuid.uuid4())
         handle = await env.client.start_workflow(
             DeviceCableValidationWorkflow.run,
@@ -2675,7 +2684,7 @@ async def test_execute_device_cable_validation_workflow_mac_validation_all_valid
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_execute_device_cable_validation_workflow_hostname_mismatch(_, env):
+async def test_execute_device_cable_validation_workflow_hostname_mismatch(_: Any, env: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -2724,7 +2733,7 @@ async def test_execute_device_cable_validation_workflow_hostname_mismatch(_, env
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_site_cable_validation_no_devices_found(_, env):
+async def test_site_cable_validation_no_devices_found(_: Any, env: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,

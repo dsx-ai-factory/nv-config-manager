@@ -97,7 +97,7 @@ _newer_commit_mock_state = {
 
 
 @pytest.mark.parametrize("invalid_commit_id", ["abc", "12.5", "-1", ""])
-def test_tenant_deploy_input_rejects_non_numeric_commit_ids(invalid_commit_id):
+def test_tenant_deploy_input_rejects_non_numeric_commit_ids(invalid_commit_id: Any) -> None:
     """Reject invalid snapshot versions before starting the workflow."""
     with pytest.raises(ValidationError, match="string_pattern_mismatch"):
         TenantDeployInput(
@@ -107,7 +107,7 @@ def test_tenant_deploy_input_rejects_non_numeric_commit_ids(invalid_commit_id):
         )
 
 
-def test_tenant_deploy_input_schema_requires_both_snapshot_commit_ids_or_neither():
+def test_tenant_deploy_input_schema_requires_both_snapshot_commit_ids_or_neither() -> None:
     """Publish the runtime snapshot-pair constraint in the API schema."""
     schema = TenantDeployInput.model_json_schema()
 
@@ -156,13 +156,15 @@ def test_tenant_deploy_input_schema_requires_both_snapshot_commit_ids_or_neither
         },
     ],
 )
-def test_tenant_deploy_input_rejects_explicit_null_snapshot_commit_ids(snapshot_fields):
+def test_tenant_deploy_input_rejects_explicit_null_snapshot_commit_ids(
+    snapshot_fields: Any,
+) -> None:
     """Treat explicit null snapshot fields as invalid rather than omitted."""
     with pytest.raises(ValidationError, match="must both be non-null or both be omitted"):
         TenantDeployInput(device="mock_device_uuid", **snapshot_fields)
 
 
-def test_tenant_deploy_input_allows_snapshot_commit_ids_to_be_omitted():
+def test_tenant_deploy_input_allows_snapshot_commit_ids_to_be_omitted() -> None:
     """Allow the internal child workflow to deploy the latest rendered snapshot."""
     deploy_input = TenantDeployInput(device="mock_device_uuid")
 
@@ -171,7 +173,9 @@ def test_tenant_deploy_input_allows_snapshot_commit_ids_to_be_omitted():
 
 
 @pytest.mark.asyncio
-async def test_tenant_deploy_input_preserves_omitted_snapshot_ids_during_temporal_round_trip():
+async def test_tenant_deploy_input_preserves_omitted_snapshot_ids_during_temporal_round_trip() -> (
+    None
+):
     """Temporal serialization must not turn omitted snapshot IDs into explicit nulls."""
     converter = get_data_converter()
     deploy_input = TenantDeployInput(device="mock_device_uuid")
@@ -953,11 +957,11 @@ async def test_execute_workflow_rejected_diff(
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_tenant_deploy_workflow(
-    _,
-    mock_nats_client,
-    mock_cumulus_connection,
-    env,
-):
+    _: Any,
+    mock_nats_client: Any,
+    mock_cumulus_connection: Any,
+    env: Any,
+) -> None:
     task_queue_name = str(uuid.uuid4())
     client: Client = env.client
     async with Worker(
@@ -1359,11 +1363,11 @@ nv set vrf test-ryan-2 router bgp router-id 172.28.0.2
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_tenant_deploy_uses_full_intended_config_for_removals(
-    _,
-    mock_nats_client,
-    mock_cumulus_connection,
-    env,
-):
+    _: Any,
+    mock_nats_client: Any,
+    mock_cumulus_connection: Any,
+    env: Any,
+) -> None:
     """Use replacement semantics so absent tenant settings are removed."""
     task_queue_name = str(uuid.uuid4())
     mock_diff = """nv unset interface swp1 ip vrf test-vrf
@@ -1510,6 +1514,7 @@ async def test_apply_config_with_ignore_fail_and_retry(
 
         assert exc_info.value is not None
         workflow_desc = await handle.describe()
+        assert workflow_desc.status is not None
         assert workflow_desc.status.name == "FAILED"
 
         stages = await handle.query("stages")
@@ -1522,11 +1527,11 @@ async def test_apply_config_with_ignore_fail_and_retry(
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_tenant_deploy_workflow_invalid_config(
-    _,
-    mock_nats_client,
-    mock_cumulus_connection,
-    env,
-):
+    _: Any,
+    mock_nats_client: Any,
+    mock_cumulus_connection: Any,
+    env: Any,
+) -> None:
     task_queue_name = str(uuid.uuid4())
     client: Client = env.client
     async with Worker(
@@ -1589,11 +1594,11 @@ nv set interface swp1 ip address 10.0.0.1/24
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_tenant_deploy_workflow_newer_commit_allowed(
-    _,
-    mock_nats_client,
-    mock_cumulus_connection,
-    env,
-):
+    _: Any,
+    mock_nats_client: Any,
+    mock_cumulus_connection: Any,
+    env: Any,
+) -> None:
     """Test tenant deploy when commit is newer but all lines are allowed."""
     _newer_commit_mock_state["use_newer_commit"] = True
     _newer_commit_mock_state["newer_commit_allowed"] = True
@@ -1673,11 +1678,11 @@ nv set interface swp2 ip vrf test-vrf
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_tenant_deploy_workflow_newer_commit_disallowed(
-    _,
-    mock_nats_client,
-    mock_cumulus_connection,
-    env,
-):
+    _: Any,
+    mock_nats_client: Any,
+    mock_cumulus_connection: Any,
+    env: Any,
+) -> None:
     """Test tenant deploy when commit is newer but has disallowed lines."""
     _newer_commit_mock_state["use_newer_commit"] = True
     _newer_commit_mock_state["newer_commit_allowed"] = False

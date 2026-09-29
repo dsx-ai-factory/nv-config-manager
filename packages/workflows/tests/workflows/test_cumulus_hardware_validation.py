@@ -19,10 +19,12 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from io import BytesIO
+from typing import Any
 from unittest.mock import patch
 
 import pandas as pd
 import pytest
+from nv_config_manager_dcim.workflow_models import Platform
 from temporalio import activity
 from temporalio.client import Client, WorkflowHandle
 from temporalio.common import RetryPolicy
@@ -65,7 +67,7 @@ async def mock_get_network_devices(
 ) -> GetNetworkDevicesOutput:
     """Mock get_network_devices activity."""
     device = TEST_DEVICE.model_copy()
-    device.platform = "cumulus-linux"  # Ensure it's detected as Cumulus
+    device.platform = Platform.CUMULUS_LINUX  # Ensure it's detected as Cumulus
     return GetNetworkDevicesOutput(devices=[device])
 
 
@@ -213,11 +215,11 @@ async def mock_create_consolidated_excel_export(
     return_value=TEST_TIMEOUT,
 )
 async def test_cumulus_hardware_validation_workflow(
-    _mock_timedelta,
-    _mock_retry_policy,
-    _mock_time,
-    env,
-):
+    _mock_timedelta: Any,
+    _mock_retry_policy: Any,
+    _mock_time: Any,
+    env: Any,
+) -> None:
     """Test hardware validation workflow with real switch API data."""
     task_queue_name = str(uuid.uuid4())
     client: Client = env.client
@@ -366,11 +368,11 @@ async def mock_create_consolidated_excel_export_empty(
     return_value=TEST_TIMEOUT,
 )
 async def test_cumulus_hardware_validation_workflow_no_devices(
-    _mock_timedelta,
-    _mock_retry_policy,
-    _mock_time,
-    env,
-):
+    _mock_timedelta: Any,
+    _mock_retry_policy: Any,
+    _mock_time: Any,
+    env: Any,
+) -> None:
     """Test hardware validation workflow when no devices match the filter criteria."""
     task_queue_name = str(uuid.uuid4())
     client: Client = env.client
@@ -440,11 +442,11 @@ async def test_cumulus_hardware_validation_workflow_no_devices(
     return_value=TEST_TIMEOUT,
 )
 async def test_cumulus_hardware_validation_workflow_invalid_filter(
-    _mock_timedelta,
-    _mock_retry_policy,
-    _mock_time,
-    env,
-):
+    _mock_timedelta: Any,
+    _mock_retry_policy: Any,
+    _mock_time: Any,
+    env: Any,
+) -> None:
     """Test hardware validation returns a clean result for invalid Nautobot filters."""
     task_queue_name = str(uuid.uuid4())
     client: Client = env.client

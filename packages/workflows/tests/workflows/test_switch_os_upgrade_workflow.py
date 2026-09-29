@@ -18,6 +18,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from time import sleep
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -61,7 +62,7 @@ TEST_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 TEST_TIMEOUT = timedelta(seconds=10)
 
 
-def test_supported_platforms_include_juniper_junos():
+def test_supported_platforms_include_juniper_junos() -> None:
     """Switch OS Upgrade accepts Juniper Junos in addition to Cumulus Linux."""
     assert Platform.CUMULUS_LINUX in SUPPORTED_PLATFORMS
     assert Platform.JUNIPER_JUNOS in SUPPORTED_PLATFORMS
@@ -76,7 +77,7 @@ async def mock_get_network_device(
             id=activity_input.device_id,
             name="mock_device",
             role="mock_role",
-            platform="cumulus-linux",
+            platform=Platform.CUMULUS_LINUX,
             site="SITEA",
             device_type="sn4200",
             primary_ip4="10.0.0.1",
@@ -188,10 +189,10 @@ async def mock_check_recorded_config_drift(activity_input: CheckRecordedConfigDr
 )
 @patch("nv_config_manager_workflows.workflows.os_upgrade.timedelta", return_value=TEST_TIMEOUT)
 async def test_execute_workflow(
-    mock_timedelta,
-    mock_time,
-    env,
-):
+    mock_timedelta: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     task_queue_name = str(uuid.uuid4())
     client: Client = env.client
     async with Worker(
@@ -290,10 +291,10 @@ async def test_execute_workflow(
 )
 @patch("nv_config_manager_workflows.workflows.os_upgrade.timedelta", return_value=TEST_TIMEOUT)
 async def test_execute_workflow_with_config_drift(
-    mock_timedelta,
-    mock_time,
-    env,
-):
+    mock_timedelta: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     task_queue_name = str(uuid.uuid4())
     client: Client = env.client
 

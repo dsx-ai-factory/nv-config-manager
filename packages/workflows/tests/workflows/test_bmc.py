@@ -16,9 +16,10 @@
 
 import asyncio
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -58,7 +59,7 @@ with workflow.unsafe.imports_passed_through():
         GetNetworkDevicesInput,
         GetNetworkDevicesOutput,
     )
-    from nv_config_manager_workflows.clients.device.models import DeviceNeighborData
+    from nv_config_manager_workflows.clients.device.models import DeviceArpTable
     from nv_config_manager_workflows.clients.redfish.models import (
         RedfishDpu,
         RedfishDpuPort,
@@ -156,6 +157,7 @@ def factory_reset_bmc(
 async def mock_get_network_devices(
     activity_input: GetNetworkDevicesInput,
 ) -> GetNetworkDevicesOutput:
+    assert activity_input.roles is not None
     return GetNetworkDevicesOutput(
         devices=[
             network_device_from_nautobot_graphql(device)
@@ -167,7 +169,7 @@ async def mock_get_network_devices(
 
 
 @activity.defn(name="get_device_arp_table")
-def mock_get_device_arp_table(device_data: NetworkDeviceData) -> DeviceNeighborData:
+def mock_get_device_arp_table(device_data: NetworkDeviceData) -> DeviceArpTable:
     if device_data.name == "mock_device1":
         return TEST_ARP_TABLES[0]
     if device_data.name == "mock_device2":
@@ -329,9 +331,13 @@ async def mock_get_host_devices(
     activity_input: GetHostDevicesInput,
 ) -> GetHostDevicesOutput:
     if activity_input.site == "test_site" and activity_input.mac_addresses == ["C8-4B-D6-7A-E9-E2"]:
-        return GetHostDevicesOutput(devices=[host_device_from_nautobot_graphql(TEST_SERVERS[0])])
+        return GetHostDevicesOutput(
+            devices=[host_device_from_nautobot_graphql(cast(dict[str, Any], TEST_SERVERS[0]))]
+        )
     if activity_input.site == "test_site" and activity_input.mac_addresses == ["38-7C-76-8D-6F-13"]:
-        return GetHostDevicesOutput(devices=[host_device_from_nautobot_graphql(TEST_SERVERS[1])])
+        return GetHostDevicesOutput(
+            devices=[host_device_from_nautobot_graphql(cast(dict[str, Any], TEST_SERVERS[1]))]
+        )
     raise ApplicationError(str(activity_input), non_retryable=True)
 
 
@@ -377,19 +383,19 @@ def mock_update_dpu_data(
 @pytest.mark.asyncio
 @patch("asyncio.sleep", new_callable=AsyncMock)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_redfish_provisioning_workflow(mock_time, mock_sleep, env):
+async def test_redfish_provisioning_workflow(mock_time: Any, mock_sleep: Any, env: Any) -> None:
     task_queue_name = str(uuid.uuid4())
-    mock_power_on_host = activity.defn(
-        MagicMock(wraps=power_on_host),
-        name="power_on_host",
+    mock_power_on_host = MagicMock(wraps=power_on_host)
+    power_on_host_activity = activity.defn(name="power_on_host")(
+        cast(Callable[..., Any], mock_power_on_host)
     )
-    mock_set_redfish_password = activity.defn(
-        MagicMock(wraps=set_redfish_password),
-        name="set_redfish_password",
+    mock_set_redfish_password = MagicMock(wraps=set_redfish_password)
+    set_redfish_password_activity = activity.defn(name="set_redfish_password")(
+        cast(Callable[..., Any], mock_set_redfish_password)
     )
-    mock_factory_reset_bmc = activity.defn(
-        MagicMock(wraps=factory_reset_bmc),
-        name="factory_reset_bmc",
+    mock_factory_reset_bmc = MagicMock(wraps=factory_reset_bmc)
+    factory_reset_bmc_activity = activity.defn(name="factory_reset_bmc")(
+        cast(Callable[..., Any], mock_factory_reset_bmc)
     )
 
     async with Worker(
@@ -397,10 +403,10 @@ async def test_redfish_provisioning_workflow(mock_time, mock_sleep, env):
         task_queue=task_queue_name,
         workflows=[RedfishProvisioningWorkflow],
         activities=[
-            mock_power_on_host,
-            mock_set_redfish_password,
+            power_on_host_activity,
+            set_redfish_password_activity,
             mock_discover_redfish_hosts,
-            mock_factory_reset_bmc,
+            factory_reset_bmc_activity,
             mock_get_network_devices,
             mock_get_device_arp_table,
             mock_get_dpu_details,

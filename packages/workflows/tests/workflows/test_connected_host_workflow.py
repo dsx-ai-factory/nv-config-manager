@@ -15,10 +15,11 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from typing import Any
 from unittest.mock import patch
 
 import pytest
-from nv_config_manager_dcim.workflow_models import NetworkDeviceData
+from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from temporalio import activity
 from temporalio.client import WorkflowHandle
 from temporalio.worker import Worker
@@ -84,7 +85,7 @@ async def mock_get_network_device(
             id=activity_input.device_id,
             name="mock_device",
             role="mock_role",
-            platform="cumulus-linux",
+            platform=Platform.CUMULUS_LINUX,
             site="SITEA",
             device_type="sn4200",
             primary_ip4="10.0.0.1",
@@ -94,12 +95,12 @@ async def mock_get_network_device(
 
 
 @activity.defn(name="get_device_mac_table")
-async def mock_get_device_mac_table(_) -> DeviceMacTable:
+async def mock_get_device_mac_table(_: Any) -> DeviceMacTable:
     return MOCK_MAC_TABLE_VLAN_FILTER
 
 
 @activity.defn(name="get_device_actual_neighbors")
-async def mock_get_device_actual_neighbors(_) -> DeviceNeighborData:
+async def mock_get_device_actual_neighbors(_: Any) -> DeviceNeighborData:
     return DeviceNeighborData(
         neighbors={
             "swp0": InterfaceNeighborData(
@@ -147,7 +148,7 @@ async def mock_get_device_actual_neighbors(_) -> DeviceNeighborData:
 
 
 @activity.defn(name="get_host_data_by_macs")
-async def mock_get_host_data_by_macs(mac_addresses: list[str]):
+async def mock_get_host_data_by_macs(mac_addresses: list[str]) -> Any:
     entries = []
     for i, mac in enumerate(sorted(mac_addresses)):
         entries.append(
@@ -164,7 +165,7 @@ async def mock_get_host_data_by_macs(mac_addresses: list[str]):
 
 
 @activity.defn(name="get_host_data_by_names")
-async def mock_get_host_data_by_names(device_names: list[str]):
+async def mock_get_host_data_by_names(device_names: list[str]) -> Any:
     entries = []
     for i, name in enumerate(sorted(device_names)):
         if name == "server6.sitea.example.com":
@@ -186,10 +187,10 @@ async def mock_get_host_data_by_names(device_names: list[str]):
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow(
-    mock_time,
-    mock_nats_client,
-    env,
-):
+    mock_time: Any,
+    mock_nats_client: Any,
+    env: Any,
+) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -298,16 +299,16 @@ async def test_execute_workflow(
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow_no_data(
-    mock_time,
-    mock_nats_client,
-    env,
-):
+    mock_time: Any,
+    mock_nats_client: Any,
+    env: Any,
+) -> None:
     @activity.defn(name="get_device_mac_table")
-    async def mock_get_device_mac_table_empty(_) -> DeviceMacTable:
+    async def mock_get_device_mac_table_empty(_: Any) -> DeviceMacTable:
         return DeviceMacTable(by_mac={}, by_interface={})
 
     @activity.defn(name="get_device_actual_neighbors")
-    async def mock_get_device_actual_neighbors_empty(_) -> DeviceNeighborData:
+    async def mock_get_device_actual_neighbors_empty(_: Any) -> DeviceNeighborData:
         return DeviceNeighborData(neighbors={}, link_states={})
 
     task_queue_name = str(uuid.uuid4())
@@ -350,7 +351,7 @@ async def test_execute_workflow_no_data(
         assert mock_nats_client.return_value.publish.called == 1
 
 
-def test_interface_sort_key():
+def test_interface_sort_key() -> None:
     """Test the interface_sort_key function with various interface name formats."""
 
     # Test basic numeric sorting

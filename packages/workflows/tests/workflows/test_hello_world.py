@@ -15,6 +15,7 @@
 """Contracts for the package-owned Hello World workflows."""
 
 from datetime import timedelta
+from typing import cast
 from unittest.mock import AsyncMock, call, patch
 
 from nv_config_manager_workflows.activities.hello_world import (
@@ -38,7 +39,7 @@ from nv_config_manager_workflows.workflows.hello_world import (
 def test_hello_world_contracts_are_frozen() -> None:
     """Names, schema, metadata, and activity declarations survive the module move."""
     assert [
-        workflow_type_name(workflow)
+        workflow_type_name(cast(type[WorkflowMetadataMixin], workflow))
         for workflow in (HelloWorld, HelloWorldApproval, HelloWorldRunning)
     ] == ["HelloWorld", "HelloWorldApproval", "HelloWorldRunning"]
     assert HelloWorldInput.model_json_schema() == {

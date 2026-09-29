@@ -18,10 +18,11 @@ import asyncio
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from typing import Any
 from unittest.mock import patch
 
 import pytest
-from nv_config_manager_dcim.workflow_models import NetworkDeviceData
+from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from temporalio import activity
 from temporalio.client import Client, WorkflowHandle
 from temporalio.common import RetryPolicy
@@ -65,7 +66,7 @@ async def mock_get_network_device(
             id=activity_input.device_id,
             name="mock_device",
             role="mock_role",
-            platform="cumulus-linux",
+            platform=Platform.CUMULUS_LINUX,
             site="SITEA",
             device_type="sn4200",
             primary_ip4="10.0.0.1",
@@ -159,11 +160,11 @@ async def mock_get_ui_base_url() -> str:
 )
 @patch("nv_config_manager_workflows.workflows.reprovision.timedelta", return_value=TEST_TIMEOUT)
 async def test_reprovision_workflow(
-    mock_timedelta,
-    mock_retry_policy,
-    mock_time,
-    env,
-):
+    mock_timedelta: Any,
+    mock_retry_policy: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     """Test reprovision workflow."""
     task_queue_name = str(uuid.uuid4())
     client: Client = env.client
@@ -247,10 +248,10 @@ async def test_reprovision_workflow(
 )
 @patch("nv_config_manager_workflows.workflows.reprovision.timedelta", return_value=TEST_TIMEOUT)
 async def test_reprovision_backup_continues_when_ui_url_lookup_fails(
-    mock_timedelta,
-    mock_time,
-    env,
-):
+    mock_timedelta: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     """A UI URL lookup failure must not prevent the backup child workflow."""
 
     @activity.defn(name="get_ui_base_url")
@@ -312,10 +313,10 @@ async def test_reprovision_backup_continues_when_ui_url_lookup_fails(
 )
 @patch("nv_config_manager_workflows.workflows.reprovision.timedelta", return_value=TEST_TIMEOUT)
 async def test_reprovision_pre_backup_rejects_invalid_config_before_factory_reset(
-    mock_timedelta,
-    mock_time,
-    env,
-):
+    mock_timedelta: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     """An invalid intended config must fail before factory reset is requested."""
     candidate_diff_calls: list[DiffActivityInput] = []
     factory_reset_calls: list[ExecuteZTPInput] = []
@@ -394,6 +395,7 @@ async def test_reprovision_pre_backup_rejects_invalid_config_before_factory_rese
         assert len(candidate_diff_calls) == 3
         assert factory_reset_calls == []
         workflow_desc = await handle.describe()
+        assert workflow_desc.status is not None
         assert workflow_desc.status.name == "RUNNING"
 
         await handle.terminate()
@@ -407,10 +409,10 @@ async def test_reprovision_pre_backup_rejects_invalid_config_before_factory_rese
 )
 @patch("nv_config_manager_workflows.workflows.reprovision.timedelta", return_value=TEST_TIMEOUT)
 async def test_reprovision_retries_pre_backup_stage(
-    mock_timedelta,
-    mock_time,
-    env,
-):
+    mock_timedelta: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     """The validation stage can succeed on retry before ZTP begins."""
     candidate_diff_calls: list[DiffActivityInput] = []
     factory_reset_calls: list[ExecuteZTPInput] = []
@@ -502,11 +504,11 @@ async def test_reprovision_retries_pre_backup_stage(
 )
 @patch("nv_config_manager_workflows.workflows.reprovision.timedelta", return_value=TEST_TIMEOUT)
 async def test_reprovision_workflow_ztp_failure(
-    mock_timedelta,
-    mock_retry_policy,
-    mock_time,
-    env,
-):
+    mock_timedelta: Any,
+    mock_retry_policy: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     """Test reprovision workflow with ZTP failure."""
 
     # Override mock_poll_ztp_status to return False
@@ -576,11 +578,11 @@ async def test_reprovision_workflow_ztp_failure(
 )
 @patch("nv_config_manager_workflows.workflows.reprovision.timedelta", return_value=TEST_TIMEOUT)
 async def test_reprovision_workflow_ztp_timeout(
-    mock_timedelta,
-    mock_retry_policy,
-    mock_time,
-    env,
-):
+    mock_timedelta: Any,
+    mock_retry_policy: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     """Test reprovision workflow with ZTP timeout/failure."""
 
     task_queue_name = str(uuid.uuid4())

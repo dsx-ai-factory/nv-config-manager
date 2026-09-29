@@ -14,6 +14,8 @@
 # limitations under the License.
 """Tests for the shared IB PKey workflow helpers."""
 
+from typing import Any, cast
+
 import pytest
 
 from nv_config_manager_workflows.workflows._ib_pkey_helpers import (
@@ -37,7 +39,7 @@ from nv_config_manager_workflows.workflows._ib_pkey_helpers import (
         ("\t0x8001\n", "0x8001"),
     ],
 )
-def test_validate_pkey_format_canonicalizes(raw, expected):
+def test_validate_pkey_format_canonicalizes(raw: Any, expected: Any) -> None:
     """Accept any 0x + 1-4 hex digit form (with surrounding whitespace) and return 0x + 4 lowercase hex."""
     assert validate_pkey_format(raw) == expected
 
@@ -56,16 +58,16 @@ def test_validate_pkey_format_canonicalizes(raw, expected):
         "0x 100",
     ],
 )
-def test_validate_pkey_format_rejects_invalid(bad):
+def test_validate_pkey_format_rejects_invalid(bad: Any) -> None:
     """Reject anything that isn't 0x + 1-4 hex digits."""
     with pytest.raises(ValueError, match="pkey must be hex"):
         validate_pkey_format(bad)
 
 
-def test_validate_pkey_format_rejects_none():
+def test_validate_pkey_format_rejects_none() -> None:
     """None is treated as an empty pkey and rejected."""
     with pytest.raises(ValueError, match="pkey must be hex"):
-        validate_pkey_format(None)  # type: ignore[arg-type]
+        validate_pkey_format(cast(Any, None))
 
 
 @pytest.mark.parametrize(
@@ -79,26 +81,26 @@ def test_validate_pkey_format_rejects_none():
         ("\tlimited\n", "limited"),
     ],
 )
-def test_normalize_membership_type_honors_supplied(raw, expected):
+def test_normalize_membership_type_honors_supplied(raw: Any, expected: Any) -> None:
     """A supplied full/limited value (any case/whitespace) is honored."""
     assert normalize_membership_type(raw) == expected
 
 
 @pytest.mark.parametrize("blank", ["", "   ", "\t\n", None])
-def test_normalize_membership_type_defaults_blank_to_full(blank):
+def test_normalize_membership_type_defaults_blank_to_full(blank: Any) -> None:
     """Blank or missing membership defaults to the PKey default 'full'."""
     assert normalize_membership_type(blank) == "full"
 
 
 @pytest.mark.parametrize("bad", ["partial", "none", "fll", "0", "limitedd"])
-def test_normalize_membership_type_rejects_invalid(bad):
+def test_normalize_membership_type_rejects_invalid(bad: Any) -> None:
     """Anything other than full/limited is rejected with a clear message."""
     with pytest.raises(ValueError, match="membership_type must be 'full' or 'limited'"):
         normalize_membership_type(bad)
 
 
 @pytest.mark.parametrize("bad", [1, 0, True, False, 1.5, ["full"], {"full"}])
-def test_normalize_membership_type_rejects_non_string(bad):
+def test_normalize_membership_type_rejects_non_string(bad: Any) -> None:
     """Non-string input raises ValueError, not AttributeError (clean 422)."""
     with pytest.raises(ValueError, match="membership_type must be 'full' or 'limited'"):
         normalize_membership_type(bad)

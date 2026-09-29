@@ -46,7 +46,7 @@ from nv_config_manager_workflows.workflows.spx_overlay import (
 )
 
 
-def make_test_vrf(namespace: int, with_interfaces: bool = False) -> Any:
+def make_test_vrf(namespace: str, with_interfaces: bool = False) -> Any:
     mock_interfaces = []
     if with_interfaces:
         mock_interfaces = [
@@ -130,9 +130,9 @@ async def mock_delete_overlay(input: DeleteOverlayInput) -> DeleteOverlayOutput:
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_creation_workflow(
-    mock_time,
-    env,
-):
+    mock_time: Any,
+    env: Any,
+) -> None:
 
     # Reset mock state
     _mock_state["failure_scenario"] = True
@@ -361,9 +361,9 @@ async def test_spx_overlay_creation_workflow(
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_deletion_workflow(
-    mock_time,
-    env,
-):
+    mock_time: Any,
+    env: Any,
+) -> None:
 
     task_queue_name = str(uuid.uuid4())
     async with Worker(

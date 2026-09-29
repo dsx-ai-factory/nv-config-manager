@@ -15,8 +15,10 @@
 """Test Infiniband Cable Validation Workflow."""
 
 import uuid
+from typing import Any
 
 import pytest
+from nv_config_manager_dcim.workflow_models import Platform
 from temporalio import activity
 from temporalio.worker import Worker
 
@@ -52,12 +54,11 @@ NAUTOBOT_DEVICE = NetworkDeviceData(
     id="test-device",
     name="IBLEAF1",
     role="IBLEAF",
-    platform="mlnx-os",
+    platform=Platform.MLNX_OS,
     site="mock_site",
     device_type="mock_device_type",
     primary_ip4="10.0.0.1",
     primary_ip6=None,
-    host="10.0.0.1",
 )
 
 INTENDED_NEIGHBORS = {
@@ -116,7 +117,7 @@ async def mock_get_mismatched_ib_ports(
 
 
 @pytest.mark.asyncio
-async def test_execute_workflow_valid_cables(env):
+async def test_execute_workflow_valid_cables(env: Any) -> None:
     """Test workflow execution with valid cable connections."""
     task_queue_name = str(uuid.uuid4())
 
@@ -146,7 +147,7 @@ async def test_execute_workflow_valid_cables(env):
 
 
 @pytest.mark.asyncio
-async def test_execute_workflow_mismatched_cables(env):
+async def test_execute_workflow_mismatched_cables(env: Any) -> None:
     """Test workflow execution with mismatched cable connections."""
     task_queue_name = str(uuid.uuid4())
     async with Worker(

@@ -18,10 +18,11 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from typing import Any
 from unittest.mock import patch
 
 import pytest
-from nv_config_manager_dcim.workflow_models import NetworkDeviceData
+from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from pydantic import ValidationError
 from temporalio import activity, workflow
 from temporalio.client import WorkflowHandle
@@ -59,7 +60,7 @@ TEST_DEVICES = [
         id="device-1-uuid",
         name="site-tor-001",
         role="tan-leaf",
-        platform="cumulus-linux",
+        platform=Platform.CUMULUS_LINUX,
         site="demo-site",
         device_type="sn2010",
         primary_ip4="10.1.1.1",
@@ -76,7 +77,7 @@ TEST_DEVICES = [
         id="device-2-uuid",
         name="site-tor-002",
         role="tan-leaf",
-        platform="cumulus-linux",
+        platform=Platform.CUMULUS_LINUX,
         site="demo-site",
         device_type="sn2010",
         primary_ip4="10.1.1.2",
@@ -168,12 +169,12 @@ async def mock_get_ui_base_url_unavailable() -> str:
 class TestSiteBackupInput:
     """Tests for SiteBackupInput validation."""
 
-    def test_site_must_not_be_empty(self):
+    def test_site_must_not_be_empty(self) -> None:
         """Reject an empty site before starting the workflow."""
         with pytest.raises(ValidationError):
             SiteBackupInput(site="", user="demo-user")
 
-    def test_backup_enabled_only_defaults_to_true(self):
+    def test_backup_enabled_only_defaults_to_true(self) -> None:
         """Default to backup-enabled devices only."""
         workflow_input = SiteBackupInput(site="demo-site", user="demo-user")
         assert workflow_input.backup_enabled_only is True
@@ -182,7 +183,7 @@ class TestSiteBackupInput:
 class TestBackupResultData:
     """Tests for BackupResultData model."""
 
-    def test_backup_result_data_success(self):
+    def test_backup_result_data_success(self) -> None:
         """Test successful backup result."""
         device = TEST_DEVICES[0]
         result = BackupResultData(
@@ -191,12 +192,13 @@ class TestBackupResultData:
             changed=False,
             child_workflow_id="workflow-123",
         )
+        assert result.device is not None
         assert result.device.name == "site-tor-001"
         assert result.success is True
         assert result.changed is False
         assert result.error is None
 
-    def test_backup_result_data_failure(self):
+    def test_backup_result_data_failure(self) -> None:
         """Test failed backup result."""
         device = TEST_DEVICES[0]
         result = BackupResultData(
@@ -222,11 +224,11 @@ class TestBackupResultData:
 )
 @patch("nv_config_manager_workflows.workflows.backup.timedelta", return_value=TEST_TIMEOUT)
 async def test_execute_site_backup_workflow(
-    mock_backup_timedelta,
-    mock_site_timedelta,
-    mock_time,
-    env,
-):
+    mock_backup_timedelta: Any,
+    mock_site_timedelta: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     """Run a typed-location site backup across multiple child workflows."""
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -285,11 +287,11 @@ async def test_execute_site_backup_workflow(
 )
 @patch("nv_config_manager_workflows.workflows.backup.timedelta", return_value=TEST_TIMEOUT)
 async def test_execute_site_backup_workflow_without_ui_base_url(
-    mock_backup_timedelta,
-    mock_site_timedelta,
-    mock_time,
-    env,
-):
+    mock_backup_timedelta: Any,
+    mock_site_timedelta: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     """Return the summary without workflow links when UI base URL lookup fails."""
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -339,10 +341,10 @@ async def test_execute_site_backup_workflow_without_ui_base_url(
 )
 @patch("nv_config_manager_workflows.workflows.site_backup.timedelta", return_value=TEST_TIMEOUT)
 async def test_execute_site_backup_workflow_no_devices(
-    mock_site_timedelta,
-    mock_time,
-    env,
-):
+    mock_site_timedelta: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     """Short-circuit when no devices match the site backup filters."""
     task_queue_name = str(uuid.uuid4())
     async with Worker(

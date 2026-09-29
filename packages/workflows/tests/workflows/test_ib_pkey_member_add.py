@@ -1,8 +1,22 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Package-owned behavior tests for adding InfiniBand PKey members."""
 
 import uuid
+from collections.abc import Callable, Sequence
+from typing import Any, cast
 
 import pytest
 from temporalio.worker import Worker
@@ -35,24 +49,27 @@ def pkey_runtime(configured_workflow_runtime: None) -> PKeyRuntime:
     return runtime
 
 
-async def _execute(env, workflow_input: IBPKeyMemberAddInput) -> IBPKeyMemberAddOutput:
+async def _execute(env: Any, workflow_input: IBPKeyMemberAddInput) -> IBPKeyMemberAddOutput:
     task_queue = str(uuid.uuid4())
     async with Worker(
         env.client,
         task_queue=task_queue,
         workflows=[IBPKeyMemberAddWorkflow],
-        activities=PKEY_WORKFLOW_ACTIVITIES,
+        activities=cast(Sequence[Callable[..., Any]], PKEY_WORKFLOW_ACTIVITIES),
     ):
-        return await env.client.execute_workflow(
-            IBPKeyMemberAddWorkflow.run,
-            workflow_input,
-            id=str(uuid.uuid4()),
-            task_queue=task_queue,
+        return cast(
+            IBPKeyMemberAddOutput,
+            await env.client.execute_workflow(
+                IBPKeyMemberAddWorkflow.run,
+                workflow_input,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            ),
         )
 
 
 @pytest.mark.asyncio
-async def test_add_members_full_workflow(env, pkey_runtime: PKeyRuntime) -> None:
+async def test_add_members_full_workflow(env: Any, pkey_runtime: PKeyRuntime) -> None:
     """Two provider-resolved interfaces are added and recorded."""
     result = await _execute(
         env,
@@ -78,7 +95,7 @@ async def test_add_members_full_workflow(env, pkey_runtime: PKeyRuntime) -> None
 
 
 @pytest.mark.asyncio
-async def test_add_preserves_per_interface_membership(env, pkey_runtime: PKeyRuntime) -> None:
+async def test_add_preserves_per_interface_membership(env: Any, pkey_runtime: PKeyRuntime) -> None:
     """Per-interface membership is sent in the atomic UFM update."""
     result = await _execute(
         env,
@@ -105,7 +122,7 @@ async def test_add_preserves_per_interface_membership(env, pkey_runtime: PKeyRun
 
 @pytest.mark.asyncio
 async def test_add_guids_only_preserves_index_aligned_membership(
-    env, pkey_runtime: PKeyRuntime
+    env: Any, pkey_runtime: PKeyRuntime
 ) -> None:
     """GUID input reverse-resolves through the fake DCIM provider."""
     result = await _execute(
@@ -126,7 +143,7 @@ async def test_add_guids_only_preserves_index_aligned_membership(
 
 
 @pytest.mark.asyncio
-async def test_add_reuses_existing_assignment(env, pkey_runtime: PKeyRuntime) -> None:
+async def test_add_reuses_existing_assignment(env: Any, pkey_runtime: PKeyRuntime) -> None:
     """An existing provider assignment is returned without duplication."""
     pkey_runtime.dcim.seed_assignment(
         INTERFACE_ID_1,
@@ -147,8 +164,8 @@ async def test_add_reuses_existing_assignment(env, pkey_runtime: PKeyRuntime) ->
     assert len(pkey_runtime.dcim.assignments) == 1
 
 
-def _add_input(**overrides) -> IBPKeyMemberAddInput:
-    params = {
+def _add_input(**overrides: Any) -> IBPKeyMemberAddInput:
+    params: dict[str, Any] = {
         "host": "ufm.example.com",
         "pkey": PKEY,
         "interfaces": [InterfaceRef(device="hca01", interface="mlx5_0")],

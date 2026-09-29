@@ -23,7 +23,8 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from nv_config_manager_dcim.workflow_models import InterfaceData, NetworkDeviceData
+from nv_config_manager_clients.render import FileCommit
+from nv_config_manager_dcim.workflow_models import InterfaceData, NetworkDeviceData, Platform
 from pydantic import ValidationError
 from temporalio import activity, workflow
 from temporalio.client import WorkflowFailureError
@@ -93,7 +94,7 @@ def make_child_workflow_error(message: str, workflow_id: str) -> ChildWorkflowEr
     return error
 
 
-def test_spx_tenant_change_stage_uses_overlay_terminology():
+def test_spx_tenant_change_stage_uses_overlay_terminology() -> None:
     """Describe the tenant-change assignment with current product terminology."""
     with patch(
         "nv_config_manager_workflows.stage.mixin.workflow.time",
@@ -121,7 +122,7 @@ async def mock_get_network_device(
             position=1,
             primary_ip4="10.0.0.1",
             primary_ip6=None,
-            platform="cumulus-linux",
+            platform=Platform.CUMULUS_LINUX,
             render_enabled=True,
             deploy_enabled=True,
             backup_enabled=True,
@@ -130,7 +131,7 @@ async def mock_get_network_device(
     )
 
 
-_mock_state = {
+_mock_state: dict[str, Any] = {
     "vrf_exists": True,
     "interfaces_with_vrf": [],
     "newer_commit_allowed": True,
@@ -289,8 +290,8 @@ async def mock_execute_render(_activity_input: ExecuteRenderInput) -> ExecuteRen
     return ExecuteRenderOutput(
         updated_files=[],
         snapshot_files=[
-            {"filename": "tenant.yaml", "commit": "7"},
-            {"filename": "startup.yaml", "commit": "11"},
+            FileCommit(filename="tenant.yaml", commit="7"),
+            FileCommit(filename="startup.yaml", commit="11"),
         ],
     )
 
@@ -311,7 +312,7 @@ async def mock_wait_for_tenant_render(
     ],
 )
 @pytest.mark.asyncio
-async def test_spx_deploy_stage_rejects_partial_render_commit_pair(commit_ids):
+async def test_spx_deploy_stage_rejects_partial_render_commit_pair(commit_ids: Any) -> None:
     device_output = await mock_get_network_device(GetNetworkDeviceInput(device_id="device-1"))
     with patch(
         "nv_config_manager_workflows.stage.mixin.workflow.time",
@@ -324,14 +325,14 @@ async def test_spx_deploy_stage_rejects_partial_render_commit_pair(commit_ids):
     )
 
     with pytest.raises(ApplicationError, match="must both be supplied or both be omitted"):
-        await SpXOverlayTenantChangeWorkflow.deploy_stage.__wrapped__(
+        await cast(Any, SpXOverlayTenantChangeWorkflow.deploy_stage).__wrapped__(
             workflow_instance,
             stage_input,
         )
 
 
 @pytest.mark.asyncio
-async def test_spx_deploy_stage_normalizes_child_workflow_errors():
+async def test_spx_deploy_stage_normalizes_child_workflow_errors() -> None:
     """Convert tenant deploy child failures to the workflow's ApplicationError shape."""
     device_output = await mock_get_network_device(GetNetworkDeviceInput(device_id="device-1"))
     with patch(
@@ -348,14 +349,14 @@ async def test_spx_deploy_stage_normalizes_child_workflow_errors():
         ),
         pytest.raises(ApplicationError, match="tenant deploy failed"),
     ):
-        await SpXOverlayTenantChangeWorkflow.deploy_stage.__wrapped__(
+        await cast(Any, SpXOverlayTenantChangeWorkflow.deploy_stage).__wrapped__(
             workflow_instance,
             stage_input,
         )
 
 
 @pytest.mark.asyncio
-async def test_spx_deploy_stage_surfaces_link_when_child_fails():
+async def test_spx_deploy_stage_surfaces_link_when_child_fails() -> None:
     """Treat a started child failure as displayable stage result data."""
     device_output = await mock_get_network_device(GetNetworkDeviceInput(device_id="device-1"))
 
@@ -399,7 +400,7 @@ async def test_spx_deploy_stage_surfaces_link_when_child_fails():
 
 
 @pytest.mark.asyncio
-async def test_spx_assignment_stage_publishes_child_link_before_failure():
+async def test_spx_assignment_stage_publishes_child_link_before_failure() -> None:
     """Treat a started child failure as displayable stage result data."""
     device_output = await mock_get_network_device(GetNetworkDeviceInput(device_id="device-1"))
 
@@ -479,7 +480,7 @@ class MockFailingSpXOverlayAssignmentWorkflow:
 
 
 @pytest.mark.asyncio
-async def test_spx_tenant_change_surfaces_failed_assignment_child_link(env):
+async def test_spx_tenant_change_surfaces_failed_assignment_child_link(env: Any) -> None:
     """Stop downstream work while leaving the failed child link visible."""
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -524,18 +525,21 @@ async def test_spx_tenant_change_surfaces_failed_assignment_child_link(env):
         assert stages["deploy"]["state"] == "UNREACHABLE"
 
 
-def test_spx_render_stage_output_requires_snapshot_commit_ids():
+def test_spx_render_stage_output_requires_snapshot_commit_ids() -> None:
     """Do not allow the SpX workflow to fall back to an unpinned deploy."""
     with pytest.raises(ValidationError):
-        SpXOverlayTenantChangeWorkflow.RenderStageOutput(
-            tenant_config_commit_id=None,
-            intended_config_commit_id="11",
+        SpXOverlayTenantChangeWorkflow.RenderStageOutput.model_validate(
+            {
+                "tenant_config_commit_id": None,
+                "intended_config_commit_id": "11",
+                "display": "Invalid render output",
+            }
         )
 
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_spx_overlay_assignment_workflow_vrf_not_assigned(_mock_time, env):
+async def test_spx_overlay_assignment_workflow_vrf_not_assigned(_mock_time: Any, env: Any) -> None:
     """Test VPC assignment when VRF is not already assigned to device."""
 
     _mock_state["vrf_exists"] = True
@@ -584,7 +588,9 @@ async def test_spx_overlay_assignment_workflow_vrf_not_assigned(_mock_time, env)
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_spx_overlay_assignment_workflow_vrf_already_assigned(_mock_time, env):
+async def test_spx_overlay_assignment_workflow_vrf_already_assigned(
+    _mock_time: Any, env: Any
+) -> None:
     """Test VPC assignment when VRF is already assigned to device."""
 
     _mock_state["vrf_exists"] = True
@@ -633,7 +639,9 @@ async def test_spx_overlay_assignment_workflow_vrf_already_assigned(_mock_time, 
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_spx_overlay_tenant_change_removes_assignment_without_replacement(_mock_time, env):
+async def test_spx_overlay_tenant_change_removes_assignment_without_replacement(
+    _mock_time: Any, env: Any
+) -> None:
     """Clearing the target overlay unassigns ports, cleans the VRF, and deploys."""
     _mock_state["interfaces_with_vrf"] = ["swp1"]
     _mock_state["removed_vrf_ids"] = ["mock_namespace1"]
@@ -706,7 +714,9 @@ async def test_spx_overlay_tenant_change_removes_assignment_without_replacement(
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_spx_overlay_tenant_change_is_noop_when_already_assigned(_mock_time, env):
+async def test_spx_overlay_tenant_change_is_noop_when_already_assigned(
+    _mock_time: Any, env: Any
+) -> None:
     """A repeated tenant change completes without rendering or deploying again."""
 
     _mock_state["vrf_exists"] = True
@@ -780,11 +790,11 @@ async def test_spx_overlay_tenant_change_is_noop_when_already_assigned(_mock_tim
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_tenant_change_deploys_reconciliation_only_change(
-    _mock_time,
-    env,
-    reconcile_created,
-    reconcile_changed,
-):
+    _mock_time: Any,
+    env: Any,
+    reconcile_created: Any,
+    reconcile_changed: Any,
+) -> None:
     """Overlay-plugin-only mutations still require a render and deploy."""
     _mock_state["vrf_exists"] = True
     _mock_state["interfaces_with_vrf"] = ["swp1", "swp2"]
@@ -842,7 +852,9 @@ async def test_spx_overlay_tenant_change_deploys_reconciliation_only_change(
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_spx_overlay_tenant_change_uses_current_versions_after_render_race(_mock_time, env):
+async def test_spx_overlay_tenant_change_uses_current_versions_after_render_race(
+    _mock_time: Any, env: Any
+) -> None:
     """Use versions committed by the Nautobot consumer before the forced render."""
 
     _mock_state["vrf_exists"] = True
@@ -927,8 +939,8 @@ async def test_spx_overlay_tenant_change_uses_current_versions_after_render_race
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_tenant_change_retries_deploy_when_already_assigned_but_pending(
-    _mock_time, env
-):
+    _mock_time: Any, env: Any
+) -> None:
     """A rerun deploys if Nautobot assignment is complete but deployment is still pending."""
 
     _mock_state["vrf_exists"] = True
@@ -990,7 +1002,7 @@ async def test_spx_overlay_tenant_change_retries_deploy_when_already_assigned_bu
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_spx_overlay_assignment_workflow_vrf_not_found(_mock_time, env):
+async def test_spx_overlay_assignment_workflow_vrf_not_found(_mock_time: Any, env: Any) -> None:
     """Test VPC assignment when VRF doesn't exist in Nautobot."""
 
     _mock_state["vrf_exists"] = False
@@ -1030,14 +1042,15 @@ async def test_spx_overlay_assignment_workflow_vrf_not_found(_mock_time, env):
         )
         stages = await handle.query("stages")
         get_device_vrf_stage = next((s for s in stages if s["name"] == "get_device_and_vrf"), None)
+        assert get_device_vrf_stage is not None
         while get_device_vrf_stage["state"] != "FAILED":
             await asyncio.sleep(0.1)
             stages = await handle.query("stages")
             get_device_vrf_stage = next(
                 (s for s in stages if s["name"] == "get_device_and_vrf"), None
             )
+            assert get_device_vrf_stage is not None
 
-        assert get_device_vrf_stage is not None
         assert get_device_vrf_stage["state"] == "FAILED"
 
         if get_device_vrf_stage.get("traceback"):
@@ -1048,7 +1061,9 @@ async def test_spx_overlay_assignment_workflow_vrf_not_found(_mock_time, env):
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_spx_overlay_assignment_workflow_interface_not_found(_mock_time, env):
+async def test_spx_overlay_assignment_workflow_interface_not_found(
+    _mock_time: Any, env: Any
+) -> None:
     """Test VPC assignment when one of the interfaces doesn't exist on device."""
 
     _mock_state["vrf_exists"] = True

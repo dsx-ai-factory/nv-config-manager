@@ -16,6 +16,7 @@ import asyncio
 import re
 import uuid
 from datetime import timedelta
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -72,7 +73,9 @@ def test_stage_mixin_reads_terminate_on_failure_from_workflow_input() -> None:
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch("nv_config_manager_workflows.stage.mixin.workflow.patched", return_value=True)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.upsert_search_attributes")
-def test_unreachable_stage_cascades_to_direct_dependents(mock_upsert, mock_patched, mock_time):
+def test_unreachable_stage_cascades_to_direct_dependents(
+    mock_upsert: Any, mock_patched: Any, mock_time: Any
+) -> None:
     workflow_state = StageMixin()
     workflow_state.define_stage(
         name="source",
@@ -106,7 +109,9 @@ def test_unreachable_stage_cascades_to_direct_dependents(mock_upsert, mock_patch
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch("nv_config_manager_workflows.stage.mixin.workflow.patched", return_value=False)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.upsert_search_attributes")
-def test_stage_state_search_attributes_skip_old_histories(mock_upsert, mock_patched, mock_time):
+def test_stage_state_search_attributes_skip_old_histories(
+    mock_upsert: Any, mock_patched: Any, mock_time: Any
+) -> None:
     workflow_state = StageMixin()
     workflow_state.define_stage(
         name="test",
@@ -153,7 +158,7 @@ async def start_workflow_environment() -> WorkflowEnvironment:
 
 
 @pytest.mark.asyncio
-async def test_execute_workflow():
+async def test_execute_workflow() -> None:
     task_queue_name = str(uuid.uuid4())
     async with await start_workflow_environment() as env:
         async with Worker(
@@ -172,7 +177,7 @@ async def test_execute_workflow():
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_execute_workflow_approval(mock_time):
+async def test_execute_workflow_approval(mock_time: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with await start_workflow_environment() as env:
         async with Worker(
@@ -461,7 +466,7 @@ async def hello_world_exception() -> str:
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch("nv_config_manager_workflows.stage.executor.traceback.format_exc", return_value="exists")
-async def test_retries(mock_tb, mock_time):
+async def test_retries(mock_tb: Any, mock_time: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with await start_workflow_environment() as env:
         async with Worker(
@@ -635,7 +640,7 @@ async def hello_world_exception_non_retry() -> str:
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch("nv_config_manager_workflows.stage.executor.traceback.format_exc", return_value="exists")
-async def test_non_retryable(mock_tb, mock_time):
+async def test_non_retryable(mock_tb: Any, mock_time: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with await start_workflow_environment() as env:
         async with Worker(
@@ -664,9 +669,9 @@ async def test_non_retryable(mock_tb, mock_time):
                 str(error.value.cause),
             )
 
-            with pytest.raises(RPCError) as error:
+            with pytest.raises(RPCError) as rpc_error:
                 await handle.signal("retry", "prompt")
-            assert error.value.message in {
+            assert rpc_error.value.message in {
                 "Completed workflow",
                 "workflow execution already completed",
             }
@@ -753,14 +758,14 @@ class MockHelloWorldStageFail(StageMixin):
         raise ValueError("Error in stage code")
 
     @run_nv_config_manager_workflow
-    async def run(self, _) -> None:
+    async def run(self, workflow_input: object) -> None:
         await self.hello_world()
 
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch("nv_config_manager_workflows.stage.executor.traceback.format_exc", return_value="exists")
-async def test_uncaught_exception_stage(mock_tb, mock_time):
+async def test_uncaught_exception_stage(mock_tb: Any, mock_time: Any) -> None:
     task_queue_name = str(uuid.uuid4())
 
     async with await start_workflow_environment() as env:
@@ -793,14 +798,14 @@ class MockHelloWorldRunFail(StageMixin):
         StageMixin.__init__(self)
 
     @run_nv_config_manager_workflow
-    async def run(self, _) -> None:
+    async def run(self, workflow_input: object) -> None:
         raise ValueError("Error in run code")
 
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch("nv_config_manager_workflows.stage.executor.traceback.format_exc", return_value="exists")
-async def test_uncaught_exception_run(mock_tb, mock_time):
+async def test_uncaught_exception_run(mock_tb: Any, mock_time: Any) -> None:
     task_queue_name = str(uuid.uuid4())
 
     async with await start_workflow_environment() as env:
@@ -848,8 +853,11 @@ class MockHelloWorldRunActivityTimeout(StageMixin):
         )
 
     @run_nv_config_manager_workflow
-    async def run(self, terminate_on_failure: bool | None) -> None:
-        self.set_terminate_on_failure(bool(terminate_on_failure))
+    async def run(  # type: ignore[override]  # ty: ignore[invalid-method-override]
+        self,
+        workflow_input: bool | None,
+    ) -> None:
+        self.set_terminate_on_failure(bool(workflow_input))
         await self.test()
 
 
@@ -858,7 +866,9 @@ class MockHelloWorldRunActivityTimeout(StageMixin):
 @patch("nv_config_manager_workflows.stage.mixin.workflow.patched", return_value=True)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.upsert_search_attributes")
 @patch("nv_config_manager_workflows.stage.executor.traceback.format_exc", return_value="exists")
-async def test_workflow_activity_timeout(mock_tb, mock_upsert, mock_patched, mock_time):
+async def test_workflow_activity_timeout(
+    mock_tb: Any, mock_upsert: Any, mock_patched: Any, mock_time: Any
+) -> None:
     task_queue_name = str(uuid.uuid4())
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -947,7 +957,9 @@ async def test_workflow_activity_timeout(mock_tb, mock_upsert, mock_patched, moc
 @patch("nv_config_manager_workflows.stage.mixin.workflow.patched", return_value=True)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.upsert_search_attributes")
 @patch("nv_config_manager_workflows.stage.executor.traceback.format_exc", return_value="exists")
-async def test_workflow_terminates_on_stage_failure(mock_tb, mock_upsert, mock_patched, mock_time):
+async def test_workflow_terminates_on_stage_failure(
+    mock_tb: Any, mock_upsert: Any, mock_patched: Any, mock_time: Any
+) -> None:
     task_queue_name = str(uuid.uuid4())
 
     async with await WorkflowEnvironment.start_time_skipping() as env:

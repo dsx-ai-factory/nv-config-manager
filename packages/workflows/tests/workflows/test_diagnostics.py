@@ -30,11 +30,13 @@ Code under test:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from typing import Any, cast
 
 import pytest
-from nv_config_manager_dcim.workflow_models import NetworkDeviceData
+from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
@@ -88,7 +90,7 @@ def _make_device(device_id: str) -> NetworkDeviceData:
         id=device_id,
         name=f"switch-{device_id[:4]}",
         role="tor-switch",
-        platform="cumulus-linux",
+        platform=Platform.CUMULUS_LINUX,
         site="SITEA",
         device_type="sn5600",
         primary_ip4="192.0.2.1",
@@ -186,12 +188,12 @@ _DEFAULT_ACTIVITIES = [
 ]
 
 
-def _worker(client, task_queue: str, activities=None) -> Worker:
+def _worker(client: Any, task_queue: str, activities: Any = None) -> Worker:
     return Worker(
         client,
         task_queue=task_queue,
         workflows=[DiagnosticsWorkflow],
-        activities=activities or _DEFAULT_ACTIVITIES,
+        activities=cast(Sequence[Callable[..., Any]], activities or _DEFAULT_ACTIVITIES),
         activity_executor=ThreadPoolExecutor(max_workers=10),
     )
 
@@ -202,7 +204,7 @@ def _worker(client, task_queue: str, activities=None) -> Worker:
 
 
 @pytest.mark.asyncio
-async def test_full_workflow_no_tech_support(env: WorkflowEnvironment):
+async def test_full_workflow_no_tech_support(env: WorkflowEnvironment) -> None:
     """include_tech_support=False: 6 mandatory stages reach COMPLETE;
     collect_tech_support is UNREACHABLE; result has attachment_url and comment_id."""
     task_queue = str(uuid.uuid4())
@@ -244,7 +246,7 @@ async def test_full_workflow_no_tech_support(env: WorkflowEnvironment):
 
 
 @pytest.mark.asyncio
-async def test_full_workflow_with_tech_support(env: WorkflowEnvironment):
+async def test_full_workflow_with_tech_support(env: WorkflowEnvironment) -> None:
     """include_tech_support=True: all 8 stages reach COMPLETE;
     result.tech_support_urls has one entry per device."""
     task_queue = str(uuid.uuid4())
@@ -280,7 +282,9 @@ async def failing_validate_ticket(inp: ValidateTicketInput) -> ValidateTicketOut
 
 
 @pytest.mark.asyncio
-async def test_workflow_falls_back_to_ticketless_on_invalid_ticket(env: WorkflowEnvironment):
+async def test_workflow_falls_back_to_ticketless_on_invalid_ticket(
+    env: WorkflowEnvironment,
+) -> None:
     """validate_ticket raises ApplicationError; workflow falls back to ticketless mode;
     validate_ticket stage is COMPLETE with a warning, Jira stages are UNREACHABLE,
     result.warning carries the reason and diagnostics_content is populated."""
@@ -322,7 +326,7 @@ async def test_workflow_falls_back_to_ticketless_on_invalid_ticket(env: Workflow
 
 
 @pytest.mark.asyncio
-async def test_collect_tech_support_unreachable_at_start(env: WorkflowEnvironment):
+async def test_collect_tech_support_unreachable_at_start(env: WorkflowEnvironment) -> None:
     """Regression: UNREACHABLE must be set at TOP of run(), not in an else branch
     that only executes when validate_ticket succeeds.
 
@@ -363,7 +367,7 @@ async def test_collect_tech_support_unreachable_at_start(env: WorkflowEnvironmen
 
 
 @pytest.mark.asyncio
-async def test_user_field_in_comment_body(env: WorkflowEnvironment):
+async def test_user_field_in_comment_body(env: WorkflowEnvironment) -> None:
     """DiagnosticsWorkflowInput(user='eng@example.com'); the body passed to
     add_ticket_comment contains 'eng@example.com'."""
     captured_bodies: list[str] = []
@@ -402,7 +406,7 @@ async def test_user_field_in_comment_body(env: WorkflowEnvironment):
 
 
 @pytest.mark.asyncio
-async def test_parallel_device_execution(env: WorkflowEnvironment):
+async def test_parallel_device_execution(env: WorkflowEnvironment) -> None:
     """3 device_ids provided; run_diagnostic_commands is called once per device (3 total)."""
     call_count: list[str] = []
 
@@ -443,7 +447,7 @@ async def test_parallel_device_execution(env: WorkflowEnvironment):
 
 
 @pytest.mark.asyncio
-async def test_issue_key_search_attribute_set(env: WorkflowEnvironment):
+async def test_issue_key_search_attribute_set(env: WorkflowEnvironment) -> None:
     """After run(), workflow search attribute IssueKey equals the submitted issue_key."""
     task_queue = str(uuid.uuid4())
     async with _worker(env.client, task_queue):
@@ -467,7 +471,7 @@ async def test_issue_key_search_attribute_set(env: WorkflowEnvironment):
 
 
 @pytest.mark.asyncio
-async def test_ticketless_mode(env: WorkflowEnvironment):
+async def test_ticketless_mode(env: WorkflowEnvironment) -> None:
     """issue_key='': Jira stages (validate_ticket, upload_attachment,
     upload_tech_support, post_comment) are UNREACHABLE; diagnostics_content
     has the assembled text; attachment_url and comment_id are empty."""
@@ -509,7 +513,7 @@ async def test_ticketless_mode(env: WorkflowEnvironment):
 
 
 @pytest.mark.asyncio
-async def test_ticketless_mode_with_tech_support(env: WorkflowEnvironment):
+async def test_ticketless_mode_with_tech_support(env: WorkflowEnvironment) -> None:
     """issue_key='' with include_tech_support=True: collect_tech_support runs,
     tech_support_urls contains device paths from cl_support_log."""
     task_queue = str(uuid.uuid4())

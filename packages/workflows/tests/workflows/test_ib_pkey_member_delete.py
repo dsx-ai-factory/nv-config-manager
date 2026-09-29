@@ -1,8 +1,22 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Package-owned behavior tests for deleting InfiniBand PKey members."""
 
 import uuid
+from collections.abc import Callable, Sequence
+from typing import Any, cast
 
 import pytest
 from temporalio.worker import Worker
@@ -34,24 +48,27 @@ def pkey_runtime(configured_workflow_runtime: None) -> PKeyRuntime:
     return install_pkey_runtime()
 
 
-async def _execute(env, workflow_input: IBPKeyMemberDeleteInput) -> IBPKeyMemberDeleteOutput:
+async def _execute(env: Any, workflow_input: IBPKeyMemberDeleteInput) -> IBPKeyMemberDeleteOutput:
     task_queue = str(uuid.uuid4())
     async with Worker(
         env.client,
         task_queue=task_queue,
         workflows=[IBPKeyMemberDeleteWorkflow],
-        activities=PKEY_WORKFLOW_ACTIVITIES,
+        activities=cast(Sequence[Callable[..., Any]], PKEY_WORKFLOW_ACTIVITIES),
     ):
-        return await env.client.execute_workflow(
-            IBPKeyMemberDeleteWorkflow.run,
-            workflow_input,
-            id=str(uuid.uuid4()),
-            task_queue=task_queue,
+        return cast(
+            IBPKeyMemberDeleteOutput,
+            await env.client.execute_workflow(
+                IBPKeyMemberDeleteWorkflow.run,
+                workflow_input,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            ),
         )
 
 
 @pytest.mark.asyncio
-async def test_delete_members_full_workflow(env, pkey_runtime: PKeyRuntime) -> None:
+async def test_delete_members_full_workflow(env: Any, pkey_runtime: PKeyRuntime) -> None:
     """Removing every tracked member reconciles both providers."""
     pkey_runtime.ufm.set_pkey(PKEY, members={GUID_1: "full", GUID_2: "full"})
     first = pkey_runtime.dcim.seed_assignment(INTERFACE_ID_1, GUID_1)
@@ -85,7 +102,7 @@ async def test_delete_members_full_workflow(env, pkey_runtime: PKeyRuntime) -> N
 
 @pytest.mark.asyncio
 async def test_delete_is_idempotent_when_assignment_is_missing(
-    env, pkey_runtime: PKeyRuntime
+    env: Any, pkey_runtime: PKeyRuntime
 ) -> None:
     """An absent DCIM assignment is reported without failing the UFM removal."""
     pkey_runtime.ufm.set_pkey(PKEY, members={GUID_1: "full"})
@@ -106,7 +123,7 @@ async def test_delete_is_idempotent_when_assignment_is_missing(
 
 @pytest.mark.asyncio
 async def test_delete_guids_only_reverse_resolves_provider_records(
-    env, pkey_runtime: PKeyRuntime
+    env: Any, pkey_runtime: PKeyRuntime
 ) -> None:
     """GUID-only input resolves the interface before removing its assignment."""
     pkey_runtime.ufm.set_pkey(PKEY, members={GUID_1: "full"})
@@ -123,7 +140,7 @@ async def test_delete_guids_only_reverse_resolves_provider_records(
 
 @pytest.mark.asyncio
 async def test_untracked_ufm_member_blocks_partition_cleanup(
-    env, pkey_runtime: PKeyRuntime
+    env: Any, pkey_runtime: PKeyRuntime
 ) -> None:
     """A remaining UFM-only member prevents deletion of the DCIM PKey."""
     pkey_runtime.ufm.set_pkey(PKEY, members={GUID_1: "full", GUID_2: "full"})

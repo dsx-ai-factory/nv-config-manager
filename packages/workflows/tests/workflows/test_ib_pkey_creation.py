@@ -1,8 +1,22 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Package-owned behavior tests for the InfiniBand PKey creation workflow."""
 
 import uuid
+from collections.abc import Callable, Sequence
+from typing import Any, cast
 
 import pytest
 from temporalio.worker import Worker
@@ -22,19 +36,22 @@ def pkey_runtime(configured_workflow_runtime: None) -> PKeyRuntime:
     return install_pkey_runtime()
 
 
-async def _execute(env, workflow_input: IBPKeyCreationInput) -> IBPKeyCreationWorkflowOutput:
+async def _execute(env: Any, workflow_input: IBPKeyCreationInput) -> IBPKeyCreationWorkflowOutput:
     task_queue = str(uuid.uuid4())
     async with Worker(
         env.client,
         task_queue=task_queue,
         workflows=[IBPKeyCreationWorkflow],
-        activities=PKEY_WORKFLOW_ACTIVITIES,
+        activities=cast(Sequence[Callable[..., Any]], PKEY_WORKFLOW_ACTIVITIES),
     ):
-        return await env.client.execute_workflow(
-            IBPKeyCreationWorkflow.run,
-            workflow_input,
-            id=str(uuid.uuid4()),
-            task_queue=task_queue,
+        return cast(
+            IBPKeyCreationWorkflowOutput,
+            await env.client.execute_workflow(
+                IBPKeyCreationWorkflow.run,
+                workflow_input,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            ),
         )
 
 
@@ -55,7 +72,7 @@ def test_creation_output_accepts_legacy_pkey_identifier() -> None:
 
 
 @pytest.mark.asyncio
-async def test_creation_with_specific_pkey(env, pkey_runtime: PKeyRuntime) -> None:
+async def test_creation_with_specific_pkey(env: Any, pkey_runtime: PKeyRuntime) -> None:
     """A caller-selected PKey is created, verified, and recorded through providers."""
     result = await _execute(
         env,
@@ -72,7 +89,9 @@ async def test_creation_with_specific_pkey(env, pkey_runtime: PKeyRuntime) -> No
 
 
 @pytest.mark.asyncio
-async def test_creation_auto_assigns_first_available_pkey(env, pkey_runtime: PKeyRuntime) -> None:
+async def test_creation_auto_assigns_first_available_pkey(
+    env: Any, pkey_runtime: PKeyRuntime
+) -> None:
     """An omitted PKey selects the lowest non-reserved value."""
     pkey_runtime.ufm.set_pkey("0x7fff")
 
@@ -85,7 +104,9 @@ async def test_creation_auto_assigns_first_available_pkey(env, pkey_runtime: PKe
 
 
 @pytest.mark.asyncio
-async def test_creation_reuses_existing_orphan_dcim_record(env, pkey_runtime: PKeyRuntime) -> None:
+async def test_creation_reuses_existing_orphan_dcim_record(
+    env: Any, pkey_runtime: PKeyRuntime
+) -> None:
     """Recording an existing orphan PKey preserves its provider identifier."""
     pkey_runtime.dcim.pkey_ids["0x8001"] = "existing-pkey-id"
 
@@ -99,7 +120,7 @@ async def test_creation_reuses_existing_orphan_dcim_record(env, pkey_runtime: PK
 
 @pytest.mark.asyncio
 async def test_creation_site_override_skips_dcim_site_resolution(
-    env, pkey_runtime: PKeyRuntime
+    env: Any, pkey_runtime: PKeyRuntime
 ) -> None:
     """An explicit site bypasses the workflow's site-resolution activity."""
     result = await _execute(

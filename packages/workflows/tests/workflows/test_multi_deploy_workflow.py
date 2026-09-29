@@ -19,10 +19,11 @@ import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
-from nv_config_manager_dcim.workflow_models import NetworkDeviceData
+from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowHandle
 from temporalio.exceptions import ApplicationError
@@ -68,7 +69,7 @@ async def mock_get_network_device(
             id=activity_input.device_id,
             name=f"mock_device_{activity_input.device_id[-1]}",
             role="spine",
-            platform="cumulus-linux",
+            platform=Platform.CUMULUS_LINUX,
             device_type="sn4000",
             site="SITEA",
             primary_ip4=f"10.0.0.{activity_input.device_id[-1]}",
@@ -91,7 +92,7 @@ async def mock_get_network_devices(
                     id=f"device_id_{i}",
                     name=f"spine-{i:02d}",
                     role="spine",
-                    platform="cumulus-linux",
+                    platform=Platform.CUMULUS_LINUX,
                     device_type="sn4000",
                     site="SITEA",
                     primary_ip4=f"10.0.0.{i}",
@@ -111,12 +112,12 @@ async def mock_load_intended_configuration(device_data: NetworkDeviceData) -> tu
 
 
 @activity.defn(name="persist_config_backup")
-async def mock_persist_config_backup(activity_input) -> str:
+async def mock_persist_config_backup(activity_input: Any) -> str:
     return "mock_commit_id"
 
 
 @activity.defn(name="record_backup_config_manager_plugin")
-async def mock_record_backup_config_manager_plugin(activity_input) -> tuple[bool, str]:
+async def mock_record_backup_config_manager_plugin(activity_input: Any) -> tuple[bool, str]:
     markdown = """
 [Configuration Backup](https://gitlab.example.com/example-user/deployed-network-configs/-/blob/main/SITEA/MOCK_DEVICE/startup.yaml)
 [Latest Commit](https://gitlab.example.com/example-user/deployed-network-configs/-/commit/mock_commit_id)
@@ -144,12 +145,12 @@ def _large_device_diffs(count: int, config_size: int = 30_000) -> list[DeviceDif
                 id=f"device_{index}",
                 name=f"spine-{index:03d}",
                 role="spine",
-                platform="cumulus-linux",
+                platform=Platform.CUMULUS_LINUX,
                 device_type="sn4000",
                 site="SITEA",
                 primary_ip4=f"10.0.{index // 255}.{index % 255}",
                 primary_ip6=None,
-                config_context={"device_index": index, "feature_flags": ["nvcm"]},
+                intent={"device_index": index, "feature_flags": ["nvcm"]},
             ),
             diff="- old config line\n+ new config line",
             intended_config=f"# device {index}\n" + ("x" * config_size),
@@ -161,7 +162,7 @@ def _large_device_diffs(count: int, config_size: int = 30_000) -> list[DeviceDif
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=0.0)
-async def test_group_and_batch_creates_batch_subsets(_):
+async def test_group_and_batch_creates_batch_subsets(_: Any) -> None:
     """Group matching diffs and split their devices into bounded batches."""
     workflow_instance = MultiDeployWorkflow()
     device_diffs = _large_device_diffs(115)
@@ -170,7 +171,7 @@ async def test_group_and_batch_creates_batch_subsets(_):
         max_batch_size=5,
     )
 
-    output = await MultiDeployWorkflow.group_and_batch.__wrapped__(  # type: ignore[attr-defined]
+    output = await cast(Any, MultiDeployWorkflow.group_and_batch).__wrapped__(
         workflow_instance,
         stage_input,
     )
@@ -181,7 +182,7 @@ async def test_group_and_batch_creates_batch_subsets(_):
     assert all(len(batch) == 5 for batch in output.batches)
 
 
-def test_batch_deploy_input_supports_legacy_and_canonical_device_fields():
+def test_batch_deploy_input_supports_legacy_and_canonical_device_fields() -> None:
     """Read legacy inputs while allowing new inputs to serialize each device once."""
     device_diffs = _large_device_diffs(115)
     assert BatchDeployInput.model_json_schema()["properties"]["batch_devices"]["deprecated"] is True
@@ -220,7 +221,7 @@ def test_batch_deploy_input_supports_legacy_and_canonical_device_fields():
 
 
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=0.0)
-def test_parent_stage_serialization_excludes_operational_device_payloads(_):
+def test_parent_stage_serialization_excludes_operational_device_payloads(_: Any) -> None:
     """Keep intended configurations out of the parent stages query."""
     workflow_instance = MultiDeployWorkflow()
     device_diffs = _large_device_diffs(115)
@@ -272,12 +273,14 @@ def test_parent_stage_serialization_excludes_operational_device_payloads(_):
         [stage.model_dump(mode="json") for stage in workflow_instance.stages()]
     )
 
-    assert device_diffs[0].intended_config not in serialized_stages
+    intended_config = device_diffs[0].intended_config
+    assert intended_config is not None
+    assert intended_config not in serialized_stages
     assert len(serialized_stages.encode()) < 50_000
 
 
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=0.0)
-def test_child_stage_serialization_excludes_operational_device_payloads(_):
+def test_child_stage_serialization_excludes_operational_device_payloads(_: Any) -> None:
     """Keep intended configurations out of the child stages query."""
     workflow_instance = BatchDeployWorkflow()
     device_diffs = _large_device_diffs(5)
@@ -299,18 +302,20 @@ def test_child_stage_serialization_excludes_operational_device_payloads(_):
         [stage.model_dump(mode="json") for stage in workflow_instance.stages()]
     )
 
-    assert device_diffs[0].intended_config not in serialized_stages
+    intended_config = device_diffs[0].intended_config
+    assert intended_config is not None
+    assert intended_config not in serialized_stages
     assert len(serialized_stages.encode()) < 50_000
 
 
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_basic_flow(
-    _,
-    mock_nats_client,
-    mock_cumulus_connection,
-    env,
-):
+    _: Any,
+    mock_nats_client: Any,
+    mock_cumulus_connection: Any,
+    env: Any,
+) -> None:
     """Test basic multi-deploy workflow flow through initial stages."""
     task_queue_name = str(uuid.uuid4())
     client: Client = env.client
@@ -356,7 +361,7 @@ async def test_multi_deploy_workflow_basic_flow(
 
         # Wait for discover_devices to complete
         max_wait_time = 10  # seconds
-        start_time = 0
+        start_time: float = 0
         while start_time < max_wait_time:
             stages = await handle.query("stages")
             discover_stage = next((s for s in stages if s["name"] == "discover_devices"), None)
@@ -443,7 +448,7 @@ async def test_multi_deploy_workflow_basic_flow(
         assert "Configured **3/3** · Backups **3/3**" in execute_stage["output"]["display"]
 
 
-def test_format_batch_status_with_backup_failure():
+def test_format_batch_status_with_backup_failure() -> None:
     """Show partial backup completion compactly and flag it for attention."""
     result = {
         "approved": True,
@@ -461,11 +466,11 @@ def test_format_batch_status_with_backup_failure():
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_no_devices(
-    _,
-    mock_nats_client,
-    mock_cumulus_connection,
-    env,
-):
+    _: Any,
+    mock_nats_client: Any,
+    mock_cumulus_connection: Any,
+    env: Any,
+) -> None:
     """Test multi-deploy workflow when no devices are found."""
     task_queue_name = str(uuid.uuid4())
     client: Client = env.client
@@ -521,11 +526,11 @@ async def test_multi_deploy_workflow_no_devices(
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_no_diffs(
-    _,
-    mock_nats_client,
-    mock_cumulus_connection,
-    env,
-):
+    _: Any,
+    mock_nats_client: Any,
+    mock_cumulus_connection: Any,
+    env: Any,
+) -> None:
     """Test multi-deploy workflow when devices have no configuration changes."""
     task_queue_name = str(uuid.uuid4())
     client: Client = env.client
@@ -578,11 +583,11 @@ async def test_multi_deploy_workflow_no_diffs(
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_multi_deploy_workflow_grouping_logic(
-    _,
-    mock_nats_client,
-    mock_cumulus_connection,
-    env,
-):
+    _: Any,
+    mock_nats_client: Any,
+    mock_cumulus_connection: Any,
+    env: Any,
+) -> None:
     """Test multi-deploy workflow grouping and batching logic."""
     task_queue_name = str(uuid.uuid4())
     client: Client = env.client
@@ -623,7 +628,7 @@ async def test_multi_deploy_workflow_grouping_logic(
 
         # Wait for group_and_batch stage to complete
         max_wait_time = 10  # seconds
-        start_time = 0
+        start_time: float = 0
         while start_time < max_wait_time:
             stages = await handle.query("stages")
             group_stage = next((s for s in stages if s["name"] == "group_and_batch"), None)
@@ -644,11 +649,11 @@ async def test_multi_deploy_workflow_grouping_logic(
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_batch_deploy_workflow_directly(
-    _,
-    mock_nats_client,
-    mock_cumulus_connection,
-    env,
-):
+    _: Any,
+    mock_nats_client: Any,
+    mock_cumulus_connection: Any,
+    env: Any,
+) -> None:
     """Test the BatchDeployWorkflow directly."""
     task_queue_name = str(uuid.uuid4())
     client: Client = env.client
@@ -681,7 +686,7 @@ async def test_batch_deploy_workflow_directly(
                 id="device_1",
                 name="spine-01",
                 role="spine",
-                platform="cumulus-linux",
+                platform=Platform.CUMULUS_LINUX,
                 device_type="sn4000",
                 site="SITEA",
                 primary_ip4="10.0.0.1",
@@ -691,7 +696,7 @@ async def test_batch_deploy_workflow_directly(
                 id="device_2",
                 name="spine-02",
                 role="spine",
-                platform="cumulus-linux",
+                platform=Platform.CUMULUS_LINUX,
                 device_type="sn4000",
                 site="SITEA",
                 primary_ip4="10.0.0.2",
@@ -737,7 +742,7 @@ async def test_batch_deploy_workflow_directly(
 
         # Wait for approval stage (with timeout to avoid hanging on insufficient mocks)
         max_wait = 15
-        elapsed = 0
+        elapsed: float = 0
         while elapsed < max_wait:
             stages = await handle.query("stages")
             review_stage = next((s for s in stages if s["name"] == "review_shared_diff"), None)

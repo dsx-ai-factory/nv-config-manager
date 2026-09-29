@@ -14,6 +14,8 @@
 # limitations under the License.
 """Compatibility tests for provider-neutral Temporal identifiers."""
 
+from collections.abc import Callable
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -68,7 +70,7 @@ def test_dcim_stage_identifiers_follow_temporal_patch(
     ],
 )
 def test_dcim_and_legacy_activity_names_are_registered(
-    activity_callable: object,
+    activity_callable: Callable[..., Any],
     expected_name: str,
 ) -> None:
     """Workers can service both sides of the workflow history transition."""

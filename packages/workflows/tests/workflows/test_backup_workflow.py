@@ -17,10 +17,11 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from nv_config_manager_dcim.workflow_models import NetworkDeviceData
+from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from temporalio import activity
 from temporalio.client import WorkflowHandle
 from temporalio.common import RetryPolicy
@@ -68,7 +69,7 @@ async def mock_get_network_device(
             id=activity_input.device_id,
             name="mock_device",
             role="mock_role",
-            platform="cumulus-linux",
+            platform=Platform.CUMULUS_LINUX,
             site="SITEA",
             device_type="sn4200",
             primary_ip4="10.0.0.1",
@@ -171,7 +172,7 @@ async def test_check_drift_suppresses_slack_notification() -> None:
         "nv_config_manager_workflows.workflows.backup.workflow.execute_activity",
         new=execute_activity,
     ):
-        output = await BackupWorkflow.check_drift.__wrapped__(  # type: ignore[attr-defined]
+        output = await cast(Any, BackupWorkflow.check_drift).__wrapped__(
             workflow_instance,
             BackupWorkflow.CheckDriftStageInput(
                 device_id="mock_device_uuid",
@@ -196,11 +197,11 @@ async def test_check_drift_suppresses_slack_notification() -> None:
 )
 @patch("nv_config_manager_workflows.workflows.backup.timedelta", return_value=TEST_TIMEOUT)
 async def test_execute_workflow(
-    mock_timedelta,
-    mock_retry_policy,
-    mock_time,
-    env,
-):
+    mock_timedelta: Any,
+    mock_retry_policy: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -414,11 +415,11 @@ async def mock_load_running_configuration_with_secret(device_data: NetworkDevice
 )
 @patch("nv_config_manager_workflows.workflows.backup.timedelta", return_value=TEST_TIMEOUT)
 async def test_execute_workflow_persists_and_displays_already_redacted_running_config(
-    mock_timedelta,
-    mock_retry_policy,
-    mock_time,
-    env,
-):
+    mock_timedelta: Any,
+    mock_retry_policy: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     """load_running_config passes the (already-redacted) activity result through unchanged."""
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -475,11 +476,11 @@ async def test_execute_workflow_persists_and_displays_already_redacted_running_c
 )
 @patch("nv_config_manager_workflows.workflows.backup.timedelta", return_value=TEST_TIMEOUT)
 async def test_execute_workflow_redacts_secrets_in_drift_diff(
-    mock_timedelta,
-    mock_retry_policy,
-    mock_time,
-    env,
-):
+    mock_timedelta: Any,
+    mock_retry_policy: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     """check_drift redacts Junos secrets from both the diff field and its display."""
     task_queue_name = str(uuid.uuid4())
     async with Worker(
@@ -533,11 +534,11 @@ async def test_execute_workflow_redacts_secrets_in_drift_diff(
 )
 @patch("nv_config_manager_workflows.workflows.backup.timedelta", return_value=TEST_TIMEOUT)
 async def test_execute_workflow_no_drift(
-    mock_timedelta,
-    mock_retry_policy,
-    mock_time,
-    env,
-):
+    mock_timedelta: Any,
+    mock_retry_policy: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
