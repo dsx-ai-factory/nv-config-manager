@@ -19,7 +19,50 @@ from pathlib import Path
 
 _PACKAGE_ROOT = Path(__file__).parents[1] / "src" / "nv_config_manager_workflows"
 _CLIENT_ROOT = _PACKAGE_ROOT / "clients"
+_ACTIVITIES_ROOT = _PACKAGE_ROOT / "activities"
+_DCIM_ROOT = _ACTIVITIES_ROOT / "dcim"
+_IB_PKEY_ROOT = _ACTIVITIES_ROOT / "ib_pkey"
 _JUNIPER_CLIENT_PATH = Path("clients/device/juniper.py")
+_IB_PKEY_DCIM_BOUNDARY_PATHS = (
+    _PACKAGE_ROOT / "runtime.py",
+    _PACKAGE_ROOT / "dcim_session.py",
+    _PACKAGE_ROOT / "mixins" / "ib_pkey.py",
+    *_DCIM_ROOT.glob("*.py"),
+    *(
+        _IB_PKEY_ROOT / name
+        for name in ("dcim_activities.py", "models.py", "normalization.py", "resolution.py")
+    ),
+)
+_DCIM_DEVICE_INFINIBAND_ACTIVITY_PATHS = (
+    *_DCIM_ROOT.glob("*.py"),
+    *(_ACTIVITIES_ROOT / "device").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "ufm").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "ib_pkey").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "ib_guid_discovery").glob("*.py"),
+)
+_DEPLOYMENT_ACTIVITY_PATHS = (
+    *(_ACTIVITIES_ROOT / "backup").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "deploy").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "render").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "os").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "nvlinkswitch_firmware").glob("*.py"),
+)
+_DEVICE_OPERATION_ACTIVITY_PATHS = (
+    *(_ACTIVITIES_ROOT / "cable_validation").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "hardware_validation").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "device_password_rotation").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "bmc").glob("*.py"),
+)
+_DIAGNOSTICS_ACTIVITY_PATHS = (
+    *(_ACTIVITIES_ROOT / "diagnostics").glob("*.py"),
+    *(_ACTIVITIES_ROOT / "ticketing").glob("*.py"),
+)
+_ALLOWED_IB_PKEY_DCIM_SDK_MODULES = {
+    "nv_config_manager_dcim.api",
+    "nv_config_manager_dcim.errors",
+    "nv_config_manager_dcim.models",
+    "nv_config_manager_dcim.workflow_models",
+}
 _FORBIDDEN_CONFIGURATION_CALLS = {
     "ConfigParser",
     "getenv",
@@ -28,11 +71,48 @@ _FORBIDDEN_CONFIGURATION_CALLS = {
     "read_bytes",
     "read_text",
 }
+_RUNTIME_PROVIDER_CONSTRUCTORS = {
+    "NetworkConnection",
+    "UFMClient",
+    "create_dcim_client",
+}
+_DEPLOYMENT_RUNTIME_PROVIDER_CONSTRUCTORS = {
+    "ConfigStoreClient",
+    "NetworkConnection",
+    "RenderClient",
+    "ZTPClient",
+    "config_store_client",
+    "create_dcim_client",
+    "get_storage_client",
+    "render_client",
+    "ztp_client",
+}
+_DEVICE_OPERATION_RUNTIME_PROVIDER_CONSTRUCTORS = {
+    "NetworkConnection",
+    "RedfishConnection",
+    "create_dcim_client",
+    "get_config_manager_connection",
+    "get_default_connection",
+    "load_config",
+}
+_DIAGNOSTICS_RUNTIME_PROVIDER_CONSTRUCTORS = {
+    "ConfigParser",
+    "JiraTicketingProvider",
+    "NetworkConnection",
+    "RedisClient",
+    "load_config",
+    "ticketing_client_settings",
+}
 
 
 def _is_service_module(module: str) -> bool:
     """Return whether an import targets the service package rather than this package."""
     return module == "nv_config_manager" or module.startswith("nv_config_manager.")
+
+
+def _is_concrete_dcim_provider_module(module: str) -> bool:
+    """Return whether an import targets an installed provider implementation."""
+    return module.startswith("nv_config_manager_dcim_")
 
 
 def _forbidden_configuration_call(node: ast.Call, relative_path: Path) -> str | None:
@@ -75,6 +155,7 @@ def test_workflows_package_has_no_service_configuration_dependencies() -> None:
                         _is_service_module(module)
                         or module == "configparser"
                         or module.startswith("configparser.")
+                        or _is_concrete_dcim_provider_module(module)
                     ):
                         violations.append(f"{relative_path}:{node.lineno}: {module}")
 
@@ -82,6 +163,182 @@ def test_workflows_package_has_no_service_configuration_dependencies() -> None:
                 name = _forbidden_configuration_call(node, relative_path)
                 if name is not None:
                     violations.append(f"{relative_path}:{node.lineno}: {name}")
+
+    assert violations == []
+
+
+def test_ib_pkey_dcim_slice_uses_only_provider_neutral_dcim_contracts() -> None:
+    """The PKey DCIM slice must not select configuration or provider implementations."""
+    violations: list[str] = []
+
+    for path in sorted(_IB_PKEY_DCIM_BOUNDARY_PATHS):
+        relative_path = path.relative_to(_PACKAGE_ROOT)
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+                lineno = node.lineno
+            elif isinstance(node, ast.ImportFrom) and node.module is not None:
+                modules = [node.module]
+                lineno = node.lineno
+            else:
+                modules = []
+                lineno = None
+
+            for module in modules:
+                if (
+                    _is_service_module(module)
+                    or module == "configparser"
+                    or module.startswith("configparser.")
+                    or _is_concrete_dcim_provider_module(module)
+                    or (
+                        module.startswith("nv_config_manager_dcim")
+                        and module not in _ALLOWED_IB_PKEY_DCIM_SDK_MODULES
+                    )
+                ):
+                    assert lineno is not None
+                    violations.append(f"{relative_path}:{lineno}: {module}")
+
+            if isinstance(node, ast.Call):
+                name = _forbidden_configuration_call(node, relative_path)
+                if name is not None:
+                    violations.append(f"{relative_path}:{node.lineno}: {name}")
+    assert violations == []
+
+
+def test_dcim_device_infiniband_activities_do_not_construct_runtime_providers() -> None:
+    """DCIM, device, and InfiniBand activities obtain clients from runtime providers."""
+    violations: list[str] = []
+
+    for path in sorted(_DCIM_DEVICE_INFINIBAND_ACTIVITY_PATHS):
+        relative_path = path.relative_to(_PACKAGE_ROOT)
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name):
+                name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                name = node.func.attr
+            else:
+                continue
+            if name in _RUNTIME_PROVIDER_CONSTRUCTORS:
+                violations.append(f"{relative_path}:{node.lineno}: {name}")
+
+    assert violations == []
+
+
+def test_deployment_modules_have_no_service_dependencies() -> None:
+    """Deployment modules remain service-independent after activity extraction."""
+    violations: list[str] = []
+
+    for path in _DEPLOYMENT_ACTIVITY_PATHS:
+        relative_path = path.relative_to(_PACKAGE_ROOT)
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+                lineno = node.lineno
+            elif isinstance(node, ast.ImportFrom) and node.module is not None:
+                modules = [node.module]
+                lineno = node.lineno
+            else:
+                modules = []
+                lineno = None
+
+            for module in modules:
+                if _is_service_module(module) or _is_concrete_dcim_provider_module(module):
+                    assert lineno is not None
+                    violations.append(f"{relative_path}:{lineno}: {module}")
+
+            if isinstance(node, ast.Call):
+                name = _forbidden_configuration_call(node, relative_path)
+                if name is not None:
+                    violations.append(f"{relative_path}:{node.lineno}: {name}")
+                if isinstance(node.func, ast.Name):
+                    constructor = node.func.id
+                elif isinstance(node.func, ast.Attribute):
+                    constructor = node.func.attr
+                else:
+                    constructor = None
+                if constructor in _DEPLOYMENT_RUNTIME_PROVIDER_CONSTRUCTORS:
+                    violations.append(f"{relative_path}:{node.lineno}: {constructor}")
+
+    assert violations == []
+
+
+def test_device_operation_modules_use_only_package_runtime_boundaries() -> None:
+    """Device-operation modules avoid service imports and direct provider construction."""
+    violations: list[str] = []
+
+    for path in _DEVICE_OPERATION_ACTIVITY_PATHS:
+        relative_path = path.relative_to(_PACKAGE_ROOT)
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+                lineno = node.lineno
+            elif isinstance(node, ast.ImportFrom) and node.module is not None:
+                modules = [node.module]
+                lineno = node.lineno
+            else:
+                modules = []
+                lineno = None
+
+            for module in modules:
+                if _is_service_module(module) or _is_concrete_dcim_provider_module(module):
+                    assert lineno is not None
+                    violations.append(f"{relative_path}:{lineno}: {module}")
+
+            if isinstance(node, ast.Call):
+                name = _forbidden_configuration_call(node, relative_path)
+                if name is not None:
+                    violations.append(f"{relative_path}:{node.lineno}: {name}")
+                if isinstance(node.func, ast.Name):
+                    constructor = node.func.id
+                elif isinstance(node.func, ast.Attribute):
+                    constructor = node.func.attr
+                else:
+                    constructor = None
+                if constructor in _DEVICE_OPERATION_RUNTIME_PROVIDER_CONSTRUCTORS:
+                    violations.append(f"{relative_path}:{node.lineno}: {constructor}")
+
+    assert violations == []
+
+
+def test_diagnostics_modules_use_only_package_runtime_boundaries() -> None:
+    """Diagnostics and ticketing avoid service configuration and direct clients."""
+    violations: list[str] = []
+
+    for path in _DIAGNOSTICS_ACTIVITY_PATHS:
+        relative_path = path.relative_to(_PACKAGE_ROOT)
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+                lineno = node.lineno
+            elif isinstance(node, ast.ImportFrom) and node.module is not None:
+                modules = [node.module]
+                lineno = node.lineno
+            else:
+                modules = []
+                lineno = None
+
+            for module in modules:
+                if _is_service_module(module) or _is_concrete_dcim_provider_module(module):
+                    assert lineno is not None
+                    violations.append(f"{relative_path}:{lineno}: {module}")
+
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name):
+                name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                name = node.func.attr
+            else:
+                continue
+            if name in _DIAGNOSTICS_RUNTIME_PROVIDER_CONSTRUCTORS:
+                violations.append(f"{relative_path}:{node.lineno}: {name}")
 
     assert violations == []
 

@@ -49,7 +49,7 @@ with workflow.unsafe.imports_passed_through():
         HostDeviceData,
         NetworkDeviceData,
     )
-    from nv_config_manager.temporal.ngc.activities.bmc import (
+    from nv_config_manager_workflows.activities.bmc import (
         DiscoverHostsInput,
         GetDpuDetailsActivityInput,
         GetServerDetailsActivityInput,
@@ -67,11 +67,11 @@ with workflow.unsafe.imports_passed_through():
         set_redfish_password,
         update_dpu_data,
     )
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDevicesInput,
         get_network_devices,
     )
-    from nv_config_manager.temporal.ngc.activities.device import get_device_arp_table
+    from nv_config_manager_workflows.activities.device import get_device_arp_table
 
 ACTIVITY_NO_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)

@@ -15,14 +15,27 @@
 """Shared fixtures for the independently runnable workflows package."""
 
 from collections.abc import Generator
-from typing import Any
+from types import TracebackType
+from typing import Any, Self, cast
 from unittest.mock import Mock, patch
 
 import pytest
 from aiohttp import ClientResponse
+from nv_config_manager_clients.config_store import ConfigStoreClient
+from nv_config_manager_clients.render import RenderClient
+from nv_config_manager_clients.ztp import ZTPClient
+from nv_config_manager_dcim.api import DCIMClient
 
 from nv_config_manager_workflows import runtime as runtime_module
-from nv_config_manager_workflows.runtime import NatsRuntime, configure_runtime
+from nv_config_manager_workflows.clients.device.base import NetworkConnection
+from nv_config_manager_workflows.clients.redfish.base import RedfishConnection
+from nv_config_manager_workflows.clients.ticketing.base import TicketingProvider
+from nv_config_manager_workflows.clients.ufm import UFMClient
+from nv_config_manager_workflows.runtime import (
+    ConfigStoreRuntime,
+    NatsRuntime,
+    configure_runtime,
+)
 
 _CLIENT_RESPONSE_INIT = ClientResponse.__init__
 
@@ -75,6 +88,26 @@ class _TestLockBackend:
         return True
 
 
+class _TestFirmwareStorage:
+    """No-I/O firmware storage used by the package test environment."""
+
+    async def __aenter__(self) -> Self:
+        """Enter the test storage lifetime."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Exit the test storage lifetime."""
+
+    async def firmware_exists(self, platform: str, image: str) -> bool:
+        """Report every test firmware image as available."""
+        return True
+
+
 @pytest.fixture(autouse=True)
 def configured_workflow_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     """Install isolated, no-I/O defaults for package and plugin activity tests."""
@@ -82,6 +115,17 @@ def configured_workflow_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runtime_module, "_slack_provider", runtime_module._UNSET)
     monkeypatch.setattr(runtime_module, "_ui_base_url_provider", runtime_module._UNSET)
     monkeypatch.setattr(runtime_module, "_lock_backend_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_dcim_client_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_device_connection_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_redfish_connection_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_ufm_client_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_config_store_runtime_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_render_client_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_ztp_client_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_firmware_storage_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_redis_client_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_ticketing_provider_factory", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_api_base_url_provider", runtime_module._UNSET)
 
     nats = NatsRuntime(
         publisher=_TestNatsPublisher(),
@@ -89,11 +133,37 @@ def configured_workflow_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
         subject="test.workflow.result",
     )
     lock = _TestLockBackend()
+    dcim_client = cast(DCIMClient, object())
+    device_connection = cast(NetworkConnection, object())
+    redfish_connection = cast(RedfishConnection, object())
+    ufm_client = cast(UFMClient, object())
+    config_store_client = cast(ConfigStoreClient, object())
+    config_store = ConfigStoreRuntime(
+        client_factory=lambda _file_type: config_store_client,
+        ui_url="https://config-store.test",
+        default_user_domain="test.example",
+    )
+    render_client = cast(RenderClient, object())
+    ztp_client = cast(ZTPClient, object())
+    firmware_storage = _TestFirmwareStorage()
+    redis_client = cast(runtime_module.RedisCache, object())
+    ticketing_provider = cast(TicketingProvider, object())
     configure_runtime(
         nats_provider=lambda: nats,
         slack_provider=None,
         ui_base_url_provider=lambda: "https://workflow-ui.test",
         lock_backend_provider=lambda: lock,
+        dcim_client_provider=lambda: dcim_client,
+        device_connection_provider=lambda _device_data: device_connection,
+        redfish_connection_provider=lambda _host, _credential_role: redfish_connection,
+        ufm_client_provider=lambda _host, _site: ufm_client,
+        config_store_runtime_provider=lambda: config_store,
+        render_client_provider=lambda: render_client,
+        ztp_client_provider=lambda: ztp_client,
+        firmware_storage_provider=lambda: firmware_storage,
+        redis_client_provider=lambda: redis_client,
+        ticketing_provider_factory=lambda _platform: ticketing_provider,
+        api_base_url_provider=lambda: "https://workflow-api.test",
     )
 
 
@@ -107,3 +177,14 @@ def unconfigured_workflow_runtime(
     monkeypatch.setattr(runtime_module, "_slack_provider", runtime_module._UNSET)
     monkeypatch.setattr(runtime_module, "_ui_base_url_provider", runtime_module._UNSET)
     monkeypatch.setattr(runtime_module, "_lock_backend_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_dcim_client_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_device_connection_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_redfish_connection_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_ufm_client_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_config_store_runtime_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_render_client_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_ztp_client_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_firmware_storage_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_redis_client_provider", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_ticketing_provider_factory", runtime_module._UNSET)
+    monkeypatch.setattr(runtime_module, "_api_base_url_provider", runtime_module._UNSET)

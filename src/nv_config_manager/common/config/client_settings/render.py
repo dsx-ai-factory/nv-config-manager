@@ -16,23 +16,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from configparser import ConfigParser
-from typing import TypedDict
 
-from nv_config_manager.common.config.http import get_internal_auth_headers, get_mtls_cert_paths
-from nv_config_manager.common.config.loader import resolve_config
+from nv_config_manager.common.config.client_settings.http_service import (
+    HTTPServiceClientSettings,
+    http_service_client_settings,
+)
 
-type HeaderProvider = dict[str, str] | Callable[[], dict[str, str]] | None
 
-
-class RenderClientSettings(TypedDict):
+class RenderClientSettings(HTTPServiceClientSettings):
     """Constructor settings for ``nv_config_manager_clients.RenderClient``."""
-
-    base_url: str
-    client_certificate: tuple[str, str] | None
-    headers: HeaderProvider
-    verify: bool | str
 
 
 def render_client_settings(
@@ -41,20 +34,4 @@ def render_client_settings(
     section: str = "render",
 ) -> RenderClientSettings:
     """Translate a Render INI section into constructor settings."""
-    resolved = resolve_config(config)
-    render = resolved[section]
-
-    if render.getboolean("use_internal_endpoint", fallback=False):
-        return {
-            "base_url": render["api_service"],
-            "client_certificate": None,
-            "headers": get_internal_auth_headers,
-            "verify": True,
-        }
-
-    return {
-        "base_url": render["api_url"],
-        "client_certificate": get_mtls_cert_paths(resolved),
-        "headers": None,
-        "verify": True,
-    }
+    return http_service_client_settings(config, section=section)

@@ -33,11 +33,11 @@ from nv_config_manager.temporal.common.mixins.stage import (
 from nv_config_manager.temporal.common.workflow_references import DeviceReference
 
 with workflow.unsafe.imports_passed_through():
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
         get_network_device,
     )
-    from nv_config_manager.temporal.ngc.activities.os import (
+    from nv_config_manager_workflows.activities.os import (
         CleanupMlnxOSInput,
         DownloadMlnxOSInput,
         GetMlnxOSVersionInput,

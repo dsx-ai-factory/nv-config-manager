@@ -40,11 +40,11 @@ from nv_config_manager.temporal.common.workflow_references import (
 )
 
 with workflow.unsafe.imports_passed_through():
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
         get_network_device,
     )
-    from nv_config_manager.temporal.ngc.activities.ib_guid_discovery import (
+    from nv_config_manager_workflows.activities.ib_guid_discovery import (
         DiscoverIBPortGuidsInput,
         DiscoverIBPortGuidsOutput,
         IBGuidMapping,

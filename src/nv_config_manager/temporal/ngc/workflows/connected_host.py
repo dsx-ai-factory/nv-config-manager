@@ -46,14 +46,14 @@ with workflow.unsafe.imports_passed_through():
     )
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
         HostData,
         get_host_data_by_macs,
         get_host_data_by_names,
         get_network_device,
     )
-    from nv_config_manager.temporal.ngc.activities.device import (
+    from nv_config_manager_workflows.activities.device import (
         get_device_actual_neighbors,
         get_device_mac_table,
     )

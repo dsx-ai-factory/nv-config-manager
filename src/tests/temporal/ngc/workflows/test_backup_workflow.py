@@ -26,19 +26,19 @@ from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
-from nv_config_manager.temporal.ngc.activities.backup import (
-    PersistConfigBackupInput,
-    RecordBackupConfigManagerPluginInput,
-)
-from nv_config_manager.temporal.ngc.activities.deploy import (
-    DiffActivityInput,
-)
 from nv_config_manager.temporal.ngc.activities.nats import PublishNatsInput
 from nv_config_manager.temporal.ngc.activities.nautobot import (
     GetNetworkDeviceInput,
     GetNetworkDeviceOutput,
 )
 from nv_config_manager.temporal.ngc.workflows.backup import BackupInput, BackupWorkflow, TriggerEnum
+from nv_config_manager_workflows.activities.backup import (
+    PersistConfigBackupInput,
+    RecordBackupConfigManagerPluginInput,
+)
+from nv_config_manager_workflows.activities.deploy import (
+    DiffActivityInput,
+)
 from tests.temporal.conftest import mock_send_slack_message
 
 # Test-specific retry policy and timeout

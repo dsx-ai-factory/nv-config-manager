@@ -66,7 +66,7 @@ with workflow.unsafe.imports_passed_through():
         NetworkDeviceData,
         Platform,
     )
-    from nv_config_manager.temporal.ngc.activities.cable_validation import (
+    from nv_config_manager_workflows.activities.cable_validation import (
         CableValidationResultData,
         DecorateResultActivityInput,
         FormatDeviceValidationResultInput,
@@ -81,20 +81,21 @@ with workflow.unsafe.imports_passed_through():
         update_cable_statuses,
         validate_device_neighbors,
     )
-    from nv_config_manager.temporal.ngc.activities.config import build_workflow_url, get_ui_base_url
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager_workflows.activities.config import get_ui_base_url
+    from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
         GetNetworkDevicesInput,
         get_network_device,
         get_network_devices,
     )
-    from nv_config_manager.temporal.ngc.activities.device import (
+    from nv_config_manager_workflows.activities.device import (
         get_device_actual_neighbors,
         get_device_arp_table,
         get_device_intended_neighbors,
         get_device_mac_table,
         validate_hostname,
     )
+    from nv_config_manager_workflows.workflow_urls import build_workflow_url
 
 
 ACTIVITY_NO_RETRY_POLICY = RetryPolicy(maximum_attempts=1)

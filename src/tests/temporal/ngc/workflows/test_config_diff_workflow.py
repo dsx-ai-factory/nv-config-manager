@@ -24,7 +24,6 @@ from temporalio.client import Client, WorkflowHandle
 from temporalio.worker import Worker
 
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
-from nv_config_manager.temporal.ngc.activities.deploy import perform_candidate_diff
 from nv_config_manager.temporal.ngc.activities.nats import publish_nats
 from nv_config_manager.temporal.ngc.activities.nautobot import (
     GetNetworkDeviceInput,
@@ -35,6 +34,7 @@ from nv_config_manager.temporal.ngc.workflows.config_diff import (
     ConfigDiffWorkflow,
     ConfigDiffWorkflowOutput,
 )
+from nv_config_manager_workflows.activities.deploy import perform_candidate_diff
 
 
 @activity.defn(name="get_network_device")

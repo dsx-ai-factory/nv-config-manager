@@ -29,7 +29,7 @@ from nv_config_manager.dcim import (
 )
 from nv_config_manager.dcim.errors import DCIMConflictError, DCIMInvalidDataError, DCIMNotFoundError
 from nv_config_manager.temporal.common.mixins.device import Platform
-from nv_config_manager.temporal.ngc.activities.diagnostics import get_available_commands
+from nv_config_manager_workflows.activities.diagnostics import get_available_commands
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_API)
 

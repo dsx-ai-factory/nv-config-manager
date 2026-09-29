@@ -25,18 +25,23 @@ from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
-from nv_config_manager.temporal.ngc.activities.backup import (
-    PersistConfigBackupInput,
-    RecordBackupConfigManagerPluginInput,
-)
-from nv_config_manager.temporal.ngc.activities.deploy import DiffActivityInput
 from nv_config_manager.temporal.ngc.activities.nats import PublishNatsInput
 from nv_config_manager.temporal.ngc.activities.nautobot import (
     CheckRecordedConfigDriftInput,
     GetNetworkDeviceInput,
     GetNetworkDeviceOutput,
 )
-from nv_config_manager.temporal.ngc.activities.nvlinkswitch_firmware import (
+from nv_config_manager.temporal.ngc.workflows.backup import BackupWorkflow
+from nv_config_manager.temporal.ngc.workflows.nvlinkswitch_firmware_upgrade import (
+    NVLinkSwitchFirmwareUpgradeInput,
+    NVLinkSwitchFirmwareUpgradeWorkflow,
+)
+from nv_config_manager_workflows.activities.backup import (
+    PersistConfigBackupInput,
+    RecordBackupConfigManagerPluginInput,
+)
+from nv_config_manager_workflows.activities.deploy import DiffActivityInput
+from nv_config_manager_workflows.activities.nvlinkswitch_firmware import (
     CompareRunningDesiredInput,
     CompareRunningDesiredOutput,
     GetRunningFirmwareInput,
@@ -47,7 +52,7 @@ from nv_config_manager.temporal.ngc.activities.nvlinkswitch_firmware import (
     ValidateRenderTargetsInput,
     ValidateTargetFilesInput,
 )
-from nv_config_manager.temporal.ngc.activities.os import (
+from nv_config_manager_workflows.activities.os import (
     ExecuteZTPInput,
     ExecuteZTPOutput,
     GetCurrentOSInput,
@@ -56,11 +61,6 @@ from nv_config_manager.temporal.ngc.activities.os import (
     PollZTPStatusOutput,
     WaitRebootInput,
     WaitRebootOutput,
-)
-from nv_config_manager.temporal.ngc.workflows.backup import BackupWorkflow
-from nv_config_manager.temporal.ngc.workflows.nvlinkswitch_firmware_upgrade import (
-    NVLinkSwitchFirmwareUpgradeInput,
-    NVLinkSwitchFirmwareUpgradeWorkflow,
 )
 
 # Test-specific retry policy and timeout

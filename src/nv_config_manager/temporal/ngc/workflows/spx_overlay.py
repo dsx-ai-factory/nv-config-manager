@@ -49,7 +49,11 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager.dcim import DeviceVRF
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin, NetworkDeviceData
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager.temporal.ngc.workflows.deploy import (
+        TenantDeployInput,
+        TenantDeployWorkflow,
+    )
+    from nv_config_manager_workflows.activities.dcim import (
         AssignVrfToDeviceInput,
         AssignVrfToInterfaceInput,
         CheckRecordedConfigDriftInput,
@@ -79,17 +83,13 @@ with workflow.unsafe.imports_passed_through():
         reconcile_spx_overlay_assignments,
         remove_unmapped_device_vrfs,
     )
-    from nv_config_manager.temporal.ngc.activities.deploy import (
+    from nv_config_manager_workflows.activities.deploy import (
         WaitForTenantRenderInput,
         wait_for_tenant_render,
     )
-    from nv_config_manager.temporal.ngc.activities.render import (
+    from nv_config_manager_workflows.activities.render import (
         ExecuteRenderInput,
         execute_render,
-    )
-    from nv_config_manager.temporal.ngc.workflows.deploy import (
-        TenantDeployInput,
-        TenantDeployWorkflow,
     )
 
 

@@ -109,6 +109,25 @@ def validate_plugins(plugins: Mapping[str, WorkflowPluginDescriptor]) -> None:
     _require_declared_activities(workflows, activities)
 
 
+def validate_workflow_catalog(
+    workflows: Sequence[type],
+    *,
+    activities: Sequence[Callable[..., Any]] = (),
+) -> None:
+    """Validate the concrete workflow and activity catalog used by a worker.
+
+    Plugin validation cannot see service-owned workflows that are added after
+    discovery. Revalidate the final core-plus-plugin catalog as one descriptor
+    so conflicts with those workflows fail before Temporal worker construction.
+    """
+    runtime_catalog = WorkflowPluginDescriptor(
+        name="runtime-catalog",
+        workflows=workflows,
+        activities=activities,
+    )
+    validate_plugins({runtime_catalog.name: runtime_catalog})
+
+
 def validate_workflow_bases(workflows: Sequence[type]) -> None:
     """Require every workflow in a concrete runtime catalog to use the shared bases."""
     for workflow in workflows:

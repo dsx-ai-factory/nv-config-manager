@@ -46,7 +46,7 @@ from nv_config_manager.temporal.ngc.workflows.cumulus_hardware_validation import
     ValidateHardwareInput,
     ValidateHardwareWorkflow,
 )
-from tests.temporal.ngc.activities.test_hardware_validation_data import (
+from tests.temporal.clients.device.hardware_validation_data import (
     PLATFORM_RESPONSE,
     TEST_DEVICE,
 )

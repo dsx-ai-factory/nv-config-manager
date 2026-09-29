@@ -12,29 +12,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Configuration-related activities and utilities for Temporal workflows."""
+"""Deprecated service import path for reusable configuration activities."""
 
-from temporalio import activity
+# isort: off
+from nv_config_manager_workflows.activities.config import (
+    CONFIG_ACTIVITIES as CONFIG_ACTIVITIES,
+    build_workflow_url as build_workflow_url,
+    get_ui_base_url as get_ui_base_url,
+)
+# isort: on
 
-from nv_config_manager_workflows.runtime import get_ui_base_url as configured_ui_base_url
-
-
-def build_workflow_url(ui_base_url: str, workflow_id: str) -> str:
-    """Build a full UI URL for a workflow, handling scheme and trailing slashes."""
-    base = ui_base_url.rstrip("/")
-    if base.startswith("https://") or base.startswith("http://"):
-        return f"{base}/workflows/{workflow_id}"
-    return f"https://{base}/workflows/{workflow_id}"
-
-
-@activity.defn
-def get_ui_base_url() -> str:
-    """Get the configured NVCM UI base URL.
-
-    Returns:
-        The current NVCM UI base URL.
-
-    Raises:
-        UIBaseURLNotConfiguredError: If worker startup omitted or disabled the URL.
-    """
-    return configured_ui_base_url()
+__all__ = [
+    "CONFIG_ACTIVITIES",
+    "build_workflow_url",
+    "get_ui_base_url",
+]
