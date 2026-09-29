@@ -571,9 +571,39 @@ spec:
   selector:
     app: {{ $temporalName }}
     component: api
-{{- if and .Values.temporal.scheduler.enabled (eq (.Values.dcim.provider | default "nautobot-2x") "nautobot-2x") }}
+{{- if .Values.temporal.scheduler.enabled }}
+{{- /*
+Select schedulers from declarative values only; scheduler names never appear here.
+An entry is selected when it is enabled and its optional requiresDcimProvider matches
+dcim.provider. A null requirement (Helm's way to delete a default key) means none.
+The scheduler host does not check providers; this is the only provider gate.
+A missing map (e.g. --reuse-values from an older chart) fails rather than selecting none.
+*/}}
+{{- if not (hasKey .Values.temporal.scheduler "schedulers") }}
+{{- fail "temporal.scheduler.schedulers is missing, usually because helm upgrade --reuse-values kept values from an older chart. Upgrade without --reuse-values, or pass --set 'temporal.scheduler.schedulers.builtin\\.backup.enabled=true' --set 'temporal.scheduler.schedulers.builtin\\.backup.requiresDcimProvider=nautobot-2x' to keep the chart default. To run no schedulers, set temporal.scheduler.enabled=false." }}
+{{- end }}
+{{- $dcimProvider := .Values.dcim.provider | default "nautobot-2x" }}
+{{- $selectedSchedulerIdentities := list }}
+{{- range $identity, $settings := .Values.temporal.scheduler.schedulers }}
+{{- if not (kindIs "map" $settings) }}
+{{- fail (printf "temporal.scheduler.schedulers.%s must be a map with an enabled flag" $identity) }}
+{{- end }}
+{{- if not (kindIs "bool" $settings.enabled) }}
+{{- fail (printf "temporal.scheduler.schedulers.%s.enabled must be true or false" $identity) }}
+{{- end }}
+{{- $requiredProvider := index $settings "requiresDcimProvider" }}
+{{- $hasRequirement := not (kindIs "invalid" $requiredProvider) }}
+{{- if and $hasRequirement (or (not (kindIs "string" $requiredProvider)) (empty $requiredProvider)) }}
+{{- fail (printf "temporal.scheduler.schedulers.%s.requiresDcimProvider must be a non-empty string or null" $identity) }}
+{{- end }}
+{{- if and $settings.enabled (or (not $hasRequirement) (eq $requiredProvider $dcimProvider)) }}
+{{- $selectedSchedulerIdentities = append $selectedSchedulerIdentities $identity }}
+{{- end }}
+{{- end }}
+{{- if $selectedSchedulerIdentities }}
+{{- $waitForNautobot := eq $dcimProvider "nautobot-2x" }}
 ---
-# NVIDIA Config Manager Temporal Scheduler Deployment (for Nautobot backup scheduling)
+# NVIDIA Config Manager Temporal Scheduler Host Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -620,14 +650,18 @@ spec:
         {{- end }}
       {{- end }}
       {{- include "nv-config-manager.scheduling" .Values.temporal.scheduler | nindent 6 }}
+      {{- if or .Values.dcim.providerPackages.enabled $waitForNautobot .Values.temporal.server.enabled }}
       initContainers:
       {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
       {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
-      # The scheduler runs only with the built-in Nautobot provider.
+      {{- if $waitForNautobot }}
+      # Selected schedulers may query the configured Nautobot deployment.
       {{- include "nv-config-manager.waitForNautobot" . | nindent 6 }}
+      {{- end }}
       # A locally managed Temporal server creates the configured namespace.
       {{- if .Values.temporal.server.enabled }}
       {{- include "nv-config-manager.waitForTemporalNamespace" . | nindent 6 }}
+      {{- end }}
       {{- end }}
       containers:
       - name: scheduler
@@ -639,6 +673,8 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        - name: NVCM_ENABLED_SCHEDULERS
+          value: {{ join "," $selectedSchedulerIdentities | quote }}
         {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-temporal-scheduler") | nindent 8 }}
@@ -666,6 +702,7 @@ spec:
       {{- end }}
       {{- /* SPIFFE volumes for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar.volumes" (dict "root" .) | nindent 6 }}
+{{- end }}
 {{- end }}
 ---
 # Archive Service (if enabled)

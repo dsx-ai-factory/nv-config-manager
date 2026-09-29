@@ -12,9 +12,4 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Compatibility import path for the workflow scheduler host."""
-
-from nv_config_manager.temporal.scheduler.main import main
-from nv_config_manager_workflows.schedulers.backup import BackupScheduler
-
-__all__ = ["BackupScheduler", "main"]
+"""Workflow scheduler host process."""

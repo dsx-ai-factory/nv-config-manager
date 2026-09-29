@@ -12,9 +12,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Compatibility import path for the workflow scheduler host."""
+"""Scheduler identity grammar shared by registry validation and schedule-ID helpers."""
 
-from nv_config_manager.temporal.scheduler.main import main
-from nv_config_manager_workflows.schedulers.backup import BackupScheduler
+import re
+from typing import Final
 
-__all__ = ["BackupScheduler", "main"]
+SCHEDULER_IDENTITY_SEGMENT_PATTERN: Final = re.compile(r"[a-z][a-z0-9_-]*")
+SCHEDULER_IDENTITY_PATTERN: Final = re.compile(r"[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+")
+# Built-in backup schedule IDs are "backup-<device-id>"; plugin names may not use this prefix.
+BACKUP_SCHEDULE_PREFIX: Final = "backup-"
+
+__all__ = [
+    "BACKUP_SCHEDULE_PREFIX",
+    "SCHEDULER_IDENTITY_PATTERN",
+    "SCHEDULER_IDENTITY_SEGMENT_PATTERN",
+]

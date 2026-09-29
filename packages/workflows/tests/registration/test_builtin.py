@@ -55,6 +55,8 @@ from nv_config_manager_workflows.registration.descriptor import (
 from nv_config_manager_workflows.registration.discovery import discover_workflow_plugins
 from nv_config_manager_workflows.registration.registry import WorkflowRegistry
 from nv_config_manager_workflows.registration.validation import validate_plugins
+from nv_config_manager_workflows.schedulers.backup import BackupScheduler
+from nv_config_manager_workflows.schedulers.builtin import BUILTIN_SCHEDULERS
 from nv_config_manager_workflows.workflows.builtin import BUILTIN_WORKFLOWS
 from nv_config_manager_workflows.workflows.hello_world import (
     LOCAL_TEST_WORKFLOWS,
@@ -75,7 +77,7 @@ class TestBuiltinPlugin:
 
         assert descriptor.workflows == BUILTIN_WORKFLOWS
         assert descriptor.activities == BUILTIN_ACTIVITIES
-        assert descriptor.schedulers == ()
+        assert descriptor.schedulers == BUILTIN_SCHEDULERS
 
     def test_its_version_is_left_to_the_installed_distribution(self) -> None:
         assert builtin_plugin().version is None
@@ -88,7 +90,16 @@ class TestBuiltinPlugin:
 
         assert registry.all_workflows == list(BUILTIN_WORKFLOWS)
         assert registry.all_activities == list(BUILTIN_ACTIVITIES)
+        assert registry.all_schedulers == list(BUILTIN_SCHEDULERS)
         assert [info.name for info in registry.plugin_diagnostics] == [BUILTIN_PLUGIN_NAME]
+
+    def test_it_contributes_exactly_the_backup_scheduler_once(self) -> None:
+        registry = WorkflowRegistry.build({BUILTIN_PLUGIN_NAME: builtin_plugin()})
+
+        assert [
+            (registration.plugin, registration.identity, registration.scheduler)
+            for registration in registry.scheduler_registrations
+        ] == [("builtin", "builtin.backup", BackupScheduler)]
 
 
 def test_builtin_workflow_catalog_is_complete_unique_and_excludes_local_fixture() -> None:
@@ -333,3 +344,4 @@ class TestBuiltinDiscovery:
         registry = WorkflowRegistry.build()
 
         assert BUILTIN_PLUGIN_NAME in {info.name for info in registry.plugin_diagnostics}
+        assert all(scheduler in registry.all_schedulers for scheduler in BUILTIN_SCHEDULERS)

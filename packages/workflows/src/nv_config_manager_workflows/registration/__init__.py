@@ -45,8 +45,20 @@ from nv_config_manager_workflows.registration.errors import (
     WorkflowPluginDuplicateError,
     WorkflowRegistrationError,
     WorkflowRequiredActivityError,
+    WorkflowSchedulerAbstractError,
+    WorkflowSchedulerConstructorError,
+    WorkflowSchedulerDuplicateIdentityError,
+    WorkflowSchedulerIdentityError,
+    WorkflowSchedulerRegistrationError,
+    WorkflowSchedulerRunArgumentsError,
+    WorkflowSchedulerRunError,
+    WorkflowSchedulerRunNotAsyncError,
 )
-from nv_config_manager_workflows.registration.registry import PluginInfo, WorkflowRegistry
+from nv_config_manager_workflows.registration.registry import (
+    PluginInfo,
+    SchedulerRegistration,
+    WorkflowRegistry,
+)
 from nv_config_manager_workflows.registration.scheduler import WorkflowScheduler
 from nv_config_manager_workflows.registration.validation import (
     REQUIRED_WORKFLOW_BASES,
@@ -63,6 +75,7 @@ __all__ = [
     "WORKFLOW_PLUGIN_ENTRY_POINT_GROUP",
     "PluginInfo",
     "REQUIRED_WORKFLOW_BASES",
+    "SchedulerRegistration",
     "WorkflowConflictError",
     "WorkflowPluginDescriptor",
     "WorkflowPluginDiscoveryError",
@@ -71,6 +84,14 @@ __all__ = [
     "WorkflowRegistry",
     "WorkflowRequiredActivityError",
     "WorkflowScheduler",
+    "WorkflowSchedulerAbstractError",
+    "WorkflowSchedulerConstructorError",
+    "WorkflowSchedulerDuplicateIdentityError",
+    "WorkflowSchedulerIdentityError",
+    "WorkflowSchedulerRegistrationError",
+    "WorkflowSchedulerRunArgumentsError",
+    "WorkflowSchedulerRunError",
+    "WorkflowSchedulerRunNotAsyncError",
     "activity_name",
     "builtin_plugin",
     "discover_workflow_plugins",

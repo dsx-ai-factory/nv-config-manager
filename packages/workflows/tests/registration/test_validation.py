@@ -31,6 +31,13 @@ from nv_config_manager_workflows.registration.errors import (
     WorkflowConflictError,
     WorkflowRegistrationError,
     WorkflowRequiredActivityError,
+    WorkflowSchedulerAbstractError,
+    WorkflowSchedulerConstructorError,
+    WorkflowSchedulerDuplicateIdentityError,
+    WorkflowSchedulerIdentityError,
+    WorkflowSchedulerRunArgumentsError,
+    WorkflowSchedulerRunError,
+    WorkflowSchedulerRunNotAsyncError,
 )
 from nv_config_manager_workflows.registration.scheduler import WorkflowScheduler
 from nv_config_manager_workflows.registration.validation import (
@@ -233,21 +240,48 @@ class ExtendedWorkflow(AdditionalWorkflowMixin, WorkflowMetadataMixin, StageMixi
 
 
 class AsyncScheduler:
+    scheduler_identity = "scheduler-plugin.async"
+
     async def run(self) -> None: ...
 
 
 class SynchronousScheduler:
+    scheduler_identity = "broken-plugin.synchronous"
+
     def run(self) -> None: ...
 
 
 class SchedulerWithRequiredRunArgument:
+    scheduler_identity = "broken-plugin.run_argument"
+
     async def run(self, interval: int) -> None: ...
 
 
-class SchedulerWithoutRun: ...
+class SchedulerWithRequiredConstructorArgument:
+    scheduler_identity = "broken-plugin.constructor_argument"
+
+    def __init__(self, interval: int) -> None:
+        self.interval = interval
+
+    async def run(self) -> None: ...
 
 
-class SchedulerInheritingProtocolStub(WorkflowScheduler): ...
+class SchedulerWithoutRun:
+    scheduler_identity = "broken-plugin.without_run"
+
+
+class SchedulerInheritingProtocolStub(WorkflowScheduler):
+    scheduler_identity = "broken-plugin.protocol_stub"
+
+
+class SchedulerIdentityTwin:
+    scheduler_identity = AsyncScheduler.scheduler_identity
+
+    async def run(self) -> None: ...
+
+
+class SchedulerWithoutIdentity:
+    async def run(self) -> None: ...
 
 
 def plugin(
@@ -369,6 +403,169 @@ class TestTemporalDefinitionRequired:
 
 
 class TestSchedulerContract:
+    def test_a_scheduler_must_declare_a_class_level_stable_identity(self) -> None:
+        descriptor = WorkflowPluginDescriptor.model_construct(
+            name="broken-plugin",
+            schedulers=(SchedulerWithoutIdentity,),
+        )
+
+        with pytest.raises(WorkflowSchedulerIdentityError) as raised:
+            validate_plugins(installed(descriptor))
+
+        assert "SchedulerWithoutIdentity" in str(raised.value)
+        assert "scheduler_identity as a class-level string" in str(raised.value)
+        assert 'plugin "broken-plugin"' in str(raised.value)
+
+    @pytest.mark.parametrize(
+        "identity",
+        [
+            "",
+            "broken-plugin",
+            "Broken-plugin.scheduler",
+            "broken-plugin.Scheduler",
+            "broken-plugin.2nd",
+            "broken-plugin scheduler",
+            ".broken-plugin",
+            "broken-plugin.",
+            "broken-plugin..scheduler",
+            "broken-plugin.scheduler,other",
+        ],
+    )
+    def test_a_scheduler_identity_must_be_well_formed(self, identity: str) -> None:
+        class MalformedIdentityScheduler:
+            scheduler_identity = identity
+
+            async def run(self) -> None: ...
+
+        with pytest.raises(WorkflowSchedulerIdentityError) as raised:
+            validate_plugins(
+                installed(
+                    plugin(
+                        "broken-plugin",
+                        schedulers=(MalformedIdentityScheduler,),
+                    )
+                )
+            )
+
+        assert repr(identity) in str(raised.value)
+        assert 'must have the form "broken-plugin.<name>"' in str(raised.value)
+        assert 'plugin "broken-plugin"' in str(raised.value)
+
+    @pytest.mark.parametrize(
+        "identity",
+        ["scheduler-plugin.cleanup", "scheduler-plugin.ops.nightly-sync", "scheduler-plugin.x2"],
+    )
+    def test_a_scheduler_identity_namespaced_by_its_plugin_is_valid(self, identity: str) -> None:
+        class NamespacedScheduler:
+            scheduler_identity = identity
+
+            async def run(self) -> None: ...
+
+        validate_plugins(installed(plugin("scheduler-plugin", schedulers=(NamespacedScheduler,))))
+
+    @pytest.mark.parametrize(
+        "identity",
+        ["scheduler-plugin.async", "builtin.backup", "beta.cleanup", "beta-plugin-extra.cleanup"],
+        ids=["another-plugin", "reserved-builtin", "prefix-of-plugin-name", "longer-plugin-name"],
+    )
+    def test_a_scheduler_identity_must_start_with_its_plugin_name(self, identity: str) -> None:
+        class ForeignIdentityScheduler:
+            scheduler_identity = identity
+
+            async def run(self) -> None: ...
+
+        with pytest.raises(WorkflowSchedulerIdentityError) as raised:
+            validate_plugins(
+                installed(plugin("beta-plugin", schedulers=(ForeignIdentityScheduler,)))
+            )
+
+        assert repr(identity) in str(raised.value)
+        assert 'must start with its plugin name: "beta-plugin.<name>"' in str(raised.value)
+
+    @pytest.mark.parametrize("plugin_name", ["Acme", "acme.ops", "1acme", "acme plugin"])
+    def test_a_plugin_contributing_schedulers_must_have_a_namespace_name(
+        self, plugin_name: str
+    ) -> None:
+        class AcmeScheduler:
+            scheduler_identity = "acme.cleanup"
+
+            async def run(self) -> None: ...
+
+        with pytest.raises(WorkflowSchedulerIdentityError) as raised:
+            validate_plugins(installed(plugin(plugin_name, schedulers=(AcmeScheduler,))))
+
+        assert f'cannot be namespaced by plugin name "{plugin_name}"' in str(raised.value)
+
+    @pytest.mark.parametrize("plugin_name", ["backup-tools", "backup-x"])
+    def test_a_plugin_contributing_schedulers_may_not_use_the_backup_schedule_prefix(
+        self, plugin_name: str
+    ) -> None:
+        class BackupPrefixedScheduler:
+            scheduler_identity = f"{plugin_name}.sync"
+
+            async def run(self) -> None: ...
+
+        with pytest.raises(WorkflowSchedulerIdentityError) as raised:
+            validate_plugins(installed(plugin(plugin_name, schedulers=(BackupPrefixedScheduler,))))
+
+        assert f'cannot be namespaced by plugin name "{plugin_name}"' in str(raised.value)
+        assert '"backup-" prefix is reserved for built-in backup schedule IDs' in str(raised.value)
+
+    @pytest.mark.parametrize(
+        ("plugin_name", "identity"),
+        [
+            ("backup", "backup.sync"),
+            ("backups", "backups.sync"),
+            ("backup_tools", "backup_tools.sync"),
+            ("acme", "acme.backup-sync"),
+        ],
+        ids=["backup", "backups", "backup_tools", "backup-scheduler-name"],
+    )
+    def test_a_plugin_name_resembling_the_backup_schedule_prefix_is_valid(
+        self, plugin_name: str, identity: str
+    ) -> None:
+        class BackupLikeScheduler:
+            scheduler_identity = identity
+
+            async def run(self) -> None: ...
+
+        validate_plugins(installed(plugin(plugin_name, schedulers=(BackupLikeScheduler,))))
+
+    def test_a_plugin_name_only_needs_to_be_a_namespace_when_it_contributes_schedulers(
+        self,
+    ) -> None:
+        validate_plugins(installed(plugin("Acme Plugin", activities=(collect_facts,))))
+
+    @pytest.mark.parametrize(
+        "descriptors",
+        [
+            (
+                plugin(
+                    "scheduler-plugin",
+                    schedulers=(AsyncScheduler, AsyncScheduler),
+                ),
+            ),
+            (
+                plugin(
+                    "scheduler-plugin",
+                    schedulers=(AsyncScheduler, SchedulerIdentityTwin),
+                ),
+            ),
+        ],
+        ids=["same-class", "different-classes"],
+    )
+    def test_duplicate_scheduler_identities_are_rejected(
+        self, descriptors: tuple[WorkflowPluginDescriptor, ...]
+    ) -> None:
+        with pytest.raises(
+            WorkflowSchedulerDuplicateIdentityError,
+            match='Duplicate scheduler identity "scheduler-plugin.async"',
+        ) as raised:
+            validate_plugins(installed(*descriptors))
+
+        assert "AsyncScheduler" in str(raised.value)
+        assert 'plugin "scheduler-plugin"' in str(raised.value)
+
     def test_a_scheduler_must_declare_a_run_method(self) -> None:
         # model_construct bypasses the descriptor's protocol validation so the
         # registry's defensive error handling is exercised directly.
@@ -377,7 +574,7 @@ class TestSchedulerContract:
             schedulers=(SchedulerWithoutRun,),
         )
 
-        with pytest.raises(WorkflowRegistrationError) as raised:
+        with pytest.raises(WorkflowSchedulerRunError) as raised:
             validate_plugins(installed(descriptor))
 
         assert "Scheduler" in str(raised.value)
@@ -385,7 +582,7 @@ class TestSchedulerContract:
         assert 'plugin "broken-plugin"' in str(raised.value)
 
     def test_a_scheduler_run_method_must_be_async(self) -> None:
-        with pytest.raises(WorkflowRegistrationError) as raised:
+        with pytest.raises(WorkflowSchedulerRunNotAsyncError) as raised:
             validate_plugins(installed(plugin("broken-plugin", schedulers=(SynchronousScheduler,))))
 
         assert "Scheduler" in str(raised.value)
@@ -393,7 +590,7 @@ class TestSchedulerContract:
         assert 'plugin "broken-plugin"' in str(raised.value)
 
     def test_a_scheduler_run_method_must_accept_no_arguments(self) -> None:
-        with pytest.raises(WorkflowRegistrationError) as raised:
+        with pytest.raises(WorkflowSchedulerRunArgumentsError) as raised:
             validate_plugins(
                 installed(
                     plugin(
@@ -406,8 +603,22 @@ class TestSchedulerContract:
         assert "run(), which cannot be called without arguments" in str(raised.value)
         assert 'plugin "broken-plugin"' in str(raised.value)
 
+    def test_a_scheduler_constructor_must_accept_no_arguments(self) -> None:
+        with pytest.raises(WorkflowSchedulerConstructorError) as raised:
+            validate_plugins(
+                installed(
+                    plugin(
+                        "broken-plugin",
+                        schedulers=(SchedulerWithRequiredConstructorArgument,),
+                    )
+                )
+            )
+
+        assert "cannot be constructed without arguments" in str(raised.value)
+        assert 'plugin "broken-plugin"' in str(raised.value)
+
     def test_a_scheduler_must_implement_the_protocol_method(self) -> None:
-        with pytest.raises(WorkflowRegistrationError) as raised:
+        with pytest.raises(WorkflowSchedulerAbstractError) as raised:
             validate_plugins(
                 installed(
                     plugin(

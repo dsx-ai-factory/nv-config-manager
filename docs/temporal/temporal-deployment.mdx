@@ -47,6 +47,80 @@ Open the workflow API at `https://workflow.<hostname>/docs` and Temporal Web at 
 
 For normal operator actions, use the Config Manager UI. Use Temporal Web for detailed workflow event history, retries, payload inspection, and child workflow troubleshooting. See [Which Interface Should I Use?](../getting-started/interfaces.mdx).
 
+## Workflow Schedulers
+
+The `<release>-temporal-scheduler` Deployment runs the scheduler host. The host discovers every scheduler contributed by the built-in workflows package and installed workflow plugins, then runs only the schedulers selected in Helm values. Installing or upgrading a plugin never starts a scheduler on its own.
+
+Each scheduler has a stable identity of the form `<plugin-name>.<name>`, such as `builtin.backup` for the built-in backup scheduler or `acme.cleanup` for a scheduler from a plugin named `acme`. Every dot-separated segment starts with a lowercase letter and contains only lowercase letters, digits, underscores, or hyphens. The first segment must be the contributing plugin's name, so plugins cannot claim each other's identities, and the `builtin.` prefix is reserved for built-in schedulers. A plugin that contributes schedulers also cannot have a name starting with `backup-`, which is reserved for the built-in backup scheduler's schedule IDs; identities such as `acme.backup` are allowed. The workflows package README lists accepted and rejected examples for plugin authors. A plugin or scheduler that breaks these rules fails plugin registration at startup, even if the scheduler is not enabled.
+
+Schedulers are enabled per stable identity under `temporal.scheduler.schedulers`. The chart default enables the built-in backup scheduler for the `nautobot-2x` DCIM provider:
+
+```yaml
+temporal:
+  scheduler:
+    enabled: true
+    schedulers:
+      builtin.backup:
+        enabled: true
+        requiresDcimProvider: nautobot-2x
+```
+
+Helm merges maps across values files, so an environment lists only the entries it changes. To run a plugin scheduler in addition to the built-in backup scheduler:
+
+```yaml
+temporal:
+  scheduler:
+    schedulers:
+      acme.cleanup:
+        enabled: true
+```
+
+To restrict a plugin scheduler to one DCIM provider, set `requiresDcimProvider` on its entry. Helm selects the entry only when `dcim.provider` matches:
+
+```yaml
+temporal:
+  scheduler:
+    schedulers:
+      acme.cleanup:
+        enabled: true
+        requiresDcimProvider: nautobot-2x
+```
+
+To stop scheduling device backups:
+
+```yaml
+temporal:
+  scheduler:
+    schedulers:
+      builtin.backup:
+        enabled: false
+```
+
+Identities contain dots, so escape them when using `--set`:
+
+```bash
+helm upgrade <release> <chart> --reuse-values \
+  --set 'temporal.scheduler.schedulers.builtin\.backup.enabled=false'
+```
+
+Selection rules:
+
+- `builtin.backup` keeps a Temporal schedule `backup-<device-id>` for every backup-enabled device, runs each backup every 12 hours with up to one hour of jitter, and reconciles the device set every 10 minutes. Its default entry declares `requiresDcimProvider: nautobot-2x`, so by default Helm deploys it only on Nautobot. The scheduler host does not check the DCIM provider. If you set `requiresDcimProvider: null` on this entry, Helm deploys the backup scheduler and it runs against the configured DCIM provider, which must list backup-enabled devices. Listing backup-enabled devices is part of the required DCIM client interface.
+- Each entry must be a map with a boolean `enabled` flag. The optional `requiresDcimProvider` must be a non-empty string; otherwise rendering fails. Set `requiresDcimProvider: null` to remove a requirement inherited from the chart defaults, which makes the entry run on any provider; it does not turn the scheduler off. Use `enabled: false` for that.
+- Helm selects an entry when `enabled` is `true` and its `requiresDcimProvider`, if set, matches `dcim.provider`.
+- The Deployment is rendered only when at least one scheduler is selected. Installs on a DCIM provider other than `nautobot-2x` that enable no plugin schedulers have no scheduler pod.
+- If an existing release was installed from a chart that predates `temporal.scheduler.schedulers`, `helm upgrade --reuse-values` reuses values with no `schedulers` map, so rendering fails with `temporal.scheduler.schedulers is missing` before anything is applied; the running release is untouched. Upgrade without `--reuse-values`, or also pass `--set 'temporal.scheduler.schedulers.builtin\.backup.enabled=true' --set 'temporal.scheduler.schedulers.builtin\.backup.requiresDcimProvider=nautobot-2x'` to keep the chart default. Pass both: reused values have no default to merge, so without `requiresDcimProvider` the backup scheduler would also be deployed for other DCIM providers.
+- A selected identity that no installed plugin provides stops the scheduler host at startup with `Unknown enabled workflow scheduler identities`.
+- Selected schedulers share one pod and fail together. If any scheduler raises an unhandled exception or returns, the host stops every other scheduler, including `builtin.backup`, and exits nonzero so that Kubernetes restarts the pod. The `Workflow scheduler <identity> from plugin <plugin> failed` or `... returned unexpectedly` log message names the failing scheduler; set its entry to `enabled: false` to keep the others running.
+- `temporal.scheduler.enabled: false` removes the Deployment entirely.
+- When you run `nv-config-manager-temporal-scheduler` directly, outside Helm, the host reads `NVCM_ENABLED_SCHEDULERS` as a comma-separated list of identities. If the variable is unset, the host runs `builtin.backup` against the configured DCIM provider. If it is set to an empty value, the host runs no schedulers, logs a warning, and waits for shutdown.
+
+The host logs the discovered plugin manifest and the selected scheduler identities at startup:
+
+```bash
+kubectl logs -n <namespace> deploy/<release>-temporal-scheduler | grep -E 'plugin manifest|Enabled workflow schedulers'
+```
+
 ## Worker Reliability
 
 ### PodDisruptionBudgets
