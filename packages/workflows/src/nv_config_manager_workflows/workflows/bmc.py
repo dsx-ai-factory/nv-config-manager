@@ -638,7 +638,7 @@ class RedfishProvisioningWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
 
         host_details = await self.discover_host_details(
             self.DiscoverServerDetailsStageInput(
-                hosts=all_hosts, nic_manufacturers=NIC_MANUFACTURER_MELLANOX
+                hosts=all_hosts, nic_manufacturers=workflow_input.dpu_manufacturers
             )
         )
 

@@ -470,6 +470,7 @@ class InfinibandMlnxOSUpgradeWorkflow(WorkflowMetadataMixin, StageMixin):
         self, workflow_input: InfinibandMlnxOSUpgradeInput
     ) -> str:
         """Run the workflow."""
+        self.set_input(workflow_input)
 
         intended = await self.get_intended_os_version(
             self.GetOSImageVersionsStageInput(device_id=workflow_input.device_id)

@@ -68,7 +68,6 @@ with workflow.unsafe.imports_passed_through():
         RedfishVendor,
     )
     from nv_config_manager_workflows.workflows.bmc import (
-        NIC_MANUFACTURER_MELLANOX,
         RedfishProvisioningInput,
         RedfishProvisioningResult,
         RedfishProvisioningWorkflow,
@@ -80,6 +79,9 @@ with workflow.unsafe.imports_passed_through():
         TEST_DPU_DEVICES,
         TEST_SERVERS,
     )
+
+
+TEST_DPU_MANUFACTURERS = ["NVIDIA"]
 
 
 @activity.defn(name="discover_redfish_hosts")
@@ -225,7 +227,7 @@ def mock_get_server_details(
 ) -> GetServerDetailsActivityOutput:
     if (
         activity_input.host.address == "127.0.0.1"
-        and activity_input.nic_manufacturers == NIC_MANUFACTURER_MELLANOX
+        and activity_input.nic_manufacturers == TEST_DPU_MANUFACTURERS
     ):
         return GetServerDetailsActivityOutput(
             server=RedfishServer(
@@ -250,7 +252,7 @@ def mock_get_server_details(
         )
     if (
         activity_input.host.address == "127.0.0.2"
-        and activity_input.nic_manufacturers == NIC_MANUFACTURER_MELLANOX
+        and activity_input.nic_manufacturers == TEST_DPU_MANUFACTURERS
     ):
         return GetServerDetailsActivityOutput(
             server=RedfishServer(
@@ -416,6 +418,7 @@ async def test_redfish_provisioning_workflow(mock_time, mock_sleep, env):
             port=443,
             bmc_switch_roles=["smn-leaf"],
             site="SITEA",
+            dpu_manufacturers=TEST_DPU_MANUFACTURERS,
         )
         workflow_id = str(uuid.uuid4())
         handle = await env.client.start_workflow(
