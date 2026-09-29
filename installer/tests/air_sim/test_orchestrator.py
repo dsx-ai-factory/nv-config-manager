@@ -119,6 +119,38 @@ def test_local_repository_path_accepts_checkout_and_file_url(tmp_path: Path) -> 
     assert SimOrchestrator._is_local_repository_reference("https://example.com/repo.git") is False
 
 
+@pytest.mark.parametrize(
+    "repo",
+    [
+        "deploy@gitlab.example.com:group/repo.git",
+        "git@gitlab.example.com:group/repo.git",
+        "gitlab.example.com:group/repo.git",
+        "ssh://deploy@gitlab.example.com/group/repo.git",
+        "https://example.com/group/repo.git",
+    ],
+)
+def test_repository_helpers_recognize_ssh_and_https_remotes(repo: str) -> None:
+    """Remote application repositories must reach cloud-init's clone path."""
+    assert SimOrchestrator._local_repository_path(repo) is None
+    assert SimOrchestrator._is_local_repository_reference(repo) is False
+
+
+@pytest.mark.parametrize(
+    "repo", ["checkout", "./checkout", "./checkout:local", "nested/repo:local"]
+)
+def test_repository_helpers_preserve_relative_local_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    repo: str,
+) -> None:
+    """An explicit local path can contain a colon after its directory separator."""
+    monkeypatch.chdir(tmp_path)
+    checkout = tmp_path / repo
+    checkout.mkdir(parents=True)
+    assert SimOrchestrator._local_repository_path(repo) == checkout.resolve()
+    assert SimOrchestrator._is_local_repository_reference(repo) is True
+
+
 def test_stage_local_sources_uploads_repo_and_content(tmp_path: Path) -> None:
     checkout = tmp_path / "checkout"
     checkout.mkdir()

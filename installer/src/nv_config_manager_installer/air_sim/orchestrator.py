@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import tempfile
 from collections.abc import Callable
@@ -185,7 +186,7 @@ class SimOrchestrator:
         parts = urlsplit(repo)
         if parts.scheme == "file":
             candidate = Path(unquote(parts.path)).expanduser()
-        elif parts.scheme or repo.startswith("git@"):
+        elif parts.scheme or re.match(r"^[^/\s:]+:", repo):
             return None
         else:
             candidate = Path(repo).expanduser()
@@ -195,7 +196,10 @@ class SimOrchestrator:
     def _is_local_repository_reference(repo: str) -> bool:
         """Return whether a repository setting is intended as a local path."""
         parts = urlsplit(repo)
-        return parts.scheme == "file" or (not parts.scheme and not repo.startswith("git@"))
+        # Git accepts SCP-style [user@]host:path remotes without a URL scheme.
+        return parts.scheme == "file" or (
+            not parts.scheme and re.match(r"^[^/\s:]+:", repo) is None
+        )
 
     @staticmethod
     def _local_content_path(path: str) -> Path | None:
