@@ -14,10 +14,7 @@
 # limitations under the License.
 """Replay histories captured before the IB/DCIM package extraction."""
 
-from pathlib import Path
-
 import pytest
-from temporalio.client import WorkflowHistory
 from temporalio.worker import Replayer
 
 from nv_config_manager.temporal.converter import get_data_converter
@@ -29,8 +26,7 @@ from nv_config_manager.temporal.ngc.workflows.ib_pkey_member_delete import (
 from nv_config_manager.temporal.ngc.workflows.ib_pkey_member_update import (
     IBPKeyMemberUpdateWorkflow,
 )
-
-_FIXTURE_ROOT = Path(__file__).parent / "fixtures"
+from tests.temporal.replay.history import load_history
 
 
 @pytest.mark.asyncio
@@ -48,10 +44,7 @@ async def test_pre_extraction_history_replays(
     history_filename: str,
 ) -> None:
     """Package moves must not change commands recorded by existing IB workflows."""
-    history = WorkflowHistory.from_json(
-        history_filename.removesuffix(".json"),
-        (_FIXTURE_ROOT / history_filename).read_text(),
-    )
+    history = load_history(history_filename)
     replayer = Replayer(
         workflows=[workflow_class],
         data_converter=get_data_converter(),

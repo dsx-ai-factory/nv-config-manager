@@ -12,3 +12,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Shared history loading for Temporal replay tests."""
+
+from pathlib import Path
+
+from temporalio.client import WorkflowHistory
+
+FIXTURE_ROOT = Path(__file__).parent / "fixtures"
+
+
+def load_history(filename: str) -> WorkflowHistory:
+    """Load a captured workflow history from the replay fixture directory."""
+    return WorkflowHistory.from_json(
+        filename.removesuffix(".json"),
+        (FIXTURE_ROOT / filename).read_text(),
+    )

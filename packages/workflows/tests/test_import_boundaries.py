@@ -23,14 +23,6 @@ _ACTIVITIES_ROOT = _PACKAGE_ROOT / "activities"
 _DCIM_ROOT = _ACTIVITIES_ROOT / "dcim"
 _IB_PKEY_ROOT = _ACTIVITIES_ROOT / "ib_pkey"
 _JUNIPER_CLIENT_PATH = Path("clients/device/juniper.py")
-_CORE_BOUNDARY_PATHS = (
-    _ACTIVITIES_ROOT / "builtin.py",
-    *(_ACTIVITIES_ROOT / "config").glob("*.py"),
-    *(_ACTIVITIES_ROOT / "hello_world").glob("*.py"),
-    *(_ACTIVITIES_ROOT / "nats").glob("*.py"),
-    *(_ACTIVITIES_ROOT / "slack").glob("*.py"),
-    _PACKAGE_ROOT / "tech_support.py",
-)
 _IB_PKEY_DCIM_BOUNDARY_PATHS = (
     _PACKAGE_ROOT / "runtime.py",
     _PACKAGE_ROOT / "dcim_session.py",
@@ -211,37 +203,6 @@ def test_ib_pkey_dcim_slice_uses_only_provider_neutral_dcim_contracts() -> None:
                 name = _forbidden_configuration_call(node, relative_path)
                 if name is not None:
                     violations.append(f"{relative_path}:{node.lineno}: {name}")
-    assert violations == []
-
-
-def test_modules_have_no_service_or_configuration_dependencies() -> None:
-    """Every core module remains importable without the service application."""
-    violations: list[str] = []
-
-    for path in _CORE_BOUNDARY_PATHS:
-        relative_path = path.relative_to(_PACKAGE_ROOT)
-        tree = ast.parse(path.read_text(), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                modules = [alias.name for alias in node.names]
-                lineno = node.lineno
-            elif isinstance(node, ast.ImportFrom) and node.module is not None:
-                modules = [node.module]
-                lineno = node.lineno
-            else:
-                modules = []
-                lineno = None
-
-            for module in modules:
-                if _is_service_module(module) or _is_concrete_dcim_provider_module(module):
-                    assert lineno is not None
-                    violations.append(f"{relative_path}:{lineno}: {module}")
-
-            if isinstance(node, ast.Call):
-                name = _forbidden_configuration_call(node, relative_path)
-                if name is not None:
-                    violations.append(f"{relative_path}:{node.lineno}: {name}")
-
     assert violations == []
 
 

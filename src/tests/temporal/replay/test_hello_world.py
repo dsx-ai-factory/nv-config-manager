@@ -12,9 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Replay contract for extracted Hello World activities."""
-
-from pathlib import Path
+"""Replay contracts for Hello World workflows."""
 
 from temporalio.api.history.v1 import ActivityTaskScheduledEventAttributes
 from temporalio.client import WorkflowHistory
@@ -22,11 +20,11 @@ from temporalio.worker import Replayer
 
 from nv_config_manager.temporal.converter import get_data_converter
 from nv_config_manager.temporal.hello_world.workflows.hello_world_workflow import (
+    HelloWorld,
     HelloWorldApproval,
 )
 from nv_config_manager_workflows.activities.slack import SlackMessageInput
-
-_HISTORY_PATH = Path(__file__).parent / "fixtures" / "hello_world_approval.json"
+from tests.temporal.replay.history import load_history
 
 
 def _scheduled_activities(
@@ -42,7 +40,7 @@ def _scheduled_activities(
 
 async def test_hello_world_approval_history_replays() -> None:
     """Package import moves do not change commands emitted for this history."""
-    history = WorkflowHistory.from_json("hello_world_approval", _HISTORY_PATH.read_text())
+    history = load_history("hello_world_approval.json")
     replayer = Replayer(
         workflows=[HelloWorldApproval],
         data_converter=get_data_converter(),
@@ -53,7 +51,7 @@ async def test_hello_world_approval_history_replays() -> None:
 
 async def test_hello_world_approval_history_preserves_activity_names_and_arguments() -> None:
     """The fixture freezes activity type names and their serialized call arguments."""
-    history = WorkflowHistory.from_json("hello_world_approval", _HISTORY_PATH.read_text())
+    history = load_history("hello_world_approval.json")
     scheduled = _scheduled_activities(history)
     names = [attributes.activity_type.name for attributes in scheduled]
 
@@ -88,3 +86,19 @@ async def test_hello_world_approval_history_preserves_activity_names_and_argumen
         )
     ]
     assert greeting == ["replay-user"]
+
+
+async def test_hello_world_history_replays() -> None:
+    """The basic workflow remains deterministic against its captured history."""
+    await Replayer(
+        workflows=[HelloWorld],
+        data_converter=get_data_converter(),
+    ).replay_workflow(load_history("hello_world.json"))
+
+
+async def test_hello_world_history_preserves_activity_argument() -> None:
+    """The basic fixture retains its greeting activity and serialized name."""
+    scheduled = _scheduled_activities(load_history("hello_world.json"))
+
+    assert [attributes.activity_type.name for attributes in scheduled] == ["hello_world_activity"]
+    assert await get_data_converter().decode(scheduled[0].input.payloads, [str]) == ["replay-user"]

@@ -17,10 +17,10 @@ The histories come from these successful workflow scenarios:
 - `ib_port_guid_discovery.json`: one discovered interface GUID followed by a dry-run
   sync.
 
-`test_ib_pkey_replay_contract.py` replays each history against the current workflow
+`test_ib_pkey.py` replays each history against the current workflow
 implementation. This protects workflow type names, activity names, command ordering,
 patch behavior, and serialized activity payload compatibility during the package move.
-`test_infiniband_discovery_replay_contract.py` provides the equivalent replay and
+`test_infiniband_discovery.py` provides the equivalent replay and
 serialized-argument coverage for UFM port retrieval and IB GUID discovery.
 
 ## Configuration-lifecycle fixtures
@@ -42,7 +42,7 @@ solely because a Python module path changes.
 - `nvlinkswitch_firmware_upgrade.json`: firmware comparison, render-target
   validation, ZTP polling, reboot, reboot polling, and final comparison.
 
-`test_deployment_replay_contract.py` replays every history and separately asserts the
+`test_deployment.py` replays every history and separately asserts the
 scheduled activity order and serialized arguments.
 
 ## Validation, password, and Redfish fixtures
@@ -50,27 +50,27 @@ scheduled activity order and serialized arguments.
 The six device-operation histories capture successful device and site cable
 validation, hardware validation, device and site password rotation, and
 Redfish provisioning with authenticated and DPU operations. They are fixed
-compatibility fixtures. `test_device_operations_replay_contract.py` replays them and
+compatibility fixtures. `test_device_operations.py` replays them and
 separately freezes their scheduled activity names and serialized arguments.
 
 ## Diagnostics fixtures
 
 The two diagnostics histories capture a complete ticketed run
 with command and tech-support attachments and the explicit ticketless branch.
-`test_diagnostics_replay_contract.py` replays both histories and separately freezes
+`test_diagnostics.py` replays both histories and separately freezes
 their activity names, serialized arguments, and branch-specific omissions.
 
 ## Inventory and Hello World fixtures
 
 The connected-host, LLDP, InfiniBand cable-validation, and basic Hello World
 histories were captured from commit `61756d9f` on `main`, before their activity
-imports moved into `nv_config_manager_workflows`. The Hello World fixture lives
-with its workflow tests under `temporal/hello_world/workflows/fixtures`; the
-other three live in this directory. Each history records a successful path with
-deterministic mock activity results.
+imports moved into `nv_config_manager_workflows`. Each history records a successful
+path with deterministic mock activity results.
 
-`test_additional_workflows_replay_contract.py` replays all four histories and
-freezes their scheduled activity order and representative serialized arguments.
+`test_inventory_and_validation.py` replays the three inventory and validation
+histories and freezes their scheduled activity order and representative serialized
+arguments. `test_hello_world.py` covers both basic and approval-based Hello World
+histories.
 
 ## Orchestration fixtures
 
@@ -88,7 +88,7 @@ package extraction in this branch. They cover these successful paths:
   post-reprovision backup.
 - `site_backup.json`: site discovery followed by two backup child workflows.
 
-`test_orchestration_replay_contract.py` replays these histories against the current
+`test_orchestration.py` replays these histories against the current
 workflow definitions and freezes their scheduled activity and child-workflow order.
 
 ## SpX overlay replay fixtures
@@ -105,6 +105,6 @@ change only after an intentional Temporal command or payload contract review.
 - `spx_overlay_tenant_change.json`: assignment child workflow, tenant render wait,
   and pinned tenant deployment child workflow.
 
-`test_spx_overlay_replay_contract.py` replays all four histories against the current
+`test_spx_overlay.py` replays all four histories against the current
 workflow implementation and separately freezes their activity order, serialized
 DCIM arguments, and child workflow inputs.

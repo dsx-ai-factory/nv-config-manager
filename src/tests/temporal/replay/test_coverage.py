@@ -16,23 +16,17 @@
 
 from pathlib import Path
 
-from temporalio.client import WorkflowHistory
-
 from nv_config_manager.temporal.hello_world.workflows import (
     REGISTERED_WORKFLOWS as HELLO_WORLD_WORKFLOWS,
 )
 from nv_config_manager.temporal.ngc.workflows import REGISTERED_WORKFLOWS as NGC_WORKFLOWS
 from nv_config_manager_workflows.registration.contract import workflow_type_name
-
-_FIXTURE_ROOTS = (
-    Path(__file__).parent / "fixtures",
-    Path(__file__).parents[2] / "hello_world" / "workflows" / "fixtures",
-)
+from tests.temporal.replay.history import FIXTURE_ROOT, load_history
 
 
 def _fixture_workflow_type(path: Path) -> str:
     """Return the workflow type embedded in a captured history fixture."""
-    history = WorkflowHistory.from_json(path.stem, path.read_text())
+    history = load_history(path.name)
     for event in history.events:
         if event.HasField("workflow_execution_started_event_attributes"):
             return event.workflow_execution_started_event_attributes.workflow_type.name
@@ -46,7 +40,7 @@ def test_every_registered_workflow_has_a_replay_history() -> None:
     }
     assert None not in registered_types
 
-    fixture_paths = [path for root in _FIXTURE_ROOTS for path in root.glob("*.json")]
+    fixture_paths = list(FIXTURE_ROOT.glob("*.json"))
     fixture_types = {_fixture_workflow_type(path) for path in fixture_paths}
 
     assert fixture_types == registered_types

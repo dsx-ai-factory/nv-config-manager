@@ -14,8 +14,6 @@
 # limitations under the License.
 """Replay contracts for the extracted UFM and InfiniBand GUID activities."""
 
-from pathlib import Path
-
 import pytest
 from temporalio.api.history.v1 import ActivityTaskScheduledEventAttributes
 from temporalio.client import WorkflowHistory
@@ -34,15 +32,7 @@ from nv_config_manager_workflows.activities.ib_guid_discovery import (
     SyncIBGuidInput,
 )
 from nv_config_manager_workflows.activities.ufm import GetUFMPortsInput
-
-_FIXTURE_ROOT = Path(__file__).parent / "fixtures"
-
-
-def _history(filename: str) -> WorkflowHistory:
-    return WorkflowHistory.from_json(
-        filename.removesuffix(".json"),
-        (_FIXTURE_ROOT / filename).read_text(),
-    )
+from tests.temporal.replay.history import load_history
 
 
 def _scheduled_activities(
@@ -73,12 +63,12 @@ async def test_infiniband_discovery_history_replays(
         data_converter=get_data_converter(),
     )
 
-    await replayer.replay_workflow(_history(history_filename))
+    await replayer.replay_workflow(load_history(history_filename))
 
 
 @pytest.mark.asyncio
 async def test_get_ib_ports_history_preserves_activity_names_and_arguments() -> None:
-    scheduled = _scheduled_activities(_history("infiniband_get_unhealthy_ports.json"))
+    scheduled = _scheduled_activities(load_history("infiniband_get_unhealthy_ports.json"))
     assert [item.activity_type.name for item in scheduled] == [
         "get_network_device",
         "get_ib_ports",
@@ -95,7 +85,7 @@ async def test_get_ib_ports_history_preserves_activity_names_and_arguments() -> 
 
 @pytest.mark.asyncio
 async def test_ib_guid_history_preserves_activity_names_and_arguments() -> None:
-    scheduled = _scheduled_activities(_history("ib_port_guid_discovery.json"))
+    scheduled = _scheduled_activities(load_history("ib_port_guid_discovery.json"))
     assert [item.activity_type.name for item in scheduled] == [
         "get_network_device",
         "discover_ib_port_guids",
