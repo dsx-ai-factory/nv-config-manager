@@ -6,16 +6,19 @@
 
 # Keep this source line aligned with the currently approved production server
 # version.  Changing it requires the Temporal database-upgrade procedure.
-ARG TEMPORAL_SERVER_VERSION=1.29.7@sha256:688da708d0daca6ff8083334a4a7fbbdbc7e70d1cca8e2eda8c05b21fdbd601e
+ARG TEMPORAL_SERVER_VERSION=1.30.7@sha256:dc8dc6fffa29de3bad7f5c39cb406db3104053fbb0c2494e7c76016211bc99b0
 # The bootstrap-only admin-tools image supplies Temporal's schema files and
-# command-line tools. Temporal publishes 1.29.7 under this fully qualified tag.
-ARG TEMPORAL_ADMIN_TOOLS_VERSION=1.29.7-tctl-1.18.4-cli-1@sha256:4a17b5be706c56a9238fb7b5b32a36966cee14939658b20597837b2443b277c8
+# command-line tools.
+ARG TEMPORAL_ADMIN_TOOLS_VERSION=1.30.7@sha256:bbdf5fe91b288c17442efbbfb42daa3668d09cfa8ebeb078d6fd475a97f66b81
 # The UI is independently deployable and does not change Temporal persistence.
 ARG TEMPORAL_UI_VERSION=2.52.1@sha256:b839b5c798770896c78058db1647d325a19b3acef7fa1fbd9a23fabb1dd7feb2
 
 FROM temporalio/server:${TEMPORAL_SERVER_VERSION} AS server-upstream
 FROM temporalio/admin-tools:${TEMPORAL_ADMIN_TOOLS_VERSION} AS admin-tools-upstream
 FROM temporalio/ui:${TEMPORAL_UI_VERSION} AS ui-upstream
+
+FROM golang:1.26.6-alpine@sha256:3889b425f035be855a72fb4755265311293b6d414521f0a519d819df32222d83 AS dockerize-builder
+RUN CGO_ENABLED=0 GOBIN=/out go install github.com/jwilder/dockerize@v0.13.0
 
 FROM golang:1.26.6-alpine@sha256:3889b425f035be855a72fb4755265311293b6d414521f0a519d819df32222d83 AS bootstrap-builder
 WORKDIR /src
@@ -44,14 +47,14 @@ RUN ui_version="${TEMPORAL_UI_VERSION%%@*}" && \
 # =============================================================================
 FROM nvcr.io/nvidia/distroless/go:v4.1.2@sha256:731531712c92ee24001a4a6e0a0897c4fa542432d7186c5d73b0110ba6d0da16 AS server
 COPY --from=server-upstream /usr/local/bin/temporal-server /usr/local/bin/temporal-server
-COPY --from=server-upstream /usr/local/bin/dockerize /usr/local/bin/dockerize
+COPY --from=dockerize-builder /out/dockerize /usr/local/bin/dockerize
 USER nvs
 ENTRYPOINT ["/usr/local/bin/temporal-server"]
 
 # =============================================================================
 # Temporal Bootstrap
 # =============================================================================
-# This image carries Temporal's v1.29 schema files plus NVIDIA Config Manager's
+# This image carries Temporal's v1.30 schema files plus NVIDIA Config Manager's
 # bootstrap binary. It runs only as a chart-managed init container.
 FROM nvcr.io/nvidia/distroless/go:v4.1.2@sha256:731531712c92ee24001a4a6e0a0897c4fa542432d7186c5d73b0110ba6d0da16 AS bootstrap
 COPY --from=admin-tools-upstream /usr/local/bin/temporal /usr/local/bin/temporal
