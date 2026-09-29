@@ -20,6 +20,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from nv_config_manager_installer.air_sim.context_topology import (
@@ -261,6 +262,44 @@ def test_air_topology_builder_omits_inventory_only_devices_and_their_cables(
         {"node": "oob-mleaf-01", "interface": "swp2"},
         "unconnected",
     ] in topology["links"]
+
+
+@pytest.mark.parametrize("air_enabled", [False, True])
+def test_cumulus_eth0_without_mac_requires_air_enabled(
+    tmp_path: Path,
+    air_enabled: bool,
+) -> None:
+    _write_context(tmp_path)
+    site_design = build_site_design_from_mock_context(
+        "demo_blueprint", "demo", context_root=tmp_path
+    )
+    site_design["devices"].append(
+        {
+            "name": "inventory-switch",
+            "platform": "Cumulus Linux",
+            "role": "SMN-Leaf",
+            "device_type": {"manufacturer": "NVIDIA", "model": "SN5600"},
+            "_air": {"enabled": air_enabled},
+        }
+    )
+    site_design["interfaces"].append(
+        {
+            "device": "inventory-switch",
+            "name": "eth0",
+            "type": "1000base-t",
+        }
+    )
+    topology_path = tmp_path / "site-design.yaml"
+    _write_yaml(topology_path, site_design)
+
+    if air_enabled:
+        with pytest.raises(ValueError, match="interface eth0 must define"):
+            AirTopologyBuilder(str(topology_path)).build_topology()
+    else:
+        builder = AirTopologyBuilder(str(topology_path))
+        topology = builder.build_topology()
+        assert "inventory-switch" in builder.devices
+        assert "inventory-switch" not in topology["nodes"]
 
 
 def test_air_topology_builder_omits_inventory_only_devices_in_minimal_mode(

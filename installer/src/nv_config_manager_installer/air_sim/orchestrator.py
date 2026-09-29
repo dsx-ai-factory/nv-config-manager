@@ -243,11 +243,11 @@ class SimOrchestrator:
             for category, configured_path, index in content_specs:
                 local_path = self._local_content_path(configured_path)
                 if local_path is None:
-                    if Path(configured_path).is_absolute():
-                        # Preserve explicitly remote absolute paths for compatibility.
-                        remote_paths[(category, index)] = configured_path
-                        continue
-                    raise FileNotFoundError(f"AIR content path does not exist: {configured_path}")
+                    raise FileNotFoundError(
+                        f"Local AIR {category} content does not exist: {configured_path}. "
+                        "Content paths must exist on this machine and are uploaded to AIR; "
+                        "remote-only paths are not supported."
+                    )
                 prefix = f"{index:02d}-" if index is not None else ""
                 destination = staging_root / category / f"{prefix}{local_path.name}"
                 destination.parent.mkdir(parents=True, exist_ok=True)

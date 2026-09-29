@@ -365,7 +365,7 @@ class AirTopologyBuilder:
                 if intf_type == "virtual":
                     continue
                 if re.match(r"^(swp\d+|eth\d+|Ethernet\d+(/\d+)?)$", intf_name):
-                    if intf_name == "eth0" and not mac_address:
+                    if device.air_enabled and intf_name == "eth0" and not mac_address:
                         raise ValueError(
                             f"Cumulus device {device_name} interface eth0 must define "
                             "an explicit mac_address for DHCP/ZTP reservations"

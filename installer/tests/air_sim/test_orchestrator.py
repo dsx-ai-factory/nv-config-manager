@@ -22,6 +22,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from nv_config_manager_installer.air_sim.constants import DEFAULT_MOCK_TOPOLOGY_PATH
 from nv_config_manager_installer.air_sim.orchestrator import (
     SimOrchestrator,
     _monitor_setup_command,
@@ -165,6 +166,48 @@ def test_stage_local_sources_uploads_repo_and_content(tmp_path: Path) -> None:
     assert staged.template_plugin_paths == ["/home/nvcm/air-content/template-plugins/00-plugin"]
     assert staged.extra_job_paths == ["/home/nvcm/air-content/jobs/00-job.py"]
     assert getattr(cfg, "_air_remote_mock_topology_path") == staged.mock_topology_path
+
+
+@pytest.mark.parametrize(
+    ("field", "missing_path"),
+    [
+        ("mock_topology_path", ""),
+        ("mock_topology_path", str(DEFAULT_MOCK_TOPOLOGY_PATH)),
+        ("template_plugin_paths", "missing/plugin"),
+        ("template_plugin_paths", "/remote-only/plugin"),
+        ("extra_job_paths", "missing/job.py"),
+        ("extra_job_paths", "/remote-only/job.py"),
+        ("topology_path", "/remote-only/fabric.yaml"),
+    ],
+)
+def test_staging_rejects_content_missing_locally(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    missing_path: str,
+) -> None:
+    topology = tmp_path / "fabric.yaml"
+    topology.write_text("devices: []\n")
+    cfg = SimConfig(
+        topology_path=str(topology),
+        mock_topology_path=str(tmp_path),
+        mock_blueprint="custom",
+        template_plugin_paths=[],
+        extra_job_paths=[],
+    )
+    setattr(cfg, field, [missing_path] if field.endswith("_paths") else missing_path)
+    resolved_missing = missing_path or str(DEFAULT_MOCK_TOPOLOGY_PATH)
+    orchestrator = SimOrchestrator(cfg, _Callback())
+    monkeypatch.setattr(
+        orchestrator,
+        "_local_content_path",
+        lambda path: None if path == resolved_missing else topology,
+    )
+    manager = Mock(spec=AirSimulationManager)
+    with pytest.raises(FileNotFoundError, match="remote-only paths are not supported") as exc:
+        orchestrator._stage_local_sources(manager, "worker.example", 17117, cfg, cfg.topology_path)
+    assert resolved_missing in str(exc.value)
+    manager.upload_to_server.assert_not_called()
 
 
 def test_derived_orchestrator_replaces_provider_post_deploy_behavior() -> None:
