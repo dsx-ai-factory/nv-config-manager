@@ -159,7 +159,9 @@ class PortLLDPInfoWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
         if neighbor_data:
             display = f"```\n{neighbor_data.model_dump_json(indent=4)}\n```"
         else:
-            display = f"No LLDP Data Found found on port {stage_input.device.name}:{stage_input.interface}"
+            display = (
+                f"No LLDP data found on port {stage_input.device.name}:{stage_input.interface}"
+            )
 
         return PortLLDPInfoWorkflow.InterfaceNeighborStageOutput(
             interface_neighbor_data=neighbor_data,

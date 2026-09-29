@@ -620,6 +620,13 @@ class NVLinkSwitchFirmwareUpgradeWorkflow(
             f"{_format_firmware_differences(post_reboot_check.differences)}\n\n"
             f"{_format_firmware_dict(post_reboot_firmware_result.running_firmware, 'Current Firmware Versions')}"
         )
+        self.set_stage_output(
+            "validate_firmware_upgrade",
+            NVLinkSwitchFirmwareUpgradeWorkflow.ValidateFirmwareUpgradeStageOutput(
+                upgrade_successful=False,
+                display=display,
+            ),
+        )
 
         raise ApplicationError(
             f"Firmware upgrade failed with persistent mismatches: {post_reboot_check.differences}"

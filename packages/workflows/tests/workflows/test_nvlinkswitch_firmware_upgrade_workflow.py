@@ -14,6 +14,7 @@
 # limitations under the License.
 """Test NVLinkSwitch Firmware Upgrade Workflow."""
 
+import asyncio
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -170,6 +171,18 @@ async def mock_compare_running_desired_no_upgrade(
             "cpld": "CPLD000370_REV0500",
         },
         differences={},
+    )
+
+
+@activity.defn(name="compare_running_desired")
+async def mock_compare_running_desired_persistent_mismatch(
+    activity_input: CompareRunningDesiredInput,
+) -> CompareRunningDesiredOutput:
+    return CompareRunningDesiredOutput(
+        upgrade_needed=True,
+        desired_os="25.02.2344",
+        desired_firmware={"asic": "35.2014.1750"},
+        differences={"asic": {"actual": "35.2014.1748", "expected": "35.2014.1750"}},
     )
 
 
@@ -408,6 +421,65 @@ async def test_nvlinkswitch_firmware_upgrade_workflow_no_upgrade_needed(env: Any
 
         validate_stage = next(s for s in stages if s["name"] == "validate_firmware_upgrade")
         assert validate_stage["state"] == "UNREACHABLE"
+
+
+@pytest.mark.asyncio
+async def test_nvlinkswitch_firmware_upgrade_publishes_final_failure(env: Any) -> None:
+    """Test persistent firmware mismatches are published in the failed stage output."""
+    task_queue_name = str(uuid.uuid4())
+
+    async with Worker(
+        env.client,
+        task_queue=task_queue_name,
+        workflows=[NVLinkSwitchFirmwareUpgradeWorkflow, BackupWorkflow],
+        activities=[
+            mock_get_network_device,
+            mock_get_current_os,
+            mock_get_running_firmware,
+            mock_compare_running_desired_persistent_mismatch,
+            mock_update_device_context,
+            mock_validate_render_targets,
+            mock_validate_target_files,
+            mock_execute_ztp,
+            mock_poll_ztp_status,
+            mock_reboot_device,
+            mock_wait_reboot,
+            mock_persist_config_backup,
+            mock_record_backup_config_manager_plugin,
+            mock_check_recorded_config_drift,
+            mock_load_running_configuration,
+            mock_load_intended_configuration,
+            mock_perform_candidate_diff,
+            mock_publish_nats,
+        ],
+        activity_executor=ThreadPoolExecutor(100),
+    ):
+        handle: WorkflowHandle = await env.client.start_workflow(
+            NVLinkSwitchFirmwareUpgradeWorkflow.run,
+            NVLinkSwitchFirmwareUpgradeInput(device_id="mock_device_uuid", bundle_version="1.2.2"),
+            id=str(uuid.uuid4()),
+            task_queue=task_queue_name,
+            run_timeout=timedelta(minutes=1),
+        )
+
+        deadline = asyncio.get_running_loop().time() + TEST_TIMEOUT.total_seconds()
+        while True:
+            stages = await handle.query("stages")
+            validate_stage = next(
+                stage for stage in stages if stage["name"] == "validate_firmware_upgrade"
+            )
+            if validate_stage["state"] == "FAILED":
+                break
+            if asyncio.get_running_loop().time() >= deadline:
+                pytest.fail(f"Validation stage did not fail before TEST_TIMEOUT: {stages!r}")
+            await asyncio.sleep(0.1)
+
+        assert validate_stage["output"]["upgrade_successful"] is False
+        assert "## ❌ Firmware Upgrade Failed" in validate_stage["output"]["display"]
+        assert "**ASIC:** `35.2014.1748` → `35.2014.1750`" in validate_stage["output"]["display"]
+        assert "**Current OS Version:** `25.02.2340`" in validate_stage["output"]["display"]
+
+        await handle.terminate()
 
 
 @activity.defn(name="get_network_device")
