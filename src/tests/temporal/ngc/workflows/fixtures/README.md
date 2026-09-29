@@ -1,4 +1,4 @@
-# InfiniBand replay fixtures
+# Temporal workflow replay fixtures
 
 The four PKey histories were captured before moving the IB/DCIM activities and
 UFM host mixins from the service into `nv_config_manager_workflows`. The UFM-port
@@ -59,3 +59,52 @@ The two diagnostics histories capture a complete ticketed run
 with command and tech-support attachments and the explicit ticketless branch.
 `test_diagnostics_replay_contract.py` replays both histories and separately freezes
 their activity names, serialized arguments, and branch-specific omissions.
+
+## Inventory and Hello World fixtures
+
+The connected-host, LLDP, InfiniBand cable-validation, and basic Hello World
+histories were captured from commit `61756d9f` on `main`, before their activity
+imports moved into `nv_config_manager_workflows`. The Hello World fixture lives
+with its workflow tests under `temporal/hello_world/workflows/fixtures`; the
+other three live in this directory. Each history records a successful path with
+deterministic mock activity results.
+
+`test_additional_workflows_replay_contract.py` replays all four histories and
+freezes their scheduled activity order and representative serialized arguments.
+
+## Orchestration fixtures
+
+The five orchestration histories were captured from successful workflow executions
+using `main` commit `61756d9f6ec5a00da5908ba5687451b79aa310f9`, before the activity
+package extraction in this branch. They cover these successful paths:
+
+- `batch_deploy.json`: approval, two device configuration applications, and two
+  backup child workflows.
+- `multi_deploy.json`: discovery and diff collection for three devices followed by
+  one approved batch child workflow.
+- `tenant_deploy.json`: partial tenant configuration validation and application
+  followed by a backup child workflow.
+- `reprovision.json`: pre-reprovision backup, ZTP execution and polling, and the
+  post-reprovision backup.
+- `site_backup.json`: site discovery followed by two backup child workflows.
+
+`test_orchestration_replay_contract.py` replays these histories against the current
+workflow definitions and freezes their scheduled activity and child-workflow order.
+
+## SpX overlay replay fixtures
+
+The four SpX histories were captured from `main` at commit `61756d9f`, before the
+DCIM, render, and deploy activities used by these workflows moved into
+`nv_config_manager_workflows`. They are fixed compatibility fixtures and should
+change only after an intentional Temporal command or payload contract review.
+
+- `spx_overlay_creation.json`: route distinguisher allocation and VRF provisioning.
+- `spx_overlay_deletion.json`: deletion of three unused VRFs and the overlay.
+- `spx_overlay_assignment.json`: device and interface VRF assignment followed by
+  overlay reconciliation and stale association cleanup.
+- `spx_overlay_tenant_change.json`: assignment child workflow, tenant render wait,
+  and pinned tenant deployment child workflow.
+
+`test_spx_overlay_replay_contract.py` replays all four histories against the current
+workflow implementation and separately freezes their activity order, serialized
+DCIM arguments, and child workflow inputs.
