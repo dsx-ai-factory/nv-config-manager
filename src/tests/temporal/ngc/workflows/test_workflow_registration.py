@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import glob
+import importlib
 import inspect
 from pathlib import Path
 
@@ -30,7 +31,7 @@ def _load_all_workflow_classes():
     for path in workflow_path.glob("*.py"):
         if path.stem == "__init__":
             continue
-        module = getattr(workflows, path.stem)
+        module = importlib.import_module(f"{workflows.__name__}.{path.stem}")
 
         for _, obj in inspect.getmembers(module, inspect.isclass):
             if hasattr(obj, "run") and "Mixin" not in obj.__name__:

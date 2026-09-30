@@ -274,12 +274,13 @@ format: sort-fix
 	uv run ruff check --fix src/ packages/
 
 # Enforces alphabetical order for lists marked with `# keep-sorted start` /
-# `# keep-sorted end` comments (see src/nv_config_manager/temporal/ngc/workflows/__init__.py).
+# `# keep-sorted end` comments (see
+# packages/workflows/src/nv_config_manager_workflows/workflows/builtin.py).
 sort-check:
-	find src -name '*.py' -print0 | xargs -0 go run github.com/google/keep-sorted@$(KEEP_SORTED_VERSION) --mode=lint
+	find src packages -name '*.py' -print0 | xargs -0 go run github.com/google/keep-sorted@$(KEEP_SORTED_VERSION) --mode=lint
 
 sort-fix:
-	find src -name '*.py' -print0 | xargs -0 go run github.com/google/keep-sorted@$(KEEP_SORTED_VERSION) --mode=fix
+	find src packages -name '*.py' -print0 | xargs -0 go run github.com/google/keep-sorted@$(KEEP_SORTED_VERSION) --mode=fix
 
 # OpenAPI spec generation
 openapi:

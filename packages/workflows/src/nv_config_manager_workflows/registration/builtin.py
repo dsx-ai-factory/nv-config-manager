@@ -16,6 +16,7 @@
 
 from nv_config_manager_workflows.activities.builtin import BUILTIN_ACTIVITIES
 from nv_config_manager_workflows.registration.descriptor import WorkflowPluginDescriptor
+from nv_config_manager_workflows.workflows.builtin import BUILTIN_WORKFLOWS
 
 BUILTIN_PLUGIN_NAME = "builtin"
 
@@ -24,7 +25,7 @@ def builtin_plugin() -> WorkflowPluginDescriptor:
     """Return the descriptor for the built-in workflow and activity catalog."""
     return WorkflowPluginDescriptor(
         name=BUILTIN_PLUGIN_NAME,
-        workflows=(),
+        workflows=BUILTIN_WORKFLOWS,
         activities=BUILTIN_ACTIVITIES,
         schedulers=(),
     )

@@ -25,9 +25,12 @@ from temporalio import workflow
 from nv_config_manager.temporal.worker import main as worker_main
 from nv_config_manager_workflows.activities.builtin import BUILTIN_ACTIVITIES
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.registration.contract import workflow_type_name
 from nv_config_manager_workflows.registration.errors import WorkflowConflictError
 from nv_config_manager_workflows.registration.registry import WorkflowRegistry
 from nv_config_manager_workflows.stage import StageMixin
+from nv_config_manager_workflows.workflows.builtin import BUILTIN_WORKFLOWS
+from nv_config_manager_workflows.workflows.hello_world import HelloWorldRunning
 
 
 @workflow.defn(name="HelloWorld")
@@ -36,6 +39,57 @@ class ConflictingHelloWorldWorkflow(WorkflowMetadataMixin, StageMixin):
 
     @workflow.run
     async def run(self, workflow_input: BaseModel) -> None: ...
+
+
+@pytest.mark.parametrize("value", [None, "", "0", "false", "no", "off"])
+def test_local_workflow_is_excluded_unless_explicitly_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str | None,
+) -> None:
+    """The ten-year latency fixture never enters the normal built-in catalog."""
+    if value is None:
+        monkeypatch.delenv("NVCM_ENABLE_LOCAL_TEST_WORKFLOWS", raising=False)
+    else:
+        monkeypatch.setenv("NVCM_ENABLE_LOCAL_TEST_WORKFLOWS", value)
+
+    workflows = worker_main._registered_workflows(
+        WorkflowRegistry(
+            all_workflows=list(BUILTIN_WORKFLOWS),
+            all_activities=list(BUILTIN_ACTIVITIES),
+        )
+    )
+
+    assert workflows == [
+        *worker_main.NGC_REGISTERED_WORKFLOWS,
+        *worker_main.HELLO_WORLD_REGISTERED_WORKFLOWS,
+    ]
+    assert set(workflows) == set(BUILTIN_WORKFLOWS)
+    assert HelloWorldRunning not in workflows
+    assert len({workflow_type_name(item) for item in workflows}) == 33
+
+
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on"])
+def test_local_workflow_is_appended_only_when_explicitly_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+) -> None:
+    """The opt-in catalog is added after normal registry validation and deduplication."""
+    monkeypatch.setenv("NVCM_ENABLE_LOCAL_TEST_WORKFLOWS", value)
+
+    workflows = worker_main._registered_workflows(
+        WorkflowRegistry(
+            all_workflows=list(BUILTIN_WORKFLOWS),
+            all_activities=list(BUILTIN_ACTIVITIES),
+        )
+    )
+
+    assert workflows == [
+        *worker_main.NGC_REGISTERED_WORKFLOWS,
+        *worker_main.HELLO_WORLD_REGISTERED_WORKFLOWS,
+        HelloWorldRunning,
+    ]
+    assert set(workflows[:-1]) == set(BUILTIN_WORKFLOWS)
+    assert len({workflow_type_name(item) for item in workflows}) == 34
 
 
 async def test_runtime_is_configured_before_worker_construction(mocker: MockerFixture) -> None:

@@ -47,7 +47,7 @@ from nv_config_manager_workflows.activities.slack import SLACK_ACTIVITIES
 from nv_config_manager_workflows.activities.ticketing import TICKETING_ACTIVITIES
 from nv_config_manager_workflows.activities.ufm import UFM_ACTIVITIES
 from nv_config_manager_workflows.registration.builtin import BUILTIN_PLUGIN_NAME, builtin_plugin
-from nv_config_manager_workflows.registration.contract import activity_name
+from nv_config_manager_workflows.registration.contract import activity_name, workflow_type_name
 from nv_config_manager_workflows.registration.descriptor import (
     UNKNOWN_PLUGIN_VERSION,
     WorkflowPluginDescriptor,
@@ -55,6 +55,11 @@ from nv_config_manager_workflows.registration.descriptor import (
 from nv_config_manager_workflows.registration.discovery import discover_workflow_plugins
 from nv_config_manager_workflows.registration.registry import WorkflowRegistry
 from nv_config_manager_workflows.registration.validation import validate_plugins
+from nv_config_manager_workflows.workflows.builtin import BUILTIN_WORKFLOWS
+from nv_config_manager_workflows.workflows.hello_world import (
+    LOCAL_TEST_WORKFLOWS,
+    HelloWorldRunning,
+)
 
 
 class TestBuiltinPlugin:
@@ -65,10 +70,10 @@ class TestBuiltinPlugin:
     def test_it_is_an_ordinary_plugin_descriptor(self) -> None:
         assert isinstance(builtin_plugin(), WorkflowPluginDescriptor)
 
-    def test_it_contributes_every_package_owned_activity(self) -> None:
+    def test_it_contributes_every_package_owned_workflow_and_activity(self) -> None:
         descriptor = builtin_plugin()
 
-        assert descriptor.workflows == ()
+        assert descriptor.workflows == BUILTIN_WORKFLOWS
         assert descriptor.activities == BUILTIN_ACTIVITIES
         assert descriptor.schedulers == ()
 
@@ -81,9 +86,61 @@ class TestBuiltinPlugin:
     def test_a_registry_built_from_it_alone_reports_it(self) -> None:
         registry = WorkflowRegistry.build({BUILTIN_PLUGIN_NAME: builtin_plugin()})
 
-        assert registry.all_workflows == []
+        assert registry.all_workflows == list(BUILTIN_WORKFLOWS)
         assert registry.all_activities == list(BUILTIN_ACTIVITIES)
         assert [info.name for info in registry.plugin_diagnostics] == [BUILTIN_PLUGIN_NAME]
+
+
+def test_builtin_workflow_catalog_is_complete_unique_and_excludes_local_fixture() -> None:
+    """The built-in plugin owns the 33 normal workflows, never the long-running fixture."""
+    names = [workflow_type_name(workflow) for workflow in BUILTIN_WORKFLOWS]
+
+    assert isinstance(BUILTIN_WORKFLOWS, tuple)
+    assert len(BUILTIN_WORKFLOWS) == 33
+    assert len(set(BUILTIN_WORKFLOWS)) == 33
+    assert len(set(names)) == 33
+    assert None not in names
+    assert LOCAL_TEST_WORKFLOWS == (HelloWorldRunning,)
+    assert HelloWorldRunning not in BUILTIN_WORKFLOWS
+
+
+def test_builtin_workflow_catalog_preserves_the_frozen_temporal_names() -> None:
+    """Moving Python modules must not alter any registered Temporal workflow type."""
+    assert {workflow_type_name(workflow) for workflow in BUILTIN_WORKFLOWS} == {
+        "BackupWorkflow",
+        "BatchDeployWorkflow",
+        "ConfigDiffWorkflow",
+        "ConnectedHostMetadataWorkflow",
+        "DeployWorkflow",
+        "DeviceCableValidationWorkflow",
+        "DevicePasswordRotationWorkflow",
+        "DiagnosticsWorkflow",
+        "HelloWorld",
+        "HelloWorldApproval",
+        "IBPKeyCreationWorkflow",
+        "IBPKeyMemberAddWorkflow",
+        "IBPKeyMemberDeleteWorkflow",
+        "IBPKeyMemberUpdateWorkflow",
+        "IBPortGuidDiscoveryWorkflow",
+        "InfinibandCableValidationWorkflow",
+        "InfinibandGetUnhealthyPortsWorkflow",
+        "InfinibandMlnxOSUpgradeWorkflow",
+        "MultiDeployWorkflow",
+        "NVLinkSwitchFirmwareUpgradeWorkflow",
+        "PortLLDPInfoWorkflow",
+        "RedfishProvisioningWorkflow",
+        "ReprovisionWorkflow",
+        "SiteBackupWorkflow",
+        "SiteCableValidationWorkflow",
+        "SitePasswordRotationWorkflow",
+        "SpXOverlayAssignmentWorkflow",
+        "SpXOverlayCreationWorkflow",
+        "SpXOverlayDeletionWorkflow",
+        "SpXOverlayTenantChangeWorkflow",
+        "SwitchOSUpgradeWorkflow",
+        "TenantDeployWorkflow",
+        "ValidateHardwareWorkflow",
+    }
 
 
 def test_core_domain_catalogs_are_unique_and_complete() -> None:
