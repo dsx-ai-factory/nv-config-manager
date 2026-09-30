@@ -1100,28 +1100,31 @@ async def test_spx_overlay_assignment_workflow_interface_not_found(
             workflow_input,
             id=workflow_id,
             task_queue=task_queue_name,
-            run_timeout=timedelta(seconds=5),
         )
 
-        with pytest.raises(Exception) as exc_info:
-            await handle.result()
+        try:
+            deadline = asyncio.get_running_loop().time() + 30
+            assign_ports_stage = None
+            stages = []
 
-        error_msg = (
-            str(exc_info.value.cause) if hasattr(exc_info.value, "cause") else str(exc_info.value)
-        )
-        assert (
-            "Workflow timed out" in error_msg
-            or "timed out" in error_msg.lower()
-            or "Interfaces not found" in error_msg
-            or ("Stage" in error_msg and "failed" in error_msg.lower())
-        )
+            while asyncio.get_running_loop().time() < deadline:
+                stages = await handle.query("stages")
+                assign_ports_stage = next(
+                    (stage for stage in stages if stage["name"] == "assign_vrf_to_ports"),
+                    None,
+                )
+                if assign_ports_stage and assign_ports_stage["state"] == "FAILED":
+                    break
+                await asyncio.sleep(0.1)
+            else:
+                pytest.fail(
+                    "assign_vrf_to_ports did not fail before the polling deadline; "
+                    f"stages={stages!r}"
+                )
 
-        stages = await handle.query("stages")
-
-        assign_ports_stage = next((s for s in stages if s["name"] == "assign_vrf_to_ports"), None)
-        assert assign_ports_stage is not None
-        assert assign_ports_stage["state"] == "FAILED"
-
-        if assign_ports_stage.get("traceback"):
-            assert "Interfaces not found on device" in assign_ports_stage["traceback"]
-            assert "swp99" in assign_ports_stage["traceback"]
+            traceback = assign_ports_stage.get("traceback") or ""
+            assert "Interfaces not found on device" in traceback
+            assert "swp99" in traceback
+        finally:
+            # A retryable failed stage waits for an explicit retry signal.
+            await handle.terminate()
