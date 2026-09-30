@@ -36,32 +36,30 @@ from nv_config_manager.temporal.common.workflow_references import DeviceReferenc
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager.temporal.ngc.workflows.backup import (
+        BackupInput,
+        BackupWorkflow,
+        TriggerEnum,
+    )
+    from nv_config_manager_workflows.activities.dcim import (
         CheckRecordedConfigDriftInput,
         GetNetworkDeviceInput,
         check_recorded_config_drift,
         get_network_device,
     )
-    from nv_config_manager.temporal.ngc.activities.os import (
+    from nv_config_manager_workflows.activities.os import (
         ExecuteZTPInput,
         GetOSImageVersionsInput,
         PollImageInput,
         PollZTPStatusInput,
         UpdateIntendedOSImageInput,
+        ValidateRenderedImageChangeInput,
         execute_ztp,
         get_os_image_versions,
         poll_image,
         poll_ztp_status,
         update_intended_os_image,
-    )
-    from nv_config_manager.temporal.ngc.activities.render import (
-        ValidateRenderedImageChangeInput,
         validate_rendered_image_change,
-    )
-    from nv_config_manager.temporal.ngc.workflows.backup import (
-        BackupInput,
-        BackupWorkflow,
-        TriggerEnum,
     )
 
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(

@@ -71,7 +71,7 @@ def _mock_nats():
     mock_producer.__aenter__ = AsyncMock(return_value=mock_producer)
     mock_producer.__aexit__ = AsyncMock(return_value=False)
     with patch(
-        "nv_config_manager.temporal.ngc.activities.nats.NatsProducer",
+        "nv_config_manager.temporal.runtime.NatsProducer.from_config",
         return_value=mock_producer,
     ):
         yield
@@ -93,7 +93,7 @@ def mock_configs():
         }
     )
     with (
-        patch("nv_config_manager.temporal.client.ufm.load_config", return_value=ufm_cfg),
+        patch("nv_config_manager.common.config.loader.load_config", return_value=ufm_cfg),
         patch("nv_config_manager.common.config.load_config", return_value=nb_cfg),
     ):
         yield

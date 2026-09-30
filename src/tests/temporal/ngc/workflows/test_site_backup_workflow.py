@@ -28,11 +28,6 @@ from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
-from nv_config_manager.temporal.ngc.activities.backup import (
-    PersistConfigBackupInput,
-    RecordBackupConfigManagerPluginInput,
-)
-from nv_config_manager.temporal.ngc.activities.deploy import DiffActivityInput
 from nv_config_manager.temporal.ngc.activities.nats import PublishNatsInput
 from nv_config_manager.temporal.ngc.activities.nautobot import (
     GetNetworkDeviceInput,
@@ -41,6 +36,11 @@ from nv_config_manager.temporal.ngc.activities.nautobot import (
     GetNetworkDevicesOutput,
 )
 from nv_config_manager.temporal.ngc.workflows.backup import BackupWorkflow
+from nv_config_manager_workflows.activities.backup import (
+    PersistConfigBackupInput,
+    RecordBackupConfigManagerPluginInput,
+)
+from nv_config_manager_workflows.activities.deploy import DiffActivityInput
 from tests.temporal.conftest import mock_send_slack_message
 
 with workflow.unsafe.imports_passed_through():
@@ -226,7 +226,7 @@ async def test_execute_site_backup_workflow(
     mock_time,
     env,
 ):
-    """Run a site backup across multiple devices via child backup workflows."""
+    """Run a typed-location site backup across multiple child workflows."""
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -248,6 +248,7 @@ async def test_execute_site_backup_workflow(
     ):
         workflow_input = SiteBackupInput(
             site="demo-site",
+            site_type="Site",
             user="demo-user",
             user_domain="nvidia.com",
         )

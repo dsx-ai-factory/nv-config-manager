@@ -14,6 +14,7 @@
 # limitations under the License.
 """Discovery and registration of workflow plugins."""
 
+from nv_config_manager_workflows.activities.builtin import BUILTIN_ACTIVITIES
 from nv_config_manager_workflows.registration.builtin import (
     BUILTIN_PLUGIN_NAME,
     builtin_plugin,
@@ -50,10 +51,12 @@ from nv_config_manager_workflows.registration.scheduler import WorkflowScheduler
 from nv_config_manager_workflows.registration.validation import (
     REQUIRED_WORKFLOW_BASES,
     validate_workflow_bases,
+    validate_workflow_catalog,
 )
 
 __all__ = [
     "BUILTIN_PLUGIN_NAME",
+    "BUILTIN_ACTIVITIES",
     "METADATA_ATTRIBUTES",
     "WORKFLOW_PLUGIN_ENTRY_POINT_GROUP",
     "PluginInfo",
@@ -81,4 +84,5 @@ __all__ = [
     "workflow_required_activity_names",
     "workflow_type_name",
     "validate_workflow_bases",
+    "validate_workflow_catalog",
 ]

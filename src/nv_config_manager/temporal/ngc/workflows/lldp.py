@@ -34,14 +34,14 @@ with workflow.unsafe.imports_passed_through():
         StageOutput,
         stage_executor,
     )
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
         SwitchPortByMacActivityInput,
         SwitchPortByMacActivityOutput,
         get_network_device,
         get_switch_port_by_remote_mac_address,
     )
-    from nv_config_manager.temporal.ngc.activities.device import (
+    from nv_config_manager_workflows.activities.device import (
         SwitchPortNeighborActivityInput,
         load_neighbor_data_by_switch_port,
     )

@@ -35,18 +35,23 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.client.device import DiffValidationError
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager.temporal.ngc.workflows.backup import (
+        BackupInput,
+        BackupWorkflow,
+        TriggerEnum,
+    )
+    from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
         get_network_device,
     )
-    from nv_config_manager.temporal.ngc.activities.deploy import (
+    from nv_config_manager_workflows.activities.deploy import (
         ConfigApplyActivityInput,
         DiffActivityInput,
         apply_approved_configuration,
         load_intended_configuration,
         perform_candidate_diff,
     )
-    from nv_config_manager.temporal.ngc.activities.device_password_rotation import (
+    from nv_config_manager_workflows.activities.device_password_rotation import (
         GetPasswordMappingsInput,
         ValidatePasswordDiffInput,
         ValidatePasswordDiffOutput,
@@ -54,11 +59,6 @@ with workflow.unsafe.imports_passed_through():
         get_password_mappings,
         validate_password_diff,
         validate_platform_support,
-    )
-    from nv_config_manager.temporal.ngc.workflows.backup import (
-        BackupInput,
-        BackupWorkflow,
-        TriggerEnum,
     )
 
 

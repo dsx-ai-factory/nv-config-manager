@@ -14,7 +14,7 @@
 # limitations under the License.
 """Dynamic API endpoint generation from workflow metadata."""
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request
@@ -24,12 +24,9 @@ from temporalio.exceptions import ApplicationError
 from nv_config_manager.common.auth import get_sso_user
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
+from nv_config_manager.temporal.api.workflow_catalog import WORKFLOW_API_CATALOG
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager.temporal.common.rbac_config import RBACConfig
-from nv_config_manager.temporal.hello_world.workflows import (
-    REGISTERED_WORKFLOWS as HELLO_WORLD_WORKFLOWS,
-)
-from nv_config_manager.temporal.ngc.workflows import REGISTERED_WORKFLOWS as NGC_WORKFLOWS
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_API)
 
@@ -105,12 +102,13 @@ def create_workflow_endpoint(
     return workflow_endpoint
 
 
-def register_dynamic_endpoints(router: APIRouter) -> None:
+def register_dynamic_endpoints(
+    router: APIRouter,
+    workflows: Sequence[type] | None = None,
+) -> None:
     """Register all workflow endpoints dynamically based on metadata."""
     registered_count = 0
-
-    # Process all registered workflows
-    all_workflows = NGC_WORKFLOWS + HELLO_WORLD_WORKFLOWS
+    all_workflows = WORKFLOW_API_CATALOG if workflows is None else workflows
 
     for workflow_class in all_workflows:
         try:
@@ -121,8 +119,7 @@ def register_dynamic_endpoints(router: APIRouter) -> None:
                 )
                 continue
 
-            # Cast to WorkflowMetadataMixin type for mypy
-            metadata_workflow = cast(type[WorkflowMetadataMixin], workflow_class)
+            metadata_workflow = workflow_class
 
             # Check if workflow has complete metadata
             if not metadata_workflow.has_complete_metadata():
@@ -167,17 +164,19 @@ def register_dynamic_endpoints(router: APIRouter) -> None:
     logger.info(f"Successfully registered {registered_count} dynamic workflow endpoints")
 
 
-def get_registered_workflows_info(*, include_rbac: bool = False) -> dict[str, dict[str, Any]]:
+def get_registered_workflows_info(
+    *,
+    include_rbac: bool = False,
+    workflows: Sequence[type] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Get information about all registered workflows with metadata."""
     workflows_info: dict[str, dict[str, Any]] = {}
     rbac_config = RBACConfig() if include_rbac else None
-
-    all_workflows = NGC_WORKFLOWS + HELLO_WORLD_WORKFLOWS
+    all_workflows = WORKFLOW_API_CATALOG if workflows is None else workflows
 
     for workflow_class in all_workflows:
         if issubclass(workflow_class, WorkflowMetadataMixin):
-            # Cast to WorkflowMetadataMixin type for mypy
-            metadata_workflow = cast(type[WorkflowMetadataMixin], workflow_class)
+            metadata_workflow = workflow_class
 
             if metadata_workflow.has_complete_metadata():
                 input_class = metadata_workflow.get_workflow_input_class()

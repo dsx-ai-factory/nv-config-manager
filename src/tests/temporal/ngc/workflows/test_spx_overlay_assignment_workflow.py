@@ -31,10 +31,6 @@ from temporalio.worker import Worker
 
 from nv_config_manager.temporal.common.mixins.device import InterfaceData, NetworkDeviceData
 from nv_config_manager.temporal.common.mixins.stage import StateEnum
-from nv_config_manager.temporal.ngc.activities.deploy import (
-    WaitForTenantRenderInput,
-    WaitForTenantRenderOutput,
-)
 from nv_config_manager.temporal.ngc.activities.nats import publish_nats
 from nv_config_manager.temporal.ngc.activities.nautobot import (
     AssignVrfToDeviceInput,
@@ -54,16 +50,20 @@ from nv_config_manager.temporal.ngc.activities.nautobot import (
     RemoveUnmappedDeviceVrfsOutput,
     Vrf,
 )
-from nv_config_manager.temporal.ngc.activities.render import (
-    ExecuteRenderInput,
-    ExecuteRenderOutput,
-)
 from nv_config_manager.temporal.ngc.workflows.deploy import TenantDeployInput
 from nv_config_manager.temporal.ngc.workflows.spx_overlay import (
     SpXOverlayAssignmentInput,
     SpXOverlayAssignmentWorkflow,
     SpXOverlayTenantChangeInput,
     SpXOverlayTenantChangeWorkflow,
+)
+from nv_config_manager_workflows.activities.deploy import (
+    WaitForTenantRenderInput,
+    WaitForTenantRenderOutput,
+)
+from nv_config_manager_workflows.activities.render import (
+    ExecuteRenderInput,
+    ExecuteRenderOutput,
 )
 
 
@@ -91,6 +91,18 @@ def make_child_workflow_error(message: str, workflow_id: str) -> ChildWorkflowEr
     )
     error.__cause__ = ApplicationError(message)
     return error
+
+
+def test_spx_tenant_change_stage_uses_overlay_terminology():
+    """Describe the tenant-change assignment with current product terminology."""
+    with patch(
+        "nv_config_manager_workflows.stage.mixin.workflow.time",
+        return_value=float(0),
+    ):
+        workflow_instance = SpXOverlayTenantChangeWorkflow()
+
+    stage = workflow_instance.get_stage_by_name("assign_spx_overlay")
+    assert stage.description == "Assign SpX overlay to device and ports"
 
 
 @activity.defn(name="get_network_device")
@@ -522,7 +534,11 @@ def test_spx_render_stage_output_requires_snapshot_commit_ids():
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_assignment_workflow_vrf_not_assigned(_mock_time, _mock_nats_client, env):
     """Test VPC assignment when VRF is not already assigned to device."""
@@ -572,7 +588,11 @@ async def test_spx_overlay_assignment_workflow_vrf_not_assigned(_mock_time, _moc
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_assignment_workflow_vrf_already_assigned(
     _mock_time, _mock_nats_client, env
@@ -624,7 +644,11 @@ async def test_spx_overlay_assignment_workflow_vrf_already_assigned(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_tenant_change_removes_assignment_without_replacement(
     _mock_time, _mock_nats_client, env
@@ -700,7 +724,11 @@ async def test_spx_overlay_tenant_change_removes_assignment_without_replacement(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_tenant_change_is_noop_when_already_assigned(
     _mock_time, _mock_nats_client, env
@@ -776,7 +804,11 @@ async def test_spx_overlay_tenant_change_is_noop_when_already_assigned(
     ],
 )
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_tenant_change_deploys_reconciliation_only_change(
     _mock_time,
@@ -841,7 +873,11 @@ async def test_spx_overlay_tenant_change_deploys_reconciliation_only_change(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_tenant_change_uses_current_versions_after_render_race(
     _mock_time, _mock_nats_client, env
@@ -928,7 +964,11 @@ async def test_spx_overlay_tenant_change_uses_current_versions_after_render_race
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_tenant_change_retries_deploy_when_already_assigned_but_pending(
     _mock_time, _mock_nats_client, env
@@ -993,7 +1033,11 @@ async def test_spx_overlay_tenant_change_retries_deploy_when_already_assigned_bu
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_assignment_workflow_vrf_not_found(_mock_time, _mock_nats_client, env):
     """Test VPC assignment when VRF doesn't exist in Nautobot."""
@@ -1052,7 +1096,11 @@ async def test_spx_overlay_assignment_workflow_vrf_not_found(_mock_time, _mock_n
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.activities.nats.NatsProducer", autospec=True)
+@patch(
+    "nv_config_manager.temporal.runtime.NatsProducer.from_config",
+    autospec=True,
+    return_value=AsyncMock(),
+)
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_spx_overlay_assignment_workflow_interface_not_found(
     _mock_time, _mock_nats_client, env

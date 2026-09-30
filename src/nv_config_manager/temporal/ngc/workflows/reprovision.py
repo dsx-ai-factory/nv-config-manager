@@ -34,26 +34,24 @@ from nv_config_manager.temporal.common.workflow_references import DeviceReferenc
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin, NetworkDeviceData
-    from nv_config_manager.temporal.ngc.activities.config import (
-        build_workflow_url,
-        get_ui_base_url,
-    )
-    from nv_config_manager.temporal.ngc.activities.dcim import (
-        GetNetworkDeviceInput,
-        get_network_device,
-    )
-    from nv_config_manager.temporal.ngc.activities.deploy import load_intended_configuration
-    from nv_config_manager.temporal.ngc.activities.os import (
-        ExecuteZTPInput,
-        PollZTPStatusInput,
-        execute_ztp,
-        poll_ztp_status,
-    )
     from nv_config_manager.temporal.ngc.workflows.backup import (
         BackupInput,
         BackupWorkflow,
         TriggerEnum,
     )
+    from nv_config_manager_workflows.activities.config import get_ui_base_url
+    from nv_config_manager_workflows.activities.dcim import (
+        GetNetworkDeviceInput,
+        get_network_device,
+    )
+    from nv_config_manager_workflows.activities.deploy import load_intended_configuration
+    from nv_config_manager_workflows.activities.os import (
+        ExecuteZTPInput,
+        PollZTPStatusInput,
+        execute_ztp,
+        poll_ztp_status,
+    )
+    from nv_config_manager_workflows.workflow_urls import build_workflow_url
 
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,

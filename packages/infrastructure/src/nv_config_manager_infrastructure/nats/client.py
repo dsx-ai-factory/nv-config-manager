@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import ssl
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlsplit
 
 import certifi
 import nats
@@ -32,6 +32,30 @@ logger = get_logger(__name__, category=LogCategory.NATS)
 # Defined here rather than in common.config because that module imports this
 # package; common.config re-exports it as the public name.
 DEFAULT_NATS_API_PREFIX = "$JS.API"
+_REDACTED_NATS_SERVER = "<redacted-nats-server>"
+
+
+def nats_server_for_logging(server: str | ParseResult | None) -> str:
+    """Return a NATS endpoint without credentials, paths, queries, or fragments."""
+    if isinstance(server, ParseResult):
+        server = server.geturl()
+    if server is None:
+        return _REDACTED_NATS_SERVER
+
+    try:
+        parsed = urlsplit(server)
+        hostname = parsed.hostname
+        if not parsed.scheme or not hostname:
+            return _REDACTED_NATS_SERVER
+
+        if ":" in hostname:
+            hostname = f"[{hostname}]"
+        port = parsed.port
+    except (TypeError, ValueError):
+        return _REDACTED_NATS_SERVER
+
+    authority = f"{hostname}:{port}" if port is not None else hostname
+    return f"{parsed.scheme}://{authority}"
 
 
 class NatsClient:
@@ -99,7 +123,7 @@ class NatsClient:
         """
         logger.debug(
             "Connecting to NATS server=%s local=%s auth_method=%s",
-            self.server,
+            nats_server_for_logging(self.server),
             self.local,
             self.auth_method,
         )
@@ -113,7 +137,7 @@ class NatsClient:
         # External tls:// authentication uses TLS-first; wss:// establishes TLS
         # through the WebSocket transport before any NATS messages. Local
         # connections retain server-advertised TLS negotiation.
-        scheme = urlparse(self.server).scheme
+        scheme = urlsplit(self.server).scheme
         if self.auth_method == "JWT":
             if not self.local and scheme not in ("tls", "wss"):
                 raise ValueError(
@@ -149,13 +173,13 @@ class NatsClient:
                 await self.conn.close()
             logger.error(
                 "NATS connection failed: server=%s error=%s",
-                self.server,
+                nats_server_for_logging(self.server),
                 err,
                 exc_info=True,
             )
             raise
 
-        logger.info("Connected to NATS %s", self.conn.connected_url)
+        logger.info("Connected to NATS %s", nats_server_for_logging(self.conn.connected_url))
         return self.conn
 
     async def _ensure_stream(self) -> None:
@@ -178,7 +202,7 @@ class NatsClient:
                 logger.error(
                     "Configured JetStream stream %s not found (publish will fail): server=%s",
                     self.default_stream_name,
-                    self.server,
+                    nats_server_for_logging(self.server),
                 )
 
     async def close(self) -> None:

@@ -30,7 +30,11 @@ from nv_config_manager.temporal.ngc.activities.nautobot import (
     GetNetworkDeviceInput,
     GetNetworkDeviceOutput,
 )
-from nv_config_manager.temporal.ngc.activities.os import (
+from nv_config_manager.temporal.ngc.workflows.infiniband_mlnx_os_upgrade import (
+    InfinibandMlnxOSUpgradeInput,
+    InfinibandMlnxOSUpgradeWorkflow,
+)
+from nv_config_manager_workflows.activities.os import (
     CleanupMlnxOSInput,
     CleanupMlnxOSOutput,
     DownloadMlnxOSInput,
@@ -44,10 +48,6 @@ from nv_config_manager.temporal.ngc.activities.os import (
     ReloadMlnxOSInput,
     ReloadMlnxOSOutput,
     UpdateIntendedOSImageInput,
-)
-from nv_config_manager.temporal.ngc.workflows.infiniband_mlnx_os_upgrade import (
-    InfinibandMlnxOSUpgradeInput,
-    InfinibandMlnxOSUpgradeWorkflow,
 )
 
 # Test-specific retry policy

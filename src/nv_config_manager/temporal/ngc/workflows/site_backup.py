@@ -51,16 +51,16 @@ from nv_config_manager.temporal.common.workflow_references import LocationRefere
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
-    from nv_config_manager.temporal.ngc.activities.config import get_ui_base_url
-    from nv_config_manager.temporal.ngc.activities.dcim import (
-        GetNetworkDevicesInput,
-        GetNetworkDevicesOutput,
-        get_network_devices,
-    )
     from nv_config_manager.temporal.ngc.workflows.backup import (
         BackupInput,
         BackupWorkflow,
         TriggerEnum,
+    )
+    from nv_config_manager_workflows.activities.config import get_ui_base_url
+    from nv_config_manager_workflows.activities.dcim import (
+        GetNetworkDevicesInput,
+        GetNetworkDevicesOutput,
+        get_network_devices,
     )
 
 DEFAULT_CONFIG_MANAGER_STATUS = ["Active", "Provisioned"]

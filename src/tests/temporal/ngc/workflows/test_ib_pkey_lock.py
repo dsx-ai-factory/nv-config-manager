@@ -37,7 +37,7 @@ class _HostAndSiteInput(BaseModel):
 async def test_canonicalizes_host_before_run(mocker):
     """The mixin rewrites host so name and IP collapse to one lock key."""
     mocker.patch(
-        "nv_config_manager.temporal.ngc.activities.ib_nautobot.canonicalize_ufm_host",
+        "nv_config_manager_workflows.mixins.ib_pkey._canonicalize_ufm_host",
         new=mocker.AsyncMock(return_value="10.0.0.5"),
     )
     body = _HostInput(host="ufm01")
@@ -53,7 +53,7 @@ async def test_canonicalizes_host_before_run(mocker):
 async def test_canonicalizes_host_and_validates_site_before_run(mocker):
     """The API-only mixin validates the host/Site pair in one Nautobot lookup."""
     canonicalize = mocker.patch(
-        "nv_config_manager.temporal.ngc.activities.ib_nautobot.canonicalize_ufm_host_for_site",
+        "nv_config_manager_workflows.mixins.ib_pkey._canonicalize_ufm_host_for_site",
         new=mocker.AsyncMock(return_value="10.0.0.5"),
     )
     body = _HostAndSiteInput(host="ufm01", site="site-a")

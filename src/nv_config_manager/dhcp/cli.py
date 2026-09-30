@@ -31,7 +31,7 @@ import click
 from aiohttp import ClientError
 from prometheus_client import start_http_server
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.log import (
     LogCategory,
     configure_logging,

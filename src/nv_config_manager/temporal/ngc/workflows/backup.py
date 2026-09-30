@@ -38,23 +38,23 @@ from nv_config_manager.temporal.common.workflow_references import DeviceReferenc
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager.temporal.common.mixins.archive import ArchiveMixin
     from nv_config_manager.temporal.common.mixins.device import DeviceMixin, NetworkDeviceData
-    from nv_config_manager.temporal.ngc.activities.backup import (
+    from nv_config_manager_workflows.activities.backup import (
         PersistConfigBackupInput,
         RecordBackupConfigManagerPluginInput,
         load_running_configuration,
         persist_config_backup,
         record_backup_config_manager_plugin,
     )
-    from nv_config_manager.temporal.ngc.activities.dcim import (
+    from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
         get_network_device,
     )
-    from nv_config_manager.temporal.ngc.activities.deploy import (
+    from nv_config_manager_workflows.activities.deploy import (
         DiffActivityInput,
         load_intended_configuration,
         perform_candidate_diff,
     )
-    from nv_config_manager.temporal.ngc.activities.slack import (
+    from nv_config_manager_workflows.activities.slack import (
         SlackMessageInput,
         send_slack_message,
     )

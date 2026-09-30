@@ -19,16 +19,16 @@ from unittest.mock import patch
 import pytest
 from temporalio import activity
 
-from nv_config_manager.temporal.ngc.activities.ib_dcim import (
-    create_partition_in_dcim,
-    create_partition_in_nautobot,
-    record_ib_pkey_in_dcim,
-    record_ib_pkey_in_nautobot,
-)
 from nv_config_manager.temporal.ngc.workflows.bmc import RedfishProvisioningWorkflow
 from nv_config_manager.temporal.ngc.workflows.ib_pkey_creation import IBPKeyCreationWorkflow
 from nv_config_manager.temporal.ngc.workflows.ib_pkey_member_update import (
     IBPKeyMemberUpdateWorkflow,
+)
+from nv_config_manager_workflows.activities.ib_pkey import (
+    create_partition_in_dcim,
+    create_partition_in_nautobot,
+    record_ib_pkey_in_dcim,
+    record_ib_pkey_in_nautobot,
 )
 
 
