@@ -102,6 +102,11 @@ spec:
         # Render Service URL
         - name: RENDER_SERVICE_URL
           value: "https://{{ tpl .Values.renderService.gateway.hostname . }}"
+        {{- if .Values.templatePreview.enabled }}
+        # Template Preview (optional subchart): enables the homepage tile
+        - name: TEMPLATE_PREVIEW_URL
+          value: "https://{{ tpl .Values.templatePreview.gateway.hostname . }}"
+        {{- end }}
         # ZTP URL
         - name: ZTP_URL
           value: "https://{{ tpl .Values.networkZtp.gateway.hostname . }}"

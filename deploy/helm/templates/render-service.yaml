@@ -5,7 +5,7 @@
    static image-based one (templatePlugins) or the dynamic
    fetch-on-activation one (unsafeDynamicTemplatePlugins), not just the
    first. */}}
-{{- $pluginsMountNeeded := or .Values.renderService.templatePlugins.enabled .Values.renderService.unsafeDynamicTemplatePlugins.enabled }}
+{{- $pluginsMountNeeded := or .Values.renderService.templatePlugins.enabled (eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true") }}
 ---
 # Render Service API Deployment
 apiVersion: apps/v1
@@ -94,7 +94,7 @@ spec:
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-render") | nindent 8 }}
         {{- end }}
-        {{- if .Values.renderService.unsafeDynamicTemplatePlugins.enabled }}
+        {{- if eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true" }}
         # SRD §5.2 / SADD §9.3: activation triggers a rolling
         # restart of these three Deployments rather than an in-process warm
         # pool. Only the api container serves /v1/activation/activate, so
@@ -525,7 +525,7 @@ spec:
       {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- /* SPIFFE volumes for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar.volumes" (dict "root" .) | nindent 6 }}
-{{- if .Values.renderService.unsafeDynamicTemplatePlugins.enabled }}
+{{- if eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true" }}
 ---
 # Pre-created by Helm so the render-service ServiceAccount never needs a
 # "create" RBAC verb on configmaps (which can't be scoped by resourceNames,
@@ -541,9 +541,9 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "nv-config-manager.labels" . | nindent 4 }}
-data:
-  state.json: |
-    {"active_digest": null, "in_progress_digest": null, "active_artifacts": [], "requests": {}}
+# Deliberately no `data`: the render service owns and rewrites the state at activation time. If Helm (or
+# ArgoCD) also declared it, every upgrade/sync would either conflict with the application's writes or
+# reset the recorded active plugin set. The state store treats a missing `state.json` as empty.
 ---
 # SRD §5.2: minimal RBAC for the render-service ServiceAccount
 # to trigger/monitor a rolling restart of its own three Deployments and

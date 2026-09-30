@@ -3390,22 +3390,67 @@ alloy:
 # =============================================================================
 templatePreview:
   enabled: false
-  # Everything below is a values override into the templatePreview
-  # (kiwi-render-ui) subchart -- see that chart's own values.yaml for the
-  # full set of keys this can set.
+  # Name prefix of the subchart's resources: Services are <name>-frontend and <name>-backend, PVCs are
+  # <name>-*. Required, and must be lowercase -- without it the chart alias produces names containing
+  # capital letters, which Kubernetes rejects. NVCM's own templates (gateway route, SSO proxy, UI tile)
+  # address the subchart through this name.
+  fullnameOverride: template-preview
+
+  # The dynamic template plugin switch (SRD FR-251/FR-252). One block configures BOTH sides: the
+  # subchart reads it to decide whether to mount its plugin control-plane routes, and NVCM reads it to
+  # turn on its render-service activation endpoint, rollout RBAC and artifact-fetch init containers.
+  # Both must be true for any of it to exist. Keep false outside deployments that accept plugins
+  # running as arbitrary code in the renderer.
+  unsafeDynamicTemplatePlugins:
+    enabled: false
+    acknowledgeArbitraryCodeExecution: false
+
+  # Container images (published by the kiwi-render-ui pipeline). Pin digests in production.
   backend:
+    image:
+      repository: kiwi-render-backend
+      tag: latest
+      digest: ""
+    # Bearer token NVCM's render pods present when fetching plugin artifacts. Name an existing Secret
+    # holding it under key "token" (Vault/ExternalSecrets/kubectl); NVCM's render pods use the same
+    # Secret automatically. Empty = no token (local development only).
+    internalArtifactToken:
+      existingSecret: ""
     env:
-      # The render-api Service's stable in-cluster DNS name. Hardcodes this
-      # release's own name ("nv-config-manager") the same way this chart's
-      # local-dev tooling already does everywhere else (see Makefile's
-      # kind-up target) -- not dynamically computed, because values.yaml
-      # content can't reference .Release.Name the way a template can. If
-      # this chart is ever installed under a different release name, this
-      # needs a matching --set override.
-      KIWI_RENDER_NVCM_RENDER_SERVICE_URL: "http://nv-config-manager-render-api.nv-config-manager.svc.cluster.local:9000"
-  # Gateway routing (httproutes.yaml) replaces this subchart's own
-  # nginx-based ingress.
+      # NVCM's render-api Service, which Template Preview calls to activate plugins. Same namespace, so
+      # the short name resolves; it assumes the default release name "nv-config-manager" -- override it
+      # when installing under another release name.
+      KIWI_RENDER_NVCM_RENDER_SERVICE_URL: "http://nv-config-manager-render-api:9000"
+  frontend:
+    image:
+      repository: kiwi-render-frontend
+      tag: latest
+      digest: ""
+
+  # Saved Nautobot instances offered in the UI: an existing Secret whose key "instances.json" holds
+  # [{"name": "...", "url": "...", "token": "..."}]. Empty = users enter a URL and token by hand.
+  nautobotInstances:
+    existingSecret: ""
+
+  # Template repositories cloned at startup. Empty by default: the subchart's built-in list points at
+  # repositories that need credentials, which would leave the pod in Init:Error. Register repositories
+  # later through the UI/API, or list them here; a private one takes a token Secret:
+  #   repos:
+  #     - name: my-templates
+  #       displayName: "My Templates"
+  #       description: "..."
+  #       url: https://gitlab.example.com/group/my-templates.git
+  #       branch: main
+  #       mountPath: /repos/my-templates
+  #       pvcSuffix: my-templates
+  #       credentialsSecret: {name: my-templates-git-token, key: token}
+  repos: []
+
+  # Exposure through NVCM's Gateway, replacing the subchart's own nginx Ingress (disabled).
   ingress:
     enabled: false
+  gateway:
+    # Served at this hostname by the Gateway (NVCM-owned key; the subchart ignores it).
+    hostname: "template-preview.{{ .Values.gateway.baseHostname }}"
 tempo:
   enabled: false
