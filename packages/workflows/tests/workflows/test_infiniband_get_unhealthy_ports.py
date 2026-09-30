@@ -38,19 +38,6 @@ from nv_config_manager_workflows.workflows.infiniband_get_unhealthy_ports import
     InfinibandGetUnhealthyPortsWorkflow,
 )
 
-UFM_HEALTHY_PORTS = [
-    {
-        "number": "1",
-        "label": "Port 1",
-        "physical_state": "Link Up",
-        "logical_state": "Active",
-        "system_name": "System1",
-        "node_description": "Node 1",
-        "peer_node_name": "Peer1",
-        "peer_node_description": "Peer Node 1",
-    }
-]
-
 UFM_UNHEALTHY_PORTS = [
     {
         "number": "1",
@@ -65,7 +52,7 @@ UFM_UNHEALTHY_PORTS = [
 ]
 
 
-_ufm_ports = UFM_HEALTHY_PORTS
+_ufm_ports: list[dict[str, str]] = []
 
 
 @activity.defn(name="get_network_device")
@@ -87,7 +74,12 @@ async def mock_get_network_device(
 
 
 @activity.defn(name="get_ib_ports")
-async def mock_get_ib_ports(_activity_input: GetUFMPortsInput) -> GetUFMPortsOutput:
+async def mock_get_ib_ports(activity_input: GetUFMPortsInput) -> GetUFMPortsOutput:
+    assert activity_input == GetUFMPortsInput(
+        host="10.0.0.1",
+        unhealthy=True,
+        site="mock_site",
+    )
     return GetUFMPortsOutput(
         ports=_ufm_ports,
         csv_data="mock UFM port data",
@@ -96,8 +88,8 @@ async def mock_get_ib_ports(_activity_input: GetUFMPortsInput) -> GetUFMPortsOut
 
 
 @pytest.mark.asyncio
-async def test_execute_workflow_healthy_ports(env: Any) -> None:
-    """Test workflow execution with healthy ports."""
+async def test_execute_workflow_no_unhealthy_ports(env: Any) -> None:
+    """Test workflow execution when the activity returns no unhealthy ports."""
     global _ufm_ports  # noqa: PLW0603
     _ufm_ports = []
     task_queue_name = str(uuid.uuid4())
