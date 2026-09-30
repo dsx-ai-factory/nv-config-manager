@@ -53,6 +53,10 @@ dependencies = [
     # NATS
     "nats-py[nkeys]>=2.8.0",
     "nkeys>=0.2.0",
+    # Kubernetes API client -- used by render-service to trigger/monitor a
+    # rolling restart on dynamic template plugin activation.
+    # Same package already used by installer/ (kept in sync intentionally).
+    "kubernetes>=32.0.0",
     # Temporal
     # Security: Fix rustls-webpki vulnerability in Temporal bridge (GHSA-82j2-j2ch-gfr8)
     "temporalio[opentelemetry]>=1.29.0,<1.32.0",
@@ -150,6 +154,7 @@ workflow-cli = "nv_config_manager.temporal.cli:main"
 nv-config-manager-render-api = "nv_config_manager.render.api.main:main"
 nv-config-manager-render-consumer = "nv_config_manager.render.pull_consumer:main"
 nv-config-manager-render-template-updater = "nv_config_manager.render.producer:cli_main"
+nv-config-manager-render-fetch-plugin-artifact = "nv_config_manager.render.artifact_fetch:cli_main"
 
 # Config Store Service
 nv-config-manager-config-store-api = "nv_config_manager.config_store.api.main:main"

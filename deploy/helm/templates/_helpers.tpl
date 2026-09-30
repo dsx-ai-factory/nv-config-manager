@@ -769,10 +769,17 @@ jwks_uri = {{ .Values.spiffe.jwksUri | default "/var/run/secrets/spiffe/bundle.j
 audiences = spiffe://{{ .Values.spiffe.trustDomain }}
 jwt_svid_path = /var/run/secrets/spiffe/jwt-svid
 
-{{- if .Values.spiffe.rbac.groupPrefixes }}
+{{- $templatePreviewGroupEntry := and .Values.renderService.unsafeDynamicTemplatePlugins.enabled .Values.renderService.unsafeDynamicTemplatePlugins.templatePreviewSpiffeId }}
+{{- if or .Values.spiffe.rbac.groupPrefixes $templatePreviewGroupEntry }}
 [auth.spiffe.groups]
 {{- range $prefix, $group := .Values.spiffe.rbac.groupPrefixes }}
 {{ $prefix }} = {{ $group }}
+{{- end }}
+{{- if $templatePreviewGroupEntry }}
+{{/* Only entry that may call render/api/activation_v1.py -- see values.yaml
+     renderService.unsafeDynamicTemplatePlugins.templatePreviewSpiffeId and
+     ACTIVATION_GROUP in activation_v1.py; the two names must match. */}}
+{{ .Values.renderService.unsafeDynamicTemplatePlugins.templatePreviewSpiffeId }} = template-preview-activation
 {{- end }}
 {{- end }}
 {{- end }}
@@ -1259,6 +1266,40 @@ Usage: {{ include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
 {{- end -}}
 
 {{/*
+Fetch and extract the actively-activated plugin set into /opt/plugins.
+SRD FR-244 / SADD §9.6: Template Preview hosts the artifact, NVCM's render
+pods are the client -- reads which digest(s) are active from the same
+activation-state ConfigMap the activation endpoint writes to, so a pod
+started by a rolling restart installs whatever was just activated, without
+the activation endpoint needing to know anything about plugin installation
+itself.
+Usage: {{ include "nv-config-manager.fetchPluginArtifactInitContainer" . | nindent 6 }}
+*/}}
+{{- define "nv-config-manager.fetchPluginArtifactInitContainer" -}}
+{{- if .Values.renderService.unsafeDynamicTemplatePlugins.enabled }}
+- name: fetch-plugin-artifact
+  image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
+  imagePullPolicy: {{ .Values.global.images.nvConfigManager.pullPolicy }}
+  command: ["nv-config-manager-render-fetch-plugin-artifact"]
+  env:
+  - name: RENDER_ACTIVATION_CONFIGMAP
+    value: "{{ include "nv-config-manager.componentName" (dict "root" . "component" "render") }}-activation-state"
+  - name: RENDER_ACTIVATION_NAMESPACE
+    value: {{ .Values.global.namespace | quote }}
+  {{- if .Values.renderService.unsafeDynamicTemplatePlugins.templatePreviewArtifactTokenSecret }}
+  - name: TEMPLATE_PREVIEW_ARTIFACT_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: {{ .Values.renderService.unsafeDynamicTemplatePlugins.templatePreviewArtifactTokenSecret }}
+        key: token
+  {{- end }}
+  volumeMounts:
+  - name: template-plugins-installed
+    mountPath: /opt/plugins
+{{- end }}
+{{- end -}}
+
+{{/*
 Template plugin source and install volumes.
 Usage: {{ include "nv-config-manager.templatePluginVolumes" . | nindent 6 }}
 */}}
@@ -1271,6 +1312,13 @@ Usage: {{ include "nv-config-manager.templatePluginVolumes" . | nindent 6 }}
   persistentVolumeClaim:
     claimName: {{ .Values.renderService.templatePlugins.pvcName }}
   {{- end }}
+{{- end }}
+{{- /* template-plugins-installed is needed whenever EITHER
+   plugin mechanism is on, not just templatePlugins -- re-checked here
+   (not just by the caller) because this volume declaration must not
+   silently disappear if only unsafeDynamicTemplatePlugins is enabled,
+   while a container's volumeMount still references it by name. */}}
+{{- if or .Values.renderService.templatePlugins.enabled .Values.renderService.unsafeDynamicTemplatePlugins.enabled }}
 - name: template-plugins-installed
   emptyDir: {}
 {{- end }}
@@ -1369,7 +1417,7 @@ wheels must be present under /plugin-wheels.
 {{- if .Values.dcim.providerPackages.enabled -}}
 {{- $paths = append $paths "/opt/dcim-providers" -}}
 {{- end -}}
-{{- if .Values.renderService.templatePlugins.enabled -}}
+{{- if or .Values.renderService.templatePlugins.enabled .Values.renderService.unsafeDynamicTemplatePlugins.enabled -}}
 {{- $paths = append $paths "/opt/plugins" -}}
 {{- end -}}
 {{- if $paths }}

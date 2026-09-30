@@ -506,6 +506,11 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           {{- if $root.Values.renderService.gateway.allowedGroups }}
           allowed_groups = {{ $root.Values.renderService.gateway.allowedGroups | join "," }}
           {{- end }}
+          # SRD FR-241: both required for the activation route to even be
+          # mounted, not just reachable. See values.yaml
+          # renderService.unsafeDynamicTemplatePlugins.
+          unsafe_dynamic_template_plugins_enabled = {{ $root.Values.renderService.unsafeDynamicTemplatePlugins.enabled }}
+          unsafe_dynamic_template_plugins_acknowledge_arbitrary_code_execution = {{ $root.Values.renderService.unsafeDynamicTemplatePlugins.acknowledgeArbitraryCodeExecution }}
           {{- end }}
 
           # -----------------------------------------------------------------

@@ -1292,6 +1292,39 @@ renderService:
     # Image-based plugin sources for ArgoCD-managed deployments.
     # Each image can provide /plugin-wheels/*.whl and/or /plugin-source/pyproject.toml.
     images: []
+  # Dynamic template plugin activation endpoint (SRD FR-240, FR-245;
+  # SADD §9). Activation is a rolling restart of the render-service
+  # Deployments (SRD §5.2 / SADD §9.3 -- pod restart is acceptable as long
+  # as it's transparent to users), not an in-process warm subprocess pool.
+  #
+  # Both enabled AND acknowledgeArbitraryCodeExecution must be true for the
+  # activation route to be mounted at all (not just reachable) -- see
+  # common.config.dynamic_template_plugins_enabled() and
+  # render/api/main.py. This is an explicitly unsafe, disabled-by-default
+  # feature: a plugin activated through it runs as arbitrary code in the
+  # renderer.
+  unsafeDynamicTemplatePlugins:
+    enabled: false
+    acknowledgeArbitraryCodeExecution: false
+    # Template Preview's SPIFFE ID, e.g.
+    # "spiffe://trust-domain/ns/template-preview/sa/template-preview".
+    # When set (and both flags above are true), this gets mapped to the
+    # "template-preview-activation" group in [auth.spiffe.groups], which is
+    # the only group authorized to call the activation endpoint
+    # (render/api/activation_v1.py's require_group(ACTIVATION_GROUP)).
+    # Leave empty until Template Preview is actually deployed and its
+    # SPIFFE identity is known.
+    templatePreviewSpiffeId: ""
+    # How long to wait for the rolling restart to complete before an
+    # activation request is reported FAILED. 0/unset uses the code default
+    # (300s) -- see render/api/activation_v1.py::_activation_rollout_timeout.
+    rolloutTimeoutSeconds: 300
+    # Name of a pre-existing Secret (key "token") holding the bearer token
+    # Template Preview's /internal/artifacts endpoint expects (see
+    # kiwi-render-ui's KIWI_RENDER_INTERNAL_ARTIFACT_TOKEN). Empty means
+    # no token is sent -- fine for a local dev loop where Template Preview
+    # also has no token configured, not for anything beyond that.
+    templatePreviewArtifactTokenSecret: ""
   # ---------------------------------------------------------------------------
   # KEDA Autoscaling (NATS queue-based scaling for consumers)
   # ---------------------------------------------------------------------------
@@ -3349,5 +3382,30 @@ loki:
   enabled: false
 alloy:
   enabled: false
+
+# =============================================================================
+# Template Preview (SRD FR-250-261, SADD §6) -- bundled as an optional
+# subchart (see the kiwi-render-ui dependency, aliased "templatePreview", in
+# Chart.yaml). Off by default, matching every other top-level component here.
+# =============================================================================
+templatePreview:
+  enabled: false
+  # Everything below is a values override into the templatePreview
+  # (kiwi-render-ui) subchart -- see that chart's own values.yaml for the
+  # full set of keys this can set.
+  backend:
+    env:
+      # The render-api Service's stable in-cluster DNS name. Hardcodes this
+      # release's own name ("nv-config-manager") the same way this chart's
+      # local-dev tooling already does everywhere else (see Makefile's
+      # kind-up target) -- not dynamically computed, because values.yaml
+      # content can't reference .Release.Name the way a template can. If
+      # this chart is ever installed under a different release name, this
+      # needs a matching --set override.
+      KIWI_RENDER_NVCM_RENDER_SERVICE_URL: "http://nv-config-manager-render-api.nv-config-manager.svc.cluster.local:9000"
+  # Gateway routing (httproutes.yaml) replaces this subchart's own
+  # nginx-based ingress.
+  ingress:
+    enabled: false
 tempo:
   enabled: false
