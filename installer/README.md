@@ -347,6 +347,18 @@ deployment and TUI implementations instead of copying their orchestration:
 Provider deployment belongs in these lifecycle hooks, not in progress
 callbacks. This keeps the CLI and both TUIs on the same orchestration path.
 
+AIR topology files, mock-topology directories, content jobs, and template-plugin
+directories must exist locally and are always uploaded to the simulation. They
+can live outside the application checkout. Relative content paths are resolved
+from the invoking working directory, then from the checkout containing the
+running installer (`PROJECT_ROOT`). Selecting a different local application
+checkout with `config_manager_repo` does not change this content search path.
+Use explicit local paths for content in other checkouts or independent directories.
+Bundled content must also be present locally; missing paths are errors,
+not references to files in the remote repository or on the AIR server. This is
+independent of `config_manager_repo`, which may select either a remote Git
+repository to clone or a local application checkout to upload.
+
 #### 3. External Services
 
 ![External Services](../docs/assets/images/installer/03-external-services.svg)

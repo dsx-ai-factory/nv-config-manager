@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 
+import yaml
+
 from nv_config_manager_installer.air_sim.constants import (
     CONFIG_MANAGER_REMOTE_DIR,
     DEFAULT_AIR_DEMO_TEMPLATE_PLUGIN_PATH,
@@ -183,6 +185,19 @@ def test_sim_config_regenerates_blank_oob_ssh_password(tmp_path) -> None:
     cfg = SimConfig.from_yaml(config_path)
 
     assert len(cfg.oob_ssh_password) == 24
+
+
+def test_sim_config_does_not_persist_runtime_staging_paths(tmp_path) -> None:
+    config_path = tmp_path / "air-sim.yaml"
+    cfg = SimConfig()
+    cfg._air_remote_mock_topology_path = "/home/nvcm/air-content/mock-topology"
+    cfg._air_content_staged = True
+
+    cfg.to_yaml(config_path)
+
+    persisted = yaml.safe_load(config_path.read_text())
+    assert "_air_remote_mock_topology_path" not in persisted
+    assert "_air_content_staged" not in persisted
 
 
 def test_demo_template_plugin_is_static_and_public_named() -> None:
