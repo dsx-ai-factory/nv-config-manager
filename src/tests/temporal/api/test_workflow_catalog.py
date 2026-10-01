@@ -104,15 +104,13 @@ def test_catalog_rejects_plugin_collisions_with_service_workflows() -> None:
         name="api-catalog-collision-test",
         workflows=(_DeployEndpointCollisionWorkflow,),
     )
-    registry = WorkflowRegistry.build(
-        {
-            BUILTIN_PLUGIN_NAME: builtin_plugin(),
-            descriptor.name: descriptor,
-        }
-    )
-
     with pytest.raises(WorkflowConflictError, match="workflow API endpoint"):
-        build_workflow_api_catalog(registry)
+        WorkflowRegistry.build(
+            {
+                BUILTIN_PLUGIN_NAME: builtin_plugin(),
+                descriptor.name: descriptor,
+            }
+        )
 
 
 def test_dynamic_routes_include_only_api_enabled_plugin_workflows() -> None:
