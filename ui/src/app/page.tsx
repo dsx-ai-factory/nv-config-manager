@@ -234,7 +234,7 @@ export default function HomePage() {
   // Template Preview is an optional bundled app; its tile appears only when it is deployed. The
   // wording is accurate whether or not dynamic plugin management is enabled on this deployment.
   if (config.templatePreviewUrl) {
-    services.unshift({
+    services.push({
       name: "Template Preview",
       description:
         "Preview rendered device configs from any template branch or plugin. Dynamic plugin management available when enabled.",

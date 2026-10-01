@@ -76,6 +76,9 @@ Add local hostnames for the Envoy Gateway.
 127.0.0.1 mcp.config-manager.local
 ```
 
+If you also deploy the optional Template Preview app (`templatePreview.enabled`), add
+`127.0.0.1 template-preview.config-manager.local` as well.
+
 Then open:
 
 | Service | URL |
@@ -85,6 +88,7 @@ Then open:
 | Workflow API | `https://workflow.config-manager.local` |
 | Config Store API | `https://config-store.config-manager.local` |
 | MCP endpoint | `https://mcp.config-manager.local/mcp` |
+| Template Preview (optional) | `https://template-preview.config-manager.local` |
 
 For the local profile, Nautobot login is `admin` / `admin`.
 
