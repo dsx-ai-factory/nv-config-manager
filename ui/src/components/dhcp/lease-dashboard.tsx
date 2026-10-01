@@ -19,6 +19,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
+  BarChart3,
+  CircleHelp,
   Clock3,
   Database,
   Network,
@@ -70,10 +72,21 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/use-toast";
+import { cn } from "@/lib/utils";
+
+const CONFIG_SYNC_WARNING_AGE_SECONDS = 10 * 60;
+const CONFIG_SYNC_ERROR_AGE_SECONDS = 30 * 60;
 
 interface LeaseDashboardProps {
   readonly dhcpUrl: string;
+  readonly grafanaUrl?: string;
 }
 
 interface MetricProps {
@@ -82,6 +95,7 @@ interface MetricProps {
   readonly value: string;
   readonly detail: string;
   readonly tooltip?: string;
+  readonly valueClassName?: string;
 }
 
 interface InfiniteScrollStatusProps {
@@ -99,6 +113,7 @@ interface InfiniteScrollStatusProps {
 interface DashboardHeaderProps {
   readonly configSyncTimestamp?: number | null;
   readonly data: DhcpSummary;
+  readonly grafanaUrl?: string;
   readonly isReloading: boolean;
   readonly onReload: () => Promise<void>;
 }
@@ -145,18 +160,51 @@ interface ClearLeaseDialogProps {
 }
 
 /** Render one summary metric in the DHCP dashboard header. */
-function Metric({ icon, label, value, detail, tooltip }: MetricProps) {
+function Metric({
+  icon,
+  label,
+  value,
+  detail,
+  tooltip,
+  valueClassName,
+}: MetricProps) {
   return (
     <fieldset
       aria-label={label}
-      title={tooltip}
       className="rounded-lg border bg-background/60 p-4"
     >
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-medium text-muted-foreground">{label}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-medium text-muted-foreground">{label}</p>
+          {tooltip && (
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`About ${label.toLowerCase()}`}
+                    className="cursor-help text-muted-foreground hover:text-foreground"
+                  >
+                    <CircleHelp className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm">
+                  {tooltip}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
         <div className="rounded-md bg-primary/10 p-2 text-primary">{icon}</div>
       </div>
-      <p className="mt-3 text-2xl font-semibold tracking-tight">{value}</p>
+      <p
+        className={cn(
+          "mt-3 text-2xl font-semibold tracking-tight",
+          valueClassName,
+        )}
+      >
+        {value}
+      </p>
       <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
     </fieldset>
   );
@@ -191,14 +239,31 @@ function formatExpiry(expiresAt?: string | null): string {
   }).format(new Date(expiresAt));
 }
 
-/** Format a Prometheus configuration sync timestamp as a compact age. */
-function formatConfigSyncAge(timestamp?: number | null): string {
-  if (timestamp == null) return "Unknown";
-  const ageSeconds = Math.max(0, Math.floor(Date.now() / 1000 - timestamp));
+/** Calculate the non-negative age of a Prometheus configuration timestamp. */
+function getConfigSyncAgeSeconds(timestamp?: number | null): number | null {
+  if (timestamp == null) return null;
+  return Math.max(0, Math.floor(Date.now() / 1000 - timestamp));
+}
+
+/** Format a configuration sync age as a compact duration. */
+function formatConfigSyncAge(ageSeconds: number | null): string {
+  if (ageSeconds == null) return "Unknown";
   if (ageSeconds < 60) return `${ageSeconds}s`;
   if (ageSeconds < 3600) return `${Math.floor(ageSeconds / 60)}m`;
   if (ageSeconds < 86400) return `${Math.floor(ageSeconds / 3600)}h`;
   return `${Math.floor(ageSeconds / 86400)}d`;
+}
+
+/** Highlight increasingly stale DHCP configuration syncs. */
+function getConfigSyncAgeClassName(ageSeconds: number | null): string {
+  if (ageSeconds == null) return "";
+  if (ageSeconds > CONFIG_SYNC_ERROR_AGE_SECONDS) {
+    return "text-red-600 dark:text-red-400";
+  }
+  if (ageSeconds > CONFIG_SYNC_WARNING_AGE_SECONDS) {
+    return "text-yellow-600 dark:text-yellow-400";
+  }
+  return "";
 }
 
 /** Build the pagination status without nested conditionals or templates. */
@@ -365,6 +430,7 @@ function DashboardError({
 function DashboardHeader({
   configSyncTimestamp,
   data,
+  grafanaUrl,
   isReloading,
   onReload,
 }: DashboardHeaderProps) {
@@ -372,6 +438,7 @@ function DashboardHeader({
   if (configSyncTimestamp == null) {
     configSyncDetail = "Config sync metric unavailable";
   }
+  const configSyncAgeSeconds = getConfigSyncAgeSeconds(configSyncTimestamp);
   const reloadIconClassName = `mr-2 h-4 w-4${isReloading ? " animate-spin" : ""}`;
 
   return (
@@ -385,17 +452,27 @@ function DashboardHeader({
             Live address allocations, configured reservations, and address pools.
           </CardDescription>
         </div>
-        <Button
-          aria-label="Reload DHCP data"
-          title="Re-fetch the latest data shown here. This does not run the background DHCP config sync."
-          variant="outline"
-          size="sm"
-          onClick={onReload}
-          disabled={isReloading}
-        >
-          <RefreshCw className={reloadIconClassName} />
-          Reload data
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {grafanaUrl && (
+            <Button variant="outline" size="sm" asChild>
+              <a href={grafanaUrl} target="_blank" rel="noreferrer">
+                <BarChart3 className="mr-2 h-4 w-4" />
+                View Grafana
+              </a>
+            </Button>
+          )}
+          <Button
+            aria-label="Reload DHCP data"
+            title="Re-fetch the latest data shown here. This does not run the background DHCP config sync."
+            variant="outline"
+            size="sm"
+            onClick={onReload}
+            disabled={isReloading}
+          >
+            <RefreshCw className={reloadIconClassName} />
+            Reload data
+          </Button>
+        </div>
       </div>
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric
@@ -419,9 +496,10 @@ function DashboardHeader({
         <Metric
           icon={<Clock3 className="h-4 w-4" />}
           label="Config sync age"
-          value={formatConfigSyncAge(configSyncTimestamp)}
+          value={formatConfigSyncAge(configSyncAgeSeconds)}
+          valueClassName={getConfigSyncAgeClassName(configSyncAgeSeconds)}
           detail={configSyncDetail}
-          tooltip="Time since the background DHCP config sync last updated Kea from Nautobot."
+          tooltip="An old config likely means there is an issue with DHCP config generation. Consult the logs for further details."
         />
       </div>
     </CardHeader>
@@ -738,7 +816,7 @@ function getActiveSearchQuery(
 }
 
 /** Render live DHCP leases, reservations, and configured pools. */
-export function LeaseDashboard({ dhcpUrl }: LeaseDashboardProps) {
+export function LeaseDashboard({ dhcpUrl, grafanaUrl }: LeaseDashboardProps) {
   const { data, error, isLoading, isValidating, mutate } = useDhcpSummary(dhcpUrl);
   const {
     data: configSyncTimestamp,
@@ -856,6 +934,7 @@ export function LeaseDashboard({ dhcpUrl }: LeaseDashboardProps) {
       <DashboardHeader
         configSyncTimestamp={configSyncTimestamp}
         data={data}
+        grafanaUrl={grafanaUrl}
         isReloading={isReloading}
         onReload={reloadData}
       />

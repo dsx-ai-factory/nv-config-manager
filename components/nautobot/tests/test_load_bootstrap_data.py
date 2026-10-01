@@ -501,6 +501,19 @@ class TestLoadCustomFields:
 
 
 class TestLoadPlatforms:
+    def test_bundled_platforms_include_juniper_junos(self):
+        mod = _import_module()
+        data_path = Path(mod.__file__).resolve().parents[1] / "data" / "platforms.yaml"
+
+        platforms = yaml.safe_load(data_path.read_text())
+
+        assert {
+            "name": "Juniper Junos",
+            "manufacturer": "Juniper",
+            "description": "Juniper Networks Junos OS",
+            "napalm_driver": "junos",
+        } in platforms
+
     def test_creates_platform_with_manufacturer(self, tmp_path):
         mod = _import_module()
         from nautobot.dcim.models import Manufacturer, Platform
@@ -588,6 +601,18 @@ class TestLoadNamespaces:
 
 
 class TestLoadStatuses:
+    def test_bootstrap_defines_cable_validation_statuses(self):
+        mod = _import_module()
+        statuses_path = Path(mod.__file__).parents[1] / "data" / "statuses.yaml"
+
+        statuses = {status["name"]: status for status in yaml.safe_load(statuses_path.read_text())}
+
+        for name in ("Connected", "Disconnected", "Invalid"):
+            assert statuses[name]["content_types"] == ["dcim.cable"]
+        assert statuses["Connected"]["color"] == "4caf50"
+        assert statuses["Disconnected"]["color"] == "f44336"
+        assert statuses["Invalid"]["color"] == "f44336"
+
     def test_creates_status(self, tmp_path):
         mod = _import_module()
         from nautobot.extras.models import Status
@@ -691,6 +716,45 @@ class TestLoadConfigContexts:
         ]
 
         assert firmware_contexts == []
+
+    def test_bundled_dhcp_option_defs_include_junos_option_43(self):
+        data_path = Path(__file__).resolve().parents[1] / "nv_config_manager_jobs/data/config_contexts.yaml"
+        with data_path.open() as f:
+            config_contexts = yaml.safe_load(f)
+
+        option_context = next(
+            context for context in config_contexts if context["name"] == "NVIDIA Config Manager DHCP Custom Options"
+        )
+        option_names = {entry["name"] for entry in option_context["data"]["Dhcp4"]["option-def"]}
+        assert "cumulus-provision-url" in option_names
+        assert {
+            "image-file-name",
+            "config-file-name",
+            "image-file-type",
+            "transfer-mode",
+            "alt-image-file-name",
+            "http-port",
+        } <= option_names
+
+    def test_bundled_juniper_ztp_context_targets_junos_and_full_config(self):
+        data_path = Path(__file__).resolve().parents[1] / "nv_config_manager_jobs/data/config_contexts.yaml"
+        with data_path.open() as f:
+            config_contexts = yaml.safe_load(f)
+
+        ztp_context = next(
+            context for context in config_contexts if context["name"] == "Juniper Junos ZTP DHCP Options"
+        )
+        assert ztp_context["platforms"] == ["Juniper Junos"]
+        reservation = ztp_context["data"]["dhcp"]["options"]["interface_names"]["fxp0"]["reservation_options"]
+        assert reservation["transfer-mode"] == "http"
+        assert "/firmware" in reservation["image-file-name"]
+        assert "/config/full-config" in reservation["config-file-name"]
+        assert set(ztp_context["data"]["dhcp"]["options"]["interface_names"]) == {
+            "fxp0",
+            "em0",
+            "vme",
+            "re0:mgmt-0",
+        }
 
     def test_creates_config_context_with_roles_and_platforms(self, tmp_path):
         mod = _import_module()

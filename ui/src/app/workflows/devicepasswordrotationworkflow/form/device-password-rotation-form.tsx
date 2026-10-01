@@ -27,12 +27,11 @@ import { Form } from "@/components/ui/form";
 import { useToast } from "@/components/ui/use-toast";
 import { DevicePasswordRotationWorkflowInput } from "@/types/data-table.types";
 import { useEnvData, useDevices } from "@/hooks";
-import { startWorkflow } from "@/lib/utils";
+import { sanitizeUrl, startWorkflow } from "@/lib/utils";
 import { useRuntimeConfig } from "@/config/runtime";
 import { WorkflowFormField } from "@/components/forms/formfield";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
-import { sanitizeUrl } from "@/lib/utils";
 
 const formSchema = z.object({
   site: z.string().trim().min(1, { message: "Site is required" }),

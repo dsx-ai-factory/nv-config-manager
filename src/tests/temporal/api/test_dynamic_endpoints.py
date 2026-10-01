@@ -25,6 +25,16 @@ from temporalio.exceptions import ApplicationError
 from nv_config_manager.temporal.api import dynamic_endpoints
 from nv_config_manager.temporal.api.dynamic_endpoints import create_workflow_endpoint
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
+from nv_config_manager.temporal.ngc.workflows.cable_validation import (
+    DeviceCableValidationInput,
+    DeviceCableValidationWorkflow,
+)
+from nv_config_manager.temporal.ngc.workflows.ib_pkey_member_add import (
+    IBPKeyMemberAddInput,
+    IBPKeyMemberAddWorkflow,
+)
+from nv_config_manager_workflows.metadata import build_workflow_lock_key
+from nv_config_manager_workflows.mixins import ib_pkey as ib_pkey_mixins
 
 
 class _Input(BaseModel):
@@ -73,6 +83,59 @@ async def test_endpoint_canonicalizes_input_before_start(mocker):
 
 
 @pytest.mark.asyncio
+async def test_ib_pkey_endpoint_submits_canonical_lock_input(mocker):
+    """UFM canonicalization precedes submission and therefore lock acquisition."""
+    events: list[str] = []
+    captured: dict[str, BaseModel] = {}
+
+    async def _canonicalize_host(host: str) -> str:
+        assert host == "ufm01"
+        events.append("canonicalize")
+        return "10.0.0.5"
+
+    async def _fake_start(request, workflow_class, body):
+        events.append("start")
+        captured["body"] = body
+        return "wid-1"
+
+    mocker.patch.object(ib_pkey_mixins, "_canonicalize_ufm_host", new=_canonicalize_host)
+    mocker.patch.object(dynamic_endpoints, "start_workflow", new=_fake_start)
+    endpoint = create_workflow_endpoint(
+        IBPKeyMemberAddWorkflow,
+        IBPKeyMemberAddInput,
+        "/ngc/ib_pkey_member_add",
+    )
+    request = MagicMock()
+    request.state.user = "user@nvidia.com"
+
+    response = await endpoint(
+        IBPKeyMemberAddInput(
+            host="ufm01",
+            pkey="0x100",
+            guids=["0002c903000e0b72"],
+        ),
+        request,
+    )
+
+    submitted = cast(IBPKeyMemberAddInput, captured["body"])
+    lock_spec = IBPKeyMemberAddWorkflow.get_workflow_lock()
+    assert lock_spec is not None
+    assert response.id == "wid-1"
+    assert events == ["canonicalize", "start"]
+    assert submitted.host == "10.0.0.5"
+    assert submitted.pkey == "0x0100"
+    assert (
+        build_workflow_lock_key(
+            lock_spec,
+            workflow_name=IBPKeyMemberAddWorkflow.get_workflow_name(),
+            namespace=IBPKeyMemberAddWorkflow.get_workflow_namespace(),
+            workflow_input=submitted,
+        )
+        == "wf-lock:ngc:host=10.0.0.5:pkey=0x0100"
+    )
+
+
+@pytest.mark.asyncio
 async def test_endpoint_returns_422_for_canonicalization_failure(mocker):
     """Invalid external references fail before workflow submission with a client error."""
 
@@ -87,6 +150,31 @@ async def test_endpoint_returns_422_for_canonicalization_failure(mocker):
 
     with pytest.raises(HTTPException, match="UFM device not found") as exc_info:
         await endpoint(_Input(host="attacker.example.com"), request)
+
+    assert exc_info.value.status_code == 422
+    start.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_device_cable_endpoint_rejects_deferred_status_updates(mocker):
+    """The child-only status deferral option cannot be set through the API."""
+    start = mocker.patch.object(dynamic_endpoints, "start_workflow", new=mocker.AsyncMock())
+    endpoint = create_workflow_endpoint(
+        DeviceCableValidationWorkflow,
+        DeviceCableValidationInput,
+        "/ngc/device_cable_validation",
+    )
+    request = MagicMock()
+    request.state.user = "user@nvidia.com"
+
+    with pytest.raises(HTTPException, match="only valid for site cable validation") as exc_info:
+        await endpoint(
+            DeviceCableValidationInput(
+                device_id="device-1",
+                defer_cable_status_updates=True,
+            ),
+            request,
+        )
 
     assert exc_info.value.status_code == 422
     start.assert_not_awaited()

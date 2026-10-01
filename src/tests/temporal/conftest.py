@@ -44,8 +44,9 @@ from nv_config_manager.temporal.common.search_attributes import (
     USER_SEARCH_ATTRIBUTE,
 )
 from nv_config_manager.temporal.converter import get_data_converter
-from nv_config_manager.temporal.ngc.activities.nats import PublishNatsInput
-from nv_config_manager.temporal.ngc.activities.slack import SlackMessageInput
+from nv_config_manager_workflows.activities.nats import PublishNatsInput
+from nv_config_manager_workflows.activities.slack import SlackMessageInput
+from nv_config_manager_workflows.runtime import configure_lock_backend
 
 _SEARCH_ATTRIBUTES = {
     USER_SEARCH_ATTRIBUTE: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
@@ -97,7 +98,7 @@ async def mock_send_slack_message(activity_input: SlackMessageInput) -> None:
 #     """Mock workflow wait_condition to prevent tests from hanging on retry logic."""
 #     # Simple mock that returns immediately to prevent hanging
 #     mock_wait = AsyncMock(return_value=None)
-#     mocker.patch("nv_config_manager.temporal.common.mixins.stage.workflow.wait_condition", mock_wait)
+#     mocker.patch("nv_config_manager_workflows.stage.mixin.workflow.wait_condition", mock_wait)
 
 
 @pytest.fixture(autouse=True)
@@ -113,18 +114,20 @@ def disable_workflow_lock_io(mocker) -> dict[str, Any]:
     the lock wiring can request this fixture by name.
     """
     mocks = {
-        helper: mocker.patch(
-            f"nv_config_manager.temporal.common.activities.lock.{helper}",
-            new=mocker.AsyncMock(return_value=True),
-        )
+        helper: mocker.AsyncMock(return_value=True)
         for helper in ("acquire_lock", "renew_lock", "release_lock")
     }
+    backend = mocker.Mock()
+    backend.acquire = mocks["acquire_lock"]
+    backend.renew = mocks["renew_lock"]
+    backend.release = mocks["release_lock"]
+    configure_lock_backend(lambda: backend)
 
     async def _never_renew(*_args: object, **_kwargs: object) -> None:
         await asyncio.Event().wait()
 
     mocker.patch(
-        "nv_config_manager.temporal.common.decorators.workflow._renew_loop",
+        "nv_config_manager_workflows.decorators.workflow._renew_loop",
         new=_never_renew,
     )
     return mocks

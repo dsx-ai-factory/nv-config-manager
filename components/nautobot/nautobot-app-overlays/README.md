@@ -55,7 +55,7 @@ This app is currently bundled in with the NVIDIA Config Manager. It will be publ
 If you want only the overlays plugin without deploying the full NVIDIA Config Manager suite, install it directly from a tagged `nv-config-manager` release:
 
 ```bash
-pip install "nautobot-app-overlays @ git+https://github.com/NVIDIA/nv-config-manager.git@<release-tag>#subdirectory=components/nautobot/nautobot-app-overlays"
+pip install "nautobot-app-overlays @ git+https://github.com/dsx-ai-factory/nv-config-manager.git@<release-tag>#subdirectory=components/nautobot/nautobot-app-overlays"
 ```
 
 Replace `<release-tag>` with a released tag such as `1.2.2`. Use a tag rather than a branch for repeatable installs.
@@ -89,7 +89,7 @@ For managed Nautobot deployments, run the same restart or `post_upgrade` flow yo
 1. Clone the NVIDIA Config Manager repository:
 
    ```bash
-   git clone https://github.com/NVIDIA/nv-config-manager.git
+   git clone https://github.com/dsx-ai-factory/nv-config-manager.git
    cd nv-config-manager/components/nautobot/nautobot-app-overlays
    ```
 

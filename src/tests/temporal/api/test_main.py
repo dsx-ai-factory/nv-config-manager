@@ -15,6 +15,7 @@
 import asyncio
 from configparser import ConfigParser
 from datetime import datetime
+from importlib import reload
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -24,9 +25,13 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 
+from nv_config_manager.dcim import DCIMSelection, DeviceMetadata
+from nv_config_manager.temporal import runtime as service_runtime
+from nv_config_manager.temporal.api import main as temporal_main
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
 from nv_config_manager.temporal.api.main import app
 from nv_config_manager.temporal.api.workflow_v1 import (
+    WorkflowDetailResponse,
     WorkflowSummaryResponse,
     cache_workflow_input,
     signal_workflow,
@@ -64,6 +69,20 @@ def test_healthcheck():
     rsp = client.get("/healthcheck")
     assert rsp.status_code == 200
     assert rsp.json() == "OK"
+
+
+def test_api_startup_configures_only_workflow_ui_runtime() -> None:
+    """API startup installs the UI provider without initializing worker lock state."""
+    with (
+        patch.object(service_runtime, "configure_workflow_ui_runtime") as configure_ui,
+        patch.object(service_runtime, "configure_workflow_runtime") as configure_worker,
+        patch.object(service_runtime, "configure_runtime") as configure_all,
+    ):
+        reload(temporal_main)
+
+    configure_ui.assert_called_once_with()
+    configure_worker.assert_not_called()
+    configure_all.assert_not_called()
 
 
 def test_openapi_operation_tags_are_unique():
@@ -186,14 +205,13 @@ async def test_start_workflow(mock_rbac_config, mock_uuid, mock_connect, mock_ca
     location_body = LocationWorkflowInput(site=location_id)
     location_client = MagicMock()
     location_client.__aenter__.return_value = location_client
-    location_client.get = AsyncMock(
-        return_value={
-            "count": 1,
-            "results": [{"id": location_id, "name": "SJC01"}],
-        }
+    location_client.is_valid_device_id.return_value = True
+    location_client.is_valid_location_id.return_value = True
+    location_client.get_location_metadata = AsyncMock(
+        return_value=DCIMSelection(id=location_id, name="SJC01")
     )
     with patch(
-        "nv_config_manager.temporal.api.workflow_submission.NautobotClient",
+        "nv_config_manager.temporal.api.workflow_submission.create_dcim_client",
         return_value=location_client,
     ):
         result = await start_workflow(request, HelloWorld, location_body)
@@ -215,19 +233,17 @@ async def test_start_workflow(mock_rbac_config, mock_uuid, mock_connect, mock_ca
     )
     mock_cache_input.assert_awaited_once_with("mockuuid", location_body)
     assert location_body.site == location_id
-    location_client.get.assert_awaited_once_with(
-        "dcim/locations/",
-        params={"id": location_id},
-    )
+    location_client.get_location_metadata.assert_awaited_once_with(location_id)
 
     # Invalid references fail before a Temporal workflow is created.
     mock_connect.reset_mock()
-    location_client.get.reset_mock()
-    location_client.get.return_value = {"count": 0, "results": []}
-    location_body = LocationWorkflowInput(site="missing-site")
+    location_client.get_location_metadata.reset_mock()
+    location_client.get_location_metadata.return_value = None
+    missing_location_id = str(uuid4())
+    location_body = LocationWorkflowInput(site=missing_location_id)
     with (
         patch(
-            "nv_config_manager.temporal.api.workflow_submission.NautobotClient",
+            "nv_config_manager.temporal.api.workflow_submission.create_dcim_client",
             return_value=location_client,
         ),
         pytest.raises(HTTPException, match="Unknown location") as exc_info,
@@ -236,33 +252,7 @@ async def test_start_workflow(mock_rbac_config, mock_uuid, mock_connect, mock_ca
 
     assert exc_info.value.status_code == 422
     mock_connect.return_value.start_workflow.assert_not_called()
-    location_client.get.assert_awaited_once_with(
-        "dcim/locations/",
-        params={"name": "missing-site"},
-    )
-
-    # Multiple exact name matches are rejected before Temporal workflow creation.
-    mock_connect.reset_mock()
-    location_client.get.reset_mock()
-    location_client.get.return_value = {
-        "count": 2,
-        "results": [
-            {"id": str(uuid4()), "name": "duplicate-site"},
-            {"id": str(uuid4()), "name": "duplicate-site"},
-        ],
-    }
-    location_body = LocationWorkflowInput(site="duplicate-site")
-    with (
-        patch(
-            "nv_config_manager.temporal.api.workflow_submission.NautobotClient",
-            return_value=location_client,
-        ),
-        pytest.raises(HTTPException, match="Ambiguous location") as exc_info,
-    ):
-        await start_workflow(request, HelloWorld, location_body)
-
-    assert exc_info.value.status_code == 422
-    mock_connect.return_value.start_workflow.assert_not_called()
+    location_client.get_location_metadata.assert_awaited_once_with(missing_location_id)
 
     # Test that more strict workflow permissions are respected
     mock_connect.reset_mock()
@@ -283,27 +273,18 @@ async def test_start_workflow(mock_rbac_config, mock_uuid, mock_connect, mock_ca
     request.state.roles = {"ngc-gni"}
     device_client = MagicMock()
     device_client.__aenter__.return_value = device_client
-    device_client.get_devices = AsyncMock(
-        return_value=[
-            {
-                "id": device_id,
-                "name": "LEAF01",
-                "role": {"name": "Leaf Switch"},
-                "platform": {"name": "Cumulus Linux"},
-                "location": {
-                    "name": "Rack 1",
-                    "location_type": {"name": "Rack"},
-                    "parent": {
-                        "name": "SJC01",
-                        "location_type": {"name": "Site"},
-                        "parent": None,
-                    },
-                },
-            }
-        ]
+    device_client.is_valid_device_id.return_value = True
+    device_client.get_device_metadata = AsyncMock(
+        return_value=DeviceMetadata(
+            device_id=device_id,
+            name="LEAF01",
+            role="Leaf Switch",
+            platform="Cumulus Linux",
+            site="SJC01",
+        )
     )
     with patch(
-        "nv_config_manager.temporal.api.workflow_submission.NautobotClient",
+        "nv_config_manager.temporal.api.workflow_submission.create_dcim_client",
         return_value=device_client,
     ):
         result = await start_workflow(request, DeployWorkflow, body)
@@ -327,15 +308,15 @@ async def test_start_workflow(mock_rbac_config, mock_uuid, mock_connect, mock_ca
         },
     )
     mock_cache_input.assert_awaited_once_with("mockuuid", body)
-    device_client.get_devices.assert_awaited_once_with(ANY, device_ids=[device_id])
+    device_client.get_device_metadata.assert_awaited_once_with(device_id)
 
     # Well-formed UUIDs must also resolve to an existing Nautobot device.
     mock_connect.reset_mock()
-    device_client.get_devices.reset_mock()
-    device_client.get_devices.return_value = []
+    device_client.get_device_metadata.reset_mock()
+    device_client.get_device_metadata.return_value = None
     with (
         patch(
-            "nv_config_manager.temporal.api.workflow_submission.NautobotClient",
+            "nv_config_manager.temporal.api.workflow_submission.create_dcim_client",
             return_value=device_client,
         ),
         pytest.raises(HTTPException, match="Unknown device") as exc_info,
@@ -344,9 +325,16 @@ async def test_start_workflow(mock_rbac_config, mock_uuid, mock_connect, mock_ca
     assert exc_info.value.status_code == 422
     mock_connect.return_value.start_workflow.assert_not_called()
 
-    # Device identifiers must be valid UUID values before Nautobot is queried.
+    # Device identifier shape is validated by the selected DCIM provider.
     mock_connect.reset_mock()
-    with pytest.raises(HTTPException, match="Device identifier must be a valid UUID") as exc_info:
+    device_client.is_valid_device_id.return_value = False
+    with (
+        patch(
+            "nv_config_manager.temporal.api.workflow_submission.create_dcim_client",
+            return_value=device_client,
+        ),
+        pytest.raises(HTTPException, match="Invalid device identifier") as exc_info,
+    ):
         await start_workflow(request, DeployWorkflow, DeployInput(device_id="LEAF01"))
     assert exc_info.value.status_code == 422
     mock_connect.return_value.start_workflow.assert_not_called()
@@ -1034,6 +1022,59 @@ async def test_running_workflow_with_failed_stage_exposes_failed_stage_flag(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("response_type", [WorkflowSummaryResponse, WorkflowDetailResponse])
+@pytest.mark.parametrize(
+    "execution_status",
+    [WorkflowExecutionStatus.TERMINATED, WorkflowExecutionStatus.CONTINUED_AS_NEW],
+)
+@patch("nv_config_manager.temporal.api.workflow_v1.load_config")
+@patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
+async def test_closed_workflow_is_not_pending_approval(
+    mock_redis, mock_load_config, execution_status, response_type
+):
+    """A stale search attribute must not override a closed execution status."""
+    cache = mock_redis.from_config.return_value
+
+    async def get_cached_query(_workflow_id, query):
+        if query == "input":
+            return {"user": "cached"}
+        if query == "compressed_stages":
+            return StageMixin.compress_stages([])
+        return None
+
+    cache.get_cached_query = AsyncMock(side_effect=get_cached_query)
+    cache.cache_query = AsyncMock()
+
+    handle = MagicMock()
+    handle.id = "terminated-pending-workflow"
+    handle.query = AsyncMock(return_value=StageMixin.compress_stages([]))
+
+    description = MagicMock()
+    description.search_attributes = {
+        PENDING_APPROVAL_SEARCH_ATTRIBUTE: [True],
+        "User": ["test"],
+    }
+    description.status = execution_status
+    description.start_time = datetime.fromisoformat("1970-01-01T00:00:00+00:00")
+    description.close_time = datetime.fromisoformat("1970-01-01T00:01:00+00:00")
+    description.workflow_type = "HelloWorldApproval"
+    handle.describe = AsyncMock(return_value=description)
+
+    result = await response_type.from_handle(handle)
+
+    assert result.status == execution_status.name
+    assert result.pending_approval is False
+    if (
+        execution_status == WorkflowExecutionStatus.CONTINUED_AS_NEW
+        and response_type is WorkflowDetailResponse
+    ):
+        handle.query.assert_awaited_once_with("compressed_stages")
+    else:
+        handle.query.assert_not_awaited()
+    mock_redis.from_config.assert_called_once_with(mock_load_config.return_value)
+
+
+@pytest.mark.asyncio
 @patch("nv_config_manager.temporal.api.workflow_v1.get_client")
 async def test_workflow_detail_not_found(mock_client):
     """Verify workflow detail returns 404 when workflow doesn't exist."""
@@ -1301,7 +1342,8 @@ async def test_workflows(mock_rbac_config, mock_redis, mock_client):
     rsp = client.get("/v1/workflow", params={"status": "FAILED"})
     assert rsp.status_code == 200
     mock_client.return_value.list_workflows.assert_called_with(
-        "(ExecutionStatus = 'Failed' or FailedStage = true) and (ReadRoles = 'all')",
+        "(ExecutionStatus = 'Failed' or "
+        "(ExecutionStatus = 'Running' and FailedStage = true)) and (ReadRoles = 'all')",
         limit=100,
         page_size=100,
         next_page_token=None,
@@ -1586,6 +1628,7 @@ def test_workflow_types():
     # workflow creation
     assert {"BackupWorkflow", "DeployWorkflow"}.issubset(workflow_types)
     assert "HelloWorldRunning" not in workflow_types
+    assert "TenantDeployWorkflow" in workflow_types
 
 
 @patch("nv_config_manager.temporal.api.dynamic_endpoints.RBACConfig")
@@ -1607,6 +1650,7 @@ def test_workflow_metadata(mock_dynamic_rbac_config):
 
     workflows_by_name = {workflow["name"]: workflow for workflow in response["workflows"]}
     assert "HelloWorldRunning" not in workflows_by_name
+    assert "TenantDeployWorkflow" not in workflows_by_name
     backup_workflow = workflows_by_name["BackupWorkflow"]
     assert backup_workflow["display_name"] == "Configuration Backup"
     assert backup_workflow["description"]
@@ -1616,6 +1660,12 @@ def test_workflow_metadata(mock_dynamic_rbac_config):
     assert backup_workflow["input_class"] == "BackupInput"
     assert backup_workflow["read_roles"] == ["BackupWorkflow", "reader"]
     assert backup_workflow["execute_roles"] == ["BackupWorkflow", "executor"]
+
+
+def test_tenant_deploy_endpoint_is_not_registered():
+    """Do not expose the internal Tenant Deploy child workflow through REST."""
+    route_paths = {path for route in app.routes if (path := getattr(route, "path", None))}
+    assert "/v1/workflow/ngc/tenant-deploy" not in route_paths
 
 
 @patch("nv_config_manager.common.auth.x509.load_pem_x509_certificate")
@@ -1707,11 +1757,7 @@ def test_cors_middleware_configured(custom_ini):
         """
     )
 
-    # Need to reimport app to pick up new config
-    from importlib import reload
-
-    from nv_config_manager.temporal.api import main as temporal_main
-
+    # Reload the app to pick up the new config.
     reload(temporal_main)
 
     client = TestClient(temporal_main.app)
@@ -1748,11 +1794,7 @@ def test_cors_middleware_not_configured_when_section_missing(custom_ini):
         """
     )
 
-    # Need to reimport app to pick up new config
-    from importlib import reload
-
-    from nv_config_manager.temporal.api import main as temporal_main
-
+    # Reload the app to pick up the new config.
     reload(temporal_main)
 
     client = TestClient(temporal_main.app)

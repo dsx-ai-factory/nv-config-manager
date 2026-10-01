@@ -72,7 +72,7 @@ test.describe("Cumulus Hardware Validation Form", () => {
         `?site=${SITES_LIST.pdx01}` +
         `&role=${ROLES_LIST.leaf}` +
         `&status=${STATUS_LIST.active}` +
-        `&tenant=${TENANT_LIST.nsv}`
+        `&tenant=${TENANT_LIST.tenant_a}`
     );
 
     // Verify all fields are pre-populated
@@ -96,7 +96,7 @@ test.describe("Cumulus Hardware Validation Form", () => {
     ).toBeVisible({ timeout: TEST_TIMEOUT });
     await expect(
       page.getByRole("button", {
-        name: `${TENANT_LIST.nsv}. Open options`,
+        name: `${TENANT_LIST.tenant_a}. Open options`,
         exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
@@ -113,7 +113,7 @@ test.describe("Cumulus Hardware Validation Form", () => {
       site: SITES_LIST.pdx01,
       roles: [ROLES_LIST.leaf],
       status: [STATUS_LIST.active],
-      tenant: TENANT_LIST.nsv,
+      tenant: TENANT_LIST.tenant_a,
       device_type_ids: [],
       raise_for_invalid: false,
     });
@@ -139,7 +139,7 @@ test.describe("Cumulus Hardware Validation Form", () => {
         `?site=${SITES_LIST.pdx01}` +
         `&role=${ROLES_LIST.leaf}` +
         `&status=${STATUS_LIST.active}` +
-        `&tenant=${TENANT_LIST.nsv}`
+        `&tenant=${TENANT_LIST.tenant_a}`
     );
 
     // Verify all fields are pre-populated
@@ -163,7 +163,7 @@ test.describe("Cumulus Hardware Validation Form", () => {
     ).toBeVisible({ timeout: TEST_TIMEOUT });
     await expect(
       page.getByRole("button", {
-        name: `${TENANT_LIST.nsv}. Open options`,
+        name: `${TENANT_LIST.tenant_a}. Open options`,
         exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
@@ -202,7 +202,7 @@ test.describe("Cumulus Hardware Validation Form", () => {
       site: SITES_LIST.rno1,
       roles: [ROLES_LIST.leaf, ROLES_LIST.spine],
       status: [STATUS_LIST.active],
-      tenant: TENANT_LIST.nsv,
+      tenant: TENANT_LIST.tenant_a,
       device_type_ids: [],
       raise_for_invalid: false,
     });
@@ -463,7 +463,7 @@ test.describe("Cumulus Hardware Validation Form", () => {
         `&role=${ROLES_LIST.spine}` +
         `&status=${STATUS_LIST.active}` +
         `&status=${STATUS_LIST.planned}` +
-        `&tenant=${TENANT_LIST.nsv}`
+        `&tenant=${TENANT_LIST.tenant_a}`
     );
 
     // Verify multiple values are pre-populated
@@ -492,7 +492,7 @@ test.describe("Cumulus Hardware Validation Form", () => {
       site: SITES_LIST.pdx01,
       roles: [ROLES_LIST.leaf, ROLES_LIST.spine],
       status: [STATUS_LIST.active, STATUS_LIST.planned],
-      tenant: TENANT_LIST.nsv,
+      tenant: TENANT_LIST.tenant_a,
       device_type_ids: [],
       raise_for_invalid: false,
     });

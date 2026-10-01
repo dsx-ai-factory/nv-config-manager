@@ -99,6 +99,9 @@ function getWorkflowStatusLabel(status: string): string {
 }
 
 function getWorkflowDisplayStatus(workflow: WorkflowColumns): string {
+  if (workflow.status != "RUNNING") {
+    return workflow.status;
+  }
   if (workflow.failed_stage) {
     return "FAILED";
   }
@@ -112,11 +115,11 @@ function FilterValueIcon({
   label,
   param,
   value,
-}: {
+}: Readonly<{
   label: string;
   param: string;
   value: string;
-}) {
+}>) {
   const searchParams = useSearchParams();
   const isActive = isFilterActive(searchParams, param, value);
   const ariaLabel = isActive
@@ -144,12 +147,12 @@ function FilterableValue({
   label,
   param,
   value,
-}: {
+}: Readonly<{
   children: ReactNode;
   label: string;
   param: string;
   value: string;
-}) {
+}>) {
   const title =
     typeof children === "string" || typeof children === "number"
       ? String(children)
@@ -165,7 +168,9 @@ function FilterableValue({
   );
 }
 
-function WorkflowDateTimeCell({ value }: { value?: string | null }) {
+function WorkflowDateTimeCell({
+  value,
+}: Readonly<{ value?: string | null }>) {
   if (!value) {
     return null;
   }
@@ -200,7 +205,9 @@ function WorkflowDateTimeCell({ value }: { value?: string | null }) {
 }
 
 // Component wrapper to use runtime config in cell renderer
-function DeviceNameCell({ workflow }: { workflow: WorkflowColumns }) {
+function DeviceNameCell({
+  workflow,
+}: Readonly<{ workflow: WorkflowColumns }>) {
   const { config } = useRuntimeConfig();
   const deviceName = workflow.search_attributes.DeviceName?.[0];
   const deviceNameValue = deviceName ? String(deviceName) : "";
@@ -215,7 +222,11 @@ function DeviceNameCell({ workflow }: { workflow: WorkflowColumns }) {
       param="device_name"
       value={deviceNameValue}
     >
-      {renderDeviceNameField(workflow, config?.nautobotUrl)}
+      {renderDeviceNameField(
+        workflow,
+        config?.dcimUrl,
+        config?.dcimDisplayName
+      )}
     </FilterableValue>
   );
 }
@@ -224,11 +235,11 @@ function SearchAttributeCell({
   label,
   param,
   values,
-}: {
+}: Readonly<{
   label: string;
   param: string;
   values?: WorkflowColumns["search_attributes"][string];
-}) {
+}>) {
   if (!values || values.length === 0) {
     return null;
   }

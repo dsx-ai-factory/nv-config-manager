@@ -169,4 +169,4 @@ installer/.pytest_cache/
 ui/.next/
 ui/playwright-report/
 ui/test-results/
-components/network-templates/coverage.xml
+packages/templates/coverage.xml

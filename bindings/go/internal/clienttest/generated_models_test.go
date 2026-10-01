@@ -20,6 +20,7 @@ import (
 	"github.com/nvidia/nv-config-manager/bindings/go/config-store"
 	"github.com/nvidia/nv-config-manager/bindings/go/dhcp"
 	"github.com/nvidia/nv-config-manager/bindings/go/render"
+	"github.com/nvidia/nv-config-manager/bindings/go/temporal"
 	"github.com/nvidia/nv-config-manager/bindings/go/ztp"
 )
 
@@ -33,10 +34,11 @@ func TestGeneratedDeviceCableValidationInputDocumentsDevice(t *testing.T) {
 
 func TestGeneratedBackupInputDocumentsOptionalMetadata(t *testing.T) {
 	expected := map[string]string{
-		"IntendedConfigCommitId": "Config Store commit containing the intended configuration.",
-		"User":                   "User that requested the backup.",
-		"UserDomain":             "Domain of the user requesting the backup.",
-		"WorkflowId":             "Identifier of the parent workflow, if any.",
+		"IntendedConfigCommitId":    "Config Store commit containing the intended configuration.",
+		"SuppressDriftNotification": "Suppress the Slack notification when configuration drift is detected.",
+		"User":                      "User that requested the backup.",
+		"UserDomain":                "Domain of the user requesting the backup.",
+		"WorkflowId":                "Identifier of the parent workflow, if any.",
 	}
 	comments := generatedStructFieldComments(t, "model_backup_input.go")
 	for field, expectedComment := range expected {
@@ -145,5 +147,21 @@ func TestGeneratedUnionRejectsNullAndEmptyValue(t *testing.T) {
 	}
 	if _, err := json.Marshal(configstore.LocationInner{}); err == nil {
 		t.Fatal("json.Marshal() accepted an empty non-nullable union")
+	}
+}
+
+func TestGeneratedLocationFieldsRetainStringContract(t *testing.T) {
+	input := temporal.NewSiteCableValidationInput("42")
+	input.SetSiteType("Site")
+
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(encoded), `"site":"42"`) {
+		t.Fatalf("site is not encoded as a string: %s", encoded)
+	}
+	if !strings.Contains(string(encoded), `"site_type":"Site"`) {
+		t.Fatalf("site_type is not encoded: %s", encoded)
 	}
 }

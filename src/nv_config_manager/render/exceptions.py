@@ -17,7 +17,3 @@
 
 class RenderException(Exception):
     """Failure to render device configuration."""
-
-
-class NautobotException(Exception):
-    """Failure with nautobot interaction."""

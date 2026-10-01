@@ -19,6 +19,7 @@ import { fetcher } from "@/lib/fetcher";
 import { useRuntimeConfig } from "@/config/runtime";
 import { mapRoles, sanitizeUrl } from "@/lib/utils";
 import { Option } from "@/types/workflow-form.types";
+import { parseLocationValue } from "@/lib/location-options";
 
 interface UseNamespaceTagsReturn {
   namespaceTags: Option[];
@@ -33,14 +34,17 @@ const useNamespaceTags = (location?: string): UseNamespaceTagsReturn => {
   const params = new URLSearchParams();
 
   if (location) {
-    params.set("location", location);
+    const reference = parseLocationValue(location);
+    if (reference) {
+      params.set("location", reference.id);
+      if (reference.locationType) params.set("location_type", reference.locationType);
+    }
   }
 
   const queryString = params.toString();
+  const query = queryString ? `?${queryString}` : "";
   const url = apiURL
-    ? sanitizeUrl(
-        `${apiURL}/v1/parameter/namespace-tag${queryString ? `?${queryString}` : ""}`
-      )
+    ? sanitizeUrl(`${apiURL}/v1/parameter/namespace-tag${query}`)
     : null;
 
   const { data, error, isLoading } = useSWR(url, fetcher);

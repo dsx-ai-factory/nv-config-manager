@@ -258,7 +258,10 @@ const ErrorWithCauses = ({ error }: { error: ParsedError }) => (
   </div>
 )
 
-export function ErrorTracebackViewer({ error, className }: ErrorTracebackViewerProps) {
+export function ErrorTracebackViewer({
+  error,
+  className,
+}: Readonly<ErrorTracebackViewerProps>) {
   const [copied, setCopied] = useState(false)
   const parsedErrors = parseTraceback(error.traceback)
 

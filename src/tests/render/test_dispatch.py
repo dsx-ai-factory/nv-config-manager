@@ -12,105 +12,125 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from unittest.mock import MagicMock, patch
-from uuid import uuid4
+"""Tests for provider-registered render event dispatching."""
+
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from nv_config_manager.dcim import DCIMChangeEvent, RenderEventRequest
 from nv_config_manager.render.dispatch import EventDispatcher
-from nv_config_manager.render.events import (
-    autonomoussystem,
-    bgproutinginstance,
-    cable,
-    cablepath,
-    configcontext,
-    configmanagerdevicestatus,
-    device,
-    deviceredundancygroup,
-    frontport,
-    interface,
-    ipaddress,
-    peerendpoint,
-    peergroup,
-    peering,
-    prefix,
-    rearport,
-    vrf,
-)
 
 
-def test_dispatch_table():
-    dispatcher = EventDispatcher()
+class SyntheticRenderEventProvider:
+    """Small provider that proves the dispatcher owns no object-type logic."""
 
-    assert dispatcher.dispatch_table == {
-        "nautobot_bgp_models.autonomoussystem": autonomoussystem,
-        "nautobot_bgp_models.peering": peering,
-        "nautobot_bgp_models.peergroup": peergroup,
-        "nautobot_bgp_models.peerendpoint": peerendpoint,
-        "nautobot_bgp_models.bgproutinginstance": bgproutinginstance,
-        "dcim.cable": cable,
-        "dcim.cablepath": cablepath,
-        "extras.configcontext": configcontext,
-        "dcim.device": device,
-        "dcim.deviceredundancygroup": deviceredundancygroup,
-        "dcim.frontport": frontport,
-        "dcim.interface": interface,
-        "dcim.rearport": rearport,
-        "ipam.vrf": vrf,
-        "ipam.prefix": prefix,
-        "ipam.ipaddress": ipaddress,
-        "nv_config_manager.configmanagerdevicestatus": configmanagerdevicestatus,
-    }
+    def register_render_event_handlers(self, registry) -> None:
+        """Register the one synthetic event type."""
+        registry.register_render_event_handler("synthetic.device", self.device)
+
+    async def device(self, event, client) -> tuple[RenderEventRequest, ...]:
+        """Identify the device entirely in provider code."""
+        assert client is not None
+        return (RenderEventRequest(device_id=event.object_id, commit_message="synthetic change"),)
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager.render.events.dcim.queue_render")
-async def test_nautobot_event_dispatch(mock_enqueue, base_message):
-    # Mocking at the render instead of mocking the
-    # device function as that's tricky with the
-    # way the events functions are imported
-    test_uuid = uuid4()
-    base_message["model"] = "dcim.device"
-    base_message["event"] = "create"
-    base_message["record"]["id"] = test_uuid
-    base_message["record"]["name"] = "test-device"
+async def test_dispatch_uses_provider_registered_handler():
+    """A selected provider defines event types and affected devices."""
+    dispatcher = EventDispatcher(SyntheticRenderEventProvider())
+    dcim_client = AsyncMock()
 
-    dispatcher = EventDispatcher()
-    await dispatcher.nautobot_event_dispatch(base_message)
-    mock_enqueue.assert_called_once_with(
-        device_uuid=test_uuid,
-        commit_message="Triggered from nb dcim.device create on test-device by testuser at 2024-01-16T21:46:05Z",
-        user="testuser",
-        timestamp="2024-01-16T21:46:05Z",
+    @asynccontextmanager
+    async def session():
+        yield dcim_client
+
+    event = DCIMChangeEvent(
+        provider="synthetic",
+        operation="update",
+        object_type="synthetic.device",
+        object_id="device-1",
+        timestamp="2026-07-20T00:00:00Z",
+        actor="user",
+        record={"id": "device-1"},
+    )
+
+    with (
+        patch("nv_config_manager.render.dispatch.dcim_client_session", session),
+        patch(
+            "nv_config_manager.render.dispatch.queue_render_batch",
+            new_callable=AsyncMock,
+            return_value=(1, []),
+        ) as queue_render_batch,
+    ):
+        await dispatcher.dcim_event_dispatch(event)
+
+    queue_render_batch.assert_awaited_once_with(
+        ["device-1"],
+        "synthetic change",
+        "user",
+        "2026-07-20T00:00:00Z",
+        dcim_client=dcim_client,
     )
 
 
 @pytest.mark.asyncio
-async def test_nautobot_event_dispatch_no_handler(base_message):
-    dispatcher = EventDispatcher()
+async def test_dispatch_ignores_unregistered_provider_event():
+    """Unknown event types are safely ignored without opening a provider client."""
+    dispatcher = EventDispatcher(SyntheticRenderEventProvider())
     dispatcher.logger.info = MagicMock()
-    base_message["model"] = "extras.notes"
-    await dispatcher.nautobot_event_dispatch(base_message)
+    event = DCIMChangeEvent(
+        provider="synthetic",
+        operation="update",
+        object_type="synthetic.other",
+        object_id="other-1",
+        timestamp="2026-07-20T00:00:00Z",
+        record={"id": "other-1"},
+    )
+
+    await dispatcher.dcim_event_dispatch(event)
+
     dispatcher.logger.info.assert_called_once_with(
-        "No event handler implemented for %s, ignoring message.", "extras.notes"
+        "No event handler implemented for %s, ignoring message.", "synthetic.other"
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_logs_event_without_record() -> None:
+    """Record-less events are observable when the dispatcher skips them."""
+    dispatcher = EventDispatcher(SyntheticRenderEventProvider())
+    dispatcher.logger.info = MagicMock()
+    event = DCIMChangeEvent(
+        provider="synthetic",
+        operation="delete",
+        object_type="synthetic.device",
+        object_id="device-1",
+        timestamp="2026-07-20T00:00:00Z",
+        record=None,
+    )
+
+    await dispatcher.dcim_event_dispatch(event)
+
+    dispatcher.logger.info.assert_called_once_with(
+        "Event %s for object %s has no record, ignoring message.",
+        "synthetic.device",
+        "device-1",
     )
 
 
 @patch("nv_config_manager.render.dispatch.execute_render")
 @pytest.mark.asyncio
 async def test_nautobot_change_dispatch(mock_render):
-    test_uuid = uuid4()
+    """The existing render-work queue continues to execute a device render."""
+    dispatcher = EventDispatcher(SyntheticRenderEventProvider())
     message = {
-        "device_id": test_uuid,
+        "device_id": "device-1",
         "commit_message": "test commit message",
         "user": "test",
         "@timestamp": "2025-08-13T20:00:30Z",
     }
 
-    dispatcher = EventDispatcher()
     await dispatcher.nautobot_change_dispatch(message)
-    mock_render.assert_called_once_with(
-        test_uuid,
-        "test commit message",
-        "test",
-    )
+
+    mock_render.assert_called_once_with("device-1", "test commit message", "test")

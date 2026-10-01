@@ -32,6 +32,7 @@ import { Form } from "@/components/ui/form";
 import { useToast } from "@/components/ui/use-toast";
 import { useEnvData, useDevices } from "@/hooks";
 import { getErrorMessage, startWorkflow } from "@/lib/utils";
+import { resolveLocationFormValue } from "@/lib/location-options";
 import { WorkflowFormField } from "@/components/forms/formfield";
 import { PortLLDPInfoWorkflowInput } from "@/types/data-table.types";
 import { DeviceOption } from "@/types/workflow-form.types";
@@ -187,19 +188,19 @@ export const PortLLDPInfoWorkflowForm = () => {
 
   useEffect(() => {
     if (querySite && !isManualChange) {
-      const isSiteValid = sites.some((option) => option.key === querySite);
-      const siteId = sites.find((option) => option.key === querySite)?.value;
+      const siteId = resolveLocationFormValue(sites, querySite);
+      const isSiteValid = siteId !== undefined;
 
-      if (!isSiteValid) {
+      if (isSiteValid) {
+        if (siteId && form.getValues("site") !== siteId && !hasMacAddress) {
+          form.setValue("site", siteId); // Set valid site from URL
+        }
+      } else {
         if (form.getValues("site") !== "") {
           form.setValue("site", ""); // Clear site if invalid
         }
         if (form.getValues("device") !== "") {
           form.setValue("device", ""); // Clear device if site is invalid
-        }
-      } else {
-        if (siteId && form.getValues("site") !== siteId && !hasMacAddress) {
-          form.setValue("site", siteId); // Set valid site from URL
         }
       }
     }
@@ -215,10 +216,8 @@ export const PortLLDPInfoWorkflowForm = () => {
         if (form.getValues("device") !== queryDevice && !hasMacAddress) {
           form.setValue("device", queryDevice); // Set valid device from URL
         }
-      } else {
-        if (form.getValues("device") !== "") {
-          form.setValue("device", ""); // Clear device if invalid
-        }
+      } else if (form.getValues("device") !== "") {
+        form.setValue("device", ""); // Clear device if invalid
       }
     }
   }, [queryDevice, deviceData, form, isManualChange, hasMacAddress]);

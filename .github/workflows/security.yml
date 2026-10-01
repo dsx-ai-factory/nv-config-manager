@@ -30,9 +30,9 @@ jobs:
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@14229018fe157c83e03c008f27d183d8e99bc67c
       - name: Scan for secrets
-        uses: trufflesecurity/trufflehog@6f3c981e7b77f235fd2702dd74af25fc4b72bf11 # v3.96.0
+        uses: trufflesecurity/trufflehog@bcfcf73aaf4759d4dadc2783177c245a02792318 # v3.97.0
         with:
-          version: 3.96.0
+          version: 3.97.0
           extra_args: --results=verified,unknown
 
   codeql:

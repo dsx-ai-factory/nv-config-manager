@@ -223,6 +223,7 @@ class OverlayAssignmentTable(BaseTable):
     assigned_object = tables.TemplateColumn(
         template_code=ASSIGNED_OBJECT_TEMPLATE,
         verbose_name="Member",
+        orderable=False,
     )
     assigned_object_type = tables.Column(verbose_name="Type", accessor="assigned_object_type__model")
     device_location = tables.TemplateColumn(
@@ -265,6 +266,7 @@ class OverlayAssignmentTable(BaseTable):
             "overlay",
             "member_device",
             "member_interface",
+            "assigned_object",
             "assigned_object_type",
             "device_location",
             "device_rack",
@@ -291,6 +293,7 @@ class OverlayAssignmentInlineTable(BaseTable):
     assigned_object = tables.TemplateColumn(
         template_code=ASSIGNED_OBJECT_TEMPLATE,
         verbose_name="Member",
+        orderable=False,
     )
     assigned_object_type = tables.Column(verbose_name="Type", accessor="assigned_object_type__model")
     device_location = tables.TemplateColumn(
@@ -327,6 +330,7 @@ class OverlayAssignmentInlineTable(BaseTable):
             "pk",
             "member_device",
             "member_interface",
+            "assigned_object",
             "assigned_object_type",
             "device_location",
             "device_rack",

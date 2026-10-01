@@ -18,16 +18,20 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Container
-from textual.widgets import Input, Label
+from textual.widgets import Input, Label, Select
 
 from nv_config_manager_installer.schema import (
+    BUILT_IN_NAUTOBOT_PROVIDER,
+    ExternalNATSConfig,
     ExternalTemporalConfig,
+    NATSAuthMethod,
     NVConfigManagerInstallConfig,
     TemporalAuthMethod,
 )
 from nv_config_manager_installer.tui.widgets import LabeledSwitch
 
 _W_EXT_NAUTOBOT = "#ext-nautobot-enabled"
+_W_EXT_NATS = "#ext-nats-enabled"
 _W_EXT_REDIS = "#ext-redis-enabled"
 _W_EXT_PG = "#ext-pg-enabled"
 _W_EXT_TEMPORAL = "#ext-temporal-enabled"
@@ -56,7 +60,7 @@ class ExternalServicesScreen(Container):
             "Leave disabled to use the default in-cluster deployments."
         )
 
-        # ── Nautobot ───────────────────────────────────────────────────────
+        # ── Nautobot ──────────────────────────────────────────────────────
         yield Label("Nautobot", classes="field-label")
         yield LabeledSwitch(
             "Use external Nautobot",
@@ -64,12 +68,46 @@ class ExternalServicesScreen(Container):
             id="ext-nautobot-enabled",
         )
         with Container(id="ext-nautobot-fields"):
-            yield Label("Nautobot URL", classes="field-label")
+            yield Label("Nautobot endpoint", classes="field-label")
             yield Input(
-                value=svc.external_nautobot_url,
+                value=self._config.dcim.server or svc.external_nautobot_url,
                 placeholder="https://nautobot.example.com",
                 id="ext-nautobot-url",
             )
+
+        # ── NATS ──────────────────────────────────────────────────────────
+        nats = es.nats
+        yield Label("NATS", classes="field-label")
+        yield LabeledSwitch(
+            "Use external NATS",
+            value=nats.enabled,
+            id="ext-nats-enabled",
+        )
+        with Container(id="ext-nats-fields"):
+            yield Label("Server URL", classes="field-label")
+            yield Input(
+                value=nats.server,
+                placeholder="nats://nats.example.com:4222",
+                id="ext-nats-server",
+            )
+            yield Label("Authentication", classes="field-label")
+            yield Select(
+                [
+                    ("Password", NATSAuthMethod.PASSWORD.value),
+                    ("JWT credentials", NATSAuthMethod.JWT.value),
+                ],
+                value=nats.auth_method.value,
+                allow_blank=False,
+                id="ext-nats-auth-method",
+            )
+            yield Label("Username (password auth)", classes="field-label")
+            yield Input(value=nats.user, id="ext-nats-user")
+            yield Label("Password Secret name (optional)", classes="field-label")
+            yield Input(value=nats.secret_name, id="ext-nats-secret-name")
+            yield Label("ExternalSecret name (optional)", classes="field-label")
+            yield Input(value=nats.external_secret_name, id="ext-nats-external-secret-name")
+            yield Label("Credentials path (JWT auth)", classes="field-label")
+            yield Input(value=nats.creds_path, id="ext-nats-creds-path")
 
         # ── Redis ──────────────────────────────────────────────────────────
         yield Label("Redis", classes="field-label")
@@ -177,6 +215,7 @@ class ExternalServicesScreen(Container):
 
     def on_mount(self) -> None:
         self._toggle_nautobot_fields()
+        self._toggle_nats_fields()
         self._toggle_redis_fields()
         self._toggle_temporal_fields()
         self._toggle_pg_fields()
@@ -185,6 +224,8 @@ class ExternalServicesScreen(Container):
         sid = event.labeled_switch.id
         if sid == "ext-nautobot-enabled":
             self._toggle_nautobot_fields()
+        elif sid == "ext-nats-enabled":
+            self._toggle_nats_fields()
         elif sid == "ext-redis-enabled":
             self._toggle_redis_fields()
         elif sid == "ext-temporal-enabled":
@@ -197,6 +238,11 @@ class ExternalServicesScreen(Container):
     def _toggle_nautobot_fields(self) -> None:
         self.query_one("#ext-nautobot-fields").display = self.query_one(
             _W_EXT_NAUTOBOT, LabeledSwitch
+        ).value
+
+    def _toggle_nats_fields(self) -> None:
+        self.query_one("#ext-nats-fields").display = self.query_one(
+            _W_EXT_NATS, LabeledSwitch
         ).value
 
     def _toggle_redis_fields(self) -> None:
@@ -225,11 +271,24 @@ class ExternalServicesScreen(Container):
 
     def write_to_config(self, config: NVConfigManagerInstallConfig) -> None:
         nautobot_external = self.query_one(_W_EXT_NAUTOBOT, LabeledSwitch).value
-        nautobot_url = self.query_one("#ext-nautobot-url", Input).value.strip()
+        nautobot_server = self.query_one("#ext-nautobot-url", Input).value.strip()
+        config.dcim.provider = BUILT_IN_NAUTOBOT_PROVIDER
         config.services.nautobot = not nautobot_external
-        config.services.external_nautobot_url = nautobot_url if nautobot_external else ""
+        config.services.external_nautobot_url = nautobot_server if nautobot_external else ""
+        config.dcim.server = nautobot_server if nautobot_external else ""
 
         es = config.external_services
+        es.nats = ExternalNATSConfig(
+            enabled=self.query_one(_W_EXT_NATS, LabeledSwitch).value,
+            server=self.query_one("#ext-nats-server", Input).value.strip(),
+            auth_method=NATSAuthMethod(self.query_one("#ext-nats-auth-method", Select).value),
+            user=self.query_one("#ext-nats-user", Input).value.strip(),
+            secret_name=self.query_one("#ext-nats-secret-name", Input).value.strip(),
+            external_secret_name=self.query_one(
+                "#ext-nats-external-secret-name", Input
+            ).value.strip(),
+            creds_path=self.query_one("#ext-nats-creds-path", Input).value.strip(),
+        )
         r = es.redis
         r.enabled = self.query_one(_W_EXT_REDIS, LabeledSwitch).value
         r.host = self.query_one("#ext-redis-host", Input).value.strip()
@@ -274,7 +333,18 @@ class ExternalServicesScreen(Container):
         svc = config.services
         try:
             self.query_one(_W_EXT_NAUTOBOT, LabeledSwitch).value = not svc.nautobot
-            self.query_one("#ext-nautobot-url", Input).value = svc.external_nautobot_url
+            self.query_one("#ext-nautobot-url", Input).value = (
+                config.dcim.server or svc.external_nautobot_url
+            )
+            self.query_one(_W_EXT_NATS, LabeledSwitch).value = es.nats.enabled
+            self.query_one("#ext-nats-server", Input).value = es.nats.server
+            self.query_one("#ext-nats-auth-method", Select).value = es.nats.auth_method.value
+            self.query_one("#ext-nats-user", Input).value = es.nats.user
+            self.query_one("#ext-nats-secret-name", Input).value = es.nats.secret_name
+            self.query_one(
+                "#ext-nats-external-secret-name", Input
+            ).value = es.nats.external_secret_name
+            self.query_one("#ext-nats-creds-path", Input).value = es.nats.creds_path
             self.query_one(_W_EXT_REDIS, LabeledSwitch).value = r.enabled
             self.query_one("#ext-redis-host", Input).value = r.host
             self.query_one("#ext-redis-port", Input).value = str(r.port)
@@ -299,13 +369,18 @@ class ExternalServicesScreen(Container):
         except LookupError:
             pass  # widgets may not be mounted yet (called before compose)
         self._toggle_nautobot_fields()
+        self._toggle_nats_fields()
         self._toggle_redis_fields()
         self._toggle_temporal_fields()
         self._toggle_pg_fields()
 
     def get_status(self, config: NVConfigManagerInstallConfig) -> str:
         es = config.external_services
-        if not config.services.nautobot and not config.services.external_nautobot_url:
+        if not config.services.nautobot and not (
+            config.dcim.server or config.services.external_nautobot_url
+        ):
+            return "[!]"
+        if es.nats.enabled and not es.nats.server:
             return "[!]"
         if es.redis.enabled and not es.redis.host:
             return "[!]"
@@ -316,6 +391,11 @@ class ExternalServicesScreen(Container):
             ]
         ):
             return "[!]"
-        if not config.services.nautobot or es.redis.enabled or es.postgres.enabled:
+        if (
+            not config.services.nautobot
+            or es.nats.enabled
+            or es.redis.enabled
+            or es.postgres.enabled
+        ):
             return "[*]"
         return "[ ]"

@@ -53,6 +53,33 @@ class FakeWorkflowClient:
         }
 
 
+class FakeDCIMClient:
+    """Provider client double that records MCP-scoped calls."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def close(self) -> None:
+        """Record that the provider client was released."""
+        self.closed = True
+
+    async def graphql_query(
+        self,
+        query: str,
+        variables: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return the request metadata needed by the test."""
+        return {"query": query, "variables": variables}
+
+    async def get(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return the request metadata needed by the test."""
+        return {"path": path, "params": params}
+
+
 @pytest.fixture
 def settings() -> MCPSettings:
     return MCPSettings(
@@ -137,3 +164,39 @@ async def test_fetch_device_configs_preserves_list_response_shape(
     result = await clients.fetch_device_configs(settings, "device-1")
 
     assert result == {"truncated": False, "data": config_files}
+
+
+async def test_nautobot_graphql_uses_provider_owned_adapter(
+    settings: MCPSettings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MCP obtains its Nautobot client through the selected provider."""
+    dcim_client = FakeDCIMClient()
+    monkeypatch.setattr(clients, "nautobot_mcp_client", lambda settings: dcim_client)
+    monkeypatch.setattr(clients, "config_auth_required", lambda: False)
+
+    result = await clients.nautobot_graphql_query(settings, "query { devices { id } }")
+
+    assert result["data"] == {
+        "query": "query { devices { id } }",
+        "variables": None,
+    }
+    assert dcim_client.closed is True
+
+
+async def test_nautobot_rest_get_uses_provider_owned_adapter(
+    settings: MCPSettings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MCP REST access is delegated to the optional Nautobot provider adapter."""
+    dcim_client = FakeDCIMClient()
+    monkeypatch.setattr(clients, "nautobot_mcp_client", lambda settings: dcim_client)
+    monkeypatch.setattr(clients, "config_auth_required", lambda: False)
+
+    result = await clients.nautobot_rest_get(settings, "dcim/devices/", {"name": "leaf-1"})
+
+    assert result["data"] == {
+        "path": "dcim/devices/",
+        "params": {"name": "leaf-1"},
+    }
+    assert dcim_client.closed is True

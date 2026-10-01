@@ -73,13 +73,47 @@ class Settings:
         self.redis_socket_timeout = self.config.getint("redis", "socket_timeout")
         self.redis_socket_connect_timeout = self.config.getint("redis", "socket_connect_timeout")
 
-        # Nautobot integration (from INI file)
-        self.nautobot_url = self.config.get("nautobot", "server")
-        self.nautobot_token = self.config.get("nautobot", "token")
-        self.nautobot_cache_refresh_interval = self.config.getint(
-            "nautobot", "cache_refresh_interval"
+        # DCIM integration. The selected provider owns connection semantics.
+        self.dcim_url = self.config.get(
+            "dcim",
+            "server",
+            fallback=self.config.get("nautobot", "server", fallback=""),
         )
-        self.nautobot_cache_ttl = self.config.getint("nautobot", "cache_ttl")
+        self.dcim_token = self.config.get(
+            "dcim",
+            "token",
+            fallback=self.config.get("nautobot", "token", fallback=""),
+        )
+        self.dcim_cache_refresh_interval = self.config.getint(
+            "dcim",
+            "cache_refresh_interval",
+            fallback=self.config.getint("nautobot", "cache_refresh_interval", fallback=3600),
+        )
+        self.dcim_cache_ttl = self.config.getint(
+            "dcim",
+            "cache_ttl",
+            fallback=self.config.getint("nautobot", "cache_ttl", fallback=86400),
+        )
+
+    @property
+    def nautobot_url(self) -> str:
+        """Return the legacy alias for :attr:`dcim_url`."""
+        return self.dcim_url
+
+    @property
+    def nautobot_token(self) -> str:
+        """Return the legacy alias for :attr:`dcim_token`."""
+        return self.dcim_token
+
+    @property
+    def nautobot_cache_refresh_interval(self) -> int:
+        """Return the legacy alias for :attr:`dcim_cache_refresh_interval`."""
+        return self.dcim_cache_refresh_interval
+
+    @property
+    def nautobot_cache_ttl(self) -> int:
+        """Return the legacy alias for :attr:`dcim_cache_ttl`."""
+        return self.dcim_cache_ttl
 
 
 settings = Settings()

@@ -45,7 +45,7 @@ def test_git_token_is_not_persisted_in_setup_script() -> None:
         internal_ip="10.100.1.2/25",
         site_name="SPO01",
         oob_gateway="10.100.1.1",
-        config_manager_repo="https://github.com/NVIDIA/nv-config-manager.git",
+        config_manager_repo="https://github.com/dsx-ai-factory/nv-config-manager.git",
         config_manager_ref="main",
         git_token=token,
     )

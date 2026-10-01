@@ -61,7 +61,7 @@ export default function WorkflowsPage() {
   }, [error]);
 
   useEffect(() => {
-    const hash = window.location.hash;
+    const hash = globalThis.location.hash;
 
     if (hash) {
       const element = document.querySelector(hash);
@@ -77,7 +77,7 @@ export default function WorkflowsPage() {
         error={workflowMetadataError}
         errorConfig={getErrorConfig(workflowMetadataError)}
         reset={function (): void {
-          window.location.reload();
+          globalThis.location.reload();
         }}
       />
     );

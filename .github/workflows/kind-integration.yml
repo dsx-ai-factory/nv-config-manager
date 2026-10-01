@@ -1,6 +1,8 @@
 name: Kind Integration
 
 on:
+  schedule:
+    - cron: "31 7 * * 1"
   workflow_dispatch:
     inputs:
       test_path:
@@ -43,7 +45,7 @@ env:
 jobs:
   integration:
     name: Kind Integration
-    if: startsWith(github.ref, 'refs/heads/pull-request/')
+    if: startsWith(github.ref, 'refs/heads/pull-request/') || (github.event_name == 'schedule' && github.ref == 'refs/heads/main')
     runs-on: linux-amd64-cpu32m
     permissions:
       contents: read
@@ -53,7 +55,7 @@ jobs:
       NV_CONFIG_MANAGER_NAMESPACE: nv-config-manager
       NV_CONFIG_MANAGER_RELEASE: nv-config-manager
       NV_CONFIG_MANAGER_HOSTNAME: config-manager.local
-      TEST_PATH: ${{ inputs.test_path }}
+      TEST_PATH: ${{ inputs.test_path || 'src/tests/integration/' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         timeout-minutes: 5

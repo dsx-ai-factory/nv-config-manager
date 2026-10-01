@@ -1,0 +1,15 @@
+---
+# Runnerless environment buttons in the trusted request pipeline create this
+# child pipeline. Keeping the child configuration narrow prevents unrelated
+# default-branch jobs from running and keeps its result off the main ref status.
+stages:
+  - deploy
+
+workflow:
+  name: "Promote PR #${NVCM_PROMOTE_PR} to ${NVCM_PROMOTE_ENV}"
+
+include:
+  # Import only the shared image pins, not common.yml's workflow or full stage
+  # list, so top-level and child pipelines cannot drift independently.
+  - local: .gitlab/ci/images.yml
+  - local: .gitlab/ci/promote-test-envs.yml

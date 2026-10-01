@@ -18,9 +18,8 @@ import * as React from "react";
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { badgeVariants, BadgeProps } from "@/components/ui/badge";
-import { StateHistory, WorkflowStage } from "@/types/data-table.types";
+import { StateHistory, Workflow, WorkflowStage } from "@/types/data-table.types";
 import { Link } from "@/components/ui/link";
-import { Workflow } from "@/types/data-table.types";
 import { Option } from "@/types/workflow-form.types";
 
 export function cn(...inputs: ClassValue[]) {
@@ -59,7 +58,7 @@ export function getInitialStage(stages: WorkflowStage[]): WorkflowStage | null {
   const completeStages = stages.filter((stage) => stage.state === "COMPLETE");
   const lastCompleted =
     completeStages.length > 0
-      ? completeStages[completeStages.length - 1]
+      ? completeStages.at(-1)
       : null;
 
   return inProgress ?? failed ?? lastCompleted ?? stages[0];
@@ -81,26 +80,28 @@ export const handleBadgeClassName = (state: StateHistory["state"]): string => {
 };
 
 /**
- * Build a Nautobot device link.
+ * Build a link to a device in the configured DCIM provider.
  *
  * @param deviceName - Device name.
- * @param deviceID - Device's Nautobot ID (GUID).
- * @param nautobotURL - Nautobot URL from runtime config.
- * @returns A Link component if the nautobotURL is truthy, device name if not.
+ * @param deviceID - Device identifier assigned by the DCIM provider.
+ * @param dcimURL - DCIM provider URL from runtime config.
+ * @param dcimDisplayName - User-facing name of the DCIM provider.
+ * @returns A Link component if the DCIM URL is truthy, device name if not.
  *
  */
-export const buildNautobotDeviceLink = (
+export const buildDCIMDeviceLink = (
   deviceName: string,
   deviceID: string,
-  nautobotURL?: string
+  dcimURL?: string,
+  dcimDisplayName = "DCIM"
 ): React.ReactElement<typeof Link> | string => {
-  if (nautobotURL) {
-    const href = `${nautobotURL}/dcim/devices/${deviceID}/?tab=main`;
+  if (dcimURL) {
+    const href = `${dcimURL}/dcim/devices/${deviceID}/`;
     const sanitizedUrl = sanitizeUrl(href);
     return (
       <Link
         href={sanitizedUrl}
-        title="View device in Nautobot (opens in new tab)"
+        title={`View device in ${dcimDisplayName} (opens in new tab)`}
       >
         {deviceName}
       </Link>
@@ -113,18 +114,20 @@ export const buildNautobotDeviceLink = (
  * Render a device name field based on available info.
  *
  * @param workflow Workflow record to parse device info from.
- * @param nautobotURL - Nautobot URL from runtime config.
+ * @param dcimURL - DCIM provider URL from runtime config.
+ * @param dcimDisplayName - User-facing name of the DCIM provider.
  * @returns One of the following:
- *  - If nautobotURL is set, and a device name/ID is
+ *  - If dcimURL is set, and a device name/ID is
  *    present in the workflow data, returns a Link element pointing to the device
- *    in Nautobot.
- *  - If Nautobot URL is not configured, but a device record is
+ *    in the DCIM provider.
+ *  - If the DCIM URL is not configured, but a device record is
  *    present in the workflow, returns the plaintext device name.
  *  - If no device record is present in workflow, returns null.
  */
 export const renderDeviceNameField = (
   workflow: Workflow,
-  nautobotURL?: string
+  dcimURL?: string,
+  dcimDisplayName = "DCIM"
 ): React.ReactElement<typeof Link> | string | null => {
   let deviceName: string | null = null;
   if (workflow?.search_attributes?.DeviceName) {
@@ -138,7 +141,7 @@ export const renderDeviceNameField = (
 
   if (deviceName) {
     if (deviceId) {
-      return buildNautobotDeviceLink(deviceName, deviceId, nautobotURL);
+      return buildDCIMDeviceLink(deviceName, deviceId, dcimURL, dcimDisplayName);
     } else {
       return deviceName;
     }
@@ -176,7 +179,7 @@ export const startWorkflow = async (endpoint: string, params: object) => {
       }
     }
     const result = await response.json();
-    window.location.href = `/workflows/${result.id}`;
+    globalThis.location.href = `/workflows/${result.id}`;
   });
 };
 

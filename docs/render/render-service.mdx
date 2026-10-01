@@ -6,7 +6,7 @@ position: 10
 
 ## Overview
 
-The NVIDIA Config Manager Network Template Render Service is an event-driven microservice that automatically generates and versions network device configurations. The service monitors Nautobot (the network's source of truth) for changes, and renders updated configurations using Jinja2 templates. The rendered configurations are stored in the Config Store.
+The NVIDIA Config Manager Network Template Render Service is an event-driven microservice that automatically generates and versions network device configurations. The configured DCIM provider supplies device data and change events; the built-in `nautobot-2x` provider remains the default. Rendered configurations are stored in the Config Store.
 
 ## Architecture
 
@@ -24,11 +24,31 @@ You can use the render service's API endpoints to trigger the rendering of netwo
 
 Two specialized pull-based consumers process NATS JetStream events:
 
-**Nautobot event consumer** responds to Nautobot model changes (device, interface, cable, IP address, and so on). The consumer dispatches events to model-specific handlers, and queues device renders.
+The **DCIM event consumer** responds to provider-neutral change events for
+objects such as devices, interfaces, cables, and IP addresses. The consumer
+validates the event envelope, dispatches it to model-specific handlers, and
+queues device renders. The built-in Nautobot provider translates its legacy
+changelog payload at the provider boundary during the compatibility window.
 
-**Device change consumer** responds to queued device render requests from event handlers. The consumer executes renders with distributed locking, and updates the config store.
+The **device change consumer** responds to queued render requests from event
+handlers. It executes renders with distributed locking and updates the Config
+Store.
 
 ### External NATS administration
+
+External NATS deployments using password or JWT authentication must provide a `tls://` or `wss://` endpoint. Secure WebSockets (`wss://`) establish TLS before the NATS handshake and do not require the native NATS `handshake_first` setting. Native `tls://` endpoints must enable TLS-first negotiation on the server. Add `handshake_first: true` to the server's existing `tls` block, retaining the deployment's certificate and verification settings:
+
+```text
+tls {
+    cert_file: "/path/to/server.crt"
+    key_file: "/path/to/server.key"
+    handshake_first: true
+}
+```
+
+For native `tls://` endpoints, the password- or JWT-authenticated client performs TLS before reading the initial server `INFO` message and does not fall back to INFO-first negotiation. NATS defaults to sending `INFO` before TLS, so a server without this setting can cause a TLS error or connection timeout even when its certificates and credentials are valid. The Helm chart does not configure an externally managed server; coordinate this setting with its administrator before connecting.
+
+TLS-first avoids relying on an unauthenticated `INFO` message to request encryption before sending credentials. This requirement applies to external password and JWT authentication; the bundled `nats://` deployment retains its existing negotiation behavior.
 
 The bundled NATS deployment creates the streams automatically. The application creates missing durable consumers at runtime in both bundled and externally managed deployments. When NATS is owned outside the Config Manager deployment, coordinate the streams, account imports, and user permissions with the NATS administrator. An administrator can own consumer provisioning instead by omitting create permission and provisioning the fixed durables described below.
 
@@ -75,28 +95,35 @@ If create permission is omitted and the durable is absent, the consumer logs the
 
 ### Event Dispatcher
 
-The event dispatcher is a dynamic event routing system that maps Nautobot model events to handler functions. The event dispatcher maintains a dispatch table that maps Nautobot model events to handler functions, and exposes Prometheus metrics for event processing.
+The event dispatcher is a dynamic event routing system that maps normalized DCIM object types to handler functions. It maintains a dispatch table for supported render impacts and exposes Prometheus metrics for event processing.
 
 ## Rendering Process
 
 The rendering process is as follows:
 
-1. Fetch device data from Nautobot.
+1. Fetch normalized `RenderData` from the selected DCIM provider.
 1. Render the configuration using the `nv_config_manager_templates.Renderer`.
 1. Persist the rendered files using the Config Store client.
-1. Record the commit metadata in Nautobot.
+1. Record intended-configuration metadata through the DCIM provider.
 
 ## Template Version Management
 
-**Template updater**: Runs as a Kubernetes job on service deployment. It queries Nautobot for devices with stale `template_version` and renders them directly with bounded concurrency and per-device locking.
+**Template updater**: Runs as a Kubernetes job after Helm installs and upgrades.
+It queries the selected DCIM provider for devices with a stale `template_version`
+and renders those devices directly with bounded concurrency. Each update uses the
+device's Redis-backed render lock.
 
-**Version tracking**: Successful renders record the `nv_config_manager_templates` version in Nautobot so subsequent updater runs can identify stale configurations.
+**Version tracking**: A successful render records the
+`nv_config_manager_templates` version through the selected DCIM provider. The
+next template-updater job skips devices that already have the current version.
 
 ## Deployment
 
-The service is deployed with two consumer deployments (Nautobot and device), a template-updater job that runs on Helm upgrade, and Redis for distributed locking. The service exposes Prometheus metrics on port 8000.
+The service uses two consumer deployments (`nautobot` and `device`), a separate
+template-updater job that runs after Helm installs and upgrades, and Redis for
+distributed locking. It exposes Prometheus metrics on port 8000.
 
-The service is configured using a configuration file (`config.py`). The configuration file contains the Nautobot URL and token, NATS connection details (TLS, credentials), Redis connection for locking, Config store client settings, and environment-specific aggregate management flags.
+The service is configured using a configuration file (`config.py`). The configuration file contains the selected DCIM provider settings, NATS connection details (TLS, credentials), Redis connection for locking, Config Store client settings, and environment-specific aggregate management flags. External providers configure `dcim_change_stream` and `dcim_change_subject`; empty Helm values retain the historical Nautobot stream and subject.
 
 ## Monitoring
 
@@ -110,7 +137,7 @@ The service is configured using a configuration file (`config.py`). The configur
 - `nv_config_manager_events_failed` - Events that failed processing (by exception type).
 - `nv_config_manager_event_processing_time` - Event processing duration histogram.
 
-**Nautobot changes**:
+**Legacy Nautobot change compatibility**:
 
 - `nv_config_manager_nautobot_change_messages_received`
 - `nv_config_manager_nautobot_change_messages_processed`
@@ -118,18 +145,11 @@ The service is configured using a configuration file (`config.py`). The configur
 - `nv_config_manager_nautobot_change_message_processing_time` - Render duration
 - `nv_config_manager_nautobot_change_message_end_to_end_time` - Nautobot publish to Config Store persist
 
-**Template changes**:
-
-- `nv_config_manager_template_change_messages_received` (by template_version)
-- `nv_config_manager_template_change_messages_processed`
-- `nv_config_manager_template_change_messages_failed`
-- `nv_config_manager_template_change_message_processing_time`
-
 ## Error handling
 
 **Exception types**:
 
-- `NautobotException` - Nautobot API errors, retry on transient failures
+- `DCIMError` - DCIM provider API errors, retry on transient failures
 - `RenderException` - Template rendering failures, ACK (do not retry)
 - `DeviceNotEnabledError` - Device not enabled for rendering, ACK
 - `EventParseError` - Malformed event data, fail counter incremented
@@ -138,19 +158,23 @@ The service is configured using a configuration file (`config.py`). The configur
 **Consumer behavior**:
 
 - **ACK**: Successful processing, render exceptions (will not succeed on retry), disabled devices
-- **NAK**: Transient failures, lock acquisition failures (5s delay), version mismatches (30s delay)
+- **NAK**: Transient failures and lock acquisition failures (5s delay)
 - **Consumer recreation**: Any fetch/heartbeat failure triggers automatic consumer rebuild
 
 ## Key design patterns
 
-**Dynamic handler discovery**: The event dispatcher builds routing table by introspecting `events/` module functions, eliminating manual registration.
+**Provider-owned handler registration**: The event dispatcher exposes a registration surface; the selected provider registers its own object-type handlers and owns affected-device resolution.
 
-**Pull-based consumption**: Consumers fetch messages on-demand rather than push-based subscriptions, enabling better flow control and horizontal scaling.
+**Pull-based consumption**: Consumers fetch messages on demand instead of using
+push-based subscriptions, which improves flow control and horizontal scaling.
 
 **Distributed locking**: Redis-backed locks prevent concurrent renders for the same device across multiple consumer instances.
 
-**Version-aware processing**: Template consumer compares running version to message version, refusing to process newer versions to enable safe rolling deployments.
+**Version-aware processing**: The template-updater job compares the current
+template package version with the version recorded by the selected DCIM
+provider. It renders stale devices directly with bounded concurrency and
+per-device locks.
 
-**Async blocking operations**: Long-running synchronous operations (Nautobot API calls, template rendering) run in thread pools using `asyncio.to_thread()` to avoid blocking the event loop.
+**Provider-backed data access**: Render obtains normalized device data and managed-device state from the configured DCIM provider. Template rendering runs in a thread pool using `asyncio.to_thread()` to avoid blocking the event loop.
 
-**Connection sharing**: `NATSConnectionManager` and `NautobotConnectionManager` share connections across components within a process.
+**Connection sharing**: `NATSConnectionManager` shares the NATS connection across components within a process.

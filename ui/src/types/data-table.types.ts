@@ -43,10 +43,6 @@ export type ConfigDiffWorkflowInput = {
   device_id: string;
 };
 
-export type TenantDeployWorkflowInput = {
-  device: string;
-};
-
 export type DevicePasswordRotationWorkflowInput = {
   device_id: string;
   selected_secret: string;
@@ -89,6 +85,7 @@ export type PortLLDPInfoWorkflowInput =
 
 export type SiteCableValidationWorkflowInput = {
   site: string;
+  site_type?: string;
   roles: string[];
   status: string[];
   tenant?: string;
@@ -98,6 +95,7 @@ export type SiteCableValidationWorkflowInput = {
 
 export type SiteBackupWorkflowInput = {
   site: string;
+  site_type?: string;
   roles: string[];
   status: string[];
   tenant?: string;
@@ -106,6 +104,7 @@ export type SiteBackupWorkflowInput = {
 
 export type CumulusHardwareValidationWorkflowInput = {
   site: string;
+  site_type?: string;
   roles: string[];
   status: string[];
   tenant?: string;
@@ -120,6 +119,7 @@ export type InfinibandCableValidationWorkflowInput = {
 
 export type SpXOverlayCreationWorkflowInput = {
   site: string;
+  site_type?: string;
   overlay_id: string;
   tenant: string;
   namespace_tag: string;
@@ -128,15 +128,17 @@ export type SpXOverlayCreationWorkflowInput = {
 };
 export interface SpXOverlayDeletionWorkflowInput {
   site: string;
+  site_type?: string;
   overlay_id: string;
   namespace_tag: string;
 }
 
 export type SpXOverlayTenantChangeWorkflowInput = {
-  overlay_id: string;
+  overlay_id?: string | null;
   device_id: string;
   port_names: string[];
   site: string;
+  site_type?: string;
   namespace_tag?: string;
 };
 
@@ -144,6 +146,7 @@ export type MultiDeployWorkflowInput = {
   role: string;
   max_batch_size: number;
   location?: string | null;
+  location_type?: string;
   status?: string[] | null;
   tenant?: string | null;
   commit_confirm?: boolean;
@@ -151,6 +154,7 @@ export type MultiDeployWorkflowInput = {
 
 export type SitePasswordRotationWorkflowInput = {
   location: string;
+  location_type?: string;
   selected_secret: string;
   roles: string[];
   tenant?: string;

@@ -16,17 +16,12 @@ check:
   rules:
     broken-links: error
 
+navbar-links:
+  - type: github
+    value: https://github.com/dsx-ai-factory/nv-config-manager
+
 settings:
   folder-title-source: frontmatter
-
-layout:
-  searchbar-placement: header
-  switcher-placement: header
-  page-width: 1376px
-  sidebar-width: 248px
-  content-width: 812px
-  tabs-placement: header
-  hide-feedback: true
 
 redirects:
   - source: /switch-infrastructure
@@ -71,6 +66,8 @@ navigation:
     - folder: ../overview
       collapsible: true
       collapsed-by-default: true
+    - page: Contribute a DCIM Provider
+      path: ../development/contributing-dcim-provider.mdx
     - folder: ../nautobot
       title: Nautobot Overview
       collapsible: true
@@ -99,9 +96,6 @@ navigation:
         path: ../user-guides/multi-deploy/index.mdx
       - page: Batch Deploy
         path: ../user-guides/batch-deploy/index.mdx
-      - page: Tenant Deploy
-        path: ../user-guides/tenant-deploy/index.mdx
-
     - section: Validation
       collapsible: true
       collapsed-by-default: true
@@ -232,6 +226,8 @@ navigation:
         path: ../render/render-service.mdx
       - page: Filter Quick Reference
         path: ../render/filter-quick-reference.mdx
+      - page: Nautobot Data Mapping
+        path: ../render/nautobot-data-mapping.mdx
       - page: Template Expansion
         path: ../render/template-expansion.mdx
       - api: Render Service API

@@ -62,7 +62,11 @@ function detectLanguage(filename?: string, explicitLanguage?: string): string {
   return languageMap[ext || ''] || 'text';
 }
 
-export function CodeBlock({ code, filename, language }: CodeBlockProps) {
+export function CodeBlock({
+  code,
+  filename,
+  language,
+}: Readonly<CodeBlockProps>) {
   const { theme, systemTheme } = useTheme();
   const currentTheme = theme === "system" ? systemTheme : theme;
   const detectedLanguage = detectLanguage(filename, language);
@@ -117,4 +121,3 @@ export function CodeBlock({ code, filename, language }: CodeBlockProps) {
     </div>
   );
 }
-

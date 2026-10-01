@@ -19,8 +19,8 @@ import os
 
 from nv_config_manager_templates.version import TemplateVersion
 
-from nv_config_manager.common.config import pynautobot_client
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager.dcim import dcim_client_session
 from nv_config_manager.render.lock import create_lock
 from nv_config_manager.render.render import execute_render
 
@@ -28,35 +28,20 @@ logger = get_logger(__name__, category=LogCategory.RENDER)
 DEFAULT_TEMPLATE_UPDATE_CONCURRENCY = 8
 DEFAULT_TEMPLATE_UPDATE_LOCK_TIMEOUT = 120
 
-# TODO: Add filtering in NB NVIDIA Config Manager on template_version
-QUERY = """
-query {
-  config_manager_devices{
-    device{
-      id
-    }
-    intended_config{
-      template_version
-    }
-  }
-}
-"""
 
-
-def load_stale_renders(desired_version: TemplateVersion | str) -> list[str]:
-    """Return all device UUIDs where last rendered with an old template version."""
+async def load_stale_renders(desired_version: TemplateVersion | str) -> list[str]:
+    """Return device IDs where the provider records an old template version."""
     desired_template_version = TemplateVersion.parse(desired_version)
-    nb = pynautobot_client()
-    existing_renders = nb.graphql.query(QUERY)
-    stale = []
-    for entry in existing_renders.json["data"]["config_manager_devices"]:
-        if not entry["intended_config"]:
-            # No existing render
+    async with dcim_client_session() as dcim_client:
+        existing_renders = await dcim_client.get_render_template_versions()
+
+    stale: list[str] = []
+    for entry in existing_renders:
+        if not entry.template_version:
             continue
-        template_version = TemplateVersion.parse(entry["intended_config"]["template_version"])
+        template_version = TemplateVersion.parse(entry.template_version)
         if desired_template_version > template_version:
-            # Our current version is newer than the last rendered version
-            stale.append(entry["device"]["id"])
+            stale.append(entry.device_id)
 
     return stale
 
@@ -132,7 +117,7 @@ async def update_stale_renders(
         if desired_version is None
         else TemplateVersion.parse(desired_version)
     )
-    stale_renders = load_stale_renders(desired_template_version)
+    stale_renders = await load_stale_renders(desired_template_version)
     if not stale_renders:
         logger.info("No change in template version from existing renders.")
         return 0

@@ -155,6 +155,120 @@ func (a *ParametersAPIService) GetDeviceIdByNameV1ParameterDeviceIdGetExecute(r 
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
+type ApiGetDeviceInterfacesV1ParameterDeviceDeviceIdInterfacesGetRequest struct {
+	ctx        context.Context
+	ApiService *ParametersAPIService
+	deviceId   string
+}
+
+func (r ApiGetDeviceInterfacesV1ParameterDeviceDeviceIdInterfacesGetRequest) Execute() ([]DeviceInterface, *http.Response, error) {
+	return r.ApiService.GetDeviceInterfacesV1ParameterDeviceDeviceIdInterfacesGetExecute(r)
+}
+
+/*
+GetDeviceInterfacesV1ParameterDeviceDeviceIdInterfacesGet Get Device Interfaces
+
+Return the interfaces belonging to a device.
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param deviceId
+	@return ApiGetDeviceInterfacesV1ParameterDeviceDeviceIdInterfacesGetRequest
+*/
+func (a *ParametersAPIService) GetDeviceInterfacesV1ParameterDeviceDeviceIdInterfacesGet(ctx context.Context, deviceId string) ApiGetDeviceInterfacesV1ParameterDeviceDeviceIdInterfacesGetRequest {
+	return ApiGetDeviceInterfacesV1ParameterDeviceDeviceIdInterfacesGetRequest{
+		ApiService: a,
+		ctx:        ctx,
+		deviceId:   deviceId,
+	}
+}
+
+// Execute executes the request
+//
+//	@return []DeviceInterface
+func (a *ParametersAPIService) GetDeviceInterfacesV1ParameterDeviceDeviceIdInterfacesGetExecute(r ApiGetDeviceInterfacesV1ParameterDeviceDeviceIdInterfacesGetRequest) ([]DeviceInterface, *http.Response, error) {
+	var (
+		localVarHTTPMethod  = http.MethodGet
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue []DeviceInterface
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ParametersAPIService.GetDeviceInterfacesV1ParameterDeviceDeviceIdInterfacesGet")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/v1/parameter/device/{device_id}/interfaces"
+	localVarPath = strings.Replace(localVarPath, "{"+"device_id"+"}", url.PathEscape(parameterValueToString(r.deviceId, "deviceId")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
+			var v HTTPValidationError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
 type ApiGetDevicePasswordUsersV1ParameterDeviceDeviceIdPasswordUsersGetRequest struct {
 	ctx        context.Context
 	ApiService *ParametersAPIService
@@ -168,7 +282,7 @@ func (r ApiGetDevicePasswordUsersV1ParameterDeviceDeviceIdPasswordUsersGetReques
 /*
 GetDevicePasswordUsersV1ParameterDeviceDeviceIdPasswordUsersGet Get Device Password Users
 
-Get available password users from device config context password_mappings.
+Get available password users and their secret names for a device.
 
 Args:
 
@@ -176,7 +290,7 @@ Args:
 
 Returns:
 
-	   List of password users with their secret names from password_mappings.
+	   List of password users with their provider-normalized secret names.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param deviceId
@@ -290,7 +404,7 @@ func (r ApiGetDeviceSecretsV1ParameterDeviceDeviceIdSecretsGetRequest) Execute()
 /*
 GetDeviceSecretsV1ParameterDeviceDeviceIdSecretsGet Get Device Secrets
 
-Return a list of secrets available in device config context.
+Return a list of secrets available for a device.
 
 Args:
 
@@ -298,7 +412,7 @@ Args:
 
 Returns:
 
-	   List of secrets found in the device's config context
+	   List of secrets returned by the configured DCIM provider
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param deviceId
@@ -412,7 +526,7 @@ func (r ApiGetDeviceUsersWithVersionsV1ParameterDeviceDeviceIdSecretTypesGetRequ
 /*
 GetDeviceUsersWithVersionsV1ParameterDeviceDeviceIdSecretTypesGet Get Secret Types for Device
 
-Get available secret types from device config context.
+Get available secret types from the configured DCIM provider.
 
 Args: device_id: The UUID of the device.
 
@@ -523,6 +637,7 @@ type ApiGetDevicesV1ParameterDeviceGetRequest struct {
 	ctx          context.Context
 	ApiService   *ParametersAPIService
 	site         *[]*string
+	siteType     *[]*string
 	status       *[]string
 	role         *[]string
 	tenant       *[]string
@@ -534,6 +649,11 @@ type ApiGetDevicesV1ParameterDeviceGetRequest struct {
 
 func (r ApiGetDevicesV1ParameterDeviceGetRequest) Site(site []*string) ApiGetDevicesV1ParameterDeviceGetRequest {
 	r.site = &site
+	return r
+}
+
+func (r ApiGetDevicesV1ParameterDeviceGetRequest) SiteType(siteType []*string) ApiGetDevicesV1ParameterDeviceGetRequest {
+	r.siteType = &siteType
 	return r
 }
 
@@ -623,6 +743,17 @@ func (a *ParametersAPIService) GetDevicesV1ParameterDeviceGetExecute(r ApiGetDev
 			}
 		} else {
 			parameterAddToHeaderOrQuery(localVarQueryParams, "site", t, "form", "multi")
+		}
+	}
+	if r.siteType != nil {
+		t := *r.siteType
+		if reflect.TypeOf(t).Kind() == reflect.Slice {
+			s := reflect.ValueOf(t)
+			for i := 0; i < s.Len(); i++ {
+				parameterAddToHeaderOrQuery(localVarQueryParams, "site_type", s.Index(i).Interface(), "form", "multi")
+			}
+		} else {
+			parameterAddToHeaderOrQuery(localVarQueryParams, "site_type", t, "form", "multi")
 		}
 	}
 	if r.status != nil {
@@ -1021,14 +1152,21 @@ func (a *ParametersAPIService) GetLocationsV1ParameterLocationGetExecute(r ApiGe
 }
 
 type ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest struct {
-	ctx        context.Context
-	ApiService *ParametersAPIService
-	location   *string
+	ctx          context.Context
+	ApiService   *ParametersAPIService
+	location     *string
+	locationType *string
 }
 
 // Limit to namespace tags at this location
 func (r ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest) Location(location string) ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest {
 	r.location = &location
+	return r
+}
+
+// DCIM location type for the location identifier
+func (r ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest) LocationType(locationType string) ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest {
+	r.locationType = &locationType
 	return r
 }
 
@@ -1039,7 +1177,7 @@ func (r ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest) Execute() ([]Tag, 
 /*
 GetNamespaceTagsV1ParameterNamespaceTagGet Get Namespace Tags
 
-Return a list of tags used by Nautobot namespaces.
+Return the configured DCIM provider's namespace tag choices.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@return ApiGetNamespaceTagsV1ParameterNamespaceTagGetRequest
@@ -1075,6 +1213,9 @@ func (a *ParametersAPIService) GetNamespaceTagsV1ParameterNamespaceTagGetExecute
 
 	if r.location != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "location", r.location, "form", "")
+	}
+	if r.locationType != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "location_type", r.locationType, "form", "")
 	}
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{}
@@ -1144,12 +1285,19 @@ type ApiGetOverlaysV1ParameterOverlayGetRequest struct {
 	ctx           context.Context
 	ApiService    *ParametersAPIService
 	location      *string
+	locationType  *string
 	isolationType *string
 }
 
 // Limit to overlays at this location
 func (r ApiGetOverlaysV1ParameterOverlayGetRequest) Location(location string) ApiGetOverlaysV1ParameterOverlayGetRequest {
 	r.location = &location
+	return r
+}
+
+// DCIM location type for the location identifier
+func (r ApiGetOverlaysV1ParameterOverlayGetRequest) LocationType(locationType string) ApiGetOverlaysV1ParameterOverlayGetRequest {
+	r.locationType = &locationType
 	return r
 }
 
@@ -1202,6 +1350,9 @@ func (a *ParametersAPIService) GetOverlaysV1ParameterOverlayGetExecute(r ApiGetO
 
 	if r.location != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "location", r.location, "form", "")
+	}
+	if r.locationType != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "location_type", r.locationType, "form", "")
 	}
 	if r.isolationType != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "isolation_type", r.isolationType, "form", "")

@@ -96,7 +96,7 @@ CONFIG_MANAGER_TEMPORAL_FRONTEND_DEPLOYMENT = f"{CONFIG_MANAGER_TEMPORAL_DEPLOYM
 CONFIG_MANAGER_TEMPORAL_WORKER_DEPLOYMENT = (
     f"{CONFIG_MANAGER_TEMPORAL_DEPLOYMENT}-{CONFIG_MANAGER_COMPONENT_PREFIX}-worker"
 )
-DEFAULT_CONFIG_MANAGER_REPO = "https://github.com/NVIDIA/nv-config-manager"
+DEFAULT_CONFIG_MANAGER_REPO = "https://github.com/dsx-ai-factory/nv-config-manager"
 
 AGGRESSIVE_DHCLIENT_CONF = """\
 option rfc3442-classless-static-routes code 121 = array of unsigned integer 8;

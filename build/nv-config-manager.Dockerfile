@@ -9,7 +9,7 @@
 # =============================================================================
 # Builder stage - use official uv image with Python
 # =============================================================================
-FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim@sha256:531f855bda2c73cd6ef67d56b733b357cea384185b3022bd09f05e002cd144ca AS builder
 
 ARG APT_MIRROR_DEBIAN=""
 ARG APT_MIRROR_GPG_KEY_URL=""
@@ -45,8 +45,17 @@ ARG TEMPLATE_ENGINE_VERSION=""
 COPY pyproject.toml uv.lock README.md /code/nv-config-manager/
 COPY src/nv_config_manager/ /code/nv-config-manager/src/nv_config_manager/
 COPY src/tests/ /code/nv-config-manager/src/tests/
-COPY components/network-templates/pyproject.toml components/network-templates/README.md /code/nv-config-manager/components/network-templates/
-COPY components/network-templates/src/ /code/nv-config-manager/components/network-templates/src/
+COPY packages/clients/ /code/nv-config-manager/packages/clients/
+COPY packages/infrastructure/ /code/nv-config-manager/packages/infrastructure/
+COPY packages/logging/ /code/nv-config-manager/packages/logging/
+COPY packages/dcim/pyproject.toml packages/dcim/README.md /code/nv-config-manager/packages/dcim/
+COPY packages/dcim/src/ /code/nv-config-manager/packages/dcim/src/
+COPY plugins/dcim/nautobot-2x/pyproject.toml plugins/dcim/nautobot-2x/README.md /code/nv-config-manager/plugins/dcim/nautobot-2x/
+COPY plugins/dcim/nautobot-2x/src/ /code/nv-config-manager/plugins/dcim/nautobot-2x/src/
+COPY packages/templates/pyproject.toml packages/templates/README.md /code/nv-config-manager/packages/templates/
+COPY packages/templates/src/ /code/nv-config-manager/packages/templates/src/
+COPY packages/workflows/pyproject.toml packages/workflows/README.md /code/nv-config-manager/packages/workflows/
+COPY packages/workflows/src/ /code/nv-config-manager/packages/workflows/src/
 COPY db/migrations/ /code/nv-config-manager/db/migrations/
 COPY db/alembic.ini /code/nv-config-manager/db/
 
@@ -76,7 +85,7 @@ RUN --mount=type=cache,id=nvcm-uv-cache,target=/root/.cache/uv \
 # =============================================================================
 # Runtime stage - NVIDIA distroless Python
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/python:3.13-v4.0.8
+FROM nvcr.io/nvidia/distroless/python:3.13-v4.1.4@sha256:eb5be985571eab7eac5e2ff722ed17eedbf64d4cf584ae0cef34cc6497592556
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

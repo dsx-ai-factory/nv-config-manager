@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import glob
+import importlib
 import inspect
 from pathlib import Path
 
@@ -20,6 +21,7 @@ import yaml
 
 import nv_config_manager.temporal.ngc.workflows as workflows
 from nv_config_manager.temporal.ngc.workflows import REGISTERED_WORKFLOWS
+from nv_config_manager.temporal.ngc.workflows.deploy import TenantDeployWorkflow
 
 
 def _load_all_workflow_classes():
@@ -29,7 +31,7 @@ def _load_all_workflow_classes():
     for path in workflow_path.glob("*.py"):
         if path.stem == "__init__":
             continue
-        module = getattr(workflows, path.stem)
+        module = importlib.import_module(f"{workflows.__name__}.{path.stem}")
 
         for _, obj in inspect.getmembers(module, inspect.isclass):
             if hasattr(obj, "run") and "Mixin" not in obj.__name__:
@@ -45,6 +47,13 @@ def test_workflow_registration():
         assert workflow_class in REGISTERED_WORKFLOWS, (
             f"Workflow {workflow_class.__name__} not registered"
         )
+
+
+def test_tenant_deploy_is_worker_internal():
+    """Keep Tenant Deploy executable as a child without exposing a public start surface."""
+    assert TenantDeployWorkflow in REGISTERED_WORKFLOWS
+    assert TenantDeployWorkflow.get_workflow_api_endpoint() is None
+    assert not TenantDeployWorkflow.has_complete_metadata()
 
 
 def test_workflow_rbac_exists():

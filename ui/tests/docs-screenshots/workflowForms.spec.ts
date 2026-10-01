@@ -38,7 +38,6 @@ const DOC_WORKFLOW_DISPLAY_NAMES: Record<string, string> = {
   SiteBackupWorkflow: "Site Configuration Backup",
   ConnectedHostMetadataWorkflow: "Connected Host Metadata",
   DeployWorkflow: "Configuration Deploy",
-  TenantDeployWorkflow: "Tenant Deploy",
   MultiDeployWorkflow: "Multi-Configuration Deploy",
   DeviceCableValidationWorkflow: "Device Cable Validation",
   DevicePasswordRotationWorkflow: "Device Password Rotation",
@@ -67,7 +66,6 @@ const DOC_WORKFLOW_ENDPOINTS: Record<string, string> = {
   SiteBackupWorkflow: "/ngc/site_backup",
   ConnectedHostMetadataWorkflow: "/ngc/connected_host_metadata",
   DeployWorkflow: "/ngc/deploy",
-  TenantDeployWorkflow: "/ngc/tenant-deploy",
   MultiDeployWorkflow: "/ngc/multi_deploy",
   DeviceCableValidationWorkflow: "/ngc/device_cable_validation",
   DevicePasswordRotationWorkflow: "/ngc/device_password_rotation",
@@ -525,12 +523,6 @@ const WORKFLOW_SCREENSHOTS: WorkflowScreenshot[] = [
     title: "New Switch OS Upgrade Workflow",
   },
   {
-    fileName: "tenantdeployworkflow-form.png",
-    path: "/workflows/tenantdeployworkflow/form",
-    query: AIR_DEVICE_QUERY,
-    title: "New Tenant Deploy Workflow",
-  },
-  {
     fileName: "spxoverlaycreationworkflow-form.png",
     path: "/workflows/spxoverlaycreationworkflow/form",
     query: {
@@ -653,7 +645,9 @@ async function setupDocsMocks(page: Page): Promise<void> {
     await fulfillJson(route, {
       configStoreApiUrl: "http://localhost:9001",
       dhcpUrl: "http://localhost:9004",
-      nautobotUrl: "https://nautobot.nvcm.air",
+      dcimUrl: "https://nautobot.nvcm.air",
+      dcimProvider: "nautobot",
+      dcimDisplayName: "Nautobot",
       renderServiceUrl: "http://localhost:9002",
       workflowApiUrl: "http://localhost:9000",
       ztpUrl: "http://localhost:9003",
@@ -716,6 +710,14 @@ async function setupDocsMocks(page: Page): Promise<void> {
   await page.route(/^.*\/v1\/parameter\/device(\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
     await fulfillJson(route, filterDevices(url));
+  });
+
+  await page.route("**/v1/parameter/device/*/interfaces", async (route) => {
+    await fulfillJson(route, [
+      { id: "interface-swp1", name: "swp1" },
+      { id: "interface-swp2", name: "swp2" },
+      { id: "interface-swp3", name: "swp3" },
+    ]);
   });
 
   await page.route("**/v1/parameter/device/*/password_users", async (route) => {
@@ -929,7 +931,7 @@ function filterDevices(url: URL): Device[] {
   let devices = [...(DOC_DEVICES_BY_SITE[site] || [])];
 
   for (const key of new Set(url.searchParams.keys())) {
-    if (key === "site") {
+    if (key === "site" || key === "managed_only") {
       continue;
     }
     const values = url.searchParams.getAll(key);

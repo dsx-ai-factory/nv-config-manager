@@ -68,7 +68,13 @@ async def test_queue_render_defaults_to_standard_prefix(custom_ini, mock_nats_co
         "nv_config_manager.render.events.util._process_single_device_enqueue",
         AsyncMock(return_value=None),
     ):
-        await queue_render("device-uuid", "commit", "user", "2026-01-01T00:00:00Z")
+        await queue_render(
+            "device-uuid",
+            "commit",
+            "user",
+            "2026-01-01T00:00:00Z",
+            dcim_client=AsyncMock(),
+        )
 
     assert _prefix_of(mock_nats_conn) == "$JS.API"
 
@@ -82,7 +88,13 @@ async def test_queue_render_follows_config_manager_prefix(custom_ini, mock_nats_
         "nv_config_manager.render.events.util._process_single_device_enqueue",
         AsyncMock(return_value=None),
     ):
-        await queue_render("device-uuid", "commit", "user", "2026-01-01T00:00:00Z")
+        await queue_render(
+            "device-uuid",
+            "commit",
+            "user",
+            "2026-01-01T00:00:00Z",
+            dcim_client=AsyncMock(),
+        )
 
     assert _prefix_of(mock_nats_conn) == "$JS.CUSTOM.API"
 
@@ -92,15 +104,16 @@ async def test_queue_render_batch_follows_config_manager_prefix(custom_ini, mock
     """The batch path opens its own JetStream context and must carry the prefix too."""
     custom_ini(PREFIXED_NATS_CONFIG)
 
-    with (
-        patch(
-            "nv_config_manager.render.events.util._process_single_device_enqueue",
-            AsyncMock(return_value=None),
-        ),
-        patch("nv_config_manager.render.events.util.pynautobot_client"),
+    with patch(
+        "nv_config_manager.render.events.util._process_single_device_enqueue",
+        AsyncMock(return_value=None),
     ):
         queued, failed = await queue_render_batch(
-            ["device-a", "device-b"], "commit", "user", "2026-01-01T00:00:00Z"
+            ["device-a", "device-b"],
+            "commit",
+            "user",
+            "2026-01-01T00:00:00Z",
+            dcim_client=AsyncMock(),
         )
 
     assert _prefix_of(mock_nats_conn) == "$JS.CUSTOM.API"

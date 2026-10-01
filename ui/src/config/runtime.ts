@@ -20,7 +20,9 @@ export interface RuntimeConfig {
   version?: string;
   workflowApiUrl: string;
   configStoreApiUrl: string;
-  nautobotUrl: string;
+  dcimUrl: string;
+  dcimProvider: string;
+  dcimDisplayName: string;
   renderServiceUrl: string;
   ztpUrl: string;
   dhcpUrl: string;

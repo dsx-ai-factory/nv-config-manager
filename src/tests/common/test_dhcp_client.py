@@ -12,21 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from __future__ import annotations
+"""Legacy factory clients use the shared generated response adapter."""
 
-import json
-from typing import Any
-
-from nv_config_manager.common.client.dhcp import _response_payload
+from nv_config_manager.common.client.dhcp import DHCPClient
 
 
-class InvalidJSONResponse:
-    async def json(self) -> Any:
-        raise json.JSONDecodeError("invalid", "not-json", 0)
-
-    async def text(self) -> str:
-        return "not-json"
-
-
-async def test_response_payload_falls_back_to_text_for_invalid_json() -> None:
-    assert await _response_payload(InvalidJSONResponse()) == "not-json"  # type: ignore[arg-type]
+async def test_response_payload_falls_back_to_text_for_invalid_json(aioresponses) -> None:
+    aioresponses.get("http://service.example/config?ip_version=4", body="not-json")
+    async with DHCPClient(base_url="http://service.example") as client:
+        assert await client.get_config() == "not-json"

@@ -16,6 +16,7 @@
  */
 export { default as useEnvData } from "./useEnvData";
 export { default as useDevices } from "./useDevices";
+export { default as useDeviceInterfaces } from "./useDeviceInterfaces";
 export { default as useNamespaceTags } from "./useNamespaceTags";
 export {
   default as useOverlays,

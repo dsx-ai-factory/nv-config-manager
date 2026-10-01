@@ -27,6 +27,7 @@ import {
   TENANT_LIST_API_RESPONSE,
   NAMESPACE_TAGS_LIST_API_RESPONSE,
   SPX_OVERLAY_LIST_API_RESPONSE,
+  DEVICE_INTERFACES_LIST_API_RESPONSE,
   DEVICE_TYPES_LIST_API_RESPONSE,
   FORBIDDEN_WORKFLOW_ID,
   FORBIDDEN_SITE_ID,
@@ -44,7 +45,9 @@ export async function mockRuntimeConfigEndpoint(page: Page) {
       json: {
         workflowApiUrl: 'http://localhost:9000',
         configStoreApiUrl: 'http://localhost:9001',
-        nautobotUrl: 'https://nautobot.example.com',
+        dcimUrl: 'https://nautobot.example.com',
+        dcimProvider: 'nautobot',
+        dcimDisplayName: 'Nautobot',
         renderServiceUrl: 'http://localhost:9002',
         ztpUrl: 'http://localhost:9003',
         dhcpUrl: 'http://localhost:9004',
@@ -102,6 +105,7 @@ export async function setupApiMocks(page: Page) {
   await mockOverlaysEndpoint(page);
   await mockDeviceTypesEndpoint(page);
   await mockDevicesEndpoint(page);
+  await mockDeviceInterfacesEndpoint(page);
   await mockPasswordUsersEndpoint(page);
 
   // Workflow listing endpoints
@@ -1285,6 +1289,15 @@ export async function mockDevicesEndpoint(page: Page) {
   });
 }
 
+export async function mockDeviceInterfacesEndpoint(page: Page) {
+  await page.route(`**/v1/parameter/device/*/interfaces`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      json: DEVICE_INTERFACES_LIST_API_RESPONSE,
+    });
+  });
+}
+
 export async function mockPasswordUsersEndpoint(page: Page) {
   await page.route(`**/v1/parameter/device/*/password_users`, async (route) => {
     const url = route.request().url();
@@ -1321,7 +1334,6 @@ export async function mockWorkflowTypesEndpoint(page: Page) {
     "SiteBackupWorkflow",
     "ConnectedHostMetadataWorkflow",
     "DeployWorkflow",
-    "TenantDeployWorkflow",
     "MultiDeployWorkflow",
     "DeviceCableValidationWorkflow",
     "DevicePasswordRotationWorkflow",
@@ -1359,7 +1371,6 @@ export async function mockWorkflowMetadataEndpoint(page: Page) {
     "SiteBackupWorkflow",
     "ConnectedHostMetadataWorkflow",
     "DeployWorkflow",
-    "TenantDeployWorkflow",
     "MultiDeployWorkflow",
     "DeviceCableValidationWorkflow",
     "DevicePasswordRotationWorkflow",
@@ -1387,7 +1398,6 @@ export async function mockWorkflowMetadataEndpoint(page: Page) {
     SiteBackupWorkflow: "Site Configuration Backup",
     ConnectedHostMetadataWorkflow: "Connected Host Metadata",
     DeployWorkflow: "Configuration Deploy",
-    TenantDeployWorkflow: "Tenant Deploy",
     MultiDeployWorkflow: "Multi-Configuration Deploy",
     DeviceCableValidationWorkflow: "Device Cable Validation",
     DevicePasswordRotationWorkflow: "Device Password Rotation",
@@ -1412,7 +1422,6 @@ export async function mockWorkflowMetadataEndpoint(page: Page) {
     SiteBackupWorkflow: "/ngc/site_backup",
     ConnectedHostMetadataWorkflow: "/ngc/connected_host_metadata",
     DeployWorkflow: "/ngc/deploy",
-    TenantDeployWorkflow: "/ngc/tenant-deploy",
     MultiDeployWorkflow: "/ngc/multi_deploy",
     DeviceCableValidationWorkflow: "/ngc/device_cable_validation",
     DevicePasswordRotationWorkflow: "/ngc/device_password_rotation",

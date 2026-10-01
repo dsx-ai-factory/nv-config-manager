@@ -10,7 +10,7 @@
 # =============================================================================
 # Builder stage - use official uv image with Python
 # =============================================================================
-FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36 AS builder
 
 ARG APT_MIRROR_DEBIAN=""
 ARG APT_MIRROR_GPG_KEY_URL=""
@@ -49,7 +49,8 @@ COPY nautobot_config.py /opt/nautobot/nautobot_config.py
 COPY nv_config_manager_jobs /opt/nautobot/jobs/nv_config_manager_jobs
 COPY nv_config_manager_auth /opt/nautobot/nv_config_manager_auth
 
-# Create venv and install dependencies (--no-editable ensures packages are in site-packages)
+# Create venv and install dependencies (--no-editable ensures packages are in site-packages).
+# Refresh local path packages so the shared BuildKit cache cannot reuse wheels built from older source.
 RUN uv venv /opt/nautobot/.venv
 RUN --mount=type=cache,id=nvcm-uv-cache,target=/root/.cache/uv \
     set -eux; \
@@ -61,7 +62,9 @@ RUN --mount=type=cache,id=nvcm-uv-cache,target=/root/.cache/uv \
         export SETUPTOOLS_SCM_PRETEND_VERSION="$NAUTOBOT_NV_CONFIG_MANAGER_VERSION"; \
         export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_NAUTOBOT_NV_CONFIG_MANAGER="$NAUTOBOT_NV_CONFIG_MANAGER_VERSION"; \
     fi; \
-    uv sync --frozen --no-dev --no-editable
+    uv sync --frozen --no-dev --no-editable \
+        --refresh-package nautobot-app-overlays \
+        --refresh-package nautobot-nv-config-manager
 
 RUN mkdir -p /opt/nautobot/static \
     /opt/nautobot/media \
@@ -75,7 +78,7 @@ RUN mkdir -p /opt/nautobot/static \
 # =============================================================================
 # Runtime stage - NVIDIA distroless Python
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/python:3.11-v4.0.8
+FROM nvcr.io/nvidia/distroless/python:3.11-v4.1.4@sha256:377041587967c3d0c96d8d8027a0b39b7f4ae122d7a1f9180b177efd41faca3c
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

@@ -22,6 +22,7 @@ import pytest
 
 from nv_config_manager_installer import secrets as secrets_module
 from nv_config_manager_installer.schema import (
+    DCIMConfig,
     InfrastructureConfig,
     K8sSecretGroup,
     KubernetesSecretsConfig,
@@ -32,6 +33,7 @@ from nv_config_manager_installer.schema import (
     RedfishVendorCreds,
     SecretsConfig,
     SecretsMethod,
+    ServicesConfig,
     SSOConfig,
     VaultAuth,
     VaultAuthMethod,
@@ -77,6 +79,55 @@ class TestGenerateSecrets:
         assert "nats_password" in state
         assert "django_secret_key" in state
         assert "temporal_db_password" in state
+
+    def test_external_dcim_token_uses_generic_secret_group(self):
+        config = NVConfigManagerInstallConfig(
+            dcim=DCIMConfig(provider="synthetic", server="https://synthetic.example"),
+            services=ServicesConfig(nautobot=False),
+            secrets=SecretsConfig(
+                method=SecretsMethod.KUBERNETES,
+                k8s=KubernetesSecretsConfig(
+                    dcim=K8sSecretGroup(values={"token": "synthetic-token"}),
+                ),
+            ),
+        )
+
+        state = generate_secrets(config)
+
+        assert state["dcim_token"] == "synthetic-token"
+        assert "nautobot_token" not in state
+        assert "nautobot_admin_password" not in state
+
+    def test_external_dcim_uses_independent_nats_password(self):
+        config = NVConfigManagerInstallConfig(
+            dcim=DCIMConfig(provider="synthetic", server="https://synthetic.example"),
+            services=ServicesConfig(nautobot=False),
+            secrets=SecretsConfig(
+                method=SecretsMethod.KUBERNETES,
+                k8s=KubernetesSecretsConfig(
+                    nats=K8sSecretGroup(values={"password": "NatsPassword123456"}),
+                    nautobot=K8sSecretGroup(values={"natsPassword": "LegacyPassword1234"}),
+                ),
+            ),
+        )
+
+        state = generate_secrets(config)
+
+        assert state["nats_password"] == "NatsPassword123456"
+
+    def test_external_dcim_accepts_legacy_nats_password_fallback(self):
+        config = NVConfigManagerInstallConfig(
+            dcim=DCIMConfig(provider="synthetic", server="https://synthetic.example"),
+            services=ServicesConfig(nautobot=False),
+            secrets=SecretsConfig(
+                method=SecretsMethod.KUBERNETES,
+                k8s=KubernetesSecretsConfig(
+                    nautobot=K8sSecretGroup(values={"natsPassword": "LegacyPassword1234"}),
+                ),
+            ),
+        )
+
+        assert generate_secrets(config)["nats_password"] == "LegacyPassword1234"
 
     def test_generated_nats_password_is_safe_for_unquoted_nats_config_variable(self, monkeypatch):
         monkeypatch.setattr(secrets_module.secrets, "choice", lambda alphabet: alphabet[-1])

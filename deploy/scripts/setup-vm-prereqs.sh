@@ -1513,12 +1513,18 @@ if [[ "$INSTALL_OPENBAO" == "true" ]]; then
         OIDC_CLIENT_SECRET=$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)
     fi
 
-    # oauth2-proxy accepts a raw 32-byte cookie encryption secret.
+    # oauth2-proxy base64url-decodes the cookie secret and expects the result
+    # to be 16, 24, or 32 bytes. Upstream recommends
+    # `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='` — 32 bytes of
+    # entropy in unpadded base64url (43 chars) → 32 decoded bytes (AES-256).
+    # A plain `openssl rand -base64 32` would produce 44 chars whose `+`/`/`
+    # fail the base64url decode, so oauth2-proxy CrashLoopBackOffs at boot
+    # (cookie_secret must be 16/24/32 bytes).
     EXISTING_COOKIE_SECRET=$(kubectl -n openbao exec openbao-0 -- env BAO_TOKEN=root bao kv get -field=cookie_secret "nv-config-manager/demo/oidc" 2>/dev/null || true)
     if [[ -n "$EXISTING_COOKIE_SECRET" ]]; then
         OIDC_COOKIE_SECRET="$EXISTING_COOKIE_SECRET"
     else
-        OIDC_COOKIE_SECRET=$(openssl rand -base64 32)
+        OIDC_COOKIE_SECRET=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')
     fi
     
     write_bao_secret "demo/oidc" \

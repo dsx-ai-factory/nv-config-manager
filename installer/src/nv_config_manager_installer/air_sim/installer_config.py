@@ -107,7 +107,7 @@ def build_template_plugins(cfg: SimConfig) -> list[dict[str, str]]:
     """Return installer content.template_plugins entries."""
     paths = [path for path in cfg.template_plugin_paths if path]
 
-    if cfg.run_mock_topology_job and cfg.mock_blueprint in _DEMO_TEMPLATE_BLUEPRINTS:
+    if cfg.mock_blueprint in _DEMO_TEMPLATE_BLUEPRINTS:
         default_path = DEFAULT_AIR_DEMO_TEMPLATE_PLUGIN_PATH.as_posix()
         default_remote_path = _remote_repo_path(default_path)
         if all(_remote_repo_path(path) != default_remote_path for path in paths):

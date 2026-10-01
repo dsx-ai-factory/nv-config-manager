@@ -1,0 +1,128 @@
+# import "../fragments/device.graphql"
+
+fragment HostMetadataDevice on DeviceType {
+  ...DeviceIdentity
+  cf_alias
+  tenant { name }
+}
+
+query GetBackupEnabledDevices($is_aggregate_managed: Boolean) {
+  config_manager_devices(backup_enabled: true, is_aggregate_managed: $is_aggregate_managed) {
+    device {
+      id
+      platform {
+        name
+      }
+      status {
+        name
+      }
+    }
+  }
+}
+
+query GetOSImageDevice($id: ID!) {
+  device(id: $id) {
+    role { name }
+    platform { name }
+    config_context
+    location {
+      id
+      location_type { name }
+      parent {
+        id
+        location_type { name }
+      }
+    }
+  }
+}
+
+query GetOSImageDesired($id: [String]!) {
+  config_contexts(location: $id, schema: "location-firmware-targets") {
+    data
+  }
+}
+
+query GetDeviceConfigContext($id: ID!) {
+  device(id: $id) {
+    config_context
+  }
+}
+
+query GetHostMetadataByMacs($macs: [String]!) {
+  devices(mac_address: $macs) {
+    ...HostMetadataDevice
+    interfaces { name mac_address }
+  }
+}
+
+query GetHostMetadataByNames($names: [String]!) {
+  devices(name: $names) {
+    ...HostMetadataDevice
+  }
+}
+
+query GetNamespaceRouteDistinguishers($tag: String, $location: String) {
+  namespaces(location: $location, tags: [$tag]) {
+    id
+    vrfs { rd }
+  }
+}
+
+query GetInterfacesByMac($mac_address: [String]) {
+  interfaces(mac_address: $mac_address) {
+    id
+    name
+    mac_address
+    device {
+      name
+    }
+    module {
+      device {
+        name
+      }
+    }
+  }
+}
+
+query GetDeviceInterfaces($device_id: [String]) {
+  interfaces(device_id: $device_id) {
+    id
+    device {
+      name
+    }
+    mac_address
+    name
+    ip_addresses {
+      address
+    }
+    vrf {
+      id
+      name
+    }
+  }
+}
+
+query GetDeviceVRFs($device_id: ID!) {
+  device(id: $device_id) {
+    vrfs {
+      id
+      name
+    }
+  }
+}
+
+query GetConnectedSwitchPortByRemoteMac($mac: [String!]) {
+  interfaces(mac_address: $mac) {
+    connected_interface {
+      name
+      device { id }
+    }
+  }
+}
+
+query GetRecordedConfigDrift($id: ID!) {
+  config_manager_device(id: $id) {
+    intended_config { commit_id }
+    backup_config { deployed_commit_id }
+  }
+}

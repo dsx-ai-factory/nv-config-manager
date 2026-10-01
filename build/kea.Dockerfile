@@ -7,7 +7,7 @@
 # - Supervisor is needed for process management (kea-dhcp4 + stork-agent)
 # - Stork agent requires shell scripts and dynamic configuration
 
-FROM nvcr.io/nvidia/base/ubuntu:noble-20260217
+FROM nvcr.io/nvidia/base/ubuntu:noble-20260217@sha256:57a7daab5579d4b4cfbe25b59dc9d22d0c4cec24e5608523e77fd5f12e9da51a
 
 ARG APT_MIRROR=""
 ARG APT_MIRROR_GPG_KEY_URL=""

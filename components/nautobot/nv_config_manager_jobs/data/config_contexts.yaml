@@ -21,7 +21,7 @@
   deployment_types: [all]
 
 - name: NVIDIA Config Manager DHCP Custom Options
-  description: Custom DHCP option definitions for KEA (cumulus-provision-url)
+  description: Custom DHCP option definitions for KEA (cumulus-provision-url and Junos option 43)
   weight: 1000
   is_active: true
   schema: nv-config-manager-site-dhcp-option-def
@@ -35,4 +35,66 @@
           space: dhcp4
           encapsulate: ""
           record-types: ""
+        - code: 0
+          name: image-file-name
+          type: string
+          array: false
+          space: vendor-encapsulated-options-space
+          encapsulate: ""
+          record-types: ""
+        - code: 1
+          name: config-file-name
+          type: string
+          array: false
+          space: vendor-encapsulated-options-space
+          encapsulate: ""
+          record-types: ""
+        - code: 2
+          name: image-file-type
+          type: string
+          array: false
+          space: vendor-encapsulated-options-space
+          encapsulate: ""
+          record-types: ""
+        - code: 3
+          name: transfer-mode
+          type: string
+          array: false
+          space: vendor-encapsulated-options-space
+          encapsulate: ""
+          record-types: ""
+        - code: 4
+          name: alt-image-file-name
+          type: string
+          array: false
+          space: vendor-encapsulated-options-space
+          encapsulate: ""
+          record-types: ""
+        - code: 5
+          name: http-port
+          type: string
+          array: false
+          space: vendor-encapsulated-options-space
+          encapsulate: ""
+          record-types: ""
+  deployment_types: [all]
+
+- name: Juniper Junos ZTP DHCP Options
+  description: DHCP option 43 URLs for Junos HTTP ZTP and OS upgrade
+  weight: 1000
+  is_active: true
+  platforms:
+    - Juniper Junos
+  data:
+    dhcp:
+      options:
+        interface_names:
+          fxp0: &juniper_ztp_reservation
+            reservation_options:
+              transfer-mode: http
+              image-file-name: http://{{ ztp_server }}/v1/device/{{ device_id }}/firmware
+              config-file-name: http://{{ ztp_server }}/v1/device/{{ device_id }}/config/full-config
+          em0: *juniper_ztp_reservation
+          vme: *juniper_ztp_reservation
+          "re0:mgmt-0": *juniper_ztp_reservation
   deployment_types: [all]

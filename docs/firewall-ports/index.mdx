@@ -4,12 +4,17 @@ sidebar-title: Firewall Ports
 position: 0
 ---
 
-Firewalls, security groups, and ACLs between the device network and Config Manager must permit the traffic below for the Config Manager DHCP and ZTP services to function correctly. DHCP and HTTPS are required for every deployment; the others are conditional on how ZTP and image distribution are configured.
+Firewalls, security groups, and ACLs between the device network and Config
+Manager must permit both device-initiated provisioning traffic and
+Config Manager-initiated management traffic. The exact device-facing bootstrap
+port depends on the selected transport and platform.
 
 | Protocol / Port | Direction | Purpose |
 | --- | --- | --- |
 | UDP 67 | Bidirectional (DHCP relay ↔ Config Manager) | Relayed DHCP requests and server responses (`DISCOVER` / `REQUEST` / `OFFER` / `ACK`) |
-| TCP 443 | Device → Config Manager | HTTPS download of ZTP boot scripts, rendered configs, and images |
-| TCP 80 | Device → Config Manager | HTTP fallback for ZTP boot scripts, where HTTPS is not used |
-| TCP 22 | Device → Config Manager | SFTP image downloads, where SFTP is used instead of HTTPS |
+| TCP 80 | Device → Config Manager | Private-network HTTP bootstrap-script and firmware downloads, where HTTP is configured |
+| TCP 443 | Device → Config Manager | HTTPS bootstrap and HTTP-compatible downloads, where HTTPS is configured |
+| TCP 2222 | Device → Config Manager | Default encrypted SFTP transport for Cumulus rendered configuration and platform-specific SFTP downloads |
+| TCP 443 | Config Manager cluster → managed device or BMC | Standard HTTPS management APIs, including NVOS, Arista eAPI, and Redfish where those platforms or workflows are used |
+| TCP 8765 | Config Manager cluster → Cumulus Linux device | Cumulus NVUE REST API used by deployment, validation, reprovisioning, backup, and other lifecycle workflows |
 | UDP/TCP 53 | Device → DNS resolver | DNS resolution when ZTP/DHCP targets are referenced by hostname (e.g. `ztp.<hostname>`, `dhcp.<hostname>`) |

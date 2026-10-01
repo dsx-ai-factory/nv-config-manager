@@ -46,6 +46,7 @@ from nv_config_manager.temporal.api.dynamic_endpoints import (
     set_start_workflow_function,
 )
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
+from nv_config_manager.temporal.api.workflow_catalog import WORKFLOW_API_CATALOG
 from nv_config_manager.temporal.api.workflow_submission import resolve_workflow_references
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
 from nv_config_manager.temporal.client.redis import RedisClient
@@ -70,13 +71,8 @@ from nv_config_manager.temporal.common.search_attributes import (
     USER_SEARCH_ATTRIBUTE,
 )
 from nv_config_manager.temporal.converter import get_data_converter
-from nv_config_manager.temporal.hello_world.workflows import (
-    REGISTERED_WORKFLOWS as HELLO_WORLD_REGISTERED_WORKFLOWS,
-)
-from nv_config_manager.temporal.ngc.workflows import (
-    REGISTERED_WORKFLOWS as NGC_REGISTERED_WORKFLOWS,
-)
 from nv_config_manager.temporal.telemetry import get_runtime
+from nv_config_manager_workflows.tech_support import tech_support_key
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_API)
 
@@ -364,6 +360,13 @@ class WorkflowSummaryResponse(WorkflowResponse):
             failed_stage = False
             workflow_input = None
 
+        # Stage-state search attributes record the last state observed by the
+        # workflow. Termination does not give workflow code a chance to clear
+        # them, so a closed execution cannot still be awaiting approval.
+        pending_approval = description.status == WorkflowExecutionStatus.RUNNING and bool(
+            pending_approval
+        )
+
         try:
             user = cast(str, description.search_attributes[USER_SEARCH_ATTRIBUTE][0])
         except (KeyError, IndexError):
@@ -451,6 +454,12 @@ class WorkflowDetailResponse(WorkflowSummaryResponse):
             failed_stage = False
             workflow_input = None
             stages = []
+
+        # Closed executions can retain their final pending-approval search
+        # attribute because termination stops workflow cleanup from running.
+        pending_approval = description.status == WorkflowExecutionStatus.RUNNING and bool(
+            pending_approval
+        )
 
         result = None
         if description.status == WorkflowExecutionStatus.COMPLETED:
@@ -733,7 +742,8 @@ async def get_workflows(  # pylint: disable=R0913,R0914
             pending_approval_filter = True
         elif sanitized_status.upper() in _FAILED_STATUS_VALUES:
             filters.append(
-                f"(ExecutionStatus = 'Failed' or {FAILED_STAGE_SEARCH_ATTRIBUTE} = true)"
+                "(ExecutionStatus = 'Failed' or "
+                f"(ExecutionStatus = 'Running' and {FAILED_STAGE_SEARCH_ATTRIBUTE} = true))"
             )
         else:
             filters.append(f"ExecutionStatus = '{_format_visibility_status(sanitized_status)}'")
@@ -790,19 +800,18 @@ async def get_workflows(  # pylint: disable=R0913,R0914
 @router.get("/types")
 async def get_workflow_types() -> list[str]:
     """Return registered workflow type names."""
-    return sorted(
-        [wf.__name__ for wf in NGC_REGISTERED_WORKFLOWS + HELLO_WORLD_REGISTERED_WORKFLOWS]
-    )
+    return sorted(workflow.__name__ for workflow in WORKFLOW_API_CATALOG)
 
 
 @router.get("/metadata")
 async def get_workflow_metadata() -> WorkflowMetadataResponse:
     """Return registered workflow metadata and RBAC roles."""
-    workflow_types = sorted(
-        [wf.__name__ for wf in NGC_REGISTERED_WORKFLOWS + HELLO_WORLD_REGISTERED_WORKFLOWS]
-    )
+    workflow_types = sorted(workflow.__name__ for workflow in WORKFLOW_API_CATALOG)
 
-    workflows_info = get_registered_workflows_info(include_rbac=True)
+    workflows_info = get_registered_workflows_info(
+        include_rbac=True,
+        workflows=WORKFLOW_API_CATALOG,
+    )
     workflows = [
         WorkflowMetadata.model_validate(workflows_info[name])
         for name in workflow_types
@@ -863,7 +872,7 @@ async def download_tech_support(workflow_id: str, device_name: str, request: Req
     if not await is_authorized(request, handle, "read"):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    redis_key = f"tech_support:{workflow_id}:{device_name}"
+    redis_key = tech_support_key(workflow_id, device_name)
     cache = RedisClient.from_config(load_config())
     content: bytes | None = await cache.get(redis_key, deserialize=False)
     if content is None:

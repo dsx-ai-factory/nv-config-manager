@@ -60,6 +60,8 @@ curl -X POST "https://nautobot.example.com/api/plugins/overlays/overlays/" \
 
 Overlay Assignments associate resources with an overlay.
 
+![Overlay Assignments](../images/overlay-assignments.png)
+
 **Supported object types:** Device, Interface, Rack (varies by isolation type — see table above)
 
 **Roles:** `uplink`, `downlink`, `compute`, `leaf`, `spine`, `storage`

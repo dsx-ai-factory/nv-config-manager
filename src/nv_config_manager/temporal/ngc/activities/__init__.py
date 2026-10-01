@@ -14,95 +14,16 @@
 # limitations under the License.
 """NGC Network Activities."""
 
+# ruff: noqa: F401 - this module is a legacy compatibility export surface
+
 from nv_config_manager.temporal.ngc.activities.backup import (
+    BACKUP_ACTIVITIES,  # noqa: F401
     load_running_configuration,
     persist_config_backup,
     record_backup_config_manager_plugin,
 )
-from nv_config_manager.temporal.ngc.activities.bmc import (
-    discover_redfish_hosts,
-    factory_reset_bmc,
-    get_dpu_details,
-    get_server_details,
-    populate_redfish_macs,
-    power_on_host,
-    set_redfish_password,
-    update_dpu_data,
-)
-from nv_config_manager.temporal.ngc.activities.cable_validation import (
-    decorate_result,
-    format_device_validation_result,
-    format_results,
-    validate_device_neighbors,
-)
-from nv_config_manager.temporal.ngc.activities.config import get_ui_base_url
-from nv_config_manager.temporal.ngc.activities.deploy import (
-    apply_approved_configuration,
-    load_intended_configuration,
-    load_partial_configuration,
-    perform_candidate_diff,
-    validate_config_diff,
-    wait_for_tenant_render,
-)
-from nv_config_manager.temporal.ngc.activities.device import (
-    get_device_actual_neighbors,
-    get_device_arp_table,
-    get_device_intended_neighbors,
-    get_device_mac_table,
-    load_neighbor_data_by_switch_port,
-    validate_hostname,
-)
-from nv_config_manager.temporal.ngc.activities.device_password_rotation import (
-    format_password_rotation_results,
-    get_password_mappings,
-    validate_password_diff,
-    validate_platform_support,
-)
-from nv_config_manager.temporal.ngc.activities.diagnostics import (
-    collect_tech_support_bundle,
-    run_diagnostic_commands,
-)
-from nv_config_manager.temporal.ngc.activities.hardware_validation import (
-    create_consolidated_excel_export,
-    create_excel_export,
-    get_platform,
-    get_platform_environment_fan,
-    get_platform_environment_led,
-    get_platform_environment_psu,
-    get_platform_environment_voltage,
-    get_platform_inventory,
-)
-from nv_config_manager.temporal.ngc.activities.ib_guid_discovery import (
-    discover_ib_port_guids,
-    sync_ib_guid_on_interface,
-)
-from nv_config_manager.temporal.ngc.activities.ib_nautobot import (
-    cleanup_empty_pkey_partition,
-    create_partition_in_nautobot,
-    fetch_pkey_assignments,
-    record_ib_pkey_in_nautobot,
-    record_pkey_assignments,
-    remove_pkey_assignments,
-    resolve_guids_to_interfaces,
-    resolve_ib_context,
-    resolve_ib_context_for_add,
-    resolve_ib_site_for_host,
-    resolve_interface_guids,
-    sync_pkey_assignments,
-)
-from nv_config_manager.temporal.ngc.activities.ib_pkey import (
-    add_guids_to_pkey,
-    create_pkey_on_ufm,
-    fetch_pkey_members,
-    remove_guids_from_pkey,
-    set_pkey_members,
-    validate_pkey_available,
-    verify_pkey_created,
-    verify_pkey_members,
-    verify_pkey_members_absent,
-)
-from nv_config_manager.temporal.ngc.activities.nats import publish_nats
-from nv_config_manager.temporal.ngc.activities.nautobot import (
+from nv_config_manager.temporal.ngc.activities.dcim import (
+    DCIM_ACTIVITIES,  # noqa: F401
     assign_vrf_to_device,
     assign_vrf_to_interface,
     check_recorded_config_drift,
@@ -121,8 +42,45 @@ from nv_config_manager.temporal.ngc.activities.nautobot import (
     get_vrfs_by_overlay_id,
     provision_vrf,
     reconcile_spx_overlay_assignments,
+    remove_unmapped_device_vrfs,
+)
+from nv_config_manager.temporal.ngc.activities.deploy import (
+    DEPLOY_ACTIVITIES,  # noqa: F401
+    apply_approved_configuration,
+    load_intended_configuration,
+    load_partial_configuration,
+    perform_candidate_diff,
+    validate_config_diff,
+    wait_for_tenant_render,
+)
+from nv_config_manager.temporal.ngc.activities.device import (
+    DEVICE_ACTIVITIES,  # noqa: F401
+    get_device_actual_neighbors,
+    get_device_arp_table,
+    get_device_intended_neighbors,
+    get_device_mac_table,
+    load_neighbor_data_by_switch_port,
+    validate_hostname,
+)
+from nv_config_manager.temporal.ngc.activities.ib_guid_discovery import (
+    IB_GUID_DISCOVERY_ACTIVITIES,  # noqa: F401
+    discover_ib_port_guids,
+    sync_ib_guid_on_interface,
+)
+from nv_config_manager.temporal.ngc.activities.ib_pkey import (
+    IB_PKEY_ACTIVITIES,  # noqa: F401
+    add_guids_to_pkey,
+    create_pkey_on_ufm,
+    fetch_pkey_members,
+    remove_guids_from_pkey,
+    set_pkey_members,
+    validate_pkey_available,
+    verify_pkey_created,
+    verify_pkey_members,
+    verify_pkey_members_absent,
 )
 from nv_config_manager.temporal.ngc.activities.nvlinkswitch_firmware import (
+    NVLINKSWITCH_FIRMWARE_ACTIVITIES,  # noqa: F401
     compare_running_desired,
     get_running_firmware,
     reboot_device,
@@ -131,6 +89,7 @@ from nv_config_manager.temporal.ngc.activities.nvlinkswitch_firmware import (
     validate_target_files,
 )
 from nv_config_manager.temporal.ngc.activities.os import (
+    OS_ACTIVITIES,  # noqa: F401
     cleanup_mlnx_os,
     download_mlnx_os,
     execute_ztp,
@@ -145,19 +104,95 @@ from nv_config_manager.temporal.ngc.activities.os import (
     wait_reboot,
 )
 from nv_config_manager.temporal.ngc.activities.render import (
+    RENDER_ACTIVITIES,  # noqa: F401
     execute_render,
-    validate_rendered_image_change,
+)
+from nv_config_manager.temporal.ngc.activities.ufm import (
+    UFM_ACTIVITIES,  # noqa: F401
+    get_ib_ports,
+)
+from nv_config_manager_workflows.activities.bmc import (
+    BMC_ACTIVITIES,  # noqa: F401
+    discover_redfish_hosts,
+    factory_reset_bmc,
+    get_dpu_details,
+    get_server_details,
+    populate_redfish_macs,
+    power_on_host,
+    set_redfish_password,
+    update_dpu_data,
+)
+from nv_config_manager_workflows.activities.cable_validation import (
+    CABLE_VALIDATION_ACTIVITIES,  # noqa: F401
+    decorate_result,
+    format_device_validation_result,
+    format_results,
+    update_cable_statuses,
+    validate_device_neighbors,
+)
+from nv_config_manager_workflows.activities.config import (
+    CONFIG_ACTIVITIES,  # noqa: F401
+    get_ui_base_url,
+)
+from nv_config_manager_workflows.activities.device_password_rotation import (
+    DEVICE_PASSWORD_ROTATION_ACTIVITIES,  # noqa: F401
+    format_password_rotation_results,
+    get_password_mappings,
+    validate_password_diff,
+    validate_platform_support,
     validate_rendered_password_change,
 )
-from nv_config_manager.temporal.ngc.activities.slack import send_slack_message
-from nv_config_manager.temporal.ngc.activities.ticketing import (
+from nv_config_manager_workflows.activities.diagnostics import (
+    DIAGNOSTICS_ACTIVITIES,  # noqa: F401
+    collect_tech_support_bundle,
+    run_diagnostic_commands,
+    upload_tech_support_from_redis,
+)
+from nv_config_manager_workflows.activities.hardware_validation import (
+    HARDWARE_VALIDATION_ACTIVITIES,  # noqa: F401
+    create_consolidated_excel_export,
+    create_excel_export,
+    get_platform,
+    get_platform_environment_fan,
+    get_platform_environment_led,
+    get_platform_environment_psu,
+    get_platform_environment_voltage,
+    get_platform_inventory,
+)
+from nv_config_manager_workflows.activities.ib_pkey import (  # noqa: F401 - compatibility re-exports
+    cleanup_empty_pkey_partition,
+    create_partition_in_dcim,
+    create_partition_in_nautobot,
+    fetch_pkey_assignments,
+    record_ib_pkey_in_dcim,
+    record_ib_pkey_in_nautobot,
+    record_pkey_assignments,
+    remove_pkey_assignments,
+    resolve_guids_to_interfaces,
+    resolve_ib_context,
+    resolve_ib_context_for_add,
+    resolve_ib_site_for_host,
+    resolve_interface_guids,
+    sync_pkey_assignments,
+)
+from nv_config_manager_workflows.activities.nats import (
+    NATS_ACTIVITIES,  # noqa: F401
+    publish_nats,
+)
+from nv_config_manager_workflows.activities.os import validate_rendered_image_change
+from nv_config_manager_workflows.activities.slack import (
+    SLACK_ACTIVITIES,  # noqa: F401
+    send_slack_message,
+)
+from nv_config_manager_workflows.activities.ticketing import (
+    TICKETING_ACTIVITIES,  # noqa: F401
     add_ticket_comment,
     upload_attachment,
-    upload_tech_support_from_redis,
     validate_ticket,
 )
-from nv_config_manager.temporal.ngc.activities.ufm import get_ib_ports
 
+# Legacy compatibility snapshot. Worker registration uses the validated package
+# registry instead of this list.
 REGISTERED_ACTIVITIES = [
     get_ui_base_url,
     load_running_configuration,
@@ -167,6 +202,7 @@ REGISTERED_ACTIVITIES = [
     get_device_actual_neighbors,
     get_device_mac_table,
     validate_device_neighbors,
+    update_cable_statuses,
     format_results,
     format_device_validation_result,
     load_intended_configuration,
@@ -205,6 +241,7 @@ REGISTERED_ACTIVITIES = [
     get_device_interfaces,
     assign_vrf_to_interface,
     reconcile_spx_overlay_assignments,
+    remove_unmapped_device_vrfs,
     get_ib_ports,
     send_slack_message,
     get_current_os,
@@ -246,7 +283,9 @@ REGISTERED_ACTIVITIES = [
     verify_pkey_created,
     add_guids_to_pkey,
     verify_pkey_members,
+    record_ib_pkey_in_dcim,
     record_ib_pkey_in_nautobot,
+    create_partition_in_dcim,
     create_partition_in_nautobot,
     resolve_interface_guids,
     resolve_guids_to_interfaces,

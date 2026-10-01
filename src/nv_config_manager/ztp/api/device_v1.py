@@ -22,9 +22,10 @@ from nv_config_manager.common.auth import auth_required, require_sso_or_device
 from nv_config_manager.common.client import ConfigStoreException, ConfigStoreFileNotFound
 from nv_config_manager.common.config import get_storage_client, temporal_client
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager.dcim import DCIMNotFoundError, dcim_client_session
 from nv_config_manager.ztp.api.schemas import ChecksumResponse
 from nv_config_manager.ztp.api.streaming import create_object_storage_streaming_response
-from nv_config_manager.ztp.nautobot import NautobotClient, NotFoundError
+from nv_config_manager.ztp.device import DeviceData
 from nv_config_manager.ztp.storage import ObjectStorageNotFoundException
 
 logger = get_logger(__name__, category=LogCategory.ZTP_API)
@@ -32,28 +33,37 @@ logger = get_logger(__name__, category=LogCategory.ZTP_API)
 router = APIRouter(prefix="/device", tags=["device"], responses={404: {"description": "Not found"}})
 
 
-async def _authorize_request(request: Request, device_uuid: str) -> None:
+async def _get_device_data(device_uuid: str) -> DeviceData:
+    """Load ZTP device data through the selected DCIM provider."""
+    async with dcim_client_session() as client:
+        return DeviceData.from_dcim(await client.get_ztp_device(device_uuid))
+
+
+async def _authorize_request(request: Request, device_uuid: str) -> DeviceData | None:
+    """Authorize the request, returning the device data if the IP check loaded it.
+
+    Only the anonymous path needs to read the device, so the other paths return
+    ``None`` and leave the fetch to whoever actually needs the data.
+    """
     # This endpoint has sensitive content, check if coming from the
     # device associated with this configuration
 
     if not auth_required():
-        return
+        return None
 
     identity = await require_sso_or_device(request)
     if identity is not None and identity.source != "anonymous":
         # Request came in through SSO, mTLS, SPIFFE, or JWT/OIDC — the
         # shared auth layer has validated it, so no further IP check needed.
-        return
+        return None
 
     try:
-        nb_client = NautobotClient()
-        async with nb_client:
-            device_data = await nb_client.get_device_data(device_uuid)
-    except NotFoundError as exc:
+        device_data = await _get_device_data(device_uuid)
+    except DCIMNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    allowed_addresses = device_data.addresses
-    allowed_addresses.append("127.0.0.1")
+    # Copy rather than append: the caller reuses this device data.
+    allowed_addresses = [*device_data.addresses, "127.0.0.1"]
 
     if request.client is None:
         raise HTTPException(status_code=403, detail="Unable to determine client IP address.")
@@ -71,14 +81,24 @@ async def _authorize_request(request: Request, device_uuid: str) -> None:
             status_code=403,
             detail=(
                 f"Unauthorized: client IP {client_ip} is not associated with this device. "
-                "Ensure the requesting IP is assigned to the device in Nautobot."
+                "Ensure the requesting IP is assigned to the device in the DCIM."
             ),
         )
+
+    return device_data
+
+
+async def _authorized_device_data(request: Request, device_uuid: str) -> DeviceData:
+    """Authorize the request and return its device data, reading the DCIM once."""
+    device_data = await _authorize_request(request, device_uuid)
+    if device_data is None:
+        device_data = await _get_device_data(device_uuid)
+    return device_data
 
 
 @router.get("/{device_uuid}/boot-script", response_class=PlainTextResponse)
 async def load_bootscript(device_uuid: str, request: Request) -> PlainTextResponse:
-    """Load the bootscript for the given nautobot device UUID."""
+    """Load the bootscript for the given DCIM device ID."""
     return await load_configuration(device_uuid, "boot-script", request)
 
 
@@ -86,15 +106,12 @@ async def load_bootscript(device_uuid: str, request: Request) -> PlainTextRespon
 async def load_configuration(
     device_uuid: str, configlet: str, request: Request
 ) -> PlainTextResponse:
-    """Load the specified configuration file for the given nautobot device UUID."""
-    await _authorize_request(request, device_uuid)
+    """Load the specified configuration file for the given DCIM device ID."""
     try:
-        nb_client = NautobotClient()
-        async with nb_client:
-            device_data = await nb_client.get_device_data(device_uuid)
+        device_data = await _authorized_device_data(request, device_uuid)
         content = await device_data.load_file(configlet)
         return PlainTextResponse(content)
-    except (NotFoundError, ConfigStoreFileNotFound) as exc:
+    except (DCIMNotFoundError, ConfigStoreFileNotFound) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ConfigStoreException as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -108,14 +125,11 @@ async def load_configuration(
 @router.get("/{device_uuid}/firmware", response_class=StreamingResponse)
 async def load_firmware(device_uuid: str, request: Request) -> StreamingResponse:
     """Load the firmware for the given device."""
-    await _authorize_request(request, device_uuid)
     try:
-        nb_client = NautobotClient()
-        async with nb_client:
-            device_data = await nb_client.get_device_data(device_uuid)
+        device_data = await _authorized_device_data(request, device_uuid)
         if device_data.platform is None or device_data.version is None:
             raise HTTPException(status_code=404, detail="Device firware data not found")
-    except NotFoundError as exc:
+    except DCIMNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     storage_client = get_storage_client()
@@ -134,14 +148,11 @@ async def load_firmware(device_uuid: str, request: Request) -> StreamingResponse
 @router.get("/{device_uuid}/firmware/checksum")
 async def load_firmware_checksum(device_uuid: str, request: Request) -> ChecksumResponse:
     """Load the firmware checksum for the given device."""
-    await _authorize_request(request, device_uuid)
     try:
-        nb_client = NautobotClient()
-        async with nb_client:
-            device_data = await nb_client.get_device_data(device_uuid)
+        device_data = await _authorized_device_data(request, device_uuid)
         if device_data.platform is None or device_data.version is None:
             raise HTTPException(status_code=404, detail="Device firware data not found")
-    except NotFoundError as exc:
+    except DCIMNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     storage_client = get_storage_client()
@@ -159,14 +170,13 @@ async def load_firmware_checksum(device_uuid: str, request: Request) -> Checksum
 async def mark_provisioned(device_uuid: str, request: Request) -> str:
     """Mark the ZTP process complete for the given device."""
     await _authorize_request(request, device_uuid)
-    nb_client = NautobotClient()
-    async with nb_client:
-        await nb_client.set_status_provisioned(device_uuid)
+    async with dcim_client_session() as client:
+        await client.mark_ztp_device_provisioned(device_uuid)
     # Trigger a backup workflow
     try:
-        client = temporal_client()
-        async with client:
-            await client.invoke_backup_workflow(device_uuid)
+        workflow_client = temporal_client()
+        async with workflow_client:
+            await workflow_client.invoke_backup_workflow(device_uuid)
     except Exception as e:
         logger.error("Error invoking backup workflow: %s", e)
     return "OK"
@@ -194,12 +204,11 @@ def _compare_serials(expected: str, observed: str) -> bool:
 
 @router.post("/{device_uuid}/validate_serial")
 async def validate_serial(device_uuid: str, body: ValidateSerialBody, request: Request) -> str:
-    """Validate the device serial number matches nautobot."""
+    """Validate the device serial number matches the selected DCIM."""
     await _authorize_request(request, device_uuid)
-    nb_client = NautobotClient()
     try:
-        async with nb_client:
-            expected_serial = await nb_client.get_device_serial(device_uuid)
+        async with dcim_client_session() as client:
+            expected_serial = await client.get_device_serial(device_uuid)
         if not _compare_serials(expected_serial, body.serial):
             logger.error(
                 "Serial number mismatch observed on device %s, expected: %s, observed: %s.",
@@ -209,8 +218,8 @@ async def validate_serial(device_uuid: str, body: ValidateSerialBody, request: R
             )
             raise HTTPException(
                 status_code=400,
-                detail="Serial number does not match device in Nautobot.",
+                detail="Serial number does not match device in the DCIM.",
             )
         return "OK"
-    except NotFoundError as exc:
+    except DCIMNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

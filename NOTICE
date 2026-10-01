@@ -49,7 +49,6 @@ Key dependencies include:
 - Elasticsearch (Apache-2.0 License) - https://github.com/elastic/elasticsearch-py
 - Slack SDK (MIT License) - https://github.com/slackapi/python-slack-sdk
 - pyeapi (BSD-3-Clause License) - https://github.com/arista-eosplus/pyeapi
-- pynautobot (Apache-2.0 License) - https://github.com/nautobot/pynautobot
 - netmiko (MIT License) - https://github.com/ktbyers/netmiko
 - Alembic (MIT License) - https://github.com/sqlalchemy/alembic
 - Uvicorn (BSD-3-Clause License) - https://github.com/encode/uvicorn
@@ -78,6 +77,13 @@ See components/nats-ready/go.mod for the complete list of Go dependencies.
 Key dependencies include:
 - nats.go (Apache-2.0 License) - https://github.com/nats-io/nats.go
 - zerolog (MIT License) - https://github.com/rs/zerolog
+
+Runtime Dependencies
+---------------
+
+Key dependencies include:
+
+- Redis Exporter (MIT License) - https://github.com/oliver006/redis_exporter
 
 ===============================================================================
 NVIDIA TRADEMARKS

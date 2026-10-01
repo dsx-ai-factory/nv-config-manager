@@ -172,11 +172,11 @@ class WorkflowDiscovery:
 
     def _discover_workflows(self) -> None:
         """Discover all available workflows and their metadata."""
-        # Process NGC workflows
+        # Process core workflows shared by all DCIM providers.
         for workflow_class in NGC_WORKFLOWS:
             self._process_workflow(workflow_class, "ngc")
 
-        # Process Hello World workflows
+        # Process Hello World workflows.
         for workflow_class in HELLO_WORLD_WORKFLOWS:
             self._process_workflow(workflow_class, "hello_world")
 

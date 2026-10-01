@@ -1,5 +1,37 @@
 # Agent Instructions
 
+## Scope and Credentials
+
+Agents may inspect the repository, propose and implement focused code or
+documentation changes, and run relevant local validation for the requested task.
+Preserve unrelated work and report what changed, checks run, and remaining gaps.
+
+Publishing releases, deploying to shared environments, changing repository
+permissions, rewriting shared Git history, and accessing production data are
+outside routine code-editing scope. Obtain explicit authorization for those
+operations. Never bypass review, signing, or CI approval controls.
+
+Never commit credentials, tokens, private keys, production configuration, or
+customer data. Use placeholders in examples and the existing secret injection
+mechanisms. Do not print credentials in logs or copy them into prompts, issues,
+or test artifacts. Report suspected exposure privately using [SECURITY.md](SECURITY.md);
+rotation and history remediation require coordination with the credential owner.
+
+## Project Map and Validation
+
+- `src/nv_config_manager/` and `src/tests/`: Python services and tests.
+- `packages/` and `plugins/`: shared libraries and DCIM integrations.
+- `installer/`: deployment configuration, CLI, TUI, and installer tests.
+- `ui/`: Next.js UI and Playwright tests.
+- `build/`, `components/`, and `deploy/helm/`: containers and deployment assets.
+- `.github/workflows/` and `.gitlab/ci/`: public validation and mirrored CI.
+- `docs/`: Fern pages; see [docs/README.md](docs/README.md) for publishing and checks.
+
+Use [CONTRIBUTING.md](CONTRIBUTING.md) for coding and review requirements,
+[README.md](README.md#testing) for test commands, and [RELEASE.md](RELEASE.md)
+for the release process. Run checks appropriate to the changed component;
+integration tests require a deployed environment. Do not claim unrun checks passed.
+
 ## Python Imports
 
 All imports MUST be placed at the top of the file, following standard Python conventions (stdlib, third-party, local). Do NOT place imports inside functions, methods, or conditional blocks.
