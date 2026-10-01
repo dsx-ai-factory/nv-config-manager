@@ -20,6 +20,8 @@ import pytest
 from textual.widgets import Input
 
 from nv_config_manager_installer.schema import (
+    ExternalServicesConfig,
+    ExternalTemporalConfig,
     NVConfigManagerInstallConfig,
     SecretsMethod,
     SiteConfig,
@@ -118,6 +120,43 @@ async def test_deploy_section_exists():
     async with app.run_test():
         assert "deploy" in app._nav_items
         assert "deploy" in app._screens
+
+
+@pytest.mark.asyncio
+async def test_temporal_server_sizing_fields_shown_for_managed_temporal():
+    app = NVConfigManagerInstallerApp(config=NVConfigManagerInstallConfig())
+
+    async with app.run_test():
+        app.switch_section("workflows")
+
+        assert app.query_one("#temporal-server-fields").display is True
+
+
+@pytest.mark.asyncio
+async def test_temporal_server_sizing_fields_hidden_for_external_temporal():
+    config = NVConfigManagerInstallConfig(
+        external_services=ExternalServicesConfig(
+            temporal=ExternalTemporalConfig(address="temporal.example.com:7233")
+        )
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("workflows")
+
+        assert app.query_one("#temporal-server-fields").display is False
+
+
+@pytest.mark.asyncio
+async def test_temporal_server_sizing_fields_hidden_when_temporal_disabled():
+    config = NVConfigManagerInstallConfig()
+    config.services.temporal = False
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("workflows")
+
+        assert app.query_one("#temporal-server-fields").display is False
 
 
 @pytest.mark.asyncio

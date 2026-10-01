@@ -1,0 +1,781 @@
+USER-SUPPLIED VALUES:
+cnpg:
+  configStore:
+    affinity:
+      enablePodAntiAffinity: false
+      nodeSelector: null
+    enablePDB: false
+    enabled: true
+    instances: 1
+    postgresql:
+      maxConnections: "100"
+      sharedBuffers: 128MB
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    storage:
+      size: 10Gi
+  dhcp:
+    affinity:
+      enablePodAntiAffinity: false
+      nodeSelector: null
+    enablePDB: false
+    enabled: true
+    instances: 1
+    postgresql:
+      maxConnections: "50"
+      sharedBuffers: 64MB
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 256Mi
+    storage:
+      size: 2Gi
+  enabled: true
+  nautobot:
+    affinity:
+      enablePodAntiAffinity: false
+      nodeSelector: null
+    enablePDB: false
+    enabled: true
+    instances: 1
+    postgresql:
+      maxConnections: "100"
+      sharedBuffers: 256MB
+    resources:
+      limits:
+        cpu: "1"
+        memory: 2Gi
+      requests:
+        cpu: 100m
+        memory: 1Gi
+    storage:
+      size: 20Gi
+  temporal:
+    affinity:
+      enablePodAntiAffinity: false
+      nodeSelector: null
+    enablePDB: false
+    enabled: true
+    instances: 1
+    postgresql:
+      maxConnections: "100"
+      sharedBuffers: 128MB
+    resources:
+      limits:
+        cpu: "1"
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    storage:
+      size: 5Gi
+  temporalVisibility:
+    affinity:
+      enablePodAntiAffinity: false
+      nodeSelector: null
+    enablePDB: false
+    enabled: true
+    instances: 1
+    postgresql:
+      maxConnections: "100"
+      sharedBuffers: 128MB
+    resources:
+      limits:
+        cpu: "1"
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    storage:
+      size: 5Gi
+configStore:
+  api:
+    affinity: null
+    nodeSelector: null
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+  cacheRefresh:
+    nodeSelector: null
+    replicas: 1
+    resources:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 25m
+        memory: 128Mi
+  client:
+    useInternalEndpoint: true
+  enabled: true
+  ui:
+    nodeSelector: null
+    replicas: 1
+    resources:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+dcim:
+  provider: nautobot-2x
+  tokenSecret:
+    key: token
+    name: nautobot-token
+externalServices:
+  nats:
+    authMethod: password
+    local: true
+    server: nats://nv-config-manager@nats:4222
+  nautobot:
+    local: true
+    localServer: http://nautobot-nv-config-manager
+  postgres:
+    configStore:
+      database: config_store
+      host: cluster-config-store-rw
+    port: 5432
+    temporal:
+      database: temporal
+      host: cluster-temporal-rw
+      visibilityDatabase: temporal_visibility
+      visibilityHost: cluster-temporal-visibility-rw
+  redis:
+    local: true
+    localHost: redis-master
+    metricsExport:
+      enabled: false
+    nodeSelector: null
+    resources:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+gateway:
+  auth:
+    jwt:
+      enabled: false
+  baseHostname: config-manager.local
+  certificates:
+    enabled: true
+    selfSigned: true
+  className: envoy-gateway
+  create: true
+  createGatewayClass: true
+  enabled: true
+  envoyProxy:
+    resources:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 10m
+        memory: 64Mi
+  name: nv-config-manager-gateway
+  namespace: ""
+  nodePort:
+    enabled: true
+    http: 30080
+    https: 30443
+  rateLimit:
+    enabled: false
+  sectionName: ""
+global:
+  aggregate: false
+  baseDomain: config-manager.local
+  createNamespace: false
+  createServiceAccount: true
+  deploymentStrategy:
+    type: Recreate
+  environment: local
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+  images:
+    kea:
+      pullPolicy: IfNotPresent
+      repository: nv-config-manager-kea
+      tag: sha-7014c39f6215
+    keaAdmin:
+      pullPolicy: IfNotPresent
+      repository: nv-config-manager-kea-admin
+      tag: sha-d5321e11b757
+    natsReady:
+      pullPolicy: IfNotPresent
+      repository: nv-config-manager-nats-ready
+      tag: sha-291e897f0a53
+    nautobot:
+      pullPolicy: IfNotPresent
+      repository: nv-config-manager-nautobot
+      tag: sha-0180b5e49b7d
+    nvConfigManager:
+      pullPolicy: IfNotPresent
+      repository: nv-config-manager
+      tag: sha-f0d5e2f3875e
+    nvConfigManagerUi:
+      pullPolicy: IfNotPresent
+      repository: nv-config-manager-ui
+      tag: sha-c4d5fb94064e
+    temporalBootstrap:
+      pullPolicy: IfNotPresent
+      repository: nv-config-manager-temporal-bootstrap
+      tag: sha-2fa5ce492ed9
+    temporalServer:
+      pullPolicy: IfNotPresent
+      repository: nv-config-manager-temporal
+      tag: sha-6dee859514d7
+    temporalUi:
+      pullPolicy: IfNotPresent
+      repository: nv-config-manager-temporal-ui
+      tag: sha-a24c0316a2a7
+  namespace: nv-config-manager
+  serviceAccountName: vault-access-sa
+ingress:
+  type: envoyGateway
+localDev:
+  mockAuth:
+    email: dev@localhost
+    enabled: true
+    groups: nv-config-manager,nv-config-manager-admin
+    name: Local Developer
+    preferredUsername: dev
+    user: dev@localhost
+  mockDevices: true
+mcp:
+  api:
+    affinity: null
+    nodeSelector: null
+    replicas: 1
+    resources:
+      limits:
+        memory: 256Mi
+      requests:
+        cpu: 25m
+        memory: 128Mi
+  auth:
+    oauth:
+      forwardResourceParameter: true
+  enabled: true
+monitoring:
+  podMonitors:
+    redis:
+      enabled: false
+nautobot:
+  admin:
+    email: admin@example.com
+    username: admin
+  celery:
+    affinity: null
+    enabled: true
+    nodeSelector: null
+    replicas: 1
+    resources:
+      limits:
+        cpu: 2000m
+        memory: 2Gi
+      requests:
+        cpu: 100m
+        memory: 1Gi
+    workers:
+      beat:
+        resources:
+          limits:
+            memory: 512M
+          requests:
+            cpu: 25m
+            memory: 384M
+      default:
+        taskConcurrency: "2"
+  customJobs:
+    accessMode: ReadWriteOnce
+    createPvc: false
+    enabled: true
+    pvcName: nautobot-custom-jobs
+  enabled: true
+  initJob:
+    enabled: true
+    singleInit: true
+  nginx:
+    enabled: true
+  persistence:
+    staticFiles:
+      enabled: true
+      size: 1Gi
+  server:
+    affinity: null
+    db:
+      host: cluster-nautobot-rw
+      name: nautobot
+      port: 5432
+    migrations:
+      resources:
+        limits:
+          memory: 1Gi
+        requests:
+          cpu: 50m
+          memory: 512Mi
+    nodeSelector: null
+    replicas: 1
+    resources:
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+      requests:
+        cpu: 100m
+        memory: 2Gi
+    topologySpreadConstraints: []
+    uwsgi:
+      listen: 64
+      processes: 2
+      threads: 2
+nautobotNats:
+  enabled: true
+  jetstream:
+    enabled: true
+    maxFile: 512M
+    maxMem: 128M
+  natsReady:
+    enabled: true
+    resources:
+      limits:
+        memory: 64Mi
+      requests:
+        cpu: 10m
+        memory: 16Mi
+    streamMaxBytes: 52428800
+    useNatsCli: true
+  nodeSelector: null
+  resources:
+    limits:
+      cpu: 250m
+      memory: 256Mi
+    requests:
+      cpu: 25m
+      memory: 128Mi
+networkDhcp:
+  affinity: null
+  enabled: true
+  nodeSelector: null
+  replicas: 1
+  resources:
+    confgen:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 25m
+        memory: 128Mi
+    dhcp:
+      limits:
+        cpu: "1"
+        memory: 256Mi
+      requests:
+        cpu: "1"
+        memory: 256Mi
+networkPolicy:
+  additionalAllowedNamespaces:
+  - cnpg-system
+  enabled: true
+  gatewayNamespace: envoy-gateway-system
+networkZtp:
+  affinity: null
+  client:
+    useInternalEndpoint: true
+  downloads:
+    http:
+      chunkSizeBytes: 16777216
+      maxConcurrentDownloads: 2
+    sftp:
+      maxConcurrentDownloads: 8
+      metricsPort: 9100
+      readAheadBytes: 16777216
+  enabled: true
+  nodeSelector: null
+  replicas: 1
+  resources:
+    http:
+      limits:
+        cpu: 250m
+        memory: 1Gi
+      requests:
+        cpu: 50m
+        memory: 512Mi
+    https:
+      limits:
+        cpu: 250m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    sftp:
+      limits:
+        cpu: 250m
+        memory: 2Gi
+      requests:
+        cpu: 50m
+        memory: 1Gi
+  storage:
+    file:
+      mountPath: /mnt/images
+      pvcName: ztp-os-images
+      size: 10Gi
+    type: file
+oidc:
+  enabled: false
+  proxy:
+    replicas: 1
+rbac:
+  admin_roles:
+  - all
+  workflows:
+  - execute_roles:
+    - all
+    name: HelloWorld
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: HelloWorldApproval
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: BackupWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: SiteBackupWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: DeployWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: ConfigDiffWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: TenantDeployWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: MultiDeployWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: BatchDeployWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: ReprovisionWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: DevicePasswordRotationWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: SiteCableValidationWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: DeviceCableValidationWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: SpXOverlayCreationWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: SpXOverlayDeletionWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: SpXOverlayAssignmentWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: SpXOverlayTenantChangeWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: PortLLDPInfoWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: InfinibandGetUnhealthyPortsWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: SwitchOSUpgradeWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: InfinibandCableValidationWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: InfinibandMlnxOSUpgradeWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: ConnectedHostMetadataWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: RedfishProvisioningWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: ValidateHardwareWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: NVLinkSwitchFirmwareUpgradeWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: SitePasswordRotationWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: IBPKeyCreationWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: IBPKeyMemberAddWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: IBPKeyMemberUpdateWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: IBPKeyMemberDeleteWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: IBPortGuidDiscoveryWorkflow
+    read_roles:
+    - all
+  - execute_roles:
+    - all
+    name: DiagnosticsWorkflow
+    read_roles:
+    - all
+renderService:
+  api:
+    affinity: null
+    nodeSelector: null
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  client:
+    useInternalEndpoint: true
+  consumers:
+    device:
+      affinity: null
+      nodeSelector: null
+      replicas: 2
+      resources:
+        limits:
+          cpu: 500m
+          memory: 256Mi
+        requests:
+          cpu: 25m
+          memory: 256Mi
+    nautobot:
+      affinity: null
+      nodeSelector: null
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 1Gi
+        requests:
+          cpu: 25m
+          memory: 256Mi
+  enabled: true
+  templateUpdater:
+    affinity: null
+    nodeSelector: null
+    resources:
+      limits:
+        memory: 1Gi
+      requests:
+        cpu: 25m
+        memory: 512Mi
+secrets:
+  method: kubernetes
+  vault:
+    configSecrets:
+      enabled: true
+      sites:
+      - name: test-site
+spiffe:
+  enabled: false
+temporal:
+  api:
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 50m
+        memory: 256Mi
+  client:
+    address: ""
+    namespace: default
+    tls:
+      enabled: false
+      secretName: ""
+      serverName: ""
+    useInternalEndpoint: true
+  configManagerWorker:
+    affinity: null
+    nodeSelector: null
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 256Mi
+    topologySpreadConstraints: []
+  devUi:
+    nodeSelector: null
+    replicas: 1
+  enabled: true
+  reactUI:
+    affinity: null
+    nodeSelector: null
+    replicas: 1
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+  redfish:
+    enabled: false
+  scheduler:
+    nodeSelector: null
+    resources:
+      limits:
+        cpu: 100m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 192Mi
+  server:
+    enabled: true
+  services:
+    frontend:
+      affinity: null
+      nodeSelector: null
+      replicas: 1
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 50m
+          memory: 128Mi
+    history:
+      affinity: null
+      nodeSelector: null
+      replicas: 4
+      resources:
+        limits:
+          cpu: 500m
+          memory: 256Mi
+        requests:
+          cpu: 50m
+          memory: 256Mi
+    matching:
+      affinity: null
+      nodeSelector: null
+      replicas: 1
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 50m
+          memory: 128Mi
+    worker:
+      affinity: null
+      nodeSelector: null
+      replicas: 1
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 50m
+          memory: 128Mi
+ui:
+  affinity: null
+  enabled: true
+  nodeSelector: null
+  replicas: 1
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi

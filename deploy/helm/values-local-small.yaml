@@ -209,7 +209,7 @@ temporal:
       nodeSelector: null
       affinity: null
     history:
-      replicas: 4  # Must match numHistoryShards (set by replicas) for Temporal to work
+      replicas: 4
       resources:
         requests:
           cpu: 50m

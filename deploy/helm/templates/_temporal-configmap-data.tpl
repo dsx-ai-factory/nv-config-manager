@@ -33,7 +33,7 @@ config_template.yaml: |-
     level: DEBUG
 
   persistence:
-    numHistoryShards: {{ .Values.temporal.services.history.replicas }}
+    numHistoryShards: {{ include "nv-config-manager.temporalShardCount" . }}
     defaultStore: default
     visibilityStore: visibility
     datastores:
