@@ -64,7 +64,7 @@ from nv_config_manager_dcim.workflow_models import (
 )
 
 from nv_config_manager_dcim_nautobot_2x.client import NautobotClient as BaseNautobotClient
-from nv_config_manager_dcim_nautobot_2x.client import NautobotException
+from nv_config_manager_dcim_nautobot_2x.client import NautobotException, NautobotReadCancelledError
 from nv_config_manager_dcim_nautobot_2x.queries import (
     load_graphql_query,
     load_graphql_selection,
@@ -184,6 +184,12 @@ class NautobotWorkflowClient(BaseNautobotClient):
         logger.info("Sending GraphQL query to Nautobot")
         try:
             return await super().graphql_query(query, variables, timeout)
+        except NautobotReadCancelledError:
+            # Deliberately not wrapped: Temporal retries a bare exception by
+            # default, and the DHCP refresh loop matches on the DCIM type to
+            # skip one cycle rather than restart the container. Wrapping it
+            # would erase both behaviours.
+            raise
         except NautobotException as e:
             raise ApplicationError(str(e), non_retryable=True) from e
 
