@@ -34,6 +34,7 @@ import pytest
 
 from nv_config_manager.render.artifact_fetch import (
     ArtifactFetchError,
+    _plugin_install_dir,
     cli_main,
     fetch_and_verify_artifact,
 )
@@ -209,14 +210,14 @@ def test_cli_main_fetches_every_active_artifact(mock_store_cls, mock_fetch, monk
         "https://tp/internal/artifacts/aaaa",
         "sha256:aaaa",
         "sha256:aaaa-raw",
-        "/opt/plugins",
+        "/opt/plugins/_dynamic/a",
         "tok",
     )
     mock_fetch.assert_any_call(
         "https://tp/internal/artifacts/bbbb",
         "sha256:bbbb",
         "sha256:bbbb-raw",
-        "/opt/plugins",
+        "/opt/plugins/_dynamic/b",
         "tok",
     )
 
@@ -242,3 +243,45 @@ def test_cli_main_exits_nonzero_on_fetch_failure(mock_store_cls, mock_fetch, mon
         cli_main()
 
     assert exc_info.value.code == 1
+
+
+# --- one folder per plugin, and a safe plugin id ---------------------------------------------
+
+
+def test_each_plugin_is_extracted_into_its_own_folder():
+    assert (
+        _plugin_install_dir("/opt/plugins", "site-overrides")
+        == "/opt/plugins/_dynamic/site-overrides"
+    )
+    assert _plugin_install_dir("/opt/plugins", "a.b_c-1") == "/opt/plugins/_dynamic/a.b_c-1"
+
+
+@pytest.mark.parametrize("bad", ["", "..", "../etc", "a/b", "/abs", ".hidden", "a..b", None, 5])
+def test_unsafe_plugin_ids_are_refused(bad):
+    with pytest.raises(ArtifactFetchError, match="unsafe plugin id"):
+        _plugin_install_dir("/opt/plugins", bad)
+
+
+@patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
+@patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
+def test_cli_main_refuses_an_unsafe_plugin_id_without_fetching(
+    mock_store_cls, mock_fetch, monkeypatch
+):
+    monkeypatch.setenv("RENDER_ACTIVATION_CONFIGMAP", "cm")
+    monkeypatch.setenv("RENDER_ACTIVATION_NAMESPACE", "ns")
+    mock_store_cls.return_value.get.return_value = {
+        "active_artifacts": [
+            {
+                "plugin_id": "../escape",
+                "digest": "sha256:x",
+                "archive_checksum": "sha256:y",
+                "url": "https://tp/x",
+            }
+        ]
+    }
+
+    with pytest.raises(SystemExit) as exc:
+        cli_main()
+
+    assert exc.value.code == 1
+    mock_fetch.assert_not_called()

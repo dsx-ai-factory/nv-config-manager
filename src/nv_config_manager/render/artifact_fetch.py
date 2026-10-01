@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import sys
 import tarfile
 import zipfile
@@ -149,6 +150,28 @@ def _write_member(dest_dir: Path, member_path: str, content: bytes) -> None:
     target.write_bytes(content)
 
 
+_PLUGIN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# Subdirectory of the install path holding dynamically activated plugins, one folder per plugin id. The
+# renderer reads it through NVCM_DYNAMIC_PLUGINS_DIR (set by Helm); static plugins keep their own layout.
+DYNAMIC_PLUGINS_SUBDIR = "_dynamic"
+
+
+def _plugin_install_dir(dest_dir: str, plugin_id: object) -> str:
+    """Where one plugin is extracted: ``<dest>/_dynamic/<plugin id>``.
+
+    Each plugin gets its own folder so several plugins in one set cannot overwrite each other's
+    ``plugin.yaml``. The id arrives in the activation request, so it is checked to be a single safe path
+    component before it is used to build a path.
+    """
+    if (
+        not isinstance(plugin_id, str)
+        or not _PLUGIN_ID_PATTERN.fullmatch(plugin_id)
+        or ".." in plugin_id
+    ):
+        raise ArtifactFetchError(f"Refusing unsafe plugin id {plugin_id!r}")
+    return os.path.join(dest_dir, DYNAMIC_PLUGINS_SUBDIR, plugin_id)
+
+
 def cli_main() -> None:
     """Console-script entrypoint for the init container. Reads the active
     plugin set's per-plugin artifact locations from the activation-state
@@ -179,7 +202,11 @@ def cli_main() -> None:
         digest = artifact["digest"]
         try:
             fetch_and_verify_artifact(
-                artifact["url"], digest, artifact["archive_checksum"], dest_dir, token
+                artifact["url"],
+                digest,
+                artifact["archive_checksum"],
+                _plugin_install_dir(dest_dir, artifact.get("plugin_id")),
+                token,
             )
         except ArtifactFetchError:
             logger.exception(

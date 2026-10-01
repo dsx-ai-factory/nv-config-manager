@@ -1423,6 +1423,13 @@ wheels must be present under /plugin-wheels.
 {{- if $paths }}
 - name: PYTHONPATH
   value: "{{ join ":" $paths }}:${PYTHONPATH:-}"
+{{- end }}
+{{- if eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true" }}
+{{- /* Where the fetch init container extracts activated plugins (one folder per plugin id); the
+   renderer loads every plugin.yaml found there. Unset when the gate is closed, which keeps the
+   loader inert and the render path exactly as it is today. */}}
+- name: NVCM_DYNAMIC_PLUGINS_DIR
+  value: /opt/plugins/_dynamic
 {{- end -}}
 {{- end -}}
 

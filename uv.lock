@@ -2896,6 +2896,7 @@ dependencies = [
     { name = "libpass" },
     { name = "nv-config-manager-dcim" },
     { name = "packaging" },
+    { name = "pyyaml" },
 ]
 
 [package.dev-dependencies]
@@ -2914,6 +2915,7 @@ requires-dist = [
     { name = "libpass", specifier = ">=1.9.3" },
     { name = "nv-config-manager-dcim", editable = "packages/dcim" },
     { name = "packaging", specifier = ">=24.0" },
+    { name = "pyyaml", specifier = ">=6.0.1" },
 ]
 
 [package.metadata.requires-dev]

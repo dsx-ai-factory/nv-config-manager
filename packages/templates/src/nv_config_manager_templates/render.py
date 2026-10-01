@@ -41,6 +41,7 @@ import nv_config_manager_templates.filters.device as device_filters
 import nv_config_manager_templates.filters.ip as ip_filters
 import nv_config_manager_templates.filters.location as location_filters
 import nv_config_manager_templates.filters.vault as vault_filters
+from nv_config_manager_templates.dynamic_plugins import load_dynamic_plugins
 from nv_config_manager_templates.filters import FilterException
 
 # Modify this constant as new filter modules are implemented
@@ -72,10 +73,17 @@ class Renderer:
         Args:
             enable_plugins: Whether to discover and load plugins (default: True)
         """
-        # Discover plugins first
+        # Discover plugins first: installed packages (entry points) as always, then any plugins
+        # that were activated dynamically (inert unless NVCM_DYNAMIC_PLUGINS_DIR is set -- see
+        # dynamic_plugins.py). Static plugins come first, so they keep precedence in template
+        # lookup.
         self.plugins = []
+        self.dynamic_plugin_errors: list[str] = []
         if enable_plugins:
             self.plugins = self._discover_plugins()
+            dynamic = load_dynamic_plugins()
+            self.plugins.extend(dynamic.plugins)
+            self.dynamic_plugin_errors = dynamic.errors
 
         # Set up Jinja2 environment with plugin template paths
         loaders = []
