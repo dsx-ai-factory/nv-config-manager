@@ -90,6 +90,7 @@ PYTHON_DIRS = [
     "components/nautobot",
     "packages/templates",
     "packages/clients",
+    "packages/workflows",
     "development/",
     "installer/",
 ]

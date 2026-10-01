@@ -15,20 +15,29 @@
 """Tests for service-owned workflow runtime composition."""
 
 from configparser import ConfigParser
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import pytest
+from nv_config_manager_dcim.api import DCIMClient
+from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from nv_config_manager_infrastructure.nats import NatsProducer as InfrastructureNatsProducer
 from pytest_mock import MockerFixture
 
 from nv_config_manager.temporal import runtime as service_runtime
+from nv_config_manager_workflows.clients.device.base import (
+    NetworkConnection as WorkflowNetworkConnection,
+)
+from nv_config_manager_workflows.clients.ufm import UFMClient as WorkflowUFMClient
 from nv_config_manager_workflows.runtime import (
     NatsNotConfiguredError,
     NatsRuntime,
     SlackRuntime,
+    get_dcim_client,
+    get_device_connection,
     get_lock_backend,
     get_nats_runtime,
     get_slack_runtime,
+    get_ufm_client,
     get_ui_base_url,
 )
 
@@ -57,6 +66,20 @@ def _config(
     return config
 
 
+def _device_data() -> NetworkDeviceData:
+    """Build provider-neutral inventory for service device adapter tests."""
+    return NetworkDeviceData(
+        id="device-1",
+        name="leaf-1",
+        role="leaf",
+        site="site-1",
+        device_type="switch",
+        platform=Platform.CUMULUS_LINUX,
+        primary_ip4="192.0.2.1",
+        primary_ip6=None,
+    )
+
+
 def test_nats_service_adapter_uses_infrastructure_producer(mocker: MockerFixture) -> None:
     """NATS composition reuses the infrastructure implementation and current INI."""
     config = _config()
@@ -79,6 +102,46 @@ def test_nats_service_adapter_uses_infrastructure_producer(mocker: MockerFixture
     assert issubclass(service_runtime.NatsProducer, InfrastructureNatsProducer)
 
 
+def test_dcim_service_adapter_uses_configured_client_factory(mocker: MockerFixture) -> None:
+    """DCIM composition delegates provider selection and settings to the service adapter."""
+    client = Mock(spec=DCIMClient)
+    create_dcim_client = mocker.patch.object(
+        service_runtime,
+        "create_dcim_client",
+        return_value=client,
+    )
+
+    assert service_runtime._dcim_client() is client
+    create_dcim_client.assert_called_once_with()
+
+
+def test_device_service_adapter_uses_configured_connection_factory(
+    mocker: MockerFixture,
+) -> None:
+    """Device composition delegates platform and credential selection to the service adapter."""
+    device_data = _device_data()
+    connection = Mock(spec=WorkflowNetworkConnection)
+    from_device_data = mocker.patch.object(
+        service_runtime.NetworkConnection,
+        "from_device_data",
+        return_value=connection,
+    )
+
+    assert service_runtime._device_connection(device_data) is connection
+    from_device_data.assert_called_once_with(device_data)
+    assert issubclass(service_runtime.NetworkConnection, WorkflowNetworkConnection)
+
+
+def test_ufm_service_adapter_uses_configured_client_factory(mocker: MockerFixture) -> None:
+    """UFM composition delegates credential lookup and password rotation to the adapter."""
+    assert issubclass(service_runtime.UFMClient, WorkflowUFMClient)
+    client = Mock(spec=WorkflowUFMClient)
+    ufm_client = mocker.patch.object(service_runtime, "UFMClient", return_value=client)
+
+    assert service_runtime._ufm_client("ufm.example.test", "site-1") is client
+    ufm_client.assert_called_once_with(host="ufm.example.test", site="site-1")
+
+
 def test_root_test_environment_installs_default_runtime_providers() -> None:
     """Root tests receive the same service-backed runtime wiring as the worker."""
     runtime = get_nats_runtime()
@@ -91,15 +154,17 @@ def test_root_test_environment_installs_default_runtime_providers() -> None:
     assert get_lock_backend() is not None
 
 
-def test_api_runtime_configuration_installs_only_ui_provider(mocker: MockerFixture) -> None:
-    """API composition must not initialize worker-only runtime dependencies."""
+def test_api_runtime_configuration_installs_api_providers(mocker: MockerFixture) -> None:
+    """API composition installs UI and DCIM without worker-only dependencies."""
     configure_ui_base_url = mocker.patch.object(service_runtime, "configure_ui_base_url")
+    configure_dcim_client = mocker.patch.object(service_runtime, "configure_dcim_client")
     configure_runtime = mocker.patch.object(service_runtime, "configure_runtime")
     token_lock_backend = mocker.patch.object(service_runtime, "token_lock_backend")
 
     service_runtime.configure_workflow_ui_runtime()
 
     configure_ui_base_url.assert_called_once_with(service_runtime._ui_base_url)
+    configure_dcim_client.assert_called_once_with(service_runtime._dcim_client)
     configure_runtime.assert_not_called()
     token_lock_backend.assert_not_called()
 
@@ -122,6 +187,128 @@ def test_lock_backend_selection_remains_lazy_at_runtime_startup(
     token_lock_backend.assert_called_once_with()
 
 
+def test_dcim_client_selection_remains_lazy_at_runtime_startup(
+    mocker: MockerFixture,
+) -> None:
+    """Startup installs the DCIM factory without selecting a provider immediately."""
+    client = Mock(spec=DCIMClient)
+    create_dcim_client = mocker.patch.object(
+        service_runtime,
+        "create_dcim_client",
+        return_value=client,
+    )
+
+    service_runtime.configure_workflow_runtime()
+
+    create_dcim_client.assert_not_called()
+    assert get_dcim_client() is client
+    create_dcim_client.assert_called_once_with()
+
+
+def test_device_and_ufm_selection_remains_lazy_at_runtime_startup(
+    mocker: MockerFixture,
+) -> None:
+    """Startup installs factories without resolving device or UFM credentials."""
+    device_data = _device_data()
+    connection = Mock(spec=WorkflowNetworkConnection)
+    ufm = Mock(spec=WorkflowUFMClient)
+    from_device_data = mocker.patch.object(
+        service_runtime.NetworkConnection,
+        "from_device_data",
+        return_value=connection,
+    )
+    ufm_client = mocker.patch.object(service_runtime, "UFMClient", return_value=ufm)
+
+    service_runtime.configure_workflow_runtime()
+
+    from_device_data.assert_not_called()
+    ufm_client.assert_not_called()
+    assert get_device_connection(device_data) is connection
+    assert get_ufm_client("ufm.example.test", "site-1") is ufm
+    from_device_data.assert_called_once_with(device_data)
+    ufm_client.assert_called_once_with(host="ufm.example.test", site="site-1")
+
+
+def test_installed_device_and_ufm_factories_resolve_each_access(
+    mocker: MockerFixture,
+) -> None:
+    """Each lookup constructs a client through the current service adapter state."""
+    device_data = _device_data()
+    connections = [Mock(spec=WorkflowNetworkConnection), Mock(spec=WorkflowNetworkConnection)]
+    ufm_clients = [Mock(spec=WorkflowUFMClient), Mock(spec=WorkflowUFMClient)]
+    from_device_data = mocker.patch.object(
+        service_runtime.NetworkConnection,
+        "from_device_data",
+        side_effect=connections,
+    )
+    ufm_client = mocker.patch.object(
+        service_runtime,
+        "UFMClient",
+        side_effect=ufm_clients,
+    )
+    service_runtime.configure_workflow_runtime()
+
+    assert get_device_connection(device_data) is connections[0]
+    assert get_device_connection(device_data) is connections[1]
+    assert get_ufm_client("ufm.example.test", "site-1") is ufm_clients[0]
+    assert get_ufm_client("ufm.example.test", "site-1") is ufm_clients[1]
+    assert from_device_data.call_args_list == [call(device_data), call(device_data)]
+    assert ufm_client.call_args_list == [
+        call(host="ufm.example.test", site="site-1"),
+        call(host="ufm.example.test", site="site-1"),
+    ]
+
+
+def test_installed_dcim_factory_reads_current_service_configuration(
+    mocker: MockerFixture,
+) -> None:
+    """Each client request resolves the service's latest DCIM settings."""
+    initial = ConfigParser()
+    initial.read_dict(
+        {
+            "dcim": {
+                "provider": "nautobot-2x",
+                "server": "https://dcim-v1.example",
+                "token": "token-v1",
+            }
+        }
+    )
+    rotated = ConfigParser()
+    rotated.read_dict(
+        {
+            "dcim": {
+                "provider": "nautobot-2x",
+                "server": "https://dcim-v2.example",
+                "token": "token-v2",
+            }
+        }
+    )
+    load_config = mocker.patch(
+        "nv_config_manager.common.config.load_config",
+        side_effect=[initial, rotated],
+    )
+    clients = [Mock(spec=DCIMClient), Mock(spec=DCIMClient)]
+    create_sdk_client = mocker.patch(
+        "nv_config_manager.dcim.registry.create_sdk_dcim_client",
+        side_effect=clients,
+    )
+    service_runtime.configure_workflow_runtime()
+
+    assert get_dcim_client() is clients[0]
+    assert get_dcim_client() is clients[1]
+    assert load_config.call_count == 2
+    assert create_sdk_client.call_args_list == [
+        call(
+            "nautobot-2x",
+            {"server": "https://dcim-v1.example", "token": "token-v1"},
+        ),
+        call(
+            "nautobot-2x",
+            {"server": "https://dcim-v2.example", "token": "token-v2"},
+        ),
+    ]
+
+
 def test_service_providers_read_current_configuration(mocker: MockerFixture) -> None:
     """Installed providers resolve the current config each time they are accessed."""
     initial = _config(
@@ -140,22 +327,31 @@ def test_service_providers_read_current_configuration(mocker: MockerFixture) -> 
     )
     load_config = mocker.patch.object(service_runtime, "load_config", return_value=initial)
     publishers = [Mock(spec=InfrastructureNatsProducer), Mock(spec=InfrastructureNatsProducer)]
+    dcim_clients = [Mock(spec=DCIMClient), Mock(spec=DCIMClient)]
     mocker.patch.object(
         service_runtime.NatsProducer,
         "from_config",
         side_effect=publishers,
+    )
+    create_dcim_client = mocker.patch.object(
+        service_runtime,
+        "create_dcim_client",
+        side_effect=dcim_clients,
     )
     service_runtime.configure_workflow_runtime()
 
     assert get_nats_runtime() == NatsRuntime(publishers[0], "archive-v1", "workflow.v1")
     assert get_slack_runtime() == SlackRuntime("token-v1", "channel-v1")
     assert get_ui_base_url() == "https://config-manager-v1.example"
+    assert get_dcim_client() is dcim_clients[0]
 
     load_config.return_value = rotated
 
     assert get_nats_runtime() == NatsRuntime(publishers[1], "archive-v2", "workflow.v2")
     assert get_slack_runtime() == SlackRuntime("token-v2", "channel-v2")
     assert get_ui_base_url() == "https://config-manager-v2.example"
+    assert get_dcim_client() is dcim_clients[1]
+    assert create_dcim_client.call_count == 2
 
 
 def test_missing_optional_sections_disable_resources(mocker: MockerFixture) -> None:

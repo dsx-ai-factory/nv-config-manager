@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from nv_config_manager.temporal.archive.main import main
-from nv_config_manager.temporal.client.nats import NatsConsumer
+from nv_config_manager.temporal.client.nats import NatsClient, NatsConsumer, NatsProducer
 from nv_config_manager.temporal.ngc.activities.nats import PublishNatsInput, publish_nats
 from nv_config_manager.temporal.runtime import configure_workflow_runtime
 from nv_config_manager_workflows import runtime as runtime_module
@@ -46,6 +46,19 @@ def _consumer() -> NatsConsumer:
         queue_suffix="archive",
         handler=AsyncMock(),
     )
+
+
+@pytest.mark.parametrize("client_type", [NatsClient, NatsProducer])
+def test_temporal_nats_clients_use_service_settings(
+    custom_ini: Callable[[str], None],
+    client_type: type[NatsClient] | type[NatsProducer],
+) -> None:
+    custom_ini(PREFIXED_NATS_CONFIG + "config_manager_subjects = one, two\n")
+
+    client = client_type()
+
+    assert client.api_prefix == "$JS.CUSTOM.API"
+    assert client.default_stream_subjects == ["one", "two"]
 
 
 def test_consumer_defaults_to_standard_prefix(custom_ini: Callable[[str], None]) -> None:

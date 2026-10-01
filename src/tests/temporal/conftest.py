@@ -44,8 +44,8 @@ from nv_config_manager.temporal.common.search_attributes import (
     USER_SEARCH_ATTRIBUTE,
 )
 from nv_config_manager.temporal.converter import get_data_converter
-from nv_config_manager.temporal.ngc.activities.nats import PublishNatsInput
-from nv_config_manager.temporal.ngc.activities.slack import SlackMessageInput
+from nv_config_manager_workflows.activities.nats import PublishNatsInput
+from nv_config_manager_workflows.activities.slack import SlackMessageInput
 from nv_config_manager_workflows.runtime import configure_lock_backend
 
 _SEARCH_ATTRIBUTES = {

@@ -12,24 +12,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Simple Hello World Activity."""
+"""Deprecated service import path for reusable Hello World activities."""
 
-from temporalio import activity
+# isort: off
+from nv_config_manager_workflows.activities.hello_world import (
+    HELLO_WORLD_ACTIVITIES as HELLO_WORLD_ACTIVITIES,
+    hello_world_activity as hello_world_activity,
+    hello_world_prompt_activity as hello_world_prompt_activity,
+    hello_world_reject_activity as hello_world_reject_activity,
+)
+# isort: on
 
-
-@activity.defn
-async def hello_world_activity(name: str) -> str:
-    """Say hello."""
-    return f"Hello, {name}!"
-
-
-@activity.defn
-async def hello_world_prompt_activity() -> str:
-    """Say hello."""
-    return "Would you like to be greeted?"
-
-
-@activity.defn
-async def hello_world_reject_activity() -> str:
-    """Say hello."""
-    return "Goodbye!"
+__all__ = [
+    "HELLO_WORLD_ACTIVITIES",
+    "hello_world_activity",
+    "hello_world_prompt_activity",
+    "hello_world_reject_activity",
+]

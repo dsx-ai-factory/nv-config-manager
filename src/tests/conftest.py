@@ -210,6 +210,18 @@ def mock_ini_config(mocker: MockerFixture) -> Generator[None]:
     mocker.patch.object(workflow_runtime, "_slack_provider", workflow_runtime._UNSET)
     mocker.patch.object(workflow_runtime, "_ui_base_url_provider", workflow_runtime._UNSET)
     mocker.patch.object(workflow_runtime, "_lock_backend_provider", workflow_runtime._UNSET)
+    mocker.patch.object(workflow_runtime, "_dcim_client_provider", workflow_runtime._UNSET)
+    mocker.patch.object(workflow_runtime, "_device_connection_provider", workflow_runtime._UNSET)
+    mocker.patch.object(workflow_runtime, "_redfish_connection_provider", workflow_runtime._UNSET)
+    mocker.patch.object(workflow_runtime, "_ufm_client_provider", workflow_runtime._UNSET)
+    mocker.patch.object(
+        workflow_runtime,
+        "_config_store_runtime_provider",
+        workflow_runtime._UNSET,
+    )
+    mocker.patch.object(workflow_runtime, "_render_client_provider", workflow_runtime._UNSET)
+    mocker.patch.object(workflow_runtime, "_ztp_client_provider", workflow_runtime._UNSET)
+    mocker.patch.object(workflow_runtime, "_firmware_storage_provider", workflow_runtime._UNSET)
     configure_workflow_runtime()
 
     yield

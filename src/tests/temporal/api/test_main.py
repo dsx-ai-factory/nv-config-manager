@@ -31,6 +31,7 @@ from nv_config_manager.temporal.api import main as temporal_main
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
 from nv_config_manager.temporal.api.main import app
 from nv_config_manager.temporal.api.workflow_v1 import (
+    WorkflowDetailResponse,
     WorkflowSummaryResponse,
     cache_workflow_input,
     signal_workflow,
@@ -1021,6 +1022,59 @@ async def test_running_workflow_with_failed_stage_exposes_failed_stage_flag(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("response_type", [WorkflowSummaryResponse, WorkflowDetailResponse])
+@pytest.mark.parametrize(
+    "execution_status",
+    [WorkflowExecutionStatus.TERMINATED, WorkflowExecutionStatus.CONTINUED_AS_NEW],
+)
+@patch("nv_config_manager.temporal.api.workflow_v1.load_config")
+@patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
+async def test_closed_workflow_is_not_pending_approval(
+    mock_redis, mock_load_config, execution_status, response_type
+):
+    """A stale search attribute must not override a closed execution status."""
+    cache = mock_redis.from_config.return_value
+
+    async def get_cached_query(_workflow_id, query):
+        if query == "input":
+            return {"user": "cached"}
+        if query == "compressed_stages":
+            return StageMixin.compress_stages([])
+        return None
+
+    cache.get_cached_query = AsyncMock(side_effect=get_cached_query)
+    cache.cache_query = AsyncMock()
+
+    handle = MagicMock()
+    handle.id = "terminated-pending-workflow"
+    handle.query = AsyncMock(return_value=StageMixin.compress_stages([]))
+
+    description = MagicMock()
+    description.search_attributes = {
+        PENDING_APPROVAL_SEARCH_ATTRIBUTE: [True],
+        "User": ["test"],
+    }
+    description.status = execution_status
+    description.start_time = datetime.fromisoformat("1970-01-01T00:00:00+00:00")
+    description.close_time = datetime.fromisoformat("1970-01-01T00:01:00+00:00")
+    description.workflow_type = "HelloWorldApproval"
+    handle.describe = AsyncMock(return_value=description)
+
+    result = await response_type.from_handle(handle)
+
+    assert result.status == execution_status.name
+    assert result.pending_approval is False
+    if (
+        execution_status == WorkflowExecutionStatus.CONTINUED_AS_NEW
+        and response_type is WorkflowDetailResponse
+    ):
+        handle.query.assert_awaited_once_with("compressed_stages")
+    else:
+        handle.query.assert_not_awaited()
+    mock_redis.from_config.assert_called_once_with(mock_load_config.return_value)
+
+
+@pytest.mark.asyncio
 @patch("nv_config_manager.temporal.api.workflow_v1.get_client")
 async def test_workflow_detail_not_found(mock_client):
     """Verify workflow detail returns 404 when workflow doesn't exist."""
@@ -1288,7 +1342,8 @@ async def test_workflows(mock_rbac_config, mock_redis, mock_client):
     rsp = client.get("/v1/workflow", params={"status": "FAILED"})
     assert rsp.status_code == 200
     mock_client.return_value.list_workflows.assert_called_with(
-        "(ExecutionStatus = 'Failed' or FailedStage = true) and (ReadRoles = 'all')",
+        "(ExecutionStatus = 'Failed' or "
+        "(ExecutionStatus = 'Running' and FailedStage = true)) and (ReadRoles = 'all')",
         limit=100,
         page_size=100,
         next_page_token=None,
