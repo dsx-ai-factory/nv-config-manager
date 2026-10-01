@@ -1,0 +1,9 @@
+[
+  {
+    "detector": "Postgres",
+    "commit": "d0e8be9febd8a7a15c2445bb83868bc0eacae09b",
+    "file": "src/nv_config_manager/dhcp/cli.py",
+    "line": 72,
+    "reason": "Synthetic user/host PostgreSQL URL used to demonstrate secret redaction"
+  }
+]
