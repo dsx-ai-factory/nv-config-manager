@@ -42,7 +42,7 @@ from pathlib import Path
 import requests
 
 from nv_config_manager.common.log import LogCategory, get_logger
-from nv_config_manager.render.activation_state import ActivationStateStore
+from nv_config_manager.render.activation_state import ActivationStateStore, artifacts_to_install
 
 logger = get_logger(__name__, category=LogCategory.RENDER_API)
 
@@ -173,9 +173,10 @@ def _plugin_install_dir(dest_dir: str, plugin_id: object) -> str:
 
 
 def cli_main() -> None:
-    """Console-script entrypoint for the init container. Reads the active
-    plugin set's per-plugin artifact locations from the activation-state
-    ConfigMap and fetches each one; a no-op (exit 0) if no plugin set has
+    """Console-script entrypoint for the init container. Reads the per-plugin
+    artifact locations to install (the in-flight activation's, else the active
+    set's; see ``artifacts_to_install``) from the activation-state ConfigMap
+    and fetches each one; a no-op (exit 0) if no plugin set has
     ever been activated, so pod startup isn't blocked in the common case
     where this feature is enabled but unused.
 
@@ -192,7 +193,7 @@ def cli_main() -> None:
 
     store = ActivationStateStore(configmap_name, namespace)
     state = store.get()
-    artifacts = state.get("active_artifacts") or []
+    artifacts = artifacts_to_install(state)
 
     if not artifacts:
         logger.info("No plugin set has been activated yet -- nothing to fetch.")

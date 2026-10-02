@@ -95,26 +95,14 @@ spec:
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-render") | nindent 8 }}
         {{- end }}
         {{- if eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true" }}
-        # SRD §5.2 / SADD §9.3: activation triggers a rolling
-        # restart of these three Deployments rather than an in-process warm
-        # pool. Only the api container serves /v1/activation/activate, so
-        # only it needs these -- consumer containers don't.
-        - name: RENDER_ACTIVATION_DEPLOYMENTS
-          value: "{{ $renderName }}-api,{{ $renderName }}-consumer-nautobot,{{ $renderName }}-consumer-device"
-        # This container's own Deployment -- restarted last, fire-and-forget,
-        # since the pod handling the activation request can't wait on its own
-        # rollout without racing its own termination. See rollout.py's
-        # trigger_and_wait_for_rollout() docstring.
-        - name: RENDER_ACTIVATION_SELF_DEPLOYMENT
-          value: "{{ $renderName }}-api"
+        # SRD §5.2 / SADD §9.3: activation is a rolling restart of the render Deployments, but this
+        # service does not do the restart: Template Preview holds that permission (see the
+        # restart Role below). The api container only records the requested plugin set and the
+        # artifacts every restarted pod installs, in this ConfigMap.
         - name: RENDER_ACTIVATION_NAMESPACE
           value: {{ .Values.global.namespace | quote }}
         - name: RENDER_ACTIVATION_CONFIGMAP
           value: "{{ $renderName }}-activation-state"
-        {{- if .Values.renderService.unsafeDynamicTemplatePlugins.rolloutTimeoutSeconds }}
-        - name: RENDER_ACTIVATION_ROLLOUT_TIMEOUT_SECONDS
-          value: {{ .Values.renderService.unsafeDynamicTemplatePlugins.rolloutTimeoutSeconds | quote }}
-        {{- end }}
         {{- end }}
         ports:
         - containerPort: 9000
@@ -545,10 +533,9 @@ metadata:
 # ArgoCD) also declared it, every upgrade/sync would either conflict with the application's writes or
 # reset the recorded active plugin set. The state store treats a missing `state.json` as empty.
 ---
-# SRD §5.2: minimal RBAC for the render-service ServiceAccount
-# to trigger/monitor a rolling restart of its own three Deployments and
-# read/write the activation-state ConfigMap. Only rendered when the flag is
-# on -- matches the same convention as templatePlugins' resources.
+# SRD §5.2: minimal RBAC for the render-service ServiceAccount: read/write the activation-state
+# ConfigMap and nothing else. It holds no permission on Deployments (it never restarts anything).
+# Only rendered when the flag is on -- matches the same convention as templatePlugins' resources.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -557,13 +544,6 @@ metadata:
   labels:
     {{- include "nv-config-manager.labels" . | nindent 4 }}
 rules:
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["get", "list", "watch", "patch"]
-    resourceNames:
-      - {{ $renderName }}-api
-      - {{ $renderName }}-consumer-nautobot
-      - {{ $renderName }}-consumer-device
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "update"]
@@ -585,5 +565,44 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "nv-config-manager.serviceAccountName" . }}
     namespace: {{ .Values.global.namespace }}
+{{- if .Values.templatePreview.enabled }}
+---
+# Template Preview restarts the render Deployments to activate a plugin set (SRD §5.2), so it, not the
+# render service, holds the permission. get + patch on exactly these three Deployments: patch forces
+# the rollout, get lets it wait for the rollout to converge. RBAC cannot select by label, so the
+# Deployments are named; nothing else in the namespace is reachable with this Role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $renderName }}-restart-role
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+    resourceNames:
+      - {{ $renderName }}-api
+      - {{ $renderName }}-consumer-nautobot
+      - {{ $renderName }}-consumer-device
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $renderName }}-restart-rolebinding
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $renderName }}-restart-role
+subjects:
+  - kind: ServiceAccount
+    # Template Preview's backend ServiceAccount: <fullnameOverride>-backend (see the subchart)
+    name: {{ .Values.templatePreview.fullnameOverride }}-backend
+    namespace: {{ .Values.global.namespace }}
+{{- end }}
 {{- end }}
 {{- end }}

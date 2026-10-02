@@ -16,6 +16,6 @@ dependencies:
   version: 1.24.4
 - name: kiwi-render-ui
   repository: file://../../../kiwi_repos/kiwi-render-ui/deploy/helm
-  version: 0.4.0
-digest: sha256:4a5345f1edee6e29bec75e285955492727d760548ea1a35f12d563eb35e4f9bf
-generated: "2026-10-02T15:37:52.948436-05:00"
+  version: 0.5.0
+digest: sha256:8cd87ba9709f489dfe92350892efee2a50070d8230a5dc4e274eec6e5654e9fc
+generated: "2026-10-02T17:28:37.259701-05:00"

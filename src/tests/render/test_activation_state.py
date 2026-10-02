@@ -52,7 +52,8 @@ def test_get_parses_existing_configmap_data(mock_core_v1_cls, _mock_load_config)
     core_v1.read_namespaced_config_map.return_value = cm
 
     store = ActivationStateStore("render-activation-state", "ns")
-    assert store.get() == stored
+    state = store.get()
+    assert {k: state[k] for k in stored} == stored  # what was stored is returned as stored
 
 
 @patch("nv_config_manager.render.activation_state.load_k8s_config")
@@ -105,3 +106,30 @@ def test_update_retries_on_write_conflict(mock_core_v1_cls, _mock_load_config):
 
     assert result["active_digest"] == "sha256:retried"
     assert core_v1.replace_namespaced_config_map.call_count == 2
+
+
+@patch("nv_config_manager.render.activation_state.client.CoreV1Api")
+@patch("nv_config_manager.render.activation_state.load_k8s_config")
+def test_state_written_by_an_older_version_is_filled_in_with_the_newer_keys(_cfg, core_cls):
+    stored = {"active_digest": "sha256:aaaa", "in_progress_digest": None, "requests": {}}
+    core_cls.return_value.read_namespaced_config_map.return_value = MagicMock(
+        data={"state.json": json.dumps(stored)}
+    )
+
+    state = ActivationStateStore("cm", "ns").get()
+
+    assert state["active_digest"] == "sha256:aaaa"
+    assert state["in_progress_artifacts"] == [] and state["in_progress_since"] is None
+
+
+@patch("nv_config_manager.render.activation_state.client.CoreV1Api")
+@patch("nv_config_manager.render.activation_state.load_k8s_config")
+def test_changing_a_returned_empty_state_does_not_change_the_default(_cfg, core_cls):
+    core_cls.return_value.read_namespaced_config_map.side_effect = ApiException(status=404)
+    state = ActivationStateStore("cm", "ns").get()
+
+    state["requests"]["x"] = {"status": "READY"}
+    state["in_progress_artifacts"].append({"plugin_id": "x"})
+
+    assert ActivationStateStore("cm", "ns").get()["requests"] == {}
+    assert ActivationStateStore("cm", "ns").get()["in_progress_artifacts"] == []

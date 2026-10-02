@@ -1315,10 +1315,8 @@ renderService:
     # Leave empty until Template Preview is actually deployed and its
     # SPIFFE identity is known.
     templatePreviewSpiffeId: ""
-    # How long to wait for the rolling restart to complete before an
-    # activation request is reported FAILED. 0/unset uses the code default
-    # (300s) -- see render/api/activation_v1.py::_activation_rollout_timeout.
-    rolloutTimeoutSeconds: 300
+    # (The rollout wait is no longer configured here: Template Preview restarts the render
+    # Deployments and waits for them, see templatePreview.backend.env.KIWI_RENDER_ROLLOUT_TIMEOUT_SECONDS.)
     # Name of a pre-existing Secret (key "token") holding the bearer token
     # Template Preview's /internal/artifacts endpoint expects (see
     # kiwi-render-ui's KIWI_RENDER_INTERNAL_ARTIFACT_TOKEN). Empty means
@@ -3460,6 +3458,12 @@ templatePreview:
       # the short name resolves; it assumes the default release name "nv-config-manager" -- override it
       # when installing under another release name.
       KIWI_RENDER_NVCM_RENDER_SERVICE_URL: "http://nv-config-manager-render-api:9000"
+      # The render Deployments Template Preview restarts to activate a plugin set, and how long it
+      # waits for them to roll out. NVCM grants Template Preview get+patch on exactly these (the
+      # restart Role in render-service.yaml). Like the URL above they assume the default release
+      # name "nv-config-manager"; override them together with it.
+      KIWI_RENDER_RENDER_DEPLOYMENTS: "nv-config-manager-render-api,nv-config-manager-render-consumer-nautobot,nv-config-manager-render-consumer-device"
+      KIWI_RENDER_ROLLOUT_TIMEOUT_SECONDS: "300"
   frontend:
     image:
       repository: kiwi-render-frontend

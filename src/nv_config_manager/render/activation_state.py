@@ -31,6 +31,7 @@ introducing a new Postgres dependency just for this.
 
 from __future__ import annotations
 
+import copy
 import json
 import time
 from collections.abc import Callable
@@ -51,6 +52,10 @@ _MAX_CONFLICT_RETRIES = 5
 _EMPTY_STATE: dict[str, Any] = {
     "active_digest": None,
     "in_progress_digest": None,
+    # What the in-flight activation will install, and when it was accepted. Recorded *before* any
+    # pod restarts, so a pod started by the restart installs the new set; see artifacts_to_install().
+    "in_progress_artifacts": [],
+    "in_progress_since": None,
     # Per-plugin artifact locations for active_digest -- what the
     # artifact-fetch init container installs on pod startup.
     "active_artifacts": [],
@@ -84,12 +89,13 @@ class ActivationStateStore:
             cm = core_v1.read_namespaced_config_map(self._name, self._namespace)
         except ApiException as exc:
             if exc.status == 404:
-                return dict(_EMPTY_STATE)
+                return copy.deepcopy(_EMPTY_STATE)
             raise
         raw = (cm.data or {}).get(_DATA_KEY)
         if not raw:
-            return dict(_EMPTY_STATE)
-        return json.loads(raw)
+            return copy.deepcopy(_EMPTY_STATE)
+        # A ConfigMap written by an older version lacks newer keys; fill them in from the defaults.
+        return {**copy.deepcopy(_EMPTY_STATE), **json.loads(raw)}
 
     def update(self, mutator: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
         """Read-modify-write: apply `mutator` to the current state and persist
@@ -109,7 +115,7 @@ class ActivationStateStore:
                 cm = None
                 exists = False
 
-            current = dict(_EMPTY_STATE)
+            current = copy.deepcopy(_EMPTY_STATE)
             if cm is not None:
                 raw = (cm.data or {}).get(_DATA_KEY)
                 if raw:
@@ -145,3 +151,15 @@ class ActivationStateStore:
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def artifacts_to_install(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """The plugin artifacts a render pod should install when it starts.
+
+    While an activation is in flight the pods being restarted for it must install the *new* set, so
+    the in-flight artifacts win; otherwise the active set. A failed activation clears the in-flight
+    record, so pods restarted later go back to the active set.
+    """
+    if state.get("in_progress_digest"):
+        return list(state.get("in_progress_artifacts") or [])
+    return list(state.get("active_artifacts") or [])

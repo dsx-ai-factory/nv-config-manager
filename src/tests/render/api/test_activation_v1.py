@@ -12,18 +12,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the activation_v1 router: request shape, auth (reuses the
-existing require_group() SPIFFE-backed mechanism), idempotency, conflicting
-concurrent activations, and success/failure handling. The real Kubernetes
-calls (ActivationStateStore, trigger_and_wait_for_rollout) are replaced with
-test doubles -- there is no live cluster in this test environment; a real
-rollout against a local kind cluster is a separate, follow-on verification
-effort, not a unit test's job."""
+"""Tests for the activation_v1 router: request shape, auth (reuses the existing require_group()
+SPIFFE-backed mechanism), recording, idempotency, conflicts, stale in-flight activations and the
+completion report. This service no longer restarts anything -- Template Preview does -- so these
+tests only check what is recorded; the real Kubernetes ConfigMap (ActivationStateStore) is replaced
+with an in-memory double."""
 
 from __future__ import annotations
 
 from configparser import ConfigParser
 from copy import deepcopy
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -32,9 +31,8 @@ from fastapi.testclient import TestClient
 
 import nv_config_manager.common.auth as auth_mod
 from nv_config_manager.common.auth import _jwks_clients, load_auth_config
-from nv_config_manager.render.activation_state import _EMPTY_STATE
+from nv_config_manager.render.activation_state import _EMPTY_STATE, artifacts_to_install
 from nv_config_manager.render.api.activation_v1 import ACTIVATION_GROUP, router
-from nv_config_manager.render.rollout import RolloutError
 
 
 def _make_config(**sections: dict[str, str]) -> ConfigParser:
@@ -114,119 +112,202 @@ def _body(request_id: str = "req-1", digest: str = "sha256:aaaa") -> dict:
     }
 
 
-@patch("nv_config_manager.render.api.activation_v1.ActivationStateStore", FakeStateStore)
-@patch("nv_config_manager.render.api.activation_v1.trigger_and_wait_for_rollout")
-def test_activate_success_marks_digest_active(mock_rollout):
+STORE = "nv_config_manager.render.api.activation_v1.ActivationStateStore"
+
+
+def _allow_headers():
     load_auth_config(_make_config(auth={"accept_request_headers": "true"}))
+
+
+@patch(STORE, FakeStateStore)
+def test_activate_records_the_set_and_its_artifacts_but_changes_nothing_else():
+    _allow_headers()
     resp = _client().post("/v1/activation/activate", json=_body(), headers=AUTH_HEADERS)
 
     assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] == "READY"
-    mock_rollout.assert_called_once()
-    assert FakeStateStore._shared_state["active_digest"] == "sha256:aaaa"
-    assert FakeStateStore._shared_state["in_progress_digest"] is None
-    assert FakeStateStore._shared_state["requests"]["req-1"]["status"] == "READY"
+    assert resp.json()["status"] == "ACCEPTED"
+    state = FakeStateStore._shared_state
+    assert state["in_progress_digest"] == "sha256:aaaa"
+    assert state["in_progress_artifacts"][0]["plugin_id"] == "site-overrides"
+    assert state["in_progress_since"] is not None
+    assert state["requests"]["req-1"]["status"] == "REQUESTED"
+    # nothing is active until the caller reports a successful restart
+    assert state["active_digest"] is None and state["active_artifacts"] == []
 
 
-@patch.dict(
-    "os.environ",
-    {"RENDER_ACTIVATION_DEPLOYMENTS": "api,consumer", "RENDER_ACTIVATION_SELF_DEPLOYMENT": "api"},
-)
-@patch("nv_config_manager.render.api.activation_v1.ActivationStateStore", FakeStateStore)
-@patch("nv_config_manager.render.api.activation_v1.restart_deployment_no_wait")
-@patch("nv_config_manager.render.api.activation_v1.trigger_and_wait_for_rollout")
-def test_activate_restarts_self_deployment_after_marking_ready(mock_rollout, mock_self_restart):
-    """When RENDER_ACTIVATION_SELF_DEPLOYMENT names one of the Deployments,
-    it must be excluded from trigger_and_wait_for_rollout (never waited on)
-    and the ConfigMap must already say READY before restart_deployment_no_wait
-    is called for it -- the ordering that survives this process dying
-    immediately after triggering its own restart."""
-    load_auth_config(_make_config(auth={"accept_request_headers": "true"}))
-    body = _body()
-    body["artifacts"][0]["plugin_id"] = "api"  # irrelevant to deployments, just reusing shape
+@patch(STORE, FakeStateStore)
+def test_the_in_flight_set_is_what_a_restarted_pod_installs():
+    _allow_headers()
+    _client().post("/v1/activation/activate", json=_body(), headers=AUTH_HEADERS)
 
-    resp = _client().post("/v1/activation/activate", json=body, headers=AUTH_HEADERS)
+    installed = artifacts_to_install(FakeStateStore._shared_state)
 
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "READY"
-    # "api" must never appear in the list passed to trigger_and_wait_for_rollout.
-    waited_on = mock_rollout.call_args.args[0]
-    assert "api" not in waited_on
-    mock_self_restart.assert_called_once_with("api", "default")
-    assert FakeStateStore._shared_state["active_digest"] == body["plugin_set_digest"]
+    assert [a["plugin_id"] for a in installed] == ["site-overrides"]
 
 
-@patch("nv_config_manager.render.api.activation_v1.ActivationStateStore", FakeStateStore)
-@patch("nv_config_manager.render.api.activation_v1.trigger_and_wait_for_rollout")
-def test_activate_rollout_failure_marks_failed_not_active(mock_rollout):
-    mock_rollout.side_effect = RolloutError("Deployment 'api' did not become ready before timeout")
-    load_auth_config(_make_config(auth={"accept_request_headers": "true"}))
+def test_without_an_in_flight_activation_pods_install_the_active_set():
+    state = deepcopy(_EMPTY_STATE)
+    state["active_artifacts"] = [{"plugin_id": "old"}]
+    state["in_progress_artifacts"] = [{"plugin_id": "stale-leftover"}]  # ignored: nothing in flight
 
-    resp = _client().post("/v1/activation/activate", json=_body(), headers=AUTH_HEADERS)
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] == "FAILED"
-    assert "did not become ready" in body["detail"]
-    assert FakeStateStore._shared_state["active_digest"] is None
-    assert FakeStateStore._shared_state["in_progress_digest"] is None
-    assert FakeStateStore._shared_state["requests"]["req-1"]["status"] == "FAILED"
+    assert artifacts_to_install(state) == [{"plugin_id": "old"}]
 
 
-@patch("nv_config_manager.render.api.activation_v1.ActivationStateStore", FakeStateStore)
-@patch("nv_config_manager.render.api.activation_v1.trigger_and_wait_for_rollout")
-def test_activate_retried_request_id_is_idempotent_no_op(mock_rollout):
-    load_auth_config(_make_config(auth={"accept_request_headers": "true"}))
+@patch(STORE, FakeStateStore)
+def test_a_ready_report_promotes_the_in_flight_set():
+    _allow_headers()
+    client = _client()
+    client.post("/v1/activation/activate", json=_body(), headers=AUTH_HEADERS)
+
+    resp = client.post(
+        "/v1/activation/req-1/complete", json={"outcome": "READY"}, headers=AUTH_HEADERS
+    )
+
+    assert resp.status_code == 200 and resp.json()["status"] == "READY"
+    state = FakeStateStore._shared_state
+    assert state["active_digest"] == "sha256:aaaa"
+    assert state["active_artifacts"][0]["plugin_id"] == "site-overrides"
+    assert state["in_progress_digest"] is None and state["in_progress_artifacts"] == []
+    assert state["requests"]["req-1"]["status"] == "READY"
+
+
+@patch(STORE, FakeStateStore)
+def test_a_failed_report_keeps_the_previous_set_active():
+    _allow_headers()
+    client = _client()
+    client.post("/v1/activation/activate", json=_body("req-1", "sha256:old"), headers=AUTH_HEADERS)
+    client.post("/v1/activation/req-1/complete", json={"outcome": "READY"}, headers=AUTH_HEADERS)
+    client.post("/v1/activation/activate", json=_body("req-2", "sha256:new"), headers=AUTH_HEADERS)
+
+    resp = client.post(
+        "/v1/activation/req-2/complete",
+        json={"outcome": "FAILED", "detail": "Deployment 'api' did not become ready"},
+        headers=AUTH_HEADERS,
+    )
+
+    assert resp.status_code == 200 and resp.json()["status"] == "FAILED"
+    assert "did not become ready" in resp.json()["detail"]
+    state = FakeStateStore._shared_state
+    assert state["active_digest"] == "sha256:old"
+    assert state["in_progress_digest"] is None
+    assert state["requests"]["req-2"]["status"] == "FAILED"
+
+
+@patch(STORE, FakeStateStore)
+def test_a_retried_activate_returns_accepted_until_it_is_completed_then_the_outcome():
+    _allow_headers()
     client = _client()
 
     first = client.post("/v1/activation/activate", json=_body(), headers=AUTH_HEADERS)
-    assert first.status_code == 200
-    assert mock_rollout.call_count == 1
+    again = client.post("/v1/activation/activate", json=_body(), headers=AUTH_HEADERS)
+    client.post("/v1/activation/req-1/complete", json={"outcome": "READY"}, headers=AUTH_HEADERS)
+    after = client.post("/v1/activation/activate", json=_body(), headers=AUTH_HEADERS)
 
-    second = client.post("/v1/activation/activate", json=_body(), headers=AUTH_HEADERS)
-    assert second.status_code == 200
-    assert second.json()["status"] == "READY"
-    # Retrying the same request_id must not trigger a second rollout.
-    assert mock_rollout.call_count == 1
+    assert (first.json()["status"], again.json()["status"]) == ("ACCEPTED", "ACCEPTED")
+    assert after.json()["status"] == "READY"
 
 
-@patch("nv_config_manager.render.api.activation_v1.ActivationStateStore", FakeStateStore)
-@patch("nv_config_manager.render.api.activation_v1.trigger_and_wait_for_rollout")
-def test_activate_already_active_digest_is_no_op(mock_rollout):
-    load_auth_config(_make_config(auth={"accept_request_headers": "true"}))
+@patch(STORE, FakeStateStore)
+def test_an_already_active_digest_needs_no_restart():
+    _allow_headers()
     client = _client()
-
     client.post("/v1/activation/activate", json=_body("req-1"), headers=AUTH_HEADERS)
-    assert mock_rollout.call_count == 1
+    client.post("/v1/activation/req-1/complete", json={"outcome": "READY"}, headers=AUTH_HEADERS)
 
     resp = client.post("/v1/activation/activate", json=_body("req-2"), headers=AUTH_HEADERS)
-    assert resp.status_code == 200
+
     assert resp.json()["status"] == "READY"
-    # Same digest, different request_id -- still shouldn't re-trigger a rollout.
-    assert mock_rollout.call_count == 1
+    assert "req-2" not in FakeStateStore._shared_state["requests"]
 
 
-@patch("nv_config_manager.render.api.activation_v1.ActivationStateStore", FakeStateStore)
-@patch("nv_config_manager.render.api.activation_v1.trigger_and_wait_for_rollout")
-def test_activate_conflicting_concurrent_digest_is_rejected(mock_rollout):
-    """A activation for digest A is recorded as in-progress (rollout mocked
-    to never resolve mid-test by simply not awaiting completion here --
-    instead we directly manipulate FakeStateStore to simulate "in flight")."""
-    load_auth_config(_make_config(auth={"accept_request_headers": "true"}))
+@patch(STORE, FakeStateStore)
+def test_a_different_digest_while_one_is_in_flight_is_rejected():
+    _allow_headers()
+    client = _client()
+    client.post("/v1/activation/activate", json=_body("req-1", "sha256:aaaa"), headers=AUTH_HEADERS)
 
-    def _in_progress(s):
-        s["in_progress_digest"] = "sha256:aaaa"
-        return s
-
-    FakeStateStore().update(_in_progress)
-
-    resp = _client().post(
+    resp = client.post(
         "/v1/activation/activate", json=_body("req-2", "sha256:zzzz"), headers=AUTH_HEADERS
     )
 
     assert resp.status_code == 409
-    mock_rollout.assert_not_called()
+    assert FakeStateStore._shared_state["in_progress_digest"] == "sha256:aaaa"
+
+
+@patch(STORE, FakeStateStore)
+def test_a_stale_in_flight_activation_is_replaced_by_the_next_one():
+    _allow_headers()
+    client = _client()
+    client.post("/v1/activation/activate", json=_body("req-1", "sha256:aaaa"), headers=AUTH_HEADERS)
+
+    def _age(s):
+        s["in_progress_since"] = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+        return s
+
+    FakeStateStore().update(_age)
+
+    resp = client.post(
+        "/v1/activation/activate", json=_body("req-2", "sha256:zzzz"), headers=AUTH_HEADERS
+    )
+
+    assert resp.status_code == 200 and resp.json()["status"] == "ACCEPTED"
+    state = FakeStateStore._shared_state
+    assert state["in_progress_digest"] == "sha256:zzzz"
+    assert state["requests"]["req-1"]["status"] == "FAILED"  # abandoned, not left dangling
+
+
+@patch(STORE, FakeStateStore)
+def test_completing_an_unknown_request_is_404():
+    _allow_headers()
+
+    resp = _client().post(
+        "/v1/activation/nope/complete", json={"outcome": "READY"}, headers=AUTH_HEADERS
+    )
+
+    assert resp.status_code == 404
+
+
+@patch(STORE, FakeStateStore)
+def test_repeating_a_completion_is_safe_but_changing_it_is_a_conflict():
+    _allow_headers()
+    client = _client()
+    client.post("/v1/activation/activate", json=_body(), headers=AUTH_HEADERS)
+    client.post("/v1/activation/req-1/complete", json={"outcome": "READY"}, headers=AUTH_HEADERS)
+
+    same = client.post(
+        "/v1/activation/req-1/complete", json={"outcome": "READY"}, headers=AUTH_HEADERS
+    )
+    changed = client.post(
+        "/v1/activation/req-1/complete", json={"outcome": "FAILED"}, headers=AUTH_HEADERS
+    )
+
+    assert same.status_code == 200 and same.json()["status"] == "READY"
+    assert changed.status_code == 409
+
+
+def test_completing_without_the_activation_group_is_forbidden():
+    _allow_headers()
+
+    resp = _client().post(
+        "/v1/activation/req-1/complete",
+        json={"outcome": "READY"},
+        headers={
+            "X-Auth-Request-Email": "someone-else@example.com",
+            "X-Auth-Request-Groups": "some-other-group",
+        },
+    )
+
+    assert resp.status_code == 403
+
+
+def test_completion_outcomes_are_limited_to_ready_and_failed():
+    _allow_headers()
+
+    resp = _client().post(
+        "/v1/activation/req-1/complete", json={"outcome": "MAYBE"}, headers=AUTH_HEADERS
+    )
+
+    assert resp.status_code == 422
 
 
 def test_activate_without_matching_group_is_forbidden():

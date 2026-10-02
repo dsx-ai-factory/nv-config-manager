@@ -180,6 +180,59 @@ def test_cli_main_noop_when_nothing_active(mock_store_cls, mock_fetch, monkeypat
     mock_fetch.assert_not_called()
 
 
+def _artifact(plugin_id: str) -> dict:
+    return {
+        "plugin_id": plugin_id,
+        "digest": f"sha256:{plugin_id}",
+        "archive_checksum": f"sha256:{plugin_id}-raw",
+        "url": f"https://tp/internal/artifacts/{plugin_id}",
+    }
+
+
+@patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
+@patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
+def test_a_pod_restarted_for_an_activation_installs_the_new_set_not_the_old_one(
+    mock_store_cls, mock_fetch, monkeypatch
+):
+    """The restart is triggered after the new set is recorded as in flight, so every restarted
+    Deployment installs it. (Previously the consumers restarted first and installed the old set.)"""
+    monkeypatch.setenv("RENDER_ACTIVATION_CONFIGMAP", "cm")
+    monkeypatch.setenv("RENDER_ACTIVATION_NAMESPACE", "ns")
+    mock_store_cls.return_value.get.return_value = {
+        "active_digest": "sha256:old",
+        "active_artifacts": [_artifact("old-plugin")],
+        "in_progress_digest": "sha256:new",
+        "in_progress_artifacts": [_artifact("new-plugin")],
+    }
+
+    cli_main()
+
+    assert [call.args[3] for call in mock_fetch.call_args_list] == [
+        "/opt/plugins/_dynamic/new-plugin"
+    ]
+
+
+@patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
+@patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
+def test_after_a_failed_activation_a_restarted_pod_goes_back_to_the_active_set(
+    mock_store_cls, mock_fetch, monkeypatch
+):
+    monkeypatch.setenv("RENDER_ACTIVATION_CONFIGMAP", "cm")
+    monkeypatch.setenv("RENDER_ACTIVATION_NAMESPACE", "ns")
+    mock_store_cls.return_value.get.return_value = {
+        "active_digest": "sha256:old",
+        "active_artifacts": [_artifact("old-plugin")],
+        "in_progress_digest": None,
+        "in_progress_artifacts": [],
+    }
+
+    cli_main()
+
+    assert [call.args[3] for call in mock_fetch.call_args_list] == [
+        "/opt/plugins/_dynamic/old-plugin"
+    ]
+
+
 @patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
 @patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
 def test_cli_main_fetches_every_active_artifact(mock_store_cls, mock_fetch, monkeypatch):
