@@ -23,6 +23,7 @@ import signal
 import sys
 from typing import Any
 
+from nv_config_manager.common.config_watch import restart_on_config_change
 from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
 from nv_config_manager.config_store.config import settings
 from nv_config_manager.config_store.core.device_cache_redis import (
@@ -112,6 +113,8 @@ def cli_main() -> None:
     # Setup signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+
+    restart_on_config_change()
 
     # Run the service
     try:

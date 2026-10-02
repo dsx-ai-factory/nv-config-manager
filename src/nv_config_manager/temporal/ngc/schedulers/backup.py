@@ -36,6 +36,7 @@ from temporalio.common import (
 from temporalio.contrib.opentelemetry import TracingInterceptor
 
 from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_watch import restart_on_config_change
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMError, create_dcim_client
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
@@ -197,6 +198,7 @@ def main() -> None:
     """Entry point for nv-config-manager-temporal-scheduler command."""
     logging.basicConfig(level=logging.INFO)
     setup_telemetry("nv-config-manager-temporal-scheduler")
+    restart_on_config_change()
     asyncio.run(BackupScheduler().run())
 
 
