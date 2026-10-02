@@ -48,15 +48,6 @@ type Runner interface {
 	Run() error
 }
 
-// RedactAddress returns the NATS address with any password masked so it can be logged.
-func RedactAddress(address string) string {
-	u, err := url.Parse(address)
-	if err != nil {
-		return "<unparseable NATS address>"
-	}
-	return u.Redacted()
-}
-
 type NatsReadyConfig struct {
 	Address                        string
 	nautobotNATSConfigBytes        []byte

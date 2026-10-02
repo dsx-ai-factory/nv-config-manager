@@ -15,7 +15,7 @@ version before the selected release candidate is promoted.
   rescheduled after nats-box started came back without JetStream state, and
   nothing re-ran stream setup. Runtime-created streams now use the configured
   names, subjects, and the same limits as nats-ready.
-- nats-ready no longer logs the NATS password as part of the server address.
+- nats-ready no longer logs NATS passwords or token-only credentials in the server address.
 
 ## 1.3.1
 

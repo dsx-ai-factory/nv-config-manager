@@ -18,12 +18,19 @@ from configparser import ConfigParser
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
-from nats.js.api import AckPolicy, DeliverPolicy, DiscardPolicy, RetentionPolicy, StorageType
+from nats.js.api import (
+    AckPolicy,
+    DeliverPolicy,
+    DiscardPolicy,
+    RetentionPolicy,
+    StorageType,
+    StreamConfig,
+)
 from nats.js.errors import BadRequestError, NotFoundError
 
 from nv_config_manager.common.client import DEFAULT_NATS_API_PREFIX, NatsClient, NatsConsumer
 from nv_config_manager.common.config import ensure_local_streams, nats_connection
-from nv_config_manager.common.config.nats import LOCAL_STREAM_MAX_BYTES
+from nv_config_manager.common.config.nats import LOCAL_STREAM_MAX_BYTES, LocalStreamConfigMismatch
 
 TEST_SERVER = "nats://nats.example.local:4222"
 
@@ -189,15 +196,97 @@ async def test_ensure_local_streams_includes_separate_dcim_stream():
     assert config.subjects == ["dcim.events"]
 
 
-@pytest.mark.asyncio
-async def test_ensure_local_streams_tolerates_concurrent_creation():
-    """Another replica creating the stream first is not an error."""
-    conn = _local_conn(missing={"nautobot"})
-    conn.jetstream.return_value.add_stream.side_effect = BadRequestError(
+def _stored_stream(
+    name: str, subjects: list[str], *, max_bytes: int = LOCAL_STREAM_MAX_BYTES
+) -> MagicMock:
+    info = MagicMock()
+    info.config = StreamConfig(
+        name=name,
+        subjects=subjects,
+        retention=RetentionPolicy.LIMITS,
+        storage=StorageType.FILE,
+        discard=DiscardPolicy.OLD,
+        max_bytes=max_bytes,
+        duplicate_window=120.0,
+        num_replicas=1,
+    )
+    return info
+
+
+def _conflict_after_missing(conn: MagicMock, stored: MagicMock) -> None:
+    """Report the stream missing once, then return the stream another creator stored."""
+    jetstream = conn.jetstream.return_value
+    lookups = 0
+
+    async def stream_info(name: str) -> MagicMock:
+        nonlocal lookups
+        if name != "nautobot":
+            return MagicMock()
+        lookups += 1
+        if lookups == 1:
+            raise NotFoundError(code=404, err_code=10059, description="stream not found")
+        return stored
+
+    jetstream.stream_info = AsyncMock(side_effect=stream_info)
+    jetstream.add_stream.side_effect = BadRequestError(
         code=400, err_code=10058, description="stream name already in use"
     )
 
+
+@pytest.mark.asyncio
+async def test_ensure_local_streams_merges_dcim_subject_into_shared_stream():
+    """A DCIM subject on the Nautobot stream is stored with that stream's other subjects."""
+    conn = _local_conn(missing={"nautobot"})
+
+    created = await ensure_local_streams(
+        conn,
+        _local_config(
+            nautobot_subjects="nautobot.changelog",
+            dcim_change_stream="nautobot",
+            dcim_change_subject="dcim.events",
+        ),
+    )
+
+    assert created == ["nautobot"]
+    config = conn.jetstream.return_value.add_stream.await_args.args[0]
+    assert config.subjects == ["nautobot.changelog", "dcim.events"]
+
+
+@pytest.mark.asyncio
+async def test_ensure_local_streams_does_not_duplicate_a_shared_dcim_subject():
+    """A DCIM subject already covered by the stream is not added twice."""
+    conn = _local_conn(missing={"nautobot"})
+
+    await ensure_local_streams(
+        conn,
+        _local_config(
+            nautobot_subjects="nautobot,dcim.events",
+            dcim_change_stream="nautobot",
+            dcim_change_subject="dcim.events",
+        ),
+    )
+
+    config = conn.jetstream.return_value.add_stream.await_args.args[0]
+    assert config.subjects == ["nautobot", "dcim.events"]
+
+
+@pytest.mark.asyncio
+async def test_ensure_local_streams_accepts_concurrent_creation_when_config_matches():
+    """Another replica creating the same stream first is not an error."""
+    conn = _local_conn(missing=set())
+    _conflict_after_missing(conn, _stored_stream("nautobot", ["nautobot"]))
+
     assert await ensure_local_streams(conn, _local_config()) == []
+
+
+@pytest.mark.asyncio
+async def test_ensure_local_streams_rejects_name_conflict_with_different_config():
+    """Error 10058 is not success when the stored stream would drop configured events."""
+    conn = _local_conn(missing=set())
+    _conflict_after_missing(conn, _stored_stream("nautobot", ["other"], max_bytes=1))
+
+    with pytest.raises(LocalStreamConfigMismatch, match="subjects"):
+        await ensure_local_streams(conn, _local_config())
 
 
 @pytest.mark.asyncio

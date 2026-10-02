@@ -47,8 +47,13 @@ DEFAULT_NAUTOBOT_NATS_SUBJECT = "nautobot"
 # renders local_stream_max_bytes to the value nats-ready will use.
 LOCAL_STREAM_MAX_BYTES = 21474836480
 LOCAL_STREAM_DUPLICATE_WINDOW_SECONDS = 120.0
-# JetStream error code for "stream name already in use" (a concurrent creator won).
+# JetStream 10058: the stream name is already in use with a different configuration.
+# Older servers also return it when another client created the same stream first.
 _STREAM_NAME_IN_USE_ERR_CODE = 10058
+
+
+class LocalStreamConfigMismatch(Exception):
+    """A bundled stream exists, but not with the subjects and limits required here."""
 
 
 class _NATS_ENUM(StrEnum):
@@ -273,7 +278,13 @@ def local_stream_subjects(config: ConfigParser | None = None) -> dict[str, list[
         nautobot_stream: _split_subjects(nats_config.get("nautobot_subjects", nautobot_stream)),
     }
     dcim_stream, dcim_subject = nats_dcim_change_config(config)
-    streams.setdefault(dcim_stream, [dcim_subject])
+    if not dcim_subject:
+        return streams
+    subjects = streams.get(dcim_stream)
+    if subjects is None:
+        streams[dcim_stream] = [dcim_subject]
+    elif dcim_subject not in subjects:
+        subjects.append(dcim_subject)
     return streams
 
 
@@ -305,27 +316,62 @@ async def ensure_local_streams(
     for name, subjects in local_stream_subjects(config).items():
         if streams is not None and name not in streams:
             continue
+        required = _bundled_stream_config(name, subjects, max_bytes)
         try:
             await jetstream.stream_info(name)
             continue
         except nats.js.errors.NotFoundError:
             pass
         try:
-            await jetstream.add_stream(
-                StreamConfig(
-                    name=name,
-                    subjects=subjects,
-                    retention=RetentionPolicy.LIMITS,
-                    storage=StorageType.FILE,
-                    discard=DiscardPolicy.OLD,
-                    max_bytes=max_bytes,
-                    duplicate_window=LOCAL_STREAM_DUPLICATE_WINDOW_SECONDS,
-                    num_replicas=1,
-                )
-            )
+            await jetstream.add_stream(required)
         except nats.js.errors.BadRequestError as e:
             if e.err_code != _STREAM_NAME_IN_USE_ERR_CODE:
                 raise
+            # Another creator won the race, or the name is in use with a different
+            # configuration. Keep going only when the stored stream still matches.
+            info = await jetstream.stream_info(name)
+            differences = _stream_config_differences(info.config, required)
+            if differences:
+                raise LocalStreamConfigMismatch(
+                    f"stream {name} exists with a different configuration: "
+                    + "; ".join(differences)
+                ) from e
             continue
         created.append(name)
     return created
+
+
+def _bundled_stream_config(name: str, subjects: list[str], max_bytes: int) -> StreamConfig:
+    return StreamConfig(
+        name=name,
+        subjects=subjects,
+        retention=RetentionPolicy.LIMITS,
+        storage=StorageType.FILE,
+        discard=DiscardPolicy.OLD,
+        max_bytes=max_bytes,
+        duplicate_window=LOCAL_STREAM_DUPLICATE_WINDOW_SECONDS,
+        num_replicas=1,
+    )
+
+
+def _stream_config_differences(existing: StreamConfig, required: StreamConfig) -> list[str]:
+    """Return the subjects and limits that would drop or reshape stored events."""
+    differences: list[str] = []
+    if set(existing.subjects or []) != set(required.subjects or []):
+        differences.append(
+            f"subjects {list(existing.subjects or [])} != {list(required.subjects or [])}"
+        )
+    comparisons = (
+        ("retention", existing.retention, required.retention),
+        ("storage", existing.storage, required.storage),
+        ("discard", existing.discard, required.discard),
+        ("max_bytes", existing.max_bytes, required.max_bytes),
+        ("duplicate_window", existing.duplicate_window, required.duplicate_window),
+        ("num_replicas", existing.num_replicas or 1, required.num_replicas or 1),
+    )
+    differences.extend(
+        f"{field} {actual} != {expected}"
+        for field, actual, expected in comparisons
+        if actual != expected
+    )
+    return differences
