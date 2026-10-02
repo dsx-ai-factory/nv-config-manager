@@ -31,7 +31,7 @@ import signal
 import threading
 from configparser import ConfigParser
 
-from nv_config_manager.common.ini import config_path, file_digest
+from nv_config_manager.common.ini import config_path, file_digest, loaded_config_snapshot
 from nv_config_manager.common.log import LogCategory, get_logger
 
 logger = get_logger(__name__, category=LogCategory.CONFIG)
@@ -92,6 +92,7 @@ def _watch(
     poll_interval: float,
     max_jitter: float,
     stop: threading.Event,
+    baseline: tuple[str, str] | None = None,
 ) -> None:
     """Poll until the file's contents change, then signal a shutdown.
 
@@ -100,9 +101,15 @@ def _watch(
         poll_interval: Seconds between checks
         max_jitter: Upper bound on the delay before signalling
         stop: Set this to abandon the watch without touching the process
+        baseline: Digest and text already parsed at startup. A later read of
+            the file is not a safe baseline: the process is still using the
+            earlier copy, so a change in between would never restart it.
     """
-    digest = file_digest(path)
-    contents = _read(path)
+    if baseline is None:
+        digest = file_digest(path)
+        contents = _read(path)
+    else:
+        digest, contents = baseline
 
     while not stop.wait(poll_interval):
         current = file_digest(path)
@@ -150,7 +157,7 @@ def restart_on_config_change(
     path = config_path()
     threading.Thread(
         target=_watch,
-        args=(path, poll_interval, max_jitter, threading.Event()),
+        args=(path, poll_interval, max_jitter, threading.Event(), loaded_config_snapshot(path)),
         name="config-watch",
         daemon=True,
     ).start()

@@ -15,11 +15,13 @@
 """Tests that the archive consumer follows its stream's JetStream API prefix."""
 
 from collections.abc import Callable
+from configparser import ConfigParser
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from nv_config_manager.temporal.archive.main import main
+from nv_config_manager.temporal.archive import main as archive_main
+from nv_config_manager.temporal.archive.main import _config_for_selected_backend, main
 from nv_config_manager.temporal.client.nats import NatsClient, NatsConsumer, NatsProducer
 from nv_config_manager.temporal.ngc.activities.nats import PublishNatsInput, publish_nats
 from nv_config_manager.temporal.runtime import configure_workflow_runtime
@@ -128,3 +130,49 @@ async def test_workflow_result_publish_subject_is_unchanged(
         '{"workflow_id":"workflow-1"}',
         stream="nv-config-manager",
     )
+
+
+def test_a_removed_backend_keeps_the_startup_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dispatch stays on the imported backend until the process restarts."""
+    startup = ConfigParser()
+    startup.read_string(
+        "[temporal]\n"
+        "api_url = https://old.example\n"
+        "[temporal.elasticsearch]\n"
+        "local = true\n"
+        "server = old\n"
+    )
+    current = ConfigParser()
+    current.read_string("[temporal]\napi_url = https://new.example\n")
+    monkeypatch.setattr(archive_main, "_startup_config", startup)
+    monkeypatch.setattr(archive_main, "ARCHIVE_BACKEND", "elasticsearch")
+    monkeypatch.setattr(archive_main, "load_config", lambda: current)
+
+    assert _config_for_selected_backend() is startup
+
+
+def test_an_updated_backend_section_is_used(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Settings for the selected backend still reload per message."""
+    startup = ConfigParser()
+    startup.read_string(
+        "[temporal]\n"
+        "api_url = https://old.example\n"
+        "[temporal.elasticsearch]\n"
+        "local = true\n"
+        "server = old\n"
+    )
+    current = ConfigParser()
+    current.read_string(
+        "[temporal]\n"
+        "api_url = https://new.example\n"
+        "[temporal.elasticsearch]\n"
+        "local = true\n"
+        "server = new\n"
+    )
+    monkeypatch.setattr(archive_main, "_startup_config", startup)
+    monkeypatch.setattr(archive_main, "ARCHIVE_BACKEND", "elasticsearch")
+    monkeypatch.setattr(archive_main, "load_config", lambda: current)
+
+    assert _config_for_selected_backend() is current

@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests for restarting a service when its configuration file changes."""
 
+import hashlib
 import os
 import signal
 import threading
@@ -25,8 +26,9 @@ from unittest.mock import patch
 import pytest
 
 from nv_config_manager.common import config_watch
-from nv_config_manager.common.config_watch import _watch, changed_keys
-from nv_config_manager.common.ini import file_digest
+from nv_config_manager.common.config import clear_config_cache, load_config
+from nv_config_manager.common.config_watch import _watch, changed_keys, restart_on_config_change
+from nv_config_manager.common.ini import file_digest, loaded_config_snapshot, remember_loaded_config
 
 ORIGINAL = """[nats]
 server = nats://nats:4222
@@ -174,6 +176,70 @@ def test_changed_keys_names_the_settings_that_moved() -> None:
     assert changed_keys(ORIGINAL, RENAMED_STREAM) == ["nats.config_manager_stream"]
     assert changed_keys(ORIGINAL, ROTATED) == ["nats.password"]
     assert changed_keys(ORIGINAL, ORIGINAL) == []
+
+
+def test_a_change_after_startup_load_still_restarts(ini: Path) -> None:
+    """A rewrite after settings were loaded must not become the baseline."""
+    ini.write_text(ROTATED)
+    signals: list[tuple[int, int]] = []
+    stop = threading.Event()
+    baseline = (hashlib.sha256(ORIGINAL.encode()).hexdigest(), ORIGINAL)
+
+    with patch(
+        "nv_config_manager.common.config_watch.os.kill",
+        side_effect=lambda pid, sig: signals.append((pid, sig)),
+    ):
+        watcher = threading.Thread(
+            target=_watch,
+            args=(str(ini), POLL_INTERVAL, 0.0, stop, baseline),
+            daemon=True,
+        )
+        watcher.start()
+        deadline = time.monotonic() + 1.0
+        while not signals and time.monotonic() < deadline:
+            time.sleep(POLL_INTERVAL)
+        stop.set()
+        watcher.join(timeout=5.0)
+
+    assert signals == [(os.getpid(), signal.SIGTERM)]
+
+
+def test_load_config_records_the_bytes_the_watcher_compares(
+    ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The recorded snapshot is the file the process parsed, not a later read."""
+    monkeypatch.setenv("NV_CONFIG_MANAGER_INI", str(ini))
+    clear_config_cache()
+
+    load_config()
+
+    assert loaded_config_snapshot(str(ini)) == (file_digest(str(ini)), ORIGINAL)
+
+
+def test_restart_baselines_on_the_loaded_snapshot(
+    ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The watch starts from the parsed snapshot when one exists."""
+    monkeypatch.setenv("NV_CONFIG_MANAGER_INI", str(ini))
+    digest = hashlib.sha256(ORIGINAL.encode()).hexdigest()
+    remember_loaded_config(str(ini), digest, ORIGINAL)
+    captured: dict[str, tuple[object, ...]] = {}
+
+    class _Thread:
+        def __init__(self, *_args: object, **kwargs: object) -> None:
+            captured["args"] = kwargs["args"]  # type: ignore[assignment]
+
+        def start(self) -> None:
+            return None
+
+    monkeypatch.setattr(config_watch.threading, "Thread", _Thread)
+    try:
+        assert restart_on_config_change() is True
+    finally:
+        if config_watch._watch_started.locked():
+            config_watch._watch_started.release()
+
+    assert captured["args"][4] == (digest, ORIGINAL)
 
 
 def test_changed_keys_does_not_leak_the_values() -> None:

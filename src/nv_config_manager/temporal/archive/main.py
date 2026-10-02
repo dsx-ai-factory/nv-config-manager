@@ -18,6 +18,7 @@ import argparse
 import json
 import logging
 import os
+from configparser import ConfigParser
 from typing import Any
 
 from nats.aio.msg import Msg
@@ -88,9 +89,30 @@ async def handle_archive_msg(msg: Msg) -> None:
         _archive_elasticsearch(workflow_details)
 
 
+def _config_for_selected_backend() -> ConfigParser:
+    """Return settings for the backend this process imported.
+
+    Messages reload the file so a credential or endpoint change is picked up
+    before the restart lands. A snapshot that no longer contains the selected
+    backend is ignored: this process cannot import the other one, and reading
+    the missing section would fail the message. The startup copy still has it,
+    and the watcher restarts the process onto the new backend.
+    """
+    current = load_config()
+    if "temporal" not in current:
+        return _startup_config
+    if ARCHIVE_BACKEND == "nvdataflow":
+        if "temporal.nvdataflow" in current and current["temporal.nvdataflow"].get("project"):
+            return current
+        return _startup_config
+    if "temporal.elasticsearch" in current:
+        return current
+    return _startup_config
+
+
 async def _archive_nvdataflow(workflow_details: Any) -> None:
     """Archive workflow details to nvdataflow."""
-    config = load_config()
+    config = _config_for_selected_backend()
     compressed = gzip.compress(json.dumps(workflow_details).encode("utf-8"))
     encoded = base64.b64encode(compressed).decode("utf-8")
 
@@ -136,7 +158,7 @@ async def _archive_nvdataflow(workflow_details: Any) -> None:
 
 def _archive_elasticsearch(workflow_details: Any) -> None:
     """Archive workflow details to Elasticsearch."""
-    config = load_config()
+    config = _config_for_selected_backend()
     # Add temporal server so we can track which environment sourced the workflow
     workflow_details["config_manager_temporal_server"] = config["temporal"]["api_url"]
 
