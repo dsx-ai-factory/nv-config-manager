@@ -2644,6 +2644,7 @@ cnpg:
     - temporalVisibility
     - configStore
     - dhcp
+    - templatePreview
   # ---------------------------------------------------------------------------
   # Backup Configuration (shared settings)
   # ---------------------------------------------------------------------------
@@ -2772,6 +2773,44 @@ cnpg:
       enabled: false
       schedule: "0 0 0 * * *"
       retentionPolicy: "30d" # Config store may need longer retention
+      target: preferStandby
+  # Template Preview control-plane database (plugin registry, approvals, activation history, audit
+  # trail). Off by default: enable it with the Template Preview subchart (templatePreview.enabled) and
+  # point the subchart at the credentials Secret, see templatePreview.controlPlane.database. Without it
+  # Template Preview keeps its control plane in a SQLite file on a single volume.
+  templatePreview:
+    enabled: false
+    clusterName: cluster-template-preview
+    database: template_preview
+    owner: template_preview
+    # true: CloudNativePG generates the credentials into the Secret <clusterName>-app (keys include
+    # "uri"), so nothing has to exist beforehand. false (production, like the clusters above): the
+    # installer or Vault/ExternalSecrets provides <clusterName>-app before the cluster is created.
+    generateCredentials: false
+    instances: 3
+    enablePDB: true
+    postgresql:
+      maxConnections: "100"
+      sharedBuffers: "256MB"
+    storage:
+      size: 10Gi
+      storageClass: ""
+    resources:
+      limits:
+        cpu: '2'
+        memory: 2Gi
+      requests:
+        cpu: '250m'
+        memory: 512Mi
+    affinity:
+      # nodeSelector:  # Uncomment for production node placement
+      # nv-config-manager.nvidia.com/node-type: database
+      # enablePodAntiAffinity: true  # Uncomment for production
+      topologyKey: kubernetes.io/hostname
+    backup:
+      enabled: false
+      schedule: "0 0 0 * * *"
+      retentionPolicy: "30d" # the approval and audit records are evidence; keep them
       target: preferStandby
   # DHCP database cluster
   dhcp:

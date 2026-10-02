@@ -48,8 +48,11 @@ spec:
     initdb:
       database: {{ $config.database }}
       owner: {{ $config.owner }}
+      {{- /* Without a pre-created secret CloudNativePG generates <clusterName>-app itself. */}}
+      {{- if not $config.generateCredentials }}
       secret:
         name: {{ $config.clusterName }}-app
+      {{- end }}
   
   storage:
     size: {{ $config.storage.size | default "1Gi" }}
