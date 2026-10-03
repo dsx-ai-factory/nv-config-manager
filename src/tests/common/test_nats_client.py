@@ -234,40 +234,66 @@ def _conflict_after_missing(conn: MagicMock, stored: MagicMock) -> None:
 
 
 @pytest.mark.asyncio
-async def test_ensure_local_streams_merges_dcim_subject_into_shared_stream():
-    """A DCIM subject on the Nautobot stream is stored with that stream's other subjects."""
-    conn = _local_conn(missing={"nautobot"})
+async def test_ensure_local_streams_separate_dcim_stream_replaces_nautobot_stream():
+    """Like nats-ready, a separate DCIM stream is created instead of the Nautobot stream.
 
-    created = await ensure_local_streams(
-        conn,
-        _local_config(
-            nautobot_subjects="nautobot.changelog",
-            dcim_change_stream="nautobot",
-            dcim_change_subject="dcim.events",
-        ),
-    )
+    With only the stream overridden, the DCIM subject is still ``nautobot``; also
+    creating a ``nautobot`` stream would overlap that subject and fail.
+    """
+    conn = _local_conn(missing={"kiwi", "nautobot", "dcim"})
 
-    assert created == ["nautobot"]
+    created = await ensure_local_streams(conn, _local_config(dcim_change_stream="dcim"))
+
+    assert created == ["kiwi", "dcim"]
     config = conn.jetstream.return_value.add_stream.await_args.args[0]
-    assert config.subjects == ["nautobot.changelog", "dcim.events"]
+    assert config.subjects == ["nautobot"]
 
 
 @pytest.mark.asyncio
-async def test_ensure_local_streams_does_not_duplicate_a_shared_dcim_subject():
-    """A DCIM subject already covered by the stream is not added twice."""
+async def test_ensure_local_streams_overridden_dcim_subject_replaces_nautobot_subjects():
+    """Like nats-ready, an overridden DCIM subject is the shared stream's only subject."""
     conn = _local_conn(missing={"nautobot"})
 
     await ensure_local_streams(
         conn,
         _local_config(
-            nautobot_subjects="nautobot,dcim.events",
-            dcim_change_stream="nautobot",
-            dcim_change_subject="dcim.events",
+            nautobot_subjects="nautobot,nautobot.extra", dcim_change_subject="dcim.events"
         ),
     )
 
     config = conn.jetstream.return_value.add_stream.await_args.args[0]
-    assert config.subjects == ["nautobot", "dcim.events"]
+    assert config.subjects == ["dcim.events"]
+
+
+@pytest.mark.asyncio
+async def test_ensure_local_streams_default_dcim_subject_keeps_nautobot_subjects():
+    """Without a DCIM subject override, the stream keeps every configured Nautobot subject."""
+    conn = _local_conn(missing={"nautobot"})
+
+    await ensure_local_streams(conn, _local_config(nautobot_subjects="nautobot,nautobot.extra"))
+
+    config = conn.jetstream.return_value.add_stream.await_args.args[0]
+    assert config.subjects == ["nautobot", "nautobot.extra"]
+
+
+@pytest.mark.asyncio
+async def test_ensure_local_streams_renamed_streams_keep_the_subjects_services_use():
+    """Renaming a stream without listing subjects still stores the events services publish."""
+    conn = _local_conn(missing={"kiwi", "changelog"})
+    config = _config(local="true", config_manager_stream="kiwi", nautobot_stream="changelog")
+
+    await ensure_local_streams(conn, config)
+
+    configs = {
+        call.args[0].name: call.args[0]
+        for call in conn.jetstream.return_value.add_stream.await_args_list
+    }
+    assert configs["kiwi"].subjects == [
+        "nv-config-manager.nautobotchange",
+        "nv-config-manager.devicechange",
+        "nv-config-manager.workflow.result",
+    ]
+    assert configs["changelog"].subjects == ["nautobot"]
 
 
 @pytest.mark.asyncio

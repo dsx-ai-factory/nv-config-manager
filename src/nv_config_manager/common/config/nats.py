@@ -265,26 +265,35 @@ def _split_subjects(raw_subjects: str) -> list[str]:
 
 
 def local_stream_subjects(config: ConfigParser | None = None) -> dict[str, list[str]]:
-    """Return the subjects of each stream the bundled NATS deployment provides."""
+    """Return the subjects of each stream the bundled NATS deployment provides.
+
+    Mirrors nats-ready: the config-manager stream and one DCIM event stream. The
+    DCIM stream replaces the Nautobot stream when ``dcim_change_stream`` names a
+    different stream, and carries only the DCIM subject when that subject is
+    overridden. Subject defaults come from the subjects the services publish and
+    consume, not from the stream name, so renaming a stream keeps its events.
+    """
     nats_config = _nats_section(config)
     config_manager_stream = nats_config.get(
         "config_manager_stream", DEFAULT_CONFIG_MANAGER_NATS_STREAM
     )
-    nautobot_stream = nats_config.get("nautobot_stream", DEFAULT_NAUTOBOT_NATS_STREAM)
-    streams = {
-        config_manager_stream: _split_subjects(
-            nats_config.get("config_manager_subjects", f"{config_manager_stream}.>")
-        ),
-        nautobot_stream: _split_subjects(nats_config.get("nautobot_subjects", nautobot_stream)),
-    }
+    app_subjects = [
+        nats_render_change_config(config)[1],
+        nats_device_change_config(config)[1],
+        nats_archive_config(config)[1],
+    ]
+    config_manager_subjects = _split_subjects(
+        nats_config.get("config_manager_subjects", ",".join(app_subjects))
+    )
+
+    _, nautobot_subject = nats_nautobot_change_config(config)
+    nautobot_subjects = _split_subjects(nats_config.get("nautobot_subjects", nautobot_subject))
     dcim_stream, dcim_subject = nats_dcim_change_config(config)
-    if not dcim_subject:
-        return streams
-    subjects = streams.get(dcim_stream)
-    if subjects is None:
-        streams[dcim_stream] = [dcim_subject]
-    elif dcim_subject not in subjects:
-        subjects.append(dcim_subject)
+    dcim_subjects = nautobot_subjects if dcim_subject == nautobot_subject else [dcim_subject]
+
+    streams = {config_manager_stream: config_manager_subjects}
+    shared = streams.setdefault(dcim_stream, [])
+    shared.extend(subject for subject in dcim_subjects if subject not in shared)
     return streams
 
 
