@@ -479,6 +479,10 @@ def _build_gateway(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
     }
     if config.infrastructure.tls:
         gateway["certificates"]["selfSigned"] = True
+        # The private CA chain is only for the installer-managed local profiles.
+        # Preserve the legacy self-signed issuer for every other environment.
+        if config.cluster.environment.startswith("local"):
+            gateway["certificates"]["localCA"] = True
     if lb.provider == LBProvider.NONE:
         gateway["nodePort"] = {"enabled": True, "http": 30080, "https": 30443}
     if lb.provider == LBProvider.NLB and gateway_type == "envoyGateway":

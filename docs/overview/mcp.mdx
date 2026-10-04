@@ -35,7 +35,9 @@ nvcm-mcp-cli endpoint -H config-manager.example.com
 nvcm-mcp-cli token -H config-manager.example.com
 ```
 
-For local development environments that use a self-signed certificate, add `-k`.
+For installer-managed local development, run `make install-cert` first so the
+client trusts the generated local CA. Use `-k` only as a temporary diagnostic
+measure for other self-signed deployments.
 
 ### Use client-native OAuth
 
