@@ -234,6 +234,32 @@ def test_a_different_digest_while_one_is_in_flight_is_rejected():
     assert FakeStateStore._shared_state["in_progress_digest"] == "sha256:aaaa"
 
 
+class StaleReadStore(FakeStateStore):
+    """Reads see the state from before the other request's write, as two simultaneous requests do."""
+
+    def get(self) -> dict:
+        return deepcopy(_EMPTY_STATE)
+
+
+@patch(STORE, StaleReadStore)
+def test_two_simultaneous_different_activations_cannot_both_be_accepted():
+    _allow_headers()
+    client = _client()
+    first = client.post(
+        "/v1/activation/activate", json=_body("req-1", "sha256:aaaa"), headers=AUTH_HEADERS
+    )
+
+    second = client.post(
+        "/v1/activation/activate", json=_body("req-2", "sha256:zzzz"), headers=AUTH_HEADERS
+    )
+
+    assert first.json()["status"] == "ACCEPTED"
+    assert second.status_code == 409
+    state = FakeStateStore._shared_state
+    assert state["in_progress_digest"] == "sha256:aaaa"
+    assert state["requests"]["req-1"]["status"] == "REQUESTED"
+
+
 @patch(STORE, FakeStateStore)
 def test_a_stale_in_flight_activation_is_replaced_by_the_next_one():
     _allow_headers()

@@ -150,30 +150,27 @@ async def activate(
     stale (its caller never reported an outcome), in which case it is abandoned and replaced.
     """
     store = ActivationStateStore(_activation_configmap_name(), _activation_namespace())
-    state = await asyncio.to_thread(store.get)
+    outcome: dict[str, str] = {}
 
-    existing = state["requests"].get(request.request_id)
-    if existing is not None:
-        logger.info(
-            "Activation request_id=%s already processed (status=%s) -- idempotent replay",
-            request.request_id,
-            existing["status"],
-        )
-        return _response_for(existing["status"], request.request_id)
-
-    if state["active_digest"] == request.plugin_set_digest and not state["in_progress_digest"]:
-        return ActivationResponse(status="READY", detail="Requested plugin set is already active.")
-
-    in_flight = state["in_progress_digest"]
-    if in_flight is not None and in_flight != request.plugin_set_digest:
-        if _seconds_since(state.get("in_progress_since")) < _stale_after_seconds():
-            raise HTTPException(
-                status_code=409,
-                detail=f"Activation of {in_flight!r} is already in progress.",
-            )
-        logger.warning("Abandoning stale in-flight activation of %s", in_flight)
-
+    # The checks run inside the read-modify-write, so two requests that arrive together cannot both
+    # pass them against the same snapshot: the store retries the loser against the winner's state.
     def _record(s: dict) -> dict:
+        outcome.clear()
+        existing = s["requests"].get(request.request_id)
+        if existing is not None:
+            outcome["replay"] = existing["status"]
+            return s
+        if s["active_digest"] == request.plugin_set_digest and not s["in_progress_digest"]:
+            outcome["already_active"] = "1"
+            return s
+        in_flight = s["in_progress_digest"]
+        if in_flight is not None and in_flight != request.plugin_set_digest:
+            if _seconds_since(s.get("in_progress_since")) < _stale_after_seconds():
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Activation of {in_flight!r} is already in progress.",
+                )
+            logger.warning("Abandoning stale in-flight activation of %s", in_flight)
         for recorded in s["requests"].values():
             if (
                 recorded["status"] == "REQUESTED"
@@ -189,9 +186,19 @@ async def activate(
             "status": "REQUESTED",
             "updated_at": now_iso(),
         }
+        outcome["accepted"] = "1"
         return s
 
     await asyncio.to_thread(store.update, _record)
+    if "replay" in outcome:
+        logger.info(
+            "Activation request_id=%s already processed (status=%s) -- idempotent replay",
+            request.request_id,
+            outcome["replay"],
+        )
+        return _response_for(outcome["replay"], request.request_id)
+    if "already_active" in outcome:
+        return ActivationResponse(status="READY", detail="Requested plugin set is already active.")
     logger.info(
         "Activation accepted from %s for plugin set %s (request_id=%s, %d artifacts)",
         identity.user,
