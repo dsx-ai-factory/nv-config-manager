@@ -108,6 +108,9 @@ _DB_GROUPS: list[tuple[str, str, str]] = [
     ("config_store", "configStoreUser", "configStorePassword"),
     ("dhcp", "dhcpUser", "dhcpPassword"),
     ("nautobot", "nautobotUser", "nautobotPassword"),
+    # Template Preview's control plane. Created for every install (like the others it is only used
+    # when enabled), so the Secret exists before the cluster that is bootstrapped from it.
+    ("template_preview", "templatePreviewUser", "templatePreviewPassword"),
 ]
 
 

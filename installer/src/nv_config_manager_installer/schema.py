@@ -226,6 +226,8 @@ class VaultPathsConfig(BaseModel):
             dhcpPassword="dhcp_password",
             nautobotUser="nautobot_user",
             nautobotPassword="nautobot_password",
+            templatePreviewUser="template_preview_user",
+            templatePreviewPassword="template_preview_password",
         )
     )
     network: VaultPathConfig = Field(

@@ -2378,7 +2378,14 @@ class Deployer:
                 dcim_token_data["read-only-token"] = ro_token
         self._apply_secret(step, dcim.token_secret_name, dcim_token_data)
 
-        for db in ["temporal", "temporal_visibility", "config_store", "dhcp", "nautobot"]:
+        for db in [
+            "temporal",
+            "temporal_visibility",
+            "config_store",
+            "dhcp",
+            "nautobot",
+            "template_preview",
+        ]:
             self._apply_secret(
                 step,
                 f"cluster-{db.replace('_', '-')}-app",

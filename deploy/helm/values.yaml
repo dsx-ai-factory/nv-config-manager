@@ -454,6 +454,8 @@ secrets:
           dhcpPassword: "dhcp_password"
           nautobotUser: "nautobot_user"
           nautobotPassword: "nautobot_password"
+          templatePreviewUser: "template_preview_user"
+          templatePreviewPassword: "template_preview_password"
       network:
         path: "" # Required: e.g., "my-org/nv-config-manager/dev/network"
         keys:
@@ -2781,9 +2783,11 @@ cnpg:
     clusterName: cluster-template-preview
     database: template_preview
     owner: template_preview
-    # true: CloudNativePG generates the credentials into the Secret <clusterName>-app (keys include
-    # "uri"), so nothing has to exist beforehand. false (production, like the clusters above): the
-    # installer or Vault/ExternalSecrets provides <clusterName>-app before the cluster is created.
+    # false (the default, and what production uses, like the clusters above): the installer or
+    # Vault/ExternalSecrets provides <clusterName>-app (username, password) before the cluster is
+    # created, and both the cluster and Template Preview's backend read it. true: CloudNativePG
+    # generates that Secret itself. Only a shortcut for trying the chart without an installer or
+    # Vault; it creates a Secret in a different shape than production provides.
     generateCredentials: false
     instances: 3
     enablePDB: true
@@ -3441,6 +3445,19 @@ templatePreview:
   unsafeDynamicTemplatePlugins:
     enabled: false
     acknowledgeArbitraryCodeExecution: false
+
+  # The control-plane database (plugins, approvals, activation history, audit trail). It lives in the
+  # CloudNativePG cluster cnpg.templatePreview (enable that with this subchart), created from the
+  # credentials Secret cluster-template-preview-app: a username and a password, provided like every other
+  # NVCM database credential (the installer, or Vault through ExternalSecrets). Plugin archives are kept
+  # in the same database, so there is no volume to lose. To use another PostgreSQL, change host, name and
+  # the Secret. With the plugin control plane enabled the chart refuses to install without a database
+  # Secret unless controlPlane.database.allowSqlite=true (local development only).
+  controlPlane:
+    database:
+      existingSecret: cluster-template-preview-app
+      host: cluster-template-preview-rw
+      name: template_preview
 
   # Container images (published by the kiwi-render-ui pipeline). Pin digests in production.
   backend:

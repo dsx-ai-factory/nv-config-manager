@@ -89,3 +89,122 @@ def test_the_other_clusters_still_require_their_precreated_secrets():
     assert config_store["spec"]["bootstrap"]["initdb"]["secret"] == {
         "name": "cluster-config-store-app"
     }
+
+
+GATE_ON = (
+    "templatePreview.enabled=true",
+    "templatePreview.unsafeDynamicTemplatePlugins.enabled=true",
+    "templatePreview.unsafeDynamicTemplatePlugins.acknowledgeArbitraryCodeExecution=true",
+    "renderService.unsafeDynamicTemplatePlugins.enabled=true",
+    "renderService.unsafeDynamicTemplatePlugins.acknowledgeArbitraryCodeExecution=true",
+)
+
+
+def _backend_env(docs: list[dict], container: str = "backend") -> dict[str, dict]:
+    deployment = next(
+        d
+        for d in docs
+        if d["kind"] == "Deployment" and d["metadata"]["name"] == "template-preview-backend"
+    )
+    spec = deployment["spec"]["template"]["spec"]
+    containers = spec["containers"] + (spec.get("initContainers") or [])
+    return {e["name"]: e for c in containers if c["name"] == container for e in c["env"]}
+
+
+def test_template_preview_connects_with_a_username_and_password_from_the_secret():
+    env = _backend_env(_render(*GATE_ON))
+
+    assert env["KIWI_RENDER_DATABASE_HOST"]["value"] == "cluster-template-preview-rw"
+    assert env["KIWI_RENDER_DATABASE_NAME"]["value"] == "template_preview"
+    for variable, key in (("USER", "username"), ("PASSWORD", "password")):
+        ref = env[f"KIWI_RENDER_DATABASE_{variable}"]["valueFrom"]["secretKeyRef"]
+        assert ref == {"name": "cluster-template-preview-app", "key": key}
+    assert "KIWI_RENDER_CONTROL_PLANE_DATABASE_URL" not in env  # no SQLite URL, no `uri` key needed
+
+
+def test_the_migration_step_uses_the_same_connection():
+    env = _backend_env(_render(*GATE_ON), container="migrate-control-plane-db")
+
+    assert {
+        "KIWI_RENDER_DATABASE_HOST",
+        "KIWI_RENDER_DATABASE_USER",
+        "KIWI_RENDER_DATABASE_PASSWORD",
+    } <= set(env)
+
+
+def test_archives_are_kept_in_the_database_and_no_artifacts_volume_is_created():
+    docs = _render(*GATE_ON)
+
+    assert _backend_env(docs)["KIWI_RENDER_ARTIFACT_STORAGE"]["value"] == "database"
+    claims = {d["metadata"]["name"] for d in docs if d["kind"] == "PersistentVolumeClaim"}
+    assert "template-preview-artifacts" not in claims
+
+
+def test_a_volume_for_archives_can_still_be_asked_for():
+    docs = _render(*GATE_ON, "templatePreview.controlPlane.artifacts.storage=volume")
+
+    assert "KIWI_RENDER_ARTIFACT_STORAGE" not in _backend_env(docs)
+    assert "template-preview-artifacts" in {
+        d["metadata"]["name"] for d in docs if d["kind"] == "PersistentVolumeClaim"
+    }
+
+
+def _render_error(*sets: str) -> str:
+    command = ["helm", "template", "test", ".", "--values", "values-ci.yaml"]
+    for value in sets:
+        command += ["--set", value]
+    done = subprocess.run(command, cwd=HELM_DIR, capture_output=True, text=True, check=False)
+    assert done.returncode != 0, "expected the chart to refuse to render"
+    return done.stderr
+
+
+def test_the_install_is_refused_if_the_plugin_control_plane_would_silently_use_sqlite():
+    error = _render_error(*GATE_ON, "templatePreview.controlPlane.database.existingSecret=")
+
+    assert "controlPlane.database.existingSecret is empty" in error
+    assert "SQLite" in error
+
+
+def test_sqlite_is_allowed_only_when_asked_for_explicitly():
+    docs = _render(
+        *GATE_ON,
+        "templatePreview.controlPlane.database.existingSecret=",
+        "templatePreview.controlPlane.database.allowSqlite=true",
+    )
+
+    env = _backend_env(docs)
+    assert "KIWI_RENDER_DATABASE_HOST" not in env
+    assert env["KIWI_RENDER_CONTROL_PLANE_DATABASE_URL"]["value"].startswith("sqlite:")
+
+
+def test_with_the_plugin_control_plane_off_no_database_is_required():
+    assert _render("templatePreview.enabled=true")  # renders without a database Secret configured
+
+
+def test_production_vault_provides_the_same_secret_through_external_secrets():
+    docs = _render("secrets.method=eso", "cnpg.templatePreview.enabled=true")
+
+    external = next(
+        d
+        for d in docs
+        if d["kind"] == "ExternalSecret"
+        and d["metadata"]["name"] == "cnpg-template-preview-credentials"
+    )
+    assert external["spec"]["target"]["name"] == "cluster-template-preview-app"
+    remote = {item["secretKey"]: item["remoteRef"]["property"] for item in external["spec"]["data"]}
+    assert remote == {"username": "template_preview_user", "password": "template_preview_password"}
+    assert [
+        d
+        for d in docs
+        if d["kind"] == "Cluster" and d["metadata"]["name"] == "cluster-template-preview"
+    ]
+
+
+def test_no_external_secret_is_created_unless_the_database_is_enabled():
+    docs = _render("secrets.method=eso")
+
+    assert not [
+        d
+        for d in docs
+        if d["kind"] == "ExternalSecret" and "template-preview" in d["metadata"]["name"]
+    ]
