@@ -710,6 +710,67 @@ async def test_missing_stream_is_recreated_before_retry(custom_ini, mock_jetstre
 
 
 @pytest.mark.asyncio
+async def test_recreated_stream_gets_durable_from_first_message(custom_ini, mock_jetstream):
+    """Messages published during the retry backoff are delivered, not skipped by NEW."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullNautobotConsumer()
+    consumer.jetstream = mock_jetstream
+    stream_missing = NotFoundError(code=404, err_code=10059, description="stream not found")
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.ensure_local_streams",
+        new=AsyncMock(return_value=["nautobot"]),
+    ):
+        await _run_one_failed_cycle(consumer, stream_missing)
+
+    mock_jetstream.add_consumer.assert_awaited_once()
+    assert mock_jetstream.add_consumer.await_args.kwargs["stream"] == "nautobot"
+    config = mock_jetstream.add_consumer.await_args.kwargs["config"]
+    assert config.deliver_policy == DeliverPolicy.ALL
+    assert config.durable_name == consumer.queue
+    assert config.filter_subject == consumer.subject
+    assert config.ack_policy == AckPolicy.EXPLICIT
+
+
+@pytest.mark.asyncio
+async def test_stream_recreated_elsewhere_leaves_durable_to_its_creator(custom_ini, mock_jetstream):
+    """Only the process that re-created the stream creates the durable early."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullNautobotConsumer()
+    consumer.jetstream = mock_jetstream
+    stream_missing = NotFoundError(code=404, err_code=10059, description="stream not found")
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.ensure_local_streams",
+        new=AsyncMock(return_value=[]),
+    ):
+        await _run_one_failed_cycle(consumer, stream_missing)
+
+    mock_jetstream.add_consumer.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_durable_creation_failure_on_recreated_stream_keeps_retrying(
+    custom_ini, mock_jetstream
+):
+    """If another process created the durable first, the next cycle binds to it."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullNautobotConsumer()
+    consumer.jetstream = mock_jetstream
+    consumer.logger = MagicMock()
+    mock_jetstream.add_consumer.side_effect = RuntimeError("consumer name already in use")
+    stream_missing = NotFoundError(code=404, err_code=10059, description="stream not found")
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.ensure_local_streams",
+        new=AsyncMock(return_value=["nautobot"]),
+    ):
+        await _run_one_failed_cycle(consumer, stream_missing)
+
+    assert "Could not create consumer" in consumer.logger.warning.call_args.args[0]
+
+
+@pytest.mark.asyncio
 async def test_missing_consumer_does_not_touch_streams(custom_ini, mock_jetstream):
     """Only a missing stream triggers stream creation; a missing durable does not."""
     custom_ini(TEST_NATS_CONFIG)

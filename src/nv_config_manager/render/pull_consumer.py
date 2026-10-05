@@ -290,11 +290,27 @@ class PullConsumer:
         except Exception as e:
             self.logger.error("Could not re-create missing stream %s: %s", self.stream, str(e))
             return
-        if created:
+        if not created:
+            return
+        self.logger.warning(
+            "Stream %s was missing on bundled NATS and has been re-created. "
+            "Messages published while it was missing were not stored.",
+            self.stream,
+        )
+        if self.jetstream is None:
+            return
+        try:
+            # The stream is empty, so ALL starts at its first message. A NEW durable created
+            # after the retry backoff would skip anything published in the meantime.
+            await self.jetstream.add_consumer(
+                stream=self.stream, config=self._consumer_config(DeliverPolicy.ALL)
+            )
+        except Exception as e:
             self.logger.warning(
-                "Stream %s was missing on bundled NATS and has been re-created. "
-                "Messages published while it was missing were not stored.",
+                "Could not create consumer %s on re-created stream %s: %s",
+                self.queue,
                 self.stream,
+                str(e),
             )
 
     def _record_consumer_metrics(self, consumer_info: ConsumerInfo) -> None:
@@ -408,14 +424,7 @@ class PullConsumer:
             existing = await self.jetstream.consumer_info(self.stream, self.queue)
             self.logger.info("Consumer %s already exists", self.queue)
         except NotFoundError:
-            config = ConsumerConfig(
-                deliver_policy=DeliverPolicy.NEW,
-                ack_policy=AckPolicy.EXPLICIT,
-                ack_wait=CONSUMER_ACK_WAIT_SECONDS,
-                durable_name=self.queue,
-                filter_subject=self.subject,
-                max_deliver=CONSUMER_MAX_DELIVER,
-            )
+            config = self._consumer_config(DeliverPolicy.NEW)
             try:
                 self._last_permission_error = None
                 await self.jetstream.add_consumer(
@@ -453,6 +462,17 @@ class PullConsumer:
                     "; ".join(mismatches),
                     update_consumer_request(self.stream, self.queue, self.subject),
                 )
+
+    def _consumer_config(self, deliver_policy: DeliverPolicy) -> ConsumerConfig:
+        """Build this process's fixed durable configuration."""
+        return ConsumerConfig(
+            deliver_policy=deliver_policy,
+            ack_policy=AckPolicy.EXPLICIT,
+            ack_wait=CONSUMER_ACK_WAIT_SECONDS,
+            durable_name=self.queue,
+            filter_subject=self.subject,
+            max_deliver=CONSUMER_MAX_DELIVER,
+        )
 
     def _consumer_configuration_mismatches(self, existing: ConsumerInfo) -> list[str]:
         """Return behavior-affecting differences from the runtime's consumer settings."""
