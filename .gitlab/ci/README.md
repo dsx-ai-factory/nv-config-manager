@@ -162,7 +162,7 @@ Protected** - unprotected variables are visible to the untrusted
 | `NVCM_VALUES_REPO_PATH` | Downstream values repository path |
 | `NV_CONFIG_MANAGER_VALUES_REPO_URL` | Optional full downstream values repo override |
 | `NVCM_MIRROR_API_TOKEN` | Project access token (Reporter, `read_api`) used to verify the source pipeline/job and artifact jobs; protected + masked |
-| `NVCM_TEST_ENV_TARGETS` | One record per env: `env\|env_branch\|namespace\|release_name\|baseline_values\|state_dir\|argocd_application` (see `scripts/test_env_config.sh`) |
+| `NVCM_TEST_ENV_TARGETS` | One record per env: `env\|env_branch\|namespace\|release_name\|baseline_values\|state_dir\|argocd_application[\|shared_values]`. The final field is required for `kiwi-qa` and omitted for `test`/`test01` (see `scripts/test_env_config.sh`). |
 | `NVCM_CHART_REPO` | Helm repo URL ArgoCD reads the promoted chart from, e.g. `https://helm.ngc.nvidia.com/nvidian/cfa` (must match the `ngc` target in `NVCM_CHART_TARGETS`); written into deploy-state as `chartRepo` |
 | `NVCM_ARGOCD_SERVER` | ArgoCD API base URL used by the post-deployment health gate |
 | `NVCM_ARGOCD_AUTH_TOKEN` | Protected, masked, and hidden token for a read-only ArgoCD role allowed to `get` only the allowlisted Applications; disable **Expand variable reference** and confirm the saved variable remains masked |

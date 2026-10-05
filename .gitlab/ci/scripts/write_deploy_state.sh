@@ -206,15 +206,20 @@ rm -f "${state_file}.new"
 # against, with no dependency on main's history. baseline_rev stays in
 # deploy-state as provenance recording where this snapshot came from.
 baseline_file="${NVCM_ENV_BASELINE_VALUES}"
-if ! git cat-file -e "${baseline_rev}:${baseline_file}" 2>/dev/null; then
-    echo "ERROR: ${baseline_rev} does not contain ${baseline_file}." >&2
-    echo "The render gate validated against a baseline this commit lacks - refusing"
-    echo "to deploy a baseline that was never validated."
-    exit 1
+snapshot_files=("$baseline_file")
+if [[ -n "${NVCM_ENV_SHARED_VALUES:-}" ]]; then
+    snapshot_files+=("$NVCM_ENV_SHARED_VALUES")
 fi
-git show "${baseline_rev}:${baseline_file}" > "$baseline_file"
+for values_file in "${snapshot_files[@]}"; do
+    if ! git cat-file -e "${baseline_rev}:${values_file}" 2>/dev/null; then
+        echo "ERROR: ${baseline_rev} does not contain ${values_file}." >&2
+        echo "The render gate validated against a values file this commit lacks." >&2
+        exit 1
+    fi
+    git show "${baseline_rev}:${values_file}" > "$values_file"
+done
 
-if git diff --quiet "$state_file" "$baseline_file"; then
+if git diff --quiet "$state_file" "${snapshot_files[@]}"; then
     echo "No deploy-state or baseline changes; ${NVCM_ENV} is already at ${PROMOTE_VERSION}."
     write_deploy_attestation "$(git rev-parse HEAD)"
     exit 0
@@ -222,12 +227,12 @@ fi
 
 echo "Deploy-state diff:"
 git diff "$state_file"
-if ! git diff --quiet "$baseline_file"; then
-    echo "Baseline snapshot diff (from main @ ${baseline_rev}):"
-    git diff --stat "$baseline_file"
+if ! git diff --quiet "${snapshot_files[@]}"; then
+    echo "Values snapshot diff (from main @ ${baseline_rev}):"
+    git diff --stat "${snapshot_files[@]}"
 fi
 
-git add "$state_file" "$baseline_file"
+git add "$state_file" "${snapshot_files[@]}"
 git commit -m "[nvcm CI] Promote PR #${PR_NUM} (${PROMOTE_VERSION}) to ${NVCM_ENV}
 
 Source commit: ${PR_SHA}

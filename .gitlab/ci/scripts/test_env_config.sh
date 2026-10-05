@@ -8,13 +8,15 @@
 # Usage: eval "$(test_env_config.sh <env>)"
 #
 # NVCM_TEST_ENV_TARGETS holds one record per line:
-#   env|env_branch|namespace|release_name|baseline_values|state_dir|argocd_application
+#   env|env_branch|namespace|release_name|baseline_values|state_dir|argocd_application[|shared_values]
+# The final field is required for kiwi-qa and omitted for test/test01.
 # Example:
 #   test|<env-branch>|<namespace>|<release>|<baseline-values>|<state-dir>|<argocd-application>
 #
 # Exports: NVCM_ENV, NVCM_ENV_BRANCH, NVCM_ENV_NAMESPACE,
 #          NVCM_ENV_RELEASE_NAME, NVCM_ENV_BASELINE_VALUES,
-#          NVCM_ENV_STATE_DIR, NVCM_ENV_ARGOCD_APPLICATION
+#          NVCM_ENV_STATE_DIR, NVCM_ENV_ARGOCD_APPLICATION,
+#          NVCM_ENV_SHARED_VALUES (empty for test/test01)
 set -euo pipefail
 
 trim() {
@@ -66,11 +68,11 @@ while IFS= read -r raw_record; do
   [[ -z "$record" || "$record" == \#* ]] && continue
 
   separators="${record//[!|]/}"
-  if (( ${#separators} != 6 )); then
-    echo "NVCM_TEST_ENV_TARGETS record must contain exactly seven fields." >&2
+  if (( ${#separators} != 6 && ${#separators} != 7 )); then
+    echo "NVCM_TEST_ENV_TARGETS record must contain seven or eight fields." >&2
     exit 1
   fi
-  IFS='|' read -r env env_branch namespace release_name baseline_values state_dir argocd_application <<< "$record"
+  IFS='|' read -r env env_branch namespace release_name baseline_values state_dir argocd_application shared_values <<< "$record"
   env="$(trim "$env")"
   [[ "$env" == "$requested_env" ]] || continue
 
@@ -80,12 +82,21 @@ while IFS= read -r raw_record; do
   baseline_values="$(trim "$baseline_values")"
   state_dir="$(trim "$state_dir")"
   argocd_application="$(trim "${argocd_application:-}")"
+  shared_values="$(trim "${shared_values:-}")"
   for field in env_branch namespace release_name baseline_values state_dir argocd_application; do
     if [[ -z "${!field}" ]]; then
       echo "NVCM_TEST_ENV_TARGETS record for '${env}' is missing field '${field}'." >&2
       exit 1
     fi
   done
+  if [[ "$env" == kiwi-qa && -z "$shared_values" ]]; then
+    echo "NVCM_TEST_ENV_TARGETS record for '${env}' requires shared_values." >&2
+    exit 1
+  fi
+  if [[ "$env" != kiwi-qa && -n "$shared_values" ]]; then
+    echo "NVCM_TEST_ENV_TARGETS record for '${env}' may not set shared_values." >&2
+    exit 1
+  fi
 
   shell_export NVCM_ENV "$env"
   shell_export NVCM_ENV_BRANCH "$env_branch"
@@ -94,6 +105,7 @@ while IFS= read -r raw_record; do
   shell_export NVCM_ENV_BASELINE_VALUES "$baseline_values"
   shell_export NVCM_ENV_STATE_DIR "$state_dir"
   shell_export NVCM_ENV_ARGOCD_APPLICATION "$argocd_application"
+  shell_export NVCM_ENV_SHARED_VALUES "$shared_values"
   exit 0
 done <<< "$records"
 

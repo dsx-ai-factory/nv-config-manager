@@ -119,7 +119,7 @@ def run_gate(
 class RolloutObserverTests(unittest.TestCase):
     """Regression tests for rollout identity, terminal state, and API failures."""
 
-    def test_environment_target_requires_exactly_seven_fields(self) -> None:
+    def test_environment_target_requires_seven_fields_without_shared_values(self) -> None:
         base_environment = os.environ.copy()
         valid = (
             "test|test-branch|test-namespace|test-release|baseline.yaml|state-dir|test-application"
@@ -132,6 +132,7 @@ class RolloutObserverTests(unittest.TestCase):
             env={**base_environment, "NVCM_TEST_ENV_TARGETS": valid},
         )
         self.assertIn("export NVCM_ENV_ARGOCD_APPLICATION=test-application", result.stdout)
+        self.assertIn("export NVCM_ENV_SHARED_VALUES=''", result.stdout)
 
         for target in (valid.rsplit("|", 1)[0], f"{valid}|extra"):
             with self.subTest(target=target):
@@ -145,7 +146,10 @@ class RolloutObserverTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
 
     def test_kiwi_qa_environment_is_allowlisted(self) -> None:
-        target = "kiwi-qa|qa-branch|qa-namespace|qa-release|baseline.yaml|qa-state|qa-application"
+        target = (
+            "kiwi-qa|qa-branch|qa-namespace|qa-release|baseline.yaml|qa-state|"
+            "qa-application|shared.yaml"
+        )
         result = subprocess.run(
             ["bash", str(SCRIPT_DIRECTORY / "test_env_config.sh"), "kiwi-qa"],
             check=True,
@@ -155,6 +159,20 @@ class RolloutObserverTests(unittest.TestCase):
         )
         self.assertIn("export NVCM_ENV=kiwi-qa", result.stdout)
         self.assertIn("export NVCM_ENV_ARGOCD_APPLICATION=qa-application", result.stdout)
+        self.assertIn(
+            "export NVCM_ENV_SHARED_VALUES=shared.yaml",
+            result.stdout,
+        )
+
+        missing_shared = subprocess.run(
+            ["bash", str(SCRIPT_DIRECTORY / "test_env_config.sh"), "kiwi-qa"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "NVCM_TEST_ENV_TARGETS": target.rsplit("|", 1)[0]},
+        )
+        self.assertNotEqual(missing_shared.returncode, 0)
+        self.assertIn("requires shared_values", missing_shared.stderr)
 
     def test_configuration_is_required_and_token_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
