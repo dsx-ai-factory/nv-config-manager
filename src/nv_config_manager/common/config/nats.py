@@ -28,6 +28,7 @@ import nats
 import nats.aio.client
 import nats.js.errors
 from nats import connect
+from nats.js.api import DiscardPolicy, RetentionPolicy, StorageType, StreamConfig
 from nv_config_manager_infrastructure.nats.client import DEFAULT_NATS_API_PREFIX
 
 from nv_config_manager.common.client.nats import config_manager_api_prefix
@@ -39,6 +40,20 @@ DEFAULT_CONFIG_MANAGER_DEVICE_CHANGE_SUBJECT = "nv-config-manager.devicechange"
 DEFAULT_CONFIG_MANAGER_ARCHIVE_SUBJECT = "nv-config-manager.workflow.result"
 DEFAULT_NAUTOBOT_NATS_STREAM = "nautobot"
 DEFAULT_NAUTOBOT_NATS_SUBJECT = "nautobot"
+
+# Must match the stream settings nats-ready applies (the embedded configs in
+# components/nats-ready, or natsReady.streamMaxBytes with the nats CLI) so a
+# stream re-created here is not later rewritten by nats-ready. The chart
+# renders local_stream_max_bytes to the value nats-ready will use.
+LOCAL_STREAM_MAX_BYTES = 21474836480
+LOCAL_STREAM_DUPLICATE_WINDOW_SECONDS = 120.0
+# JetStream 10058: the stream name is already in use with a different configuration.
+# Older servers also return it when another client created the same stream first.
+_STREAM_NAME_IN_USE_ERR_CODE = 10058
+
+
+class LocalStreamConfigMismatch(Exception):
+    """A bundled stream exists, but not with the subjects and limits required here."""
 
 
 class _NATS_ENUM(StrEnum):
@@ -241,17 +256,131 @@ async def nats_connection(
         options["tls_handshake_first"] = True
 
     conn = await connect(servers, **options)
-
-    # Create streams locally if needed
-    if nats_config.getboolean("local", fallback=False):
-        jetstream = conn.jetstream()
-        for stream in ["nv-config-manager", "nautobot"]:
-            try:
-                await jetstream.stream_info(stream)
-            except nats.js.errors.NotFoundError:
-                # nv-config-manager uses hierarchical subjects (nv_config_manager.render.events, etc.)
-                # nautobot uses exact subject (nautobot_broker_nats publishes to "nautobot")
-                subjects = [f"{stream}.>"] if stream == "nv-config-manager" else [stream]
-                await jetstream.add_stream(name=stream, subjects=subjects)
-
+    await ensure_local_streams(conn)
     return conn
+
+
+def _split_subjects(raw_subjects: str) -> list[str]:
+    return [subject.strip() for subject in raw_subjects.split(",") if subject.strip()]
+
+
+def local_stream_subjects(config: ConfigParser | None = None) -> dict[str, list[str]]:
+    """Return the subjects of each stream the bundled NATS deployment provides.
+
+    Mirrors nats-ready: the config-manager stream and one DCIM event stream. The
+    DCIM stream replaces the Nautobot stream when ``dcim_change_stream`` names a
+    different stream, and carries only the DCIM subject when that subject is
+    overridden. Subject defaults come from the subjects the services publish and
+    consume, not from the stream name, so renaming a stream keeps its events.
+    """
+    nats_config = _nats_section(config)
+    config_manager_stream = nats_config.get(
+        "config_manager_stream", DEFAULT_CONFIG_MANAGER_NATS_STREAM
+    )
+    app_subjects = [
+        nats_render_change_config(config)[1],
+        nats_device_change_config(config)[1],
+        nats_archive_config(config)[1],
+    ]
+    config_manager_subjects = _split_subjects(
+        nats_config.get("config_manager_subjects", ",".join(app_subjects))
+    )
+
+    _, nautobot_subject = nats_nautobot_change_config(config)
+    nautobot_subjects = _split_subjects(nats_config.get("nautobot_subjects", nautobot_subject))
+    dcim_stream, dcim_subject = nats_dcim_change_config(config)
+    dcim_subjects = nautobot_subjects if dcim_subject == nautobot_subject else [dcim_subject]
+
+    streams = {config_manager_stream: config_manager_subjects}
+    shared = streams.setdefault(dcim_stream, [])
+    shared.extend(subject for subject in dcim_subjects if subject not in shared)
+    return streams
+
+
+async def ensure_local_streams(
+    conn: nats.aio.client.Client,
+    config: ConfigParser | None = None,
+    streams: list[str] | None = None,
+) -> list[str]:
+    """Create any missing bundled-NATS streams and return the names created.
+
+    Only runs when ``local`` is true. Externally managed NATS owns its own
+    streams, and runtime accounts there are not allowed to create them.
+
+    Args:
+        conn: Connected NATS client
+        config: Optional config override
+        streams: Limit creation to these stream names
+
+    Returns:
+        Names of the streams this call created
+    """
+    nats_config = _nats_section(config)
+    if not nats_config.getboolean("local", fallback=False):
+        return []
+
+    max_bytes = nats_config.getint("local_stream_max_bytes", fallback=LOCAL_STREAM_MAX_BYTES)
+    jetstream = conn.jetstream()
+    created: list[str] = []
+    for name, subjects in local_stream_subjects(config).items():
+        if streams is not None and name not in streams:
+            continue
+        required = _bundled_stream_config(name, subjects, max_bytes)
+        try:
+            await jetstream.stream_info(name)
+            continue
+        except nats.js.errors.NotFoundError:
+            pass
+        try:
+            await jetstream.add_stream(required)
+        except nats.js.errors.BadRequestError as e:
+            if e.err_code != _STREAM_NAME_IN_USE_ERR_CODE:
+                raise
+            # Another creator won the race, or the name is in use with a different
+            # configuration. Keep going only when the stored stream still matches.
+            info = await jetstream.stream_info(name)
+            differences = _stream_config_differences(info.config, required)
+            if differences:
+                raise LocalStreamConfigMismatch(
+                    f"stream {name} exists with a different configuration: "
+                    + "; ".join(differences)
+                ) from e
+            continue
+        created.append(name)
+    return created
+
+
+def _bundled_stream_config(name: str, subjects: list[str], max_bytes: int) -> StreamConfig:
+    return StreamConfig(
+        name=name,
+        subjects=subjects,
+        retention=RetentionPolicy.LIMITS,
+        storage=StorageType.FILE,
+        discard=DiscardPolicy.OLD,
+        max_bytes=max_bytes,
+        duplicate_window=LOCAL_STREAM_DUPLICATE_WINDOW_SECONDS,
+        num_replicas=1,
+    )
+
+
+def _stream_config_differences(existing: StreamConfig, required: StreamConfig) -> list[str]:
+    """Return the subjects and limits that would drop or reshape stored events."""
+    differences: list[str] = []
+    if set(existing.subjects or []) != set(required.subjects or []):
+        differences.append(
+            f"subjects {list(existing.subjects or [])} != {list(required.subjects or [])}"
+        )
+    comparisons = (
+        ("retention", existing.retention, required.retention),
+        ("storage", existing.storage, required.storage),
+        ("discard", existing.discard, required.discard),
+        ("max_bytes", existing.max_bytes, required.max_bytes),
+        ("duplicate_window", existing.duplicate_window, required.duplicate_window),
+        ("num_replicas", existing.num_replicas or 1, required.num_replicas or 1),
+    )
+    differences.extend(
+        f"{field} {actual} != {expected}"
+        for field, actual, expected in comparisons
+        if actual != expected
+    )
+    return differences
