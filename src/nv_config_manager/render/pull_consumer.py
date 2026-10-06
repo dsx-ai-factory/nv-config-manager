@@ -22,6 +22,7 @@ import os
 import signal
 import ssl
 from asyncio import AbstractEventLoop
+from datetime import datetime
 
 import nats
 import nats.errors
@@ -115,6 +116,8 @@ class PullConsumer:
         self.stream = stream
         self.subject = subject
         self.api_prefix = api_prefix
+        self.local_nats = nats_config.getboolean("local", fallback=False)
+        self._consumed_stream_created: datetime | None = None
         self.dispatcher = EventDispatcher()
         self.running = False
         self.namespace = os.getenv("NV_CONFIG_MANAGER_K8S_NAMESPACE", "unknown")
@@ -290,27 +293,11 @@ class PullConsumer:
         except Exception as e:
             self.logger.error("Could not re-create missing stream %s: %s", self.stream, str(e))
             return
-        if not created:
-            return
-        self.logger.warning(
-            "Stream %s was missing on bundled NATS and has been re-created. "
-            "Messages published while it was missing were not stored.",
-            self.stream,
-        )
-        if self.jetstream is None:
-            return
-        try:
-            # The stream is empty, so ALL starts at its first message. A NEW durable created
-            # after the retry backoff would skip anything published in the meantime.
-            await self.jetstream.add_consumer(
-                stream=self.stream, config=self._consumer_config(DeliverPolicy.ALL)
-            )
-        except Exception as e:
+        if created:
             self.logger.warning(
-                "Could not create consumer %s on re-created stream %s: %s",
-                self.queue,
+                "Stream %s was missing on bundled NATS and has been re-created. "
+                "Messages published while it was missing were not stored.",
                 self.stream,
-                str(e),
             )
 
     def _record_consumer_metrics(self, consumer_info: ConsumerInfo) -> None:
@@ -419,12 +406,13 @@ class PullConsumer:
         if self.jetstream is None:
             raise RuntimeError("JetStream context is None")
 
+        stream_created = await self._local_stream_created()
         try:
             self._last_permission_error = None
             existing = await self.jetstream.consumer_info(self.stream, self.queue)
             self.logger.info("Consumer %s already exists", self.queue)
         except NotFoundError:
-            config = self._consumer_config(DeliverPolicy.NEW)
+            config = self._consumer_config(self._missing_durable_deliver_policy(stream_created))
             try:
                 self._last_permission_error = None
                 await self.jetstream.add_consumer(
@@ -462,6 +450,25 @@ class PullConsumer:
                     "; ".join(mismatches),
                     update_consumer_request(self.stream, self.queue, self.subject),
                 )
+        self._consumed_stream_created = stream_created
+
+    async def _local_stream_created(self) -> datetime | None:
+        """Return when the bundled stream was created, or None when NATS is not local."""
+        if not self.local_nats or self.jetstream is None:
+            return None
+        return (await self.jetstream.stream_info(self.stream)).created
+
+    def _missing_durable_deliver_policy(self, stream_created: datetime | None) -> DeliverPolicy:
+        """Choose where a missing durable starts in the stream."""
+        # A durable is deleted with its stream. Everything in a stream re-created since this
+        # process last consumed was published after the loss, possibly before any durable
+        # existed, whichever process re-created it.
+        if stream_created is not None and self._consumed_stream_created not in (
+            None,
+            stream_created,
+        ):
+            return DeliverPolicy.ALL
+        return DeliverPolicy.NEW
 
     def _consumer_config(self, deliver_policy: DeliverPolicy) -> ConsumerConfig:
         """Build this process's fixed durable configuration."""
