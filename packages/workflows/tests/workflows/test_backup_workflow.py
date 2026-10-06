@@ -26,7 +26,7 @@ from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from temporalio import activity
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError, WorkflowHandle
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, FailureError
 from temporalio.worker import Worker
 
 from nv_config_manager_workflows.activities.backup import (
@@ -627,14 +627,20 @@ async def _start_failing_backup(env, trigger: TriggerEnum) -> tuple[Worker, Work
 @pytest.mark.parametrize("trigger", [TriggerEnum.SCHEDULED, TriggerEnum.SYSLOG])
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
-    "nv_config_manager.temporal.ngc.workflows.backup.DEFAULT_ACTIVITY_RETRY_POLICY",
+    "nv_config_manager_workflows.workflows.backup.DEFAULT_ACTIVITY_RETRY_POLICY",
     TEST_RETRY_POLICY,
 )
 async def test_unattended_backup_fails_instead_of_waiting_for_retry(mock_time, trigger, env):
     worker, handle = await _start_failing_backup(env, trigger)
     async with worker:
-        with pytest.raises(WorkflowFailureError):
+        with pytest.raises(WorkflowFailureError) as error:
             await asyncio.wait_for(handle.result(), timeout=30)
+    causes = []
+    cause = error.value.cause
+    while isinstance(cause, FailureError):
+        causes.append(str(cause))
+        cause = cause.cause
+    assert "Authentication failed: HTTP 401" in causes
 
     description = await handle.describe()
     assert description.status == WorkflowExecutionStatus.FAILED
@@ -643,7 +649,7 @@ async def test_unattended_backup_fails_instead_of_waiting_for_retry(mock_time, t
 @pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
-    "nv_config_manager.temporal.ngc.workflows.backup.DEFAULT_ACTIVITY_RETRY_POLICY",
+    "nv_config_manager_workflows.workflows.backup.DEFAULT_ACTIVITY_RETRY_POLICY",
     TEST_RETRY_POLICY,
 )
 async def test_api_backup_waits_for_retry_after_stage_failure(mock_time, env):
