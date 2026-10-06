@@ -598,7 +598,7 @@ async def mock_get_network_device_unauthorized(
     raise ApplicationError("Authentication failed: HTTP 401")
 
 
-async def _start_failing_backup(env, trigger: TriggerEnum) -> tuple[Worker, WorkflowHandle]:
+async def _start_failing_backup(env: Any, trigger: TriggerEnum) -> tuple[Worker, WorkflowHandle]:
     task_queue_name = str(uuid.uuid4())
     worker = Worker(
         env.client,
@@ -630,13 +630,15 @@ async def _start_failing_backup(env, trigger: TriggerEnum) -> tuple[Worker, Work
     "nv_config_manager_workflows.workflows.backup.DEFAULT_ACTIVITY_RETRY_POLICY",
     TEST_RETRY_POLICY,
 )
-async def test_unattended_backup_fails_instead_of_waiting_for_retry(mock_time, trigger, env):
+async def test_unattended_backup_fails_instead_of_waiting_for_retry(
+    mock_time: Any, trigger: TriggerEnum, env: Any
+) -> None:
     worker, handle = await _start_failing_backup(env, trigger)
     async with worker:
         with pytest.raises(WorkflowFailureError) as error:
             await asyncio.wait_for(handle.result(), timeout=30)
     causes = []
-    cause = error.value.cause
+    cause: BaseException | None = error.value.cause
     while isinstance(cause, FailureError):
         causes.append(str(cause))
         cause = cause.cause
@@ -652,14 +654,14 @@ async def test_unattended_backup_fails_instead_of_waiting_for_retry(mock_time, t
     "nv_config_manager_workflows.workflows.backup.DEFAULT_ACTIVITY_RETRY_POLICY",
     TEST_RETRY_POLICY,
 )
-async def test_api_backup_waits_for_retry_after_stage_failure(mock_time, env):
+async def test_api_backup_waits_for_retry_after_stage_failure(mock_time: Any, env: Any) -> None:
     worker, handle = await _start_failing_backup(env, TriggerEnum.API)
     async with worker:
 
         async def load_stage_failed() -> bool:
             stages = await handle.query("stages")
             stage = next(s for s in stages if s["name"] == "load_running_configuration")
-            return stage["state"] == "FAILED"
+            return bool(stage["state"] == "FAILED")
 
         for _ in range(60):
             if await load_stage_failed():
