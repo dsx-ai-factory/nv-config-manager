@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 from nv_config_manager.common.auth import install_identity_probe
 from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config_watch import restart_on_config_change
 from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
 from nv_config_manager.common.telemetry import (
     group_fastapi_status_codes,
@@ -153,6 +154,7 @@ def rbac_config_status() -> RBACConfigResponse:
 
 def main() -> None:
     """CLI entrypoint for Temporal API."""
+    restart_on_config_change()
 
     uvicorn.run(
         "nv_config_manager.temporal.api.main:app",

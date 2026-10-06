@@ -23,6 +23,7 @@ from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator, metrics
 
 from nv_config_manager.common.auth import install_identity_probe
+from nv_config_manager.common.config_watch import restart_on_config_change
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.common.telemetry import (
     group_fastapi_status_codes,
@@ -45,6 +46,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=9000, help="Port to listen on (default: 9000)")
     args = parser.parse_args()
 
+    restart_on_config_change()
     uvicorn.run(
         "nv_config_manager.ztp.api.main:app",
         host=args.host,

@@ -23,6 +23,7 @@ from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
 
+from nv_config_manager.common.config_watch import restart_on_config_change
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
 from nv_config_manager.temporal.converter import get_data_converter
@@ -67,6 +68,7 @@ def _registered_workflows(registry: WorkflowRegistry) -> list[type[Any]]:
 
 async def main() -> None:
     """Run the temporal worker."""
+    restart_on_config_change()
     configure_workflow_runtime()
     runtime = setup_telemetry("nv-config-manager-temporal-worker")
 

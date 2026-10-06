@@ -51,6 +51,7 @@ from paramiko.transport import Transport
 from prometheus_client import start_http_server
 
 from nv_config_manager.common.config import get_storage_client
+from nv_config_manager.common.config_watch import restart_on_config_change
 from nv_config_manager.common.log import (
     EscapingLoggerAdapter,
     LogCategory,
@@ -842,6 +843,7 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+    restart_on_config_change()
     start_server(host=args.host, port=args.port, level=args.level)
 
 

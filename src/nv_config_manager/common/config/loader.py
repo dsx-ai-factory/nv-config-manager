@@ -15,11 +15,17 @@
 
 from __future__ import annotations
 
-import os
 from configparser import ConfigParser, SectionProxy
 from functools import lru_cache
 
-from nv_config_manager.common.ini import FileFingerprint, file_fingerprint
+from nv_config_manager.common.ini import (
+    FileFingerprint,
+    clear_loaded_config_snapshot,
+    config_path,
+    file_fingerprint,
+    read_config_snapshot,
+    remember_loaded_config,
+)
 
 
 @lru_cache(maxsize=1)
@@ -29,7 +35,11 @@ def _load_config(
 ) -> ConfigParser:
     """Parse one version of the unified INI file."""
     config = ConfigParser(interpolation=None, delimiters=("=",))
-    config.read(config_path)
+    # Captured immediately before the parse so the watcher can tell a rewrite
+    # that landed after this load from the file the process is actually using.
+    snapshot = read_config_snapshot(config_path)
+    if config.read(config_path) and snapshot is not None:
+        remember_loaded_config(config_path, snapshot[0], snapshot[1])
     return config
 
 
@@ -46,13 +56,14 @@ def load_config() -> ConfigParser:
     Returns:
         Loaded ConfigParser instance for the current file version
     """
-    config_path = os.getenv("NV_CONFIG_MANAGER_INI", "/etc/vault/nv-config-manager.ini")
-    return _load_config(config_path, file_fingerprint(config_path))
+    path = config_path()
+    return _load_config(path, file_fingerprint(path))
 
 
 def clear_config_cache() -> None:
     """Clear the parsed INI cache without reading the file again."""
     _load_config.cache_clear()
+    clear_loaded_config_snapshot()
 
 
 def reload_config() -> ConfigParser:
