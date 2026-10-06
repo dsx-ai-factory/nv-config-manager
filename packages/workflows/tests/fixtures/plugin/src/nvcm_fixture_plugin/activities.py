@@ -12,16 +12,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Hello World Workflow Definitions."""
+"""The fixture plugin's own activity."""
 
-from nv_config_manager.temporal.hello_world.workflows.hello_world_workflow import (
-    HelloWorld,
-    HelloWorldApproval,
-    HelloWorldRunning,
-)
+from temporalio import activity
 
-__all__ = [
-    "HelloWorld",
-    "HelloWorldApproval",
-    "HelloWorldRunning",
-]
+
+@activity.defn(name="nvcm_fixture_echo")
+async def echo(message: str) -> str:
+    """Return the message tagged with the fixture plugin name, without I/O."""
+    return f"nvcm-fixture: {message}"
+
+
+FIXTURE_ACTIVITIES = (echo,)
+
+__all__ = ["FIXTURE_ACTIVITIES", "echo"]

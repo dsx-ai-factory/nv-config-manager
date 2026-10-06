@@ -17,6 +17,7 @@ The `WorkflowMetadataMixin` allows workflows to define their API metadata direct
 - `workflow_description`: Human-readable description
 - `workflow_name`: Human-readable workflow name
 - `workflow_input_class`: Pydantic input model
+- `workflow_api_enabled`: Set to `True` to expose the workflow through the API
 - `workflow_api_endpoint`: API endpoint path
 - `workflow_namespace`: Workflow namespace
 
@@ -24,7 +25,7 @@ The `WorkflowMetadataMixin` allows workflows to define their API metadata direct
 
 The dynamic API generator:
 
-- Automatically discovers workflows with complete metadata
+- Creates routes for the workflow registry's workflows that set `workflow_api_enabled = True`; the registry rejects an API-enabled workflow with incomplete metadata at startup
 - Generates FastAPI endpoint functions dynamically
 - Handles proper routing, documentation, and parameter validation
 - Provides consistent error handling and response formatting
@@ -63,6 +64,7 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
     workflow_name = "Backup"
     workflow_description = "Backup network device configuration to Config Store"
     workflow_input_class = BackupInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/backup"
     workflow_namespace = "ngc"
 
@@ -75,21 +77,19 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
 ### Automatic Endpoint Generation
 
 ```python
-# In dynamic_endpoints.py - Automatic discovery and registration
-def register_dynamic_endpoints(router: APIRouter) -> None:
-    """Register all workflow endpoints dynamically."""
-    for workflow_class in get_registered_workflows():
-        if hasattr(workflow_class, 'has_complete_metadata') and workflow_class.has_complete_metadata():
-            endpoint_path = workflow_class.get_workflow_api_endpoint()
-            input_class = workflow_class.get_workflow_input_class()
-            endpoint_func = create_workflow_endpoint(workflow_class, input_class, endpoint_path)
-            router.add_api_route(
-                endpoint_path,
-                endpoint_func,
-                methods=["POST"],
-                response_model=WorkflowResponse,
-                name=f"{workflow_class.__name__.lower()}_endpoint"
-            )
+# In dynamic_endpoints.py - one POST route per API-enabled registry workflow
+def register_dynamic_endpoints(router: APIRouter, workflows: Sequence[type] | None = None) -> None:
+    """Register all workflow endpoints dynamically based on metadata."""
+    for workflow_class in WORKFLOW_API_CATALOG if workflows is None else workflows:
+        endpoint_path = workflow_class.get_workflow_api_endpoint()
+        input_class = workflow_class.get_workflow_input_class()
+        endpoint_func = create_workflow_endpoint(workflow_class, input_class, endpoint_path)
+        router.post(
+            endpoint_path,
+            response_model=WorkflowResponse,
+            summary=f"Execute {workflow_class.__name__}",
+            description=workflow_class.get_workflow_description(),
+        )(endpoint_func)
 ```
 
 ## Key Benefits
@@ -110,8 +110,8 @@ def register_dynamic_endpoints(router: APIRouter) -> None:
 
 - Adding a new workflow requires only:
   1. Adding `WorkflowMetadataMixin` to the workflow class
-  1. Setting the metadata attributes
-  1. Adding to `REGISTERED_WORKFLOWS` list
+  1. Setting the metadata attributes, including `workflow_api_enabled = True`
+  1. Adding to `BUILTIN_WORKFLOWS` or to a workflow plugin descriptor
 - System automatically handles the rest
 
 ### Comprehensive Documentation
@@ -144,7 +144,7 @@ graph TD
 
 ### Components
 
-#### WorkflowMetadataMixin (`src/nv_config_manager/temporal/common/mixins/metadata.py`)
+#### WorkflowMetadataMixin (`packages/workflows/src/nv_config_manager_workflows/metadata/mixin.py`)
 
 ```python
 class WorkflowMetadataMixin:
@@ -153,6 +153,7 @@ class WorkflowMetadataMixin:
     workflow_name: str | None = None
     workflow_description: str | None = None
     workflow_input_class: type[BaseModel] | None = None
+    workflow_api_enabled: bool = False
     workflow_api_endpoint: str | None = None
     workflow_namespace: str | None = None
 
@@ -163,8 +164,13 @@ class WorkflowMetadataMixin:
 
     @classmethod
     def has_complete_metadata(cls) -> bool:
-        """Check if the workflow has complete metadata defined."""
-        return bool(cls.workflow_description and cls.workflow_input_class and cls.workflow_api_endpoint)
+        """Check if the workflow has complete API metadata defined."""
+        return (
+            cls.workflow_name is not None
+            and cls.workflow_description is not None
+            and cls.workflow_input_class is not None
+            and cls.workflow_api_endpoint is not None
+        )
 ```
 
 #### Dynamic Endpoint Generator (`src/nv_config_manager/temporal/api/dynamic_endpoints.py`)
@@ -202,28 +208,31 @@ def create_workflow_endpoint(workflow_class: Type, input_class: Type[BaseModel],
 
 #### Registration System
 
+The API builds one validated workflow registry snapshot when it is imported, and
+every workflow surface reads from it:
+
 ```python
-def register_dynamic_endpoints(router: APIRouter) -> None:
-    """Register all workflow endpoints dynamically."""
-    workflows = get_registered_workflows()
+# In workflow_catalog.py
+WORKFLOW_REGISTRY = build_workflow_registry()
+# API-enabled workflows: dynamic POST routes and /metadata.
+WORKFLOW_API_CATALOG = tuple(WORKFLOW_REGISTRY.api_workflows)
+# Every registered workflow, including API-disabled child workflows: /types.
+WORKFLOW_TYPE_CATALOG = tuple(WORKFLOW_REGISTRY.all_workflows)
 
-    for workflow_class in workflows:
-        workflow_class = cast(Type[WorkflowMetadataMixin], workflow_class)
+# In dynamic_endpoints.py
+def register_dynamic_endpoints(router: APIRouter, workflows: Sequence[type] | None = None) -> None:
+    """Register all workflow endpoints dynamically based on metadata."""
+    for workflow_class in WORKFLOW_API_CATALOG if workflows is None else workflows:
+        endpoint_path = workflow_class.get_workflow_api_endpoint()
+        input_class = workflow_class.get_workflow_input_class()
+        endpoint_func = create_workflow_endpoint(workflow_class, input_class, endpoint_path)
 
-        if workflow_class.has_complete_metadata():
-            endpoint_path = workflow_class.get_workflow_api_endpoint()
-            input_class = workflow_class.get_workflow_input_class()
-
-            endpoint_func = create_workflow_endpoint(workflow_class, input_class, endpoint_path)
-
-            router.add_api_route(
-                endpoint_path,
-                endpoint_func,
-                methods=["POST"],
-                response_model=WorkflowResponse,
-                name=f"{workflow_class.__name__.lower()}_endpoint",
-                summary=workflow_class.get_workflow_description()
-            )
+        router.post(
+            endpoint_path,
+            response_model=WorkflowResponse,
+            summary=f"Execute {workflow_class.__name__}",
+            description=workflow_class.get_workflow_description(),
+        )(endpoint_func)
 ```
 
 ## Adding New Workflows
@@ -231,15 +240,17 @@ def register_dynamic_endpoints(router: APIRouter) -> None:
 ### Create Workflow with Metadata
 
 ```python
-from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
 
 @workflow.defn
 class MyNewWorkflow(WorkflowMetadataMixin, StageMixin):
     """My new workflow for doing amazing things."""
 
     # Workflow metadata
+    workflow_name = "My New Workflow"
     workflow_description = "Perform amazing network operations with validation"
     workflow_input_class = MyNewWorkflowInput
+    workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/my_new_workflow"
     workflow_namespace = "ngc"
 
@@ -262,13 +273,21 @@ class MyNewWorkflowInput(BaseModel):
 
 ### Register Workflow
 
+Add a built-in workflow to `BUILTIN_WORKFLOWS`:
+
 ```python
-# In src/nv_config_manager/temporal/ngc/workflows/__init__.py
-REGISTERED_WORKFLOWS = [
+# In packages/workflows/src/nv_config_manager_workflows/workflows/builtin.py
+BUILTIN_WORKFLOWS = (
+    # keep-sorted start
     # ... existing workflows
     MyNewWorkflow,
-]
+    # keep-sorted end
+)
 ```
+
+A workflow shipped in its own distribution belongs in that plugin's
+`WorkflowPluginDescriptor` instead; see
+[Registering a workflow plugin](https://github.com/dsx-ai-factory/nv-config-manager/blob/main/packages/workflows/README.md#registering-a-workflow-plugin).
 
 ### That's It
 
@@ -297,7 +316,9 @@ Returns workflow execution summaries. Query parameters such as `workflow_type`,
 GET /v1/workflow/types
 ```
 
-Returns the legacy list of registered workflow type names.
+Returns the class name of every registered workflow, including API-disabled
+child workflows such as `TenantDeployWorkflow`. Use `/v1/workflow/metadata` for
+the set of workflows the API can start.
 
 ### Get Workflow Metadata
 
@@ -305,7 +326,7 @@ Returns the legacy list of registered workflow type names.
 GET /v1/workflow/metadata
 ```
 
-Returns registered workflow metadata and the RBAC roles needed by the UI:
+Returns metadata for each API-enabled workflow and the RBAC roles needed by the UI:
 
 ```json
 {

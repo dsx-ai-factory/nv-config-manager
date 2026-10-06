@@ -126,11 +126,10 @@ def validate_workflow_catalog(
     *,
     activities: Sequence[Callable[..., Any]] = (),
 ) -> None:
-    """Validate the concrete workflow and activity catalog used by a worker.
+    """Validate an arbitrary workflow and activity catalog as one plugin.
 
-    Plugin validation cannot see service-owned workflows that are added after
-    discovery. Revalidate the final core-plus-plugin catalog as one descriptor
-    so conflicts with those workflows fail before Temporal worker construction.
+    The catalog is checked with the same rules as a plugin descriptor during a
+    registry build, so naming conflicts and missing required activities raise.
     """
     runtime_catalog = WorkflowPluginDescriptor(
         name="runtime-catalog",

@@ -115,10 +115,10 @@ Selection rules:
 - `temporal.scheduler.enabled: false` removes the Deployment entirely.
 - When you run `nv-config-manager-temporal-scheduler` directly, outside Helm, the host reads `NVCM_ENABLED_SCHEDULERS` as a comma-separated list of identities. If the variable is unset, the host runs `builtin.backup` against the configured DCIM provider. If it is set to an empty value, the host runs no schedulers, logs a warning, and waits for shutdown.
 
-The host logs the discovered plugin manifest and the selected scheduler identities at startup:
+The host logs the workflow plugin manifest and the selected scheduler identities at startup:
 
 ```bash
-kubectl logs -n <namespace> deploy/<release>-temporal-scheduler | grep -E 'plugin manifest|Enabled workflow schedulers'
+kubectl logs -n <namespace> deploy/<release>-temporal-scheduler | grep -E 'Loaded workflow plugin|Workflow registry manifest|Enabled workflow schedulers'
 ```
 
 ## Worker Reliability

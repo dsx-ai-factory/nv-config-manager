@@ -20,8 +20,10 @@ import nv_config_manager_logging as logging_config
 import pytest
 
 from nv_config_manager.common.log import LogCategory, get_logger
+from nv_config_manager.temporal import workflow_registry
 from nv_config_manager.temporal.scheduler import host
 from nv_config_manager.temporal.scheduler import main as scheduler_main
+from nv_config_manager_workflows.registration import registry_manifest
 from nv_config_manager_workflows.registration.registry import PluginInfo, WorkflowRegistry
 from nv_config_manager_workflows.schedulers import runtime as scheduler_runtime
 from nv_config_manager_workflows.schedulers.backup import (
@@ -32,6 +34,12 @@ from tests.temporal.scheduler.helpers import (
     host_messages,
     registration,
     secret_scheduler_runtime,
+)
+
+STARTUP_LOGGER_NAMES = {workflow_registry.logger.name, scheduler_main.logger.name}
+PLUGIN_MESSAGE = "Loaded workflow plugin %s version %s: %d workflows, %d activities, %d schedulers"
+MANIFEST_MESSAGE = (
+    "Workflow registry manifest %s: %d plugins, %d workflows, %d activities, %d schedulers"
 )
 
 
@@ -111,8 +119,8 @@ def test_main_configures_runtime_before_starting_discovered_schedulers(
         lambda configured: events.append(("configure-backup-runtime", configured)),
     )
     monkeypatch.setattr(
-        scheduler_main.WorkflowRegistry,
-        "build",
+        scheduler_main,
+        "build_workflow_registry",
         lambda: events.append("build-registry") or registry,
     )
     monkeypatch.delenv(host.ENABLED_SCHEDULERS_ENV, raising=False)
@@ -160,7 +168,7 @@ def test_main_does_not_configure_backup_runtime_when_backup_is_not_selected(
         "configure_scheduler_runtime",
         lambda runtime: configured.append("scheduler-runtime"),
     )
-    monkeypatch.setattr(scheduler_main.WorkflowRegistry, "build", lambda: registry)
+    monkeypatch.setattr(scheduler_main, "build_workflow_registry", lambda: registry)
     monkeypatch.setenv(host.ENABLED_SCHEDULERS_ENV, "fixture.cleanup")
     monkeypatch.setattr(
         scheduler_main,
@@ -208,7 +216,7 @@ def test_main_runs_explicit_builtin_backup_with_a_non_nautobot_provider(
     monkeypatch.setattr(scheduler_main, "setup_telemetry", lambda service: None)
     monkeypatch.setattr(scheduler_main, "configure_workflow_runtime", lambda: None)
     monkeypatch.setattr(scheduler_main, "build_scheduler_runtime", secret_scheduler_runtime)
-    monkeypatch.setattr(scheduler_main.WorkflowRegistry, "build", lambda: registry)
+    monkeypatch.setattr(scheduler_main, "build_workflow_registry", lambda: registry)
     monkeypatch.setenv(host.ENABLED_SCHEDULERS_ENV, host.BUILTIN_BACKUP_SCHEDULER_IDENTITY)
     monkeypatch.setattr(scheduler_main, "run_scheduler_service", fake_run_scheduler_service)
 
@@ -233,7 +241,7 @@ def test_main_logs_plugin_manifest_and_selected_schedulers(
         CanonicalBackupScheduler,
         plugin="builtin",
     )
-    fixture_registration = registration("fixture.cleanup", FixtureScheduler)
+    fixture_registration = registration("fixture.cleanup", FixtureScheduler, plugin="fixture")
     manifest = [
         PluginInfo("builtin", "1.0.0", workflow_count=33, activity_count=121, scheduler_count=1),
         PluginInfo("fixture", "0.1.0", workflow_count=0, activity_count=0, scheduler_count=1),
@@ -250,28 +258,44 @@ def test_main_logs_plugin_manifest_and_selected_schedulers(
     monkeypatch.setattr(scheduler_main, "configure_workflow_runtime", lambda: None)
     monkeypatch.setattr(scheduler_main, "build_scheduler_runtime", object)
     monkeypatch.setattr(scheduler_main, "configure_scheduler_runtime", lambda runtime: None)
-    monkeypatch.setattr(scheduler_main.WorkflowRegistry, "build", lambda: registry)
+    monkeypatch.setattr(scheduler_main, "build_workflow_registry", lambda: registry)
     monkeypatch.setenv(
         host.ENABLED_SCHEDULERS_ENV,
         f"{host.BUILTIN_BACKUP_SCHEDULER_IDENTITY},fixture.cleanup",
     )
     monkeypatch.setattr(scheduler_main, "run_scheduler_service", fake_run_scheduler_service)
 
+    caplog.set_level(logging.INFO, logger=workflow_registry.logger.name)
     with caplog.at_level(logging.INFO, logger=scheduler_main.logger.name):
         scheduler_main.main()
 
     # A configured service logging filter (EscapingFilter) may replace list items in
     # record.args with escaped strings before caplog sees the record, so check the
     # templates and the rendered content rather than the raw argument objects.
-    startup_records = [
-        record for record in caplog.records if record.name == scheduler_main.logger.name
-    ]
+    startup_records = [record for record in caplog.records if record.name in STARTUP_LOGGER_NAMES]
     assert [(record.levelno, record.msg) for record in startup_records] == [
-        (logging.INFO, "Discovered workflow plugin manifest: %s"),
+        (logging.INFO, PLUGIN_MESSAGE),
+        (logging.INFO, PLUGIN_MESSAGE),
+        (logging.INFO, MANIFEST_MESSAGE),
         (logging.INFO, "Enabled workflow schedulers: %s"),
     ]
-    manifest_message, enabled_message = (record.getMessage() for record in startup_records)
-    assert all(repr(info) in manifest_message for info in manifest)
+    builtin_message, fixture_message, manifest_message, enabled_message = (
+        record.getMessage() for record in startup_records
+    )
+    assert builtin_message == (
+        "Loaded workflow plugin builtin version 1.0.0: 33 workflows, 121 activities, 1 schedulers"
+    )
+    assert fixture_message == (
+        "Loaded workflow plugin fixture version 0.1.0: 0 workflows, 0 activities, 1 schedulers"
+    )
+    assert manifest_message == (
+        f"Workflow registry manifest {registry_manifest(registry).fingerprint}: "
+        "2 plugins, 0 workflows, 0 activities, 2 schedulers"
+    )
+    assert [getattr(record, "scheduler_identities", None) for record in startup_records[:2]] == [
+        [host.BUILTIN_BACKUP_SCHEDULER_IDENTITY],
+        ["fixture.cleanup"],
+    ]
     assert enabled_message == ("Enabled workflow schedulers: ['builtin.backup', 'fixture.cleanup']")
     assert {getattr(record, "category", None) for record in startup_records} == {
         LogCategory.TEMPORAL_WORKFLOW
@@ -295,7 +319,9 @@ def test_main_logs_plugin_manifest_before_rejecting_unknown_scheduler(
         PluginInfo("fixture", "0.1.0", workflow_count=0, activity_count=0, scheduler_count=1),
     ]
     registry = WorkflowRegistry(
-        scheduler_registrations=(registration("fixture.cleanup", FixtureScheduler),),
+        scheduler_registrations=(
+            registration("fixture.cleanup", FixtureScheduler, plugin="fixture"),
+        ),
         plugin_diagnostics=manifest,
     )
 
@@ -304,7 +330,7 @@ def test_main_logs_plugin_manifest_before_rejecting_unknown_scheduler(
     monkeypatch.setattr(scheduler_main, "configure_workflow_runtime", lambda: None)
     monkeypatch.setattr(scheduler_main, "build_scheduler_runtime", object)
     monkeypatch.setattr(scheduler_main, "configure_scheduler_runtime", lambda runtime: None)
-    monkeypatch.setattr(scheduler_main.WorkflowRegistry, "build", lambda: registry)
+    monkeypatch.setattr(scheduler_main, "build_workflow_registry", lambda: registry)
     monkeypatch.setenv(host.ENABLED_SCHEDULERS_ENV, "fixture.unknown")
     monkeypatch.setattr(
         scheduler_main,
@@ -312,17 +338,19 @@ def test_main_logs_plugin_manifest_before_rejecting_unknown_scheduler(
         lambda registrations: pytest.fail("schedulers must not start after selection fails"),
     )
 
+    caplog.set_level(logging.INFO, logger=workflow_registry.logger.name)
     with caplog.at_level(logging.INFO, logger=scheduler_main.logger.name):
         with pytest.raises(host.SchedulerHostError, match="fixture.unknown"):
             scheduler_main.main()
 
-    startup_records = [
-        record for record in caplog.records if record.name == scheduler_main.logger.name
-    ]
+    startup_records = [record for record in caplog.records if record.name in STARTUP_LOGGER_NAMES]
     assert [(record.levelno, record.msg) for record in startup_records] == [
-        (logging.INFO, "Discovered workflow plugin manifest: %s"),
+        (logging.INFO, PLUGIN_MESSAGE),
+        (logging.INFO, MANIFEST_MESSAGE),
     ]
-    assert all(repr(info) in startup_records[0].getMessage() for info in manifest)
+    assert startup_records[0].getMessage() == (
+        "Loaded workflow plugin fixture version 0.1.0: 0 workflows, 0 activities, 1 schedulers"
+    )
 
 
 @pytest.mark.usefixtures("secret_config", "unset_scheduler_runtimes")
@@ -360,7 +388,7 @@ def test_scheduler_host_startup_diagnostics_are_credential_free(
     monkeypatch.setattr(scheduler_main, "setup_telemetry", lambda service: None)
     monkeypatch.setattr(scheduler_main, "configure_workflow_runtime", lambda: None)
     monkeypatch.setattr(scheduler_main, "build_scheduler_runtime", secret_scheduler_runtime)
-    monkeypatch.setattr(scheduler_main.WorkflowRegistry, "build", lambda: registry)
+    monkeypatch.setattr(scheduler_main, "build_workflow_registry", lambda: registry)
     monkeypatch.setenv(
         host.ENABLED_SCHEDULERS_ENV,
         f"{host.BUILTIN_BACKUP_SCHEDULER_IDENTITY},fixture.secretive",
@@ -416,7 +444,7 @@ def test_main_emits_each_scheduler_record_once_as_structured_service_json(
     monkeypatch.setattr(scheduler_main, "configure_workflow_runtime", lambda: None)
     monkeypatch.setattr(scheduler_main, "build_scheduler_runtime", object)
     monkeypatch.setattr(scheduler_main, "configure_scheduler_runtime", lambda runtime: None)
-    monkeypatch.setattr(scheduler_main.WorkflowRegistry, "build", lambda: registry)
+    monkeypatch.setattr(scheduler_main, "build_workflow_registry", lambda: registry)
     monkeypatch.setenv(host.ENABLED_SCHEDULERS_ENV, "fixture.cleanup")
     monkeypatch.setattr(scheduler_main, "run_scheduler_service", fake_run_scheduler_service)
 
@@ -427,11 +455,10 @@ def test_main_emits_each_scheduler_record_once_as_structured_service_json(
         event for event in emitted if event["message"] == "unique backup scheduler event"
     ]
     assert len(backup_events) == 1
-    startup_events = [event for event in emitted if event["name"] == scheduler_main.logger.name]
-    assert [event["message"].split(":")[0] for event in startup_events] == [
-        "Discovered workflow plugin manifest",
-        "Enabled workflow schedulers",
-    ]
+    startup_events = [event for event in emitted if event["name"] in STARTUP_LOGGER_NAMES]
+    manifest_event, enabled_event = startup_events
+    assert manifest_event["event_type"] == "workflow_registry_manifest"
+    assert enabled_event["message"].startswith("Enabled workflow schedulers:")
     for event in (*backup_events, *startup_events):
         assert event["service"] == "temporal-scheduler"
         assert event["category"] == LogCategory.TEMPORAL_WORKFLOW

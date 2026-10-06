@@ -232,6 +232,8 @@ packages = ["src/nv_config_manager"]
 [tool.pytest.ini_options]
 cache_dir = ".cache/pytest_cache"
 asyncio_mode = "auto"
+# Importable, not installed: the fixture plugin is never discovered through entry points.
+pythonpath = ["packages/workflows/tests/fixtures/plugin/src"]
 testpaths = [
     "src/tests",
     "development/mock_topology/tests",

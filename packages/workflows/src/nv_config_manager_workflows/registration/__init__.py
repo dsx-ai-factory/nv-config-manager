@@ -54,6 +54,7 @@ from nv_config_manager_workflows.registration.errors import (
     WorkflowSchedulerRunError,
     WorkflowSchedulerRunNotAsyncError,
 )
+from nv_config_manager_workflows.registration.manifest import RegistryManifest, registry_manifest
 from nv_config_manager_workflows.registration.registry import (
     PluginInfo,
     SchedulerRegistration,
@@ -75,6 +76,7 @@ __all__ = [
     "WORKFLOW_PLUGIN_ENTRY_POINT_GROUP",
     "PluginInfo",
     "REQUIRED_WORKFLOW_BASES",
+    "RegistryManifest",
     "SchedulerRegistration",
     "WorkflowConflictError",
     "WorkflowPluginDescriptor",
@@ -96,6 +98,7 @@ __all__ = [
     "builtin_plugin",
     "discover_workflow_plugins",
     "mcp_tool_name_for_endpoint",
+    "registry_manifest",
     "workflow_api_enabled",
     "workflow_api_endpoint",
     "workflow_class_name",

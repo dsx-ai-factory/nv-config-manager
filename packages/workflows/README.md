@@ -76,11 +76,11 @@ API. API-enabled workflows define `workflow_name`,
 The package exposes its 33 built-in workflows and built-in activities through the
 `nv_config_manager.workflows` entry point declared in `pyproject.toml`.
 `WorkflowRegistry` discovers all installed entries in that group and merges
-their workflow and activity catalogs. During the compatibility period, the
-NVIDIA Config Manager worker deduplicates the package-owned classes exposed
-through the legacy service catalogs and the plugin registry. The local-only
-`HelloWorldRunning` latency fixture is kept out of the built-in plugin and is
-registered only when its service environment flag is enabled.
+their workflow and activity catalogs. The NVIDIA Config Manager worker registers
+the registry's workflows and activities. The local-only `HelloWorldRunning`
+latency fixture is kept out of the built-in plugin; the worker appends it only
+when `NVCM_ENABLE_LOCAL_TEST_WORKFLOWS` is enabled, after checking that no
+registered workflow already claims its Temporal type name.
 
 ### Registering a workflow plugin
 
@@ -117,9 +117,10 @@ example-plugin = "example_plugin.registration:plugin"
 
 The descriptor name must match the entry-point name. Install the distribution in
 every process that consumes its catalog, including the Temporal worker, the
-Temporal API for API-enabled workflows, and the scheduler host for plugins that
-contribute schedulers. `WorkflowRegistry.build()` then
-discovers and validates it automatically:
+Temporal API and workflow CLI for API-enabled workflows, the MCP server for
+MCP-enabled workflows, and the scheduler host for plugins that contribute
+schedulers. `WorkflowRegistry.build()` then discovers and validates it
+automatically:
 
 ```python
 from nv_config_manager_workflows.registration import WorkflowRegistry
@@ -130,10 +131,14 @@ print(registry.all_workflows)
 print(registry.all_activities)
 ```
 
-The worker and API already use this registry, so no service-code registration
-change is required. Plugin workflows must satisfy the registration contract
-above, and contributed names and exposed endpoints must not conflict with the
-rest of the installed catalog.
+The worker, API, workflow CLI, and MCP server use this registry, so no
+service-code registration change is required. Plugin workflows must satisfy the
+registration contract above, and contributed names and exposed endpoints must
+not conflict with the rest of the installed catalog. A workflow's CLI name (its
+class name in kebab case without a `Workflow` suffix; see
+`get_workflow_cli_name()`) also must not equal a built-in `workflow-cli` command
+(`login`, `logout`, `auth-status`, `list-workflows`, or `examples`), because
+`workflow-cli` refuses to start when one does.
 
 ### Writing a plugin scheduler
 
@@ -251,10 +256,11 @@ namespace.
 #### Validation and selection
 
 Scheduler contracts are validated whenever a `WorkflowRegistry` is built: in the
-Temporal worker, the Temporal API, and the scheduler host, whether or not the
-scheduler is enabled. An invalid scheduler in any installed plugin, such as an
-invalid or duplicate identity, a constructor that requires arguments, or a
-missing or synchronous `run()`, therefore stops all three services at startup.
+Temporal worker, the Temporal API, the scheduler host, the MCP server, and the
+workflow CLI, whether or not the scheduler is enabled. An invalid scheduler in any
+installed plugin, such as an invalid or duplicate identity, a constructor that
+requires arguments, or a missing or synchronous `run()`, therefore stops each of
+them at startup.
 
 The scheduler host runs only the identities selected in the Helm
 `temporal.scheduler.schedulers` map: entries that are enabled and whose optional
@@ -320,6 +326,25 @@ async def test_cleanup_scheduler_stops_when_cancelled() -> None:
         await task
     assert scheduler.stopped
 ```
+
+### Registry manifest
+
+The `nv-config-manager-workflows-manifest` console script builds the registry
+from the installed plugins and prints its manifest as JSON: each plugin's name,
+version, and contribution counts; the sorted Temporal workflow types, activity
+names, and scheduler identities; and a `sha256:` fingerprint over those values.
+It contains no class paths, descriptor metadata, or configuration.
+
+```sh
+uv run nv-config-manager-workflows-manifest
+```
+
+Compare fingerprints across images or processes to detect a different installed
+plugin set. The fingerprint is not a security signature, and it does not change
+when code changes under an unchanged plugin version. If discovery or validation
+fails, the command prints the error to stderr and exits with status 1. To build
+the same `RegistryManifest` in-process, call `registry_manifest(registry)` from
+`nv_config_manager_workflows.registration`.
 
 ## Temporal compatibility
 

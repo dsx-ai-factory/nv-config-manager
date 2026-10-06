@@ -232,6 +232,27 @@ jobs:
           name: network-template-test-artifacts
           path: packages/templates/coverage.xml
 
+  workflow-wheel-tests:
+    name: Workflow Wheel Tests
+    runs-on: linux-amd64-cpu4
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: *actions_checkout
+        with:
+          persist-credentials: false
+      - name: Setup proxy cache
+        uses: *setup_proxy_cache
+      - uses: *actions_setup_python
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: *setup_uv
+        with:
+          enable-cache: true
+      - name: Check workflows package installs and runs outside the workspace
+        run: make test-workflow-wheels
+
   go-lint:
     name: Go Module Check
     runs-on: linux-amd64-cpu4

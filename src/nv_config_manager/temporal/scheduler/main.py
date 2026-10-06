@@ -28,10 +28,11 @@ from nv_config_manager.temporal.scheduler.host import (
     select_scheduler_registrations,
 )
 from nv_config_manager.temporal.telemetry import setup_telemetry
-from nv_config_manager_workflows.registration import (
-    BUILTIN_PLUGIN_NAME,
-    WorkflowRegistry,
+from nv_config_manager.temporal.workflow_registry import (
+    build_workflow_registry,
+    log_workflow_registry,
 )
+from nv_config_manager_workflows.registration import BUILTIN_PLUGIN_NAME
 from nv_config_manager_workflows.schedulers.runtime import (
     configure_builtin_scheduler_runtime,
     configure_scheduler_runtime,
@@ -46,12 +47,8 @@ def main() -> None:
     setup_telemetry("nv-config-manager-temporal-scheduler")
     configure_workflow_runtime()
     configure_scheduler_runtime(build_scheduler_runtime())
-    registry = WorkflowRegistry.build()
-
-    logger.info(
-        "Discovered workflow plugin manifest: %s",
-        registry.plugin_diagnostics,
-    )
+    registry = build_workflow_registry()
+    log_workflow_registry(registry)
     enabled_identities = configured_scheduler_identities()
     registrations = select_scheduler_registrations(registry, enabled_identities)
 

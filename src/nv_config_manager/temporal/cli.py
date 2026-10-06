@@ -25,7 +25,8 @@ OIDCAuth class from nv_config_manager.common.oidc.
 import json
 import re
 import sys
-from typing import Any, NoReturn, get_args, get_type_hints
+from collections.abc import Mapping, Sequence
+from typing import Any, NoReturn, cast, get_args, get_type_hints
 
 import click
 import requests
@@ -36,11 +37,9 @@ from nv_config_manager.common.oidc import AuthDiscovery, OIDCAuth, decode_jwt_cl
 
 # Keep workflow imports guarded so a packaging/import issue produces a CLI-friendly error.
 try:
-    from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
-    from nv_config_manager.temporal.hello_world.workflows import (
-        REGISTERED_WORKFLOWS as HELLO_WORLD_WORKFLOWS,
-    )
-    from nv_config_manager.temporal.ngc.workflows import REGISTERED_WORKFLOWS as NGC_WORKFLOWS
+    from nv_config_manager.temporal.workflow_registry import build_workflow_registry
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+    from nv_config_manager_workflows.registration import WorkflowRegistrationError
 except ImportError as e:
     click.echo(f"Error importing workflows: {e}", err=True)
     click.echo("Make sure the nv-config-manager-temporal package is properly installed.", err=True)
@@ -164,48 +163,26 @@ def _debug_dump_jwt(access_token: str, context: str = "") -> None:
 
 
 class WorkflowDiscovery:
-    """Discovers and organizes available workflows."""
+    """Discovers the workflows the HTTP API accepts and organizes them by CLI name."""
 
-    def __init__(self) -> None:
+    def __init__(self, workflows: Sequence[type[WorkflowMetadataMixin]] | None = None) -> None:
         self.workflows: dict[str, WorkflowInfo] = {}
-        self._discover_workflows()
+        if workflows is None:
+            try:
+                workflows = build_workflow_registry().api_workflows
+            except WorkflowRegistrationError as e:
+                click.echo(f"Error loading workflow registry: {e}", err=True)
+                sys.exit(1)
+        for workflow_class in workflows:
+            self._process_workflow(workflow_class)
 
-    def _discover_workflows(self) -> None:
-        """Discover all available workflows and their metadata."""
-        # Process core workflows shared by all DCIM providers.
-        for workflow_class in NGC_WORKFLOWS:
-            self._process_workflow(workflow_class, "ngc")
-
-        # Process Hello World workflows.
-        for workflow_class in HELLO_WORLD_WORKFLOWS:
-            self._process_workflow(workflow_class, "hello_world")
-
-    def _process_workflow(self, workflow_class: type, default_namespace: str) -> None:
+    def _process_workflow(self, workflow_class: type[WorkflowMetadataMixin]) -> None:
         """Process a single workflow class."""
-        workflow_name = workflow_class.__name__
-
-        # All workflows must use WorkflowMetadataMixin
-        if not issubclass(workflow_class, WorkflowMetadataMixin):
-            click.echo(
-                f"Error: {workflow_name} does not use WorkflowMetadataMixin - all workflows must use metadata",
-                err=True,
-            )
-            return
-
-        # Use metadata from the mixin
-        if not workflow_class.has_complete_metadata():
-            click.echo(f"Error: {workflow_name} has incomplete metadata - skipping", err=True)
-            return
-
-        endpoint = workflow_class.get_workflow_api_endpoint()
-        input_class = workflow_class.get_workflow_input_class()
-        namespace = workflow_class.get_workflow_namespace() or default_namespace
+        # Registry validation guarantees an API workflow declares both.
+        endpoint = cast(str, workflow_class.get_workflow_api_endpoint())
+        input_class = cast(type[BaseModel], workflow_class.get_workflow_input_class())
+        namespace = workflow_class.get_workflow_namespace() or ""
         cli_name = workflow_class.get_workflow_cli_name()
-
-        # Ensure we have valid values before creating WorkflowInfo
-        if not input_class or not endpoint:
-            click.echo(f"Error: {workflow_name} has invalid metadata - skipping", err=True)
-            return
 
         workflow_info = WorkflowInfo(workflow_class, input_class, endpoint, namespace)
         self.workflows[cli_name] = workflow_info
@@ -1020,9 +997,21 @@ workflow-cli backup -e qa --device-name switch001
 
 # ── Register dynamic workflow commands ───────────────────────────────────
 
-for workflow_name, workflow_info in discovery.workflows.items():
-    command = create_workflow_command(workflow_name, workflow_info)
-    cli.add_command(command)
+
+def register_workflow_commands(group: click.Group, workflows: Mapping[str, WorkflowInfo]) -> None:
+    """Add a command per workflow, refusing a name that would replace an existing command."""
+    for workflow_name, workflow_info in workflows.items():
+        if workflow_name in group.commands:
+            click.echo(
+                f"Error: workflow {workflow_info.name} uses CLI name '{workflow_name}', "
+                "which is reserved for a built-in command",
+                err=True,
+            )
+            sys.exit(1)
+        group.add_command(create_workflow_command(workflow_name, workflow_info))
+
+
+register_workflow_commands(cli, discovery.workflows)
 
 
 def main() -> None:

@@ -340,6 +340,14 @@ class TestBuiltinDiscovery:
 
         assert discovered.version not in (None, UNKNOWN_PLUGIN_VERSION)
 
+    def test_discovery_yields_the_objects_the_package_imports(self) -> None:
+        """The entry point must not resolve to a second copy of any catalog entry."""
+        discovered = discover_workflow_plugins()[BUILTIN_PLUGIN_NAME]
+
+        assert list(map(id, discovered.workflows)) == list(map(id, BUILTIN_WORKFLOWS))
+        assert list(map(id, discovered.activities)) == list(map(id, BUILTIN_ACTIVITIES))
+        assert list(map(id, discovered.schedulers)) == list(map(id, BUILTIN_SCHEDULERS))
+
     def test_a_registry_built_from_the_environment_includes_it(self) -> None:
         registry = WorkflowRegistry.build()
 

@@ -12,16 +12,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Hello World Workflow Definitions."""
+"""The fixture plugin's descriptor, published through its entry point."""
 
-from nv_config_manager.temporal.hello_world.workflows.hello_world_workflow import (
-    HelloWorld,
-    HelloWorldApproval,
-    HelloWorldRunning,
-)
+from nv_config_manager_workflows.registration import WorkflowPluginDescriptor
+from nvcm_fixture_plugin.activities import FIXTURE_ACTIVITIES
+from nvcm_fixture_plugin.schedulers import FIXTURE_SCHEDULERS
+from nvcm_fixture_plugin.workflows import FIXTURE_WORKFLOWS
 
-__all__ = [
-    "HelloWorld",
-    "HelloWorldApproval",
-    "HelloWorldRunning",
-]
+PLUGIN_NAME = "nvcm-fixture"
+
+
+def plugin() -> WorkflowPluginDescriptor:
+    """Return the fixture plugin's descriptor."""
+    return WorkflowPluginDescriptor(
+        name=PLUGIN_NAME,
+        workflows=FIXTURE_WORKFLOWS,
+        activities=FIXTURE_ACTIVITIES,
+        schedulers=FIXTURE_SCHEDULERS,
+    )
+
+
+__all__ = ["PLUGIN_NAME", "plugin"]

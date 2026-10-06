@@ -6,7 +6,7 @@ position: 10
 
 `workflow-cli` is the Config Manager command-line client for invoking Temporal workflows through the workflow API gateway. It is registered by the platform package as the `workflow-cli` project script and should be run with `uv` from the `nv-config-manager` checkout.
 
-The CLI discovers registered workflows from the codebase and generates one Click command per workflow. It also handles device-name-to-device-ID lookup for workflows that accept `device_id`.
+The CLI reads the API-enabled workflows from the installed workflow registry, which includes built-in workflows and installed workflow plugins, and generates one Click command per workflow. It also handles device-name-to-device-ID lookup for workflows that accept `device_id`.
 
 ## Run the CLI
 

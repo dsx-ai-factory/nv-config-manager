@@ -12,16 +12,4 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Hello World Workflow Definitions."""
-
-from nv_config_manager.temporal.hello_world.workflows.hello_world_workflow import (
-    HelloWorld,
-    HelloWorldApproval,
-    HelloWorldRunning,
-)
-
-__all__ = [
-    "HelloWorld",
-    "HelloWorldApproval",
-    "HelloWorldRunning",
-]
+"""Tests for workflow plugin discovery, validation, and registration."""

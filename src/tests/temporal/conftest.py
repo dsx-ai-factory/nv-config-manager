@@ -17,6 +17,7 @@
 import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from importlib.metadata import EntryPoint, entry_points
 from typing import Any
 
 import pytest
@@ -46,6 +47,7 @@ from nv_config_manager.temporal.common.search_attributes import (
 from nv_config_manager.temporal.converter import get_data_converter
 from nv_config_manager_workflows.activities.nats import PublishNatsInput
 from nv_config_manager_workflows.activities.slack import SlackMessageInput
+from nv_config_manager_workflows.registration import WORKFLOW_PLUGIN_ENTRY_POINT_GROUP, discovery
 from nv_config_manager_workflows.runtime import configure_lock_backend
 
 _SEARCH_ATTRIBUTES = {
@@ -172,6 +174,30 @@ def bmc_creds(mocker):
         }
 
     mocker.patch("nv_config_manager.temporal.client.redfish.get_bmc_creds", new=mock_creds)
+
+
+@pytest.fixture
+def fixture_plugin_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Add the fixture plugin's entry point to the installed workflow plugin entry points.
+
+    The fixture plugin is importable through the pytest ``pythonpath`` but not
+    installed, so its real entry point is injected beside the installed built-in
+    one; discovery still loads and validates both.
+    """
+    fixture_entry_point = EntryPoint(
+        name="nvcm-fixture",
+        value="nvcm_fixture_plugin.registration:plugin",
+        group=WORKFLOW_PLUGIN_ENTRY_POINT_GROUP,
+    )
+    installed = entry_points(group=WORKFLOW_PLUGIN_ENTRY_POINT_GROUP)
+    assert fixture_entry_point.name not in installed.names
+    monkeypatch.setattr(
+        discovery,
+        "entry_points",
+        lambda *, group: (
+            (*installed, fixture_entry_point) if group == WORKFLOW_PLUGIN_ENTRY_POINT_GROUP else ()
+        ),
+    )
 
 
 @pytest_asyncio.fixture(scope="session")

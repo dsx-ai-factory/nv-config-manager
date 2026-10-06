@@ -12,16 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Hello World Workflow Definitions."""
+"""Fixture workflow plugin that exercises the public plugin contract.
 
-from nv_config_manager.temporal.hello_world.workflows.hello_world_workflow import (
-    HelloWorld,
-    HelloWorldApproval,
-    HelloWorldRunning,
-)
+It is packaged like any external plugin, through its own distribution and
+``nv_config_manager.workflows`` entry point, and uses only the public
+``nv_config_manager_workflows`` modules.
 
-__all__ = [
-    "HelloWorld",
-    "HelloWorldApproval",
-    "HelloWorldRunning",
-]
+This module imports nothing: the Temporal workflow sandbox re-imports it as the
+parent of ``workflows``, so the descriptor lives in ``registration``.
+"""
