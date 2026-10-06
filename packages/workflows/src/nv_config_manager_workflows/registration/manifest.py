@@ -18,7 +18,6 @@ import hashlib
 import json
 import sys
 from dataclasses import asdict, dataclass
-from typing import Any
 
 from nv_config_manager_workflows.registration.contract import (
     activity_name,
@@ -27,21 +26,6 @@ from nv_config_manager_workflows.registration.contract import (
 )
 from nv_config_manager_workflows.registration.errors import WorkflowRegistrationError
 from nv_config_manager_workflows.registration.registry import PluginInfo, WorkflowRegistry
-
-
-def _content(
-    plugins: tuple[PluginInfo, ...],
-    workflows: tuple[str, ...],
-    activities: tuple[str, ...],
-    schedulers: tuple[str, ...],
-) -> dict[str, Any]:
-    """Return the fingerprinted fields of a manifest."""
-    return {
-        "plugins": [asdict(plugin) for plugin in plugins],
-        "workflows": list(workflows),
-        "activities": list(activities),
-        "schedulers": list(schedulers),
-    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,13 +44,6 @@ class RegistryManifest:
     schedulers: tuple[str, ...]
     fingerprint: str
 
-    def to_dict(self) -> dict[str, Any]:
-        """Return the manifest as JSON-serializable data."""
-        return {
-            **_content(self.plugins, self.workflows, self.activities, self.schedulers),
-            "fingerprint": self.fingerprint,
-        }
-
 
 def registry_manifest(registry: WorkflowRegistry) -> RegistryManifest:
     """Summarize ``registry`` with names sorted and plugins in registry order."""
@@ -78,11 +55,13 @@ def registry_manifest(registry: WorkflowRegistry) -> RegistryManifest:
         sorted(activity_name(a) or getattr(a, "__name__", "") for a in registry.all_activities)
     )
     schedulers = tuple(sorted(r.identity for r in registry.scheduler_registrations))
-    canonical = json.dumps(
-        _content(plugins, workflows, activities, schedulers),
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    content = {
+        "plugins": [asdict(plugin) for plugin in plugins],
+        "workflows": workflows,
+        "activities": activities,
+        "schedulers": schedulers,
+    }
+    canonical = json.dumps(content, sort_keys=True, separators=(",", ":"))
     return RegistryManifest(
         plugins=plugins,
         workflows=workflows,
@@ -99,4 +78,4 @@ def main() -> None:
     except WorkflowRegistrationError as error:
         print(f"Workflow registry build failed: {error}", file=sys.stderr)
         raise SystemExit(1) from error
-    print(json.dumps(registry_manifest(registry).to_dict(), indent=2, sort_keys=True))
+    print(json.dumps(asdict(registry_manifest(registry)), indent=2, sort_keys=True))

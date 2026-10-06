@@ -17,7 +17,7 @@
 import asyncio
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, cast
+from typing import Any
 
 from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
@@ -32,9 +32,6 @@ from nv_config_manager.temporal.workflow_registry import (
     build_workflow_registry,
     log_workflow_registry,
 )
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.registration.contract import workflow_type_name
-from nv_config_manager_workflows.registration.errors import WorkflowConflictError
 from nv_config_manager_workflows.registration.registry import WorkflowRegistry
 from nv_config_manager_workflows.workflows import LOCAL_TEST_WORKFLOWS
 
@@ -47,25 +44,10 @@ def _enabled_env_flag(name: str) -> bool:
 
 
 def _registered_workflows(registry: WorkflowRegistry) -> list[type[Any]]:
-    """Return a copy of the registry's workflows, plus the local-test workflows when opted in.
-
-    Raises:
-        WorkflowConflictError: A local-test workflow claims a Temporal workflow
-            type the registry already registers.
-    """
+    """Return a copy of the registry's workflows, plus the local-test workflows when opted in."""
     workflows: list[type[Any]] = list(registry.all_workflows)
-    if not _enabled_env_flag("NVCM_ENABLE_LOCAL_TEST_WORKFLOWS"):
-        return workflows
-    registered = {workflow_type_name(workflow) for workflow in workflows}
-    for local in LOCAL_TEST_WORKFLOWS:
-        # Local-test workflows carry no API metadata, so they omit WorkflowMetadataMixin.
-        type_name = workflow_type_name(cast(type[WorkflowMetadataMixin], local))
-        if type_name in registered:
-            raise WorkflowConflictError(
-                f'Local test workflow "{local.__qualname__}" claims Temporal workflow type '
-                f'"{type_name}", which the workflow registry already registers'
-            )
-    workflows.extend(LOCAL_TEST_WORKFLOWS)
+    if _enabled_env_flag("NVCM_ENABLE_LOCAL_TEST_WORKFLOWS"):
+        workflows.extend(LOCAL_TEST_WORKFLOWS)
     return workflows
 
 

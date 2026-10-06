@@ -51,14 +51,6 @@ class ConflictingHelloWorldWorkflow(WorkflowMetadataMixin, StageMixin):
     async def run(self, workflow_input: BaseModel) -> None: ...
 
 
-@workflow.defn(name="HelloWorldRunning")
-class ConflictingHelloWorldRunningWorkflow(WorkflowMetadataMixin, StageMixin):
-    """Plugin workflow that claims the local-test HelloWorldRunning Temporal type."""
-
-    @workflow.run
-    async def run(self, workflow_input: BaseModel) -> None: ...
-
-
 def _mock_worker_startup(mocker: MockerFixture) -> Mock:
     """Patch the external dependencies of main() and return the Worker constructor mock."""
     mocker.patch.object(worker_main, "configure_workflow_runtime")
@@ -238,31 +230,3 @@ async def test_worker_registers_the_frozen_temporal_type_names(
     assert sorted(activity_name(item) for item in options["activities"]) == frozen["activities"]
     (logged_registry,) = log_registry.call_args.args
     assert HelloWorldRunning not in logged_registry.all_workflows
-
-
-async def test_local_test_workflow_conflict_fails_before_worker_construction(
-    mocker: MockerFixture,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A registry workflow cannot share a Temporal type with an opted-in local-test workflow."""
-    monkeypatch.setenv("NVCM_ENABLE_LOCAL_TEST_WORKFLOWS", "1")
-    worker_constructor = _mock_worker_startup(mocker)
-    mocker.patch.object(
-        worker_main,
-        "build_workflow_registry",
-        return_value=WorkflowRegistry(
-            all_workflows=[*BUILTIN_WORKFLOWS, ConflictingHelloWorldRunningWorkflow],
-            all_activities=list(BUILTIN_ACTIVITIES),
-        ),
-    )
-    log_registry = mocker.patch.object(worker_main, "log_workflow_registry")
-
-    with pytest.raises(
-        WorkflowConflictError,
-        match='Local test workflow "HelloWorldRunning" claims Temporal workflow type '
-        '"HelloWorldRunning"',
-    ):
-        await worker_main.main()
-
-    log_registry.assert_not_called()
-    worker_constructor.assert_not_called()

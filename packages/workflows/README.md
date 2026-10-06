@@ -79,8 +79,7 @@ The package exposes its 33 built-in workflows and built-in activities through th
 their workflow and activity catalogs. The NVIDIA Config Manager worker registers
 the registry's workflows and activities. The local-only `HelloWorldRunning`
 latency fixture is kept out of the built-in plugin; the worker appends it only
-when `NVCM_ENABLE_LOCAL_TEST_WORKFLOWS` is enabled, after checking that no
-registered workflow already claims its Temporal type name.
+when `NVCM_ENABLE_LOCAL_TEST_WORKFLOWS` is enabled.
 
 ### Registering a workflow plugin
 

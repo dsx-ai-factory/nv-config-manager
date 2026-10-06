@@ -15,7 +15,7 @@
 import asyncio
 import logging
 import signal
-from typing import Any, cast
+from typing import Any
 
 import pytest
 
@@ -322,32 +322,6 @@ async def test_shutdown_request_cancels_and_awaits_every_scheduler() -> None:
     assert cleaned_up == {"first", "second"}
 
 
-def test_signal_handlers_request_shutdown_and_can_be_removed() -> None:
-    callbacks: dict[signal.Signals, Any] = {}
-    removed: list[signal.Signals] = []
-
-    class FakeLoop:
-        def add_signal_handler(self, sig: signal.Signals, callback: Any) -> None:
-            callbacks[sig] = callback
-
-        def remove_signal_handler(self, sig: signal.Signals) -> bool:
-            removed.append(sig)
-            return True
-
-    shutdown = asyncio.Event()
-    remove_handlers = host._install_signal_handlers(
-        shutdown,
-        cast(asyncio.AbstractEventLoop, FakeLoop()),
-    )
-
-    callbacks[signal.SIGTERM]()
-    remove_handlers()
-
-    assert shutdown.is_set()
-    assert set(callbacks) == {signal.SIGTERM, signal.SIGINT}
-    assert removed == [signal.SIGTERM, signal.SIGINT]
-
-
 async def test_run_schedulers_logs_lifecycle_with_identity_and_plugin(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -480,56 +454,35 @@ async def test_run_schedulers_logs_construction_failure_before_any_start(
 
 
 @pytest.mark.parametrize("process_signal", [signal.SIGTERM, signal.SIGINT])
-def test_signal_handler_logs_received_signal_and_requests_shutdown(
+async def test_process_signal_stops_scheduler_service_in_order(
     caplog: pytest.LogCaptureFixture,
     process_signal: signal.Signals,
 ) -> None:
-    callbacks: dict[signal.Signals, Any] = {}
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
 
-    class FakeLoop:
-        def add_signal_handler(self, sig: signal.Signals, callback: Any) -> None:
-            callbacks[sig] = callback
+    class WaitingScheduler:
+        async def run(self) -> None:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
 
-        def remove_signal_handler(self, sig: signal.Signals) -> bool:
-            return True
-
-    shutdown = asyncio.Event()
-    host._install_signal_handlers(shutdown, cast(asyncio.AbstractEventLoop, FakeLoop()))
+    registrations = (registration("fixture.waiting", WaitingScheduler),)
 
     with caplog.at_level(logging.INFO, logger=host.logger.name):
-        callbacks[process_signal]()
+        task = asyncio.create_task(host.run_scheduler_service(registrations))
+        await asyncio.wait_for(started.wait(), timeout=1)
+        signal.raise_signal(process_signal)
+        await asyncio.wait_for(task, timeout=1)
 
-    assert shutdown.is_set()
-    assert host_messages(caplog) == [
-        (logging.INFO, f"Received signal {process_signal.name}, stopping workflow schedulers")
-    ]
-
-
-@pytest.mark.parametrize("error", [RuntimeError, NotImplementedError])
-def test_signal_handler_install_failure_removes_already_installed_handlers(
-    error: type[Exception],
-) -> None:
-    installed: list[signal.Signals] = []
-    removed: list[signal.Signals] = []
-
-    class FakeLoop:
-        def add_signal_handler(self, sig: signal.Signals, callback: Any) -> None:
-            if sig == signal.SIGINT:
-                raise error("cannot install handler")
-            installed.append(sig)
-
-        def remove_signal_handler(self, sig: signal.Signals) -> bool:
-            removed.append(sig)
-            return True
-
-    with pytest.raises(error, match="cannot install handler"):
-        host._install_signal_handlers(
-            asyncio.Event(),
-            cast(asyncio.AbstractEventLoop, FakeLoop()),
-        )
-
-    assert installed == [signal.SIGTERM]
-    assert removed == [signal.SIGTERM]
+    assert cancelled.is_set()
+    assert (
+        logging.INFO,
+        f"Received signal {process_signal.name}, stopping workflow schedulers",
+    ) in host_messages(caplog)
 
 
 @pytest.mark.parametrize("scheduler_error", [None, RuntimeError("scheduler failed")])
@@ -537,16 +490,10 @@ async def test_run_scheduler_service_removes_signal_handlers_on_exit(
     monkeypatch: pytest.MonkeyPatch,
     scheduler_error: Exception | None,
 ) -> None:
-    cleanup_calls: list[None] = []
-
-    def install_signal_handlers(shutdown: asyncio.Event) -> Any:
-        return lambda: cleanup_calls.append(None)
-
     async def run_schedulers(registrations: Any, shutdown: asyncio.Event) -> None:
         if scheduler_error is not None:
             raise scheduler_error
 
-    monkeypatch.setattr(host, "_install_signal_handlers", install_signal_handlers)
     monkeypatch.setattr(host, "run_schedulers", run_schedulers)
 
     if scheduler_error is None:
@@ -555,7 +502,9 @@ async def test_run_scheduler_service_removes_signal_handlers_on_exit(
         with pytest.raises(RuntimeError, match="scheduler failed"):
             await host.run_scheduler_service(())
 
-    assert cleanup_calls == [None]
+    loop = asyncio.get_running_loop()
+    assert not loop.remove_signal_handler(signal.SIGTERM)
+    assert not loop.remove_signal_handler(signal.SIGINT)
 
 
 async def test_scheduler_that_swallows_cancellation_during_shutdown_stops_cleanly(

@@ -15,6 +15,7 @@
 
 import json
 import re
+from dataclasses import asdict
 from importlib import metadata
 from typing import Any, NoReturn
 
@@ -147,9 +148,11 @@ class TestFingerprint:
 
 class TestSerializedManifest:
     def test_it_round_trips_through_json_with_only_the_public_fields(self) -> None:
-        serialized = registry_manifest(WorkflowRegistry.build()).to_dict()
+        manifest = registry_manifest(WorkflowRegistry.build())
 
-        assert json.loads(json.dumps(serialized)) == serialized
+        serialized = json.loads(json.dumps(asdict(manifest)))
+
+        assert serialized["fingerprint"] == manifest.fingerprint
         assert set(serialized) == {
             "plugins",
             "workflows",
@@ -160,7 +163,7 @@ class TestSerializedManifest:
 
     def test_it_names_no_python_module(self) -> None:
         """Class paths are process-local; the Temporal names are the compatibility contract."""
-        serialized = json.dumps(registry_manifest(WorkflowRegistry.build()).to_dict())
+        serialized = json.dumps(asdict(registry_manifest(WorkflowRegistry.build())))
 
         assert "nv_config_manager_workflows." not in serialized
 
@@ -176,7 +179,7 @@ class TestSerializedManifest:
         )
 
         serialized = json.dumps(
-            registry_manifest(WorkflowRegistry.build(installed(descriptor))).to_dict()
+            asdict(registry_manifest(WorkflowRegistry.build(installed(descriptor))))
         )
 
         assert sentinel not in serialized
@@ -191,7 +194,8 @@ class TestManifestCommand:
         main()
 
         printed = json.loads(capsys.readouterr().out)
-        assert printed == registry_manifest(WorkflowRegistry.build()).to_dict()
+        expected = asdict(registry_manifest(WorkflowRegistry.build()))
+        assert printed == json.loads(json.dumps(expected))
 
     def test_a_failed_registry_build_exits_nonzero_and_prints_no_manifest(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

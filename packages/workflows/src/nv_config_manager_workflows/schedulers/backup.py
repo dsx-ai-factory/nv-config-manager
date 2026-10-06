@@ -35,7 +35,6 @@ from temporalio.common import (
 
 from nv_config_manager_workflows.scheduler_identity import BACKUP_SCHEDULE_PREFIX
 from nv_config_manager_workflows.schedulers.runtime import (
-    TemporalScheduleClient,
     get_builtin_scheduler_runtime,
     get_scheduler_runtime,
 )
@@ -75,7 +74,7 @@ class BackupScheduler:
         """Retrieve the set of desired scheduled devices."""
         return await get_builtin_scheduler_runtime().desired_backup_devices()
 
-    async def scheduled_devices(self, temporal_client: TemporalScheduleClient) -> set[str]:
+    async def scheduled_devices(self, temporal_client: Client) -> set[str]:
         """Retrieve the set of currently scheduled devices."""
         devices = set()
         async for schedule in await temporal_client.list_schedules():
@@ -88,7 +87,7 @@ class BackupScheduler:
     async def schedule_device(
         self,
         device_uuid: str,
-        temporal_client: TemporalScheduleClient,
+        temporal_client: Client,
     ) -> None:
         """Create the unchanged scheduled Backup workflow action for one device."""
         self.logger.info("Scheduling backups for %s", device_uuid)
@@ -147,7 +146,7 @@ class BackupScheduler:
     async def unschedule_device(
         self,
         device_uuid: str,
-        temporal_client: TemporalScheduleClient,
+        temporal_client: Client,
     ) -> None:
         """Delete the scheduler-owned backup schedule for one device."""
         self.logger.info("Removing backup schedule for %s", device_uuid)

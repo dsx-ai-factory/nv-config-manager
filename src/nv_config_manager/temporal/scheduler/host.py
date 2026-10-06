@@ -15,10 +15,9 @@
 """Selection, supervision, and signal handling for workflow schedulers."""
 
 import asyncio
-import functools
 import os
 import signal
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager_workflows.registration import (
@@ -183,40 +182,18 @@ def _request_shutdown(shutdown: asyncio.Event, process_signal: signal.Signals) -
     shutdown.set()
 
 
-def _install_signal_handlers(
-    shutdown: asyncio.Event,
-    loop: asyncio.AbstractEventLoop | None = None,
-) -> Callable[[], None]:
-    """Install process shutdown handlers and return their cleanup callback."""
-    event_loop = asyncio.get_running_loop() if loop is None else loop
-    installed: list[signal.Signals] = []
-    try:
-        for process_signal in (signal.SIGTERM, signal.SIGINT):
-            event_loop.add_signal_handler(
-                process_signal,
-                functools.partial(_request_shutdown, shutdown, process_signal),
-            )
-            installed.append(process_signal)
-    except BaseException:
-        for installed_signal in installed:
-            event_loop.remove_signal_handler(installed_signal)
-        raise
-
-    def remove_signal_handlers() -> None:
-        for installed_signal in installed:
-            event_loop.remove_signal_handler(installed_signal)
-
-    return remove_signal_handlers
-
-
 async def run_scheduler_service(registrations: Sequence[SchedulerRegistration]) -> None:
     """Run discovered schedulers until they fail or process shutdown is requested."""
     shutdown = asyncio.Event()
-    remove_signal_handlers = _install_signal_handlers(shutdown)
+    loop = asyncio.get_running_loop()
+    process_signals = (signal.SIGTERM, signal.SIGINT)
+    for process_signal in process_signals:
+        loop.add_signal_handler(process_signal, _request_shutdown, shutdown, process_signal)
     try:
         await run_schedulers(registrations, shutdown)
     finally:
-        remove_signal_handlers()
+        for process_signal in process_signals:
+            loop.remove_signal_handler(process_signal)
 
 
 __all__ = [

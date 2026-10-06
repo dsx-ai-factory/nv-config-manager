@@ -23,7 +23,6 @@ from nv_config_manager_workflows.schedulers.runtime import (
     BuiltinSchedulerRuntime,
     BuiltinSchedulerRuntimeNotConfiguredError,
     SchedulerRuntime,
-    SchedulerRuntimeError,
     SchedulerRuntimeNotConfiguredError,
     SchedulerWorkflowRoles,
     configure_builtin_scheduler_runtime,
@@ -65,12 +64,6 @@ def test_backup_runtime_requires_explicit_startup_configuration() -> None:
         match="configure_builtin_scheduler_runtime",
     ):
         get_builtin_scheduler_runtime()
-
-
-def test_not_configured_errors_share_the_scheduler_runtime_base() -> None:
-    assert issubclass(SchedulerRuntimeError, RuntimeError)
-    assert issubclass(SchedulerRuntimeNotConfiguredError, SchedulerRuntimeError)
-    assert issubclass(BuiltinSchedulerRuntimeNotConfiguredError, SchedulerRuntimeError)
 
 
 def test_runtimes_are_configured_independently() -> None:

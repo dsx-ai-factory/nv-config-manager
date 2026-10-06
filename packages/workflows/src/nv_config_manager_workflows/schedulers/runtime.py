@@ -16,42 +16,11 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Final, Protocol
+from typing import Final
 
-from temporalio.client import Client, Schedule
-
-
-class TemporalScheduleListEntry(Protocol):
-    """One schedule returned by the Temporal list operation."""
-
-    id: str
-
-
-class TemporalScheduleHandle(Protocol):
-    """Deletion capability used by schedule reconciliation."""
-
-    async def delete(self) -> None:
-        """Delete the referenced schedule."""
-        ...
-
-
-class TemporalScheduleClient(Protocol):
-    """Narrow Temporal client surface required by the backup scheduler."""
-
-    async def list_schedules(self) -> AsyncIterator[TemporalScheduleListEntry]:
-        """Return an asynchronous iterator over known schedules."""
-        ...
-
-    # Positional-only so temporalio's Client, which names the parameter ``id``, matches.
-    async def create_schedule(self, schedule_id: str, schedule: Schedule, /) -> object:
-        """Create a schedule with the supplied stable identifier."""
-        ...
-
-    def get_schedule_handle(self, schedule_id: str, /) -> TemporalScheduleHandle:
-        """Return a handle for an existing schedule."""
-        ...
+from temporalio.client import Client
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,15 +61,11 @@ class BuiltinSchedulerRuntime:
     desired_backup_devices: DesiredBackupDevicesProvider
 
 
-class SchedulerRuntimeError(RuntimeError):
-    """Base error for unavailable scheduler runtime capabilities."""
-
-
-class SchedulerRuntimeNotConfiguredError(SchedulerRuntimeError):
+class SchedulerRuntimeNotConfiguredError(RuntimeError):
     """Raised when startup did not configure the shared scheduler runtime."""
 
 
-class BuiltinSchedulerRuntimeNotConfiguredError(SchedulerRuntimeError):
+class BuiltinSchedulerRuntimeNotConfiguredError(RuntimeError):
     """Raised when startup did not configure the built-in scheduler runtime."""
 
 
@@ -152,14 +117,10 @@ __all__ = [
     "BuiltinSchedulerRuntimeNotConfiguredError",
     "DesiredBackupDevicesProvider",
     "SchedulerRuntime",
-    "SchedulerRuntimeError",
     "SchedulerRuntimeNotConfiguredError",
     "SchedulerWorkflowRoles",
     "SleepProvider",
     "TemporalClientProvider",
-    "TemporalScheduleClient",
-    "TemporalScheduleHandle",
-    "TemporalScheduleListEntry",
     "WorkflowRolesProvider",
     "configure_builtin_scheduler_runtime",
     "configure_scheduler_runtime",
