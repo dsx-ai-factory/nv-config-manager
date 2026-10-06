@@ -14,6 +14,7 @@
 # limitations under the License.
 """V1 Device API Endpoints."""
 
+import aiohttp
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
@@ -24,6 +25,11 @@ from nv_config_manager.common.config import get_storage_client, temporal_client
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMNotFoundError, dcim_client_session
 from nv_config_manager.ztp.api.schemas import ChecksumResponse
+from nv_config_manager.ztp.api.storage_clients import (
+    StorageUnavailableError,
+    get_object_storage_client,
+    guarded_storage,
+)
 from nv_config_manager.ztp.api.streaming import create_object_storage_streaming_response
 from nv_config_manager.ztp.device import DeviceData
 from nv_config_manager.ztp.storage import ObjectStorageNotFoundException
@@ -31,6 +37,18 @@ from nv_config_manager.ztp.storage import ObjectStorageNotFoundException
 logger = get_logger(__name__, category=LogCategory.ZTP_API)
 
 router = APIRouter(prefix="/device", tags=["device"], responses={404: {"description": "Not found"}})
+
+# Statuses the Config Store client itself retries. One that still surfaces is a
+# transient backend failure and should shed as 503. A 4xx stays a 500.
+_CONFIG_STORE_RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
+
+
+def _config_store_error_is_transient(exc: ConfigStoreException) -> bool:
+    """Return whether a Config Store failure is a transient backend blip."""
+    cause = exc.__cause__
+    if isinstance(cause, aiohttp.ClientResponseError):
+        return cause.status in _CONFIG_STORE_RETRYABLE_STATUSES
+    return isinstance(cause, aiohttp.ClientError)
 
 
 async def _get_device_data(device_uuid: str) -> DeviceData:
@@ -114,6 +132,8 @@ async def load_configuration(
     except (DCIMNotFoundError, ConfigStoreFileNotFound) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ConfigStoreException as exc:
+        if _config_store_error_is_transient(exc):
+            raise StorageUnavailableError(str(exc)) from exc
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -150,17 +170,17 @@ async def load_firmware_checksum(device_uuid: str, request: Request) -> Checksum
     """Load the firmware checksum for the given device."""
     try:
         device_data = await _authorized_device_data(request, device_uuid)
-        if device_data.platform is None or device_data.version is None:
+        version = device_data.version
+        if device_data.platform is None or version is None:
             raise HTTPException(status_code=404, detail="Device firware data not found")
     except DCIMNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    storage_client = get_storage_client()
+    storage_client = await get_object_storage_client()
     try:
-        async with storage_client:
-            checksum = await storage_client.get_firmware_checksum(
-                device_data.platform, device_data.version
-            )
+        checksum = await guarded_storage(
+            lambda: storage_client.get_firmware_checksum(device_data.platform, version)
+        )
         return ChecksumResponse(checksum=checksum)
     except ObjectStorageNotFoundException as exc:
         raise HTTPException(status_code=404, detail="Firmware image not found in S3.") from exc

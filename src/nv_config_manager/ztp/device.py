@@ -24,6 +24,7 @@ from nv_config_manager.common.client import (
 )
 from nv_config_manager.common.config import get_internal_auth_headers, load_config
 from nv_config_manager.dcim.models import ZTPDevice
+from nv_config_manager.ztp.api.storage_clients import get_config_store_client, guarded_storage
 
 
 @dataclass
@@ -95,9 +96,11 @@ class DeviceData:  # pylint: disable=too-many-instance-attributes
         if self.config_store_instance is None:
             raise ConfigStoreFileNotFound(f"No config store file found for device {self.name}")
 
-        client = self.config_store_client()
-        async with client:
-            config_file = await client.load_file(self.id, filename)
+        # Shared client: a fresh Config Store client builds a new connector and
+        # TLS context on every call, and its context manager closes that pool
+        # when the call returns.
+        client = get_config_store_client(self)
+        config_file = await guarded_storage(lambda: client.load_file(self.id, filename))
         return config_file.content
 
     @classmethod

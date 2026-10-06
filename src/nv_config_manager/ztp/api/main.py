@@ -17,9 +17,12 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import PlainTextResponse
 from prometheus_fastapi_instrumentator import Instrumentator, metrics
 
 from nv_config_manager.common.auth import install_identity_probe
@@ -31,6 +34,11 @@ from nv_config_manager.common.telemetry import (
 )
 from nv_config_manager.ztp.api import device_v1, files_v1, firmware_v1
 from nv_config_manager.ztp.api.metrics import device_http_requests
+from nv_config_manager.ztp.api.storage_clients import (
+    StorageUnavailableError,
+    close_storage_clients,
+    warm_storage_clients,
+)
 
 configure_logging(service="ztp")
 setup_tracing("ztp")
@@ -58,8 +66,31 @@ def main() -> None:
     )
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Pre-connect the shared object-storage client and close pooled clients on shutdown."""
+    await warm_storage_clients()
+    try:
+        yield
+    finally:
+        await close_storage_clients()
+
+
+app = FastAPI(lifespan=lifespan)
 instrument_fastapi_app(app)
+
+
+@app.exception_handler(StorageUnavailableError)
+async def _storage_unavailable_handler(
+    _request: Request, exc: StorageUnavailableError
+) -> PlainTextResponse:
+    """Surface storage and Config Store backpressure as a retryable 503."""
+    return PlainTextResponse(
+        str(exc) or "Storage temporarily unavailable.",
+        status_code=503,
+        headers={"Retry-After": "5"},
+    )
+
 
 # Include routers
 app.include_router(device_v1.router, prefix="/v1")
