@@ -22,6 +22,7 @@ import os
 import signal
 import ssl
 from asyncio import AbstractEventLoop
+from datetime import datetime
 
 import nats
 import nats.errors
@@ -35,6 +36,7 @@ from prometheus_client import Gauge, start_http_server
 from nv_config_manager.common.config import (
     DEFAULT_NATS_API_PREFIX,
     NATSConnectionManager,
+    ensure_local_streams,
     load_config,
     nats_config_manager_api_prefix,
     nats_connection,
@@ -59,6 +61,9 @@ from nv_config_manager.render.exceptions import RenderException
 from nv_config_manager.render.lock import create_lock
 
 configure_logging(service="render")
+
+# JetStream error code for "stream not found".
+STREAM_NOT_FOUND_ERR_CODE = 10059
 
 CONSUMER_METRIC_LABELS = ["consumer_name", "stream_name", "namespace"]
 CONSUMER_PENDING = Gauge(
@@ -111,6 +116,8 @@ class PullConsumer:
         self.stream = stream
         self.subject = subject
         self.api_prefix = api_prefix
+        self.local_nats = nats_config.getboolean("local", fallback=False)
+        self._consumed_stream_created: datetime | None = None
         self.dispatcher = EventDispatcher()
         self.running = False
         self.namespace = os.getenv("NV_CONFIG_MANAGER_K8S_NAMESPACE", "unknown")
@@ -265,11 +272,33 @@ class PullConsumer:
                     self.logger.warning(
                         "Consumer %s cycle failed, recreating: %s", self.queue, str(e)
                     )
+                    if isinstance(e, NotFoundError) and e.err_code == STREAM_NOT_FOUND_ERR_CODE:
+                        await self._recreate_missing_stream()
                     await asyncio.sleep(self.error_backoff)
         finally:
             self.running = False
             metrics_task.cancel()
             await asyncio.gather(metrics_task, return_exceptions=True)
+
+    async def _recreate_missing_stream(self) -> None:
+        """Re-create this consumer's stream on bundled NATS after it was lost.
+
+        Bundled NATS can come back without its JetStream state, and the
+        connection reconnects without re-running startup stream setup.
+        """
+        if self.nats_conn is None:
+            return
+        try:
+            created = await ensure_local_streams(self.nats_conn, streams=[self.stream])
+        except Exception as e:
+            self.logger.error("Could not re-create missing stream %s: %s", self.stream, str(e))
+            return
+        if created:
+            self.logger.warning(
+                "Stream %s was missing on bundled NATS and has been re-created. "
+                "Messages published while it was missing were not stored.",
+                self.stream,
+            )
 
     def _record_consumer_metrics(self, consumer_info: ConsumerInfo) -> None:
         """Record the current state of this process's fixed durable consumer."""
@@ -377,19 +406,13 @@ class PullConsumer:
         if self.jetstream is None:
             raise RuntimeError("JetStream context is None")
 
+        stream_created = await self._local_stream_created()
         try:
             self._last_permission_error = None
             existing = await self.jetstream.consumer_info(self.stream, self.queue)
             self.logger.info("Consumer %s already exists", self.queue)
         except NotFoundError:
-            config = ConsumerConfig(
-                deliver_policy=DeliverPolicy.NEW,
-                ack_policy=AckPolicy.EXPLICIT,
-                ack_wait=CONSUMER_ACK_WAIT_SECONDS,
-                durable_name=self.queue,
-                filter_subject=self.subject,
-                max_deliver=CONSUMER_MAX_DELIVER,
-            )
+            config = self._consumer_config(self._missing_durable_deliver_policy(stream_created))
             try:
                 self._last_permission_error = None
                 await self.jetstream.add_consumer(
@@ -427,6 +450,36 @@ class PullConsumer:
                     "; ".join(mismatches),
                     update_consumer_request(self.stream, self.queue, self.subject),
                 )
+        self._consumed_stream_created = stream_created
+
+    async def _local_stream_created(self) -> datetime | None:
+        """Return when the bundled stream was created, or None when NATS is not local."""
+        if not self.local_nats or self.jetstream is None:
+            return None
+        return (await self.jetstream.stream_info(self.stream)).created
+
+    def _missing_durable_deliver_policy(self, stream_created: datetime | None) -> DeliverPolicy:
+        """Choose where a missing durable starts in the stream."""
+        # A durable is deleted with its stream. Everything in a stream re-created since this
+        # process last consumed was published after the loss, possibly before any durable
+        # existed, whichever process re-created it.
+        if stream_created is not None and self._consumed_stream_created not in (
+            None,
+            stream_created,
+        ):
+            return DeliverPolicy.ALL
+        return DeliverPolicy.NEW
+
+    def _consumer_config(self, deliver_policy: DeliverPolicy) -> ConsumerConfig:
+        """Build this process's fixed durable configuration."""
+        return ConsumerConfig(
+            deliver_policy=deliver_policy,
+            ack_policy=AckPolicy.EXPLICIT,
+            ack_wait=CONSUMER_ACK_WAIT_SECONDS,
+            durable_name=self.queue,
+            filter_subject=self.subject,
+            max_deliver=CONSUMER_MAX_DELIVER,
+        )
 
     def _consumer_configuration_mismatches(self, existing: ConsumerInfo) -> list[str]:
         """Return behavior-affecting differences from the runtime's consumer settings."""
