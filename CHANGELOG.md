@@ -16,6 +16,12 @@ version before the selected release candidate is promoted.
   nothing re-ran stream setup. Runtime-created streams now use the configured
   names, subjects, and the same limits as nats-ready.
 - nats-ready no longer logs NATS passwords or token-only credentials in the server address.
+- Nautobot upgrades no longer wipe nv-config-manager's Redis data. The Nautobot
+  Django cache shared Redis database 0 with nv-config-manager, and
+  `nautobot-server post_upgrade` clears that cache with `FLUSHDB`. Every
+  Nautobot web pod runs it on start, so each deploy deleted the published KEA
+  DHCP config several times, and DHCP sidecars waited up to one refresh
+  interval for it to come back. The Nautobot cache now uses database 2.
 
 ## 1.3.1
 

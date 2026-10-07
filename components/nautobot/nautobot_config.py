@@ -67,10 +67,14 @@ if _LOGOUT_REDIRECT_MW not in MIDDLEWARE:  # noqa: F405
 #########################
 
 # The django-redis cache is used to establish concurrent locks using Redis.
+# It must not share a database with nv-config-manager (database 0 by default):
+# `nautobot-server post_upgrade` clears this cache, and django-redis implements
+# clear() as FLUSHDB, which would also wipe the KEA DHCP config and other
+# nv-config-manager keys.
 CACHES = {
     "default": {
         "BACKEND": "django_prometheus.cache.backends.redis.RedisCache",
-        "LOCATION": parse_redis_connection(redis_database=0),
+        "LOCATION": parse_redis_connection(redis_database=2),
         "TIMEOUT": 300,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
