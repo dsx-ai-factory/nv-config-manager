@@ -23,10 +23,10 @@ from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from nv_config_manager.temporal.common.activities import REGISTERED_COMMON_ACTIVITIES
 from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_manager_workflow
 from nv_config_manager.temporal.common.lock import WorkflowLockSpec
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.activities.lock import LOCK_ACTIVITIES
 
 
 class _ProbeInput(BaseModel):
@@ -59,7 +59,7 @@ async def _run_probe(env_factory, probe_input: _ProbeInput) -> str:
             env.client,
             task_queue=task_queue,
             workflows=[_LockedProbeWorkflow],
-            activities=REGISTERED_COMMON_ACTIVITIES,
+            activities=LOCK_ACTIVITIES,
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             return await env.client.execute_workflow(

@@ -1859,10 +1859,24 @@ temporal:
   # matchLabels:
   # app.kubernetes.io/component: nv-config-manager-worker
 
-  # Scheduler (for automatic backup scheduling; currently available only with
-  # the built-in Nautobot provider)
+  # Scheduler (for automatic backup scheduling and plugin-contributed schedulers).
+  # By default only the built-in backup scheduler is enabled, and it is deployed
+  # only with the built-in Nautobot provider (see requiresDcimProvider below).
+  # The Deployment renders only when at least one scheduler is selected.
   scheduler:
     enabled: true
+    # Scheduler identity -> settings (see docs/temporal/temporal-deployment.mdx).
+    #   enabled: true or false (required)
+    #   requiresDcimProvider: deploy only when dcim.provider matches; null means
+    #     any provider (use enabled: false to turn a scheduler off)
+    # Escape the dots in an identity with --set, for example:
+    #   --set 'temporal.scheduler.schedulers.builtin\.backup.enabled=false'
+    schedulers:
+      # Built-in device backup scheduling. Deployed only when dcim.provider matches
+      # requiresDcimProvider; set it to another provider name to run it there.
+      builtin.backup:
+        enabled: true
+        requiresDcimProvider: nautobot-2x
     resources:
       requests:
         cpu: 200m
