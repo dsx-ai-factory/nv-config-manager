@@ -18,7 +18,6 @@ from nv_config_manager.common.log import LogCategory, escape_log_newlines, get_l
 from nv_config_manager_workflows.registration import (
     BUILTIN_PLUGIN_NAME,
     WORKFLOW_PLUGIN_ENTRY_POINT_GROUP,
-    RegistryManifest,
     WorkflowPluginDiscoveryError,
     WorkflowRegistry,
     registry_manifest,
@@ -48,8 +47,8 @@ def build_workflow_registry() -> WorkflowRegistry:
     return registry
 
 
-def log_workflow_registry(registry: WorkflowRegistry) -> RegistryManifest:
-    """Log one record per plugin and one manifest summary, and return the manifest.
+def log_workflow_registry(registry: WorkflowRegistry) -> None:
+    """Log one record per plugin and one manifest summary.
 
     Records carry only plugin names, versions, contribution counts, scheduler
     identities, and the manifest fingerprint: never descriptor metadata,
@@ -100,4 +99,3 @@ def log_workflow_registry(registry: WorkflowRegistry) -> RegistryManifest:
             "scheduler_identities": list(manifest.schedulers),
         },
     )
-    return manifest

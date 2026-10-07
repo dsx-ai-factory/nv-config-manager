@@ -35,7 +35,6 @@ from nv_config_manager_workflows.registration.contract import (
     workflow_class_name,
     workflow_cli_name,
     workflow_declared_name,
-    workflow_has_complete_metadata,
     workflow_has_definition,
     workflow_is_dynamic,
     workflow_mcp_enabled,
@@ -206,13 +205,13 @@ def _require_scheduler_contracts(schedulers: list[_OwnedScheduler]) -> None:
     identities: dict[str, _OwnedScheduler] = {}
     for owned in schedulers:
         identity = _require_scheduler_identity(owned)
-        label = _scheduler_label(owned)
         if previous := identities.get(identity):
             raise WorkflowSchedulerDuplicateIdentityError(
                 f'Duplicate scheduler identity "{identity}" declared by '
-                f"{_scheduler_label(previous)} and {label}"
+                f"{_label(previous, 'Scheduler')} and {_label(owned, 'Scheduler')}"
             )
         identities[identity] = owned
+        label = f'{_label(owned, "Scheduler")} with identity "{identity}"'
 
         if inspect.isabstract(owned.item):
             raise WorkflowSchedulerAbstractError(f"{label} is abstract and cannot be constructed")
@@ -282,15 +281,6 @@ def _require_scheduler_identity(owned: _OwnedScheduler) -> str:
             f'plugin name: "{owned.plugin}.<name>"'
         )
     return identity
-
-
-def _scheduler_label(owned: _OwnedScheduler) -> str:
-    """Describe a scheduler with its plugin and stable identity when available."""
-    label = _label(owned, "Scheduler")
-    identity = inspect.getattr_static(owned.item, "scheduler_identity", None)
-    if isinstance(identity, str):
-        return f'{label} with identity "{identity}"'
-    return label
 
 
 def _dynamic_rejection[ItemT](owned: _Owned[ItemT], kind: str, decorator: str) -> str:
@@ -374,13 +364,14 @@ def _require_metadata_for_exposed_surfaces(
     if mcp_enabled and not api_enabled:
         raise WorkflowRegistrationError(f"{label} enables MCP but does not enable API")
 
-    if workflow_has_complete_metadata(workflow):
+    missing = missing_metadata_attributes(workflow)
+    if not missing:
         return
 
-    missing = ", ".join(missing_metadata_attributes(workflow)) or "required metadata"
+    names = ", ".join(missing)
     if mcp_enabled:
-        raise WorkflowRegistrationError(f"{label} enables MCP but is missing {missing}")
-    raise WorkflowRegistrationError(f"{label} enables API but is missing {missing}")
+        raise WorkflowRegistrationError(f"{label} enables MCP but is missing {names}")
+    raise WorkflowRegistrationError(f"{label} enables API but is missing {names}")
 
 
 def _require_cli_name(workflow: type[WorkflowMetadataMixin], label: str) -> None:

@@ -28,7 +28,6 @@ from nv_config_manager_workflows.registration.scheduler import WorkflowScheduler
 from nv_config_manager_workflows.schedulers.backup import BackupScheduler
 
 ENABLED_SCHEDULERS_ENV = "NVCM_ENABLED_SCHEDULERS"
-BUILTIN_BACKUP_SCHEDULER_IDENTITY = BackupScheduler.scheduler_identity
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_WORKFLOW)
 
@@ -55,7 +54,7 @@ def configured_scheduler_identities() -> tuple[str, ...]:
     """
     configured = os.environ.get(ENABLED_SCHEDULERS_ENV)
     if configured is None:
-        return (BUILTIN_BACKUP_SCHEDULER_IDENTITY,)
+        return (BackupScheduler.scheduler_identity,)
 
     identities = tuple(identity.strip() for identity in configured.split(",") if identity.strip())
     if len(set(identities)) != len(identities):
@@ -70,7 +69,7 @@ def select_scheduler_registrations(
     enabled_identities: Sequence[str],
 ) -> tuple[SchedulerRegistration, ...]:
     """Select known schedulers in deterministic registry order."""
-    registrations = tuple(registry.scheduler_registrations)
+    registrations = registry.scheduler_registrations
     available_identities = {registration.identity for registration in registrations}
     unknown_identities = sorted(set(enabled_identities) - available_identities)
     if unknown_identities:
@@ -197,7 +196,6 @@ async def run_scheduler_service(registrations: Sequence[SchedulerRegistration]) 
 
 
 __all__ = [
-    "BUILTIN_BACKUP_SCHEDULER_IDENTITY",
     "ENABLED_SCHEDULERS_ENV",
     "SchedulerHostError",
     "configured_scheduler_identities",

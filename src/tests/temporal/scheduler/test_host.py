@@ -23,9 +23,7 @@ from nv_config_manager.common.log import LogCategory
 from nv_config_manager.temporal.scheduler import host
 from nv_config_manager_workflows.registration.registry import WorkflowRegistry
 from nv_config_manager_workflows.schedulers import runtime as scheduler_runtime
-from nv_config_manager_workflows.schedulers.backup import (
-    BackupScheduler as CanonicalBackupScheduler,
-)
+from nv_config_manager_workflows.schedulers.backup import BackupScheduler
 from tests.temporal.scheduler.helpers import (
     SECRET_SENTINEL,
     assert_sentinel_absent,
@@ -33,15 +31,6 @@ from tests.temporal.scheduler.helpers import (
     registration,
     secret_scheduler_runtime,
 )
-
-
-def test_builtin_backup_identity_is_derived_from_the_canonical_scheduler() -> None:
-    """The host default stays in lockstep with the scheduler's stable identity."""
-    assert (
-        host.BUILTIN_BACKUP_SCHEDULER_IDENTITY
-        == CanonicalBackupScheduler.scheduler_identity
-        == "builtin.backup"
-    )
 
 
 @pytest.mark.usefixtures("non_nautobot_config", "dcim_provider_must_not_be_consulted")
@@ -56,15 +45,15 @@ def test_absent_scheduler_selection_enables_builtin_backup_for_any_provider(
     """
     monkeypatch.delenv(host.ENABLED_SCHEDULERS_ENV, raising=False)
     backup_registration = registration(
-        host.BUILTIN_BACKUP_SCHEDULER_IDENTITY,
-        CanonicalBackupScheduler,
+        BackupScheduler.scheduler_identity,
+        BackupScheduler,
         plugin="builtin",
     )
     registry = WorkflowRegistry(scheduler_registrations=(backup_registration,))
 
     enabled = host.configured_scheduler_identities()
 
-    assert enabled == (host.BUILTIN_BACKUP_SCHEDULER_IDENTITY,)
+    assert enabled == (BackupScheduler.scheduler_identity,)
     assert host.select_scheduler_registrations(registry, enabled) == (backup_registration,)
 
 
@@ -125,8 +114,8 @@ def test_explicit_builtin_backup_selection_is_kept_for_any_provider(
         async def run(self) -> None: ...
 
     backup_registration = registration(
-        host.BUILTIN_BACKUP_SCHEDULER_IDENTITY,
-        CanonicalBackupScheduler,
+        BackupScheduler.scheduler_identity,
+        BackupScheduler,
         plugin="builtin",
     )
     fixture_registration = registration("fixture.cleanup", FixtureScheduler)
@@ -137,7 +126,7 @@ def test_explicit_builtin_backup_selection_is_kept_for_any_provider(
     with caplog.at_level(logging.DEBUG, logger=host.logger.name):
         selected = host.select_scheduler_registrations(
             registry,
-            ("fixture.cleanup", host.BUILTIN_BACKUP_SCHEDULER_IDENTITY),
+            ("fixture.cleanup", BackupScheduler.scheduler_identity),
         )
 
     assert selected == (backup_registration, fixture_registration)
@@ -183,7 +172,10 @@ async def test_run_schedulers_runs_every_registered_scheduler_concurrently() -> 
 
 
 @pytest.mark.asyncio
-async def test_run_schedulers_cancels_siblings_and_propagates_failure() -> None:
+async def test_run_schedulers_cancels_siblings_and_propagates_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A scheduler failure cancels its siblings and is logged once, by exception type."""
     sibling_started = asyncio.Event()
     sibling_cancelled = asyncio.Event()
 
@@ -201,18 +193,27 @@ async def test_run_schedulers_cancels_siblings_and_propagates_failure() -> None:
                 sibling_cancelled.set()
 
     registrations = (
-        registration("fixture.failing", FailingScheduler),
-        registration("fixture.sibling", SiblingScheduler),
+        registration("fixture.failing", FailingScheduler, plugin="failing-plugin"),
+        registration("fixture.sibling", SiblingScheduler, plugin="sibling-plugin"),
     )
 
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await host.run_schedulers(registrations)
+    with caplog.at_level(logging.INFO, logger=host.logger.name):
+        with pytest.raises(ExceptionGroup) as exc_info:
+            await host.run_schedulers(registrations)
 
     assert any(
         isinstance(error, RuntimeError) and str(error) == "scheduler failed"
         for error in exc_info.value.exceptions
     )
     assert sibling_cancelled.is_set()
+    messages = host_messages(caplog)
+    assert [message for level, message in messages if level >= logging.ERROR] == [
+        "Workflow scheduler fixture.failing from plugin failing-plugin failed: RuntimeError"
+    ]
+    assert (
+        logging.INFO,
+        "Stopped workflow scheduler fixture.sibling from plugin sibling-plugin",
+    ) in messages
 
 
 @pytest.mark.asyncio
@@ -227,7 +228,9 @@ async def test_run_schedulers_with_no_selection_waits_for_shutdown() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_schedulers_constructs_every_scheduler_before_starting_any() -> None:
+async def test_run_schedulers_constructs_every_scheduler_before_starting_any(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     events: list[str] = []
 
     class FirstScheduler:
@@ -246,17 +249,30 @@ async def test_run_schedulers_constructs_every_scheduler_before_starting_any() -
 
     registrations = (
         registration("fixture.first", FirstScheduler),
-        registration("fixture.broken", BrokenScheduler),
+        registration("fixture.broken", BrokenScheduler, plugin="broken-plugin"),
     )
 
-    with pytest.raises(RuntimeError, match="construction failed"):
-        await host.run_schedulers(registrations)
+    with caplog.at_level(logging.INFO, logger=host.logger.name):
+        with pytest.raises(RuntimeError, match="construction failed"):
+            await host.run_schedulers(registrations)
 
     assert events == ["first-constructed", "broken-constructed"]
+    assert host_messages(caplog) == [
+        (logging.INFO, "Constructing workflow scheduler fixture.first from plugin fixture-plugin"),
+        (logging.INFO, "Constructed workflow scheduler fixture.first from plugin fixture-plugin"),
+        (logging.INFO, "Constructing workflow scheduler fixture.broken from plugin broken-plugin"),
+        (
+            logging.ERROR,
+            "Failed to construct workflow scheduler fixture.broken from plugin broken-plugin: "
+            "RuntimeError",
+        ),
+    ]
 
 
 @pytest.mark.asyncio
-async def test_run_schedulers_treats_a_normal_return_as_failure() -> None:
+async def test_run_schedulers_treats_a_normal_return_as_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     sibling_started = asyncio.Event()
     sibling_cancelled = asyncio.Event()
 
@@ -273,18 +289,22 @@ async def test_run_schedulers_treats_a_normal_return_as_failure() -> None:
                 sibling_cancelled.set()
 
     registrations = (
-        registration("fixture.returning", ReturningScheduler),
+        registration("fixture.returning", ReturningScheduler, plugin="returning-plugin"),
         registration("fixture.sibling", SiblingScheduler),
     )
 
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await host.run_schedulers(registrations)
+    with caplog.at_level(logging.INFO, logger=host.logger.name):
+        with pytest.raises(ExceptionGroup) as exc_info:
+            await host.run_schedulers(registrations)
 
     assert any(
         isinstance(error, host.SchedulerHostError) and "returned unexpectedly" in str(error)
         for error in exc_info.value.exceptions
     )
     assert sibling_cancelled.is_set()
+    assert [message for level, message in host_messages(caplog) if level >= logging.ERROR] == [
+        "Workflow scheduler fixture.returning from plugin returning-plugin returned unexpectedly"
+    ]
 
 
 @pytest.mark.asyncio
@@ -363,94 +383,6 @@ async def test_run_schedulers_logs_lifecycle_with_identity_and_plugin(
     assert {getattr(record, "category", None) for record in host_records} == {
         LogCategory.TEMPORAL_WORKFLOW
     }
-
-
-async def test_run_schedulers_logs_scheduler_failure_once(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    sibling_started = asyncio.Event()
-
-    class FailingScheduler:
-        async def run(self) -> None:
-            await sibling_started.wait()
-            raise RuntimeError("scheduler failed")
-
-    class SiblingScheduler:
-        async def run(self) -> None:
-            sibling_started.set()
-            await asyncio.Event().wait()
-
-    registrations = (
-        registration("fixture.failing", FailingScheduler, plugin="failing-plugin"),
-        registration("fixture.sibling", SiblingScheduler, plugin="sibling-plugin"),
-    )
-
-    with caplog.at_level(logging.INFO, logger=host.logger.name):
-        with pytest.raises(ExceptionGroup):
-            await host.run_schedulers(registrations)
-
-    messages = host_messages(caplog)
-    assert [message for level, message in messages if level >= logging.ERROR] == [
-        "Workflow scheduler fixture.failing from plugin failing-plugin failed: RuntimeError"
-    ]
-    assert (
-        logging.INFO,
-        "Stopped workflow scheduler fixture.sibling from plugin sibling-plugin",
-    ) in messages
-
-
-async def test_run_schedulers_logs_unexpected_normal_return(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    class ReturningScheduler:
-        async def run(self) -> None:
-            return None
-
-    registrations = (
-        registration("fixture.returning", ReturningScheduler, plugin="returning-plugin"),
-    )
-
-    with caplog.at_level(logging.INFO, logger=host.logger.name):
-        with pytest.raises(ExceptionGroup) as exc_info:
-            await host.run_schedulers(registrations)
-
-    assert exc_info.group_contains(host.SchedulerHostError, match="returned unexpectedly")
-    assert [message for level, message in host_messages(caplog) if level >= logging.ERROR] == [
-        "Workflow scheduler fixture.returning from plugin returning-plugin returned unexpectedly"
-    ]
-
-
-async def test_run_schedulers_logs_construction_failure_before_any_start(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    class FirstScheduler:
-        async def run(self) -> None: ...
-
-    class BrokenScheduler:
-        def __init__(self) -> None:
-            raise RuntimeError("construction failed")
-
-        async def run(self) -> None: ...
-
-    registrations = (
-        registration("fixture.first", FirstScheduler),
-        registration("fixture.broken", BrokenScheduler, plugin="broken-plugin"),
-    )
-
-    with caplog.at_level(logging.INFO, logger=host.logger.name):
-        with pytest.raises(RuntimeError, match="construction failed"):
-            await host.run_schedulers(registrations)
-
-    assert host_messages(caplog) == [
-        (logging.INFO, "Constructing workflow scheduler fixture.first from plugin fixture-plugin"),
-        (logging.INFO, "Constructed workflow scheduler fixture.first from plugin fixture-plugin"),
-        (logging.INFO, "Constructing workflow scheduler fixture.broken from plugin broken-plugin"),
-        (
-            logging.ERROR,
-            "Failed to construct workflow scheduler fixture.broken from plugin broken-plugin: "
-            "RuntimeError",
-        ),
-    ]
 
 
 @pytest.mark.parametrize("process_signal", [signal.SIGTERM, signal.SIGINT])
@@ -569,8 +501,8 @@ def test_scheduler_host_error_paths_are_credential_free(
 
         scheduler_runtime.configure_scheduler_runtime(secret_scheduler_runtime())
         backup_registration = registration(
-            host.BUILTIN_BACKUP_SCHEDULER_IDENTITY,
-            CanonicalBackupScheduler,
+            BackupScheduler.scheduler_identity,
+            BackupScheduler,
             plugin="builtin",
         )
         with pytest.raises(ExceptionGroup) as builtin:

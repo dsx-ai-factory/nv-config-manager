@@ -15,11 +15,13 @@
 """Temporal test configuration - INI mocking handled by top-level conftest.py."""
 
 import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+import logging
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from importlib.metadata import EntryPoint, entry_points
 from typing import Any
 
+import nv_config_manager_logging as logging_config
 import pytest
 import pytest_asyncio
 from temporalio import activity
@@ -31,6 +33,7 @@ from temporalio.api.operatorservice.v1 import (
 from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 
+from nv_config_manager.temporal import workflow_registry
 from nv_config_manager.temporal.common.search_attributes import (
     DEVICE_ID_SEARCH_ATTRIBUTE,
     DEVICE_NAME_SEARCH_ATTRIBUTE,
@@ -49,6 +52,7 @@ from nv_config_manager_workflows.activities.nats import PublishNatsInput
 from nv_config_manager_workflows.activities.slack import SlackMessageInput
 from nv_config_manager_workflows.registration import WORKFLOW_PLUGIN_ENTRY_POINT_GROUP, discovery
 from nv_config_manager_workflows.runtime import configure_lock_backend
+from nv_config_manager_workflows.schedulers.backup import BackupScheduler
 
 _SEARCH_ATTRIBUTES = {
     USER_SEARCH_ATTRIBUTE: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
@@ -198,6 +202,34 @@ def fixture_plugin_installed(monkeypatch: pytest.MonkeyPatch) -> None:
             (*installed, fixture_entry_point) if group == WORKFLOW_PLUGIN_ENTRY_POINT_GROUP else ()
         ),
     )
+
+
+@pytest.fixture
+def restore_logging_configuration() -> Iterator[None]:
+    """Restore process-wide logging state changed by a real configure_logging() call.
+
+    configure_logging() also removes the fallback handlers that import-time
+    loggers carry, so restore those of the workflow registry and the built-in
+    backup scheduler as well.
+    """
+    original_factory = logging.getLogRecordFactory()
+    original_configured = logging_config._logging_configured
+    original_handlers = logging.root.handlers[:]
+    original_level = logging.root.level
+    original_labels = logging_config._custom_labels
+    import_time_loggers = [
+        (logger, logger.handlers[:], logger.level)
+        for logger in (workflow_registry.logger.logger, BackupScheduler.logger.logger)
+    ]
+    yield
+    logging.setLogRecordFactory(original_factory)
+    logging_config._logging_configured = original_configured
+    logging.root.handlers[:] = original_handlers
+    logging.root.setLevel(original_level)
+    logging_config._custom_labels = original_labels
+    for logger, handlers, level in import_time_loggers:
+        logger.handlers[:] = handlers
+        logger.setLevel(level)
 
 
 @pytest_asyncio.fixture(scope="session")

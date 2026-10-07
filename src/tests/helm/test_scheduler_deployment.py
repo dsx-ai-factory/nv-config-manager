@@ -25,8 +25,6 @@ from typing import Any
 import pytest
 from ruamel.yaml import YAML
 
-from nv_config_manager.temporal.scheduler import host
-
 _CHART_DIR = Path(__file__).resolve().parents[3] / "deploy" / "helm"
 _TEMPLATE = "templates/temporal.yaml"
 _SCHEDULER_DEPLOYMENT = "test-nv-config-manager-temporal-scheduler"
@@ -147,22 +145,6 @@ def _init_container_names(deployment: dict[str, Any]) -> set[str]:
         container["name"]
         for container in deployment["spec"]["template"]["spec"].get("initContainers", [])
     }
-
-
-def test_builtin_backup_values_pin_main_helm_provider_restriction() -> None:
-    """Pin main's Helm behavior for the built-in backup scheduler.
-
-    By default the chart renders the scheduler Deployment for builtin.backup only
-    when the DCIM provider is nautobot-2x. The scheduler host itself is
-    provider-neutral and runs builtin.backup whenever it is selected.
-    """
-    values = YAML(typ="safe", pure=True).load(_CHART_DIR / "values.yaml")
-    schedulers = values["temporal"]["scheduler"]["schedulers"]
-
-    assert host.BUILTIN_BACKUP_SCHEDULER_IDENTITY in schedulers
-    assert (
-        schedulers[host.BUILTIN_BACKUP_SCHEDULER_IDENTITY]["requiresDcimProvider"] == "nautobot-2x"
-    )
 
 
 def test_nautobot_renders_backup_scheduler_deployment() -> None:

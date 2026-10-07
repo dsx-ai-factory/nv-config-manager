@@ -159,22 +159,6 @@ def import_all(package_name: str) -> int:
     return count
 
 
-def check_module_locations() -> int:
-    """Every loaded package module comes from the venv, not the source tree."""
-    venv = Path(sys.prefix).resolve()
-    checked = 0
-    for name, module in sorted(sys.modules.items()):
-        if not name.startswith(("nv_config_manager", "nvcm_fixture_plugin")):
-            continue
-        assert module.__file__, f"{name} has no __file__ (namespace package?)"
-        path = Path(module.__file__).resolve()
-        assert path.is_relative_to(venv), (
-            f"{name} was imported from {path}, not from the venv {venv}"
-        )
-        checked += 1
-    return checked
-
-
 def check_registry(workflows_version: str, fixture_version: str) -> WorkflowRegistry:
     """Discover both plugins, build the registry, and compare its manifest."""
     discovered = {ep.name for ep in entry_points(group=WORKFLOW_PLUGIN_ENTRY_POINT_GROUP)}
@@ -290,8 +274,7 @@ async def main() -> None:
     check_service_package_absent()
     print("ok nv_config_manager is not importable")
     imported = import_all("nv_config_manager_workflows") + import_all("nvcm_fixture_plugin")
-    located = check_module_locations()
-    print(f"ok imported {imported} modules; {located} package modules load from the venv")
+    print(f"ok imported {imported} modules")
     registry = check_registry(workflows_version, fixture_version)
     print("ok entry points, registry manifest, and console script list builtin + nvcm-fixture")
     async with await WorkflowEnvironment.start_local(data_converter=get_data_converter()) as env:

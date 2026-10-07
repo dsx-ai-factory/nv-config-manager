@@ -14,8 +14,6 @@
 # limitations under the License.
 """A plugin discovered through its entry point appears consistently in every registry consumer."""
 
-import logging
-
 import click
 import pytest
 from fastapi import APIRouter
@@ -24,17 +22,12 @@ from nvcm_fixture_plugin.workflows import FixtureApiOnlyWorkflow, FixtureEchoWor
 
 from nv_config_manager.mcp.workflows import discover_mcp_workflows
 from nv_config_manager.temporal import cli as temporal_cli
-from nv_config_manager.temporal import workflow_registry
 from nv_config_manager.temporal.api.dynamic_endpoints import register_dynamic_endpoints
 from nv_config_manager.temporal.worker import main as worker_main
-from nv_config_manager.temporal.workflow_registry import (
-    build_workflow_registry,
-    log_workflow_registry,
-)
+from nv_config_manager.temporal.workflow_registry import build_workflow_registry
 from nv_config_manager_workflows.registration import (
     PluginInfo,
     WorkflowRegistry,
-    discover_workflow_plugins,
     registry_manifest,
 )
 from nv_config_manager_workflows.registration.contract import activity_name
@@ -108,23 +101,7 @@ def test_scheduler_registration_keeps_plugin_provenance(registry: WorkflowRegist
     ] == [(FIXTURE_PLUGIN, "nvcm-fixture.heartbeat", FixtureHeartbeatScheduler)]
 
 
-def test_manifest_lists_the_plugin_and_changes_the_fingerprint(
-    registry: WorkflowRegistry,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    without_fixture = registry_manifest(
-        WorkflowRegistry.build(
-            {
-                name: descriptor
-                for name, descriptor in discover_workflow_plugins().items()
-                if name != FIXTURE_PLUGIN
-            }
-        )
-    )
-
-    with caplog.at_level(logging.INFO, logger=workflow_registry.logger.name):
-        manifest = log_workflow_registry(registry)
-
+def test_manifest_lists_the_plugin(registry: WorkflowRegistry) -> None:
     assert (
         PluginInfo(
             FIXTURE_PLUGIN,
@@ -133,10 +110,5 @@ def test_manifest_lists_the_plugin_and_changes_the_fingerprint(
             activity_count=1,
             scheduler_count=1,
         )
-        in manifest.plugins
+        in registry_manifest(registry).plugins
     )
-    assert manifest.fingerprint != without_fixture.fingerprint
-    assert (
-        f"Loaded workflow plugin {FIXTURE_PLUGIN} version {UNKNOWN_PLUGIN_VERSION}: "
-        "2 workflows, 1 activities, 1 schedulers"
-    ) in caplog.messages

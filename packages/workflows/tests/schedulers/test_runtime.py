@@ -66,35 +66,22 @@ def test_backup_runtime_requires_explicit_startup_configuration() -> None:
         get_builtin_scheduler_runtime()
 
 
-def test_runtimes_are_configured_independently() -> None:
-    configured = scheduler_runtime()
-    configure_scheduler_runtime(configured)
-
-    assert get_scheduler_runtime() is configured
-    with pytest.raises(BuiltinSchedulerRuntimeNotConfiguredError):
-        get_builtin_scheduler_runtime()
-
-
-def test_configured_scheduler_runtime_is_returned_by_identity_and_can_be_replaced() -> None:
-    first = scheduler_runtime()
-    second = scheduler_runtime()
+def test_runtimes_are_configured_independently_by_identity_and_can_be_replaced() -> None:
+    first, second = scheduler_runtime(), scheduler_runtime()
+    first_builtin, second_builtin = builtin_runtime(), builtin_runtime()
 
     configure_scheduler_runtime(first)
     assert get_scheduler_runtime() is first
+    with pytest.raises(BuiltinSchedulerRuntimeNotConfiguredError):
+        get_builtin_scheduler_runtime()
+
+    configure_builtin_scheduler_runtime(first_builtin)
+    assert get_builtin_scheduler_runtime() is first_builtin
 
     configure_scheduler_runtime(second)
+    configure_builtin_scheduler_runtime(second_builtin)
     assert get_scheduler_runtime() is second
-
-
-def test_configured_backup_runtime_is_returned_by_identity_and_can_be_replaced() -> None:
-    first = builtin_runtime()
-    second = builtin_runtime()
-
-    configure_builtin_scheduler_runtime(first)
-    assert get_builtin_scheduler_runtime() is first
-
-    configure_builtin_scheduler_runtime(second)
-    assert get_builtin_scheduler_runtime() is second
+    assert get_builtin_scheduler_runtime() is second_builtin
 
 
 def test_runtime_and_role_records_are_immutable() -> None:

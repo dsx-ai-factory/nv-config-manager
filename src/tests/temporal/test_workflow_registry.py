@@ -17,7 +17,6 @@
 import ast
 import json
 import logging
-from collections.abc import Iterator
 from pathlib import Path
 
 import nv_config_manager_logging as logging_config
@@ -78,25 +77,6 @@ class _FixtureScheduler:
     async def run(self) -> None: ...
 
 
-@pytest.fixture
-def restore_logging_configuration() -> Iterator[None]:
-    """Restore process-wide logging state changed by a real configure_logging() call."""
-    original_factory = logging.getLogRecordFactory()
-    original_configured = logging_config._logging_configured
-    original_handlers = logging.root.handlers[:]
-    original_level = logging.root.level
-    original_labels = logging_config._custom_labels
-    registry_logger = workflow_registry.logger.logger
-    original_registry_handlers = registry_logger.handlers[:]
-    yield
-    logging.setLogRecordFactory(original_factory)
-    logging_config._logging_configured = original_configured
-    logging.root.handlers[:] = original_handlers
-    logging.root.setLevel(original_level)
-    logging_config._custom_labels = original_labels
-    registry_logger.handlers[:] = original_registry_handlers
-
-
 def _registry_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
     return [record for record in caplog.records if record.name == workflow_registry.logger.name]
 
@@ -151,9 +131,8 @@ def test_log_emits_one_record_per_plugin_and_a_manifest_summary(
     expected = registry_manifest(registry)
 
     with caplog.at_level(logging.INFO, logger=workflow_registry.logger.name):
-        manifest = log_workflow_registry(registry)
+        log_workflow_registry(registry)
 
-    assert manifest == expected
     records = _registry_records(caplog)
     assert [vars(record).get("event_type") for record in records] == [
         *(["workflow_plugin"] * len(expected.plugins)),
@@ -258,13 +237,14 @@ def test_log_emits_credential_free_structured_service_json(
     registry = WorkflowRegistry.build(
         {BUILTIN_PLUGIN_NAME: builtin_plugin(), fixture.name: fixture},
     )
+    manifest = registry_manifest(registry)
     monkeypatch.setenv("LOG_FORMAT", "json")
     monkeypatch.setenv("LOG_LEVEL", "INFO")
     monkeypatch.delenv("NV_CONFIG_MANAGER_CUSTOM_LABELS", raising=False)
     logging_config._logging_configured = False
     configure_logging(service="temporal-worker")
 
-    manifest = log_workflow_registry(registry)
+    log_workflow_registry(registry)
 
     output = capsys.readouterr().err
     assert SECRET_SENTINEL not in output

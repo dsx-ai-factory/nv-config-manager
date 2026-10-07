@@ -33,6 +33,7 @@ from nv_config_manager.temporal import workflow_registry
 from nv_config_manager.temporal.scheduler import host
 from nv_config_manager.temporal.scheduler import main as scheduler_main
 from nv_config_manager_workflows.schedulers import runtime as scheduler_runtime
+from nv_config_manager_workflows.schedulers.backup import BackupScheduler
 from tests.temporal.scheduler.helpers import (
     SECRET_SENTINEL,
     assert_sentinel_absent,
@@ -134,7 +135,7 @@ def test_main_runs_the_discovered_plugin_scheduler_until_sigterm(
     ]
     assert manifest_record.name == workflow_registry.logger.name
     assert vars(manifest_record)["scheduler_identities"] == [
-        host.BUILTIN_BACKUP_SCHEDULER_IDENTITY,
+        BackupScheduler.scheduler_identity,
         FIXTURE_SCHEDULER,
     ]
     assert f"Enabled workflow schedulers: ['{FIXTURE_SCHEDULER}']" in caplog.messages
