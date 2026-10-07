@@ -150,7 +150,7 @@ class NVCMAirSimApp(App[None]):
         with Horizontal():
             with VerticalScroll(id="sidebar"):
                 yield Label("NVCM DSX Air Sim Wizard", id="sidebar-title")
-                for section_id, label in self.section_labels():
+                for section_id, label in self.get_section_labels():
                     item = NavItem(section_id, label)
                     item.add_class("nav-item")
                     self._nav_items[section_id] = item
@@ -161,18 +161,18 @@ class NVCMAirSimApp(App[None]):
 
     def _build_screens(self) -> list[Container]:
         screens = []
-        for section_id, cls in self.screen_classes().items():
+        for section_id, cls in self.get_screen_classes().items():
             screen = self.create_screen(section_id, cls)
             screen.display = section_id == self.active_section
             self._screens[section_id] = screen
             screens.append(screen)
         return screens
 
-    def section_labels(self) -> tuple[tuple[str, str], ...]:
+    def get_section_labels(self) -> tuple[tuple[str, str], ...]:
         """Return ordered navigation entries for this simulation installer."""
         return self.SECTION_LABELS
 
-    def screen_classes(self) -> dict[str, type[Container]]:
+    def get_screen_classes(self) -> dict[str, type[Container]]:
         """Return screen implementations keyed by section identifier."""
         return dict(self.SCREEN_CLASSES)
 
@@ -240,13 +240,13 @@ class NVCMAirSimApp(App[None]):
                 screen.write_to_config(self.config)
 
     def action_next_section(self) -> None:
-        sections = [section_id for section_id, _ in self.section_labels()]
+        sections = [section_id for section_id, _ in self.get_section_labels()]
         idx = sections.index(self.active_section) if self.active_section in sections else -1
         if idx < len(sections) - 1:
             self.switch_section(sections[idx + 1])
 
     def action_prev_section(self) -> None:
-        sections = [section_id for section_id, _ in self.section_labels()]
+        sections = [section_id for section_id, _ in self.get_section_labels()]
         idx = sections.index(self.active_section) if self.active_section in sections else 0
         if idx > 0:
             self.switch_section(sections[idx - 1])
