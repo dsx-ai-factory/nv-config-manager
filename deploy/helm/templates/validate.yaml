@@ -5,6 +5,12 @@
     {{- fail (printf "ingress.%s is no longer supported; retain only ingress.type (envoyGateway or kgateway) and configure Gateway API settings under gateway.*" $key) -}}
   {{- end -}}
 {{- end -}}
+{{- if and .Values.nautobot.enabled .Values.externalServices.nautobot.local -}}
+  {{- $redis := .Values.externalServices.redis -}}
+  {{- if or (eq (int $redis.db) 2) (eq (int $redis.lockDb) 2) -}}
+    {{- fail "externalServices.redis.db and externalServices.redis.lockDb must not be 2: the bundled Nautobot cache uses Redis database 2 and nautobot-server post_upgrade flushes it" -}}
+  {{- end -}}
+{{- end -}}
 {{- if not (has $gatewayType (list "envoyGateway" "kgateway")) -}}
   {{- fail (printf "ingress.type must be one of envoyGateway or kgateway, got %q" $gatewayType) -}}
 {{- end -}}
