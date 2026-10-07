@@ -209,6 +209,18 @@ class TestMergedCatalogs:
             ),
         )
 
+    def test_the_builtin_plugin_comes_before_plugins_named_ahead_of_it(self) -> None:
+        """API routes follow this order, so a plugin route must not shadow a built-in one."""
+        registry = WorkflowRegistry.build(
+            installed(
+                plugin("acme", workflows=(AlphaWorkflow,)),
+                plugin("builtin", workflows=(BetaWorkflow,)),
+            )
+        )
+
+        assert registry.all_workflows == [BetaWorkflow, AlphaWorkflow]
+        assert [info.name for info in registry.plugin_diagnostics] == ["builtin", "acme"]
+
     def test_scheduler_registration_provenance_is_immutable(self) -> None:
         registry = WorkflowRegistry.build(
             installed(plugin("alpha-plugin", schedulers=(BackupScheduler,)))

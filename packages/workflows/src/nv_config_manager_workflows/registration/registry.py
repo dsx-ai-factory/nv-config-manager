@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, Self, cast
 
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.registration.builtin import BUILTIN_PLUGIN_NAME
 from nv_config_manager_workflows.registration.contract import (
     workflow_api_enabled,
     workflow_mcp_enabled,
@@ -75,15 +76,17 @@ class WorkflowRegistry:
 
         Returns:
             A registry whose lists are empty on a clean install with no
-            populated plugins, ordered by plugin name and then by the order each
-            descriptor declares.
+            populated plugins, ordered with the built-in plugin first, then by
+            plugin name, and then by the order each descriptor declares.
 
         Raises:
             WorkflowRegistrationError: Discovery or validation rejected the
                 installed set; see the subclasses in ``errors`` for which.
         """
         discovered = discover_workflow_plugins() if plugins is None else dict(plugins)
-        ordered = dict(sorted(discovered.items()))
+        ordered = dict(
+            sorted(discovered.items(), key=lambda item: (item[0] != BUILTIN_PLUGIN_NAME, item[0]))
+        )
         validate_plugins(ordered)
 
         all_workflows = [
