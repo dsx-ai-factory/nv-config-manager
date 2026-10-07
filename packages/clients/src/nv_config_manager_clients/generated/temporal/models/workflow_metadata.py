@@ -46,12 +46,13 @@ class WorkflowMetadata(BaseModel):
     display_name: StrictStr
     endpoint: StrictStr
     execute_roles: List[StrictStr]
+    group: Optional[StrictStr] = None
     input_class: StrictStr
     name: StrictStr
     namespace: Optional[StrictStr]
     read_roles: List[StrictStr]
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["cli_name", "description", "display_name", "endpoint", "execute_roles", "input_class", "name", "namespace", "read_roles"]
+    __properties: ClassVar[List[str]] = ["cli_name", "description", "display_name", "endpoint", "execute_roles", "group", "input_class", "name", "namespace", "read_roles"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -99,6 +100,11 @@ class WorkflowMetadata(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if group (nullable) is None
+        # and model_fields_set contains the field
+        if self.group is None and "group" in self.model_fields_set:
+            _dict['group'] = None
+
         # set to None if namespace (nullable) is None
         # and model_fields_set contains the field
         if self.namespace is None and "namespace" in self.model_fields_set:
@@ -121,6 +127,7 @@ class WorkflowMetadata(BaseModel):
             "display_name": obj.get("display_name"),
             "endpoint": obj.get("endpoint"),
             "execute_roles": obj.get("execute_roles"),
+            "group": obj.get("group"),
             "input_class": obj.get("input_class"),
             "name": obj.get("name"),
             "namespace": obj.get("namespace"),

@@ -1,0 +1,11 @@
+{
+  "ui_schema_version": 1,
+  "capabilities": [
+    "core-field.api-options.enriched.v1",
+    "core-field.api-options.v1",
+    "core-field.device.v1",
+    "core-field.location.v1",
+    "core-field.variant-rows.v1",
+    "theme.hide-schema-descriptions.v1"
+  ]
+}

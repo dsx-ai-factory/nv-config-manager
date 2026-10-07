@@ -71,7 +71,8 @@ worker construction.
 Complete metadata is optional for workflows that are not exposed through the
 API. API-enabled workflows define `workflow_name`,
 `workflow_description`, a Pydantic `workflow_input_class`, and
-`workflow_api_endpoint`.
+`workflow_api_endpoint`. They may also define `workflow_group` to organize the
+workflow in UI catalogs; workflows without one use the default group.
 
 The package exposes its 33 built-in workflows and built-in activities through the
 `nv_config_manager.workflows` entry point declared in `pyproject.toml`.
@@ -132,9 +133,10 @@ print(registry.all_activities)
 
 The worker, API, workflow CLI, and MCP server use this registry, so no
 service-code registration change is required. Plugin workflows must satisfy the
-registration contract above, and contributed names and exposed endpoints must
-not conflict with the rest of the installed catalog. A workflow's CLI name (its
-class name in kebab case without a `Workflow` suffix; see
+registration contract above. Workflow class names, declared workflow names,
+Temporal workflow types, and API endpoints remain globally unique across all
+installed plugins in this version. A workflow's CLI name (its class name in
+kebab case without a `Workflow` suffix; see
 `get_workflow_cli_name()`) also must not equal a built-in `workflow-cli` command
 (`login`, `logout`, `auth-status`, `list-workflows`, or `examples`), because
 `workflow-cli` refuses to start when one does.
@@ -352,6 +354,309 @@ when code changes under an unchanged plugin version. If discovery or validation
 fails, the command prints the error to stderr and exits with status 1. To build
 the same `RegistryManifest` in-process, call `registry_manifest(registry)` from
 `nv_config_manager_workflows.registration`.
+
+### Workflow forms
+
+The UI launcher renders an API-enabled workflow's start form with
+[RJSF](https://rjsf-team.github.io/react-jsonschema-form/) from
+`GET /v1/workflow/{name}/form`, where `{name}` is the workflow class name. The
+response is a version 1 envelope:
+
+```json
+{"schema": {}, "ui_schema": {}, "ui_schema_version": 1, "requires": [], "ui_component": null}
+```
+
+- `schema` is a form projection of the input model's JSON Schema: an optional
+  `X | None` field becomes `X`, a `None` default is dropped, every property has a
+  title, and the field markers below are applied.
+- `ui_schema` is the model's validated `rjsf_ui_schema`, plus options the server
+  fills in (`filterScope`, `queryAliases`).
+- `requires` lists the capabilities the UI must support to render the form.
+- `ui_component` names a first-party form built into the UI, or is `null`.
+
+A model without `rjsf_ui_schema` gets RJSF's default controls for its projected
+schema. The form declaration is UI-only: Pydantic ignores the `ClassVar` and the
+markers, so the model's `model_json_schema()`, its validation, the API request
+body, the MCP tool schema, the generated clients, and Temporal replay of
+existing histories are unchanged. Pydantic remains the validator of every
+submission; the form's checks only report problems before submitting.
+
+#### Declaring a form
+
+Declare the form on the input model as
+`rjsf_ui_schema: ClassVar[Mapping[str, object]]`, a supported subset of an RJSF
+`uiSchema`. The helpers in `nv_config_manager_workflows.ui` return plain dicts;
+merge further keys into them:
+
+```python
+from collections.abc import Mapping
+from typing import Annotated, ClassVar
+
+from pydantic import BaseModel, Field
+
+from nv_config_manager_workflows.ui import (
+    FormExcluded,
+    FormSchema,
+    OptionSource,
+    ServerOwned,
+    api_options,
+    device_field,
+    location_field,
+)
+
+SITES = OptionSource(
+    "/v1/parameter/location",
+    "name",
+    "id",
+    type_key="location_type",
+    params={"location_type": ["Site", "Module"]},
+)
+DEVICES = OptionSource("/v1/parameter/device", "name", "id", params={"managed_only": True})
+PORTS = OptionSource(
+    "/v1/parameter/device/{device_id}/interfaces", "name", "name", clear_on_change=True
+)
+
+
+class PortResetInput(BaseModel):
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:order": ["site", "device_id", "port_names", "*"],
+        "ui:submitButtonOptions": {"submitText": "Reset ports"},
+        "site": {**location_field(SITES, type_field="site_type"), "ui:title": "Site"},
+        "site_type": {"ui:widget": "hidden"},
+        "device_id": {
+            **device_field(DEVICES, filters=("site", "status"), site_field="site"),
+            "ui:title": "Device",
+        },
+        "port_names": {**api_options(PORTS), "ui:title": "Ports"},
+        "reason": {"ui:widget": "textarea", "ui:options": {"rows": 3}},
+    }
+
+    site: str = Field(description="Site containing the device.")
+    site_type: str | None = None
+    device_id: str = Field(description="Device whose ports are reset.")
+    port_names: Annotated[list[str], FormSchema(min_items=1)]
+    reason: str | None = None
+    user: Annotated[str | None, ServerOwned()] = None
+    parent_workflow_id: Annotated[str | None, FormExcluded()] = None
+```
+
+This form selects a site, then a managed device at that site (optionally
+filtered by status), then that device's ports, which reload and clear when the
+device changes. The form requires at least one port, while the API still accepts
+an empty list. `user` and `parent_workflow_id` are not part of the form. Its
+`requires` is `core-field.api-options.v1`, `core-field.device.v1`, and
+`core-field.location.v1`. For complete declarations, see `BackupInput` in
+`workflows/backup.py`, `SpXOverlayTenantChangeInput` in `workflows/spx_overlay.py`,
+and the fixture plugin's `FixtureInput` in
+[`tests/fixtures/plugin/`](tests/fixtures/plugin/).
+
+#### Supported keys
+
+Registration rejects every other key, widget, and field.
+
+| Where | Key | Value |
+| --- | --- | --- |
+| root | `ui:order` | Property names, each at most once; must list every property unless it contains `"*"` |
+| root | `ui:submitButtonOptions` | `{"submitText": "<label>"}` |
+| root | `ui:globalOptions` | `{"hideSchemaDescriptions": true}` hides the schema `description` help under every field |
+| property | `ui:title`, `ui:help`, `ui:description`, `ui:placeholder` | Non-blank text |
+| property | `ui:widget` | `text`, `textarea`, `checkbox`, `select`, or `hidden` |
+| property | `ui:field` | `apiOptions`, `device`, or `location`; set by the helpers |
+| property | `ui:readonly` | Boolean |
+| property | `ui:options` | `{"rows": <positive int>}` for a standard field; core-field options come from the helpers |
+
+Property keys must name top-level properties of the projected schema, and a
+property cannot set both `ui:widget` and `ui:field`. Property keys, and the
+properties that `type_field`, `site_field`, and `Dependency` name, must match
+`^[A-Za-z_][A-Za-z0-9_]*$`; give a field with another alias a plain one. A
+field's property name is its JSON Schema name: its `validation_alias` when that
+is a string, else its `alias`, else the field name. `hidden` is allowed only on
+a location field's `typeField` sibling or on a property whose projected schema
+has a default, such as a field with a `FormSchema(default=...)`. A hidden
+property is still submitted. To leave a field out of the form, mark it
+`FormExcluded` instead.
+
+#### Option sources
+
+A core field loads its options from the workflow API through an
+`OptionSource(endpoint, label_key, value_key, *, type_key=None, params={},
+depends_on={}, clear_on_change=False)`:
+
+- `endpoint` is a path relative to the workflow API origin, such as
+  `/v1/parameter/device`. It cannot contain `?`, `#`, `\`, or whitespace. A
+  whole `{property}` path segment, such as `/v1/parameter/device/{device_id}/interfaces`,
+  is filled from that sibling property. It is a required dependency: options
+  wait until the property has a value.
+- Each returned row supplies its label under `label_key` and its submitted
+  value under `value_key`. `type_key` is used only by a location field with a
+  `type_field`.
+- `params` are static query parameters: strings, finite numbers, booleans, or
+  lists of them, which become repeated parameters.
+- `depends_on` maps a query parameter to a `Dependency(field, *, required=True)`
+  on another projected property. A required dependency holds the request while
+  that property is empty. An optional one (`required=False`) is left out of the
+  request instead.
+- `clear_on_change=True` clears the selection when a dependency changes.
+
+Dependencies must name projected properties and cannot form a cycle, including
+a field that depends on itself.
+
+`OptionSource` and the helpers do not validate when they are constructed, so a
+malformed source never fails the import of the module that declares it.
+Registration checks the emitted wire form instead and reports any problem as a
+form error (see below).
+
+#### Core fields
+
+`api_options(source)` renders a select whose options come from `source`. A
+string property gets a single select, and an array of strings gets a multiple
+select.
+
+`location_field(source, *, type_field=None)` renders a site or location select
+for a string property. With `type_field`, selecting a location also writes the
+row's `type_key` value into that sibling string property in the same update.
+Declare that sibling `{"ui:widget": "hidden"}`. `source` must then set
+`type_key`.
+
+`device_field(source, *, filters=(), site_required=True, site_field=None,
+filter_scope=None, query_param="device-id")` renders a device select, with
+filter controls, for a string or string-array property. `source` cannot set
+`type_key` or `depends_on`. The UI requests `source.endpoint` with
+`source.params`, plus `site` and `site_type` once a site is known and repeated
+`tenant` and `status` values from the filters.
+
+- `filters` picks the Site, Tenant, and Status filter controls from `"site"`,
+  `"tenant"`, and `"status"`. The UI loads their options from fixed endpoints.
+- `site_required` holds the device options until a site is chosen.
+- `site_field` names a location field in the same form that declares a
+  `type_field`. Site then comes from that field instead of a Site filter
+  control, and `filters` must include `"site"`.
+- `filter_scope` lets device fields share one set of filter controls. Fields in
+  one scope must use the same `filters`, `site_required`, and `site_field`, and
+  a field with an explicit scope cannot be `ui:readonly`. Without a scope, a
+  field gets the private scope `implicit:<property>`. The `implicit:` prefix is
+  reserved and cannot be declared.
+- `query_param` names the URL parameter that pre-fills the selection. `None`
+  turns off URL prefill for that field. Two device fields in one form need
+  different values because each URL parameter has one owner.
+
+#### Field markers
+
+Markers are plain objects in a field's `Annotated` metadata. They change only
+the `/form` projection:
+
+- `ServerOwned()`: the server fills the field, for example the requesting
+  `user`. It is left out of the form schema and its `required` list.
+- `FormExcluded()`: the form neither shows nor submits the field, so the model
+  default applies. Use it for values that schedulers or parent workflows send,
+  and for fields resolved server-side.
+- `FormSchema(*, default=..., min_items=, max_items=, min_length=, max_length=,
+  minimum=, maximum=, pattern=)`: adds form-only JSON Schema keywords (`default`,
+  `minItems`, `maxItems`, `minLength`, `maxLength`, `minimum`, `maximum`, and
+  `pattern`) to the property. Each keyword must fit the property's JSON type,
+  and `default` must validate against the field's type and must not be `None`. Use it to tighten or
+  seed the form without changing what the API accepts. For example, `BackupInput`
+  keeps `trigger` required and gives the form a hidden default of `API`.
+
+`ServerOwned` and `FormExcluded` fields must have a Pydantic default or
+`default_factory`, because the request body is validated before the server
+fills it. A field carries at most one marker. Markers belong only in a top-level
+field's own metadata or in a top-level `Annotated` alias. Registration rejects
+a marker in a list item, a union member, or a nested model's field. Marked
+fields cannot appear in `rjsf_ui_schema`.
+
+Keep input models compatible: an input model is the API request body and the
+Temporal payload of existing workflow histories. Express form-only rules with
+`FormSchema` instead of new Pydantic constraints, defaults, or validators.
+
+#### URL prefill
+
+A launcher URL such as `/workflows/new/BackupWorkflow?device-id=42` pre-fills
+the form. Each URL parameter has exactly one owner:
+
+| Owner | Parameters |
+| --- | --- |
+| Standard projected field (not hidden, no `ui:field`) | Its property name. The value is converted to the property's JSON type. |
+| `apiOptions` or `location` field | Its property name. |
+| `device` field | Its `query_param`; none when `query_param=None`. |
+| Device filter scope | `site` (only without `site_field`), `tenant`, and `status`, for the filters it uses. |
+
+Registration rejects a form in which two owners claim the same parameter, such
+as two device fields with the default `query_param`, or a standard field named
+`status` beside a device field with a Status filter. `ServerOwned`,
+`FormExcluded`, and hidden properties cannot be pre-filled. A core field applies
+its URL value only when the value matches a loaded option. Submit stays disabled
+until every pre-filled core field has resolved.
+
+A few built-in forms also accept URL spellings that shipped before this
+contract, such as `?device=` for device password rotation. The server adds them
+as `queryAliases` from a central map in `nv_config_manager_workflows.ui.form`.
+Authors cannot declare aliases. New forms use property names and `query_param`.
+
+#### Registration errors and plugin isolation
+
+`WorkflowRegistry.build()` builds and validates the `/form` envelope of every
+API-enabled workflow. Invalid declarations raise
+`WorkflowFormContractError` with a message that names the model and the problem.
+For example, the error can report an unknown key, widget, or `ui:field`, a
+property that is not in the form schema, an incompatible property type, a
+malformed endpoint or parameter, a dependency cycle, a scope conflict, a
+misplaced marker or missing default, or a URL owner collision. A wrongly typed
+declaration value, such as a list where a widget name belongs, or a Pydantic
+JSON Schema error is reported the same way. The result
+depends on the workflow's owning plugin, which is the first plugin in registry
+order to contribute the class, with the built-in plugin first:
+
+- **Built-in plugin:** the error stops startup of every process that builds the
+  registry.
+- **Third-party plugin:** the registry records a diagnostic containing the
+  plugin, workflow, and sanitized message. The workflow, its execution
+  endpoint, the CLI, and MCP are unaffected. Only its form is unavailable:
+  `GET /v1/workflow/{name}/form` returns HTTP 503 with
+  `{"detail": {"code": "workflow_form_unavailable", "plugin": "...", "workflow": "...", "message": "..."}}`,
+  and the launcher shows the diagnostic with **Return to Workflows** and no
+  **Try again** action.
+
+Other registration errors, such as invalid metadata, duplicate endpoints, or
+missing activities, remain fatal for every plugin. Inspect a plugin's form
+diagnostics before release:
+
+```python
+from nv_config_manager_workflows.registration import WorkflowRegistry
+
+registry = WorkflowRegistry.build()
+print(registry.form_diagnostics)
+```
+
+`workflow_ui_component` on `WorkflowMetadataMixin` names a first-party form
+compiled into the UI and is served as `ui_component`. Only the built-in plugin
+may set it. The UI never loads browser code from a workflow or plugin, so a
+third-party workflow that sets it gets the 503 above.
+
+#### Capabilities and versioning
+
+The backend derives `requires` from the declaration:
+
+- `core-field.api-options.v1`, `core-field.device.v1`, and
+  `core-field.location.v1` for each core field type the form uses
+- `theme.hide-schema-descriptions.v1` when `ui:globalOptions.hideSchemaDescriptions`
+  is `true`
+
+`ui_schema_version` is `1`. The UI checks the version first and then checks every
+`requires` entry against its capability manifest. If it does not support either
+one, the UI shows a "needs a newer UI" state instead of rendering a partial form.
+After those checks, it validates the envelope against the wire schema. An
+older UI can therefore detect a newer server's forms without rendering them
+incorrectly.
+
+The wire schema `workflow-form-v1.schema.json` and the capability manifest
+`workflow-form-capabilities-v1.json` ship in `nv_config_manager_workflows/ui/`
+and are read on first use through `wire_schema()` and `capability_manifest()`,
+so importing a workflow module does not parse them. The UI keeps byte-for-byte copies in
+`ui/src/lib/` because its container build cannot read files outside `ui/`.
+`packages/workflows/tests/ui/test_form.py` fails when the copies differ.
+Change both copies together, and add a capability only together with the UI
+code that implements it.
 
 ## Temporal compatibility
 

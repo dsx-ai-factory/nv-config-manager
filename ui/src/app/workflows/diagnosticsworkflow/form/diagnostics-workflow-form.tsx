@@ -98,7 +98,13 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
-export const DiagnosticsWorkflowForm = () => {
+interface DiagnosticsWorkflowFormProps {
+  submitPath?: string;
+}
+
+export const DiagnosticsWorkflowForm = ({
+  submitPath = "/v1/workflow/ngc/diagnostics",
+}: DiagnosticsWorkflowFormProps) => {
   const [isSubmitting, setIsSubmitting] = React.useState<boolean>(false);
   const { toast } = useToast();
   const { data: envData } = useEnvData();
@@ -158,7 +164,6 @@ export const DiagnosticsWorkflowForm = () => {
 
   const onSubmit = async (data: FormData) => {
     setIsSubmitting(true);
-    const endpoint = "/v1/workflow/ngc/diagnostics";
     const params: DiagnosticsWorkflowInput = {
       device_ids: data.device_ids,
       commands: data.commands,
@@ -169,7 +174,7 @@ export const DiagnosticsWorkflowForm = () => {
     };
 
     try {
-      await startWorkflow(endpoint, params);
+      await startWorkflow(submitPath, params);
       toast({
         title: "Workflow Started",
         description: "Diagnostics workflow has been initiated.",

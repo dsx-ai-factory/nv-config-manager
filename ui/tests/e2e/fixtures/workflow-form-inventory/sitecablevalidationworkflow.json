@@ -1,0 +1,299 @@
+{
+  "slug": "sitecablevalidationworkflow",
+  "workflow": "SiteCableValidationWorkflow",
+  "input_model": "SiteCableValidationInput",
+  "python_module": "nv_config_manager_workflows.workflows.cable_validation",
+  "api_endpoint": "/v1/workflow/ngc/site_cable_validation",
+  "legacy_route": "/workflows/sitecablevalidationworkflow/form",
+  "components": [
+    "ui/src/app/workflows/sitecablevalidationworkflow/form/page.tsx:21",
+    "ui/src/app/workflows/sitecablevalidationworkflow/form/site-cable-validation-workflow-form.tsx:86",
+    "ui/src/components/forms/formfield.tsx:60",
+    "ui/src/components/ui/selectbox.tsx:97",
+    "ui/src/hooks/useEnvData.ts:25",
+    "ui/src/lib/location-options.ts:62",
+    "ui/src/lib/workflow-defaults.ts:18",
+    "ui/src/lib/utils.tsx:153"
+  ],
+  "playwright_specs": [
+    "ui/tests/e2e/siteCableValidationForm.spec.ts"
+  ],
+  "nautobot_links": [
+    {
+      "template": "components/nautobot/nautobot-nv-config-manager/nv_config_manager/templates/nv_config_manager/configmanagerdevicestatus_workflows_tab.html:92",
+      "query_params": [
+        "site",
+        "device-id",
+        "tenant"
+      ]
+    }
+  ],
+  "fields": [
+    {
+      "name": "site",
+      "python_field": "site",
+      "schema_type": "string",
+      "required_in_schema": true,
+      "required_in_ui": true,
+      "label": "Site",
+      "description": null,
+      "schema_title": "Site",
+      "schema_description": "Site containing the network devices to validate.",
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "select",
+      "proposed_widget": "site_reference",
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/location",
+        "params": {
+          "location_type": [
+            "Site",
+            "Module"
+          ]
+        },
+        "depends_on": {},
+        "label_key": "name",
+        "value_key": "id",
+        "notes": "From useEnvData (useEnvData.ts:34-41). The UI value is 'dcim-location:[\"<location_type>\",\"<id>\"]' when the row has location_type, otherwise the bare id (location-options.ts:21-36). location_type is a repeated static query param. The colliding-id case is covered by siteCableValidationForm.spec.ts:53-77."
+      },
+      "query_param": "site",
+      "query_param_normalization": "Resolved against loaded locations by encoded value, provider id, or display name; unresolvable resolves to '' (site-cable-validation-workflow-form.tsx:110-115). The Nautobot link passes the location display name (views.py:210,264). The query is re-applied on env-data change until the user edits any field.",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "Trimmed min 1 'Site is required' (:42); the schema has no minLength"
+      ],
+      "submit_transform": "The encoded option is decoded: site = option id, or the raw form value if no option matches. The option's location type is emitted as site_type (:144-147)."
+    },
+    {
+      "name": "roles",
+      "python_field": "roles",
+      "schema_type": "array[string]",
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": "Roles",
+      "description": null,
+      "schema_title": "Roles",
+      "schema_description": "Device roles used to filter the selected network devices.",
+      "ui_default": [],
+      "schema_default": [],
+      "widget_today": "multiselect",
+      "proposed_widget": "multiselect",
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/role",
+        "params": {
+          "managed_only": true
+        },
+        "depends_on": {},
+        "label_key": "name",
+        "value_key": "name",
+        "notes": "useEnvData (useEnvData.ts:43-52, 90-91)."
+      },
+      "query_param": "role",
+      "query_param_normalization": "Multi-value (getAll('role'), singular name). Values not matching a loaded option key are dropped; if none remain the field becomes [] (:72-83, :116).",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "Non-array values are coerced to [] (:43-46)"
+      ],
+      "submit_transform": "Array sent as-is."
+    },
+    {
+      "name": "status",
+      "python_field": "status",
+      "schema_type": "array[string]",
+      "required_in_schema": false,
+      "required_in_ui": true,
+      "label": "Device Status",
+      "description": null,
+      "schema_title": "Status",
+      "schema_description": "Device statuses used to filter the selected network devices.",
+      "ui_default": [
+        "Active",
+        "Provisioned"
+      ],
+      "schema_default": [
+        "Active",
+        "Provisioned"
+      ],
+      "widget_today": "multiselect",
+      "proposed_widget": "multiselect",
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/status",
+        "params": {
+          "content_type": "dcim.device"
+        },
+        "depends_on": {},
+        "label_key": "name",
+        "value_key": "name",
+        "notes": "useEnvData (useEnvData.ts:54-63, 92-95). The default is DEFAULT_SITE_WORKFLOW_STATUSES (workflow-defaults.ts:18)."
+      },
+      "query_param": "status",
+      "query_param_normalization": "Multi-value (getAll('status')). Values not matching a loaded option key are dropped; if none remain the field falls back to ['Active', 'Provisioned'] (:117-123).",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "At least one item: 'Device Status is required' (:47-50)"
+      ],
+      "submit_transform": "Array sent as-is."
+    },
+    {
+      "name": "tenant",
+      "python_field": "tenant",
+      "schema_type": "string | null",
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": "Tenant",
+      "description": null,
+      "schema_title": "Tenant",
+      "schema_description": "Tenant used to filter the selected network devices.",
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "select",
+      "proposed_widget": "select",
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/tenant",
+        "params": {
+          "managed_only": true
+        },
+        "depends_on": {},
+        "label_key": "name",
+        "value_key": "name",
+        "notes": "useEnvData (useEnvData.ts:65-74, 96-99). Single select."
+      },
+      "query_param": "tenant",
+      "query_param_normalization": "Single value. Maps a matching option key to its value, otherwise '' (setSingleQueryValue :60-69, :124-129). The Nautobot link always includes 'tenant=' (empty when the device has no tenant) with the tenant name (views.py:207,261).",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "Trimmed (:51)"
+      ],
+      "submit_transform": "'' becomes undefined, so the key is omitted (tenant: data.tenant || undefined, :150)."
+    },
+    {
+      "name": "site_type",
+      "python_field": "site_type",
+      "schema_type": "$ref DCIMLocationType (string) | null",
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": null,
+      "description": null,
+      "schema_title": null,
+      "schema_description": "DCIM location type for the site identifier.",
+      "ui_default": null,
+      "schema_default": null,
+      "widget_today": "none (derived from the selected site option)",
+      "proposed_widget": null,
+      "options": null,
+      "query_param": null,
+      "query_param_normalization": null,
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [],
+      "submit_transform": "location.locationType of the resolved site option (:147). The key is omitted when undefined."
+    },
+    {
+      "name": "device_type_ids",
+      "python_field": "device_type_ids",
+      "schema_type": "array[string]",
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": null,
+      "description": null,
+      "schema_title": "Device Type Ids",
+      "schema_description": "Device type identifiers used to filter network devices.",
+      "ui_default": [],
+      "schema_default": [],
+      "widget_today": "not rendered (hardcoded)",
+      "proposed_widget": null,
+      "options": null,
+      "query_param": null,
+      "query_param_normalization": null,
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [],
+      "submit_transform": "Always sent as [] ('Hardcode these values, not relevant to end users', :151-153)."
+    },
+    {
+      "name": "raise_for_invalid",
+      "python_field": "raise_for_invalid",
+      "schema_type": "boolean",
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": null,
+      "description": null,
+      "schema_title": "Raise For Invalid",
+      "schema_description": "Whether invalid cabling should fail the workflow.",
+      "ui_default": false,
+      "schema_default": false,
+      "widget_today": "not rendered (hardcoded)",
+      "proposed_widget": null,
+      "options": null,
+      "query_param": null,
+      "query_param_normalization": null,
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [],
+      "submit_transform": "Always sent as false (:154)."
+    }
+  ],
+  "payload_transform": "onSubmit (site-cable-validation-workflow-form.tsx:142-168) resolves the selected site option and builds {site: option?.id ?? data.site, site_type: option?.locationType, roles, status, tenant: data.tenant || undefined, device_type_ids: [], raise_for_invalid: false}. JSON.stringify drops undefined keys (site_type for bare-id options, tenant when empty) and the body is POSTed to /v1/workflow/ngc/site_cable_validation. Every spec payload assertion includes device_type_ids: [] and raise_for_invalid: false (siteCableValidationForm.spec.ts:150-157, 224-231, 322-333).",
+  "discrepancies": [
+    "The UI requires site to be non-empty. Unlike SiteBackupInput, the schema site has no minLength; LocationReference rejects empty values only during API reference resolution (workflow_references.py:52-56, workflow_submission.py:158-161).",
+    "The UI requires at least one status; the schema allows an empty list.",
+    "device_type_ids and raise_for_invalid are never rendered but are always sent explicitly, with values equal to the schema defaults.",
+    "The Nautobot link passes device-id, which this form never reads.",
+    "The Nautobot link interpolates site and tenant without |urlencode (configmanagerdevicestatus_workflows_tab.html:92), unlike the configdiff link at :61. Names containing '&', '#' or spaces depend on browser tolerance.",
+    "No Playwright test exercises the exact Nautobot URL shape (site name + device-id + empty or non-empty tenant). The URL-param tests use site/role/status/tenant (siteCableValidationForm.spec.ts:99-163).",
+    "The roles field is pre-filled from the singular query param 'role'.",
+    "Label 'Device Status' differs from schema title 'Status'."
+  ],
+  "contract_gaps": [
+    "Hidden constant fields (device_type_ids: [], raise_for_invalid: false) must still be submitted for byte-identical parity. There is no hidden hint, and the contract does not say whether initial_values for unrendered fields are submitted.",
+    "site_type is a sibling filled from the selected site option's location_type, and the contract has no mechanism for that (the server convention is '<field>_type', workflow_submission.py:163).",
+    "The location option source needs the repeated static param location_type=Site&location_type=Module, but OptionSource.params is scalar-only.",
+    "The status min-1 rule and non-empty site are enforced only on the client.",
+    "The empty-single-select-omits-key behaviour is unspecified.",
+    "query_param is an allowlist; there is no way to declare a known-but-ignored Nautobot param (device-id). This is harmless if unknown params are ignored."
+  ],
+  "contract_shape": "single_async",
+  "v1_support": "generic",
+  "named_component_reason": null,
+  "sources": [
+    "ui/src/app/workflows/sitecablevalidationworkflow/form/page.tsx:19-25",
+    "ui/src/app/workflows/sitecablevalidationworkflow/form/site-cable-validation-workflow-form.tsx:41-83",
+    "ui/src/app/workflows/sitecablevalidationworkflow/form/site-cable-validation-workflow-form.tsx:86-168",
+    "ui/src/app/workflows/sitecablevalidationworkflow/form/site-cable-validation-workflow-form.tsx:184-221",
+    "ui/src/components/forms/formfield.tsx:60-141",
+    "ui/src/hooks/useEnvData.ts:30-99",
+    "ui/src/lib/location-options.ts:19-77",
+    "ui/src/lib/workflow-defaults.ts:18",
+    "ui/src/lib/utils.tsx:153-183",
+    "ui/src/types/data-table.types.ts:86-94",
+    "ui/tests/e2e/siteCableValidationForm.spec.ts:43-458",
+    "ui/tests/docs-screenshots/workflowForms.spec.ts:496-497",
+    "components/nautobot/nautobot-nv-config-manager/nv_config_manager/templates/nv_config_manager/configmanagerdevicestatus_workflows_tab.html:88-100",
+    "components/nautobot/nautobot-nv-config-manager/nv_config_manager/views.py:196-210",
+    "components/nautobot/nautobot-nv-config-manager/nv_config_manager/views.py:248-264",
+    "packages/workflows/src/nv_config_manager_workflows/workflows/cable_validation.py:117-118",
+    "packages/workflows/src/nv_config_manager_workflows/workflows/cable_validation.py:142-166",
+    "packages/workflows/src/nv_config_manager_workflows/workflows/cable_validation.py:265-276",
+    "packages/workflows/src/nv_config_manager_workflows/workflow_references.py:52-56",
+    "src/nv_config_manager/temporal/api/workflow_submission.py:155-169"
+  ]
+}

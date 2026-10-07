@@ -20,7 +20,9 @@ compute-side interfaces rather than relying on UFM node descriptions
 (OS hostnames on compute trays are not under our control).
 """
 
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
@@ -34,10 +36,12 @@ from nv_config_manager_workflows.stage import (
     StageOutput,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import FormSchema, OptionSource, device_field
 from nv_config_manager_workflows.workflow_references import (
     DeviceReference,
     DeviceReferences,
 )
+from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.dcim import (
@@ -69,10 +73,38 @@ DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(
 class IBPortGuidDiscoveryInput(BaseModel):
     """Input for the IB Port GUID Discovery workflow."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ufm_device_id": {
+            **device_field(
+                OptionSource("/v1/parameter/device", "name", "id", params={"role": "UFM"}),
+                filters=("site",),
+                filter_scope="fabric-devices",
+                query_param=None,
+            ),
+            "ui:title": "UFM Device",
+        },
+        "switch_device_ids": {
+            **device_field(
+                MANAGED_DEVICE_SOURCE,
+                filters=("site",),
+                filter_scope="fabric-devices",
+                query_param=None,
+            ),
+            "ui:title": "Switch Devices",
+        },
+        "dry_run": {
+            "ui:title": "Dry run",
+            "ui:help": (
+                "Compute the UFM-to-DCIM GUID mappings without writing ib_guid back onto any "
+                "interface. Uncheck to apply the changes."
+            ),
+        },
+    }
+
     ufm_device_id: DeviceReference = Field(
         description="Identifier of the UFM device used to discover port GUIDs."
     )
-    switch_device_ids: DeviceReferences = Field(
+    switch_device_ids: Annotated[DeviceReferences, FormSchema(min_items=1)] = Field(
         description="Identifiers of the InfiniBand switches whose interfaces will be synchronized."
     )
     dry_run: bool = Field(
@@ -97,6 +129,7 @@ class IBPortGuidDiscoveryWorkflow(WorkflowMetadataMixin, StageMixin):
     """Sync UFM-discovered IB port GUIDs onto matching DCIM interfaces."""
 
     workflow_name = "InfiniBand Port GUID Discovery"
+    workflow_group = "InfiniBand"
     workflow_description = (
         "Discover InfiniBand port GUIDs from UFM and sync them onto the matching DCIM interfaces."
     )

@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Page } from "@playwright/test";
 import { validateSiteBackupPayload } from "@/mocks/handlers/siteBackupHandlers";
 import { createGenericWorkflow } from "@/mocks/data/workflows/genericWorkflow";
@@ -24,6 +26,7 @@ import {
   workflowsMockData,
   ROLES_LIST_API_RESPONSE,
   STATUS_LIST_API_RESPONSE,
+  TYPED_LOCATIONS_LIST_API_RESPONSE,
   TENANT_LIST_API_RESPONSE,
   NAMESPACE_TAGS_LIST_API_RESPONSE,
   SPX_OVERLAY_LIST_API_RESPONSE,
@@ -33,6 +36,13 @@ import {
   FORBIDDEN_SITE_ID,
   FORBIDDEN_DEVICE_IDS,
 } from "@/mocks/data";
+
+/** A JSON fixture the workflow API tests keep in `src/tests/temporal/api/fixtures/`. */
+function readApiFixture<T>(file: string): T {
+  return JSON.parse(
+    readFileSync(join(__dirname, "../../../../src/tests/temporal/api/fixtures", file), "utf8")
+  );
+}
 
 const CONFIG_SYNC_TIMESTAMP_METRIC =
   "nv_config_manager_dhcp_cache_last_refresh_timestamp_seconds";
@@ -95,6 +105,7 @@ export async function setupApiMocks(page: Page) {
   await mockSwitchOsUpgradeEndpoint(page);
   await mockCumulusHardwareValidationEndpoint(page);
   await mockMultiDeployEndpoint(page);
+  await mockDeviceListWorkflowEndpoints(page);
 
   // Data fetching endpoints
   await mockSitesEndpoint(page);
@@ -107,12 +118,16 @@ export async function setupApiMocks(page: Page) {
   await mockDevicesEndpoint(page);
   await mockDeviceInterfacesEndpoint(page);
   await mockPasswordUsersEndpoint(page);
+  await mockPasswordUserOptionsEndpoint(page);
+  await mockDiagnosticsCommandsEndpoint(page);
+  await mockDiagnosticsCommandOptionsEndpoint(page);
 
   // Workflow listing endpoints
   await mockWorkflowTypesEndpoint(page);
   await mockWorkflowMetadataEndpoint(page);
   await mockWorkflowsListEndpoint(page);
   await mockWorkflowDetailsEndpoint(page);
+  await mockWorkflowFormEndpoint(page);
 
   // Config Store endpoints
   await mockConfigStoreSearchEndpoint(page);
@@ -360,7 +375,7 @@ export async function mockSitePasswordRotationEndpoint(page: Page) {
     const request = route.request();
     const body = JSON.parse((await request.postData()) || "{}");
 
-    if (!body.location || !body.selected_secret || !body.roles || !body.status || !body.tenant) {
+    if (!body.location || !body.selected_secret) {
       await route.fulfill({
         status: 400,
         json: { error: "Missing required fields" },
@@ -769,6 +784,43 @@ export async function mockConnectedHostMetadataEndpoint(page: Page) {
       });
     }
   );
+}
+
+/**
+ * Submission mocks for the device workflows without a dedicated one: Configuration
+ * Diff, Diagnostics, InfiniBand Port GUID Discovery, and SpX Overlay Tenant Change. Any forbidden device ID in the
+ * body answers 403, like the other submission mocks.
+ */
+export async function mockDeviceListWorkflowEndpoints(page: Page) {
+  const forbidden: unknown[] = Object.values(FORBIDDEN_DEVICE_IDS);
+  for (const endpoint of [
+    "config_diff",
+    "diagnostics",
+    "ib_port_guid_discovery",
+    "spx_overlay_tenant_change",
+  ]) {
+    await page.route(`**/v1/workflow/ngc/${endpoint}`, async (route) => {
+      const body = JSON.parse(route.request().postData() || "{}");
+      const ids = [body.device_id, body.ufm_device_id, ...(body.device_ids ?? []), ...(body.switch_device_ids ?? [])];
+      if (ids.some((id) => forbidden.includes(id))) {
+        await route.fulfill({
+          status: 403,
+          json: { error: "Forbidden: You do not have permission to run this workflow" },
+        });
+        return;
+      }
+      await delay(100);
+      const id = `${endpoint}-${ids.find(Boolean) ?? "run"}`;
+      await route.fulfill({
+        status: 201,
+        json: {
+          id,
+          href: `https://url-to-temporal.com/namespaces/default/workflows/${id}`,
+          submitted_data: body,
+        },
+      });
+    });
+  }
 }
 
 export async function mockDeviceCableValidationEndpoint(page: Page) {
@@ -1197,6 +1249,24 @@ export async function mockSitesEndpoint(page: Page) {
   });
 }
 
+/**
+ * Serve `/v1/parameter/location` rows with `location_type`, filtered by the requested
+ * `location_type` values, as the real server does. The shared default
+ * ({@link mockSitesEndpoint}) omits the type; generic `site_reference` controls submit it
+ * and send it on as `site_type`/`location_type`.
+ */
+export async function mockTypedLocationsEndpoint(page: Page) {
+  await page.route(`**/v1/parameter/location*`, async (route) => {
+    const types = new URL(route.request().url()).searchParams.getAll("location_type");
+    await route.fulfill({
+      status: 200,
+      json: TYPED_LOCATIONS_LIST_API_RESPONSE.filter(
+        (location) => types.length === 0 || types.includes(location.location_type)
+      ),
+    });
+  });
+}
+
 export async function mockRolesEndpoint(page: Page) {
   await page.route(/.*\/v1\/parameter\/role/, async (route) => {
     await route.fulfill({
@@ -1257,6 +1327,8 @@ export async function mockDevicesEndpoint(page: Page) {
       // Mock devices are all NVCM-managed; managed_only does not map to a
       // device field, so skip it instead of filtering everything out.
       if (key === "managed_only") return;
+      // site_type qualifies site (Site vs Module); it is not a device field either.
+      if (key === "site_type") return;
 
       // Filter devices based on the parameter
       devices = devices.filter((device) => {
@@ -1327,6 +1399,75 @@ export async function mockPasswordUsersEndpoint(page: Page) {
   });
 }
 
+/** Password users returned by the generic Site Password Rotation option source. */
+export const PASSWORD_USER_OPTIONS = [
+  { label: "admin", value: "admin", description: "admin (admin-password)" },
+  { label: "cumulus", value: "cumulus", description: "cumulus (cumulus-password)" },
+];
+
+export async function mockPasswordUserOptionsEndpoint(page: Page) {
+  await page.route(/\/v1\/parameter\/password-users(\?.*)?$/, async (route) => {
+    const search = new URL(route.request().url()).searchParams;
+    const location = search.get("location") ?? "";
+    const roles = search.getAll("role");
+    const statuses = search.getAll("status");
+    const tenant = search.get("tenant");
+    const devices = DEVICES_LIST[location as keyof typeof DEVICES_LIST] ?? [];
+    const matching = devices.filter((device) => {
+      const row = device as { role?: string; status?: string; tenant?: string };
+      return (
+        (roles.length === 0 || roles.includes(row.role ?? "")) &&
+        (statuses.length === 0 || statuses.includes(row.status ?? "")) &&
+        (!tenant || row.tenant === tenant)
+      );
+    });
+
+    await route.fulfill({
+      status: 200,
+      json: {
+        items: matching.length > 0 ? PASSWORD_USER_OPTIONS : [],
+        meta: { matching_device_count: matching.length, warnings: [] },
+      },
+    });
+  });
+}
+
+/** Diagnostics command catalog rows, as `/v1/parameter/diagnostics/commands` returns them. */
+export const DIAGNOSTICS_COMMANDS = [
+  { name: "show interface", description: "Collect interface state" },
+  { name: "show lldp neighbor", description: "Collect LLDP neighbors" },
+  { name: "show version", description: "Collect software versions" },
+];
+
+export async function mockDiagnosticsCommandsEndpoint(page: Page) {
+  await page.route(/\/v1\/parameter\/diagnostics\/commands(\?.*)?$/, (route) =>
+    route.fulfill({ status: 200, json: DIAGNOSTICS_COMMANDS })
+  );
+}
+
+/** Generic options-v1 envelope for the selected diagnostics devices. */
+export async function mockDiagnosticsCommandOptionsEndpoint(page: Page) {
+  await page.route(/\/v1\/parameter\/diagnostics\/command-options(\?.*)?$/, (route) => {
+    const deviceIds = new URL(route.request().url()).searchParams.getAll("device_id");
+    const group = deviceIds.length > 1 ? "Runs on all selected devices" : undefined;
+    return route.fulfill({
+      status: 200,
+      json: {
+        items:
+          deviceIds.length > 0
+            ? DIAGNOSTICS_COMMANDS.map(({ name, description }) => ({
+                label: name,
+                value: name,
+                description,
+                group,
+              }))
+            : [],
+        meta: { warnings: [] },
+      },
+    });
+  });
+}
+
 // Workflow listing endpoints
 export async function mockWorkflowTypesEndpoint(page: Page) {
   const workflowTypes = [
@@ -1365,7 +1506,14 @@ export async function mockWorkflowTypesEndpoint(page: Page) {
   });
 }
 
-export async function mockWorkflowMetadataEndpoint(page: Page) {
+/**
+ * Mock `/v1/workflow/metadata`. `extraWorkflows` are appended verbatim, e.g. a plugin
+ * workflow; registering this again in a test overrides the default mock.
+ */
+export async function mockWorkflowMetadataEndpoint(
+  page: Page,
+  extraWorkflows: Record<string, unknown>[] = []
+) {
   const workflowTypes = [
     "BackupWorkflow",
     "SiteBackupWorkflow",
@@ -1454,17 +1602,20 @@ export async function mockWorkflowMetadataEndpoint(page: Page) {
   const getWorkflowExecuteRoles = (workflowType: string) =>
     workflowType === "MultiDeployWorkflow" ? ["nvcm-admin"] : ["all"];
   const workflowMetadata = {
-    workflows: workflowTypes.map((workflowType) => ({
-      name: workflowType,
-      display_name: workflowDisplayNames[workflowType] ?? workflowType,
-      description: `${workflowDisplayNames[workflowType] ?? workflowType} workflow`,
-      endpoint: getWorkflowEndpoint(workflowType),
-      namespace: "ngc",
-      cli_name: workflowType.toLowerCase(),
-      input_class: `${workflowType}Input`,
-      read_roles: ["all"],
-      execute_roles: getWorkflowExecuteRoles(workflowType),
-    })),
+    workflows: [
+      ...workflowTypes.map((workflowType) => ({
+        name: workflowType,
+        display_name: workflowDisplayNames[workflowType] ?? workflowType,
+        description: `${workflowDisplayNames[workflowType] ?? workflowType} workflow`,
+        endpoint: getWorkflowEndpoint(workflowType),
+        namespace: "ngc",
+        cli_name: workflowType.toLowerCase(),
+        input_class: `${workflowType}Input`,
+        read_roles: ["all"],
+        execute_roles: getWorkflowExecuteRoles(workflowType),
+      })),
+      ...extraWorkflows,
+    ],
   };
 
   await page.route(`**/v1/workflow/metadata`, async (route) => {
@@ -1636,6 +1787,68 @@ export async function mockWorkflowDetailsEndpoint(page: Page) {
       status: 200,
       json: createGenericWorkflow(id!),
     });
+  });
+}
+
+/**
+ * The real `GET /v1/workflow/{name}/form` response of every built-in API workflow, as the
+ * API tests snapshot it (`src/tests/temporal/api/test_workflow_form.py`; regenerate with
+ * `NVCM_UPDATE_SNAPSHOTS=1`), so UI tests run against actual server output. The
+ * dev-server MSW mocks keep verbatim copies of a few entries
+ * (`src/mocks/data/workflowForms.json`, checked by `tests/unit/workflow-form-mocks.test.ts`):
+ * the browser bundle is built from `ui/` alone and cannot import this file.
+ */
+export const SERVER_WORKFLOW_FORMS: Readonly<Record<string, unknown>> = readApiFixture(
+  "workflow_forms.json"
+);
+
+/**
+ * The real `GET /v1/workflow/metadata` response the API tests keep as a baseline. Its
+ * built-in workflows need their own role or `executor` to run.
+ */
+export const SERVER_WORKFLOW_METADATA: {
+  workflows: Array<Record<string, unknown> & { name: string; execute_roles: string[] }>;
+} = readApiFixture("workflow_metadata_baseline.json");
+
+/** Serve {@link SERVER_WORKFLOW_METADATA} as the catalog and a `/whoami` user with `roles`. */
+export async function mockServerCatalogAndUser(page: Page, roles: string[]) {
+  await page.route("**/v1/workflow/metadata", (route) =>
+    route.fulfill({ status: 200, json: SERVER_WORKFLOW_METADATA })
+  );
+  await page.route("**/whoami", (route) =>
+    route.fulfill({ status: 200, json: { user: "operator@example.com", roles } })
+  );
+}
+
+/**
+ * Mock `GET /v1/workflow/{name}/form` from {@link SERVER_WORKFLOW_FORMS}. Other names
+ * answer 404, like unknown or API-disabled workflows on the real server.
+ */
+export async function mockWorkflowFormEndpoint(page: Page) {
+  await page.route(/\/v1\/workflow\/[^/?#]+\/form(\?.*)?$/, async (route) => {
+    if (route.request().method() !== "GET") {
+      return route.fallback();
+    }
+    const url = new URL(route.request().url());
+    const segment = url.pathname.split("/").at(-2) ?? "";
+    let name = segment;
+    try {
+      name = decodeURIComponent(segment);
+    } catch {
+      // Leave malformed escapes as-is; no fixture will match them.
+    }
+
+    const form = Object.prototype.hasOwnProperty.call(SERVER_WORKFLOW_FORMS, name)
+      ? SERVER_WORKFLOW_FORMS[name]
+      : undefined;
+    if (!form) {
+      await route.fulfill({
+        status: 404,
+        json: { detail: `Workflow '${name}' not found` },
+      });
+      return;
+    }
+    await route.fulfill({ status: 200, json: form });
   });
 }
 

@@ -1,0 +1,215 @@
+{
+  "slug": "portlldpinfoworkflow",
+  "workflow": "PortLLDPInfoWorkflow",
+  "input_model": "PortLLDPInfoInput",
+  "python_module": "nv_config_manager_workflows.workflows.lldp",
+  "api_endpoint": "/v1/workflow/ngc/port_lldp_info",
+  "legacy_route": "/workflows/portlldpinfoworkflow/form",
+  "components": [
+    "ui/src/app/workflows/portlldpinfoworkflow/form/page.tsx:21",
+    "ui/src/app/workflows/portlldpinfoworkflow/form/port-lldp-info-workflow-form.tsx:154",
+    "ui/src/components/forms/formfield.tsx:60",
+    "ui/src/components/ui/selectbox.tsx:97",
+    "ui/src/hooks/useEnvData.ts:25",
+    "ui/src/hooks/useDevices.ts:36",
+    "ui/src/lib/location-options.ts:74",
+    "ui/src/lib/utils.tsx:153"
+  ],
+  "playwright_specs": [
+    "ui/tests/e2e/portlldpinfoForm.spec.ts"
+  ],
+  "nautobot_links": [],
+  "fields": [
+    {
+      "name": "site",
+      "python_field": null,
+      "schema_type": null,
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": "Site",
+      "description": null,
+      "schema_title": null,
+      "schema_description": null,
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "select",
+      "proposed_widget": "site_reference",
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/location",
+        "params": {
+          "location_type": [
+            "Site",
+            "Module"
+          ]
+        },
+        "depends_on": {},
+        "label_key": "name",
+        "value_key": "id",
+        "notes": "Loaded by useEnvData (useEnvData.ts:34-41) and mapped by mapLocationOptions (location-options.ts:25-36): when a row has location_type the option value is the encoded string 'dcim-location:[\"<location_type>\",\"<id>\"]', otherwise the bare id. location_type is a repeated static query param."
+      },
+      "query_param": "site",
+      "query_param_normalization": "Resolved against loaded locations by encoded value, provider id, or display name (resolveLocationFormValue, location-options.ts:62-77); unresolvable value clears site and device (port-lldp-info-workflow-form.tsx:189-207). Ignored when remote_mac_address is in the URL: form.reset sets site to '' (:230-239).",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [
+        "device_id",
+        "interface"
+      ],
+      "client_only_validation": [
+        "UI-only field: required when device or interface has a value (superRefine case 2, :63-86)",
+        "Disabled while remote_mac_address has a value (:310)",
+        "Entering a value clears remote_mac_address (setDeviceInfoMode, :136-151)",
+        "Any site change clears device (:225-228)"
+      ],
+      "submit_transform": "Not submitted; only filters the device option query (site and site_type query params via useDevices.ts:42-51)."
+    },
+    {
+      "name": "device_id",
+      "python_field": "device_id",
+      "schema_type": "string | null",
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": "Device",
+      "description": null,
+      "schema_title": "Device Id",
+      "schema_description": "Identifier of the network device to inspect.",
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "select",
+      "proposed_widget": "device_reference",
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/device",
+        "params": {
+          "managed_only": true
+        },
+        "depends_on": {
+          "site": "site",
+          "site_type": "site"
+        },
+        "label_key": "name",
+        "value_key": "id",
+        "notes": "useDevices (useDevices.ts:36-64) with filterParams [site, managed_only=true] (port-lldp-info-workflow-form.tsx:180-187). No request until site is set (useDevices.ts:54). site/site_type are split from the encoded site option value (parseLocationValue, useDevices.ts:43-50); the depended-on site field is UI-only."
+      },
+      "query_param": "device-id",
+      "query_param_normalization": "Kept only if present in the loaded device options for the site, otherwise cleared (:209-223). Ignored when remote_mac_address is in the URL (:230-239).",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [
+        "site",
+        "interface"
+      ],
+      "client_only_validation": [
+        "Required when site or interface has a value (superRefine case 2, :72-78)",
+        "Disabled while remote_mac_address has a value (:321)",
+        "Entering a value clears remote_mac_address (:136-151)"
+      ],
+      "submit_transform": "UI form field 'device' is renamed to 'device_id' (:276-279); the key is omitted entirely when remote_mac_address is set."
+    },
+    {
+      "name": "interface",
+      "python_field": "interface",
+      "schema_type": "string | null",
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": "Interface",
+      "description": null,
+      "schema_title": "Interface",
+      "schema_description": "Name of the local interface.",
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "input",
+      "proposed_widget": null,
+      "options": null,
+      "query_param": "interface",
+      "query_param_normalization": "Raw string. Ignored when remote_mac_address is in the URL (:230-239).",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [
+        "site",
+        "device_id"
+      ],
+      "client_only_validation": [
+        "Trimmed (z.string().trim(), :44)",
+        "Required when site or device has a value (superRefine case 2, :79-85)",
+        "Disabled while remote_mac_address has a value (:330)",
+        "Entering a value clears remote_mac_address (:136-151)"
+      ],
+      "submit_transform": "Trimmed string; omitted entirely when remote_mac_address is set."
+    },
+    {
+      "name": "remote_mac_address",
+      "python_field": "remote_mac_address",
+      "schema_type": "string | null",
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": "MAC Address",
+      "description": null,
+      "schema_title": "Remote Mac Address",
+      "schema_description": "MAC address of the remote device to locate.",
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "input",
+      "proposed_widget": null,
+      "options": null,
+      "query_param": "remote_mac_address",
+      "query_param_normalization": "Raw string. When present it takes precedence: form.reset clears site/device/interface even if those query params are also present (:230-239; spec portlldpinfoForm.spec.ts:341-379).",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "Trimmed (:45)",
+        "Required unless site, device and interface are all set (superRefine case 1, :53-61)",
+        "Must not be combined with complete device info (superRefine case 3, :88-96)",
+        "Disabled while any device field has a value (:339)",
+        "Entering a value clears site, device and interface (setMacAddressMode, :110-123)",
+        "No MAC format validation in UI or schema"
+      ],
+      "submit_transform": "If non-empty the whole payload is {remote_mac_address} only (:274-275)."
+    }
+  ],
+  "payload_transform": "onSubmit (port-lldp-info-workflow-form.tsx:271-292): if the trimmed remote_mac_address is non-empty the body is {\"remote_mac_address\": <mac>}; otherwise {\"device_id\": <device>, \"interface\": <interface>}. site is never sent and no null keys are sent. startWorkflow JSON.stringify()s the object and POSTs it to /v1/workflow/ngc/port_lldp_info (utils.tsx:153-183), then navigates to /workflows/<id>.",
+  "discrepancies": [
+    "Schema makes device_id, interface and remote_mac_address all optional with no model validator (lldp.py:55-65); the either/or rule is enforced only by the UI superRefine (:47-97) and at workflow runtime (ApplicationError at lldp.py:138), so an API POST of {} is accepted and fails after the run starts.",
+    "The UI forbids complete device info together with a MAC address (superRefine case 3); the schema accepts both and the workflow silently prefers device_id+interface (lldp.py:110-124).",
+    "The UI requires interface whenever device is set; the schema allows device_id without interface, which falls through to the MAC branch or the runtime error (lldp.py:110-138).",
+    "site is a UI-only cascade filter with no schema property.",
+    "Labels differ from schema titles: 'Device' vs 'Device Id', 'MAC Address' vs 'Remote Mac Address'.",
+    "interface is free text even though /v1/parameter/device/{device_id}/interfaces exists (used by the SpX tenant change form).",
+    "The site-change effect (:225-228) contains a stray console.log('changing') and also clears device on mount; the query device is restored by the validation effect once options load."
+  ],
+  "contract_gaps": [
+    "Mutual exclusion between the device group {site, device_id, interface} and remote_mac_address, where each group disables the other and clears its values: VisibleIf can only hide, and expressing this needs circular rules (device fields visible_if remote_mac_address equals ''/null and remote_mac_address visible_if device_id equals ''/null). There are no clearing semantics.",
+    "The at-least-one-group rule (complete device info OR MAC address) has no hint; requires_together only covers the device group.",
+    "The payload must omit the inactive group's keys (not send null or ''); the contract does not define an omit-hidden or omit-empty submit rule.",
+    "The UI-only 'site' filter has no schema property, and ui_schema.fields can only key model fields, so the site filter must live inside a device_reference widget.",
+    "The device options depend on site_type, which is derived from the selected site option's location_type rather than from a sibling field value.",
+    "Query-param precedence (remote_mac_address overrides site/device-id/interface) cannot be expressed."
+  ],
+  "contract_shape": "conditional",
+  "v1_support": "generic",
+  "named_component_reason": null,
+  "sources": [
+    "ui/src/app/workflows/portlldpinfoworkflow/form/page.tsx:19-25",
+    "ui/src/app/workflows/portlldpinfoworkflow/form/port-lldp-info-workflow-form.tsx:40-97",
+    "ui/src/app/workflows/portlldpinfoworkflow/form/port-lldp-info-workflow-form.tsx:105-151",
+    "ui/src/app/workflows/portlldpinfoworkflow/form/port-lldp-info-workflow-form.tsx:160-250",
+    "ui/src/app/workflows/portlldpinfoworkflow/form/port-lldp-info-workflow-form.tsx:271-342",
+    "ui/src/components/forms/formfield.tsx:60-141",
+    "ui/src/hooks/useEnvData.ts:30-41",
+    "ui/src/hooks/useDevices.ts:36-64",
+    "ui/src/lib/location-options.ts:19-77",
+    "ui/src/lib/utils.tsx:153-183",
+    "ui/src/types/data-table.types.ts:74-84",
+    "ui/tests/e2e/portlldpinfoForm.spec.ts:194-379",
+    "ui/tests/docs-screenshots/workflowForms.spec.ts:485-486",
+    "packages/workflows/src/nv_config_manager_workflows/workflows/lldp.py:55-77",
+    "packages/workflows/src/nv_config_manager_workflows/workflows/lldp.py:110-138",
+    "packages/workflows/src/nv_config_manager_workflows/workflow_references.py:79-82",
+    "src/nv_config_manager/temporal/api/parameter_v1.py:82-97",
+    "src/nv_config_manager/temporal/api/parameter_v1.py:236-299"
+  ]
+}

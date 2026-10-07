@@ -1,0 +1,118 @@
+{
+  "workflow": "SiteBackupWorkflow",
+  "input_model": "SiteBackupInput",
+  "scenarios": [
+    {
+      "name": "manual fill",
+      "legacy_url": "/workflows/sitebackupworkflow/form",
+      "new_url": "/workflows/new/SiteBackupWorkflow",
+      "legacy_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "roles": [
+          "cin-leaf",
+          "cin-spine"
+        ],
+        "status": [
+          "Active",
+          "Provisioned",
+          "Planned"
+        ],
+        "tenant": "TenantA",
+        "backup_enabled_only": true
+      },
+      "generic_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "roles": [
+          "cin-leaf",
+          "cin-spine"
+        ],
+        "status": [
+          "Active",
+          "Provisioned",
+          "Planned"
+        ],
+        "tenant": "TenantA",
+        "backup_enabled_only": true
+      }
+    },
+    {
+      "name": "module site, defaults otherwise",
+      "legacy_url": "/workflows/sitebackupworkflow/form",
+      "new_url": "/workflows/new/SiteBackupWorkflow",
+      "legacy_payload": {
+        "site": "PDX01-POD1",
+        "site_type": "Module",
+        "roles": [],
+        "status": [
+          "Active",
+          "Provisioned"
+        ],
+        "backup_enabled_only": true
+      },
+      "generic_payload": {
+        "site": "PDX01-POD1",
+        "site_type": "Module",
+        "status": [
+          "Active",
+          "Provisioned"
+        ],
+        "backup_enabled_only": true
+      }
+    },
+    {
+      "name": "prefill from URL",
+      "legacy_url": "/workflows/sitebackupworkflow/form?site=PDX01&role=cin-leaf&status=Active&tenant=TenantA",
+      "new_url": "/workflows/new/SiteBackupWorkflow?site=PDX01&role=cin-leaf&status=Active&tenant=TenantA",
+      "legacy_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "roles": [
+          "cin-leaf"
+        ],
+        "status": [
+          "Active"
+        ],
+        "tenant": "TenantA",
+        "backup_enabled_only": true
+      },
+      "generic_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "roles": [
+          "cin-leaf"
+        ],
+        "status": [
+          "Active"
+        ],
+        "tenant": "TenantA",
+        "backup_enabled_only": true
+      }
+    },
+    {
+      "name": "backup-enabled only off",
+      "legacy_url": "/workflows/sitebackupworkflow/form",
+      "new_url": "/workflows/new/SiteBackupWorkflow",
+      "legacy_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "roles": [],
+        "status": [
+          "Active",
+          "Provisioned"
+        ],
+        "backup_enabled_only": false
+      },
+      "generic_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "status": [
+          "Active",
+          "Provisioned"
+        ],
+        "backup_enabled_only": false
+      }
+    }
+  ]
+}

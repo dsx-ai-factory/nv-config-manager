@@ -13,6 +13,7 @@
     "test:e2e:chromium": "npx playwright test --project=chromium",
     "test:e2e:headed": "npx playwright test --headed --project=chromium",
     "test:e2e:debug": "npx playwright test --debug --project=chromium",
+    "test:unit": "vitest run",
     "test:setup": "test -f .env.local || (echo 'Creating .env.local from .env.example...' && cp .env.example .env.local && echo 'Done! Edit .env.local with your values.')"
   },
   "dependencies": {
@@ -31,9 +32,14 @@
     "@radix-ui/react-tabs": "^1.0.4",
     "@radix-ui/react-toast": "^1.1.5",
     "@radix-ui/react-tooltip": "^1.1.7",
+    "@rjsf/core": "~6.11.0",
+    "@rjsf/utils": "~6.11.0",
+    "@rjsf/validator-ajv8": "~6.11.0",
     "@tanstack/match-sorter-utils": "^8.15.1",
     "@tanstack/react-table": "^8.17.3",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
@@ -60,15 +66,19 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@playwright/test": "^1.56.1",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.3.0",
     "@types/node": "24.7.2",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "eslint": "^9",
     "eslint-config-next": "^15.5.24",
+    "jsdom": "^26.1.0",
     "msw": "^2.7.3",
     "postcss": "^8.5.23",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^5.0.3"
   },
   "msw": {
     "workerDirectory": [

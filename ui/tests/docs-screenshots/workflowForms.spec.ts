@@ -727,11 +727,47 @@ async function setupDocsMocks(page: Page): Promise<void> {
     ]);
   });
 
+  await page.route("**/v1/parameter/password-users*", async (route) => {
+    await fulfillJson(route, {
+      items: [
+        {
+          description: "cumulus (cumulus-password)",
+          label: "cumulus",
+          value: "cumulus",
+        },
+        {
+          description: "admin (admin-password)",
+          label: "admin",
+          value: "admin",
+        },
+      ],
+      meta: { matching_device_count: 5, warnings: [] },
+    });
+  });
+
   await page.route("**/v1/parameter/diagnostics/commands*", async (route) => {
     await fulfillJson(route, [
       { description: "Collect interface state", name: "show interface" },
       { description: "Collect LLDP neighbors", name: "show lldp neighbor" },
     ]);
+  });
+
+  await page.route("**/v1/parameter/diagnostics/command-options*", async (route) => {
+    await fulfillJson(route, {
+      items: [
+        {
+          description: "Collect interface state",
+          label: "show interface",
+          value: "show interface",
+        },
+        {
+          description: "Collect LLDP neighbors",
+          label: "show lldp neighbor",
+          value: "show lldp neighbor",
+        },
+      ],
+      meta: { warnings: [] },
+    });
   });
 }
 

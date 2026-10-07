@@ -14,8 +14,9 @@
 # limitations under the License.
 """InfiniBand PKey Partition Creation Workflow."""
 
+from collections.abc import Mapping
 from datetime import timedelta
-from typing import Any
+from typing import Annotated, Any, ClassVar
 
 from nv_config_manager_dcim import (
     DCIMLocationIdentifier,
@@ -36,6 +37,7 @@ from nv_config_manager_workflows.stage import (
     StageOutput,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import FormExcluded
 from nv_config_manager_workflows.workflow_references import OptionalLocationReference
 
 with workflow.unsafe.imports_passed_through():
@@ -88,24 +90,38 @@ class IBPKeyCreationInput(BaseModel):
     DCIM round-trip).
     """
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:globalOptions": {"hideSchemaDescriptions": True},
+        "ui:submitButtonOptions": {"submitText": "Create PKey"},
+        "host": {"ui:title": "UFM Host", "ui:placeholder": "ufm.example.com"},
+        "pkey": {
+            "ui:title": "PKey (optional)",
+            "ui:placeholder": "0x8001 (leave blank to auto-assign)",
+            "ui:help": (
+                "Leave blank to auto-assign the next free PKey; otherwise use 0x followed by "
+                "1-4 hexadecimal digits, for example 0x8001."
+            ),
+        },
+    }
+
     host: str = Field(description="Hostname of the UFM server managing the InfiniBand fabric.")
-    site: OptionalLocationReference = Field(
+    site: Annotated[OptionalLocationReference, FormExcluded()] = Field(
         default=None,
         description="Site used for UFM credential lookup; resolved from the host when omitted.",
     )
-    site_type: DCIMLocationType | None = Field(
+    site_type: Annotated[DCIMLocationType | None, FormExcluded()] = Field(
         default=None, description="DCIM location type for the site identifier."
     )
     pkey: str | None = Field(
         default=None, description="Partition key to create; automatically allocated when omitted."
     )
-    ip_over_ib: bool = Field(
+    ip_over_ib: Annotated[bool, FormExcluded()] = Field(
         default=True, description="Whether IP over InfiniBand is enabled for the partition."
     )
-    pkey_min: int = Field(
+    pkey_min: Annotated[int, FormExcluded()] = Field(
         default=0x0001, description="Lowest partition key eligible for automatic allocation."
     )
-    pkey_max: int = Field(
+    pkey_max: Annotated[int, FormExcluded()] = Field(
         default=0x7FFE, description="Highest partition key eligible for automatic allocation."
     )
 
@@ -150,6 +166,7 @@ class IBPKeyCreationWorkflow(
     """Create an InfiniBand PKey partition on UFM for tenant isolation."""
 
     workflow_name = "InfiniBand PKey Creation"
+    workflow_group = "InfiniBand"
     workflow_description = "Create an InfiniBand PKey partition on UFM for multi-tenant isolation"
     workflow_input_class = IBPKeyCreationInput
     workflow_api_enabled = True

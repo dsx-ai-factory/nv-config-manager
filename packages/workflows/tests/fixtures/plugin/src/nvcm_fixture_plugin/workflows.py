@@ -14,7 +14,9 @@
 # limitations under the License.
 """The fixture plugin's workflows."""
 
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import Annotated, ClassVar
 
 from pydantic import BaseModel
 from temporalio import workflow
@@ -22,13 +24,28 @@ from temporalio import workflow
 from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
 from nv_config_manager_workflows.stage import StageMixin
+from nv_config_manager_workflows.ui import FormSchema, OptionSource, api_options
 from nvcm_fixture_plugin.activities import echo
 
 
 class FixtureInput(BaseModel):
     """Input for the fixture workflows."""
 
-    message: str
+    # A worked form declaration. The ClassVar and the FormSchema marker change
+    # only the /form projection, not the model's JSON Schema or validation, and
+    # registration validates the form as a third-party plugin form.
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:submitButtonOptions": {"submitText": "Echo"},
+        "message": {
+            **api_options(
+                OptionSource("/v1/parameter/tenant", "name", "name", params={"managed_only": True})
+            ),
+            "ui:title": "Tenant",
+            "ui:help": "The workflow echoes the selected tenant name.",
+        },
+    }
+
+    message: Annotated[str, FormSchema(max_length=100)]
 
 
 @workflow.defn

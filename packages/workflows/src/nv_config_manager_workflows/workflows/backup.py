@@ -15,8 +15,10 @@
 """Network Device Backup Workflow Definition."""
 
 import asyncio
+from collections.abc import Mapping
 from datetime import timedelta
 from enum import StrEnum
+from typing import Annotated, ClassVar
 
 from pydantic import Field
 from temporalio import workflow
@@ -33,7 +35,9 @@ from nv_config_manager_workflows.stage import (
     StageWorkflowInput,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import FormExcluded, FormSchema, ServerOwned, device_field
 from nv_config_manager_workflows.workflow_references import DeviceReference
+from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.backup import (
@@ -88,19 +92,35 @@ UNATTENDED_TRIGGERS = frozenset({TriggerEnum.SCHEDULED, TriggerEnum.SYSLOG})
 class BackupInput(StageWorkflowInput):
     """Backup Workflow Input Definiton."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "device_id": {
+            **device_field(MANAGED_DEVICE_SOURCE, filters=("site", "tenant", "status")),
+            "ui:title": "Device",
+        },
+        "trigger": {"ui:widget": "hidden"},
+    }
+
+    terminate_on_failure: Annotated[bool, FormExcluded()] = Field(
+        default=False,
+        description="Terminate the workflow instead of waiting to retry a failed stage.",
+    )
     device_id: DeviceReference = Field(description="Identifier of the network device to back up.")
-    trigger: TriggerEnum = Field(description="Reason the backup workflow was started.")
-    user: str | None = Field(default=None, description="User that requested the backup.")
-    user_domain: str | None = Field(
+    trigger: Annotated[TriggerEnum, FormSchema(default=TriggerEnum.API)] = Field(
+        description="Reason the backup workflow was started."
+    )
+    user: Annotated[str | None, ServerOwned()] = Field(
+        default=None, description="User that requested the backup."
+    )
+    user_domain: Annotated[str | None, ServerOwned()] = Field(
         default=None, description="Domain of the user requesting the backup."
     )
-    workflow_id: str | None = Field(
+    workflow_id: Annotated[str | None, FormExcluded()] = Field(
         default=None, description="Identifier of the parent workflow, if any."
     )
-    intended_config_commit_id: str | None = Field(
+    intended_config_commit_id: Annotated[str | None, FormExcluded()] = Field(
         default=None, description="Config Store commit containing the intended configuration."
     )
-    suppress_drift_notification: bool = Field(
+    suppress_drift_notification: Annotated[bool, FormExcluded()] = Field(
         default=False,
         description="Suppress the Slack notification when configuration drift is detected.",
     )
@@ -112,6 +132,7 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
 
     # Workflow metadata
     workflow_name = "Configuration Backup"
+    workflow_group = "Configuration"
     workflow_description = (
         "Backup network device configuration to the Config Store and NVIDIA Config Manager plugin"
     )

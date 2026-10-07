@@ -1,0 +1,295 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nvidia:nv-config-manager:workflow-form:v1",
+  "title": "NVIDIA Config Manager workflow form v1",
+  "description": "The version 1 response of GET /v1/workflow/{name}/form. schema is the form projection of the workflow input model's JSON Schema, ui_schema is the supported subset of an RJSF uiSchema, and requires lists the capabilities a UI must support before it renders the form. Model-aware references are checked when the workflow registry builds.",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "description": "Form projection of the input model's Pydantic JSON Schema, passed to RJSF as schema.",
+      "type": "object"
+    },
+    "ui_schema": { "$ref": "#/$defs/uiSchema" },
+    "ui_schema_version": { "const": 1 },
+    "requires": {
+      "description": "Capabilities this form uses. Deliberately open: an unknown entry makes an older UI show its unsupported state instead of rendering.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/nonBlankString" },
+      "uniqueItems": true
+    },
+    "ui_component": {
+      "description": "Name of a first-party form component, or null for the schema-driven form.",
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/nonBlankString" }]
+    }
+  },
+  "required": ["schema", "ui_schema", "ui_schema_version", "requires", "ui_component"],
+  "$defs": {
+    "nonBlankString": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "propertyName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "scalarValue": {
+      "type": ["string", "number", "boolean"]
+    },
+    "optionParamValue": {
+      "description": "A static query parameter; a list becomes a repeated parameter.",
+      "oneOf": [
+        { "$ref": "#/$defs/scalarValue" },
+        { "type": "array", "items": { "$ref": "#/$defs/scalarValue" } }
+      ]
+    },
+    "queryAliases": {
+      "description": "Already-shipped URL query-parameter aliases, emitted only from the server's central compatibility map.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/nonBlankString" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "dependency": {
+      "description": "A sibling form property whose value supplies one option query parameter. A required dependency holds the request while empty; an optional one is omitted while empty.",
+      "type": "object",
+      "properties": {
+        "field": { "$ref": "#/$defs/propertyName" },
+        "required": { "const": false }
+      },
+      "required": ["field"],
+      "additionalProperties": false
+    },
+    "optionSource": {
+      "description": "Where a core field loads its options. endpoint is a path relative to the workflow API origin; a whole {property} path segment is filled from that sibling property and is a required dependency.",
+      "type": "object",
+      "properties": {
+        "endpoint": { "type": "string", "pattern": "^/(?!/)[^?#\\\\\\s]*$" },
+        "label_key": { "$ref": "#/$defs/nonBlankString" },
+        "value_key": { "$ref": "#/$defs/nonBlankString" },
+        "type_key": { "$ref": "#/$defs/nonBlankString" },
+        "params": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/optionParamValue" }
+        },
+        "depends_on": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/dependency" }
+        },
+        "clear_on_change": { "const": true },
+        "response": { "const": "options-v1" }
+      },
+      "required": ["endpoint", "label_key", "value_key"],
+      "additionalProperties": false
+    },
+    "apiOptionsOptions": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "allOf": [{ "$ref": "#/$defs/optionSource" }, { "not": { "required": ["type_key"] } }]
+        },
+        "presentation": { "enum": ["select", "grouped-checkboxes"] },
+        "selectAll": { "const": true },
+        "showDescriptions": { "const": true },
+        "metaText": {
+          "type": "object",
+          "properties": {
+            "key": { "const": "matching_device_count" },
+            "label": { "$ref": "#/$defs/nonBlankString" }
+          },
+          "required": ["key", "label"],
+          "additionalProperties": false
+        },
+        "queryAliases": { "$ref": "#/$defs/queryAliases" }
+      },
+      "required": ["source"],
+      "additionalProperties": false
+    },
+    "locationOptions": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "allOf": [
+            { "$ref": "#/$defs/optionSource" },
+            { "not": { "required": ["response"] } }
+          ]
+        },
+        "typeField": { "$ref": "#/$defs/propertyName" },
+        "queryAliases": { "$ref": "#/$defs/queryAliases" }
+      },
+      "required": ["source"],
+      "additionalProperties": false
+    },
+    "deviceOptions": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "allOf": [
+            { "$ref": "#/$defs/optionSource" },
+            { "not": { "required": ["type_key"] } },
+            { "not": { "required": ["depends_on"] } },
+            { "not": { "required": ["response"] } }
+          ]
+        },
+        "filters": {
+          "type": "array",
+          "items": { "enum": ["site", "tenant", "status"] },
+          "uniqueItems": true
+        },
+        "siteRequired": { "type": "boolean" },
+        "siteField": { "$ref": "#/$defs/propertyName" },
+        "filterScope": { "$ref": "#/$defs/nonBlankString" },
+        "queryParam": { "$ref": "#/$defs/nonBlankString" },
+        "queryAliases": { "$ref": "#/$defs/queryAliases" }
+      },
+      "required": ["source", "filters", "siteRequired", "filterScope"],
+      "additionalProperties": false
+    },
+    "standardOptions": {
+      "type": "object",
+      "properties": {
+        "rows": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "variantRowsStaticOption": {
+      "type": "object",
+      "properties": {
+        "label": { "$ref": "#/$defs/nonBlankString" },
+        "value": { "$ref": "#/$defs/nonBlankString" }
+      },
+      "required": ["label", "value"],
+      "additionalProperties": false
+    },
+    "variantRowsField": {
+      "type": "object",
+      "properties": {
+        "property": { "$ref": "#/$defs/propertyName" },
+        "key": { "$ref": "#/$defs/propertyName" },
+        "label": { "$ref": "#/$defs/nonBlankString" },
+        "kind": { "enum": ["text", "select"] },
+        "placeholder": { "$ref": "#/$defs/nonBlankString" },
+        "required": { "type": "boolean" },
+        "pattern": { "type": "string" },
+        "options": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/variantRowsStaticOption" },
+          "minItems": 1
+        }
+      },
+      "required": ["property", "label", "kind"],
+      "additionalProperties": false
+    },
+    "variantRowsVariant": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/propertyName" },
+        "label": { "$ref": "#/$defs/nonBlankString" },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/variantRowsField" },
+          "minItems": 1
+        }
+      },
+      "required": ["id", "label", "fields"],
+      "additionalProperties": false
+    },
+    "variantRowsOptions": {
+      "type": "object",
+      "properties": {
+        "owns": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/propertyName" },
+          "minItems": 2,
+          "uniqueItems": true
+        },
+        "variants": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/variantRowsVariant" },
+          "minItems": 2
+        },
+        "minimumRows": { "type": "integer", "minimum": 1 },
+        "clearInactive": { "const": true },
+        "warning": { "$ref": "#/$defs/nonBlankString" }
+      },
+      "required": ["owns", "variants", "minimumRows", "clearInactive"],
+      "additionalProperties": false
+    },
+    "fieldUiSchema": {
+      "type": "object",
+      "properties": {
+        "ui:title": { "$ref": "#/$defs/nonBlankString" },
+        "ui:help": { "$ref": "#/$defs/nonBlankString" },
+        "ui:description": { "$ref": "#/$defs/nonBlankString" },
+        "ui:placeholder": { "$ref": "#/$defs/nonBlankString" },
+        "ui:widget": { "enum": ["hidden", "text", "textarea", "checkbox", "select"] },
+        "ui:field": { "enum": ["apiOptions", "device", "location", "variantRows"] },
+        "ui:readonly": { "type": "boolean" },
+        "ui:options": { "type": "object" }
+      },
+      "additionalProperties": false,
+      "not": { "required": ["ui:widget", "ui:field"] },
+      "allOf": [
+        {
+          "if": { "required": ["ui:field"], "properties": { "ui:field": { "const": "apiOptions" } } },
+          "then": {
+            "required": ["ui:options"],
+            "properties": { "ui:options": { "$ref": "#/$defs/apiOptionsOptions" } }
+          }
+        },
+        {
+          "if": { "required": ["ui:field"], "properties": { "ui:field": { "const": "location" } } },
+          "then": {
+            "required": ["ui:options"],
+            "properties": { "ui:options": { "$ref": "#/$defs/locationOptions" } }
+          }
+        },
+        {
+          "if": { "required": ["ui:field"], "properties": { "ui:field": { "const": "device" } } },
+          "then": {
+            "required": ["ui:options"],
+            "properties": { "ui:options": { "$ref": "#/$defs/deviceOptions" } }
+          }
+        },
+        {
+          "if": {
+            "required": ["ui:field"],
+            "properties": { "ui:field": { "const": "variantRows" } }
+          },
+          "then": {
+            "required": ["ui:options"],
+            "properties": { "ui:options": { "$ref": "#/$defs/variantRowsOptions" } }
+          }
+        },
+        {
+          "if": { "not": { "required": ["ui:field"] } },
+          "then": { "properties": { "ui:options": { "$ref": "#/$defs/standardOptions" } } }
+        }
+      ]
+    },
+    "uiSchema": {
+      "description": "The supported subset of an RJSF uiSchema: root options plus one entry per top-level schema property.",
+      "type": "object",
+      "properties": {
+        "ui:order": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonBlankString" },
+          "uniqueItems": true
+        },
+        "ui:submitButtonOptions": {
+          "type": "object",
+          "properties": { "submitText": { "$ref": "#/$defs/nonBlankString" } },
+          "additionalProperties": false
+        },
+        "ui:globalOptions": {
+          "type": "object",
+          "properties": { "hideSchemaDescriptions": { "type": "boolean" } },
+          "additionalProperties": false
+        }
+      },
+      "patternProperties": {
+        "^[A-Za-z_][A-Za-z0-9_]*$": { "$ref": "#/$defs/fieldUiSchema" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

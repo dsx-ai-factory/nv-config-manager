@@ -14,7 +14,9 @@
 # limitations under the License.
 """InfiniBand PKey Member Delete Workflow."""
 
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from temporalio import workflow
@@ -28,6 +30,7 @@ from nv_config_manager_workflows.stage import (
     StageOutput,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import FormSchema, variant_rows
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.ib_pkey import (
@@ -75,8 +78,63 @@ class IBPKeyMemberDeleteInput(BaseModel):
     server-side from ``host`` and ``pkey``.
     """
 
-    host: str = Field(description="Hostname of the UFM server managing the InfiniBand fabric.")
-    pkey: str = Field(description="Partition key whose members will be removed.")
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:order": ["host", "pkey", "interfaces", "guids"],
+        "ui:submitButtonOptions": {"submitText": "Remove Members"},
+        "ui:globalOptions": {"hideSchemaDescriptions": True},
+        "host": {"ui:title": "UFM Host", "ui:placeholder": "ufm.example.com"},
+        "pkey": {"ui:title": "PKey", "ui:placeholder": "0x8001"},
+        "interfaces": variant_rows(
+            owns=["interfaces", "guids"],
+            variants=[
+                {
+                    "id": "interfaces",
+                    "label": "By Interfaces",
+                    "fields": [
+                        {
+                            "property": "interfaces",
+                            "key": "device",
+                            "label": "Device",
+                            "kind": "text",
+                            "placeholder": "device (e.g. hca01)",
+                            "required": True,
+                        },
+                        {
+                            "property": "interfaces",
+                            "key": "interface",
+                            "label": "Interface",
+                            "kind": "text",
+                            "placeholder": "interface (e.g. mlx5_0)",
+                            "required": True,
+                        },
+                    ],
+                },
+                {
+                    "id": "guids",
+                    "label": "By GUIDs",
+                    "fields": [
+                        {
+                            "property": "guids",
+                            "label": "GUID",
+                            "kind": "text",
+                            "placeholder": "0x0011223344556677",
+                            "required": True,
+                            "pattern": r"^0[xX][0-9a-fA-F]{16}$",
+                        }
+                    ],
+                },
+            ],
+        ),
+        "guids": {"ui:widget": "hidden"},
+    }
+
+    host: Annotated[str, FormSchema(min_length=1)] = Field(
+        description="Hostname of the UFM server managing the InfiniBand fabric."
+    )
+    pkey: Annotated[
+        str,
+        FormSchema(pattern=r"^\s*0[xX][0-9a-fA-F]{1,4}\s*$"),
+    ] = Field(description="Partition key whose members will be removed.")
     interfaces: list[InterfaceRef] = Field(
         default=[], description="DCIM interfaces to resolve to InfiniBand port GUIDs."
     )
@@ -115,6 +173,7 @@ class IBPKeyMemberDeleteWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
     """Remove device interface GUIDs from an existing IB PKey partition."""
 
     workflow_name = "InfiniBand PKey Member Delete"
+    workflow_group = "InfiniBand"
     workflow_description = "Remove device interfaces from an existing InfiniBand PKey partition"
     workflow_input_class = IBPKeyMemberDeleteInput
     workflow_api_enabled = True

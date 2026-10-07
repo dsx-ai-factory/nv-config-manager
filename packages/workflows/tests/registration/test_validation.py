@@ -732,6 +732,15 @@ class TestDeclaredMetadata:
         with pytest.raises(WorkflowRegistrationError, match="which is not a bool"):
             validate_plugins(installed(alpha_plugin()))
 
+    @pytest.mark.parametrize("declared", [42, "", "   "])
+    def test_workflow_group_must_be_a_non_empty_string(
+        self, monkeypatch: pytest.MonkeyPatch, declared: Any
+    ) -> None:
+        monkeypatch.setattr(AlphaWorkflow, "workflow_group", declared)
+
+        with pytest.raises(WorkflowRegistrationError, match="workflow_group"):
+            validate_plugins(installed(alpha_plugin()))
+
     @pytest.mark.parametrize("declared", ["config/alpha", "/config alpha", "/config/alpha\n"])
     def test_endpoint_must_be_a_path_the_router_can_serve(
         self, monkeypatch: pytest.MonkeyPatch, declared: str

@@ -42,6 +42,7 @@ class DeviceBackupWorkflow(WorkflowMetadataMixin):
     workflow_input_class = WorkflowInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/backup"
+    workflow_group = "Configuration"
     workflow_required_activities = (collect_facts,)
 
 
@@ -49,6 +50,7 @@ def test_metadata_defaults_fail_closed() -> None:
     assert not WorkflowMetadataMixin.workflow_api_enabled
     assert not WorkflowMetadataMixin.workflow_mcp_enabled
     assert WorkflowMetadataMixin.workflow_api_endpoint is None
+    assert WorkflowMetadataMixin.get_workflow_group() is None
     assert WorkflowMetadataMixin.get_workflow_required_activities() == ()
 
 
@@ -71,6 +73,7 @@ def test_metadata_accessors_read_subclass_declarations() -> None:
     assert DeviceBackupWorkflow.get_workflow_input_class() is WorkflowInput
     assert DeviceBackupWorkflow.get_workflow_api_enabled()
     assert DeviceBackupWorkflow.get_workflow_api_endpoint() == "/backup"
+    assert DeviceBackupWorkflow.get_workflow_group() == "Configuration"
     assert DeviceBackupWorkflow.get_workflow_required_activities() == (collect_facts,)
     assert DeviceBackupWorkflow.get_workflow_cli_name() == "device-backup"
 
@@ -86,6 +89,19 @@ def test_workflow_lock_accessor_reads_subclass_declaration() -> None:
 
 def test_workflow_lock_is_absent_by_default() -> None:
     assert WorkflowMetadataMixin.get_workflow_lock() is None
+
+
+def test_ui_component_is_absent_by_default() -> None:
+    assert WorkflowMetadataMixin.workflow_ui_component is None
+    assert WorkflowMetadataMixin.get_workflow_ui_component() is None
+    assert DeviceBackupWorkflow.get_workflow_ui_component() is None
+
+
+def test_ui_component_accessor_reads_subclass_declaration() -> None:
+    class TenantDeployWorkflow(WorkflowMetadataMixin):
+        workflow_ui_component = "tenant-deploy"
+
+    assert TenantDeployWorkflow.get_workflow_ui_component() == "tenant-deploy"
 
 
 def test_missing_name_is_reported_by_the_accessor() -> None:

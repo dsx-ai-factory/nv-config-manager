@@ -1,0 +1,274 @@
+{
+  "slug": "deployworkflow",
+  "workflow": "DeployWorkflow",
+  "input_model": "DeployInput",
+  "python_module": "nv_config_manager_workflows.workflows.deploy",
+  "api_endpoint": "/v1/workflow/ngc/deploy",
+  "legacy_route": "/workflows/deployworkflow/form",
+  "components": [
+    "ui/src/app/workflows/deployworkflow/form/page.tsx:28",
+    "ui/src/components/forms/workflow.tsx:144",
+    "ui/src/components/forms/formfield.tsx:60",
+    "ui/src/components/ui/selectbox.tsx:78",
+    "ui/src/hooks/useEnvData.ts:25",
+    "ui/src/hooks/useDevices.ts:36",
+    "ui/src/lib/location-options.ts:25",
+    "ui/src/lib/utils.tsx:153",
+    "ui/src/components/forms/workflow.tsx:385"
+  ],
+  "playwright_specs": [
+    "ui/tests/e2e/deployWorkflowForm.spec.ts",
+    "ui/tests/e2e/shared/workflowFormTests.ts"
+  ],
+  "nautobot_links": [
+    {
+      "template": "components/nautobot/nautobot-nv-config-manager/nv_config_manager/templates/nv_config_manager/configmanagerdevicestatus_workflows_tab.html:46",
+      "query_params": [
+        "site",
+        "device-id"
+      ]
+    },
+    {
+      "template": "components/nautobot/nautobot-nv-config-manager/nv_config_manager/templates/nv_config_manager/inc/pending_deployment.html:5",
+      "query_params": [
+        "site",
+        "device-id"
+      ]
+    }
+  ],
+  "fields": [
+    {
+      "name": "site",
+      "python_field": null,
+      "schema_type": null,
+      "required_in_schema": false,
+      "required_in_ui": true,
+      "label": "Site",
+      "description": null,
+      "schema_title": null,
+      "schema_description": null,
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "combobox",
+      "proposed_widget": null,
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/location",
+        "params": {
+          "location_type": [
+            "Site",
+            "Module"
+          ]
+        },
+        "depends_on": {},
+        "label_key": "name",
+        "value_key": "id",
+        "notes": "useEnvData requests /v1/parameter/location?location_type=Site&location_type=Module (ui/src/hooks/useEnvData.ts:34-41); the repeated location_type key is an array, which v1 OptionSource.params (scalar values only) cannot express. Rows are mapped by mapLocationOptions (ui/src/lib/location-options.ts:25-36): label = name, value = 'dcim-location:' + JSON [location_type, id] when the row has a location_type, otherwise the bare id. The encoded value is UI-only and is decoded back to id + location_type before use (ui/src/lib/location-options.ts:39-59)."
+      },
+      "query_param": "site",
+      "query_param_normalization": "Single value (searchParams.get('site'), ui/src/components/forms/workflow.tsx:165). Once location options load it is resolved by resolveLocationFormValue against option value (encoded), provider id, or display name; the first match wins (ui/src/lib/location-options.ts:62-77). An unmatched value clears site and device (ui/src/components/forms/workflow.tsx:228-246). Not re-applied after a manual site change. Nautobot sends the location name.",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "Required: z.string().trim().min(1) 'Site is required' (ui/src/components/forms/workflow.tsx:41).",
+        "Changing or clearing site clears device (ui/src/components/forms/workflow.tsx:264-268, 302-312).",
+        "Site control disabled while device options load (ui/src/components/forms/workflow.tsx:334)."
+      ],
+      "submit_transform": "Not submitted. UI-only filter feeding the device option request."
+    },
+    {
+      "name": "tenant",
+      "python_field": null,
+      "schema_type": null,
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": "Tenant (optional)",
+      "description": null,
+      "schema_title": null,
+      "schema_description": null,
+      "ui_default": [],
+      "schema_default": null,
+      "widget_today": "multiselect",
+      "proposed_widget": null,
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/tenant",
+        "params": {
+          "managed_only": "true"
+        },
+        "depends_on": {},
+        "label_key": "name",
+        "value_key": "name",
+        "notes": "useEnvData (ui/src/hooks/useEnvData.ts:65-74, 96-99) via mapRoles(data, 'name', 'name') (ui/src/lib/utils.tsx:200-214)."
+      },
+      "query_param": "tenant",
+      "query_param_normalization": "Multi-value (searchParams.getAll('tenant').filter(Boolean), ui/src/components/forms/workflow.tsx:167-170). After tenant options load, only values equal to an option value (tenant name) are kept; unknown values are dropped (ui/src/components/forms/workflow.tsx:279-288). Re-applied when the query string changes; suppressed after a manual change.",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "Changing tenant clears device (ui/src/components/forms/workflow.tsx:90-99)."
+      ],
+      "submit_transform": "Not submitted. Each selected value is sent as a repeated tenant= query parameter on the device option request (ui/src/components/forms/workflow.tsx:206-208)."
+    },
+    {
+      "name": "status",
+      "python_field": null,
+      "schema_type": null,
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": "Status (optional)",
+      "description": null,
+      "schema_title": null,
+      "schema_description": null,
+      "ui_default": [],
+      "schema_default": null,
+      "widget_today": "multiselect",
+      "proposed_widget": null,
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/status",
+        "params": {
+          "content_type": "dcim.device"
+        },
+        "depends_on": {},
+        "label_key": "name",
+        "value_key": "name",
+        "notes": "useEnvData (ui/src/hooks/useEnvData.ts:54-63, 92-95) via mapRoles(data, 'name', 'name')."
+      },
+      "query_param": "status",
+      "query_param_normalization": "Multi-value (searchParams.getAll('status').filter(Boolean), ui/src/components/forms/workflow.tsx:171-174). After status options load, only values equal to an option value (status name) are kept (ui/src/components/forms/workflow.tsx:291-300). Re-applied when the query string changes; suppressed after a manual change.",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "Changing status clears device (ui/src/components/forms/workflow.tsx:130-139)."
+      ],
+      "submit_transform": "Not submitted. Each selected value is sent as a repeated status= query parameter on the device option request (ui/src/components/forms/workflow.tsx:209-211)."
+    },
+    {
+      "name": "device_id",
+      "python_field": "device_id",
+      "schema_type": "string (DeviceReference)",
+      "required_in_schema": true,
+      "required_in_ui": true,
+      "label": "Device",
+      "description": null,
+      "schema_title": "Device Id",
+      "schema_description": "Identifier of the network device to configure.",
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "combobox",
+      "proposed_widget": "device_reference",
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/device",
+        "params": {
+          "managed_only": "true"
+        },
+        "depends_on": {
+          "site": "site",
+          "tenant": "tenant",
+          "status": "status"
+        },
+        "label_key": "name",
+        "value_key": "id",
+        "notes": "Query built in ui/src/components/forms/workflow.tsx:205-218 and ui/src/hooks/useDevices.ts:43-51. Final order: managed_only=true, one tenant= per selected tenant, one status= per selected status, then site=<decoded location id> and site_type=<decoded location_type> (site_type only when the encoded option carries a type). site/tenant/status are UI-only form fields, not model fields. Not fetched while site is empty (ui/src/hooks/useDevices.ts:53-56). Rows map to {key: name, value: id, platform} (ui/src/hooks/useDevices.ts:59-61). The server requires one site_type per site when site_type is sent (src/nv_config_manager/temporal/api/parameter_v1.py:253-257)."
+      },
+      "query_param": "device-id",
+      "query_param_normalization": "Single value (searchParams.get('device-id'), ui/src/components/forms/workflow.tsx:166). Accepted only once loaded device options contain an option whose value (device id) equals it; otherwise device is cleared (ui/src/components/forms/workflow.tsx:248-262). Suppressed after a manual device change. The form field is named 'device', the query parameter 'device-id', and the payload key 'device_id'.",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "Required: z.string().trim().min(1) 'Device is required' (ui/src/components/forms/workflow.tsx:44).",
+        "Choices limited to NVCM-managed devices (managed_only=true) at the selected site/tenant/status (ui/src/components/forms/workflow.tsx:212-218); the schema accepts any device id the DCIM provider resolves (src/nv_config_manager/temporal/api/workflow_submission.py:62-90)."
+      ],
+      "submit_transform": "Form value 'device' is renamed to 'device_id' (ui/src/app/workflows/deployworkflow/form/page.tsx:33)."
+    },
+    {
+      "name": "commit_confirm",
+      "python_field": "commit_confirm",
+      "schema_type": "boolean",
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": "Use commit-confirm",
+      "description": "Rollback if device becomes unreachable after apply. Disable for changes that are expected to interrupt connectivity.",
+      "schema_title": "Commit Confirm",
+      "schema_description": "Whether to use commit-confirmed mode when the platform supports it.",
+      "ui_default": true,
+      "schema_default": true,
+      "widget_today": "checkbox",
+      "proposed_widget": null,
+      "options": null,
+      "query_param": null,
+      "query_param_normalization": null,
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [],
+      "submit_transform": "data.commit_confirm ?? true (ui/src/app/workflows/deployworkflow/form/page.tsx:34)."
+    }
+  ],
+  "payload_transform": "onSubmit (ui/src/app/workflows/deployworkflow/form/page.tsx:30-44) builds {device_id: data.device, commit_confirm: data.commit_confirm ?? true} in that key order and calls startWorkflow('/v1/workflow/ngc/deploy', params) (ui/src/lib/utils.tsx:153-184), navigating to /workflows/{id} on success. On error it shows the toast 'Failed to create workflow: <error>' and rethrows. The commit-confirm checkbox appears only because the page passes showCommitConfirm (ui/src/app/workflows/deployworkflow/form/page.tsx:50; ui/src/components/forms/workflow.tsx:385-408). site, tenant and status are dropped. deployWorkflowForm.spec.ts:55-58 asserts the exact body (commit_confirm true only).",
+  "discrepancies": [
+    "Only NVCM-managed devices (managed_only=true) can be chosen. The schema has no such restriction.",
+    "commit_confirm defaults match (true), but no Playwright test unchecks the box, so commit_confirm: false is not covered.",
+    "Nautobot links do not URL-encode site (configmanagerdevicestatus_workflows_tab.html:46; inc/pending_deployment.html:5). The pending-deployment Deploy link's icon title reads 'Run Backup Workflow' (inc/pending_deployment.html:6). Nautobot link values: site = device location name, device-id = Nautobot device pk (components/nautobot/nautobot-nv-config-manager/nv_config_manager/views.py:189-192, 206-210, 260-264, 283-286; components/nautobot/nautobot-nv-config-manager/nv_config_manager/tables.py:45-53, 84-93).",
+    "Playwright never exercises tenant/status URL prefill or encoded location values (ui/src/mocks/data/formData.ts:26-39)."
+  ],
+  "contract_gaps": [
+    "site, tenant and status are UI-only filter fields with no model field. v1 UiHint is keyed by model field, so it cannot describe them. v1 only works if the device_reference widget embeds the site picker and optional tenant/status filters itself. The contract does not define device_reference's sub-controls, the managed_only=true device filter, or the filter option endpoints.",
+    "UiHint.query_param holds one name per field, but this form prefills the one submitted field (device_id) from site, device-id, tenant and status.",
+    "Query normalization cannot be expressed: site is matched against option value, id or name; tenant and status are repeated multi-value params filtered against loaded options; device-id is checked against loaded options and cleared if missing.",
+    "OptionSource.params is scalar-only, but the location source needs the repeated location_type=Site&location_type=Module.",
+    "The location option value is a UI-encoded composite (dcim-location:[location_type,id]) that is decoded into two query params (site and site_type) for /v1/parameter/device. A single value_key or a {query_param: field} depends_on entry cannot express this.",
+    "depends_on values for tenant and status are arrays sent as repeated query params. v1 does not define how array values are serialized.",
+    "Device options are not fetched until site is set (required dependency), while tenant and status are optional dependencies. v1 depends_on cannot mark a dependency as required or gate the fetch on it.",
+    "Changing site, tenant or status clears device, so the generic form needs explicit clear-on-dependency-change behavior."
+  ],
+  "contract_shape": "cascade",
+  "v1_support": "generic",
+  "named_component_reason": null,
+  "sources": [
+    "ui/src/app/workflows/deployworkflow/form/page.tsx:28-55",
+    "packages/workflows/src/nv_config_manager_workflows/workflows/deploy.py:105-125",
+    "ui/src/components/forms/workflow.tsx:385-408",
+    "ui/tests/e2e/deployWorkflowForm.spec.ts:28-231",
+    "ui/tests/e2e/shared/workflowFormTests.ts:30-319",
+    "components/nautobot/nautobot-nv-config-manager/nv_config_manager/templates/nv_config_manager/configmanagerdevicestatus_workflows_tab.html:42-55",
+    "components/nautobot/nautobot-nv-config-manager/nv_config_manager/templates/nv_config_manager/inc/pending_deployment.html:1-13",
+    "components/nautobot/nautobot-nv-config-manager/nv_config_manager/tables.py:41-55",
+    "components/nautobot/nautobot-nv-config-manager/nv_config_manager/views.py:196-211",
+    "components/nautobot/nautobot-nv-config-manager/nv_config_manager/views.py:248-266",
+    "ui/src/components/forms/workflow.tsx:40-46",
+    "ui/src/components/forms/workflow.tsx:164-185",
+    "ui/src/components/forms/workflow.tsx:191-199",
+    "ui/src/components/forms/workflow.tsx:205-224",
+    "ui/src/components/forms/workflow.tsx:228-300",
+    "ui/src/components/forms/workflow.tsx:302-355",
+    "ui/src/components/forms/workflow.tsx:369-384",
+    "ui/src/components/forms/formfield.tsx:76-98",
+    "ui/src/components/ui/selectbox.tsx:78-90",
+    "ui/src/hooks/useEnvData.ts:30-41",
+    "ui/src/hooks/useEnvData.ts:54-74",
+    "ui/src/hooks/useEnvData.ts:89-99",
+    "ui/src/hooks/useDevices.ts:36-65",
+    "ui/src/lib/location-options.ts:21-77",
+    "ui/src/lib/utils.tsx:153-184",
+    "ui/src/lib/utils.tsx:200-214",
+    "src/nv_config_manager/temporal/api/parameter_v1.py:82-99",
+    "src/nv_config_manager/temporal/api/parameter_v1.py:236-299",
+    "src/nv_config_manager/temporal/api/dynamic_endpoints.py:56-90",
+    "src/nv_config_manager/temporal/api/workflow_submission.py:46-90",
+    "packages/workflows/src/nv_config_manager_workflows/workflow_references.py:45-49",
+    "packages/workflows/src/nv_config_manager_workflows/workflow_references.py:75-82",
+    "ui/src/config/site.ts:36-160",
+    "ui/src/mocks/data/formData.ts:26-39"
+  ]
+}

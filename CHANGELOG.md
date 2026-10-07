@@ -8,6 +8,31 @@ version before the selected release candidate is promoted.
 
 ## Unreleased
 
+### Added
+
+- Added `GET /v1/workflow/{name}/form`, which returns a version 1 form envelope
+  for an API workflow: a form projection of its input schema (`schema`), a
+  validated RJSF `ui_schema`, `ui_schema_version`, the UI capabilities the form
+  `requires`, and an optional first-party `ui_component`.
+- Workflow plugins can declare launcher forms on their input models with an
+  `rjsf_ui_schema` class variable, the `api_options`, `device_field`, and
+  `location_field` core-field helpers, and the `ServerOwned`, `FormExcluded`,
+  and `FormSchema` field markers from `nv_config_manager_workflows.ui`. See the
+  workflows package README.
+- Form declarations are validated when the workflow registry is built. An
+  invalid built-in form fails startup. An invalid third-party plugin form keeps
+  the workflow and its API endpoint available: `/form` returns HTTP 503 with
+  error code `workflow_form_unavailable` and the plugin's diagnostic, and the
+  launcher shows that diagnostic.
+
+### Changed
+
+- Workflow launcher forms are rendered with RJSF from the `/form` envelope.
+  The UI shows a "needs a newer UI" state for a form version or capability it
+  does not support, instead of rendering a partial form. Workflow input request
+  schemas are unchanged: form declarations do not affect API request bodies,
+  MCP tool schemas, generated clients, or input validation.
+
 ### Fixed
 
 - Render consumers on bundled NATS now re-create their stream when it is

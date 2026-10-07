@@ -172,11 +172,12 @@ export const startWorkflow = async (endpoint: string, params: object) => {
     if (!response.ok) {
       const result = await response.json();
       const message = result.error ?? result.detail;
-      if (message) {
-        throw new Error(String(message));
-      } else {
-        throw new Error("Failed to submit workflow.");
-      }
+      // The status and raw `detail` ride along so a form can map FastAPI/Pydantic 422
+      // details to fields; the message (and String(error)) is unchanged.
+      throw Object.assign(
+        new Error(message ? String(message) : "Failed to submit workflow."),
+        { status: response.status, detail: result.detail as unknown }
+      );
     }
     const result = await response.json();
     globalThis.location.href = `/workflows/${result.id}`;

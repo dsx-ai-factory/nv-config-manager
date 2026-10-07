@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 import { expect } from "@playwright/test";
+import { mockServerCatalogAndUser } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT, WORKFLOW_DETAILS_TIMEOUT } from "./shared/utils";
 
 const FORM_TITLE = "New InfiniBand PKey Member Add Workflow";
-const FORM_PATH = "/workflows/ibpkeymemberaddworkflow/form";
+const FORM_PATH = "/workflows/new/IBPKeyMemberAddWorkflow";
 const ENDPOINT = "/v1/workflow/ngc/ib_pkey_member_add";
 
 const GUID_A = "0x0011223344556677";
@@ -26,6 +27,7 @@ const GUID_B = "0x8899aabbccddeeff";
 
 test.describe("IB PKey Member Add Form", () => {
   test.beforeEach(async ({ page }) => {
+    await mockServerCatalogAndUser(page, ["executor"]);
     await page.goto(FORM_PATH);
   });
 
@@ -35,9 +37,15 @@ test.describe("IB PKey Member Add Form", () => {
     ).toBeVisible({ timeout: TEST_TIMEOUT });
   });
 
-  test("validates required host, pkey, and at least one interface row", async ({
+  test("validates required host, pkey, and at least one member row", async ({
     page,
   }) => {
+    const posts: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST" && request.url().includes(ENDPOINT)) {
+        posts.push(request.url());
+      }
+    });
     await page.getByRole("button", { name: "Add Members" }).click();
     await expect(page.getByText("Host is required")).toBeVisible({
       timeout: TEST_TIMEOUT,
@@ -46,8 +54,9 @@ test.describe("IB PKey Member Add Form", () => {
       timeout: TEST_TIMEOUT,
     });
     await expect(
-      page.getByText("Add at least one device/interface row"),
+      page.getByText("At least 1 row is required."),
     ).toBeVisible({ timeout: TEST_TIMEOUT });
+    expect(posts).toEqual([]);
   });
 
   test("rejects malformed pkey inline", async ({ page }) => {
@@ -55,7 +64,7 @@ test.describe("IB PKey Member Add Form", () => {
     await page.getByLabel("PKey").fill("0xZZZZ");
     await page.getByRole("button", { name: "Add Members" }).click();
     await expect(
-      page.getByText(/PKey must match 0x \+ 1-4 hex digits/i),
+      page.getByText(/must match pattern/i),
     ).toBeVisible({ timeout: TEST_TIMEOUT });
   });
 
@@ -67,7 +76,7 @@ test.describe("IB PKey Member Add Form", () => {
 
     await page.getByRole("button", { name: "Add Members" }).click();
 
-    await expect(page.getByText("Select a membership type")).toBeVisible({
+    await expect(page.getByText("Membership Type is required in row 1.")).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
   });
@@ -82,7 +91,7 @@ test.describe("IB PKey Member Add Form", () => {
     await page.getByPlaceholder("device (e.g. hca01)").fill("hca01");
     await page.getByPlaceholder("interface (e.g. mlx5_0)").fill("mlx5_0");
 
-    await page.getByLabel("Membership for interface row 1").click();
+    await page.getByLabel("Membership Type for row 1").click();
     await page.getByRole("option", { name: "full" }).click();
 
     await page.getByRole("button", { name: "Add Members" }).click();
@@ -115,12 +124,12 @@ test.describe("IB PKey Member Add Form", () => {
     await expect(page.getByPlaceholder("device (e.g. hca01)")).toHaveCount(0);
 
     await page.getByLabel("GUID 1").fill(GUID_A);
-    await page.getByLabel("Membership for GUID row 1").click();
+    await page.getByLabel("Membership Type for row 1").click();
     await page.getByRole("option", { name: "limited" }).click();
 
     await page.getByRole("button", { name: "Add Row" }).click();
     await page.getByLabel("GUID 2").fill(GUID_B);
-    await page.getByLabel("Membership for GUID row 2").click();
+    await page.getByLabel("Membership Type for row 2").click();
     await page.getByRole("option", { name: "full" }).click();
 
     await page.getByRole("button", { name: "Add Members" }).click();
@@ -153,7 +162,7 @@ test.describe("IB PKey Member Add Form", () => {
     await page.getByLabel("GUID 1").fill("0xnope");
     await page.getByRole("button", { name: "Add Members" }).click();
 
-    await expect(page.getByText(/Invalid GUID/i)).toBeVisible({
+    await expect(page.getByText("GUID in row 1 has an invalid format.")).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
   });

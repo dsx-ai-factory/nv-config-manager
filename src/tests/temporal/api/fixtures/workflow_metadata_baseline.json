@@ -1,0 +1,562 @@
+{
+  "workflows": [
+    {
+      "cli_name": "backup",
+      "description": "Backup network device configuration to the Config Store and NVIDIA Config Manager plugin",
+      "display_name": "Configuration Backup",
+      "endpoint": "/ngc/backup",
+      "execute_roles": [
+        "BackupWorkflow",
+        "executor"
+      ],
+      "group": "Configuration",
+      "input_class": "BackupInput",
+      "name": "BackupWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "BackupWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "config-diff",
+      "description": "Compare the intended configuration against the live device without applying any changes",
+      "display_name": "Configuration Diff",
+      "endpoint": "/ngc/config_diff",
+      "execute_roles": [
+        "ConfigDiffWorkflow",
+        "executor"
+      ],
+      "group": "Configuration",
+      "input_class": "ConfigDiffInput",
+      "name": "ConfigDiffWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "ConfigDiffWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "connected-host-metadata",
+      "description": "Discover and analyze connected hosts via MAC table and LLDP neighbor data",
+      "display_name": "Connected Host Metadata",
+      "endpoint": "/ngc/connected_host_metadata",
+      "execute_roles": [
+        "ConnectedHostMetadataWorkflow",
+        "executor"
+      ],
+      "group": "Validation & Diagnostics",
+      "input_class": "ConnectedHostWorkflowInput",
+      "name": "ConnectedHostMetadataWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "ConnectedHostMetadataWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "deploy",
+      "description": "Deploy intended configuration to network device with approval workflow",
+      "display_name": "Configuration Deploy",
+      "endpoint": "/ngc/deploy",
+      "execute_roles": [
+        "DeployWorkflow",
+        "executor"
+      ],
+      "group": "Configuration",
+      "input_class": "DeployInput",
+      "name": "DeployWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "DeployWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "device-cable-validation",
+      "description": "Validate cable connections for a specific device against intended topology",
+      "display_name": "Device Cable Validation",
+      "endpoint": "/ngc/device_cable_validation",
+      "execute_roles": [
+        "DeviceCableValidationWorkflow",
+        "executor"
+      ],
+      "group": "Validation & Diagnostics",
+      "input_class": "DeviceCableValidationInput",
+      "name": "DeviceCableValidationWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "DeviceCableValidationWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "device-password-rotation",
+      "description": "Rotate passwords on network devices with validation and approval workflow",
+      "display_name": "Device Password Rotation",
+      "endpoint": "/ngc/device_password_rotation",
+      "execute_roles": [
+        "DevicePasswordRotationWorkflow",
+        "executor"
+      ],
+      "group": "Lifecycle & Security",
+      "input_class": "DevicePasswordRotationInput",
+      "name": "DevicePasswordRotationWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "DevicePasswordRotationWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "diagnostics",
+      "description": "Run diagnostic commands against network devices and attach results to a ticketing issue",
+      "display_name": "Device Diagnostics",
+      "endpoint": "/ngc/diagnostics",
+      "execute_roles": [
+        "DiagnosticsWorkflow",
+        "executor"
+      ],
+      "group": "Validation & Diagnostics",
+      "input_class": "DiagnosticsWorkflowInput",
+      "name": "DiagnosticsWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "DiagnosticsWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "hello-world",
+      "description": "Simple hello world workflow for testing and demonstration",
+      "display_name": "Hello World",
+      "endpoint": "/hello_world",
+      "execute_roles": [
+        "HelloWorld",
+        "executor"
+      ],
+      "group": null,
+      "input_class": "HelloWorldInput",
+      "name": "HelloWorld",
+      "namespace": "hello_world",
+      "read_roles": [
+        "HelloWorld",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "hello-world-approval",
+      "description": "Hello world workflow with approval step for testing staged workflows",
+      "display_name": "Hello World Approval",
+      "endpoint": "/hello_world_approval",
+      "execute_roles": [
+        "HelloWorldApproval",
+        "executor"
+      ],
+      "group": null,
+      "input_class": "HelloWorldInput",
+      "name": "HelloWorldApproval",
+      "namespace": "hello_world",
+      "read_roles": [
+        "HelloWorldApproval",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "ibp-key-creation",
+      "description": "Create an InfiniBand PKey partition on UFM for multi-tenant isolation",
+      "display_name": "InfiniBand PKey Creation",
+      "endpoint": "/ngc/ib_pkey_creation",
+      "execute_roles": [
+        "IBPKeyCreationWorkflow",
+        "executor"
+      ],
+      "group": "InfiniBand",
+      "input_class": "IBPKeyCreationInput",
+      "name": "IBPKeyCreationWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "IBPKeyCreationWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "ibp-key-member-add",
+      "description": "Add device interfaces to an existing InfiniBand PKey partition",
+      "display_name": "InfiniBand PKey Member Add",
+      "endpoint": "/ngc/ib_pkey_member_add",
+      "execute_roles": [
+        "IBPKeyMemberAddWorkflow",
+        "executor"
+      ],
+      "group": "InfiniBand",
+      "input_class": "IBPKeyMemberAddInput",
+      "name": "IBPKeyMemberAddWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "IBPKeyMemberAddWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "ibp-key-member-delete",
+      "description": "Remove device interfaces from an existing InfiniBand PKey partition",
+      "display_name": "InfiniBand PKey Member Delete",
+      "endpoint": "/ngc/ib_pkey_member_delete",
+      "execute_roles": [
+        "IBPKeyMemberDeleteWorkflow",
+        "executor"
+      ],
+      "group": "InfiniBand",
+      "input_class": "IBPKeyMemberDeleteInput",
+      "name": "IBPKeyMemberDeleteWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "IBPKeyMemberDeleteWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "ibp-key-member-update",
+      "description": "Reconcile InfiniBand PKey membership to a desired interface list",
+      "display_name": "InfiniBand PKey Member Update",
+      "endpoint": "/ngc/ib_pkey_member_update",
+      "execute_roles": [
+        "IBPKeyMemberUpdateWorkflow",
+        "executor"
+      ],
+      "group": "InfiniBand",
+      "input_class": "IBPKeyMemberUpdateInput",
+      "name": "IBPKeyMemberUpdateWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "IBPKeyMemberUpdateWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "ib-port-guid-discovery",
+      "description": "Discover InfiniBand port GUIDs from UFM and sync them onto the matching DCIM interfaces.",
+      "display_name": "InfiniBand Port GUID Discovery",
+      "endpoint": "/ngc/ib_port_guid_discovery",
+      "execute_roles": [
+        "IBPortGuidDiscoveryWorkflow",
+        "executor"
+      ],
+      "group": "InfiniBand",
+      "input_class": "IBPortGuidDiscoveryInput",
+      "name": "IBPortGuidDiscoveryWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "IBPortGuidDiscoveryWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "infiniband-cable-validation",
+      "description": "Validate Infiniband cable connections against intended topology using UFM data",
+      "display_name": "InfiniBand Cable Validation",
+      "endpoint": "/ngc/infiniband_cable_validation",
+      "execute_roles": [
+        "InfinibandCableValidationWorkflow",
+        "executor"
+      ],
+      "group": "InfiniBand",
+      "input_class": "InfinibandCableValidationInput",
+      "name": "InfinibandCableValidationWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "InfinibandCableValidationWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "infiniband-get-unhealthy-ports",
+      "description": "Validate and report unhealthy ports in Infiniband network fabric",
+      "display_name": "InfiniBand Get Unhealthy Ports",
+      "endpoint": "/ngc/infiniband_get_unhealthy_ports",
+      "execute_roles": [
+        "InfinibandGetUnhealthyPortsWorkflow",
+        "executor"
+      ],
+      "group": "InfiniBand",
+      "input_class": "InfinibandGetUnhealthyPortsInput",
+      "name": "InfinibandGetUnhealthyPortsWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "InfinibandGetUnhealthyPortsWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "infiniband-mlnx-os-upgrade",
+      "description": "Upgrade MLNX-OS on Infiniband switches with validation and rollback capabilities",
+      "display_name": "InfiniBand MLNX-OS Upgrade",
+      "endpoint": "/ngc/infiniband_mlnx_os_upgrade",
+      "execute_roles": [
+        "InfinibandMlnxOSUpgradeWorkflow",
+        "executor"
+      ],
+      "group": "InfiniBand",
+      "input_class": "InfinibandMlnxOSUpgradeInput",
+      "name": "InfinibandMlnxOSUpgradeWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "InfinibandMlnxOSUpgradeWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "multi-deploy",
+      "description": "Deploy configurations to multiple devices by role with batching and approval workflow",
+      "display_name": "Multi-Configuration Deploy",
+      "endpoint": "/ngc/multi_deploy",
+      "execute_roles": [
+        "MultiDeployWorkflow",
+        "executor"
+      ],
+      "group": "Configuration",
+      "input_class": "MultiDeployInput",
+      "name": "MultiDeployWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "MultiDeployWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "nv-link-switch-firmware-upgrade",
+      "description": "Upgrade firmware on NVLink switches with validation",
+      "display_name": "NVLink Switch Firmware Upgrade",
+      "endpoint": "/ngc/nvlinkswitch_firmware_upgrade",
+      "execute_roles": [
+        "NVLinkSwitchFirmwareUpgradeWorkflow",
+        "executor"
+      ],
+      "group": null,
+      "input_class": "NVLinkSwitchFirmwareUpgradeInput",
+      "name": "NVLinkSwitchFirmwareUpgradeWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "NVLinkSwitchFirmwareUpgradeWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "port-lldp-info",
+      "description": "Gather LLDP neighbor data for network port analysis and troubleshooting",
+      "display_name": "Port LLDP Info",
+      "endpoint": "/ngc/port_lldp_info",
+      "execute_roles": [
+        "PortLLDPInfoWorkflow",
+        "executor"
+      ],
+      "group": "Validation & Diagnostics",
+      "input_class": "PortLLDPInfoInput",
+      "name": "PortLLDPInfoWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "PortLLDPInfoWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "redfish-provisioning",
+      "description": "Discover and provision Redfish-capable BMCs for server management",
+      "display_name": "Redfish Provisioning",
+      "endpoint": "/ngc/redfish_provisioning",
+      "execute_roles": [
+        "RedfishProvisioningWorkflow",
+        "executor"
+      ],
+      "group": null,
+      "input_class": "RedfishProvisioningInput",
+      "name": "RedfishProvisioningWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "RedfishProvisioningWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "reprovision",
+      "description": "Reprovision a network device using pre- and post-ZTP backups",
+      "display_name": "Reprovision",
+      "endpoint": "/ngc/reprovision",
+      "execute_roles": [
+        "ReprovisionWorkflow",
+        "executor"
+      ],
+      "group": "Lifecycle & Security",
+      "input_class": "ReprovisionInput",
+      "name": "ReprovisionWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "ReprovisionWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "site-backup",
+      "description": "Back up running configurations for in-scope devices at a site to the Config Store",
+      "display_name": "Site Configuration Backup",
+      "endpoint": "/ngc/site_backup",
+      "execute_roles": [
+        "SiteBackupWorkflow",
+        "executor"
+      ],
+      "group": "Configuration",
+      "input_class": "SiteBackupInput",
+      "name": "SiteBackupWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "SiteBackupWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "site-cable-validation",
+      "description": "Validate cable connections for all devices in a site against intended topology",
+      "display_name": "Site Cable Validation",
+      "endpoint": "/ngc/site_cable_validation",
+      "execute_roles": [
+        "SiteCableValidationWorkflow",
+        "executor"
+      ],
+      "group": "Validation & Diagnostics",
+      "input_class": "SiteCableValidationInput",
+      "name": "SiteCableValidationWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "SiteCableValidationWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "site-password-rotation",
+      "description": "Rotate passwords across all devices in a site with coordinated deployment",
+      "display_name": "Site Password Rotation",
+      "endpoint": "/ngc/site_password_rotation",
+      "execute_roles": [
+        "SitePasswordRotationWorkflow",
+        "executor"
+      ],
+      "group": "Lifecycle & Security",
+      "input_class": "SitePasswordRotationInput",
+      "name": "SitePasswordRotationWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "SitePasswordRotationWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "sp-x-overlay-assignment",
+      "description": "Change or remove a SpX Overlay/VRF assignment on device ports",
+      "display_name": "SpX Overlay Assignment",
+      "endpoint": "/ngc/spx_overlay_assignment",
+      "execute_roles": [
+        "SpXOverlayAssignmentWorkflow",
+        "executor"
+      ],
+      "group": null,
+      "input_class": "SpXOverlayAssignmentInput",
+      "name": "SpXOverlayAssignmentWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "SpXOverlayAssignmentWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "sp-x-overlay-creation",
+      "description": "Create a SpX Overlay with route distinguisher assignment and VRF/VXLAN provisioning",
+      "display_name": "SpX Overlay Creation",
+      "endpoint": "/ngc/spx_overlay_creation",
+      "execute_roles": [
+        "SpXOverlayCreationWorkflow",
+        "executor"
+      ],
+      "group": "SpX Overlays",
+      "input_class": "SpXOverlayCreationInput",
+      "name": "SpXOverlayCreationWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "SpXOverlayCreationWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "sp-x-overlay-deletion",
+      "description": "Delete a SpX Overlay and its associated VRFs/VXLANs with validation checks",
+      "display_name": "SpX Overlay Deletion",
+      "endpoint": "/ngc/spx_overlay_deletion",
+      "execute_roles": [
+        "SpXOverlayDeletionWorkflow",
+        "executor"
+      ],
+      "group": "SpX Overlays",
+      "input_class": "SpXOverlayDeletionInput",
+      "name": "SpXOverlayDeletionWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "SpXOverlayDeletionWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "sp-x-overlay-tenant-change",
+      "description": "Change or remove a SpX Overlay assignment and deploy tenant configuration",
+      "display_name": "SpX Overlay Tenant Change",
+      "endpoint": "/ngc/spx_overlay_tenant_change",
+      "execute_roles": [
+        "SpXOverlayTenantChangeWorkflow",
+        "executor"
+      ],
+      "group": "SpX Overlays",
+      "input_class": "SpXOverlayTenantChangeInput",
+      "name": "SpXOverlayTenantChangeWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "SpXOverlayTenantChangeWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "switch-os-upgrade",
+      "description": "Upgrade network switch operating system with approval and validation workflow",
+      "display_name": "Switch OS Upgrade",
+      "endpoint": "/ngc/switch_os_upgrade",
+      "execute_roles": [
+        "SwitchOSUpgradeWorkflow",
+        "executor"
+      ],
+      "group": "Lifecycle & Security",
+      "input_class": "SwitchOSUpgradeInput",
+      "name": "SwitchOSUpgradeWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "SwitchOSUpgradeWorkflow",
+        "reader"
+      ]
+    },
+    {
+      "cli_name": "validate-hardware",
+      "description": "Validate hardware components (fans, PSUs, LEDs, voltage) across network devices",
+      "display_name": "Cumulus Hardware Validation",
+      "endpoint": "/ngc/cumulus_hardware_validation",
+      "execute_roles": [
+        "ValidateHardwareWorkflow",
+        "executor"
+      ],
+      "group": "Validation & Diagnostics",
+      "input_class": "ValidateHardwareInput",
+      "name": "ValidateHardwareWorkflow",
+      "namespace": "ngc",
+      "read_roles": [
+        "ValidateHardwareWorkflow",
+        "reader"
+      ]
+    }
+  ]
+}

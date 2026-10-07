@@ -18,7 +18,7 @@ import click
 import pytest
 from fastapi import APIRouter
 from nvcm_fixture_plugin.schedulers import FixtureHeartbeatScheduler
-from nvcm_fixture_plugin.workflows import FixtureApiOnlyWorkflow, FixtureEchoWorkflow
+from nvcm_fixture_plugin.workflows import FixtureApiOnlyWorkflow, FixtureEchoWorkflow, FixtureInput
 
 from nv_config_manager.mcp.workflows import discover_mcp_workflows
 from nv_config_manager.temporal import cli as temporal_cli
@@ -91,6 +91,19 @@ def test_mcp_exposes_only_the_mcp_enabled_plugin_workflow(registry: WorkflowRegi
         if tool.workflow_name in {workflow.__name__ for workflow in FIXTURE_WORKFLOWS}
     ]
     assert plugin_tools == [("run_echo", "/fixture/echo")]
+
+
+def test_the_plugin_form_is_validated_as_a_third_party_form(registry: WorkflowRegistry) -> None:
+    assert [registry.owner(workflow) for workflow in FIXTURE_WORKFLOWS] == [FIXTURE_PLUGIN] * 2
+    assert not set(FIXTURE_WORKFLOWS) & set(registry.form_diagnostics)
+
+    form = registry.forms[FixtureEchoWorkflow]
+
+    assert form["requires"] == ["core-field.api-options.v1"]
+    assert form["ui_component"] is None
+    assert form["ui_schema"]["message"]["ui:field"] == "apiOptions"
+    assert form["schema"]["properties"]["message"]["maxLength"] == 100
+    assert "maxLength" not in FixtureInput.model_json_schema()["properties"]["message"]
 
 
 def test_scheduler_registration_keeps_plugin_provenance(registry: WorkflowRegistry) -> None:

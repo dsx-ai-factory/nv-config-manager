@@ -14,15 +14,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/**
+ * The IB PKey Member Delete generic form on its class-name route (the legacy route
+ * redirects there). Its Python-declared row variants intentionally have no membership
+ * column.
+ */
 import { expect } from "@playwright/test";
+import { mockServerCatalogAndUser } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT, WORKFLOW_DETAILS_TIMEOUT } from "./shared/utils";
 
 const FORM_TITLE = "New InfiniBand PKey Member Delete Workflow";
-const FORM_PATH = "/workflows/ibpkeymemberdeleteworkflow/form";
+const FORM_PATH = "/workflows/new/IBPKeyMemberDeleteWorkflow";
 const ENDPOINT = "/v1/workflow/ngc/ib_pkey_member_delete";
 
 test.describe("IB PKey Member Delete Form", () => {
   test.beforeEach(async ({ page }) => {
+    await mockServerCatalogAndUser(page, ["reader", "executor"]);
     await page.goto(FORM_PATH);
   });
 
@@ -39,7 +46,7 @@ test.describe("IB PKey Member Delete Form", () => {
     page,
   }) => {
     await expect(
-      page.getByRole("button", { name: "Membership Type" }),
+      page.getByRole("button", { name: /Membership Type for row/ }),
     ).toHaveCount(0);
   });
 

@@ -65,6 +65,10 @@ type SingleValueField = "location" | "tenant";
 type MultiValueField = "roles" | "status";
 type PasswordUser = { name: string; description: string };
 
+interface SitePasswordRotationWorkflowFormProps {
+  submitPath?: string;
+}
+
 const getOptionValue = (
   queryValue: string | null,
   options: QueryOption[]
@@ -282,7 +286,9 @@ const DeviceMatchStatus = ({
   );
 };
 
-export const SitePasswordRotationWorkflowForm = () => {
+export const SitePasswordRotationWorkflowForm = ({
+  submitPath = "/v1/workflow/ngc/site_password_rotation",
+}: SitePasswordRotationWorkflowFormProps) => {
   const [isSubmitting, setIsSubmitting] = React.useState<boolean>(false);
   const [isManualChange, setIsManualChange] = React.useState<boolean>(false);
   const { config: runtimeConfig } = useRuntimeConfig();
@@ -383,10 +389,7 @@ export const SitePasswordRotationWorkflowForm = () => {
     };
 
     try {
-      await startWorkflow(
-        "/v1/workflow/ngc/site_password_rotation",
-        workflowParams
-      );
+      await startWorkflow(submitPath, workflowParams);
       toast({
         title: "Workflow Started",
         description: "Site password rotation workflow has been initiated.",

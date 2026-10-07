@@ -14,8 +14,9 @@
 # limitations under the License.
 """Network Device Backup Workflow Definition."""
 
+from collections.abc import Mapping
 from datetime import timedelta
-from typing import Annotated, cast
+from typing import Annotated, ClassVar, cast
 
 from pydantic import (
     BaseModel,
@@ -41,10 +42,12 @@ from nv_config_manager_workflows.stage import (
     StateEnum,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import device_field
 from nv_config_manager_workflows.workflow_references import (
     DEVICE_REFERENCE,
     DeviceReference,
 )
+from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.config import get_ui_base_url
@@ -105,6 +108,21 @@ __all__ = [
 class DeployInput(BaseModel):
     """Config Deployment Workflow Input Definiton."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:globalOptions": {"hideSchemaDescriptions": True},
+        "device_id": {
+            **device_field(MANAGED_DEVICE_SOURCE, filters=("site", "tenant", "status")),
+            "ui:title": "Device",
+        },
+        "commit_confirm": {
+            "ui:title": "Use commit-confirm",
+            "ui:help": (
+                "Rollback if device becomes unreachable after apply. Disable for changes that "
+                "are expected to interrupt connectivity."
+            ),
+        },
+    }
+
     device_id: DeviceReference = Field(description="Identifier of the network device to configure.")
     commit_confirm: bool = Field(
         default=True,
@@ -118,6 +136,7 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
 
     # Workflow metadata
     workflow_name = "Configuration Deploy"
+    workflow_group = "Configuration"
     workflow_description = "Deploy intended configuration to network device with approval workflow"
     workflow_input_class = DeployInput
     workflow_api_enabled = True

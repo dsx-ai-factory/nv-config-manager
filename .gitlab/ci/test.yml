@@ -178,6 +178,7 @@ test-main-ui-e2e:
     - npm ci
     - npm run build
   script:
+    - npm run test:unit
     - npx playwright test
   after_script:
     - cd ui

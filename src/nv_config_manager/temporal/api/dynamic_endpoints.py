@@ -193,6 +193,7 @@ def get_registered_workflows_info(
                     "description": metadata_workflow.get_workflow_description(),
                     "namespace": metadata_workflow.get_workflow_namespace(),
                     "cli_name": metadata_workflow.get_workflow_cli_name(),
+                    "group": metadata_workflow.get_workflow_group(),
                 }
                 if include_rbac:
                     workflows_info[workflow_class.__name__]["read_roles"] = sorted(

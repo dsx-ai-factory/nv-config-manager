@@ -73,6 +73,9 @@ __all__ = [
     "MultiDeployInput",
     "NVLinkSwitchFirmwareUpgradeInput",
     "NetworkDeviceData",
+    "OptionItem",
+    "OptionSourceMeta",
+    "OptionSourceResponse",
     "Overlay",
     "Platform",
     "PortLLDPInfoInput",
@@ -101,6 +104,7 @@ __all__ = [
     "ValidationError",
     "WhoamiResponse",
     "WorkflowDetailResponse",
+    "WorkflowFormResponse",
     "WorkflowListResponse",
     "WorkflowMetadata",
     "WorkflowMetadataResponse",
@@ -155,6 +159,9 @@ from nv_config_manager_clients.generated.temporal.models.location1_inner import 
 from nv_config_manager_clients.generated.temporal.models.multi_deploy_input import MultiDeployInput as MultiDeployInput
 from nv_config_manager_clients.generated.temporal.models.nv_link_switch_firmware_upgrade_input import NVLinkSwitchFirmwareUpgradeInput as NVLinkSwitchFirmwareUpgradeInput
 from nv_config_manager_clients.generated.temporal.models.network_device_data import NetworkDeviceData as NetworkDeviceData
+from nv_config_manager_clients.generated.temporal.models.option_item import OptionItem as OptionItem
+from nv_config_manager_clients.generated.temporal.models.option_source_meta import OptionSourceMeta as OptionSourceMeta
+from nv_config_manager_clients.generated.temporal.models.option_source_response import OptionSourceResponse as OptionSourceResponse
 from nv_config_manager_clients.generated.temporal.models.overlay import Overlay as Overlay
 from nv_config_manager_clients.generated.temporal.models.platform import Platform as Platform
 from nv_config_manager_clients.generated.temporal.models.port_lldp_info_input import PortLLDPInfoInput as PortLLDPInfoInput
@@ -183,6 +190,7 @@ from nv_config_manager_clients.generated.temporal.models.validate_hardware_input
 from nv_config_manager_clients.generated.temporal.models.validation_error import ValidationError as ValidationError
 from nv_config_manager_clients.generated.temporal.models.whoami_response import WhoamiResponse as WhoamiResponse
 from nv_config_manager_clients.generated.temporal.models.workflow_detail_response import WorkflowDetailResponse as WorkflowDetailResponse
+from nv_config_manager_clients.generated.temporal.models.workflow_form_response import WorkflowFormResponse as WorkflowFormResponse
 from nv_config_manager_clients.generated.temporal.models.workflow_list_response import WorkflowListResponse as WorkflowListResponse
 from nv_config_manager_clients.generated.temporal.models.workflow_metadata import WorkflowMetadata as WorkflowMetadata
 from nv_config_manager_clients.generated.temporal.models.workflow_metadata_response import WorkflowMetadataResponse as WorkflowMetadataResponse

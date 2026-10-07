@@ -26,11 +26,14 @@ export class TokenError extends Error {
 }
 export class APIError extends Error {
   status: number;
+  /** The response body's `detail`, when it had one (e.g. a structured 503 diagnostic). */
+  detail?: unknown;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, detail?: unknown) {
     super(message);
     this.name = "APIError";
     this.status = status;
+    this.detail = detail;
     Object.setPrototypeOf(this, APIError.prototype);
   }
 }

@@ -1665,6 +1665,7 @@ def test_workflow_metadata(mock_dynamic_rbac_config):
     assert backup_workflow["input_class"] == "BackupInput"
     assert backup_workflow["read_roles"] == ["BackupWorkflow", "reader"]
     assert backup_workflow["execute_roles"] == ["BackupWorkflow", "executor"]
+    assert backup_workflow["group"] == "Configuration"
 
 
 def test_dynamic_routes_are_exactly_the_registry_api_workflows():
