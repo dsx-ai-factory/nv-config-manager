@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 # NVIDIA Config Manager - KEA DHCP Server Image
 # Build with: docker build -t nv-config-manager-kea -f Dockerfile.kea .
 # This image contains the ISC Kea DHCP4 server with Stork agent for monitoring
@@ -7,32 +6,6 @@
 # - ISC Kea packages require apt/dpkg installation
 # - Supervisor is needed for process management (kea-dhcp4 + stork-agent)
 # - Stork agent requires shell scripts and dynamic configuration
-
-# Rebuild the stable Stork agent with patched Go dependencies. Keep the ISC
-# package below for its configuration and integration files.
-FROM golang:1.26.8-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS stork-builder
-ADD --checksum=sha256:ed68983be72203c3f671a6eb6fc5dd43587f7cd403ac0a5b5de481b61d29ae45 \
-    https://codeload.github.com/isc-projects/stork/tar.gz/refs/tags/v2.4.1 /tmp/stork.tar.gz
-WORKDIR /src
-RUN apk add --no-cache protobuf && \
-    go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11 && \
-    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1 && \
-    tar -xzf /tmp/stork.tar.gz --strip-components=1 && \
-    cd backend && \
-    go get golang.org/x/crypto@v0.56.0 \
-        golang.org/x/net@v0.57.0 \
-        golang.org/x/text@v0.41.0 \
-        google.golang.org/grpc@v1.83.1 && \
-    (cd api && protoc --proto_path=. --go_out=. --go-grpc_out=. agent.proto) && \
-    go run ./cmd/stork-code-gen std-option-defs \
-        --input ../codegen/std_dhcpv4_option_def.json \
-        --output daemoncfg/kea/stdoptiondef4.go \
-        --template daemoncfg/kea/stdoptiondef4.go.template && \
-    go run ./cmd/stork-code-gen std-option-defs \
-        --input ../codegen/std_dhcpv6_option_def.json \
-        --output daemoncfg/kea/stdoptiondef6.go \
-        --template daemoncfg/kea/stdoptiondef6.go.template && \
-    CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/stork-agent ./cmd/stork-agent
 
 FROM nvcr.io/nvidia/base/ubuntu:noble-20260217@sha256:57a7daab5579d4b4cfbe25b59dc9d22d0c4cec24e5608523e77fd5f12e9da51a
 
@@ -63,16 +36,13 @@ RUN set -eux; \
     { getent group kea >/dev/null || groupadd -r kea; } && \
     { id -u kea >/dev/null 2>&1 || useradd -r -g kea kea; }
 
-# Install Stork agent (pinned to 2.4.x for Go dependency CVE fixes)
+# Install Stork agent (pinned to upstream 2.4.2 for patched Go dependencies)
 COPY build/setup.stork.deb.sh /tmp/setup.stork.deb.sh
 RUN bash /tmp/setup.stork.deb.sh && \
-    apt-get install -y --no-install-recommends isc-stork-agent=2.4.1* && \
+    apt-get install -y --no-install-recommends isc-stork-agent=2.4.2* && \
     rm /tmp/setup.stork.deb.sh && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
-
-# Replace the package's vulnerable precompiled agent with the patched build.
-COPY --from=stork-builder /out/stork-agent /usr/bin/stork-agent
 
 # Copy supervisor and kea configuration. Keep this explicit list in sync with build/kea/.
 COPY build/kea/etc/kea/kea-ctrl-agent.conf /etc/kea/kea-ctrl-agent.conf
