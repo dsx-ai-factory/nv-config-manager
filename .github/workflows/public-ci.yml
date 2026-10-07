@@ -333,6 +333,8 @@ jobs:
             echo "ERROR: Helm render tests were skipped; helm and chart dependencies must be available"
             exit 1
           fi
+      - name: GitLab promotion shared-values tests
+        run: uv run python .gitlab/ci/scripts/tests/shared_values_test.py
       - run: helm lint deploy/helm/ --values deploy/helm/values-ci.yaml
       - run: helm template test deploy/helm/ --values deploy/helm/values-ci.yaml >/tmp/nvcm-helm.yaml
       - name: CNPG PodMonitor ownership render
