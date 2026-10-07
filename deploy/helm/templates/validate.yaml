@@ -7,8 +7,9 @@
 {{- end -}}
 {{- if and .Values.nautobot.enabled .Values.externalServices.nautobot.local -}}
   {{- $redis := .Values.externalServices.redis -}}
-  {{- if or (eq (int $redis.db) 2) (eq (int $redis.lockDb) 2) -}}
-    {{- fail "externalServices.redis.db and externalServices.redis.lockDb must not be 2: the bundled Nautobot cache uses Redis database 2 and nautobot-server post_upgrade flushes it" -}}
+  {{- $cacheDb := int $redis.nautobotCacheDb -}}
+  {{- if or (eq (int $redis.db) $cacheDb) (eq (int $redis.lockDb) $cacheDb) -}}
+    {{- fail (printf "externalServices.redis.nautobotCacheDb (%d) must differ from externalServices.redis.db and lockDb: nautobot-server post_upgrade flushes the Nautobot cache database" $cacheDb) -}}
   {{- end -}}
 {{- end -}}
 {{- if not (has $gatewayType (list "envoyGateway" "kgateway")) -}}

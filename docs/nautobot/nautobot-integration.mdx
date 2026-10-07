@@ -245,6 +245,14 @@ nautobot:
 
 By default, Config Manager does not create Django Groups — matching `Group` rows must exist up front (admin UI, fixture, or a one-shot Job), and mapping entries whose Group is missing are logged and skipped. Set `nautobot.rbac.autoCreateGroups: true` to create missing Groups on the fly. Removing an entry from the mapping automatically revokes the corresponding access on each affected user's next login. See the `nv_config_manager_auth.rbac` module for the full revocation semantics.
 
+## Redis Cache Database
+
+The bundled Nautobot uses the same Redis server as the rest of Config Manager (`externalServices.redis`). Its Django cache uses Redis database `externalServices.redis.nautobotCacheDb`, which defaults to `2`.
+
+Every Nautobot web pod start runs `nautobot-server post_upgrade`. That command clears the cache with `FLUSHDB`, which deletes every key in the cache database, not only Nautobot's keys. If `externalServices.redis.host` points at a Redis server that other applications share, set `nautobotCacheDb` to a database nothing else uses. The chart fails to render when `nautobotCacheDb` equals `externalServices.redis.db` or `externalServices.redis.lockDb`.
+
+This setting does not apply when Config Manager uses an existing Nautobot instance.
+
 ## Metrics
 
 Nautobot metrics are controlled by the chart's `nautobot.metrics` settings and Nautobot's built-in Prometheus metrics support. No capacity-metrics plugin is installed in the Config Manager Nautobot image. Refer to the [Nautobot documentation](https://docs.nautobot.com/projects/core/en/stable/user-guide/administration/guides/prometheus-metrics/) for available metrics.

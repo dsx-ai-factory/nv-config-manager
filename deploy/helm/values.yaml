@@ -616,6 +616,12 @@ externalServices:
     port: 6379
     db: 0
     lockDb: 0
+    # Redis database for the bundled Nautobot's Django cache. Every Nautobot
+    # web pod start runs `nautobot-server post_upgrade`, which clears this
+    # cache with FLUSHDB and deletes every key in the database. On a shared
+    # external Redis, pick a database nothing else uses. Must differ from db
+    # and lockDb.
+    nautobotCacheDb: 2
     ssl: false
     passwordAuth: true
     socketTimeout: 5
