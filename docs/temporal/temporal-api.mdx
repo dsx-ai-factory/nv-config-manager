@@ -208,8 +208,11 @@ def create_workflow_endpoint(workflow_class: Type, input_class: Type[BaseModel],
 
 #### Registration System
 
-The API builds one validated workflow registry snapshot when it is imported, and
-every workflow surface reads from it:
+The API builds one validated workflow registry snapshot when it is imported. If
+the registry cannot be built, because an installed plugin is invalid or
+conflicts with another, or because the built-in plugin is not registered
+(`WorkflowPluginDiscoveryError`), the API fails to start. The API's dynamic
+routes, `/metadata`, and `/types` read from the snapshot:
 
 ```python
 # In workflow_catalog.py

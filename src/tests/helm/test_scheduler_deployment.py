@@ -201,6 +201,7 @@ def test_enabling_a_plugin_scheduler_keeps_the_builtin_default() -> None:
     deployment = _scheduler_deployment(_render(f"{_FIXTURE_ENABLED}=true"))
 
     assert _selected_schedulers(deployment) == "builtin.backup,fixture.cleanup"
+    assert "wait-for-nautobot" in _init_container_names(deployment)
 
 
 def test_non_nautobot_default_renders_no_scheduler_deployment() -> None:
@@ -216,11 +217,14 @@ def test_non_nautobot_plugin_scheduler_runs_without_nautobot_wait() -> None:
 
 
 def test_builtin_backup_can_be_disabled_while_plugin_schedulers_run() -> None:
+    # Only built-in schedulers receive DCIM access, so plugin schedulers must keep
+    # starting while Nautobot is unavailable.
     deployment = _scheduler_deployment(
         _render(f"{_BACKUP_ENABLED}=false", f"{_FIXTURE_ENABLED}=true")
     )
 
     assert _selected_schedulers(deployment) == "fixture.cleanup"
+    assert "wait-for-nautobot" not in _init_container_names(deployment)
 
 
 def test_no_selected_schedulers_renders_no_scheduler_deployment() -> None:
@@ -263,6 +267,14 @@ def test_null_requirement_removes_the_builtin_provider_rule() -> None:
 
     assert _selected_schedulers(deployment) == "builtin.backup"
     assert "wait-for-nautobot" not in _init_container_names(deployment)
+
+
+def test_null_requirement_keeps_the_nautobot_wait_for_builtin_backup() -> None:
+    # The wait follows the built-in DCIM dependency, not the selection requirement.
+    deployment = _scheduler_deployment(_render(f"{_BACKUP_REQUIREMENT}=null"))
+
+    assert _selected_schedulers(deployment) == "builtin.backup"
+    assert "wait-for-nautobot" in _init_container_names(deployment)
 
 
 def test_scheduler_entry_must_be_a_map() -> None:

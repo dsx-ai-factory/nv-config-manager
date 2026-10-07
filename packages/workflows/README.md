@@ -242,8 +242,13 @@ that is stable per managed object. Stay in that namespace with the helpers in
 `schedule_id(self.scheduler_identity, key)` and filter `list_schedules()`
 results with `owns_schedule_id(self.scheduler_identity, id)`.
 `list_schedules()` returns every scheduler's schedules, so filter it before
-deleting anything. `BackupScheduler.reconcile_schedules` is a tested example of
-the create-missing, delete-extra reconciliation pattern (with legacy IDs).
+deleting anything. The fixture plugin in
+[`tests/fixtures/plugin/`](tests/fixtures/plugin/) is a complete working plugin:
+a descriptor, its entry point, and a scheduler that builds its ID with
+`schedule_id()` and filters `list_schedules()` with `owns_schedule_id()`.
+`BackupScheduler.reconcile_schedules` is a tested example of the create-missing,
+delete-extra reconciliation pattern, but it uses legacy IDs rather than these
+helpers.
 
 Identities cannot contain `:`, so the prefix is unambiguous. `schedule_id()`
 raises `ValueError` for an invalid identity, an empty key, or a key containing
@@ -299,6 +304,7 @@ from nv_config_manager_workflows.schedulers.runtime import (
 )
 
 
+@pytest.mark.asyncio
 async def test_cleanup_scheduler_stops_when_cancelled() -> None:
     slept = asyncio.Event()
 
@@ -339,7 +345,9 @@ uv run nv-config-manager-workflows-manifest
 ```
 
 Compare fingerprints across images or processes to detect a different installed
-plugin set. The fingerprint is not a security signature, and it does not change
+plugin set. The Temporal worker, the Temporal API, and the scheduler host log the
+fingerprint at startup in their `Workflow registry manifest <fingerprint>: ...`
+record. The fingerprint is not a security signature, and it does not change
 when code changes under an unchanged plugin version. If discovery or validation
 fails, the command prints the error to stderr and exits with status 1. To build
 the same `RegistryManifest` in-process, call `registry_manifest(registry)` from
@@ -371,6 +379,13 @@ When workflow commands or Temporal payloads may be affected, also run:
 ```sh
 uv run pytest packages/workflows/tests/workflows/replay
 ```
+
+When changing the plugin contract or package boundaries, also run
+`make test-workflow-wheels`. It builds the workflows and fixture-plugin wheels,
+installs them into a clean virtual environment without the service package, and
+runs the fixture plugin's workflows and scheduler on a local Temporal server. It
+needs network access for PyPI and, on first use, the Temporal dev server
+download.
 
 See the repository [contribution guide](../../CONTRIBUTING.md) for the broader
 coding, testing, and review requirements.
