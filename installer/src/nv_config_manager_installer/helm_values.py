@@ -178,7 +178,7 @@ _NESTED_IMAGE_DEFAULTS: dict[str, tuple[tuple[str, ...], str, str]] = {
     "oidcProxy": (
         ("oidc", "proxy", "image"),
         "quay.io/oauth2-proxy/oauth2-proxy",
-        "v7.15.4",
+        "v7.15.5",
     ),
     "prometheusServer": (
         ("prometheus", "server", "image"),
