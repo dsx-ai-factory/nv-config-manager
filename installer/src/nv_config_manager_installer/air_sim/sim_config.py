@@ -72,6 +72,9 @@ class SimConfig:
     cumulus_version: str = ""
     deploy: bool = True
 
+    dcim_provider: str = "nautobot-2x"
+    dcim_settings: dict[str, Any] = field(default_factory=dict)
+
     generate_fabric_from_mock_context: bool | None = None
     run_mock_topology_job: bool = True
     mock_topology_path: str = field(

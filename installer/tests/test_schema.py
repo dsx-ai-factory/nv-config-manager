@@ -22,10 +22,15 @@ from pathlib import Path
 import pytest
 import yaml
 
+from nv_config_manager_installer.providers.errors import (
+    InstallerProviderConfigurationError,
+    InstallerProviderNotFoundError,
+)
+from nv_config_manager_installer.providers.nautobot.settings import NautobotSettings
+from nv_config_manager_installer.providers.registry import resolve_provider
 from nv_config_manager_installer.schema import (
     ClusterConfig,
     CNPGBackupConfig,
-    ContentConfig,
     DCIMConfig,
     DeploySize,
     ExternalPostgresConfig,
@@ -48,7 +53,6 @@ from nv_config_manager_installer.schema import (
     RedfishVendorCreds,
     SecretsConfig,
     SecretsMethod,
-    ServicesConfig,
     SiteConfig,
     SPIFFEConfig,
     SPIFFEProvider,
@@ -347,71 +351,153 @@ class TestNVConfigManagerInstallConfig:
         config.services.render = False
         config.services.ztp = False
         assert config.services.render is False
-        assert config.services.nautobot is True
+        assert config.dcim.local is True
 
     def test_custom_jobs_require_local_nautobot(self):
-        with pytest.raises(ValueError, match="Custom jobs.*require a local Nautobot"):
-            NVConfigManagerInstallConfig(
-                services=ServicesConfig(
-                    nautobot=False, external_nautobot_url="https://nb.example.com"
-                ),
-                content=ContentConfig(jobs=[{"path": "jobs/my_job"}]),
-            )
+        config = NVConfigManagerInstallConfig(
+            dcim=DCIMConfig(
+                local=False,
+                server="https://nb.example.com",
+                settings={"jobs": [{"path": "jobs/my_job"}]},
+            ),
+        )
+        with pytest.raises(
+            InstallerProviderConfigurationError, match="Custom jobs.*require a local Nautobot"
+        ):
+            resolve_provider(config)
 
     def test_post_deploy_jobs_require_local_nautobot(self):
-        with pytest.raises(ValueError, match="post-deploy jobs require a local Nautobot"):
-            NVConfigManagerInstallConfig(
-                services=ServicesConfig(
-                    nautobot=False, external_nautobot_url="https://nb.example.com"
-                ),
-                content=ContentConfig(run_after_deploy=[{"job": "jobs.bootstrap.SiteBootstrap"}]),
-            )
+        config = NVConfigManagerInstallConfig(
+            dcim=DCIMConfig(
+                local=False,
+                server="https://nb.example.com",
+                settings={"run_after_deploy": [{"job": "jobs.bootstrap.SiteBootstrap"}]},
+            ),
+        )
+        with pytest.raises(
+            InstallerProviderConfigurationError, match="post-deploy jobs require a local Nautobot"
+        ):
+            resolve_provider(config)
+
+    def test_unknown_provider_settings_are_rejected(self):
+        config = NVConfigManagerInstallConfig(dcim=DCIMConfig(settings={"bogus": 1}))
+        with pytest.raises(InstallerProviderConfigurationError, match="dcim.settings"):
+            resolve_provider(config)
 
     def test_external_nautobot_valid_without_jobs(self):
         config = NVConfigManagerInstallConfig(
-            services=ServicesConfig(nautobot=False, external_nautobot_url="https://nb.example.com"),
-            content=ContentConfig(jobs=[]),
+            dcim=DCIMConfig(local=False, server="https://nb.example.com"),
         )
-        assert config.services.nautobot is False
-        assert config.services.external_nautobot_url == "https://nb.example.com"
-
-    def test_external_nautobot_requires_server(self):
-        with pytest.raises(ValueError, match="dcim.server or services.external_nautobot_url"):
-            NVConfigManagerInstallConfig(services=ServicesConfig(nautobot=False))
-
-        config = NVConfigManagerInstallConfig(
-            dcim=DCIMConfig(server="https://nb.example.com"),
-            services=ServicesConfig(nautobot=False),
-        )
-
+        assert config.dcim.local is False
         assert config.dcim.server == "https://nb.example.com"
+        assert resolve_provider(config).metadata.name == "nautobot-2x"
 
-    def test_external_dcim_requires_disabled_nautobot_and_server(self):
-        with pytest.raises(ValueError, match="services.nautobot=false"):
-            NVConfigManagerInstallConfig(
-                dcim=DCIMConfig(provider="synthetic", server="https://dcim")
-            )
+    def test_external_dcim_requires_server(self):
+        with pytest.raises(ValueError, match="dcim.server is required"):
+            NVConfigManagerInstallConfig(dcim=DCIMConfig(local=False))
 
         with pytest.raises(ValueError, match="dcim.server is required"):
-            NVConfigManagerInstallConfig(
-                dcim=DCIMConfig(provider="synthetic"),
-                services=ServicesConfig(nautobot=False),
-            )
+            NVConfigManagerInstallConfig(dcim=DCIMConfig(provider="synthetic", local=False))
 
         config = NVConfigManagerInstallConfig(
-            dcim=DCIMConfig(provider="synthetic", server="https://synthetic.example"),
-            services=ServicesConfig(nautobot=False),
+            dcim=DCIMConfig(provider="synthetic", server="https://synthetic.example", local=False),
         )
 
         assert config.dcim.provider == "synthetic"
 
+    def test_uninstalled_provider_is_reported_by_name(self):
+        config = NVConfigManagerInstallConfig(
+            dcim=DCIMConfig(provider="missing-dcim", server="https://dcim", local=False),
+        )
+        with pytest.raises(InstallerProviderNotFoundError, match="missing-dcim.*not installed"):
+            resolve_provider(config)
+
     def test_external_dcim_eso_requires_provider_secret_path(self):
         with pytest.raises(ValueError, match="paths.dcim.enabled"):
             NVConfigManagerInstallConfig(
-                dcim=DCIMConfig(provider="synthetic", server="https://synthetic.example"),
-                services=ServicesConfig(nautobot=False),
+                dcim=DCIMConfig(
+                    provider="synthetic", server="https://synthetic.example", local=False
+                ),
                 secrets=SecretsConfig(method=SecretsMethod.ESO),
             )
+
+    def test_legacy_layout_migrates_into_dcim(self):
+        config = NVConfigManagerInstallConfig.model_validate(
+            {
+                "services": {"nautobot": False, "external_nautobot_url": "https://nb.example.com"},
+                "content": {
+                    "jobs": [{"path": "jobs/my_job"}],
+                    "run_after_deploy": [{"job": "jobs.bootstrap.SiteBootstrap"}],
+                    "template_plugins": [{"path": "plugins/demo"}],
+                },
+                "external_services": {"postgres": {"enabled": True, "nautobot_host": "pg.example"}},
+                "secrets": {
+                    "k8s": {"nautobot": {"values": {"token": "nb-token"}}},
+                    "vault": {"paths": {"nautobot_app": {"enabled": False}}},
+                },
+            }
+        )
+
+        assert config.dcim.local is False
+        assert config.dcim.server == "https://nb.example.com"
+        assert config.dcim.settings == {
+            "jobs": [{"path": "jobs/my_job"}],
+            "run_after_deploy": [{"job": "jobs.bootstrap.SiteBootstrap"}],
+        }
+        assert config.content.template_plugins[0].path == "plugins/demo"
+        assert config.external_services.postgres.dcim_host == "pg.example"
+        assert config.secrets.k8s.group("nautobot").values == {"token": "nb-token"}
+        assert config.secrets.vault.paths.group("nautobot_app").enabled is False
+        assert "nautobot" not in config.services.model_dump()
+
+    def test_legacy_layout_round_trips_in_new_shape(self):
+        config = NVConfigManagerInstallConfig.model_validate(
+            {
+                "services": {"nautobot": True},
+                "content": {"jobs": [{"path": "jobs/my_job"}]},
+            }
+        )
+
+        data = yaml.safe_load(config.to_yaml_str())
+
+        assert data["dcim"]["local"] is True
+        assert "server" not in data["dcim"]
+        assert data["dcim"]["settings"] == {"jobs": [{"path": "jobs/my_job"}]}
+        assert "jobs" not in data["content"]
+        assert "nautobot" not in data["services"]
+
+    def test_empty_settings_and_default_token_name_are_pruned(self):
+        data = yaml.safe_load(NVConfigManagerInstallConfig().to_yaml_str())
+
+        assert "settings" not in data["dcim"]
+        assert "token_secret_name" not in data["dcim"]
+
+    def test_provider_secret_groups_bind_with_defaults(self):
+        config = NVConfigManagerInstallConfig()
+        resolve_provider(config)
+
+        assert config.secrets.k8s.group("nautobot").enabled is True
+        assert config.secrets.vault.paths.group("nautobot_app").enabled is True
+        assert "nautobot_app" in config.secrets.k8s.model_dump()
+
+    def test_unknown_secret_group_is_rejected_for_selected_provider(self):
+        with pytest.raises(ValueError, match="Unknown secret group.*nautobot_app"):
+            NVConfigManagerInstallConfig.model_validate(
+                {
+                    "dcim": {"provider": "synthetic", "local": False, "server": "https://dcim"},
+                    "secrets": {"k8s": {"nautobot_app": {"values": {"adminPassword": "x"}}}},
+                }
+            )
+
+    def test_default_groups_of_previous_provider_are_dropped_on_switch(self):
+        config = NVConfigManagerInstallConfig()
+        assert "nautobot_app" in config.secrets.k8s.model_dump()
+
+        config.dcim = DCIMConfig(provider="synthetic", local=False, server="https://dcim")
+        switched = NVConfigManagerInstallConfig.model_validate(config.model_dump())
+
+        assert "nautobot_app" not in switched.secrets.k8s.model_dump()
+        assert "nautobot" not in switched.secrets.vault.paths.model_dump()
 
 
 class TestImagesConfig:
@@ -585,8 +671,7 @@ class TestGitTokenConfig:
         assert zs.os_images == []
 
     def test_jobs_config_defaults(self):
-        config = NVConfigManagerInstallConfig()
-        jc = config.content.jobs_config
+        jc = NautobotSettings().jobs_config
         assert jc.storage_class == ""
         assert jc.access_mode == "ReadWriteOnce"
         assert jc.node_selector == {}

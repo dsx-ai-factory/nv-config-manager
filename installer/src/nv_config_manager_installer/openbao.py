@@ -23,34 +23,18 @@ from urllib.parse import quote
 import requests
 
 from nv_config_manager_installer.accounts import build_eso_config_secrets
+from nv_config_manager_installer.providers.api import DCIMInstallerProvider
+from nv_config_manager_installer.providers.registry import resolve_provider
 from nv_config_manager_installer.schema import (
-    BUILT_IN_NAUTOBOT_PROVIDER,
     NVConfigManagerInstallConfig,
     PasswordSource,
-    VaultPathsConfig,
 )
 from nv_config_manager_installer.secrets import (
     REQUIRED_SITE_SECRET_KEYS,
     build_openbao_secret_data,
     generate_secrets,
+    vault_path_groups,
 )
-
-_GROUP_PATH_DEFAULTS = {
-    "dcim": "dcim",
-    "nats": "nats",
-    "nautobot": "nautobot",
-    "redis": "redis",
-    "postgres": "postgres",
-    "network": "network",
-    "nautobot_app": "nautobot-app",
-    "oidc": "oidc",
-    "redfish": "redfish",
-    "bmc": "bmc",
-    "slack": "slack",
-    "jira": "jira",
-    "cnpg_backup": "cnpg-backup",
-    "ztp_s3": "ztp-s3",
-}
 
 
 class OpenBaoError(RuntimeError):
@@ -174,9 +158,41 @@ class OpenBaoClient:
 class OpenBaoPopulator:
     """Populate all ESO paths described by an installer configuration."""
 
-    def __init__(self, config: NVConfigManagerInstallConfig, client: OpenBaoClient) -> None:
+    def __init__(
+        self,
+        config: NVConfigManagerInstallConfig,
+        client: OpenBaoClient,
+        provider: DCIMInstallerProvider | None = None,
+    ) -> None:
         self.config = config
         self.client = client
+        self.provider = provider or resolve_provider(config)
+        self._groups = {
+            field: (suffix, keys)
+            for field, _helm_key, suffix, keys in vault_path_groups(self.provider)
+        }
+
+    def _group_path(self, group: str, mount: str = "") -> str:
+        """Return the configured or default Vault path for *group*."""
+        path_config = self.config.secrets.vault.paths.group(group)
+        suffix, _keys = self._groups.get(group, (group.replace("_", "-"), {}))
+        return path_config.path or f"{self.config.cluster.environment}/{suffix}"
+
+    def _group_key_mapping(self, group: str) -> dict[str, str]:
+        """Return logical-to-Vault key names for *group*."""
+        _suffix, default_keys = self._groups.get(group, ("", {}))
+        return {**default_keys, **self.config.secrets.vault.paths.group(group).keys}
+
+    def _read_group_values(self, mount: str, group: str) -> dict[str, str]:
+        """Read existing Vault values for an enabled group, keyed by logical name."""
+        if not self.config.secrets.vault.paths.group(group).enabled:
+            return {}
+        existing, _ = self.client.read_secret(mount, self._group_path(group))
+        values: dict[str, str] = {}
+        for logical_name, vault_key in self._group_key_mapping(group).items():
+            if value := existing.get(vault_key):
+                values[logical_name] = str(value)
+        return values
 
     def populate(self) -> OpenBaoPopulationResult:
         result = OpenBaoPopulationResult()
@@ -200,22 +216,19 @@ class OpenBaoPopulator:
         mount: str,
         result: OpenBaoPopulationResult,
     ) -> None:
-        desired_groups = build_openbao_secret_data(self.config)
-        defaults = VaultPathsConfig()
-        environment = self.config.cluster.environment
-        if self.config.dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER:
-            self._align_nautobot_tokens(mount, desired_groups, defaults, environment)
+        desired_groups = build_openbao_secret_data(self.config, self.provider)
+        self.provider.align_openbao_tokens(
+            lambda group: self._read_group_values(mount, group), desired_groups
+        )
         for group, desired in desired_groups.items():
-            path_config = getattr(self.config.secrets.vault.paths, group)
-            if not path_config.enabled:
+            if not self.config.secrets.vault.paths.group(group).enabled:
                 continue
-            default_keys = getattr(defaults, group).keys
-            key_mapping = {**default_keys, **path_config.keys}
+            key_mapping = self._group_key_mapping(group)
             translated = {
                 key_mapping.get(logical_name, logical_name): value
                 for logical_name, value in desired.items()
             }
-            path = path_config.path or f"{environment}/{_GROUP_PATH_DEFAULTS[group]}"
+            path = self._group_path(group)
             self._write_path(mount, path, translated, result)
             existing, _ = self.client.read_secret(mount, path)
             missing = [key for key in translated if not existing.get(key)]
@@ -224,38 +237,6 @@ class OpenBaoPopulator:
                     f"Vault secret '{mount}/{path}' is missing required values: "
                     + ", ".join(sorted(missing))
                 )
-
-    def _align_nautobot_tokens(
-        self,
-        mount: str,
-        desired_groups: dict[str, dict[str, str]],
-        defaults: VaultPathsConfig,
-        environment: str,
-    ) -> None:
-        """Keep the client token identical to Nautobot's superuser API token."""
-        locations = [("nautobot", "token")]
-        if "nautobot_app" in desired_groups:
-            locations.append(("nautobot_app", "superuserApiToken"))
-        existing_tokens: list[str] = []
-        for group, logical_key in locations:
-            path_config = getattr(self.config.secrets.vault.paths, group)
-            if not path_config.enabled:
-                continue
-            key_mapping = {**getattr(defaults, group).keys, **path_config.keys}
-            path = path_config.path or f"{environment}/{_GROUP_PATH_DEFAULTS[group]}"
-            existing, _ = self.client.read_secret(mount, path)
-            if token := existing.get(key_mapping.get(logical_key, logical_key)):
-                existing_tokens.append(str(token))
-
-        if len(set(existing_tokens)) > 1:
-            raise OpenBaoError(
-                "Vault Nautobot client token and superuser API token differ; "
-                "rotate them to the same value before running the installer"
-            )
-        token = existing_tokens[0] if existing_tokens else desired_groups["nautobot"]["token"]
-        desired_groups["nautobot"]["token"] = token
-        if "nautobot_app" in desired_groups:
-            desired_groups["nautobot_app"]["superuserApiToken"] = token
 
     def _populate_git_tokens(self, mount: str, result: OpenBaoPopulationResult) -> None:
         for token in self.config.git_tokens:
@@ -272,7 +253,7 @@ class OpenBaoPopulator:
 
     def _populate_site_paths(self, mount: str, result: OpenBaoPopulationResult) -> None:
         config_secrets = build_eso_config_secrets(self.config)
-        generated = generate_secrets(self.config)
+        generated = generate_secrets(self.config, self.provider)
         desired = {
             key: value
             for key, value in generated.items()

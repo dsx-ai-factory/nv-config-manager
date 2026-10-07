@@ -25,6 +25,7 @@ from nv_config_manager_installer.air_sim.orchestrator import (
     SimOrchestrator,
     _monitor_setup_command,
 )
+from nv_config_manager_installer.air_sim.provider import AirProviderHooks
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
 from nv_config_manager_installer.air_sim.sim_manager import AirSimulationManager
 
@@ -166,6 +167,35 @@ def test_derived_orchestrator_replaces_provider_post_deploy_behavior() -> None:
         17117,
         additional_hostnames=("netbox.nvcm.air",),
     )
-    manager.create_nautobot_demo_user.assert_not_called()
-    manager.wait_for_intended_configs.assert_not_called()
+    manager.run_remote.assert_not_called()
     manager.ensure_temporal_search_attributes.assert_called_once_with("worker.example", 17117)
+
+
+def test_orchestrator_delegates_provider_stages_to_hooks() -> None:
+    calls: list[str] = []
+
+    class Hooks(AirProviderHooks):
+        def gateway_hostnames(self, cfg: SimConfig) -> tuple[str, ...]:
+            return ("dcim.nvcm.air",)
+
+        def post_deploy(self, manager: AirSimulationManager, host: str, port: int) -> None:
+            calls.append(f"post:{host}:{port}")
+
+        def wait_for_configs(
+            self, manager: AirSimulationManager, host: str, port: int, expected_total: int
+        ) -> None:
+            calls.append(f"wait:{expected_total}")
+
+    cfg = SimConfig(no_reset_before_dhcp=True)
+    orchestrator = SimOrchestrator(cfg, _Callback(), provider_hooks=Hooks())
+    manager = Mock(spec=AirSimulationManager)
+    builder = SimpleNamespace(relay_return_prefixes=[], devices={})
+
+    orchestrator._run_post_deploy(
+        manager, cfg, builder, "simulation-id", "worker.example", 17117, "00:11:22:33:44:55", None
+    )
+
+    assert calls == ["wait:0", "post:worker.example:17117"]
+    manager.configure_etc_hosts.assert_called_once_with(
+        "worker.example", 17117, additional_hostnames=("dcim.nvcm.air",)
+    )

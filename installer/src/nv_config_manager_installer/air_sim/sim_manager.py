@@ -40,7 +40,6 @@ from nv_config_manager_installer.air_sim.constants import (
     CONFIG_MANAGER_DHCP_REFRESH_DEPLOYMENT,
     CONFIG_MANAGER_HOSTNAME,
     CONFIG_MANAGER_NAMESPACE,
-    CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
     CONFIG_MANAGER_RENDER_API_DEPLOYMENT,
     CONFIG_MANAGER_TEMPORAL_FRONTEND_DEPLOYMENT,
     CONFIG_MANAGER_TEMPORAL_WORKER_DEPLOYMENT,
@@ -49,8 +48,6 @@ from nv_config_manager_installer.air_sim.constants import (
     DEFAULT_AIR_INTERNAL_URL,
     DEFAULT_AIR_ORG,
     DEFAULT_CONFIG_MANAGER_REPO,
-    DEFAULT_NAUTOBOT_DEMO_PASSWORD,
-    DEFAULT_NAUTOBOT_DEMO_USERNAME,
     NVCM_BOX_USER,
     NVCM_KIND_CONFIG,
     NVCM_SECRETS,
@@ -108,27 +105,6 @@ def _recent_cumulus_vx_image_names(images: list[Any], limit: int = 8) -> list[st
     return [_image_name(image) for image in newest[:limit] if _image_name(image)]
 
 
-_NAUTOBOT_PROVISIONING_NBSHELL = (
-    "from nautobot.dcim.models import Device;"
-    "qs=Device.objects.filter(platform__name='Cumulus Linux');"
-    "total=qs.count();"
-    "status_field=Device._meta.get_field('status');"
-    "status_lookup='status__name' if getattr(status_field,'remote_field',None) else 'status';"
-    "status_filter={status_lookup:'Provisioned'};"
-    "prov=qs.filter(**status_filter).count();"
-    "pending=qs.exclude(**status_filter);"
-    "names=[d.name for d in pending.order_by('name')[:5]];"
-    "print(f'{prov}/{total}|{chr(44).join(names)}')"
-)
-
-_NAUTOBOT_INTENDED_CONFIG_NBSHELL = (
-    "from nv_config_manager.models import ConfigManagerDeviceStatus, IntendedConfig;"
-    "total=ConfigManagerDeviceStatus.objects.filter(render_enabled=True).count();"
-    "ready=IntendedConfig.objects.filter(device_id__render_enabled=True).count();"
-    "print(f'{ready}/{total}')"
-)
-
-
 class AirSimulationManager:
     """Manage DSX Air simulations for e2e testing."""
 
@@ -156,6 +132,10 @@ class AirSimulationManager:
         self.ngc_api_key = ngc_api_key or os.environ.get("NGC_API_KEY")
         self.org_id = org_id or os.environ.get("AIR_ORG_ID", DEFAULT_AIR_ORG)
         self.ssh_password = ssh_password
+        # Set by the orchestrator from the selected DCIM provider's hooks.
+        self.provisioning_probe: Callable[[str, int], tuple[int, int, list[str]]] = (
+            lambda _host, _port: (0, 0, [])
+        )
 
         if not self.ngc_api_key:
             LOG.error("No NGC API key found. Set NGC_API_KEY env var or pass --ngc-api-key.")
@@ -771,6 +751,22 @@ class AirSimulationManager:
 
     _SOCKS_PORT = 8080
 
+    def run_remote(
+        self,
+        host: str,
+        port: int,
+        command: str,
+        *,
+        timeout: int = 30,
+    ) -> subprocess.CompletedProcess[str]:
+        """Run *command* on the OOB server over SSH and return the completed process."""
+        return subprocess.run(
+            [*self._ssh_cmd(host, port), command],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
     def _ssh_run_and_tail(
         self,
         host: str,
@@ -954,7 +950,7 @@ class AirSimulationManager:
     # ------------------------------------------------------------------
 
     _NVCM_HOSTS = (
-        f"{CONFIG_MANAGER_HOSTNAME} nautobot.{CONFIG_MANAGER_HOSTNAME}"
+        f"{CONFIG_MANAGER_HOSTNAME}"
         f" render.{CONFIG_MANAGER_HOSTNAME}"
         f" ztp.{CONFIG_MANAGER_HOSTNAME} dhcp.{CONFIG_MANAGER_HOSTNAME}"
         f" workflow.{CONFIG_MANAGER_HOSTNAME}"
@@ -962,7 +958,7 @@ class AirSimulationManager:
         f" svc-workflow.{CONFIG_MANAGER_HOSTNAME}"
         f" svc-config-store.{CONFIG_MANAGER_HOSTNAME}"
         f" svc-render.{CONFIG_MANAGER_HOSTNAME} svc-ztp.{CONFIG_MANAGER_HOSTNAME}"
-        f" svc-dhcp.{CONFIG_MANAGER_HOSTNAME} svc-nautobot.{CONFIG_MANAGER_HOSTNAME}"
+        f" svc-dhcp.{CONFIG_MANAGER_HOSTNAME}"
     )
 
     def configure_etc_hosts(
@@ -1302,117 +1298,6 @@ class AirSimulationManager:
             LOG.warning("Failed to queue render-all: %s", exc)
             return False
 
-    def wait_for_intended_configs(
-        self,
-        host: str,
-        port: int,
-        expected_total: int | None = None,
-        namespace: str = CONFIG_MANAGER_NAMESPACE,
-        deployment: str = CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
-        timeout: int = 180,
-        interval: int = 10,
-    ) -> bool:
-        """Wait until render-enabled devices have intended config records."""
-        ssh_base = self._ssh_cmd(host, port)
-        kube = "KUBECONFIG=/home/nvcm/.kube/config"
-        cmd = (
-            f"{kube} kubectl exec -i -n {namespace} deployment/{deployment}"
-            f" -- nautobot-server nbshell --command "
-            f"{shlex.quote(_NAUTOBOT_INTENDED_CONFIG_NBSHELL)}"
-        )
-        deadline = time.time() + timeout
-        last_counts = "0/0"
-        while time.time() < deadline:
-            try:
-                result = subprocess.run(
-                    [*ssh_base, cmd],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                if result.returncode == 0:
-                    for line in result.stdout.strip().splitlines():
-                        clean = line.strip()
-                        if not re.match(r"^\d+/\d+$", clean):
-                            continue
-                        ready_str, _, total_str = clean.partition("/")
-                        ready = int(ready_str)
-                        total = int(total_str)
-                        last_counts = clean
-                        target = expected_total if expected_total is not None else total
-                        if target and ready >= target:
-                            LOG.info("Intended configs ready: %s", clean)
-                            return True
-                        break
-            except Exception:
-                pass
-            time.sleep(interval)
-
-        LOG.warning("Timed out waiting for intended configs; last count: %s", last_counts)
-        return False
-
-    def create_nautobot_demo_user(
-        self,
-        host: str,
-        port: int,
-        username: str = DEFAULT_NAUTOBOT_DEMO_USERNAME,
-        password: str = DEFAULT_NAUTOBOT_DEMO_PASSWORD,
-        namespace: str = CONFIG_MANAGER_NAMESPACE,
-        deployment: str = CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
-        timeout: int = 60,
-    ) -> bool:
-        """Create or update demo/demo user in Nautobot via kubectl exec and nbshell."""
-        ssh_base = self._ssh_cmd(host, port)
-        script = (
-            "from django.contrib.auth import get_user_model\n"
-            "User = get_user_model()\n"
-            f"u, created = User.objects.get_or_create(\n"
-            f"    username={repr(username)},\n"
-            f'    defaults={{"email": "{username}@localhost"}},\n'
-            ")\n"
-            f"u.set_password({repr(password)})\n"
-            "u.is_superuser = True\n"
-            "u.is_staff = True\n"
-            "u.save()\n"
-            f'print("Created user {username}" if created else "Updated password for {username}")\n'
-        )
-        heredoc_end = "NAUTOBOT_DEMO_END"
-        cmd_create = f"cat > /tmp/demo_user.py << '{heredoc_end}'\n{script}\n{heredoc_end}"
-        kube = "KUBECONFIG=/home/nvcm/.kube/config"
-        cmd_run = (
-            f"{kube} kubectl exec -i -n {namespace} deployment/{deployment} -- "
-            "nautobot-server nbshell < /tmp/demo_user.py"
-        )
-        try:
-            LOG.info("Creating Nautobot user %s via nbshell...", username)
-            r1 = subprocess.run(
-                [*ssh_base, cmd_create],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            if r1.returncode != 0:
-                LOG.warning("Failed to write demo user script: %s", r1.stderr or r1.stdout)
-                return False
-            r2 = subprocess.run(
-                [*ssh_base, cmd_run],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-            if r2.returncode != 0:
-                LOG.warning("Failed to create demo user: %s", r2.stderr or r2.stdout)
-                return False
-            for line in (r2.stdout or "").strip().splitlines():
-                LOG.info("[nautobot-demo] %s", line)
-            return True
-        except subprocess.TimeoutExpired:
-            LOG.warning("Nautobot nbshell timed out")
-            return False
-        except Exception as exc:
-            LOG.warning("Failed to create Nautobot demo user: %s", exc)
-            return False
-
     def reset_cumulus_nodes(
         self,
         simulation_id: str,
@@ -1426,7 +1311,7 @@ class AirSimulationManager:
         requesting DHCP entirely.  Resetting the node forces a fresh boot
         and a new ZTP cycle when the DHCP infrastructure is actually ready.
 
-        This is fire-and-forget — device state is monitored via Nautobot,
+        This is fire-and-forget — device state is monitored via the DCIM provider,
         not by polling the Air API.
 
         Returns:
@@ -1461,7 +1346,7 @@ class AirSimulationManager:
                 LOG.warning("Failed to reset node %s: %s", node.name, exc)
 
         LOG.info(
-            "Reset requested for %d/%d node(s); monitor device state in Nautobot",
+            "Reset requested for %d/%d node(s); monitor device state in the DCIM provider",
             reset_count,
             len(nodes_to_reset),
         )
@@ -1651,7 +1536,7 @@ class AirSimulationManager:
             f' --proxy-server="socks5://localhost:{socks_port}"'
             f' --user-data-dir="/tmp/chrome-nvcm-proxy"'
             " --ignore-certificate-errors"
-            f" https://nautobot.{CONFIG_MANAGER_HOSTNAME}"
+            f" https://{CONFIG_MANAGER_HOSTNAME}"
         )
 
         LOG.info(
@@ -1728,7 +1613,7 @@ class AirSimulationManager:
                                 f"--proxy-server=socks5://localhost:{socks_port}",
                                 "--user-data-dir=/tmp/chrome-nvcm-proxy",
                                 "--ignore-certificate-errors",
-                                f"https://nautobot.{CONFIG_MANAGER_HOSTNAME}",
+                                f"https://{CONFIG_MANAGER_HOSTNAME}",
                             ],
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL,
@@ -1754,141 +1639,26 @@ class AirSimulationManager:
         stop_event: threading.Event,
         done_event: threading.Event,
         interval: int = 30,
-        namespace: str = CONFIG_MANAGER_NAMESPACE,
-        deployment: str = CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
     ) -> None:
-        """Poll Nautobot for the number of Cumulus Linux devices with status Provisioned.
+        """Poll the DCIM provider for the number of switches with status Provisioned.
 
         Updates *status_ref* in-place with ``provisioned``, ``total``, and
         ``detail`` keys.  Sets *done_event* when provisioned == expected_total.
         Runs in a background thread; exits when *stop_event* is set.
         """
-        ssh_base = self._ssh_cmd(host, port)
-        kube = "KUBECONFIG=/home/nvcm/.kube/config"
-        nbshell_script = _NAUTOBOT_PROVISIONING_NBSHELL
-        cmd = (
-            f"{kube} kubectl exec -i -n {namespace} deployment/{deployment}"
-            f' -- nautobot-server nbshell --command "{nbshell_script}"'
-        )
-
         while not stop_event.wait(timeout=interval):
             try:
-                result = subprocess.run(
-                    [*ssh_base, cmd],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                if result.returncode == 0:
-                    for line in result.stdout.strip().splitlines():
-                        if "/" in line:
-                            counts, _, remaining = line.partition("|")
-                            prov_str, _, total_str = counts.partition("/")
-                            prov = int(prov_str.strip())
-                            total = int(total_str.strip())
-                            status_ref["provisioned"] = prov
-                            status_ref["total"] = total
-                            if remaining.strip():
-                                status_ref["detail"] = remaining.strip()
-                            else:
-                                status_ref["detail"] = ""
-                            if prov >= expected_total:
-                                done_event.set()
-                                return
-                            break
+                prov, total, remaining = self.provisioning_probe(host, port)
             except Exception:
-                pass
-
-    def get_provisioning_status(
-        self,
-        host: str,
-        port: int,
-        namespace: str = CONFIG_MANAGER_NAMESPACE,
-        deployment: str = CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
-    ) -> tuple[int, int, list[str]]:
-        """Return (provisioned, total, remaining[:5]) from Nautobot, or (0,0,[]) on error."""
-        ssh_base = self._ssh_cmd(host, port)
-        kube = "KUBECONFIG=/home/nvcm/.kube/config"
-        nbshell_script = _NAUTOBOT_PROVISIONING_NBSHELL
-        cmd = (
-            f"{kube} kubectl exec -i -n {namespace} deployment/{deployment}"
-            f' -- nautobot-server nbshell --command "{nbshell_script}"'
-        )
-        try:
-            result = subprocess.run(
-                [*ssh_base, cmd],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if result.returncode == 0:
-                for line in result.stdout.strip().splitlines():
-                    if "/" in line:
-                        counts, _, remaining = line.partition("|")
-                        prov_str, _, total_str = counts.partition("/")
-                        prov = int(prov_str.strip())
-                        total = int(total_str.strip())
-                        names = [n.strip() for n in remaining.split(",") if n.strip()]
-                        return prov, total, names
-        except Exception:
-            pass
-        return 0, 0, []
-
-    def stream_nautobot_logs(
-        self,
-        host: str,
-        port: int,
-        on_line: Callable[[str], None],
-        stop_event: threading.Event,
-        on_pod_found: Callable[[], None] | None = None,
-    ) -> None:
-        """Tail the nautobot pod logs over SSH, retrying until the deployment exists.
-
-        Runs until stop_event is set.
-        """
-        ssh_base = self._ssh_cmd(host, port)
-        kube = "KUBECONFIG=/home/nvcm/.kube/config"
-        cmd = (
-            f"sudo {kube} kubectl logs -f -n {CONFIG_MANAGER_NAMESPACE}"
-            f" deployment/{CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT}"
-            " -c run-migrations --since=30m 2>&1"
-        )
-        on_line(f"Waiting for {CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT} pod to start...")
-        pod_found = False
-        while not stop_event.is_set():
-            try:
-                proc = subprocess.Popen(
-                    [*ssh_base, cmd],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                )
-                assert proc.stdout is not None
-                for line in proc.stdout:
-                    if stop_event.is_set():
-                        break
-                    clean = _ANSI_ESCAPE.sub("", line).rstrip("\n").rstrip("\r")
-                    if not clean:
-                        continue
-                    # Suppress kubectl "Error from server" noise while the pod isn't up yet.
-                    if not pod_found and clean.startswith("Error from server"):
-                        continue
-                    if not pod_found:
-                        pod_found = True
-                        if on_pod_found:
-                            on_pod_found()
-                    on_line(clean)
-                if proc.poll() is None:
-                    proc.terminate()
-                    proc.wait(timeout=5)
-            except Exception:
-                pass
-            if not stop_event.is_set():
-                if not pod_found:
-                    on_line("  Still waiting for namespace/pod... (retrying in 10s)")
-                else:
-                    on_line("[nautobot] reconnecting in 10s...")
-                stop_event.wait(10)
+                continue
+            if not total:
+                continue
+            status_ref["provisioned"] = prov
+            status_ref["total"] = total
+            status_ref["detail"] = ", ".join(remaining)
+            if prov >= expected_total:
+                done_event.set()
+                return
 
     def get_pod_status(
         self, host: str, port: int, namespace: str = CONFIG_MANAGER_NAMESPACE
@@ -1995,7 +1765,7 @@ class AirSimulationManager:
         - DHCP deployment logs filtered to DHCP4
         - ZTP deployment logs filtered to non-health
 
-        When *expected_devices* > 0, polls Nautobot for provisioning status and
+        When *expected_devices* > 0, polls the DCIM provider for provisioning status and
         automatically exits once all devices are Provisioned.
         When *stop_event* is provided, the loop exits when it is set.
         """

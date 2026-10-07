@@ -27,7 +27,10 @@ from nv_config_manager_installer.air_sim.orchestrator import (
     SimOrchestrator,
     StepStatus,
 )
+from nv_config_manager_installer.air_sim.provider import AirProviderHooks
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
+from nv_config_manager_installer.providers.errors import InstallerProviderError
+from nv_config_manager_installer.providers.registry import get_installer_provider
 from nv_config_manager_installer.tui.air_sim.app import NVCMAirSimApp
 
 
@@ -48,7 +51,11 @@ def air_sim() -> None:
 def init_air_sim(config_path: Path) -> None:
     """Launch the interactive DSX Air simulation TUI wizard."""
     config = SimConfig.load_or_default(config_path)
-    app = NVCMAirSimApp(config=config, config_path=config_path)
+    try:
+        provider = get_installer_provider(config.dcim_provider)
+    except InstallerProviderError as exc:
+        raise click.ClickException(str(exc)) from exc
+    app = NVCMAirSimApp(config=config, config_path=config_path, provider=provider)
     app.run()
 
 
@@ -64,8 +71,13 @@ def init_air_sim(config_path: Path) -> None:
 def deploy_air_sim(config_path: Path) -> None:
     """Run DSX Air simulation bringup from a config file."""
     config = SimConfig.from_yaml(config_path)
+    try:
+        provider = get_installer_provider(config.dcim_provider)
+    except InstallerProviderError as exc:
+        raise click.ClickException(str(exc)) from exc
+    hooks = provider.air.hooks if provider.air is not None else AirProviderHooks()
     callback = _CliCallback(config.oob_ssh_password)
-    orchestrator = SimOrchestrator(config, callback)
+    orchestrator = SimOrchestrator(config, callback, provider_hooks=hooks)
     orchestrator.run()
     if not callback.success:
         sys.exit(1)

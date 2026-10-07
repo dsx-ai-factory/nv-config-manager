@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Content management for template plugins and custom Nautobot jobs.
+"""Content management for template plugins and provider-owned custom jobs.
 
 Handles bundling job directories/tarballs and template plugin directories/tarballs
 into consolidated staging areas that the installer can push to PVCs. Supports
@@ -61,10 +61,16 @@ def _extract_tarball(tarball: Path, dest: Path) -> None:
         tf.extractall(path=dest, members=members, filter="data")
 
 
+def _job_paths(config: NVConfigManagerInstallConfig) -> list[str]:
+    """Return custom job paths declared under ``dcim.settings.jobs``."""
+    entries = config.dcim.settings.get("jobs") or []
+    return [str(entry.get("path", "")) for entry in entries if isinstance(entry, dict)]
+
+
 def stage_jobs(config: NVConfigManagerInstallConfig, staging_dir: Path) -> Path:
     """Stage all custom job content into a consolidated directory.
 
-    Processes each entry in config.content.jobs:
+    Processes each entry in ``dcim.settings.jobs``:
     - Directories are copied (excluding noise)
     - .tar.gz files are extracted
 
@@ -78,8 +84,8 @@ def stage_jobs(config: NVConfigManagerInstallConfig, staging_dir: Path) -> Path:
     jobs_dir = staging_dir / "custom-jobs"
     jobs_dir.mkdir(parents=True, exist_ok=True)
 
-    for job_entry in config.content.jobs:
-        src = Path(job_entry.path)
+    for job_path in _job_paths(config):
+        src = Path(job_path)
         if not src.exists():
             continue
         if src.is_dir():
@@ -148,7 +154,7 @@ def stage_all_content(config: NVConfigManagerInstallConfig, output_dir: Path) ->
     with tempfile.TemporaryDirectory() as tmpdir:
         staging = Path(tmpdir)
 
-        if config.content.jobs:
+        if _job_paths(config):
             jobs_dir = stage_jobs(config, staging)
             if any(jobs_dir.iterdir()):
                 tarball = output_dir / "custom-jobs.tar.gz"

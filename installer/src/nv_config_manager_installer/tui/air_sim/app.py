@@ -34,6 +34,8 @@ from nv_config_manager_installer.air_sim.prebuilt_configs import (
     load_prebuilt_config,
 )
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
+from nv_config_manager_installer.providers.api import AirContribution, DCIMInstallerProvider
+from nv_config_manager_installer.providers.registry import get_installer_provider
 from nv_config_manager_installer.tui.air_sim.screens.launch import LaunchScreen
 from nv_config_manager_installer.tui.air_sim.screens.options import OptionsScreen
 from nv_config_manager_installer.tui.air_sim.screens.topology import TopologyScreen
@@ -111,6 +113,14 @@ class QuitConfirmScreen(ModalScreen[bool]):
         self.dismiss(event.button.id == "quit-yes")
 
 
+def _load_provider(config: SimConfig) -> DCIMInstallerProvider | None:
+    """Return the configured DCIM provider, or None when it is not installed."""
+    try:
+        return get_installer_provider(config.dcim_provider)
+    except Exception:  # noqa: BLE001 - the wizard degrades to core-only behavior
+        return None
+
+
 class NVCMAirSimApp(App[None]):
     """NVCM DSX Air Simulation Wizard TUI."""
 
@@ -138,10 +148,13 @@ class NVCMAirSimApp(App[None]):
         self,
         config: SimConfig | None = None,
         config_path: Path | None = None,
+        provider: DCIMInstallerProvider | None = None,
     ) -> None:
         super().__init__()
         self.config = config if config is not None else self.CONFIG_MODEL()
         self.config_path = config_path or DEFAULT_AIR_SIM_CONFIG_PATH
+        self.provider = provider if provider is not None else _load_provider(self.config)
+        self.air: AirContribution | None = self.provider.air if self.provider else None
         self.active_section = "topology"
         self._nav_items: dict[str, NavItem] = {}
         self._screens: dict[str, Container] = {}

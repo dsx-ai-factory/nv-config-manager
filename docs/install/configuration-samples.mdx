@@ -26,8 +26,9 @@ network_secrets:
     rotation: r1
 sites:
   - name: dc01
-services:
-  nautobot: true
+dcim:
+  provider: nautobot-2x
+  local: true
 ```
 
 ## External DCIM provider
@@ -59,6 +60,7 @@ secrets:
         token: "<synthetic-provider-token>"
 dcim:
   provider: synthetic
+  local: false
   server: https://synthetic-dcim.example
   public_url: https://synthetic-dcim.example
   display_name: Synthetic DCIM
@@ -69,11 +71,16 @@ dcim:
   provider_packages:
     - name: synthetic
       image: registry.example.com/synthetic-dcim-provider:1.0
-services:
-  nautobot: false
 sites:
   - name: dc01
 ```
+
+`dcim.local: false` uses the existing instance at `dcim.server`. A provider
+that ships an installer plugin can instead deploy its own in-cluster stack
+with `dcim.local: true`; the plugin must be installed in the installer's
+Python environment (see [Installer integration](../development/contributing-dcim-provider.mdx#installer-integration)).
+Installer-side provider settings go under `dcim.settings`. Configuration
+files that still use `services.nautobot` are rewritten to `dcim.local` on load.
 
 For `secrets.method: eso`, enable `secrets.vault.paths.dcim` and configure its
 path and token key. Provider-specific sensitive settings belong in the
@@ -135,8 +142,9 @@ secrets:
   method: kubernetes
 sites:
   - name: dc01
-services:
-  nautobot: true
+dcim:
+  provider: nautobot-2x
+  local: true
 ```
 
 ## AWS with Keycloak SSO and ESO

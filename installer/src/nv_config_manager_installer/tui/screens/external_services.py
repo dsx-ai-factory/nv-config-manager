@@ -19,9 +19,11 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.containers import Container
 from textual.widgets import Input, Label, Select
+from textual.widgets.select import InvalidSelectValueError
 
+from nv_config_manager_installer.providers.api import DCIMInstallerProvider
+from nv_config_manager_installer.providers.registry import discover_installer_providers
 from nv_config_manager_installer.schema import (
-    BUILT_IN_NAUTOBOT_PROVIDER,
     ExternalNATSConfig,
     ExternalTemporalConfig,
     NATSAuthMethod,
@@ -30,7 +32,10 @@ from nv_config_manager_installer.schema import (
 )
 from nv_config_manager_installer.tui.widgets import LabeledSwitch
 
-_W_EXT_NAUTOBOT = "#ext-nautobot-enabled"
+_W_DCIM_PROVIDER = "#ext-dcim-provider"
+_W_DCIM_LOCAL = "#ext-dcim-local"
+_W_DCIM_SERVER = "#ext-dcim-server"
+_W_DCIM_PANEL = "#ext-dcim-panel"
 _W_EXT_NATS = "#ext-nats-enabled"
 _W_EXT_REDIS = "#ext-redis-enabled"
 _W_EXT_PG = "#ext-pg-enabled"
@@ -39,41 +44,79 @@ _W_EXT_TEMPORAL_MTLS = "#ext-temporal-mtls"
 _PG_HOST_PLACEHOLDER = "postgres.example.com  (leave empty to keep CNPG)"
 
 
-class ExternalServicesScreen(Container):
-    """Configure out-of-cluster service and database instances."""
+class ProviderDCIMPanel(Container):
+    """Extra DCIM fields a provider adds below the common provider controls."""
 
     def __init__(self, config: NVConfigManagerInstallConfig, **kwargs: object) -> None:
         super().__init__(**kwargs)
         self._config = config
+
+    def write_to_config(self, config: NVConfigManagerInstallConfig) -> None:
+        """Write provider-owned fields into ``config.dcim``."""
+
+    def sync_from_config(self, config: NVConfigManagerInstallConfig) -> None:
+        """Refresh provider-owned controls from the configuration."""
+        self._config = config
+
+    def get_status(self, config: NVConfigManagerInstallConfig) -> str:
+        """Return this panel's navigation status contribution."""
+        return "[*]"
+
+
+def _available_providers() -> dict[str, DCIMInstallerProvider]:
+    """Return installed providers; the wizard degrades to the configured name on failure."""
+    try:
+        return discover_installer_providers()
+    except Exception:  # noqa: BLE001 - provider discovery must not break the wizard
+        return {}
+
+
+class ExternalServicesScreen(Container):
+    """Configure the DCIM provider and out-of-cluster service instances."""
+
+    def __init__(self, config: NVConfigManagerInstallConfig, **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        self._config = config
+        self._providers = _available_providers()
+        self._panel: ProviderDCIMPanel | None = None
+        self._panel_provider = ""
+
+    def _provider(self, name: str | None = None) -> DCIMInstallerProvider | None:
+        return self._providers.get(name or self._config.dcim.provider)
+
+    def _selected_provider_name(self) -> str:
+        value = self.query_one(_W_DCIM_PROVIDER, Select).value
+        return value if isinstance(value, str) else self._config.dcim.provider
 
     def compose(self) -> ComposeResult:
         es = self._config.external_services
         r = es.redis
         pg = es.postgres
         temporal = es.temporal
-        svc = self._config.services
+        dcim = self._config.dcim
 
         yield Label("External Services", classes="section-title")
         yield Label("─" * 40, classes="section-divider")
         yield Label(
-            "Override in-cluster services with external instances. "
-            "Leave disabled to use the default in-cluster deployments."
+            "Select the DCIM provider, then override in-cluster services with external "
+            "instances. Leave overrides disabled to use the default in-cluster deployments."
         )
 
-        # ── Nautobot ──────────────────────────────────────────────────────
-        yield Label("Nautobot", classes="field-label")
-        yield LabeledSwitch(
-            "Use external Nautobot",
-            value=not svc.nautobot,
-            id="ext-nautobot-enabled",
-        )
-        with Container(id="ext-nautobot-fields"):
-            yield Label("Nautobot endpoint", classes="field-label")
+        # ── DCIM provider ──────────────────────────────────────────────────
+        options = [(p.metadata.display_name, name) for name, p in self._providers.items()]
+        if dcim.provider not in self._providers:
+            options.append((f"{dcim.provider} (not installed)", dcim.provider))
+        yield Label("DCIM Provider", classes="field-label")
+        yield Select(options, value=dcim.provider, allow_blank=False, id="ext-dcim-provider")
+        yield LabeledSwitch("Deploy in cluster", value=dcim.local, id="ext-dcim-local")
+        with Container(id="ext-dcim-fields"):
+            yield Label("DCIM endpoint", classes="field-label")
             yield Input(
-                value=self._config.dcim.server or svc.external_nautobot_url,
-                placeholder="https://nautobot.example.com",
-                id="ext-nautobot-url",
+                value=dcim.server,
+                placeholder=self._server_placeholder(dcim.provider),
+                id="ext-dcim-server",
             )
+        yield Container(id="ext-dcim-panel")
 
         # ── NATS ──────────────────────────────────────────────────────────
         nats = es.nats
@@ -206,24 +249,67 @@ class ExternalServicesScreen(Container):
                 placeholder=_PG_HOST_PLACEHOLDER,
                 id="ext-pg-dhcp",
             )
-            yield Label("Nautobot host", classes="field-label")
+            yield Label("DCIM host", classes="field-label")
             yield Input(
-                value=pg.nautobot_host,
+                value=pg.dcim_host,
                 placeholder=_PG_HOST_PLACEHOLDER,
-                id="ext-pg-nautobot",
+                id="ext-pg-dcim",
             )
 
+    def _server_placeholder(self, name: str) -> str:
+        provider = self._provider(name)
+        return provider.metadata.server_placeholder if provider else "https://dcim.example.com"
+
+    def _mount_provider_panel(self, name: str) -> None:
+        """Replace the provider panel when the selected provider changes."""
+        if name == self._panel_provider:
+            return
+        container = self.query_one(_W_DCIM_PANEL, Container)
+        container.remove_children()
+        self._panel = None
+        self._panel_provider = name
+        provider = self._provider(name)
+        if provider is not None and provider.tui.dcim_panel is not None:
+            self._panel = provider.tui.dcim_panel(self._config, id="ext-dcim-provider-panel")
+            container.mount(self._panel)
+
+    def _apply_provider_capabilities(self, name: str) -> None:
+        provider = self._provider(name)
+        local_switch = self.query_one(_W_DCIM_LOCAL, LabeledSwitch)
+        if provider is not None:
+            if not provider.metadata.supports_local:
+                local_switch.value = False
+            elif not provider.metadata.supports_external:
+                local_switch.value = True
+            local_switch.disabled = not (
+                provider.metadata.supports_local and provider.metadata.supports_external
+            )
+        self.query_one(_W_DCIM_SERVER, Input).placeholder = self._server_placeholder(name)
+        self._toggle_dcim_fields()
+
     def on_mount(self) -> None:
-        self._toggle_nautobot_fields()
+        self._apply_provider_capabilities(self._config.dcim.provider)
+        self._mount_provider_panel(self._config.dcim.provider)
         self._toggle_nats_fields()
         self._toggle_redis_fields()
         self._toggle_temporal_fields()
         self._toggle_pg_fields()
 
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id != "ext-dcim-provider" or not isinstance(event.value, str):
+            return
+        name = event.value
+        self._apply_provider_capabilities(name)
+        self._mount_provider_panel(name)
+        app = self.app
+        if hasattr(app, "set_provider") and name != self._config.dcim.provider:
+            self._switch_provider(self._config, name)
+            app.call_later(app.set_provider, name)
+
     def on_labeled_switch_changed(self, event: LabeledSwitch.Changed) -> None:
         sid = event.labeled_switch.id
-        if sid == "ext-nautobot-enabled":
-            self._toggle_nautobot_fields()
+        if sid == "ext-dcim-local":
+            self._toggle_dcim_fields()
         elif sid == "ext-nats-enabled":
             self._toggle_nats_fields()
         elif sid == "ext-redis-enabled":
@@ -235,10 +321,21 @@ class ExternalServicesScreen(Container):
         elif sid == "ext-pg-enabled":
             self._toggle_pg_fields()
 
-    def _toggle_nautobot_fields(self) -> None:
-        self.query_one("#ext-nautobot-fields").display = self.query_one(
-            _W_EXT_NAUTOBOT, LabeledSwitch
+    def _toggle_dcim_fields(self) -> None:
+        self.query_one("#ext-dcim-fields").display = not self.query_one(
+            _W_DCIM_LOCAL, LabeledSwitch
         ).value
+
+    @staticmethod
+    def _switch_provider(config: NVConfigManagerInstallConfig, name: str) -> None:
+        """Reset provider-owned DCIM values when a different provider is selected."""
+        if config.dcim.provider == name:
+            return
+        config.dcim.provider = name
+        config.dcim.settings = {}
+        config.dcim.token_secret_name = ""
+        config.dcim.event_stream = ""
+        config.dcim.event_subject = ""
 
     def _toggle_nats_fields(self) -> None:
         self.query_one("#ext-nats-fields").display = self.query_one(
@@ -270,12 +367,14 @@ class ExternalServicesScreen(Container):
             return default
 
     def write_to_config(self, config: NVConfigManagerInstallConfig) -> None:
-        nautobot_external = self.query_one(_W_EXT_NAUTOBOT, LabeledSwitch).value
-        nautobot_server = self.query_one("#ext-nautobot-url", Input).value.strip()
-        config.dcim.provider = BUILT_IN_NAUTOBOT_PROVIDER
-        config.services.nautobot = not nautobot_external
-        config.services.external_nautobot_url = nautobot_server if nautobot_external else ""
-        config.dcim.server = nautobot_server if nautobot_external else ""
+        name = self._selected_provider_name()
+        self._switch_provider(config, name)
+        local = self.query_one(_W_DCIM_LOCAL, LabeledSwitch).value
+        server = self.query_one(_W_DCIM_SERVER, Input).value.strip()
+        config.dcim.local = local
+        config.dcim.server = "" if local else server
+        if self._panel is not None:
+            self._panel.write_to_config(config)
 
         es = config.external_services
         es.nats = ExternalNATSConfig(
@@ -322,7 +421,7 @@ class ExternalServicesScreen(Container):
         pg.temporal_visibility_host = self.query_one("#ext-pg-temporal-vis", Input).value.strip()
         pg.config_store_host = self.query_one("#ext-pg-config-store", Input).value.strip()
         pg.dhcp_host = self.query_one("#ext-pg-dhcp", Input).value.strip()
-        pg.nautobot_host = self.query_one("#ext-pg-nautobot", Input).value.strip()
+        pg.dcim_host = self.query_one("#ext-pg-dcim", Input).value.strip()
 
     def sync_from_config(self, config: NVConfigManagerInstallConfig) -> None:
         self._config = config
@@ -330,12 +429,17 @@ class ExternalServicesScreen(Container):
         r = es.redis
         pg = es.postgres
         temporal = es.temporal
-        svc = config.services
         try:
-            self.query_one(_W_EXT_NAUTOBOT, LabeledSwitch).value = not svc.nautobot
-            self.query_one("#ext-nautobot-url", Input).value = (
-                config.dcim.server or svc.external_nautobot_url
-            )
+            try:
+                self.query_one(_W_DCIM_PROVIDER, Select).value = config.dcim.provider
+            except InvalidSelectValueError:
+                pass  # provider is not installed; keep the current selection
+            self.query_one(_W_DCIM_LOCAL, LabeledSwitch).value = config.dcim.local
+            self.query_one(_W_DCIM_SERVER, Input).value = config.dcim.server
+            self._apply_provider_capabilities(config.dcim.provider)
+            self._mount_provider_panel(config.dcim.provider)
+            if self._panel is not None:
+                self._panel.sync_from_config(config)
             self.query_one(_W_EXT_NATS, LabeledSwitch).value = es.nats.enabled
             self.query_one("#ext-nats-server", Input).value = es.nats.server
             self.query_one("#ext-nats-auth-method", Select).value = es.nats.auth_method.value
@@ -365,10 +469,10 @@ class ExternalServicesScreen(Container):
             self.query_one("#ext-pg-temporal-vis", Input).value = pg.temporal_visibility_host
             self.query_one("#ext-pg-config-store", Input).value = pg.config_store_host
             self.query_one("#ext-pg-dhcp", Input).value = pg.dhcp_host
-            self.query_one("#ext-pg-nautobot", Input).value = pg.nautobot_host
+            self.query_one("#ext-pg-dcim", Input).value = pg.dcim_host
         except LookupError:
             pass  # widgets may not be mounted yet (called before compose)
-        self._toggle_nautobot_fields()
+        self._toggle_dcim_fields()
         self._toggle_nats_fields()
         self._toggle_redis_fields()
         self._toggle_temporal_fields()
@@ -376,9 +480,9 @@ class ExternalServicesScreen(Container):
 
     def get_status(self, config: NVConfigManagerInstallConfig) -> str:
         es = config.external_services
-        if not config.services.nautobot and not (
-            config.dcim.server or config.services.external_nautobot_url
-        ):
+        if not config.dcim.local and not config.dcim.server:
+            return "[!]"
+        if self._panel is not None and self._panel.get_status(config) == "[!]":
             return "[!]"
         if es.nats.enabled and not es.nats.server:
             return "[!]"
@@ -391,11 +495,6 @@ class ExternalServicesScreen(Container):
             ]
         ):
             return "[!]"
-        if (
-            not config.services.nautobot
-            or es.nats.enabled
-            or es.redis.enabled
-            or es.postgres.enabled
-        ):
+        if not config.dcim.local or es.nats.enabled or es.redis.enabled or es.postgres.enabled:
             return "[*]"
         return "[ ]"

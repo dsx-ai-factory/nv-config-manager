@@ -60,15 +60,22 @@ dcim:
   cacheTtl: 0
   # Kubernetes secret used by secrets.method=kubernetes. ESO and Vault Agent
   # use secrets.vault.paths.dcim for non-Nautobot providers instead.
+  # Empty name resolves to nautobot-token for nautobot-2x and dcim-token for
+  # other providers.
   tokenSecret:
-    name: nautobot-token
+    name: ""
     key: token
   options: {}
-  # Provider-neutral DCIM event stream. Empty values retain the historical
-  # Nautobot changelog stream during the compatibility window.
+  # Provider-neutral DCIM event stream. Empty values fall back to
+  # externalServices.nats.streams.dcim.
   events:
     stream: ""
     subject: ""
+  # Init containers poll the DCIM server before dependent services start.
+  # Empty path uses /health/ for nautobot-2x and /login/ for other providers.
+  readiness:
+    enabled: true
+    path: ""
   # Optional external provider packages. Each image must contain one or more
   # provider/dependency wheels under /plugin-wheels. Installation is offline;
   # the image therefore carries every dependency required by the provider.
@@ -595,15 +602,18 @@ externalServices:
         archiveConsumer:
           name: nv-config-manager-archive
           deliverySubject: nv-config-manager.archive.delivery
-      nautobot:
+      # DCIM change-event stream. The deprecated streams.nautobot.* block is
+      # still honored when present: streams.nautobot.* > dcim.events.* >
+      # streams.dcim.*.
+      dcim:
         name: nautobot
-        # Set to a custom prefix (e.g. "$JS.CUSTOM.API") when the Nautobot
+        # Set to a custom prefix (e.g. "$JS.CUSTOM.API") when the DCIM
         # stream is imported from another NATS account instead of owned here.
         apiPrefix: "$JS.API"
         subjects:
           - nautobot
         subject: nautobot
-        # Fixed durable exported by the account that owns the Nautobot stream.
+        # Fixed durable exported by the account that owns the DCIM stream.
         consumer:
           name: nv-config-manager-nautobot
   # Redis Configuration (Shared by all services including Nautobot)
@@ -1153,9 +1163,9 @@ renderService:
                     values:
                       - render-api
               topologyKey: kubernetes.io/hostname
-  # Consumers
+  # Consumers. The deprecated consumers.nautobot key is still honored when set.
   consumers:
-    nautobot:
+    dcim:
       replicas: 3
       resources:
         requests:
@@ -1300,7 +1310,8 @@ renderService:
               percent: 50
               pods: 5
               periodSeconds: 60
-      nautobot:
+      # The deprecated consumers.nautobot key is still honored when set.
+      dcim:
         enabled: true
         minReplicas: 3
         maxReplicas: 15
@@ -2985,6 +2996,7 @@ nautobotNats:
   accounts:
     nvConfigManager:
       enabled: true
+    # Legacy nautobot NATS user and its nats-nautobot password secret.
     nautobot:
       enabled: true
   # nats-ready init container configuration

@@ -51,16 +51,15 @@ from nv_config_manager_installer.k8s import (
     kubectl_current_context,
     pin_kubeconfig_to_current_context,
 )
-from nv_config_manager_installer.nautobot_jobs import NautobotJobRunner
 from nv_config_manager_installer.openbao import OpenBaoClient, OpenBaoPopulator
 from nv_config_manager_installer.operator_versions import load_operator_versions
+from nv_config_manager_installer.providers.api import DCIMInstallerProvider
+from nv_config_manager_installer.providers.registry import resolve_provider
 from nv_config_manager_installer.pvc_updater import (
-    CUSTOM_JOBS_PACKAGE_MARKER,
     normalize_ztp_platform,
     validate_ztp_path_component,
 )
 from nv_config_manager_installer.schema import (
-    BUILT_IN_NAUTOBOT_PROVIDER,
     GatewayType,
     ImageSource,
     LBProvider,
@@ -69,7 +68,7 @@ from nv_config_manager_installer.schema import (
     ZTPOSImage,
     ZTPStorageType,
 )
-from nv_config_manager_installer.secrets import generate_secrets
+from nv_config_manager_installer.secrets import application_databases, generate_secrets
 
 _DEFAULT_GATEWAY_CLASS_NAME = "envoy-gateway"
 _HELM_RELEASE_NAME_ANNOTATION = "meta.helm.sh/release-name"
@@ -175,7 +174,6 @@ class _RerunState:
     """Tracks what changed between runs so the deployer can skip unnecessary work."""
 
     is_rerun: bool = False
-    jobs_changed: bool = True
     templates_changed: bool = True
 
 
@@ -187,7 +185,6 @@ _CI_ENV_VAR = "CI"
 _DOCKER_SYSTEM_PRUNE_COMMAND = ("docker", "system", "prune", "-af")
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 _LOCAL_IMAGE_BUILDS: tuple[tuple[str, str, str, str | None], ...] = (
-    ("nv-config-manager-nautobot", "build/nautobot.Dockerfile", "components/nautobot", None),
     ("nv-config-manager-nats-ready", "build/nats-ready.Dockerfile", "components/nats-ready", None),
     ("nv-config-manager", "build/nv-config-manager.Dockerfile", ".", None),
     ("nv-config-manager-ui", "build/ui.Dockerfile", "ui", None),
@@ -207,11 +204,6 @@ _LOCAL_IMAGE_BUILDS: tuple[tuple[str, str, str, str | None], ...] = (
 def _is_ci_environment() -> bool:
     """Return whether installer-side CI-only behavior should be enabled."""
     return os.environ.get(_CI_ENV_VAR, "").strip().lower() in _TRUTHY_ENV_VALUES
-
-
-def _build_job_paths(config: NVConfigManagerInstallConfig) -> list[Path]:
-    """Return custom job paths; bootstrap jobs remain available from the image."""
-    return [Path(j.path) for j in config.content.jobs]
 
 
 def _hash_content_dir(
@@ -1077,8 +1069,33 @@ def _run_logged_parallel(
         selector.close()
 
 
+_CORE_STEPS: tuple[tuple[str, str], ...] = (
+    ("prereqs", "Check prerequisites"),
+    ("build-images", "Build local images"),
+    ("load-kind", "Load images to Kind"),
+    ("install-crds", "Install CRDs / operators"),
+    ("create-namespace", "Create namespace"),
+    ("create-secrets", "Create Kubernetes secrets"),
+    ("populate-vault", "Populate Vault secrets"),
+    ("setup-templates-pvc", "Setup template plugins PVC"),
+    ("setup-ztp-pvc", "Setup ZTP images PVC"),
+    ("generate-values", "Generate Helm values"),
+    ("helm-install", "Helm install / upgrade"),
+    ("patch-gateway", "Configure local Gateway access"),
+    ("restart-render", "Restart Render Service"),
+    ("refresh-cache", "Refresh caches"),
+    ("run-tests", "Run integration tests"),
+    ("endpoints", "Collect endpoints"),
+)
+
+
 class Deployer:
-    """Orchestrates the full NVIDIA Config Manager deployment pipeline."""
+    """Orchestrates the full NVIDIA Config Manager deployment pipeline.
+
+    The selected DCIM provider contributes steps and runs its hooks at fixed
+    points; the deployer itself is the :class:`ProviderDeployContext` passed
+    to those hooks.
+    """
 
     CONFIG_MODEL: ClassVar[type[NVConfigManagerInstallConfig]] = NVConfigManagerInstallConfig
 
@@ -1087,42 +1104,36 @@ class Deployer:
         config: NVConfigManagerInstallConfig,
         options: DeployOptions,
         callback: DeployCallback | None = None,
+        provider: DCIMInstallerProvider | None = None,
     ) -> None:
         self.config = self.CONFIG_MODEL.model_validate(config.model_dump())
+        self.provider = provider or resolve_provider(self.config)
         self.options = options
         self.callback = callback or _NoopCallback()
         self._secrets_state: dict[str, str] = {}
         self._rerun = _RerunState()
         self._k8s: K8sClient | None = None
         self._local_image_tags: dict[str, str] = {}
+        self.provider_state: dict[str, Any] = {}
 
-        self.steps = self.create_steps()
+        self.steps = self.create_steps(self.provider)
         self._step_map = {s.id: s for s in self.steps}
 
     @classmethod
-    def create_steps(cls) -> list[DeployStep]:
-        """Return deployment steps shown by CLI and TUI frontends."""
-        return [
-            DeployStep("prereqs", "Check prerequisites"),
-            DeployStep("build-images", "Build local images"),
-            DeployStep("load-kind", "Load images to Kind"),
-            DeployStep("install-crds", "Install CRDs / operators"),
-            DeployStep("create-namespace", "Create namespace"),
-            DeployStep("create-secrets", "Create Kubernetes secrets"),
-            DeployStep("populate-vault", "Populate Vault secrets"),
-            DeployStep("setup-jobs-pvc", "Setup custom jobs PVC"),
-            DeployStep("setup-templates-pvc", "Setup template plugins PVC"),
-            DeployStep("setup-ztp-pvc", "Setup ZTP images PVC"),
-            DeployStep("generate-values", "Generate Helm values"),
-            DeployStep("helm-install", "Helm install / upgrade"),
-            DeployStep("patch-gateway", "Configure local Gateway access"),
-            DeployStep("restart-nautobot", "Restart Nautobot"),
-            DeployStep("restart-render", "Restart Render Service"),
-            DeployStep("run-jobs", "Run post-deploy jobs"),
-            DeployStep("refresh-cache", "Refresh caches"),
-            DeployStep("run-tests", "Run integration tests"),
-            DeployStep("endpoints", "Collect endpoints"),
-        ]
+    def create_steps(cls, provider: DCIMInstallerProvider | None = None) -> list[DeployStep]:
+        """Return deployment steps shown by CLI and TUI frontends.
+
+        Provider steps are spliced before or after the core step ids they name.
+        """
+        contribution = provider.deploy_steps() if provider is not None else None
+        steps: list[DeployStep] = []
+        for step_id, label in _CORE_STEPS:
+            if contribution is not None:
+                steps.extend(DeployStep(*entry) for entry in contribution.before.get(step_id, ()))
+            steps.append(DeployStep(step_id, label))
+            if contribution is not None:
+                steps.extend(DeployStep(*entry) for entry in contribution.after.get(step_id, ()))
+        return steps
 
     def _get_step(self, step_id: str) -> DeployStep:
         return self._step_map[step_id]
@@ -1144,6 +1155,56 @@ class Deployer:
             step.output.append(reason)
         self.callback.on_step_update(step)
 
+    # -- ProviderDeployContext -----------------------------------------------
+
+    @property
+    def k8s(self) -> K8sClient:
+        assert self._k8s is not None
+        return self._k8s
+
+    @property
+    def secrets_state(self) -> dict[str, str]:
+        return self._secrets_state
+
+    @property
+    def is_rerun(self) -> bool:
+        return self._rerun.is_rerun
+
+    @property
+    def nats_user(self) -> str:
+        """Return the NATS user NVCM services and provider publishers connect as."""
+        nats = self.config.external_services.nats
+        return nats.user if nats.enabled else "nv-config-manager"
+
+    @property
+    def nats_url(self) -> str:
+        """Return the NATS URL reachable from inside the cluster."""
+        nats = self.config.external_services.nats
+        if nats.enabled:
+            return nats.server
+        return f"nats://{self.config.cluster.release_name}-nats:4222"
+
+    def start_step(self, step_id: str) -> DeployStep:
+        return self._start_step(step_id)
+
+    def finish_step(self, step: DeployStep, status: StepStatus | None = None) -> None:
+        self._finish_step(step, status or StepStatus.SUCCESS)
+
+    def skip_step(self, step_id: str, reason: str = "") -> None:
+        self._skip_step(step_id, reason)
+
+    def apply_secret(self, step: DeployStep, name: str, data: dict[str, str]) -> None:
+        self._apply_secret(step, name, data)
+
+    def check_content_diff(
+        self, paths: list[Path], pvc_name: str, namespace: str, label: str
+    ) -> bool:
+        return self._check_content_diff(paths, pvc_name, namespace, label)
+
+    def content_hash(self, paths: list[Path]) -> str:
+        """Return the content hash recorded on PVCs populated from *paths*."""
+        return _hash_content_dir(paths)
+
     def _validate_gateway_options(self) -> None:
         """Reject installer actions that apply only to Envoy Gateway."""
         if (
@@ -1156,16 +1217,14 @@ class Deployer:
             )
 
     def _local_image_builds(self) -> tuple[tuple[str, str, str, str | None], ...]:
-        """Return local images required by this deployment.
-
-        Derived installers may override this hook to add or replace provider-owned
-        images without reimplementing the build and Kind loading pipeline.
-        """
-        if self.config.services.nautobot:
-            return _LOCAL_IMAGE_BUILDS
-        return tuple(
-            build for build in _LOCAL_IMAGE_BUILDS if build[0] != "nv-config-manager-nautobot"
+        """Return local images required by this deployment, including the provider's."""
+        images = self.provider.images
+        provider_builds = tuple(
+            build
+            for build in images.local_builds
+            if self.config.dcim.local or build[0] not in images.local_only_builds
         )
+        return (*provider_builds, *_LOCAL_IMAGE_BUILDS)
 
     def _validate_project_paths(self, project_root: Path) -> None:
         """Fail early when repository-owned deployment inputs are unavailable."""
@@ -1228,17 +1287,16 @@ class Deployer:
             self._create_namespace()
             self._create_secrets()
             self._populate_vault()
-            self._setup_jobs_pvc()
             self._setup_templates_pvc()
             self._setup_ztp_pvc()
             self._generate_values()
-            self._run_provider_pre_helm_install()
+            self.provider.pre_helm_install(self)
             self._helm_install()
-            self._run_provider_post_helm_install()
+            self.provider.post_helm_install(self)
             self._patch_gateway()
-            self._restart_nautobot()
+            self.provider.post_gateway(self)
             self._restart_render_service()
-            self._run_post_deploy_jobs()
+            self.provider.post_restart(self)
             self._refresh_caches()
             self._run_integration_tests()
             endpoints = self._collect_endpoints()
@@ -1270,21 +1328,6 @@ class Deployer:
                     os.environ.pop("KUBECONFIG", None)
 
     # -- Step implementations ------------------------------------------------
-
-    def _run_provider_pre_helm_install(self) -> None:
-        """Run provider-owned deployment steps before the umbrella Helm release.
-
-        Derived installers can insert provider-specific ``DeployStep`` entries
-        through :meth:`create_steps` and execute them here without replacing the
-        common deployment sequence.
-        """
-
-    def _run_provider_post_helm_install(self) -> None:
-        """Run provider-owned deployment steps after the umbrella Helm release.
-
-        This is intended for provider readiness checks and bootstrap work that
-        depends on NVIDIA Config Manager services being installed.
-        """
 
     def _check_prerequisites(self) -> None:
         step = self._start_step("prereqs")
@@ -1456,10 +1499,7 @@ class Deployer:
         else:
             self.callback.on_log("Fresh install: no existing Helm release found")
 
-        if self.config.content.jobs:
-            self._rerun.jobs_changed = self._check_content_diff(
-                _build_job_paths(self.config), "nautobot-custom-jobs", ns, "Jobs content"
-            )
+        self.provider.detect_existing_state(self)
 
         if self.config.content.template_plugins:
             tpl_paths = [Path(t.path) for t in self.config.content.template_plugins]
@@ -2255,19 +2295,17 @@ class Deployer:
         self._finish_step(step)
 
     def _create_core_secrets(self, step: DeployStep, s: dict[str, str]) -> None:
-        """Create Redis, DCIM, DB, NATS, and device credential secrets."""
+        """Create Redis, DCIM, DB, NATS, device credential, and provider secrets."""
         self._apply_secret(step, "redis-password", {"password": s.get("redis_password", "")})
         dcim = self.config.dcim
-        token_state_key = (
-            "nautobot_token" if dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER else "dcim_token"
-        )
-        dcim_token_data = {dcim.token_secret_key: s.get(token_state_key, "")}
-        if dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER:
-            if ro_token := s.get("nautobot_read_only_token"):
-                dcim_token_data["read-only-token"] = ro_token
-        self._apply_secret(step, dcim.token_secret_name, dcim_token_data)
+        dcim_token_data = {
+            dcim.token_secret_key: s.get("dcim_token", ""),
+            **self.provider.token_secret_data(s),
+        }
+        token_secret_name = dcim.token_secret_name or self.provider.metadata.token_secret_name
+        self._apply_secret(step, token_secret_name, dcim_token_data)
 
-        for db in ["temporal", "temporal_visibility", "config_store", "dhcp", "nautobot"]:
+        for db in application_databases(self.provider):
             self._apply_secret(
                 step,
                 f"cluster-{db.replace('_', '-')}-app",
@@ -2278,21 +2316,14 @@ class Deployer:
             )
 
         nats_pw = s.get("nats_password", "")
-        for nats_name in ("nats-sys", "nats-nv-config-manager", "nats-nautobot"):
+        for nats_name in (
+            "nats-sys",
+            "nats-nv-config-manager",
+            *self.provider.secrets.nats_secret_names,
+        ):
             self._apply_secret(step, nats_name, {"password": nats_pw})
 
-        if self.config.services.nautobot:
-            self._apply_secret(
-                step,
-                "nautobot-admin",
-                {
-                    "password": s.get("nautobot_admin_password", ""),
-                    "api_token": s.get("nautobot_token", ""),
-                },
-            )
-            self._apply_secret(
-                step, "nautobot-django-secret", {"secret_key": s.get("django_secret_key", "")}
-            )
+        self.provider.create_secrets(self, step)
 
         if self.config.services.temporal:
             svc_user = self.config.secrets.config_manager_service_username or "nv-config-manager"
@@ -2453,99 +2484,6 @@ class Deployer:
             msg = f"{'Recreated' if exists else 'Created'}: {ps.name}"
             step.output.append(msg)
             self.callback.on_log(msg)
-
-    def _setup_jobs_pvc(self) -> None:
-        if not self.config.content.jobs:
-            self._skip_step("setup-jobs-pvc", "No custom jobs configured")
-            return
-
-        if not self.config.services.nautobot:
-            self._skip_step(
-                "setup-jobs-pvc",
-                "Skipped: custom jobs require local Nautobot (external target in use)",
-            )
-            self.callback.on_log(
-                "WARNING: Custom jobs cannot be loaded into an external Nautobot instance"
-            )
-            return
-
-        assert self._k8s is not None
-        step = self._start_step("setup-jobs-pvc")
-        ns = self.config.cluster.namespace
-        pvc_name = "nautobot-custom-jobs"
-        jobs_config = self.config.content.jobs_config
-
-        if self._rerun.is_rerun and not self._rerun.jobs_changed:
-            step.output.append("Content unchanged, skipping upload")
-            self._finish_step(step)
-            return
-
-        # Kill any leftover loader pod before touching the PVC so the
-        # pvc-protection finalizer is released and ensure_pvc can proceed.
-        pod_name = "nv-config-manager-jobs-loader"
-        self._k8s.delete_pod(pod_name, ns)
-        self._k8s.wait_for_pod_gone(pod_name, ns)
-
-        self._k8s.ensure_pvc(
-            pvc_name,
-            ns,
-            access_mode=jobs_config.access_mode or "ReadWriteOnce",
-            storage_class=jobs_config.storage_class or None,
-            allow_recreate=False,
-        )
-        step.output.append(f"PVC {pvc_name}: ready")
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            staging = Path(tmpdir) / "jobs"
-            staging.mkdir()
-            # The PVC is mounted as JOBS_ROOT/custom, which must be a package for
-            # Nautobot's recursive module discovery to descend into it.
-            (staging / "__init__.py").write_text(CUSTOM_JOBS_PACKAGE_MARKER)
-
-            for job_entry in self.config.content.jobs:
-                src = Path(job_entry.path)
-                if src.is_dir():
-                    shutil.copytree(
-                        src,
-                        staging / src.name,
-                        dirs_exist_ok=True,
-                        ignore=shutil.ignore_patterns(*_IGNORE_COMMON),
-                    )
-
-            tarball = Path(tmpdir) / "jobs.tar.gz"
-            with tarfile.open(tarball, "w:gz") as tf:
-                for item in staging.iterdir():
-                    tf.add(item, arcname=item.name)
-
-            self._k8s.create_loader_pod(
-                pod_name,
-                ns,
-                pvc_name,
-                mount_path="/jobs",
-                node_selector=jobs_config.node_selector or None,
-            )
-            self._k8s.wait_for_pod_ready(pod_name, ns)
-            self.callback.on_log("Loader pod ready, copying jobs tarball...")
-
-            self._k8s.copy_to_pod(str(tarball), pod_name, ns, "/tmp/jobs.tar.gz")
-            self.callback.on_log("Extracting jobs into PVC...")
-            self._k8s.exec_command(
-                pod_name,
-                ns,
-                [
-                    "sh",
-                    "-c",
-                    "cd /jobs && find . -mindepth 1 -maxdepth 1 -exec rm -rf {} \\; "
-                    "&& tar xzf /tmp/jobs.tar.gz && chown -R 1000:1000 /jobs",
-                ],
-            )
-            self._k8s.delete_pod(pod_name, ns)
-            step.output.append("Jobs uploaded to PVC")
-
-        content_hash = _hash_content_dir(_build_job_paths(self.config))
-        self._k8s.annotate_pvc(pvc_name, ns, _CONTENT_HASH_ANNOTATION, content_hash)
-
-        self._finish_step(step)
 
     def _setup_templates_pvc(self) -> None:
         if not self.config.content.template_plugins:
@@ -2988,50 +2926,6 @@ class Deployer:
         step.output.append(f"Patched {deployment} with NodePort 30080/30443")
         self._finish_step(step)
 
-    def _restart_nautobot(self) -> None:
-        if not self.config.content.jobs:
-            self._skip_step("restart-nautobot", "No custom jobs to reload")
-            return
-
-        if not self._rerun.is_rerun:
-            self._skip_step("restart-nautobot", "Fresh install, Helm starts pods automatically")
-            return
-
-        if not self._rerun.jobs_changed:
-            self._skip_step("restart-nautobot", "Jobs unchanged, no restart needed")
-            return
-
-        assert self._k8s is not None
-        step = self._start_step("restart-nautobot")
-        ns = self.config.cluster.namespace
-        release = self.config.cluster.release_name
-
-        nautobot_deploys = [
-            f"{release}-nautobot",
-            f"{release}-nautobot-celery",
-            f"{release}-nautobot-celery-beat",
-        ]
-        generations = {}
-        for deploy in nautobot_deploys:
-            generations[deploy] = self._k8s.restart_deployment(deploy, ns)
-            self.callback.on_log(f"Triggered rollout restart for {deploy}")
-
-        for deploy in nautobot_deploys:
-            self.callback.on_log(f"Waiting for {deploy} rollout to complete...")
-            try:
-                self._k8s.wait_for_rollout(
-                    deploy,
-                    ns,
-                    timeout=360,
-                    on_message=self.callback.on_log,
-                    min_generation=generations[deploy],
-                )
-            except TimeoutError:
-                self.callback.on_log(f"Rollout wait timed out for {deploy} (non-fatal)")
-
-        step.output.append("Nautobot restarted to pick up new jobs")
-        self._finish_step(step)
-
     def _restart_render_service(self) -> None:
         if not self.config.content.template_plugins:
             self._skip_step("restart-render", "No template plugins configured")
@@ -3077,55 +2971,8 @@ class Deployer:
         step.output.append("Render service restarted to pick up new templates")
         self._finish_step(step)
 
-    def _run_post_deploy_jobs(self) -> None:
-        if not self.config.content.run_after_deploy:
-            self._skip_step("run-jobs", "No post-deploy jobs configured")
-            return
-
-        step = self._start_step("run-jobs")
-
-        assert self._k8s is not None
-        runner = NautobotJobRunner(
-            self._k8s,
-            self.config.cluster.namespace,
-            self.config.cluster.release_name,
-            on_log=lambda message: self._log_post_deploy_job(message, step),
-        )
-        total = len(self.config.content.run_after_deploy)
-        failed = 0
-        for i, job_spec in enumerate(self.config.content.run_after_deploy, 1):
-            try:
-                job_input = json.loads(job_spec.input) if job_spec.input else {}
-                if not isinstance(job_input, dict):
-                    raise ValueError("Job input must be a JSON object")
-                ok = runner.run(job_spec.job, job_input)
-                label = f"Job {i}/{total}: {job_spec.job}"
-                if ok:
-                    step.output.append(f"Completed: {label}")
-                else:
-                    step.output.append(f"Failed: {label}")
-                    failed += 1
-            except Exception as exc:
-                step.output.append(f"Failed to run {job_spec.job}: {exc}")
-                self.callback.on_log(f"  Error: {exc}")
-                failed += 1
-
-        if failed > 0:
-            step.error = f"{failed} of {total} job(s) failed"
-            self._finish_step(step, StepStatus.FAILED)
-            raise RuntimeError(step.error)
-        else:
-            step.output.append(f"All {total} job(s) completed successfully")
-            self._finish_step(step)
-
-    def _log_post_deploy_job(self, message: str, step: DeployStep) -> None:
-        """Stream a shared Nautobot-job runner message to deployment progress."""
-        line = f"  {message}"
-        self.callback.on_log(line)
-        step.output.append(line)
-
     def _refresh_caches(self) -> None:
-        if not self.config.content.run_after_deploy:
+        if not self.provider.refresh_caches_needed(self.config):
             self._skip_step("refresh-cache", "No post-deploy jobs ran")
             return
 
@@ -3188,20 +3035,25 @@ class Deployer:
             pass
         return ""
 
-    def _build_test_script(self, ns: str, release: str, token: str) -> str:
+    def _build_test_script(self, ns: str, release: str, provider_env: dict[str, str]) -> str:
         """Generate the Python test runner script to exec in-pod."""
-        token_escaped = token.replace("'", "'\\''")
+        env = {
+            "RENDER_URL": f"http://{release}-render-api:9000",
+            "ZTP_URL": f"http://{release}-ztp-api:9000",
+            "DHCP_URL": f"http://{release}-dhcp-internal:9000",
+            "TEMPORAL_URL": f"http://{release}-temporal-api:9000",
+            "SFTP_HOST": "127.0.0.1",
+            "SFTP_PORT": "2222",
+            **provider_env,
+        }
+        env_lines = "".join(
+            f"    '{key}': '{value.replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}',\n"
+            for key, value in env.items()
+        )
         return (
             "import os, sys\n"
             "os.environ.update({\n"
-            f"    'NAUTOBOT_URL': 'http://{release}-nautobot',\n"
-            f"    'RENDER_URL': 'http://{release}-render-api:9000',\n"
-            f"    'ZTP_URL': 'http://{release}-ztp-api:9000',\n"
-            f"    'DHCP_URL': 'http://{release}-dhcp-internal:9000',\n"
-            f"    'TEMPORAL_URL': 'http://{release}-temporal-api:9000',\n"
-            f"    'NAUTOBOT_TOKEN': '{token_escaped}',\n"
-            "    'SFTP_HOST': '127.0.0.1',\n"
-            "    'SFTP_PORT': '2222',\n"
+            f"{env_lines}"
             "})\n"
             "sys.exit(__import__('pytest').main([\n"
             "    'src/tests/integration/',\n"
@@ -3234,16 +3086,7 @@ class Deployer:
 
         self.callback.on_log(f"Using ZTP pod as test runner: {ztp_pod}")
 
-        nautobot_token = ""
-        try:
-            data = self._k8s.read_secret_data("nautobot-admin", ns)
-            nautobot_token = data.get("api_token", "")
-        except Exception:
-            self.callback.on_log(
-                "Could not retrieve nautobot-admin token; tests that need it will fail"
-            )
-
-        test_script = self._build_test_script(ns, release, nautobot_token)
+        test_script = self._build_test_script(ns, release, self.provider.integration_test_env(self))
         self.callback.on_log("Running integration tests...")
         try:
             all_output: list[str] = []
@@ -3296,11 +3139,9 @@ class Deployer:
             (svc.temporal, f"Workflow API:     {proto}://workflow.{hostname}"),
             (svc.temporal, f"Workflow UI:      {proto}://{hostname}/workflows"),
             (svc.temporal, f"Temporal UI:      {proto}://temporal.{hostname}"),
-            (svc.nautobot, f"Nautobot:         {proto}://nautobot.{hostname}"),
         ]
         for enabled, url in mapping:
             if enabled:
                 eps.append(url)
-        if not svc.nautobot and svc.external_nautobot_url:
-            eps.append(f"Nautobot (ext):   {svc.external_nautobot_url}")
+        eps.extend(self.provider.endpoints(self.config, hostname, proto))
         return eps

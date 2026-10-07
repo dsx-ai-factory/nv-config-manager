@@ -33,7 +33,6 @@ from nv_config_manager_installer.schema import (
     RedfishVendorCreds,
     SecretsConfig,
     SecretsMethod,
-    ServicesConfig,
     SSOConfig,
     VaultAuth,
     VaultAuthMethod,
@@ -72,8 +71,8 @@ class TestGenerateSecrets:
         )
         state = generate_secrets(config)
 
-        assert "nautobot_token" in state
-        assert len(state["nautobot_token"]) == 40
+        assert "dcim_token" in state
+        assert len(state["dcim_token"]) == 40
         assert "nautobot_read_only_token" not in state
         assert "redis_password" in state
         assert "nats_password" in state
@@ -82,8 +81,7 @@ class TestGenerateSecrets:
 
     def test_external_dcim_token_uses_generic_secret_group(self):
         config = NVConfigManagerInstallConfig(
-            dcim=DCIMConfig(provider="synthetic", server="https://synthetic.example"),
-            services=ServicesConfig(nautobot=False),
+            dcim=DCIMConfig(provider="synthetic", server="https://synthetic.example", local=False),
             secrets=SecretsConfig(
                 method=SecretsMethod.KUBERNETES,
                 k8s=KubernetesSecretsConfig(
@@ -95,18 +93,16 @@ class TestGenerateSecrets:
         state = generate_secrets(config)
 
         assert state["dcim_token"] == "synthetic-token"
-        assert "nautobot_token" not in state
         assert "nautobot_admin_password" not in state
+        assert "nautobot_db_password" not in state
 
     def test_external_dcim_uses_independent_nats_password(self):
         config = NVConfigManagerInstallConfig(
-            dcim=DCIMConfig(provider="synthetic", server="https://synthetic.example"),
-            services=ServicesConfig(nautobot=False),
+            dcim=DCIMConfig(provider="synthetic", server="https://synthetic.example", local=False),
             secrets=SecretsConfig(
                 method=SecretsMethod.KUBERNETES,
                 k8s=KubernetesSecretsConfig(
                     nats=K8sSecretGroup(values={"password": "NatsPassword123456"}),
-                    nautobot=K8sSecretGroup(values={"natsPassword": "LegacyPassword1234"}),
                 ),
             ),
         )
@@ -115,19 +111,37 @@ class TestGenerateSecrets:
 
         assert state["nats_password"] == "NatsPassword123456"
 
-    def test_external_dcim_accepts_legacy_nats_password_fallback(self):
+    def test_external_dcim_rejects_groups_of_another_provider(self):
+        with pytest.raises(ValueError, match="Unknown secret group.*nautobot"):
+            NVConfigManagerInstallConfig(
+                dcim=DCIMConfig(
+                    provider="synthetic", server="https://synthetic.example", local=False
+                ),
+                secrets=SecretsConfig(
+                    method=SecretsMethod.KUBERNETES,
+                    k8s=KubernetesSecretsConfig(
+                        nautobot=K8sSecretGroup(values={"natsPassword": "LegacyPassword1234"}),
+                    ),
+                ),
+            )
+
+    def test_nautobot_group_values_seed_shared_token_and_nats_password(self):
         config = NVConfigManagerInstallConfig(
-            dcim=DCIMConfig(provider="synthetic", server="https://synthetic.example"),
-            services=ServicesConfig(nautobot=False),
             secrets=SecretsConfig(
                 method=SecretsMethod.KUBERNETES,
                 k8s=KubernetesSecretsConfig(
-                    nautobot=K8sSecretGroup(values={"natsPassword": "LegacyPassword1234"}),
+                    nautobot=K8sSecretGroup(
+                        values={"token": "nb-token", "natsPassword": "NatsPassword123456"}
+                    ),
                 ),
             ),
         )
 
-        assert generate_secrets(config)["nats_password"] == "LegacyPassword1234"
+        state = generate_secrets(config)
+
+        assert state["dcim_token"] == "nb-token"
+        assert state["nats_password"] == "NatsPassword123456"
+        assert state["nautobot_db_user"] == "nautobot"
 
     def test_generated_nats_password_is_safe_for_unquoted_nats_config_variable(self, monkeypatch):
         monkeypatch.setattr(secrets_module.secrets, "choice", lambda alphabet: alphabet[-1])
@@ -220,7 +234,7 @@ class TestGenerateSecrets:
         config = NVConfigManagerInstallConfig(secrets=SecretsConfig(method=SecretsMethod.ESO))
         state = generate_secrets(config)
 
-        assert "nautobot_token" not in state
+        assert "dcim_token" not in state
         assert "redis_password" not in state
 
     def test_eso_generates_required_site_secrets_without_tui_defaults(self):

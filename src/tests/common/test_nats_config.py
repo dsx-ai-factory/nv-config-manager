@@ -28,7 +28,9 @@ from nv_config_manager.common.config.nats import (
     DEFAULT_NAUTOBOT_NATS_STREAM,
     DEFAULT_NAUTOBOT_NATS_SUBJECT,
     nats_archive_config,
+    nats_dcim_api_prefix,
     nats_dcim_change_config,
+    nats_dcim_consumer_name,
     nats_device_change_config,
     nats_nautobot_change_config,
     nats_render_change_config,
@@ -130,6 +132,30 @@ def test_dcim_change_explicit_config_takes_precedence_over_legacy_fallbacks():
     )
 
     assert nats_dcim_change_config(config) == ("dcim-stream", "dcim.subject")
+
+
+def test_dcim_api_prefix_and_consumer_name_defaults():
+    assert nats_dcim_api_prefix(_config()) == "$JS.API"
+    assert nats_dcim_consumer_name(_config()) == "nv-config-manager-nautobot"
+
+
+def test_dcim_api_prefix_and_consumer_name_use_legacy_nautobot_fallbacks():
+    config = _config(nautobot_api_prefix="$JS.LEGACY.API", nautobot_consumer_name="legacy-durable")
+
+    assert nats_dcim_api_prefix(config) == "$JS.LEGACY.API"
+    assert nats_dcim_consumer_name(config) == "legacy-durable"
+
+
+def test_dcim_api_prefix_and_consumer_name_prefer_dcim_keys():
+    config = _config(
+        dcim_api_prefix="$JS.DCIM.API",
+        dcim_consumer_name="dcim-durable",
+        nautobot_api_prefix="$JS.LEGACY.API",
+        nautobot_consumer_name="legacy-durable",
+    )
+
+    assert nats_dcim_api_prefix(config) == "$JS.DCIM.API"
+    assert nats_dcim_consumer_name(config) == "dcim-durable"
 
 
 def test_every_nats_config_option_has_lookup_metadata():

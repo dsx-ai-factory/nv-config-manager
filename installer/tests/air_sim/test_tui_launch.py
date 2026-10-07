@@ -31,6 +31,7 @@ from nv_config_manager_installer.air_sim.orchestrator import (
 )
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
 from nv_config_manager_installer.air_sim.sim_manager import AirSimulationManager
+from nv_config_manager_installer.providers.nautobot.air import NautobotAirHooks
 from nv_config_manager_installer.tui.air_sim.app import NVCMAirSimApp
 from nv_config_manager_installer.tui.air_sim.screens.launch import (
     _MAX_DEPLOY_LOG_LINES,
@@ -595,8 +596,22 @@ def test_provider_launch_screen_can_replace_nautobot_validation() -> None:
 
     config = SimConfig(run_mock_topology_job=True, mock_topology_path="")
 
-    assert "Nautobot" in LaunchScreen(config).validate_provider_config()
+    assert "Nautobot" in NautobotAirHooks().validate_config(config)
+    assert LaunchScreen(config).validate_provider_config() == ""
     assert ProviderLaunchScreen(config).validate_provider_config() == ""
+
+
+@pytest.mark.asyncio
+async def test_launch_screen_validation_uses_configured_provider_hooks() -> None:
+    app = ClipboardAirSimApp(config=SimConfig(run_mock_topology_job=True, mock_topology_path=""))
+
+    async with app.run_test(size=(180, 100)) as pilot:
+        app.switch_section("launch")
+        await pilot.pause(0.1)
+        launch = app.query_one("#screen-launch", LaunchScreen)
+
+        assert "Nautobot" in launch.validate_provider_config()
+        assert launch._provider_status.display_name == "Nautobot"
 
 
 @pytest.mark.asyncio

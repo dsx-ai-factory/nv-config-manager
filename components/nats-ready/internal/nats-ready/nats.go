@@ -33,12 +33,12 @@ import (
 )
 
 //go:embed nautobot_config.json
-var nautobotConfigJSON []byte
+var dcimConfigJSON []byte
 
 //go:embed nv_config_manager_stream_config.json
 var nvConfigManagerStreamConfigJSON []byte
 
-// StreamConfig represents the structure of our nautobot_config.json
+// StreamConfig represents the structure of the embedded stream configs
 type StreamConfig struct {
 	Config jetstream.StreamConfig `json:"config"`
 }
@@ -50,7 +50,7 @@ type Runner interface {
 
 type NatsReadyConfig struct {
 	Address                        string
-	nautobotNATSConfigBytes        []byte
+	dcimNATSConfigBytes            []byte
 	nvConfigManagerNATSConfigBytes []byte
 }
 
@@ -60,7 +60,7 @@ type natsReady struct {
 	log                         zerolog.Logger
 	nc                          *nats.Conn
 	nvConfigManagerStreamConfig *StreamConfig
-	nautobotStreamConfig        *StreamConfig
+	dcimStreamConfig            *StreamConfig
 }
 
 func applyStreamOverrides(streamConfig *StreamConfig, nameEnv string, subjectsEnv string) {
@@ -80,8 +80,14 @@ func applyStreamOverrides(streamConfig *StreamConfig, nameEnv string, subjectsEn
 	}
 }
 
+// applyDCIMStreamOverrides prefers DCIM_* env over the deprecated NAUTOBOT_* aliases.
+func applyDCIMStreamOverrides(streamConfig *StreamConfig) {
+	applyStreamOverrides(streamConfig, "NAUTOBOT_NATS_STREAM_NAME", "NAUTOBOT_NATS_STREAM_SUBJECTS")
+	applyStreamOverrides(streamConfig, "DCIM_NATS_STREAM_NAME", "DCIM_NATS_STREAM_SUBJECTS")
+}
+
 func NewRunner(config *NatsReadyConfig) (Runner, error) {
-	config.nautobotNATSConfigBytes = nautobotConfigJSON
+	config.dcimNATSConfigBytes = dcimConfigJSON
 	config.nvConfigManagerNATSConfigBytes = nvConfigManagerStreamConfigJSON
 	logger := log.With().
 		Str("component", "nats-ready").
@@ -107,12 +113,12 @@ func NewRunner(config *NatsReadyConfig) (Runner, error) {
 	logger.Info().Msg("JetStream initialized successfully")
 
 	// Parse the embedded config
-	var nautobotStreamConfig StreamConfig
-	if err := json.Unmarshal(nautobotConfigJSON, &nautobotStreamConfig); err != nil {
+	var dcimStreamConfig StreamConfig
+	if err := json.Unmarshal(dcimConfigJSON, &dcimStreamConfig); err != nil {
 		nc.Close()
-		return nil, fmt.Errorf("failed to parse stream config: %w", err)
+		return nil, fmt.Errorf("failed to parse DCIM stream config: %w", err)
 	}
-	applyStreamOverrides(&nautobotStreamConfig, "NAUTOBOT_NATS_STREAM_NAME", "NAUTOBOT_NATS_STREAM_SUBJECTS")
+	applyDCIMStreamOverrides(&dcimStreamConfig)
 
 	var nvConfigManagerStreamConfig StreamConfig
 	if err := json.Unmarshal(nvConfigManagerStreamConfigJSON, &nvConfigManagerStreamConfig); err != nil {
@@ -131,7 +137,7 @@ func NewRunner(config *NatsReadyConfig) (Runner, error) {
 		nc:                          nc,
 		log:                         logger,
 		nvConfigManagerStreamConfig: &nvConfigManagerStreamConfig,
-		nautobotStreamConfig:        &nautobotStreamConfig,
+		dcimStreamConfig:            &dcimStreamConfig,
 	}
 	return n, nil
 }
@@ -143,13 +149,13 @@ func (n *natsReady) Run() error {
 	ctx := context.Background()
 
 	n.log.Info().Msg("Starting NATS readiness check")
-	n.log.Info().Msgf("Using Nautobot NATS config: \n%s\n", string(n.config.nautobotNATSConfigBytes))
+	n.log.Info().Msgf("Using DCIM NATS config: \n%s\n", string(n.config.dcimNATSConfigBytes))
 	n.log.Info().Msgf("Using NVIDIA Config Manager NATS config: \n%s\n", string(n.config.nvConfigManagerNATSConfigBytes))
 
-	// Perform getOrCreate operation on the nautobot stream
-	if err := n.getOrCreateStream(ctx, n.nautobotStreamConfig); err != nil {
-		n.log.Error().Err(err).Msg("Failed to get or create nautobot stream")
-		return fmt.Errorf("nautobot stream operation failed: %w", err)
+	// Perform getOrCreate operation on the DCIM stream
+	if err := n.getOrCreateStream(ctx, n.dcimStreamConfig); err != nil {
+		n.log.Error().Err(err).Msg("Failed to get or create DCIM stream")
+		return fmt.Errorf("DCIM stream operation failed: %w", err)
 	}
 
 	// Perform getOrCreate operation on the nv-config-manager stream

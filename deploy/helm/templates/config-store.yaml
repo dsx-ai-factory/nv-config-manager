@@ -243,9 +243,9 @@ spec:
       initContainers:
       {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
       {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
-      # Wait for Nautobot to be available before starting cache refresh
-      {{- if eq (.Values.dcim.provider | default "nautobot-2x") "nautobot-2x" }}
-      {{- include "nv-config-manager.waitForNautobot" . | nindent 6 }}
+      # Wait for the DCIM provider to be available before starting cache refresh
+      {{- if .Values.dcim.readiness.enabled }}
+      {{- include "nv-config-manager.waitForDCIM" . | nindent 6 }}
       {{- end }}
       containers:
       - name: cache-refresh

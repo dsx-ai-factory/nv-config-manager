@@ -31,78 +31,16 @@ from nv_config_manager_installer.air_sim.prebuilt_configs import (
     load_prebuilt_config,
 )
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
+from nv_config_manager_installer.tui.air_sim.screens.population import PopulationPanel
 from nv_config_manager_installer.tui.widgets import LabeledSwitch
 
-
-class PopulationPanel(Container):
-    """Replaceable provider-owned simulation population controls."""
-
-    def __init__(self, config: SimConfig, **kwargs: object) -> None:
-        super().__init__(**kwargs)
-        self._config = config
-
-    def write_to_config(self, config: SimConfig) -> None:
-        """Write provider-owned fields into the simulation config."""
-
-    def sync_from_config(self, config: SimConfig) -> None:
-        """Refresh provider-owned controls from the simulation config."""
-        self._config = config
-
-    def get_status(self, config: SimConfig) -> str:
-        """Return this panel's navigation status contribution."""
-        return "[*]"
-
-
-class NautobotPopulationPanel(PopulationPanel):
-    """Configure the bundled Nautobot mock-topology population job."""
-
-    def compose(self) -> ComposeResult:
-        yield Label("Nautobot", classes="subsection-label")
-        yield LabeledSwitch(
-            "Populate bundled Nautobot with the mock topology job",
-            value=self._config.run_mock_topology_job,
-            id="run-mock-topology-job",
-        )
-        with Vertical(id="nautobot-population-fields"):
-            yield Label("Mock Topology Job Path", classes="field-label")
-            yield Input(
-                value=self._config.mock_topology_path,
-                placeholder="development/mock_topology",
-                id="mock-topology-path",
-            )
-
-    def on_mount(self) -> None:
-        self._toggle_fields()
-
-    def on_labeled_switch_changed(self, event: LabeledSwitch.Changed) -> None:
-        if event.labeled_switch.id == "run-mock-topology-job":
-            self._toggle_fields()
-
-    def _toggle_fields(self) -> None:
-        self.query_one("#nautobot-population-fields").display = self.query_one(
-            "#run-mock-topology-job", LabeledSwitch
-        ).value
-
-    def write_to_config(self, config: SimConfig) -> None:
-        config.run_mock_topology_job = self.query_one("#run-mock-topology-job", LabeledSwitch).value
-        config.mock_topology_path = self.query_one("#mock-topology-path", Input).value.strip()
-
-    def sync_from_config(self, config: SimConfig) -> None:
-        super().sync_from_config(config)
-        self.query_one("#run-mock-topology-job", LabeledSwitch).value = config.run_mock_topology_job
-        self.query_one("#mock-topology-path", Input).value = config.mock_topology_path
-        self._toggle_fields()
-
-    def get_status(self, config: SimConfig) -> str:
-        if config.run_mock_topology_job and not config.mock_topology_path:
-            return "[!]"
-        return "[*]"
+__all__ = ["PopulationPanel", "TopologyScreen"]
 
 
 class TopologyScreen(Container):
     """Select the topology YAML file, name, and server attachment mode."""
 
-    POPULATION_PANEL_CLASS: ClassVar[type[PopulationPanel]] = NautobotPopulationPanel
+    POPULATION_PANEL_CLASS: ClassVar[type[PopulationPanel] | None] = None
 
     def __init__(self, config: SimConfig, **kwargs: object) -> None:
         super().__init__(**kwargs)
@@ -111,8 +49,12 @@ class TopologyScreen(Container):
         self._population_panel: PopulationPanel | None = None
 
     def create_population_panel(self) -> PopulationPanel:
-        """Construct provider-owned population controls for this simulation."""
-        return self.POPULATION_PANEL_CLASS(self._config, id="population-panel")
+        """Construct the DCIM provider's population controls for this simulation."""
+        panel_class = self.POPULATION_PANEL_CLASS
+        if panel_class is None:
+            air = getattr(self.app, "air", None)
+            panel_class = getattr(air, "population_panel", None) or PopulationPanel
+        return panel_class(self._config, id="population-panel")
 
     def prebuilt_configs(self) -> tuple[PrebuiltConfig, ...]:
         """Return presets exposed by the containing AIR application."""

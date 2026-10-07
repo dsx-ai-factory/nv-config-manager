@@ -18,6 +18,7 @@ Commands:
     init              Launch the TUI wizard (or load an existing config to edit)
     validate          Validate a nv-config-manager-install.yaml config file
     generate-values   Generate Helm values and config-secrets.ini
+    providers list    Show installed DCIM installer providers
 """
 
 from __future__ import annotations
@@ -39,6 +40,12 @@ from nv_config_manager_installer.deployer import (
 )
 from nv_config_manager_installer.helm_values import generate_helm_values
 from nv_config_manager_installer.k8s import K8sClient
+from nv_config_manager_installer.providers.api import DCIMInstallerProvider
+from nv_config_manager_installer.providers.errors import InstallerProviderError
+from nv_config_manager_installer.providers.registry import (
+    discover_installer_providers,
+    resolve_provider,
+)
 from nv_config_manager_installer.pvc_updater import (
     JOBS_PVC_NAME,
     TEMPLATES_PVC_NAME,
@@ -63,6 +70,42 @@ def main() -> None:
 main.add_command(air_sim)
 
 
+def _resolve_provider(config: NVConfigManagerInstallConfig) -> DCIMInstallerProvider:
+    """Resolve the configured DCIM provider or exit with a usage error."""
+    try:
+        return resolve_provider(config)
+    except InstallerProviderError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@main.group("providers")
+def providers_command() -> None:
+    """Inspect installed DCIM installer providers."""
+
+
+@providers_command.command("list")
+def providers_list() -> None:
+    """List installed DCIM installer providers."""
+    try:
+        providers = discover_installer_providers()
+    except InstallerProviderError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if not providers:
+        click.echo("No DCIM installer providers are installed.")
+        return
+    for name, provider in sorted(providers.items()):
+        meta = provider.metadata
+        modes = [
+            mode
+            for mode, ok in (("local", meta.supports_local), ("external", meta.supports_external))
+            if ok
+        ]
+        click.echo(
+            f"{name:<16} {meta.display_name:<16} api={','.join(meta.supported_api_versions)} "
+            f"modes={'/'.join(modes)}  module={type(provider).__module__}"
+        )
+
+
 @main.command()
 @click.option(
     "--config",
@@ -82,7 +125,9 @@ def init(config_path: Path) -> None:
         except Exception as exc:
             raise click.ClickException(f"Failed to load config: {exc}") from exc
 
-    app = NVConfigManagerInstallerApp(config=config, config_path=config_path)
+    app = NVConfigManagerInstallerApp(
+        config=config, config_path=config_path, provider=_resolve_provider(config)
+    )
     app.run()
 
 
@@ -118,12 +163,10 @@ def _collect_validation_errors(config: NVConfigManagerInstallConfig) -> list[str
         errors.append("At least one site is required")
     if config.sso.enabled and not config.sso.issuer_url:
         errors.append("sso.issuer_url is required when SSO is enabled")
-    if not config.services.nautobot and config.content.requires_local_nautobot:
-        errors.append(
-            "Custom jobs and post-deploy jobs require a local Nautobot deployment "
-            "(services.nautobot must be true, or remove content.jobs and "
-            "content.run_after_deploy)"
-        )
+    try:
+        resolve_provider(config)
+    except InstallerProviderError as exc:
+        errors.append(str(exc))
     return errors
 
 
@@ -159,15 +202,17 @@ def generate_values(
 ) -> None:
     """Generate Helm values from config."""
     config = NVConfigManagerInstallConfig.from_yaml(config_path)
+    provider = _resolve_provider(config)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    secrets_state = generate_secrets(config)
+    secrets_state = generate_secrets(config, provider)
 
     values_path = output_dir / "values-generated.yaml"
     generate_helm_values(
         config,
         secrets_state,
         values_path,
+        provider=provider,
         local_images=local_images,
         chart_dir=chart_dir,
     )
@@ -509,7 +554,9 @@ def _run_deployer(
     operation: str,
 ) -> None:
     """Run a deployment pipeline and map failure to a Click exit status."""
-    deployer = Deployer(config, options, _CliCallback(operation))
+    deployer = Deployer(
+        config, options, _CliCallback(operation), provider=_resolve_provider(config)
+    )
     if not deployer.run():
         raise click.exceptions.Exit(1)
 

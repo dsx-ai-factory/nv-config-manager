@@ -349,13 +349,7 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           archive_subject = {{ $root.Values.externalServices.nats.streams.configManager.archiveSubject }}
           archive_consumer_name = {{ include "nv-config-manager.archiveConsumerName" $root }}
           archive_deliver_subject = {{ include "nv-config-manager.archiveConsumerDeliverySubject" $root }}
-          nautobot_stream = {{ $root.Values.externalServices.nats.streams.nautobot.name }}
-          nautobot_api_prefix = {{ $root.Values.externalServices.nats.streams.nautobot.apiPrefix | default "$JS.API" }}
-          nautobot_consumer_name = {{ include "nv-config-manager.nautobotConsumerName" $root }}
-          nautobot_subjects = {{ join "," $root.Values.externalServices.nats.streams.nautobot.subjects }}
-          nautobot_subject = {{ $root.Values.externalServices.nats.streams.nautobot.subject }}
-          dcim_change_stream = {{ $root.Values.dcim.events.stream | default $root.Values.externalServices.nats.streams.nautobot.name }}
-          dcim_change_subject = {{ $root.Values.dcim.events.subject | default $root.Values.externalServices.nats.streams.nautobot.subject }}
+          {{- include "nv-config-manager.natsDcimIni" $root | nindent 10 }}
           {{- if $root.Values.externalServices.nats.local }}
           local_stream_max_bytes = {{ include "nv-config-manager.localStreamMaxBytes" $root }}
           {{- end }}

@@ -40,6 +40,7 @@ DEFAULT_CONFIG_MANAGER_DEVICE_CHANGE_SUBJECT = "nv-config-manager.devicechange"
 DEFAULT_CONFIG_MANAGER_ARCHIVE_SUBJECT = "nv-config-manager.workflow.result"
 DEFAULT_NAUTOBOT_NATS_STREAM = "nautobot"
 DEFAULT_NAUTOBOT_NATS_SUBJECT = "nautobot"
+DEFAULT_DCIM_CONSUMER_NAME = "nv-config-manager-nautobot"
 
 # Must match the stream settings nats-ready applies (the embedded configs in
 # components/nats-ready, or natsReady.streamMaxBytes with the nats CLI) so a
@@ -200,10 +201,31 @@ def nats_nautobot_change_config(config: ConfigParser | None = None) -> tuple[str
     return _nats_change_config(_NATS_ENUM.NAUTOBOT, config)
 
 
-def nats_nautobot_api_prefix(config: ConfigParser | None = None) -> str:
-    """Return the JetStream API prefix for Nautobot changelog events."""
+def nats_dcim_api_prefix(config: ConfigParser | None = None) -> str:
+    """Return the JetStream API prefix for the DCIM change stream.
+
+    ``dcim_api_prefix`` wins; the deprecated ``nautobot_api_prefix`` remains the fallback.
+    """
     nats_config = _nats_section(config)
-    return nats_config.get("nautobot_api_prefix", DEFAULT_NATS_API_PREFIX)
+    return nats_config.get(
+        "dcim_api_prefix", nats_config.get("nautobot_api_prefix", DEFAULT_NATS_API_PREFIX)
+    )
+
+
+def nats_dcim_consumer_name(config: ConfigParser | None = None) -> str:
+    """Return the durable consumer name for the DCIM change stream.
+
+    ``dcim_consumer_name`` wins; the deprecated ``nautobot_consumer_name`` remains the fallback.
+    """
+    nats_config = _nats_section(config)
+    return nats_config.get(
+        "dcim_consumer_name", nats_config.get("nautobot_consumer_name", DEFAULT_DCIM_CONSUMER_NAME)
+    )
+
+
+def nats_nautobot_api_prefix(config: ConfigParser | None = None) -> str:
+    """Deprecated alias of :func:`nats_dcim_api_prefix`."""
+    return nats_dcim_api_prefix(config)
 
 
 async def nats_connection(
@@ -289,7 +311,11 @@ def local_stream_subjects(config: ConfigParser | None = None) -> dict[str, list[
     _, nautobot_subject = nats_nautobot_change_config(config)
     nautobot_subjects = _split_subjects(nats_config.get("nautobot_subjects", nautobot_subject))
     dcim_stream, dcim_subject = nats_dcim_change_config(config)
-    dcim_subjects = nautobot_subjects if dcim_subject == nautobot_subject else [dcim_subject]
+    explicit_dcim_subjects = _split_subjects(nats_config.get("dcim_change_subjects", ""))
+    if explicit_dcim_subjects:
+        dcim_subjects = explicit_dcim_subjects
+    else:
+        dcim_subjects = nautobot_subjects if dcim_subject == nautobot_subject else [dcim_subject]
 
     streams = {config_manager_stream: config_manager_subjects}
     shared = streams.setdefault(dcim_stream, [])

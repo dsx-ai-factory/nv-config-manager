@@ -35,6 +35,7 @@ from nv_config_manager_installer.air_sim.installer_config import (
     generate_air_sim_install_yaml,
 )
 from nv_config_manager_installer.air_sim.models import NVCMServerConfig
+from nv_config_manager_installer.air_sim.provider import AirProviderHooks
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
 from nv_config_manager_installer.air_sim.sim_manager import AirSimulationManager
 from nv_config_manager_installer.air_sim.topology import (
@@ -97,11 +98,21 @@ class _CallbackLogHandler(logging.Handler):
 
 
 class SimOrchestrator:
-    """Run the full DSX Air simulation bringup."""
+    """Run the full DSX Air simulation bringup.
 
-    def __init__(self, config: SimConfig, callback: OrchestratorCallback) -> None:
+    Provider-owned stages are delegated to the selected DCIM provider's
+    :class:`AirProviderHooks`.
+    """
+
+    def __init__(
+        self,
+        config: SimConfig,
+        callback: OrchestratorCallback,
+        provider_hooks: AirProviderHooks | None = None,
+    ) -> None:
         self._cfg = config
         self._cb = callback
+        self._hooks = provider_hooks or AirProviderHooks()
 
     def _log(self, msg: str) -> None:
         self._cb.on_log(msg)
@@ -142,21 +153,22 @@ class SimOrchestrator:
     def _generate_install_yaml(
         self, cfg: SimConfig, site_name: str, lb_allowed_prefixes: list[str]
     ) -> str:
-        """Build the base installer document for the simulation.
-
-        Provider-specific installers may override this hook to extend their
-        deployment configuration without replacing the AIR orchestration flow.
-        """
-        return generate_air_sim_install_yaml(cfg, site_name, lb_allowed_prefixes)
+        """Build the installer document for the simulation."""
+        return generate_air_sim_install_yaml(cfg, site_name, lb_allowed_prefixes, self._hooks)
 
     def _create_simulation_manager(self, cfg: SimConfig) -> AirSimulationManager:
         """Construct the AIR API/remote-host client used by the orchestration flow."""
-        return AirSimulationManager(
+        manager = AirSimulationManager(
             ngc_api_key=cfg.ngc_api_key,
             use_internal=cfg.use_internal,
             org_id=cfg.org_id,
             ssh_password=cfg.oob_ssh_password,
         )
+        hooks = self._hooks
+        manager.provisioning_probe = lambda host, port: hooks.provisioning_status(
+            manager, host, port
+        )
+        return manager
 
     def _build_deploy_command(self, cfg: SimConfig) -> str:
         """Return the provider installer's remote deployment command."""
@@ -169,10 +181,11 @@ class SimOrchestrator:
         port: int,
     ) -> None:
         """Install provider-owned services before NVIDIA Config Manager deploys."""
+        self._hooks.pre_deploy(manager, host, port)
 
     def _provider_gateway_hostnames(self, cfg: SimConfig) -> tuple[str, ...]:
         """Return provider-owned UI hostnames routed through the simulation gateway."""
-        return ()
+        return self._hooks.gateway_hostnames(cfg)
 
     def _run_provider_post_deploy(
         self,
@@ -180,8 +193,8 @@ class SimOrchestrator:
         host: str,
         port: int,
     ) -> None:
-        """Run setup owned by the bundled provider after common services are ready."""
-        manager.create_nautobot_demo_user(host, port)
+        """Run provider setup after common services are ready."""
+        self._hooks.post_deploy(manager, host, port)
 
     def _wait_for_provider_configs(
         self,
@@ -190,8 +203,8 @@ class SimOrchestrator:
         port: int,
         expected_total: int,
     ) -> None:
-        """Wait for the bundled provider to persist rendered configurations."""
-        manager.wait_for_intended_configs(host, port, expected_total=expected_total)
+        """Wait for the provider to persist rendered configurations."""
+        self._hooks.wait_for_configs(manager, host, port, expected_total)
 
     def _run_post_deploy(
         self,
@@ -260,6 +273,7 @@ class SimOrchestrator:
         self._step("parse-topology", StepStatus.SUCCESS)
 
         self._step("validate-images", StepStatus.RUNNING)
+        self._hooks.prepare_images(cfg, self._log)
         manager = self._create_simulation_manager(cfg)
         cumulus_versions = builder.cumulus_firmware_versions()
         if cumulus_versions:

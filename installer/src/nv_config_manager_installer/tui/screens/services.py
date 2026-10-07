@@ -38,7 +38,7 @@ class ServicesScreen(Container):
         yield Label(
             "Enable or disable each service. "
             "Template Plugins and OS Images panels configure per-service storage and scheduling. "
-            "Nautobot is configured in External Services.",
+            "The DCIM provider is configured in External Services.",
         )
 
         yield LabeledSwitch("Render Service", value=svc.render, id="svc-render")

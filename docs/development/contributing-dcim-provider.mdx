@@ -341,6 +341,128 @@ write a portable render-data fixture, then render it with
 `--cached-render-data`. The full CLI workflow is documented in the
 [template-rendering guide](../render/index.mdx#template-cli).
 
+## Installer integration
+
+The NVCM installer (`installer/`) deploys and configures the selected DCIM
+through a second, optional plugin contract. The installer discovers providers
+through the `nv_config_manager.installer.dcim` entry-point group. The
+entry-point name must equal `InstallerProviderMetadata.name` and the
+`dcim.provider` value in `nv-config-manager-install.yaml`, which is the same
+name as the `nv_config_manager.dcim` entry point. The provider package must be
+installed in the same Python environment as the installer, so publish the
+installer plugin behind an `installer` extra that depends on
+`nv-config-manager-installer`:
+
+```toml
+[project.optional-dependencies]
+installer = ["nv-config-manager-installer"]
+
+[project.entry-points."nv_config_manager.installer.dcim"]
+example = "example_dcim.installer:ExampleInstallerProvider"
+```
+
+Run `nv-config-manager-installer providers list` to verify discovery. It
+prints each installed provider's name, display name, supported installer API
+versions, and modes.
+
+The provider subclasses `DCIMInstallerProvider` from
+`nv_config_manager_installer.providers.api`. Static contributions are class
+attributes:
+
+- `metadata`: `InstallerProviderMetadata` with the display name,
+  `supports_local` / `supports_external`, the default token Secret name, the
+  default event stream and subject, and the server URL placeholder.
+- `settings_model`: Pydantic model that validates `dcim.settings`. Unknown keys
+  are rejected.
+- `secrets`: `SecretsContribution` with `SecretGroupSpec` groups exposed as
+  `secrets.k8s.<name>` and `secrets.vault.paths.<name>`, extra CNPG
+  `databases`, and extra NATS Secret names. A provider without groups uses
+  the generic `dcim` and `nats` groups.
+- `images`: `ImageContribution` with local builds, first-party image keys, and
+  override keys.
+- `tui`: `TUIContribution` with wizard sections inserted after an anchor
+  section (default `network_secrets`) and an optional DCIM panel on the
+  External Services screen.
+- `air`: `AirContribution` with the DSX Air launch status, `AirProviderHooks`,
+  a population panel, and an Air settings model.
+
+Runtime hooks default to no-ops. The deployer passes itself to deploy hooks as
+a `ProviderDeployContext` (`config`, `options`, `callback`, `k8s`,
+`secrets_state`, `is_rerun`, `nats_user`, `nats_url`, `provider_state`, and
+step and Secret helpers):
+
+- Configuration: `validate_config`, `prune_yaml`.
+- Secrets: `generate_secret_state`, `token_secret_data`, `openbao_groups`,
+  `align_openbao_tokens`.
+- Helm: `helm_values`, deep-merged over the installer-generated values.
+- Deploy: `deploy_steps`, `detect_existing_state`, `create_secrets`,
+  `pre_helm_install`, `post_helm_install`, `post_gateway`, `post_restart`,
+  `refresh_caches_needed`, `integration_test_env`.
+- Summary: `endpoints`, `bootstrap_secret_hints`.
+
+```python
+from nv_config_manager_installer.providers.api import (
+    DCIMInstallerProvider,
+    DeployStepsContribution,
+    InstallerProviderMetadata,
+    ProviderDeployContext,
+    ProviderSettings,
+)
+
+
+class ExampleSettings(ProviderSettings):
+    tenant: str = "default"
+
+
+class ExampleInstallerProvider(DCIMInstallerProvider):
+    metadata = InstallerProviderMetadata(
+        name="example",
+        display_name="Example DCIM",
+        event_stream="example-dcim",
+        event_subject="example.change",
+        server_placeholder="https://dcim.example.com",
+    )
+    settings_model = ExampleSettings
+
+    def deploy_steps(self) -> DeployStepsContribution:
+        return DeployStepsContribution(
+            before={"helm-install": (("install-example", "Install Example DCIM"),)},
+        )
+
+    def pre_helm_install(self, ctx: ProviderDeployContext) -> None:
+        if not ctx.config.dcim.local:
+            ctx.skip_step("install-example", "Using an existing instance")
+            return
+        step = ctx.start_step("install-example")
+        token = ctx.secrets_state["dcim_token"]
+        nats_password = ctx.secrets_state["nats_password"]
+        ...  # deploy the provider stack with ctx.k8s, seeding the API token and NATS credentials
+        ctx.config.dcim.server = f"http://example-dcim.{ctx.config.cluster.namespace}.svc"
+        ctx.finish_step(step)
+
+    def helm_values(self, config, secrets_state, *, is_local, local_tags):
+        return {"externalServices": {"nats": {"local": True}}}
+```
+
+`dcim.local` selects where the DCIM runs. When it is true, the provider
+deploys its in-cluster stack from `pre_helm_install` and sets `dcim.server` to
+the in-cluster endpoint. When it is false, `dcim.server` is required and must
+point at an existing instance. `supports_local` and `supports_external` in the
+metadata gate the "Deploy in cluster" switch in the TUI. An empty
+`dcim.token_secret_name`, `dcim.event_stream`, or `dcim.event_subject` uses
+the metadata default. The core Helm values always emit disabled Nautobot
+stubs (`nautobot.enabled: false`, `cnpg.nautobot.enabled: false`,
+`externalServices.nautobot.local: false`,
+`nautobotNats.accounts.nautobot.enabled: false`); only the `nautobot-2x`
+provider enables them.
+
+Core deploy step ids a provider can splice around include `create-secrets`,
+`populate-vault`, `setup-templates-pvc`, `generate-values`, `helm-install`,
+`patch-gateway`, `restart-render`, and `refresh-cache`. The bundled Nautobot
+provider in `installer/src/nv_config_manager_installer/providers/nautobot/`
+is the reference implementation for secrets, Helm values, deploy steps, TUI
+sections, and DSX Air hooks.
+
 ## Test before proposing a provider
 
 At a minimum, include tests that:
@@ -366,6 +488,8 @@ workflow run provide the best cross-service coverage.
 
 - [ ] Separate package depending only on `nv-config-manager-dcim`.
 - [ ] Unique `nv_config_manager.dcim` entry point and matching metadata name.
+- [ ] `nv_config_manager.installer.dcim` entry point behind an `installer`
+      extra, with the same name, when the provider supports the NVCM installer.
 - [ ] Pydantic SDK contracts at every service boundary.
 - [ ] Broad `DCIMClient` implementation, with explicit unsupported-operation
       errors where necessary.

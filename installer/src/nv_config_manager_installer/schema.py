@@ -23,12 +23,19 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Mapping
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from nv_config_manager_installer.providers.errors import InstallerProviderError
+from nv_config_manager_installer.providers.registry import get_installer_provider
+
+if TYPE_CHECKING:
+    from nv_config_manager_installer.providers.api import DCIMInstallerProvider, SecretGroupSpec
 
 _KUBERNETES_NAMESPACE_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
 
@@ -150,20 +157,52 @@ def _path(enabled: bool = True, **keys: str) -> VaultPathConfig:
     return VaultPathConfig(enabled=enabled, keys=keys)
 
 
+def database_secret_keys(database: str) -> dict[str, str]:
+    """Return the ``postgres`` group key mapping for one application database."""
+    camel = database.split("_")
+    prefix = camel[0] + "".join(part.title() for part in camel[1:])
+    return {f"{prefix}User": f"{database}_user", f"{prefix}Password": f"{database}_password"}
+
+
+def _settle_unknown_groups(
+    model: BaseModel,
+    specs: Mapping[str, SecretGroupSpec],
+    group_type: type[BaseModel],
+) -> None:
+    """Drop default-valued groups no provider declares; reject ones holding values.
+
+    A provider switch leaves the previous provider's bound defaults behind, so
+    only groups with user-supplied content are treated as mistakes.
+    """
+    extras = model.__pydantic_extra__ or {}
+    unknown: list[str] = []
+    for name in sorted(set(extras) - set(specs)):
+        raw = extras[name]
+        value = raw if isinstance(raw, group_type) else group_type.model_validate(raw or {})
+        if value.model_dump() in (
+            group_type().model_dump(),
+            group_type(enabled=False).model_dump(),  # type: ignore[call-arg]
+        ):
+            del extras[name]
+        else:
+            unknown.append(name)
+    if unknown:
+        raise ValueError(
+            "Unknown secret group(s) for the selected DCIM provider: " + ", ".join(unknown)
+        )
+
+
 class VaultPathsConfig(BaseModel):
-    """All vault secret path groups consumed by the Helm chart."""
+    """All vault secret path groups consumed by the Helm chart.
+
+    Provider-owned groups are extra keys bound by :meth:`bind_groups` once the
+    DCIM provider is known.
+    """
+
+    model_config = ConfigDict(extra="allow")
 
     dcim: VaultPathConfig = Field(default_factory=lambda: _path(enabled=False, token="token"))
     nats: VaultPathConfig = Field(default_factory=lambda: _path(enabled=False, password="password"))
-    nautobot: VaultPathConfig = Field(
-        default_factory=lambda: _path(
-            token="token",
-            readOnlyToken="read_only_token",
-            natsPassword="nats_password",
-            natsSysPassword="nats_sys_password",
-            natsNautobotPassword="nats_nautobot_password",
-        )
-    )
     redis: VaultPathConfig = Field(default_factory=lambda: _path(password="password"))
     postgres: VaultPathConfig = Field(
         default_factory=lambda: _path(
@@ -175,19 +214,10 @@ class VaultPathsConfig(BaseModel):
             configStorePassword="config_store_password",
             dhcpUser="dhcp_user",
             dhcpPassword="dhcp_password",
-            nautobotUser="nautobot_user",
-            nautobotPassword="nautobot_password",
         )
     )
     network: VaultPathConfig = Field(
         default_factory=lambda: _path(user="user", password="password")
-    )
-    nautobot_app: VaultPathConfig = Field(
-        default_factory=lambda: _path(
-            adminPassword="admin_password",
-            djangoSecretKey="django_secret_key",
-            superuserApiToken="superuser_api_token",
-        )
     )
     oidc: VaultPathConfig = Field(
         default_factory=lambda: _path(clientSecret="client_secret", cookieSecret="cookie_secret")
@@ -220,6 +250,30 @@ class VaultPathsConfig(BaseModel):
             secretAccessKey="secret_access_key",
         )
     )
+
+    def bind_groups(self, specs: Mapping[str, SecretGroupSpec]) -> None:
+        """Coerce provider-owned path groups and settle groups no provider declares."""
+        _settle_unknown_groups(self, specs, VaultPathConfig)
+        extras = self.model_extra or {}
+        for name, spec in specs.items():
+            raw = extras.get(name)
+            if isinstance(raw, VaultPathConfig):
+                continue
+            value = (
+                VaultPathConfig(enabled=spec.enabled_default)
+                if raw is None
+                else VaultPathConfig.model_validate(raw)
+            )
+            setattr(self, name, value)
+
+    def group(self, name: str) -> VaultPathConfig:
+        """Return a core or provider path group, defaulting to an enabled empty group."""
+        value = getattr(self, name, None)
+        if isinstance(value, VaultPathConfig):
+            return value
+        if isinstance(value, dict):
+            return VaultPathConfig.model_validate(value)
+        return VaultPathConfig()
 
 
 class VaultConfig(BaseModel):
@@ -256,22 +310,45 @@ class KubernetesSecretsConfig(BaseModel):
 
     Required groups default to enabled; optional integrations default to disabled.
     Any value left empty (or the group left at defaults) will be auto-generated
-    by the deployer.
+    by the deployer. Provider-owned groups are extra keys bound by
+    :meth:`bind_groups` once the DCIM provider is known.
     """
 
-    # ``dcim`` is the canonical provider token group. ``nautobot`` remains
-    # available for the built-in provider's compatibility credentials.
+    model_config = ConfigDict(extra="allow")
+
     dcim: K8sSecretGroup = Field(default_factory=K8sSecretGroup)
     nats: K8sSecretGroup = Field(default_factory=K8sSecretGroup)
-    nautobot: K8sSecretGroup = Field(default_factory=K8sSecretGroup)
     redis: K8sSecretGroup = Field(default_factory=K8sSecretGroup)
     postgres: K8sSecretGroup = Field(default_factory=K8sSecretGroup)
     network: K8sSecretGroup = Field(default_factory=K8sSecretGroup)
-    nautobot_app: K8sSecretGroup = Field(default_factory=K8sSecretGroup)
     slack: K8sSecretGroup = Field(default_factory=lambda: K8sSecretGroup(enabled=False))
     jira: K8sSecretGroup = Field(default_factory=lambda: K8sSecretGroup(enabled=False))
     cnpg_backup: K8sSecretGroup = Field(default_factory=lambda: K8sSecretGroup(enabled=False))
     ztp_s3: K8sSecretGroup = Field(default_factory=lambda: K8sSecretGroup(enabled=False))
+
+    def bind_groups(self, specs: Mapping[str, SecretGroupSpec]) -> None:
+        """Coerce provider-owned groups and settle groups no provider declares."""
+        _settle_unknown_groups(self, specs, K8sSecretGroup)
+        extras = self.model_extra or {}
+        for name, spec in specs.items():
+            raw = extras.get(name)
+            if isinstance(raw, K8sSecretGroup):
+                continue
+            value = (
+                K8sSecretGroup(enabled=spec.enabled_default)
+                if raw is None
+                else K8sSecretGroup.model_validate(raw)
+            )
+            setattr(self, name, value)
+
+    def group(self, name: str) -> K8sSecretGroup:
+        """Return a core or provider group, defaulting to an enabled empty group."""
+        value = getattr(self, name, None)
+        if isinstance(value, K8sSecretGroup):
+            return value
+        if isinstance(value, dict):
+            return K8sSecretGroup.model_validate(value)
+        return K8sSecretGroup()
 
 
 class SecretsConfig(BaseModel):
@@ -356,10 +433,10 @@ class SPIFFEConfig(BaseModel):
 
 
 class GitTokenEntry(BaseModel):
-    """A git repository token for Nautobot git sync (e.g. Prismo).
+    """A git repository token for DCIM git sync (e.g. Prismo).
 
     Creates a K8s secret ``git-token-<name>`` with the token value.
-    Nautobot pods receive env vars ``GIT_TOKEN_<NAME>`` (and optionally
+    DCIM pods receive env vars ``GIT_TOKEN_<NAME>`` (and optionally
     ``GIT_USERNAME_<NAME>``).  For ESO, ``vault_path`` can point to
     the Vault path that holds the credential.
     """
@@ -371,7 +448,7 @@ class GitTokenEntry(BaseModel):
 
 
 class JobPath(BaseModel):
-    """Path to a custom Nautobot job directory or tarball."""
+    """Path to a custom DCIM job directory or tarball."""
 
     path: str
 
@@ -383,7 +460,7 @@ class TemplatePath(BaseModel):
 
 
 class PostDeployJob(BaseModel):
-    """A Nautobot job to run after deployment."""
+    """A DCIM job to run after deployment."""
 
     job: str
     input: str = ""
@@ -398,7 +475,7 @@ class TemplatePluginsConfig(BaseModel):
 
 
 class JobsConfig(BaseModel):
-    """Scheduling and storage configuration for the Nautobot jobs PVC."""
+    """Scheduling and storage configuration for a DCIM jobs PVC."""
 
     storage_class: str = ""
     access_mode: str = "ReadWriteOnce"
@@ -406,18 +483,13 @@ class JobsConfig(BaseModel):
 
 
 class ContentConfig(BaseModel):
-    """Custom jobs, template plugins, and post-deploy job execution."""
+    """Template plugins pushed to the render service.
 
-    jobs: list[JobPath] = Field(default_factory=list)
-    jobs_config: JobsConfig = Field(default_factory=JobsConfig)
+    Provider-owned content such as custom jobs lives under ``dcim.settings``.
+    """
+
     template_plugins: list[TemplatePath] = Field(default_factory=list)
     template_plugins_config: TemplatePluginsConfig = Field(default_factory=TemplatePluginsConfig)
-    run_after_deploy: list[PostDeployJob] = Field(default_factory=list)
-
-    @property
-    def requires_local_nautobot(self) -> bool:
-        """Return whether the configured content needs the local Nautobot deployment."""
-        return bool(self.jobs or self.run_after_deploy)
 
 
 class DCIMProviderPackage(BaseModel):
@@ -445,9 +517,16 @@ class DCIMProviderPackage(BaseModel):
 
 
 class DCIMConfig(BaseModel):
-    """Provider-neutral DCIM selection, connection, and package settings."""
+    """Provider-neutral DCIM selection, connection, and package settings.
+
+    ``local`` deploys the selected provider's in-cluster stack; otherwise
+    ``server`` must point at an existing instance. ``settings`` holds the
+    provider's own options and is validated by the provider's settings model.
+    An empty ``token_secret_name`` uses the provider's default Secret name.
+    """
 
     provider: str = BUILT_IN_NAUTOBOT_PROVIDER
+    local: bool = True
     server: str = ""
     public_url: str = ""
     display_name: str = ""
@@ -456,9 +535,10 @@ class DCIMConfig(BaseModel):
     cache_ttl: int = 0
     event_stream: str = ""
     event_subject: str = ""
-    token_secret_name: str = "nautobot-token"
+    token_secret_name: str = ""
     token_secret_key: str = "token"
     options: dict[str, str] = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
     provider_packages: list[DCIMProviderPackage] = Field(default_factory=list)
 
     @field_validator("provider")
@@ -501,9 +581,7 @@ class ServicesConfig(BaseModel):
     """Toggle individual NVIDIA Config Manager services on/off.
 
     NATS is deployed as core infrastructure independently of this selection.
-    When ``nautobot`` is True a local Nautobot stack is deployed.
-    Set it to False and provide ``external_nautobot_url`` to use an existing
-    Nautobot server (e.g. a shared staging/prod instance).
+    The DCIM deployment is selected by ``dcim.local``.
     """
 
     render: bool = True
@@ -511,8 +589,6 @@ class ServicesConfig(BaseModel):
     dhcp: bool = True
     temporal: bool = True
     config_store: bool = True
-    nautobot: bool = True
-    external_nautobot_url: str = ""
 
 
 class RedfishVendorCreds(BaseModel):
@@ -745,7 +821,7 @@ class ExternalPostgresConfig(BaseModel):
     temporal_visibility_host: str = ""
     config_store_host: str = ""
     dhcp_host: str = ""
-    nautobot_host: str = ""
+    dcim_host: str = ""
 
 
 class TemporalAuthMethod(StrEnum):
@@ -894,7 +970,6 @@ NV_CONFIG_MANAGER_IMAGE_KEYS: list[tuple[str, str]] = [
     ("nvConfigManagerUi", "nv-config-manager-ui"),
     ("kea", "nv-config-manager-kea"),
     ("keaAdmin", "nv-config-manager-kea-admin"),
-    ("nautobot", "nv-config-manager-nautobot"),
     ("natsReady", "nv-config-manager-nats-ready"),
     ("temporalServer", "nv-config-manager-temporal"),
     ("temporalBootstrap", "nv-config-manager-temporal-bootstrap"),
@@ -909,7 +984,6 @@ IMAGE_OVERRIDE_KEYS: list[tuple[str, str]] = [
     ("nvConfigManagerUi", "nvcr.io/nvidian/cfa/nv-config-manager-ui"),
     ("kea", "nvcr.io/nvidian/cfa/nv-config-manager-kea"),
     ("keaAdmin", "nvcr.io/nvidian/cfa/nv-config-manager-kea-admin"),
-    ("nautobot", "nvcr.io/nvidian/cfa/nv-config-manager-nautobot"),
     ("natsReady", "nvcr.io/nvidian/cfa/nv-config-manager-nats-ready"),
     ("httpEcho", "docker.io/hashicorp/http-echo"),
     ("kubectl", "docker.io/alpine/kubectl"),
@@ -924,7 +998,6 @@ IMAGE_OVERRIDE_KEYS: list[tuple[str, str]] = [
     # and UI with compatible upstream or locally built images instead.
     ("temporalServer", "temporalio/server"),
     ("temporalUi", "temporalio/ui"),
-    ("nautobotNginx", "docker.io/nginxinc/nginx-unprivileged"),
     ("spiffeHelper", "ghcr.io/spiffe/spiffe-helper"),
     ("oidcProxy", "quay.io/oauth2-proxy/oauth2-proxy"),
     ("templatePluginInstaller", "docker.io/library/python"),
@@ -950,6 +1023,22 @@ IMAGE_OVERRIDE_KEYS: list[tuple[str, str]] = [
     ("kedaMetricsApiServer", "ghcr.io/kedacore/keda-metrics-apiserver"),
     ("kedaAdmissionWebhooks", "ghcr.io/kedacore/keda-admission-webhooks"),
 ]
+
+
+def image_keys(provider: DCIMInstallerProvider | None) -> list[tuple[str, str]]:
+    """Return first-party image keys including the provider's images."""
+    keys = list(NV_CONFIG_MANAGER_IMAGE_KEYS)
+    if provider is not None:
+        keys.extend(provider.images.image_keys)
+    return keys
+
+
+def image_override_keys(provider: DCIMInstallerProvider | None) -> list[tuple[str, str]]:
+    """Return image override keys including the provider's images."""
+    keys = list(IMAGE_OVERRIDE_KEYS)
+    if provider is not None:
+        keys.extend(provider.images.override_keys)
+    return keys
 
 
 # ---------------------------------------------------------------------------
@@ -1059,39 +1148,67 @@ class NVConfigManagerInstallConfig(BaseModel):
     rbac: RBACConfig = Field(default_factory=RBACConfig)
     redfish: RedfishConfig = Field(default_factory=RedfishConfig)
 
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_layout(cls, data: Any) -> Any:
+        """Rewrite pre-plugin configuration keys into the ``dcim`` section."""
+        if not isinstance(data, dict):
+            return data
+        services = data.get("services")
+        dcim = data.get("dcim")
+        if isinstance(dcim, BaseModel):
+            dcim = dcim.model_dump()
+            data["dcim"] = dcim
+        elif not isinstance(dcim, dict):
+            dcim = {}
+            if services is not None or "content" in data or "external_services" in data:
+                data["dcim"] = dcim
+        if isinstance(services, dict):
+            if "nautobot" in services:
+                dcim.setdefault("local", services.pop("nautobot"))
+            if url := services.pop("external_nautobot_url", ""):
+                dcim.setdefault("server", url)
+        if dcim.get("provider", BUILT_IN_NAUTOBOT_PROVIDER) == BUILT_IN_NAUTOBOT_PROVIDER:
+            content = data.get("content")
+            if isinstance(content, dict):
+                settings = dcim.setdefault("settings", {})
+                for key in ("jobs", "jobs_config", "run_after_deploy"):
+                    if key in content:
+                        settings.setdefault(key, content.pop(key))
+            external_services = data.get("external_services")
+            postgres = (
+                external_services.get("postgres") if isinstance(external_services, dict) else None
+            )
+            if isinstance(postgres, dict) and "nautobot_host" in postgres:
+                postgres.setdefault("dcim_host", postgres.pop("nautobot_host"))
+        return data
+
     @model_validator(mode="after")
-    def validate_external_nautobot(self) -> NVConfigManagerInstallConfig:
-        """Validate provider selection and local Nautobot-only content."""
-        if self.dcim.provider != BUILT_IN_NAUTOBOT_PROVIDER:
-            if self.services.nautobot:
-                raise ValueError("External DCIM providers require services.nautobot=false")
+    def validate_dcim(self) -> NVConfigManagerInstallConfig:
+        """Validate provider-neutral DCIM selection and bind the provider's secret groups.
+
+        Provider-specific validation happens in ``resolve_provider``; binding here
+        keeps ``secrets.k8s.<group>`` usable as soon as the model is built.
+        """
+        try:
+            provider = get_installer_provider(self.dcim.provider)
+        except InstallerProviderError:
+            provider = None
+        if provider is not None:
+            groups = {spec.name: spec for spec in provider.secrets.groups}
+            self.secrets.k8s.bind_groups(groups)
+            self.secrets.vault.paths.bind_groups(groups)
+        if not self.dcim.local:
             if not self.dcim.server:
-                raise ValueError(
-                    "dcim.server is required when dcim.provider is not the built-in nautobot-2x"
-                )
+                raise ValueError("dcim.server is required when dcim.local is false")
             if (
                 self.secrets.method == SecretsMethod.ESO
+                and self.dcim.provider != BUILT_IN_NAUTOBOT_PROVIDER
                 and not self.secrets.vault.paths.dcim.enabled
             ):
                 raise ValueError(
                     "secrets.vault.paths.dcim.enabled must be true for an external DCIM provider with ESO"
                 )
-        elif not self.services.nautobot and not (
-            self.dcim.server or self.services.external_nautobot_url
-        ):
-            raise ValueError(
-                "dcim.server or services.external_nautobot_url is required when "
-                "services.nautobot=false and dcim.provider=nautobot-2x"
-            )
-
-        if not self.services.nautobot and self.content.requires_local_nautobot:
-            msg = (
-                "Custom jobs and post-deploy jobs require a local Nautobot deployment "
-                "(services.nautobot must be true). Remove content.jobs and "
-                "content.run_after_deploy or switch to local Nautobot."
-            )
-            raise ValueError(msg)
-
         return self
 
     # -- Serialization helpers -----------------------------------------------
@@ -1130,7 +1247,7 @@ def _prune_inactive_sections(data: dict[str, Any]) -> None:
     _prune_git_tokens(data, secrets.get("method", SecretsMethod.KUBERNETES.value))
     _prune_sso(_as_dict(data.get("sso")))
     _prune_spiffe(_as_dict(data.get("spiffe")))
-    _prune_services(_as_dict(data.get("services")))
+    _prune_dcim(_as_dict(data.get("dcim")))
     _prune_external_services(_as_dict(data.get("external_services")))
     _prune_infrastructure(_as_dict(data.get("infrastructure")))
     _prune_images(_as_dict(data.get("images")))
@@ -1212,9 +1329,18 @@ def _prune_spiffe(spiffe: dict[str, Any]) -> None:
         spiffe.pop("socket_host_path", None)
 
 
-def _prune_services(services: dict[str, Any]) -> None:
-    if services.get("nautobot", True):
-        services.pop("external_nautobot_url", None)
+def _prune_dcim(dcim: dict[str, Any]) -> None:
+    if dcim.get("local", True):
+        dcim.pop("server", None)
+    if not dcim.get("settings"):
+        dcim.pop("settings", None)
+    if not dcim.get("token_secret_name"):
+        dcim.pop("token_secret_name", None)
+    # The provider owns the rest of ``settings``.
+    try:
+        get_installer_provider(dcim.get("provider", BUILT_IN_NAUTOBOT_PROVIDER)).prune_yaml(dcim)
+    except Exception:  # noqa: BLE001 - saving never depends on provider discovery
+        pass
 
 
 def _prune_external_services(external_services: dict[str, Any]) -> None:

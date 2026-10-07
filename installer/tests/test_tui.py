@@ -19,14 +19,23 @@ from __future__ import annotations
 from unittest.mock import Mock, patch
 
 import pytest
+from pydantic import BaseModel, ConfigDict
 from textual.app import ComposeResult
 from textual.containers import Container
-from textual.widgets import Input, Label, RadioButton
+from textual.widgets import Input, Label, RadioButton, Select
 
-from nv_config_manager_installer.deployer import Deployer, DeployOptions, DeployStep
+from nv_config_manager_installer.deployer import Deployer, DeployOptions
+from nv_config_manager_installer.providers.api import (
+    DCIMInstallerProvider,
+    DeployStepsContribution,
+    InstallerProviderMetadata,
+    TUIContribution,
+)
+from nv_config_manager_installer.providers.nautobot import NautobotInstallerProvider
 from nv_config_manager_installer.schema import (
     BUILT_IN_NAUTOBOT_PROVIDER,
     ClusterConfig,
+    DCIMConfig,
     ExternalRedisConfig,
     ExternalServicesConfig,
     ImageSource,
@@ -43,7 +52,6 @@ from nv_config_manager_installer.schema import (
     VaultAuthMethod,
     VaultConfig,
     VaultPathConfig,
-    VaultPathsConfig,
 )
 from nv_config_manager_installer.tui.app import NVConfigManagerInstallerApp
 from nv_config_manager_installer.tui.screens.cluster import ClusterScreen
@@ -247,7 +255,7 @@ async def test_external_temporal_screen_revalidates_form_values():
 
 
 @pytest.mark.asyncio
-async def test_external_services_separates_nautobot_and_nats() -> None:
+async def test_external_services_separates_dcim_and_nats() -> None:
     config = NVConfigManagerInstallConfig()
     app = NVConfigManagerInstallerApp(config=config)
 
@@ -255,18 +263,66 @@ async def test_external_services_separates_nautobot_and_nats() -> None:
         app.switch_section("external_services")
         screen = app._screens["external_services"]
 
-        assert not screen.query("#ext-dcim-provider")
-        screen.query_one("#ext-nautobot-enabled", LabeledSwitch).value = False
+        assert screen.query_one("#ext-dcim-provider", Select).value == BUILT_IN_NAUTOBOT_PROVIDER
+        screen.query_one("#ext-dcim-local", LabeledSwitch).value = True
         screen.query_one("#ext-nats-enabled", LabeledSwitch).value = True
         screen.query_one("#ext-nats-server", Input).value = "nats://nats.example.com:4222"
         screen.query_one("#ext-nats-auth-method").value = NATSAuthMethod.JWT.value
         screen.write_to_config(config)
 
         assert config.dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER
-        assert config.services.nautobot is True
+        assert config.dcim.local is True
         assert config.external_services.nats.enabled is True
         assert config.external_services.nats.server == "nats://nats.example.com:4222"
         assert config.external_services.nats.auth_method == NATSAuthMethod.JWT
+
+
+@pytest.mark.asyncio
+async def test_external_services_keeps_external_provider_on_save() -> None:
+    config = NVConfigManagerInstallConfig(
+        dcim=DCIMConfig(provider="synthetic", local=False, server="https://synthetic.example"),
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("external_services")
+        screen = app._screens["external_services"]
+        assert screen.query_one("#ext-dcim-provider", Select).value == "synthetic"
+        assert screen.query_one("#ext-dcim-local", LabeledSwitch).disabled is True
+
+        screen.write_to_config(config)
+
+        assert config.dcim.provider == "synthetic"
+        assert config.dcim.local is False
+        assert config.dcim.server == "https://synthetic.example"
+        assert "ingest_data" not in app._screens
+
+
+@pytest.mark.asyncio
+async def test_switching_provider_rebuilds_provider_sections() -> None:
+    config = NVConfigManagerInstallConfig(dcim=DCIMConfig(settings={"jobs": [{"path": "/j"}]}))
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        assert "ingest_data" in app._screens
+        app.switch_section("external_services")
+        screen = app._screens["external_services"]
+
+        screen.query_one("#ext-dcim-provider", Select).value = "synthetic"
+        await pilot.pause(0.1)
+
+        assert app.provider is not None and app.provider.metadata.name == "synthetic"
+        assert "ingest_data" not in app._screens
+        assert "ingest_data" not in [sid for sid, _ in app.section_labels()]
+        assert config.dcim.provider == "synthetic"
+        assert config.dcim.settings == {}
+
+        screen.query_one("#ext-dcim-provider", Select).value = BUILT_IN_NAUTOBOT_PROVIDER
+        await pilot.pause(0.1)
+
+        assert "ingest_data" in app._screens
+        labels = [sid for sid, _ in app.section_labels()]
+        assert labels.index("ingest_data") == labels.index("network_secrets") + 1
 
 
 @pytest.mark.asyncio
@@ -334,20 +390,10 @@ async def test_deployment_start_selects_local_image_source(
 
 
 @pytest.mark.asyncio
-async def test_derived_installer_can_add_screen_and_select_deployer() -> None:
-    class ProviderConfig(NVConfigManagerInstallConfig):
+async def test_installed_provider_contributes_screen_and_deploy_steps() -> None:
+    class ProviderSettings(BaseModel):
+        model_config = ConfigDict(extra="forbid")
         provider_setting: str = "netbox-value"
-
-    class ProviderDeployer(Deployer):
-        CONFIG_MODEL = ProviderConfig
-
-        @classmethod
-        def create_steps(cls) -> list[DeployStep]:
-            return [DeployStep("provider", "Configure external provider")]
-
-    class ProviderDeployScreen(DeployScreen):
-        def deployer_class(self) -> type[Deployer]:
-            return ProviderDeployer
 
     class ProviderScreen(Container):
         def __init__(self, config: NVConfigManagerInstallConfig, **kwargs: object) -> None:
@@ -360,33 +406,38 @@ async def test_derived_installer_can_add_screen_and_select_deployer() -> None:
         def get_status(self, config: NVConfigManagerInstallConfig) -> str:
             return "[*]"
 
-    class ProviderInstallerApp(NVConfigManagerInstallerApp):
-        CONFIG_MODEL = ProviderConfig
-        SECTION_LABELS = (
-            *NVConfigManagerInstallerApp.SECTION_LABELS[:-1],
-            ("provider", "Provider"),
-            NVConfigManagerInstallerApp.SECTION_LABELS[-1],
+    class Provider(DCIMInstallerProvider):
+        metadata = InstallerProviderMetadata(name="external-dcim", display_name="External DCIM")
+        settings_model = ProviderSettings
+        tui = TUIContribution(
+            sections=(("provider", "Provider", ProviderScreen),), insert_after="infrastructure"
         )
-        SCREEN_CLASSES = {
-            **NVConfigManagerInstallerApp.SCREEN_CLASSES,
-            "provider": ProviderScreen,
-            "deploy": ProviderDeployScreen,
-        }
 
-    config = ProviderConfig()
-    app = ProviderInstallerApp(config=config)
+        def deploy_steps(self) -> DeployStepsContribution:
+            return DeployStepsContribution(
+                before={"helm-install": (("provider", "Configure external provider"),)}
+            )
+
+    provider = Provider()
+    config = NVConfigManagerInstallConfig(
+        dcim=DCIMConfig(provider="external-dcim", local=False, server="https://dcim.example"),
+    )
+    app = NVConfigManagerInstallerApp(config=config, provider=provider)
     async with app.run_test():
         app.switch_section("provider")
         assert isinstance(app._screens["provider"], ProviderScreen)
+        labels = [sid for sid, _ in app.section_labels()]
+        assert labels.index("provider") == labels.index("infrastructure") + 1
 
         deploy_screen = app._screens["deploy"]
-        assert isinstance(deploy_screen, ProviderDeployScreen)
-        assert deploy_screen._get_initial_steps()[0].id == "provider"
+        assert isinstance(deploy_screen, DeployScreen)
+        step_ids = [step.id for step in deploy_screen._get_initial_steps()]
+        assert step_ids.index("provider") == step_ids.index("helm-install") - 1
 
         deployer = deploy_screen.create_deployer(config, DeployOptions(), Mock())
-        assert isinstance(deployer, ProviderDeployer)
-        assert isinstance(deployer.config, ProviderConfig)
-        assert deployer.config.provider_setting == "netbox-value"
+        assert isinstance(deployer, Deployer)
+        assert deployer.provider is provider
+        assert provider.settings(deployer.config).provider_setting == "netbox-value"
 
 
 @pytest.mark.asyncio
@@ -528,7 +579,7 @@ async def test_app_secrets_marks_existing_vault_values_without_copying_them(
 @patch("nv_config_manager_installer.tui.screens.vault.OpenBaoClient")
 async def test_app_secrets_merges_partial_vault_key_overrides(mock_vault_cls, monkeypatch):
     monkeypatch.setenv("VAULT_TOKEN", "vault-token")
-    defaults = VaultPathsConfig().nautobot.keys
+    defaults = NautobotInstallerProvider.secrets.groups[0].keys
     mock_vault_cls.return_value.read_secret.return_value = (
         {
             "api_token": "existing-token",

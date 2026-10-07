@@ -27,8 +27,9 @@ import secrets
 import string
 from typing import Any
 
+from nv_config_manager_installer.providers.api import DCIMInstallerProvider
+from nv_config_manager_installer.providers.registry import resolve_provider
 from nv_config_manager_installer.schema import (
-    BUILT_IN_NAUTOBOT_PROVIDER,
     NVConfigManagerInstallConfig,
     PasswordSource,
     SecretsMethod,
@@ -36,13 +37,14 @@ from nv_config_manager_installer.schema import (
     VaultPathConfig,
     VaultPathsConfig,
     ZTPStorageType,
+    database_secret_keys,
 )
 
 
 def _k8s_val(config: NVConfigManagerInstallConfig, group: str, vault_key: str) -> str:
     """Return a manually supplied k8s secret value, or empty string if not set."""
-    grp = getattr(config.secrets.k8s, group, None)
-    if grp is None or not grp.enabled:
+    grp = config.secrets.k8s.group(group)
+    if not grp.enabled:
         return ""
     return grp.values.get(vault_key, "")
 
@@ -102,43 +104,38 @@ def _generate_redfish_secrets(config: NVConfigManagerInstallConfig, state: dict[
         )
 
 
-_DB_GROUPS: list[tuple[str, str, str]] = [
-    ("temporal", "temporalUser", "temporalPassword"),
-    ("temporal_visibility", "temporalVisibilityUser", "temporalVisibilityPassword"),
-    ("config_store", "configStoreUser", "configStorePassword"),
-    ("dhcp", "dhcpUser", "dhcpPassword"),
-    ("nautobot", "nautobotUser", "nautobotPassword"),
-]
+_DB_GROUPS: tuple[str, ...] = ("temporal", "temporal_visibility", "config_store", "dhcp")
+
+
+def application_databases(provider: DCIMInstallerProvider) -> tuple[str, ...]:
+    """Return core CNPG application databases plus the provider's."""
+    return (*_DB_GROUPS, *provider.secrets.databases)
 
 
 def _generate_core_k8s_secrets(
-    config: NVConfigManagerInstallConfig, state: dict[str, str], _v: Any
+    config: NVConfigManagerInstallConfig,
+    state: dict[str, str],
+    _v: Any,
+    provider: DCIMInstallerProvider,
 ) -> None:
-    """Populate core Kubernetes secrets for the selected DCIM and services."""
-    if config.dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER:
-        state["nautobot_token"] = _v("nautobot", "token") or _generate_token(40)
-        if ro_token := _v("nautobot", "readOnlyToken"):
-            state["nautobot_read_only_token"] = ro_token
-    else:
-        state["dcim_token"] = _v("dcim", "token") or _generate_token(40)
+    """Populate core Kubernetes secrets for the selected DCIM and services.
 
-    if config.dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER:
-        nats_password = _v("nautobot", "natsPassword")
-    else:
-        # Keep the legacy Nautobot key as a compatibility fallback for early
-        # external-provider configurations while making NATS independently owned.
-        nats_password = _v("nats", "password") or _v("nautobot", "natsPassword")
-    nats_password = nats_password or _generate_nats_config_password()
-    state["nats_password"] = _validate_nats_config_password(nats_password)
+    Explicit core values are taken first, the provider then seeds values from
+    its own groups, and anything still missing is generated.
+    """
+    if token := _v("dcim", "token"):
+        state["dcim_token"] = token
+    if nats_password := _v("nats", "password"):
+        state["nats_password"] = nats_password
+    provider.generate_secret_state(config, state, _v)
+
+    state.setdefault("dcim_token", _generate_token(40))
+    state["nats_password"] = _validate_nats_config_password(
+        state.get("nats_password") or _generate_nats_config_password()
+    )
     state["redis_password"] = _v("redis", "password") or _generate_url_safe_password()
-    if config.services.nautobot:
-        state["nautobot_admin_password"] = (
-            _v("nautobot_app", "adminPassword") or _generate_password()
-        )
-        state["django_secret_key"] = _v("nautobot_app", "djangoSecretKey") or _generate_password(50)
-        if sv := _v("nautobot_app", "superuserApiToken"):
-            state["superuser_api_token"] = sv
-    for db, user_key, pass_key in _DB_GROUPS:
+    for db in application_databases(provider):
+        user_key, pass_key = database_secret_keys(db)
         state[f"{db}_db_user"] = _v("postgres", user_key) or db
         state[f"{db}_db_password"] = _v("postgres", pass_key) or _generate_url_safe_password()
 
@@ -169,7 +166,10 @@ def _generate_optional_k8s_secrets(
         state["ztp_s3_secret_access_key"] = _v("ztp_s3", "secretAccessKey") or ""
 
 
-def generate_secrets(config: NVConfigManagerInstallConfig) -> dict[str, str]:
+def generate_secrets(
+    config: NVConfigManagerInstallConfig,
+    provider: DCIMInstallerProvider | None = None,
+) -> dict[str, str]:
     """Generate all secrets needed for deployment.
 
     Returns a dict of key -> value for every secret that needs a concrete value.
@@ -178,9 +178,10 @@ def generate_secrets(config: NVConfigManagerInstallConfig) -> dict[str, str]:
     The dict includes:
     - Network secrets:    {secret_key}_{rotation} -> generated or manually supplied value
                           (manual entries must have a non-empty value; missing values raise ValueError)
-    - Infrastructure:     nautobot_token, nautobot_admin_password, redis_password,
-                          nats_password, hash_salt, django_secret_key, etc.
+    - Infrastructure:     dcim_token, redis_password, nats_password, hash_salt,
+                          database credentials, and provider-owned values.
     """
+    provider = provider or resolve_provider(config)
     state: dict[str, str] = {}
     configured_network_keys: set[str] = set()
 
@@ -219,7 +220,7 @@ def generate_secrets(config: NVConfigManagerInstallConfig) -> dict[str, str]:
     def _v(group: str, vault_key: str) -> str:
         return _k8s_val(config, group, vault_key)
 
-    _generate_core_k8s_secrets(config, state, _v)
+    _generate_core_k8s_secrets(config, state, _v, provider)
     _generate_optional_k8s_secrets(config, state, _v)
     _generate_redfish_secrets(config, state)
 
@@ -228,13 +229,16 @@ def generate_secrets(config: NVConfigManagerInstallConfig) -> dict[str, str]:
 
 def build_openbao_secret_data(
     config: NVConfigManagerInstallConfig,
+    provider: DCIMInstallerProvider | None = None,
 ) -> dict[str, dict[str, str]]:
     """Build logical OpenBao values for every installer-supported ESO path.
 
     The returned keys are schema path-group names and logical Helm key names.
     The OpenBao writer translates logical names through each group's configured
-    ``keys`` mapping before writing KV v2 data.
+    ``keys`` mapping before writing KV v2 data. Disabled groups are skipped by
+    the writer, so the generic ``dcim`` and ``nats`` groups are always built.
     """
+    provider = provider or resolve_provider(config)
 
     def value(group: str, key: str) -> str:
         return _k8s_val(config, group, key)
@@ -248,34 +252,12 @@ def build_openbao_secret_data(
             "user": value("network", "user") or config.secrets.config_manager_service_username,
             "password": value("network", "password") or _generate_url_safe_password(),
         },
+        "dcim": {"token": value("dcim", "token") or _generate_token(40)},
+        "nats": {"password": value("nats", "password") or _generate_nats_config_password()},
     }
-    if config.dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER:
-        nats_password = value("nautobot", "natsPassword") or _generate_nats_config_password()
-        nautobot_token = (
-            value("nautobot", "token")
-            or value("nautobot_app", "superuserApiToken")
-            or _generate_token(40)
-        )
-        groups["nautobot"] = {
-            "token": nautobot_token,
-            "readOnlyToken": value("nautobot", "readOnlyToken") or _generate_token(40),
-            "natsPassword": _validate_nats_config_password(nats_password),
-            "natsSysPassword": value("nautobot", "natsSysPassword")
-            or _generate_nats_config_password(),
-            "natsNautobotPassword": value("nautobot", "natsNautobotPassword")
-            or _generate_nats_config_password(),
-        }
-        if config.services.nautobot:
-            groups["nautobot_app"] = {
-                "adminPassword": value("nautobot_app", "adminPassword") or _generate_password(),
-                "djangoSecretKey": value("nautobot_app", "djangoSecretKey")
-                or _generate_password(50),
-                "superuserApiToken": nautobot_token,
-            }
-    else:
-        groups["dcim"] = {"token": value("dcim", "token") or _generate_token(40)}
-        groups["nats"] = {"password": value("nats", "password") or _generate_nats_config_password()}
-    for database, user_key, password_key in _DB_GROUPS:
+    groups.update(provider.openbao_groups(config, value))
+    for database in application_databases(provider):
+        user_key, password_key = database_secret_keys(database)
         groups["postgres"][user_key] = value("postgres", user_key) or database
         groups["postgres"][password_key] = value("postgres", password_key) or (
             _generate_url_safe_password()
@@ -318,7 +300,7 @@ def build_openbao_secret_data(
             or config.infrastructure.ztp_storage.s3_ceph.enabled
         ):
             continue
-        if getattr(config.secrets.vault.paths, group).enabled:
+        if config.secrets.vault.paths.group(group).enabled:
             groups[group] = data
 
     if config.redfish.enabled:
@@ -368,11 +350,9 @@ _VAULT_PATH_GROUPS: list[tuple[str, str, str]] = [
     # (schema_field, helm_key, default_path_suffix)
     ("dcim", "dcim", "dcim"),
     ("nats", "nats", "nats"),
-    ("nautobot", "nautobot", "nautobot"),
     ("redis", "redis", "redis"),
     ("postgres", "postgres", "postgres"),
     ("network", "network", "network"),
-    ("nautobot_app", "nautobotApp", "nautobot-app"),
     ("oidc", "oidc", "oidc"),
     ("redfish", "redfish", "redfish"),
     ("bmc", "bmc", "bmc"),
@@ -381,6 +361,26 @@ _VAULT_PATH_GROUPS: list[tuple[str, str, str]] = [
     ("cnpg_backup", "cnpgBackup", "cnpg-backup"),
     ("ztp_s3", "ztpS3", "ztp-s3"),
 ]
+
+
+def vault_path_groups(
+    provider: DCIMInstallerProvider,
+) -> list[tuple[str, str, str, dict[str, str]]]:
+    """Return ``(schema_field, helm_key, path_suffix, default_keys)`` for core and provider groups.
+
+    The ``postgres`` defaults include the provider's application databases.
+    """
+    defaults = VaultPathsConfig()
+    groups: list[tuple[str, str, str, dict[str, str]]] = []
+    for schema_field, helm_key, suffix in _VAULT_PATH_GROUPS:
+        keys = dict(getattr(defaults, schema_field).keys)
+        if schema_field == "postgres":
+            for database in provider.secrets.databases:
+                keys.update(database_secret_keys(database))
+        groups.append((schema_field, helm_key, suffix, keys))
+    for spec in provider.secrets.groups:
+        groups.append((spec.name, spec.helm_key, spec.path_suffix, dict(spec.keys)))
+    return groups
 
 
 def _build_vault_auth(v: Any, vault_section: dict[str, Any]) -> None:
@@ -394,27 +394,30 @@ def _build_vault_auth(v: Any, vault_section: dict[str, Any]) -> None:
             vault_section["role"] = v.role
 
 
-def _build_vault_paths(v: Any, env: str) -> dict[str, Any]:
+def _build_vault_paths(v: Any, env: str, provider: DCIMInstallerProvider) -> dict[str, Any]:
     """Build the ``paths`` sub-section from the vault path groups."""
-    defaults = VaultPathsConfig()
     paths: dict[str, Any] = {}
-    for schema_field, helm_key, default_suffix in _VAULT_PATH_GROUPS:
-        pc: VaultPathConfig = getattr(v.paths, schema_field)
+    for schema_field, helm_key, default_suffix, default_keys in vault_path_groups(provider):
+        pc: VaultPathConfig = v.paths.group(schema_field)
         if not pc.enabled:
             continue
         entry: dict[str, Any] = {"path": pc.path or f"{env}/{default_suffix}"}
-        keys = {**getattr(defaults, schema_field).keys, **pc.keys}
+        keys = {**default_keys, **pc.keys}
         if keys:
             entry["keys"] = dict(keys)
         paths[helm_key] = entry
     return paths
 
 
-def build_eso_vault_config(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
+def build_eso_vault_config(
+    config: NVConfigManagerInstallConfig,
+    provider: DCIMInstallerProvider | None = None,
+) -> dict[str, Any]:
     """Build the ``secrets`` section for Helm values when using ESO."""
     if config.secrets.method != SecretsMethod.ESO:
         return {}
 
+    provider = provider or resolve_provider(config)
     v = config.secrets.vault
     vault_section: dict[str, Any] = {
         "server": v.server,
@@ -425,6 +428,6 @@ def build_eso_vault_config(config: NVConfigManagerInstallConfig) -> dict[str, An
         vault_section["configSecretsPath"] = v.config_secrets_path
 
     _build_vault_auth(v, vault_section)
-    vault_section["paths"] = _build_vault_paths(v, config.cluster.environment)
+    vault_section["paths"] = _build_vault_paths(v, config.cluster.environment, provider)
 
     return {"secrets": {"method": "eso", "vault": vault_section}}

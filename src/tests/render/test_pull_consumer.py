@@ -34,7 +34,6 @@ from nv_config_manager.render.pull_consumer import (
     PullConsumer,
     PullDCIMConsumer,
     PullDeviceChangeConsumer,
-    PullNautobotConsumer,
 )
 
 # Test NATS configuration - mock credentials for testing only
@@ -202,14 +201,31 @@ async def test_pull_consumer_message_handler_not_implemented(custom_ini):
 
 
 @pytest.mark.asyncio
-async def test_pull_nautobot_consumer_initialization(custom_ini):
-    """Test PullNautobotConsumer initialization."""
+async def test_pull_dcim_consumer_initialization_from_legacy_keys(custom_ini):
+    """A [nats] section with only nautobot_* keys still configures the DCIM consumer."""
     custom_ini(TEST_NATS_CONFIG)
-    consumer = PullNautobotConsumer()
+    consumer = PullDCIMConsumer()
     assert consumer.stream == "nautobot"
     assert consumer.subject == "nautobot"
     assert consumer.api_prefix == "$JS.CUSTOM.API"
-    assert "nautobot" in consumer.queue
+    assert consumer.queue == "nv-config-manager-nautobot"
+
+
+@pytest.mark.asyncio
+async def test_pull_dcim_consumer_prefers_dcim_keys(custom_ini):
+    """dcim_* keys win over the deprecated nautobot_* aliases."""
+    custom_ini(
+        TEST_NATS_CONFIG
+        + "dcim_change_stream=netbox\n"
+        + "dcim_change_subject=netbox.change\n"
+        + "dcim_api_prefix=$JS.DCIM.API\n"
+        + "dcim_consumer_name=nv-config-manager-netbox\n"
+    )
+    consumer = PullDCIMConsumer()
+    assert consumer.stream == "netbox"
+    assert consumer.subject == "netbox.change"
+    assert consumer.api_prefix == "$JS.DCIM.API"
+    assert consumer.queue == "nv-config-manager-netbox"
 
 
 @pytest.mark.asyncio
@@ -221,7 +237,7 @@ async def test_pull_consumer_uses_configured_durable_name(custom_ini):
     )
     custom_ini(configured)
 
-    consumer = PullNautobotConsumer()
+    consumer = PullDCIMConsumer()
 
     assert consumer.queue == "externally-owned-nautobot"
 
@@ -261,9 +277,9 @@ async def test_pull_dcim_consumer_normalizes_before_dispatch(mock_dispatcher, cu
 
 @pytest.mark.asyncio
 async def test_pull_nautobot_consumer_message_handler_success(mock_dispatcher, custom_ini):
-    """Test PullNautobotConsumer successful message handling."""
+    """Test PullDCIMConsumer successful message handling."""
     custom_ini(TEST_NATS_CONFIG)
-    consumer = PullNautobotConsumer()
+    consumer = PullDCIMConsumer()
     mock_msg = AsyncMock(spec=Msg)
     mock_msg.data = json.dumps({"test": "data"}).encode()
     mock_msg.ack = AsyncMock()
@@ -281,9 +297,9 @@ async def test_pull_nautobot_consumer_message_handler_success(mock_dispatcher, c
 
 @pytest.mark.asyncio
 async def test_pull_nautobot_consumer_device_not_enabled_error(mock_dispatcher, custom_ini):
-    """Test PullNautobotConsumer handles DeviceNotEnabledError."""
+    """Test PullDCIMConsumer handles DeviceNotEnabledError."""
     custom_ini(TEST_NATS_CONFIG)
-    consumer = PullNautobotConsumer()
+    consumer = PullDCIMConsumer()
     mock_msg = AsyncMock(spec=Msg)
     mock_msg.data = json.dumps({"test": "data"}).encode()
     mock_msg.ack = AsyncMock()
@@ -304,9 +320,9 @@ async def test_pull_nautobot_consumer_device_not_enabled_error(mock_dispatcher, 
 
 @pytest.mark.asyncio
 async def test_pull_nautobot_consumer_exception_handling(mock_dispatcher, custom_ini):
-    """Test PullNautobotConsumer handles general exceptions."""
+    """Test PullDCIMConsumer handles general exceptions."""
     custom_ini(TEST_NATS_CONFIG)
-    consumer = PullNautobotConsumer()
+    consumer = PullDCIMConsumer()
     mock_msg = AsyncMock(spec=Msg)
     mock_msg.data = json.dumps({"test": "data"}).encode()
     mock_msg.nak = AsyncMock()
@@ -695,7 +711,7 @@ async def _run_one_failed_cycle(consumer: PullConsumer, error: Exception) -> Non
 async def test_missing_stream_is_recreated_before_retry(custom_ini, mock_jetstream):
     """Bundled NATS that lost its JetStream state gets this consumer's stream back."""
     custom_ini(TEST_NATS_CONFIG)
-    consumer = PullNautobotConsumer()
+    consumer = PullDCIMConsumer()
     consumer.jetstream = mock_jetstream
     consumer.logger = MagicMock()
     stream_missing = NotFoundError(code=404, err_code=10059, description="stream not found")
@@ -717,7 +733,7 @@ RECREATED_STREAM = datetime(2026, 10, 5, 20, 50, tzinfo=UTC)
 
 def _local_consumer(mock_jetstream: MagicMock, stream_created: datetime) -> PullConsumer:
     """Return a bundled-NATS consumer whose stream reports the given creation time."""
-    consumer = PullNautobotConsumer()
+    consumer = PullDCIMConsumer()
     consumer.jetstream = mock_jetstream
     mock_jetstream.stream_info = AsyncMock(return_value=MagicMock(created=stream_created))
     return consumer
@@ -785,7 +801,7 @@ async def test_first_durable_on_bundled_stream_starts_at_new(custom_ini, mock_je
 async def test_external_nats_does_not_read_stream_info(custom_ini, mock_jetstream):
     """External NATS may not export stream info; the durable starts at NEW without it."""
     custom_ini(TEST_NATS_CONFIG)
-    consumer = PullNautobotConsumer()
+    consumer = PullDCIMConsumer()
     consumer.jetstream = mock_jetstream
     mock_jetstream.stream_info = AsyncMock()
 
@@ -797,7 +813,7 @@ async def test_external_nats_does_not_read_stream_info(custom_ini, mock_jetstrea
 async def test_missing_consumer_does_not_touch_streams(custom_ini, mock_jetstream):
     """Only a missing stream triggers stream creation; a missing durable does not."""
     custom_ini(TEST_NATS_CONFIG)
-    consumer = PullNautobotConsumer()
+    consumer = PullDCIMConsumer()
     consumer.jetstream = mock_jetstream
     consumer_missing = NotFoundError(code=404, err_code=10014, description="consumer not found")
 
@@ -813,7 +829,7 @@ async def test_missing_consumer_does_not_touch_streams(custom_ini, mock_jetstrea
 async def test_stream_recreation_failure_does_not_stop_consumer(custom_ini, mock_jetstream):
     """A failed re-creation is logged and the loop keeps retrying."""
     custom_ini(TEST_NATS_CONFIG)
-    consumer = PullNautobotConsumer()
+    consumer = PullDCIMConsumer()
     consumer.jetstream = mock_jetstream
     consumer.logger = MagicMock()
     stream_missing = NotFoundError(code=404, err_code=10059, description="stream not found")

@@ -40,9 +40,9 @@ from nv_config_manager.common.config import (
     load_config,
     nats_config_manager_api_prefix,
     nats_connection,
+    nats_dcim_api_prefix,
     nats_dcim_change_config,
-    nats_nautobot_api_prefix,
-    nats_nautobot_change_config,
+    nats_dcim_consumer_name,
     nats_render_change_config,
 )
 from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
@@ -100,19 +100,25 @@ class PullConsumer:
         queue_suffix: str,
         api_prefix: str = DEFAULT_NATS_API_PREFIX,
         consumer_name_key: str | None = None,
+        consumer_name: str | None = None,
     ) -> None:
-        """Initialize the consumer."""
+        """Initialize the consumer.
+
+        ``consumer_name`` sets the durable directly; otherwise ``consumer_name_key``
+        is read from the [nats] section.
+        """
         config = load_config()
         self.loop: AbstractEventLoop | None = None
         self.nats_conn: Client | None = None
         self.jetstream: JetStreamContext | None = None
         nats_config = config["nats"]
         default_queue = f"nv-config-manager-{queue_suffix}"
-        self.queue = (
-            nats_config.get(consumer_name_key, default_queue)
-            if consumer_name_key
-            else default_queue
-        )
+        if consumer_name:
+            self.queue = consumer_name
+        elif consumer_name_key:
+            self.queue = nats_config.get(consumer_name_key, default_queue)
+        else:
+            self.queue = default_queue
         self.stream = stream
         self.subject = subject
         self.api_prefix = api_prefix
@@ -560,13 +566,12 @@ class PullDCIMConsumer(PullConsumer):
     def __init__(self) -> None:
         """Initialize a DCIM change-event consumer."""
         stream, subject = nats_dcim_change_config()
-        api_prefix = nats_nautobot_api_prefix()
         super().__init__(
             stream=stream,
             subject=subject,
             queue_suffix="dcim",
-            api_prefix=api_prefix,
-            consumer_name_key="nautobot_consumer_name",
+            api_prefix=nats_dcim_api_prefix(),
+            consumer_name=nats_dcim_consumer_name(),
         )
 
     async def message_handler(self, msg: Msg) -> None:
@@ -580,35 +585,7 @@ class PullDCIMConsumer(PullConsumer):
             # No need to redeliver render exceptions, they won't succeed on retry
             await self.ack(msg)
         except Exception as e:
-            self.logger.error("Error processing nautobot message", exc_info=e)
-            await self.nak(msg)
-
-
-class PullNautobotConsumer(PullConsumer):
-    """Compatibility consumer for the historical Nautobot-only configuration."""
-
-    def __init__(self) -> None:
-        """Initialize a legacy Nautobot changelog consumer."""
-        stream, subject = nats_nautobot_change_config()
-        api_prefix = nats_nautobot_api_prefix()
-        super().__init__(
-            stream=stream,
-            subject=subject,
-            queue_suffix="nautobot",
-            api_prefix=api_prefix,
-            consumer_name_key="nautobot_consumer_name",
-        )
-
-    async def message_handler(self, msg: Msg) -> None:
-        """Normalize and process a legacy Nautobot changelog message."""
-        try:
-            event = normalize_dcim_event(json.loads(msg.data.decode()))
-            await self.dispatcher.dcim_event_dispatch(event)
-            await self.ack(msg)
-        except DeviceNotEnabledError:
-            await self.ack(msg)
-        except Exception as e:
-            self.logger.error("Error processing legacy DCIM message", exc_info=e)
+            self.logger.error("Error processing DCIM message", exc_info=e)
             await self.nak(msg)
 
 
@@ -666,8 +643,6 @@ def main() -> None:
     consumer_name = os.getenv("NATS_CONSUMER")
     if consumer_name == "dcim":
         consumer = PullDCIMConsumer()
-    elif consumer_name == "nautobot":
-        consumer = PullNautobotConsumer()
     elif consumer_name == "device":
         consumer = PullDeviceChangeConsumer()
     else:

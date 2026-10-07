@@ -28,9 +28,9 @@ from typing import Any
 import yaml
 
 from nv_config_manager_installer.accounts import build_eso_config_secrets
+from nv_config_manager_installer.providers.api import DCIMInstallerProvider
+from nv_config_manager_installer.providers.registry import resolve_provider
 from nv_config_manager_installer.schema import (
-    BUILT_IN_NAUTOBOT_PROVIDER,
-    NV_CONFIG_MANAGER_IMAGE_KEYS,
     ExternalPostgresConfig,
     ImageSource,
     LBProvider,
@@ -41,6 +41,7 @@ from nv_config_manager_installer.schema import (
     SSOProvider,
     ZTPStorageType,
     get_known_workflows,
+    image_keys,
 )
 from nv_config_manager_installer.secrets import build_eso_vault_config
 
@@ -193,11 +194,6 @@ _NESTED_IMAGE_DEFAULTS: dict[str, tuple[tuple[str, ...], str, str]] = {
 }
 
 _SPLIT_IMAGE_DEFAULTS: dict[str, tuple[tuple[str, ...], str, str]] = {
-    "nautobotNginx": (
-        ("nautobot", "nginx", "image"),
-        "docker.io/nginxinc/nginx-unprivileged",
-        "1.27",
-    ),
     "alloy": (
         ("alloy", "image"),
         "docker.io/grafana/alloy",
@@ -326,10 +322,15 @@ def _merge_nested(values: dict[str, Any], path: tuple[str, ...], update: dict[st
     cur.update(update)
 
 
-def _apply_image_overrides(config: NVConfigManagerInstallConfig, values: dict[str, Any]) -> None:
+def _apply_image_overrides(
+    config: NVConfigManagerInstallConfig,
+    values: dict[str, Any],
+    provider: DCIMInstallerProvider,
+) -> None:
     """Apply non-global image overrides that live outside global.images."""
     img = config.images
     include_defaults = _use_airgap_registry_defaults(config)
+    split_image_defaults = {**_SPLIT_IMAGE_DEFAULTS, **provider.images.split_image_defaults}
 
     for key, (path, source_repository, default_tag) in _NESTED_IMAGE_DEFAULTS.items():
         entry = _build_image_entry(
@@ -343,7 +344,7 @@ def _apply_image_overrides(config: NVConfigManagerInstallConfig, values: dict[st
         if entry:
             _merge_nested(values, path, entry)
 
-    for key, (path, source_repository, default_tag) in _SPLIT_IMAGE_DEFAULTS.items():
+    for key, (path, source_repository, default_tag) in split_image_defaults.items():
         entry = _build_image_entry(
             img,
             key,
@@ -375,6 +376,7 @@ def _apply_image_overrides(config: NVConfigManagerInstallConfig, values: dict[st
 
 def _build_global(
     config: NVConfigManagerInstallConfig,
+    provider: DCIMInstallerProvider,
     *,
     is_local: bool,
     local_tags: dict[str, str] | None = None,
@@ -411,19 +413,21 @@ def _build_global(
                 "tag": (local_tags or {}).get(short_name, "local"),
                 "pullPolicy": "IfNotPresent",
             }
-            for key, short_name in NV_CONFIG_MANAGER_IMAGE_KEYS
+            for key, short_name in image_keys(provider)
         }
     elif img.registry or img.tag or img.overrides:
         section["images"] = _build_registry_images(
-            img, airgapped=_use_airgap_registry_defaults(config)
+            img, provider, airgapped=_use_airgap_registry_defaults(config)
         )
     return section
 
 
-def _build_registry_images(img: Any, *, airgapped: bool = False) -> dict[str, Any]:
+def _build_registry_images(
+    img: Any, provider: DCIMInstallerProvider, *, airgapped: bool = False
+) -> dict[str, Any]:
     """Build the per-image entries for ``global.images``."""
     images: dict[str, Any] = {}
-    for key, short_name in NV_CONFIG_MANAGER_IMAGE_KEYS:
+    for key, short_name in image_keys(provider):
         source_repository = f"nvcr.io/nvidian/cfa/{short_name}"
         entry = _build_image_entry(
             img,
@@ -452,10 +456,12 @@ def _build_registry_images(img: Any, *, airgapped: bool = False) -> dict[str, An
     return images
 
 
-def _build_secrets(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
+def _build_secrets(
+    config: NVConfigManagerInstallConfig, provider: DCIMInstallerProvider
+) -> dict[str, Any]:
     """Build the ``secrets`` top-level section."""
     if config.secrets.method == SecretsMethod.ESO:
-        return build_eso_vault_config(config)
+        return build_eso_vault_config(config, provider)
     return {"secrets": {"method": "kubernetes"}}
 
 
@@ -637,8 +643,6 @@ def _build_postgres_section(pg: ExternalPostgresConfig) -> dict[str, Any]:
     }
     if pg.enabled and pg.dhcp_host:
         postgres["dhcp"] = {"host": pg.dhcp_host, "database": "kea_dhcp"}
-    if pg.enabled and pg.nautobot_host:
-        postgres["nautobot"] = {"host": pg.nautobot_host, "database": "nautobot"}
     return postgres
 
 
@@ -653,20 +657,12 @@ def _redis_metrics_enabled(config: NVConfigManagerInstallConfig) -> bool:
 
 def _build_external_services(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
     """Build the ``externalServices`` section."""
-    svc = config.services
     es = config.external_services
     ext: dict[str, Any] = {}
 
-    if svc.nautobot:
-        ext["nautobot"] = {"local": True, "localServer": "http://nautobot-nv-config-manager"}
-    elif svc.external_nautobot_url:
-        ext["nautobot"] = {"local": False, "server": svc.external_nautobot_url}
-    elif config.dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER and config.dcim.server:
-        ext["nautobot"] = {"local": False, "server": config.dcim.server}
-    elif config.dcim.provider != BUILT_IN_NAUTOBOT_PROVIDER:
-        # Retain a disabled compatibility section for templates that still
-        # carry Nautobot deployment settings but are not used by this provider.
-        ext["nautobot"] = {"local": False}
+    # Templates still carry the reference provider's deployment settings; the
+    # selected provider's helm_values() replaces this disabled section.
+    ext["nautobot"] = {"local": False}
 
     nats = es.nats
     if nats.enabled:
@@ -711,13 +707,15 @@ def _build_external_services(config: NVConfigManagerInstallConfig) -> dict[str, 
     return ext
 
 
-def _build_dcim(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
+def _build_dcim(
+    config: NVConfigManagerInstallConfig, provider: DCIMInstallerProvider
+) -> dict[str, Any]:
     """Build provider-neutral chart values from the installer configuration."""
     dcim = config.dcim
     section: dict[str, Any] = {
         "provider": dcim.provider,
         "tokenSecret": {
-            "name": dcim.token_secret_name,
+            "name": dcim.token_secret_name or provider.metadata.token_secret_name,
             "key": dcim.token_secret_key,
         },
     }
@@ -733,8 +731,10 @@ def _build_dcim(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
         section["cacheRefreshInterval"] = dcim.cache_refresh_interval
     if dcim.cache_ttl:
         section["cacheTtl"] = dcim.cache_ttl
-    if dcim.event_stream or dcim.event_subject:
-        section["events"] = {"stream": dcim.event_stream, "subject": dcim.event_subject}
+    event_stream = dcim.event_stream or provider.metadata.event_stream
+    event_subject = dcim.event_subject or provider.metadata.event_subject
+    if event_stream or event_subject:
+        section["events"] = {"stream": event_stream, "subject": event_subject}
     if dcim.options:
         section["options"] = dict(dcim.options)
     if dcim.provider_packages:
@@ -862,35 +862,16 @@ def _apply_static_lb(section: dict[str, Any], ip: str, dns: str, lb: Any) -> Non
     section["ingress"] = {lb.provider.value: entry}
 
 
-def _build_nautobot(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
-    """Build the ``nautobot`` section."""
-    svc = config.services
-    section: dict[str, Any] = {"enabled": svc.nautobot}
-    if not svc.nautobot:
-        return section
-    section.update(
-        {
-            "admin": {"username": "admin", "email": "admin@example.com"},
-            "server": {"db": {"host": "cluster-nautobot-rw", "port": 5432, "name": "nautobot"}},
-            "celery": {"enabled": True},
-            "nginx": {"enabled": True},
-            "initJob": {"enabled": True, "singleInit": True},
-            "persistence": {"staticFiles": {"enabled": True, "size": "1Gi"}},
-        }
-    )
-    if config.content.jobs:
-        jobs_config = config.content.jobs_config
-        section["customJobs"] = {
+def cnpg_cluster_values(config: NVConfigManagerInstallConfig, enabled: bool) -> dict[str, Any]:
+    """Build one ``cnpg.<cluster>`` entry, including the shared backup schedule."""
+    cluster: dict[str, Any] = {"enabled": enabled, "enablePDB": False}
+    if config.infrastructure.cnpg_s3_backup.enabled:
+        cluster["backup"] = {
             "enabled": True,
-            "createPvc": False,
-            "pvcName": "nautobot-custom-jobs",
-            "accessMode": jobs_config.access_mode or "ReadWriteOnce",
+            "schedule": "0 0 0 * * *",
+            "retentionPolicy": "30d",
         }
-        if jobs_config.storage_class:
-            section["customJobs"]["storageClass"] = jobs_config.storage_class
-        if jobs_config.node_selector:
-            section["customJobs"]["nodeSelector"] = dict(jobs_config.node_selector)
-    return section
+    return cluster
 
 
 def _build_cnpg(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
@@ -913,22 +894,14 @@ def _build_cnpg(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
             "credentialsSecret": "cnpg-backup-credentials",
         }
 
-    def _cluster(enabled: bool) -> dict[str, Any]:
-        cluster: dict[str, Any] = {"enabled": enabled, "enablePDB": False}
-        if backup_cfg.enabled:
-            cluster["backup"] = {
-                "enabled": True,
-                "schedule": "0 0 0 * * *",
-                "retentionPolicy": "30d",
-            }
-        return cluster
-
     temporal_server_enabled = svc.temporal and not bool(config.external_services.temporal.address)
-    section["temporal"] = _cluster(temporal_server_enabled)
-    section["temporalVisibility"] = _cluster(temporal_server_enabled)
-    section["configStore"] = _cluster(svc.config_store)
-    section["dhcp"] = _cluster(svc.dhcp)
-    section["nautobot"] = _cluster(svc.nautobot)
+    section["temporal"] = cnpg_cluster_values(config, temporal_server_enabled)
+    section["temporalVisibility"] = cnpg_cluster_values(config, temporal_server_enabled)
+    section["configStore"] = cnpg_cluster_values(config, svc.config_store)
+    section["dhcp"] = cnpg_cluster_values(config, svc.dhcp)
+    # The reference provider's cluster stays declared and disabled so chart
+    # conditions keep evaluating; the provider's helm_values() enables it.
+    section["nautobot"] = cnpg_cluster_values(config, False)
     return section
 
 
@@ -961,16 +934,22 @@ def build_values(
     config: NVConfigManagerInstallConfig,
     _secrets_state: dict[str, str],
     *,
+    provider: DCIMInstallerProvider | None = None,
     local_images: bool = False,
     local_tags: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Build the complete Helm values dict from config and secrets."""
+    """Build the complete Helm values dict from config and secrets.
+
+    The selected DCIM provider's values are merged over the installer's own
+    before image overrides apply.
+    """
+    provider = provider or resolve_provider(config)
     svc = config.services
     is_local = local_images or config.images.source == ImageSource.LOCAL
 
     values: dict[str, Any] = {}
-    values["global"] = _build_global(config, is_local=is_local, local_tags=local_tags)
-    values.update(_build_secrets(config))
+    values["global"] = _build_global(config, provider, is_local=is_local, local_tags=local_tags)
+    values.update(_build_secrets(config, provider))
 
     git_tokens_list = _build_git_tokens(config)
     if git_tokens_list:
@@ -992,7 +971,7 @@ def build_values(
     }
 
     _build_oidc(config, values)
-    values["dcim"] = _build_dcim(config)
+    values["dcim"] = _build_dcim(config, provider)
     values["externalServices"] = _build_external_services(config)
 
     render_section: dict[str, Any] = {
@@ -1011,7 +990,7 @@ def build_values(
         ns_val: dict[str, str] = dict(tpc.node_selector)
         render_section["api"] = {"nodeSelector": ns_val}
         render_section["consumers"] = {
-            "nautobot": {"nodeSelector": ns_val},
+            "dcim": {"nodeSelector": ns_val},
             "device": {"nodeSelector": ns_val},
         }
         render_section["templateUpdater"] = {"nodeSelector": ns_val}
@@ -1049,12 +1028,15 @@ def build_values(
         "enabled": svc.temporal and svc.config_store and svc.dhcp,
         "auth": {"oauth": {"forwardResourceParameter": mcp_forward_resource}},
     }
-    values["nautobot"] = _build_nautobot(config)
+    # Disabled reference-provider stack; the provider's helm_values() enables it.
+    values["nautobot"] = {"enabled": False}
 
+    # Bundled NATS is core infrastructure; the chart key predates pluggable DCIM.
     values["nautobotNats"] = {
         "enabled": not config.external_services.nats.enabled,
         "jetstream": {"enabled": True},
         "natsReady": {"enabled": True, "useNatsCli": True},
+        "accounts": {"nautobot": {"enabled": False}},
     }
 
     values["cnpg"] = _build_cnpg(config)
@@ -1114,7 +1096,11 @@ def build_values(
         values["prometheus"] = {"enabled": True}
         values["alloy"] = {"enabled": True}
 
-    _apply_image_overrides(config, values)
+    values = _deep_merge(
+        values,
+        provider.helm_values(config, _secrets_state, is_local=is_local, local_tags=local_tags),
+    )
+    _apply_image_overrides(config, values, provider)
     return values
 
 
@@ -1159,6 +1145,7 @@ def build_complete_values(
     config: NVConfigManagerInstallConfig,
     secrets_state: dict[str, str],
     *,
+    provider: DCIMInstallerProvider | None = None,
     local_images: bool = False,
     local_tags: dict[str, str] | None = None,
     chart_dir: Path | str | None = None,
@@ -1167,6 +1154,7 @@ def build_complete_values(
     generated = build_values(
         config,
         secrets_state,
+        provider=provider,
         local_images=local_images,
         local_tags=local_tags,
     )
@@ -1188,6 +1176,7 @@ def generate_helm_values(
     secrets_state: dict[str, str],
     output_path: Path,
     *,
+    provider: DCIMInstallerProvider | None = None,
     local_images: bool = False,
     local_tags: dict[str, str] | None = None,
     chart_dir: Path | str | None = None,
@@ -1198,6 +1187,7 @@ def generate_helm_values(
         values = build_complete_values(
             config,
             secrets_state,
+            provider=provider,
             local_images=local_images,
             local_tags=local_tags,
             chart_dir=chart_dir,
@@ -1206,6 +1196,7 @@ def generate_helm_values(
         values = build_values(
             config,
             secrets_state,
+            provider=provider,
             local_images=local_images,
             local_tags=local_tags,
         )

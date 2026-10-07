@@ -22,7 +22,6 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Button, Input, Label
 
-from nv_config_manager_installer.accounts import scan_bootstrap_secrets
 from nv_config_manager_installer.schema import (
     NetworkSecretEntry,
     NVConfigManagerInstallConfig,
@@ -202,9 +201,11 @@ class NetworkSecretsScreen(Container):
             self._merge_bootstrap_keys()
 
     def _merge_bootstrap_keys(self) -> None:
-        """Merge secret keys discovered from bundled config_contexts.yaml."""
+        """Merge secret keys the DCIM provider discovers from its bootstrap data."""
+        provider = getattr(self.app, "provider", None)
+        hints = provider.bootstrap_secret_hints(None) if provider is not None else []
         existing_keys = {e.secret_key for e in self._config.network_secrets}
-        for display_name, secret_key, rotation in scan_bootstrap_secrets():
+        for display_name, secret_key, rotation in hints:
             if secret_key not in existing_keys:
                 self._config.network_secrets.append(
                     NetworkSecretEntry(

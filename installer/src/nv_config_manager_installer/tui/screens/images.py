@@ -22,11 +22,11 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Button, DataTable, Input, Label, RadioButton, RadioSet, Select
 
 from nv_config_manager_installer.schema import (
-    IMAGE_OVERRIDE_KEYS,
-    NV_CONFIG_MANAGER_IMAGE_KEYS,
     ImageOverride,
     ImageSource,
     NVConfigManagerInstallConfig,
+    image_keys,
+    image_override_keys,
 )
 from nv_config_manager_installer.tui.widgets import LabeledSwitch
 
@@ -38,6 +38,8 @@ _W_PASSWORD = "#img-password"
 
 class ImagesScreen(Container):
     """Image source, registry, tag discovery, and per-image overrides."""
+
+    PROVIDER_DEPENDENT = True
 
     def __init__(self, config: NVConfigManagerInstallConfig, **kwargs: object) -> None:
         super().__init__(**kwargs)
@@ -252,8 +254,9 @@ class ImagesScreen(Container):
         registry = self._config.images.registry
         global_tag = self._config.images.tag or "(chart default)"
 
-        first_party = dict(NV_CONFIG_MANAGER_IMAGE_KEYS)
-        for key, source_repo in IMAGE_OVERRIDE_KEYS:
+        provider = getattr(self.app, "provider", None)
+        first_party = dict(image_keys(provider))
+        for key, source_repo in image_override_keys(provider):
             ovr = self._config.images.overrides.get(key)
             if ovr and ovr.repository:
                 repo = ovr.repository
@@ -298,7 +301,8 @@ class ImagesScreen(Container):
     def _add_override(self) -> None:
         self._collect_overrides()
         existing_keys = set(self._config.images.overrides.keys())
-        available = [k for k, _ in IMAGE_OVERRIDE_KEYS if k not in existing_keys]
+        provider = getattr(self.app, "provider", None)
+        available = [k for k, _ in image_override_keys(provider) if k not in existing_keys]
         if not available:
             self.app.notify("All images already have overrides.", severity="warning")
             return

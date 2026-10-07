@@ -234,6 +234,21 @@ def _conflict_after_missing(conn: MagicMock, stored: MagicMock) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ensure_local_streams_dcim_change_subjects_override_legacy_subjects():
+    """dcim_change_subjects defines the DCIM stream subjects when set."""
+    conn = _local_conn(missing={"kiwi", "nautobot"})
+
+    await ensure_local_streams(
+        conn,
+        _local_config(nautobot_subjects="nautobot,nautobot.extra", dcim_change_subjects="a,b"),
+    )
+
+    config = conn.jetstream.return_value.add_stream.await_args.args[0]
+    assert config.name == "nautobot"
+    assert config.subjects == ["a", "b"]
+
+
+@pytest.mark.asyncio
 async def test_ensure_local_streams_separate_dcim_stream_replaces_nautobot_stream():
     """Like nats-ready, a separate DCIM stream is created instead of the Nautobot stream.
 

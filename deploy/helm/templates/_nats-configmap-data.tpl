@@ -41,8 +41,10 @@ nats.conf: |
       jetstream: enabled
       users: [
         {user: sys, password: $SYS_PASSWORD},
-        {user: {{ include "nv-config-manager.natsUser" . }}, password: $NV_CONFIG_MANAGER_PASSWORD},
+        {user: {{ include "nv-config-manager.natsUser" . }}, password: $NV_CONFIG_MANAGER_PASSWORD}
+        {{- if .Values.nautobotNats.accounts.nautobot.enabled }},
         {user: nautobot, password: $NAUTOBOT_PASSWORD}
+        {{- end }}
       ]
     }
   }

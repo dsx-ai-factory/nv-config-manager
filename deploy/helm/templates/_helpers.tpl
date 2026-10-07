@@ -218,6 +218,84 @@ endpoint directly; Nautobot inherits the historical configuration by default.
 {{- end -}}
 {{- end -}}
 
+{{/*
+DCIM change-event stream settings. The deprecated streams.nautobot block wins
+when present, then dcim.events, then streams.dcim.
+*/}}
+{{- define "nv-config-manager.dcimStream" -}}
+{{- $legacy := .Values.externalServices.nats.streams.nautobot | default dict -}}
+{{- $dcim := .Values.externalServices.nats.streams.dcim | default dict -}}
+{{- $legacy.name | default .Values.dcim.events.stream | default $dcim.name | default "nautobot" -}}
+{{- end -}}
+
+{{- define "nv-config-manager.dcimSubject" -}}
+{{- $legacy := .Values.externalServices.nats.streams.nautobot | default dict -}}
+{{- $dcim := .Values.externalServices.nats.streams.dcim | default dict -}}
+{{- $legacy.subject | default .Values.dcim.events.subject | default $dcim.subject | default "nautobot" -}}
+{{- end -}}
+
+{{/*
+Comma-joined stream subjects. A subjects list is used only when it carries the
+resolved subject; otherwise the subject alone defines the stream, matching
+local_stream_subjects in the services.
+*/}}
+{{- define "nv-config-manager.dcimSubjects" -}}
+{{- $legacy := .Values.externalServices.nats.streams.nautobot | default dict -}}
+{{- $dcim := .Values.externalServices.nats.streams.dcim | default dict -}}
+{{- $subject := include "nv-config-manager.dcimSubject" . -}}
+{{- $subjects := $legacy.subjects | default $dcim.subjects | default (list $subject) -}}
+{{- if has $subject $subjects -}}
+{{- join "," $subjects -}}
+{{- else -}}
+{{- $subject -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nv-config-manager.dcimApiPrefix" -}}
+{{- $legacy := .Values.externalServices.nats.streams.nautobot | default dict -}}
+{{- $dcim := .Values.externalServices.nats.streams.dcim | default dict -}}
+{{- $legacy.apiPrefix | default $dcim.apiPrefix | default "$JS.API" -}}
+{{- end -}}
+
+{{- define "nv-config-manager.dcimConsumerName" -}}
+{{- $legacy := .Values.externalServices.nats.streams.nautobot | default dict -}}
+{{- $dcim := .Values.externalServices.nats.streams.dcim | default dict -}}
+{{- $name := dig "consumer" "name" "" $legacy | default (dig "consumer" "name" "" $dcim) -}}
+{{- required "externalServices.nats.streams.dcim.consumer.name is required" $name -}}
+{{- end -}}
+
+{{- define "nv-config-manager.dcimTokenSecretName" -}}
+{{- $isReference := eq (.Values.dcim.provider | default "nautobot-2x") "nautobot-2x" -}}
+{{- .Values.dcim.tokenSecret.name | default (ternary "nautobot-token" "dcim-token" $isReference) -}}
+{{- end -}}
+
+{{- define "nv-config-manager.dcimReadinessPath" -}}
+{{- $isReference := eq (.Values.dcim.provider | default "nautobot-2x") "nautobot-2x" -}}
+{{- .Values.dcim.readiness.path | default (ternary "/health/" "/login/" $isReference) -}}
+{{- end -}}
+
+{{/*
+[nats] INI keys for the DCIM change stream. The nautobot_* keys are deprecated
+aliases kept for one release.
+*/}}
+{{- define "nv-config-manager.natsDcimIni" -}}
+{{- $stream := include "nv-config-manager.dcimStream" . -}}
+{{- $subject := include "nv-config-manager.dcimSubject" . -}}
+{{- $subjects := include "nv-config-manager.dcimSubjects" . -}}
+{{- $apiPrefix := include "nv-config-manager.dcimApiPrefix" . -}}
+{{- $consumer := include "nv-config-manager.dcimConsumerName" . }}
+dcim_change_stream = {{ $stream }}
+dcim_change_subject = {{ $subject }}
+dcim_change_subjects = {{ $subjects }}
+dcim_api_prefix = {{ $apiPrefix }}
+dcim_consumer_name = {{ $consumer }}
+nautobot_stream = {{ $stream }}
+nautobot_subject = {{ $subject }}
+nautobot_subjects = {{ $subjects }}
+nautobot_api_prefix = {{ $apiPrefix }}
+nautobot_consumer_name = {{ $consumer }}
+{{- end -}}
+
 {{- define "nv-config-manager.dcimPublicUrl" -}}
 {{- if .Values.dcim.publicUrl -}}
 {{- tpl .Values.dcim.publicUrl . -}}
@@ -734,45 +812,39 @@ allowing the main containers to start.
 */}}
 
 {{/*
-Wait-for-Nautobot init container
-Waits for Nautobot service to be available via HTTP health check.
-Usage: {{ include "nv-config-manager.waitForNautobot" . | nindent 6 }}
+Wait-for-DCIM init container
+Polls the DCIM server readiness path over HTTP before dependent pods start.
+Usage: {{ include "nv-config-manager.waitForDCIM" . | nindent 6 }}
 */}}
-{{- define "nv-config-manager.waitForNautobot" -}}
-- name: wait-for-nautobot
+{{- define "nv-config-manager.waitForDCIM" -}}
+- name: wait-for-dcim
   image: "{{ .Values.global.images.busybox.repository }}:{{ .Values.global.images.busybox.tag }}"
   imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
   command:
     - sh
     - -c
     - |
-      {{- if .Values.externalServices.nautobot.local }}
-      NAUTOBOT_HOST="{{ include "nv-config-manager.componentName" (dict "root" . "component" "nautobot") }}"
-      NAUTOBOT_PORT="80"
-      NAUTOBOT_SCHEME="http"
-      {{- else }}
       # Extract host and port from server URL
-      NAUTOBOT_URL="{{ tpl .Values.externalServices.nautobot.server . }}"
-      NAUTOBOT_SCHEME=$(echo "$NAUTOBOT_URL" | sed -n 's|^\(https\?\)://.*|\1|p')
-      NAUTOBOT_SCHEME=${NAUTOBOT_SCHEME:-http}
+      DCIM_URL="{{ include "nv-config-manager.dcimServer" . }}"
+      DCIM_SCHEME=$(echo "$DCIM_URL" | sed -n 's|^\(https\?\)://.*|\1|p')
+      DCIM_SCHEME=${DCIM_SCHEME:-http}
       # Remove protocol prefix
-      NAUTOBOT_HOST=$(echo "$NAUTOBOT_URL" | sed -e 's|^https\?://||' -e 's|/.*||' -e 's|:.*||')
+      DCIM_HOST=$(echo "$DCIM_URL" | sed -e 's|^https\?://||' -e 's|/.*||' -e 's|:.*||')
       # Extract port if present, default to 443 for https, 80 for http
-      if echo "$NAUTOBOT_URL" | grep -q 'https://'; then
-        NAUTOBOT_PORT=$(echo "$NAUTOBOT_URL" | sed -n 's|.*:\([0-9]*\).*|\1|p')
-        NAUTOBOT_PORT=${NAUTOBOT_PORT:-443}
+      if echo "$DCIM_URL" | grep -q 'https://'; then
+        DCIM_PORT=$(echo "$DCIM_URL" | sed -n 's|.*:\([0-9]*\).*|\1|p')
+        DCIM_PORT=${DCIM_PORT:-443}
       else
-        NAUTOBOT_PORT=$(echo "$NAUTOBOT_URL" | sed -n 's|.*:\([0-9]*\).*|\1|p')
-        NAUTOBOT_PORT=${NAUTOBOT_PORT:-80}
+        DCIM_PORT=$(echo "$DCIM_URL" | sed -n 's|.*:\([0-9]*\).*|\1|p')
+        DCIM_PORT=${DCIM_PORT:-80}
       fi
-      {{- end }}
-      NAUTOBOT_HEALTH_URL="${NAUTOBOT_SCHEME}://${NAUTOBOT_HOST}:${NAUTOBOT_PORT}/health"
-      echo "Waiting for Nautobot at ${NAUTOBOT_HEALTH_URL}..."
-      until wget -q -O- "$NAUTOBOT_HEALTH_URL" >/dev/null 2>&1; do
-        echo "Nautobot not ready, waiting..."
+      DCIM_HEALTH_URL="${DCIM_SCHEME}://${DCIM_HOST}:${DCIM_PORT}{{ include "nv-config-manager.dcimReadinessPath" . }}"
+      echo "Waiting for DCIM at ${DCIM_HEALTH_URL}..."
+      until wget -q -O- "$DCIM_HEALTH_URL" >/dev/null 2>&1; do
+        echo "DCIM not ready, waiting..."
         sleep 5
       done
-      echo "Nautobot is ready!"
+      echo "DCIM is ready!"
   securityContext:
     allowPrivilegeEscalation: false
     runAsNonRoot: true
@@ -787,6 +859,11 @@ Usage: {{ include "nv-config-manager.waitForNautobot" . | nindent 6 }}
     limits:
       cpu: 50m
       memory: 32Mi
+{{- end -}}
+
+{{/* Deprecated alias of waitForDCIM. */}}
+{{- define "nv-config-manager.waitForNautobot" -}}
+{{- include "nv-config-manager.waitForDCIM" . -}}
 {{- end -}}
 
 {{/*
@@ -1361,8 +1438,9 @@ mcp-auth.ini: |
 {{- required "externalServices.nats.streams.configManager.archiveConsumer.deliverySubject is required" .Values.externalServices.nats.streams.configManager.archiveConsumer.deliverySubject -}}
 {{- end -}}
 
+{{/* Deprecated alias of dcimConsumerName. */}}
 {{- define "nv-config-manager.nautobotConsumerName" -}}
-{{- required "externalServices.nats.streams.nautobot.consumer.name is required" .Values.externalServices.nats.streams.nautobot.consumer.name -}}
+{{- include "nv-config-manager.dcimConsumerName" . -}}
 {{- end -}}
 
 {{- define "nv-config-manager.vaultSecretStoreName" -}}

@@ -21,6 +21,11 @@ dependencies = [
 nv-config-manager-installer = "nv_config_manager_installer.cli:main"
 nvcm-installer = "nv_config_manager_installer.cli:main"
 
+# Installer DCIM providers. The entry-point name must equal
+# InstallerProviderMetadata.name and the ``dcim.provider`` configuration value.
+[project.entry-points."nv_config_manager.installer.dcim"]
+nautobot-2x = "nv_config_manager_installer.providers.nautobot:NautobotInstallerProvider"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

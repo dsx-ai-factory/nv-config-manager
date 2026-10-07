@@ -24,13 +24,13 @@ from nv_config_manager_installer.air_sim.constants import (
     PROJECT_ROOT,
 )
 from nv_config_manager_installer.air_sim.installer_config import (
-    build_content_jobs,
     build_deploy_command,
     build_template_plugins,
     generate_air_sim_install_config,
 )
 from nv_config_manager_installer.air_sim.prebuilt_configs import load_prebuilt_config
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
+from nv_config_manager_installer.providers.nautobot.air import NautobotAirHooks, build_content_jobs
 
 
 def test_install_config_uses_mock_topology_with_paired_template_plugin() -> None:
@@ -44,6 +44,7 @@ def test_install_config_uses_mock_topology_with_paired_template_plugin() -> None
         cfg,
         site_name="air-demo",
         lb_allowed_prefixes=["172.18.255.0/24"],
+        provider_hooks=NautobotAirHooks(),
     )
 
     content = install_config["content"]
@@ -54,14 +55,30 @@ def test_install_config_uses_mock_topology_with_paired_template_plugin() -> None
             )
         }
     ]
-    assert content["jobs"] == [{"path": f"{CONFIG_MANAGER_REMOTE_DIR}/development/mock_topology"}]
-    assert content["run_after_deploy"] == [
+    dcim = install_config["dcim"]
+    assert dcim["provider"] == "nautobot-2x"
+    assert dcim["local"] is True
+    assert dcim["settings"]["jobs"] == [
+        {"path": f"{CONFIG_MANAGER_REMOTE_DIR}/development/mock_topology"}
+    ]
+    assert dcim["settings"]["run_after_deploy"] == [
         {
             "job": "custom.mock_topology.jobs.mock_topology_design.MockTopologyDesign",
             "input": json.dumps({"blueprint": "air_trial", "deployment_name": "demo"}),
         }
     ]
+    assert "nautobot" not in install_config["services"]
     assert "ingest" not in json.dumps(content).lower()
+
+
+def test_install_config_without_provider_hooks_has_no_settings() -> None:
+    cfg = SimConfig(mock_blueprint="air_trial", deployment_name="demo")
+
+    install_config = generate_air_sim_install_config(
+        cfg, site_name="air-demo", lb_allowed_prefixes=[]
+    )
+
+    assert install_config["dcim"] == {"provider": "nautobot-2x", "local": True}
 
 
 def test_build_content_jobs_appends_extra_jobs() -> None:

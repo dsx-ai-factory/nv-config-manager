@@ -24,7 +24,6 @@ import tempfile
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty, SimpleQueue
 from typing import IO
@@ -39,7 +38,6 @@ from textual.worker import Worker, WorkerState, get_current_worker
 
 from nv_config_manager_installer.air_sim.constants import (
     CONFIG_MANAGER_HOSTNAME,
-    CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
     DEFAULT_AIR_FRONTEND_URL,
     DEFAULT_AIR_INTERNAL_FRONTEND_URL,
     NVCM_BOX_USER,
@@ -50,9 +48,11 @@ from nv_config_manager_installer.air_sim.orchestrator import (
     SimOrchestrator,
     StepStatus,
 )
+from nv_config_manager_installer.air_sim.provider import AirProviderHooks, AirProviderStatus
 from nv_config_manager_installer.air_sim.proxy import SOCKS_PORT, ProxyInfo
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
 from nv_config_manager_installer.air_sim.sim_manager import AirSimulationManager
+from nv_config_manager_installer.providers.api import AirContribution
 
 _STATUS_ICON = {
     StepStatus.PENDING: "[ ]",
@@ -114,46 +114,12 @@ _FOLLOW_LABEL_ON = "Follow: On"
 _FOLLOW_LABEL_OFF = "Follow: Off"
 
 
-@dataclass(frozen=True)
-class AirProviderStatus:
-    """Provider-owned labels and readiness rules used by the shared AIR dashboard."""
-
-    display_name: str
-    web_pod_prefix: str
-    access_url: str
-    access_display_name: str | None = None
-    dependent_pod_prefixes: tuple[str, ...] = ()
-    excluded_web_pod_prefixes: tuple[str, ...] = ()
-
-    def is_web_pod(self, pod: dict[str, str]) -> bool:
-        """Return whether a pod is the provider's primary web workload."""
-        name = pod.get("name", "")
-        return name.startswith(f"{self.web_pod_prefix}-") and not name.startswith(
-            self.excluded_web_pod_prefixes
-        )
-
-    @property
-    def provisioning_wait_text(self) -> str:
-        return f"Switches Provisioned: waiting for {self.display_name}"
-
-
-DEFAULT_PROVIDER_STATUS = AirProviderStatus(
-    display_name="Nautobot",
-    web_pod_prefix=CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
+# Used when the configured DCIM provider cannot be loaded.
+_FALLBACK_PROVIDER_STATUS = AirProviderStatus(
+    display_name="DCIM",
+    web_pod_prefix="nv-config-manager-dcim",
     access_url=f"https://{CONFIG_MANAGER_HOSTNAME}",
     access_display_name="Config Manager",
-    dependent_pod_prefixes=(
-        "nv-config-manager-nautobot-celery",
-        "nv-config-manager-nautobot-celery-beat",
-        "nv-config-manager-render-",
-        "nv-config-manager-temporal-",
-        "nv-config-manager-ztp",
-        "nv-config-manager-dhcp",
-    ),
-    excluded_web_pod_prefixes=(
-        "nv-config-manager-nautobot-celery",
-        "nv-config-manager-nautobot-celery-beat",
-    ),
 )
 
 
@@ -1146,7 +1112,7 @@ class _PodStatusWidget(Vertical):
     def _refresh_provisioning(self) -> None:
         if not isinstance(self._manager, AirSimulationManager):
             raise TypeError("expected AirSimulationManager for self._manager")
-        prov, total, remaining = self._manager.get_provisioning_status(self._host, self._port)
+        prov, total, remaining = self._manager.provisioning_probe(self._host, self._port)
         self.app.call_from_thread(self._update_prov, prov, total, remaining)
 
     def _update_prov(self, prov: int, total: int, remaining: list[str]) -> None:
@@ -1221,7 +1187,7 @@ class _PodStatusWidget(Vertical):
 class LaunchScreen(Container):
     """Launch panel: summary, launch button, step list, and log stream."""
 
-    PROVIDER_STATUS = DEFAULT_PROVIDER_STATUS
+    PROVIDER_STATUS: AirProviderStatus | None = None
 
     def __init__(
         self,
@@ -1231,7 +1197,7 @@ class LaunchScreen(Container):
     ) -> None:
         super().__init__(**kwargs)
         self._config = config
-        self._provider_status = provider_status or self.PROVIDER_STATUS
+        self._status_override = provider_status or self.PROVIDER_STATUS
         self._bringup_running = False
         self._host = ""
         self._port = 0
@@ -1249,6 +1215,24 @@ class LaunchScreen(Container):
         self._seen_service_events: set[str] = set()
         self._socks_port = SOCKS_PORT
         self._proxy_access_target: tuple[str, int, bool, int, str] | None = None
+
+    def _air(self) -> AirContribution | None:
+        """Return the DCIM provider's AIR contribution from the containing app."""
+        try:
+            return getattr(self.app, "air", None)
+        except Exception:  # noqa: BLE001 - no active app outside the wizard
+            return None
+
+    @property
+    def _provider_status(self) -> AirProviderStatus:
+        if self._status_override is not None:
+            return self._status_override
+        air = self._air()
+        return air.launch_status if air is not None else _FALLBACK_PROVIDER_STATUS
+
+    def _hooks(self) -> AirProviderHooks:
+        air = self._air()
+        return air.hooks if air is not None else AirProviderHooks()
 
     def compose(self) -> ComposeResult:
         yield Label("Launch", classes="section-title")
@@ -1300,9 +1284,7 @@ class LaunchScreen(Container):
 
     def validate_provider_config(self) -> str:
         """Return a provider-owned validation error, or an empty string when ready."""
-        if self._config.run_mock_topology_job and not self._config.mock_topology_path:
-            return "Mock topology path required for bundled Nautobot population."
-        return ""
+        return self._hooks().validate_config(self._config)
 
     def _start_bringup(self) -> None:
         if self._config.use_mock_context_for_fabric:
@@ -1348,16 +1330,21 @@ class LaunchScreen(Container):
 
     def create_orchestrator(self, callback: OrchestratorCallback) -> SimOrchestrator:
         """Construct the simulation orchestrator used by the launch worker."""
-        return SimOrchestrator(self._config, callback)
+        return SimOrchestrator(self._config, callback, provider_hooks=self._hooks())
 
     def create_simulation_manager(self) -> AirSimulationManager:
         """Construct the AIR and remote-host client used by dashboard workers."""
-        return AirSimulationManager(
+        manager = AirSimulationManager(
             ngc_api_key=self._config.ngc_api_key,
             use_internal=self._config.use_internal,
             org_id=self._config.org_id,
             ssh_password=self._config.oob_ssh_password,
         )
+        hooks = self._hooks()
+        manager.provisioning_probe = lambda host, port: hooks.provisioning_status(
+            manager, host, port
+        )
+        return manager
 
     @work(thread=True, group="air_sim_service_logs", exit_on_error=False)
     def _run_monitoring(self, host: str, port: int) -> None:

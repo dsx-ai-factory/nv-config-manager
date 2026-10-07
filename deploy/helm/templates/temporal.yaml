@@ -586,7 +586,7 @@ so the pod waits for Nautobot only when one of them is selected on nautobot-2x.
 {{- end }}
 {{- $dcimProvider := .Values.dcim.provider | default "nautobot-2x" }}
 {{- $selectedSchedulerIdentities := list }}
-{{- $waitForNautobot := false }}
+{{- $waitForDCIM := false }}
 {{- range $identity, $settings := .Values.temporal.scheduler.schedulers }}
 {{- if not (kindIs "map" $settings) }}
 {{- fail (printf "temporal.scheduler.schedulers.%s must be a map with an enabled flag" $identity) }}
@@ -601,8 +601,8 @@ so the pod waits for Nautobot only when one of them is selected on nautobot-2x.
 {{- end }}
 {{- if and $settings.enabled (or (not $hasRequirement) (eq $requiredProvider $dcimProvider)) }}
 {{- $selectedSchedulerIdentities = append $selectedSchedulerIdentities $identity }}
-{{- if and (hasPrefix "builtin." $identity) (eq $dcimProvider "nautobot-2x") }}
-{{- $waitForNautobot = true }}
+{{- if and (hasPrefix "builtin." $identity) $.Values.dcim.readiness.enabled }}
+{{- $waitForDCIM = true }}
 {{- end }}
 {{- end }}
 {{- end }}
@@ -655,13 +655,13 @@ spec:
         {{- end }}
       {{- end }}
       {{- include "nv-config-manager.scheduling" .Values.temporal.scheduler | nindent 6 }}
-      {{- if or .Values.dcim.providerPackages.enabled $waitForNautobot .Values.temporal.server.enabled }}
+      {{- if or .Values.dcim.providerPackages.enabled $waitForDCIM .Values.temporal.server.enabled }}
       initContainers:
       {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
       {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
-      {{- if $waitForNautobot }}
-      # Built-in schedulers query the configured Nautobot deployment.
-      {{- include "nv-config-manager.waitForNautobot" . | nindent 6 }}
+      {{- if $waitForDCIM }}
+      # Built-in schedulers query the configured DCIM provider.
+      {{- include "nv-config-manager.waitForDCIM" . | nindent 6 }}
       {{- end }}
       # A locally managed Temporal server creates the configured namespace.
       {{- if .Values.temporal.server.enabled }}

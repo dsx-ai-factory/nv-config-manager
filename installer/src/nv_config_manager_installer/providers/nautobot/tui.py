@@ -12,7 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Ingest Data screen — Nautobot jobs and post-deploy job execution."""
+"""Ingest Data screen — Nautobot jobs and post-deploy job execution.
+
+Contributed to the install wizard by the bundled Nautobot provider.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +28,11 @@ from textual.css.query import NoMatches
 from textual.widgets import Button, Input, Label, RadioButton, RadioSet
 from textual_fspicker import SelectDirectory
 
+from nv_config_manager_installer.providers.nautobot.settings import (
+    NautobotSettings,
+    nautobot_settings,
+    store_settings,
+)
 from nv_config_manager_installer.schema import JobPath, NVConfigManagerInstallConfig, PostDeployJob
 from nv_config_manager_installer.tui.screens.node_picker import NodeSelectorPanel
 
@@ -35,9 +43,10 @@ class IngestDataScreen(Container):
     def __init__(self, config: NVConfigManagerInstallConfig, **kwargs: object) -> None:
         super().__init__(**kwargs)
         self._config = config
+        self._settings: NautobotSettings = nautobot_settings(config)
 
     def compose(self) -> ComposeResult:
-        ct = self._config.content
+        ct = self._settings
         jc = ct.jobs_config
         yield Label("Ingest Data", classes="section-title")
         yield Label("─" * 40, classes="section-divider")
@@ -51,7 +60,7 @@ class IngestDataScreen(Container):
         warning.styles.color = "yellow"
         warning.styles.background = "darkred"
         warning.styles.padding = (0, 1)
-        warning.display = not self._config.services.nautobot
+        warning.display = not self._config.dcim.local
         yield warning
 
         # -- Custom jobs --
@@ -99,7 +108,7 @@ class IngestDataScreen(Container):
     def _rebuild_job_paths(self) -> None:
         container = self.query_one("#job-paths-list", Vertical)
         container.remove_children()
-        for i, jp in enumerate(self._config.content.jobs):
+        for i, jp in enumerate(self._settings.jobs):
             row = Container(classes="account-card")
             row.compose_add_child(
                 Input(value=jp.path, placeholder="/path/to/jobs", id=f"job-{i}-path")
@@ -112,7 +121,7 @@ class IngestDataScreen(Container):
     def _rebuild_post_deploy(self) -> None:
         container = self.query_one("#post-deploy-list", Vertical)
         container.remove_children()
-        for i, pdj in enumerate(self._config.content.run_after_deploy):
+        for i, pdj in enumerate(self._settings.run_after_deploy):
             row = Container(classes="account-card")
             row.compose_add_child(Label("Job class", classes="field-label"))
             row.compose_add_child(
@@ -140,13 +149,13 @@ class IngestDataScreen(Container):
         if bid == "add-job-path":
             self._pick_path()
         elif bid == "add-post-deploy":
-            self._config.content.run_after_deploy.append(PostDeployJob(job=""))
+            self._settings.run_after_deploy.append(PostDeployJob(job=""))
             self._rebuild_post_deploy()
         elif bid.startswith("job-") and bid.endswith("-remove"):
-            self._remove_by_id(bid, "job", self._config.content.jobs, self._rebuild_job_paths)
+            self._remove_by_id(bid, "job", self._settings.jobs, self._rebuild_job_paths)
         elif bid.startswith("pdj-") and bid.endswith("-remove"):
             self._remove_by_id(
-                bid, "pdj", self._config.content.run_after_deploy, self._rebuild_post_deploy
+                bid, "pdj", self._settings.run_after_deploy, self._rebuild_post_deploy
             )
 
     @work
@@ -156,11 +165,11 @@ class IngestDataScreen(Container):
         if picked is None:
             return
         self._collect_all()
-        self._config.content.jobs.append(JobPath(path=str(picked)))
+        self._settings.jobs.append(JobPath(path=str(picked)))
         self._rebuild_job_paths()
 
     def _collect_all(self) -> None:
-        ct = self._config.content
+        ct = self._settings
 
         jobs: list[JobPath] = []
         for i in range(len(ct.jobs)):
@@ -194,20 +203,17 @@ class IngestDataScreen(Container):
 
     def write_to_config(self, config: NVConfigManagerInstallConfig) -> None:
         self._collect_all()
-        config.content.jobs = list(self._config.content.jobs)
-        config.content.jobs_config = self._config.content.jobs_config.model_copy()
-        config.content.run_after_deploy = list(self._config.content.run_after_deploy)
+        store_settings(config, self._settings)
 
     def sync_from_config(self, config: NVConfigManagerInstallConfig) -> None:
         self._config = config
+        self._settings = nautobot_settings(config)
         self._rebuild_all()
         try:
-            self.query_one(
-                "#content-nautobot-warning", Label
-            ).display = not config.services.nautobot
+            self.query_one("#content-nautobot-warning", Label).display = not config.dcim.local
         except Exception:
             pass
-        jc = config.content.jobs_config
+        jc = self._settings.jobs_config
         try:
             self.query_one("#jobs-storage-class", Input).value = jc.storage_class
             self.query_one("#jobs-access-rwo", RadioButton).value = (
@@ -221,6 +227,6 @@ class IngestDataScreen(Container):
             pass
 
     def get_status(self, config: NVConfigManagerInstallConfig) -> str:
-        if not config.services.nautobot:
+        if not config.dcim.local:
             return "[~]"
         return "[*]"

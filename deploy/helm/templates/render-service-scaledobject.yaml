@@ -24,12 +24,15 @@ so the two cannot disagree about which Prometheus KEDA queries.
 
 {{- /* Iterate over each consumer type */ -}}
 {{- if $autoscaling.consumers }}
-{{- range $consumerType := list "device" "template" "nautobot" }}
+{{- range $consumerType := list "device" "template" "dcim" }}
+{{- $isDcim := eq $consumerType "dcim" }}
+{{- /* The deprecated consumers.nautobot values are honored for the dcim consumer. */ -}}
 {{- $consumerConfig := index $autoscaling.consumers $consumerType }}
-{{- $dcimStreamName := $.Values.dcim.events.stream | default $.Values.externalServices.nats.streams.nautobot.name }}
-{{- $streamName := ternary $dcimStreamName $.Values.externalServices.nats.streams.configManager.name (eq $consumerType "nautobot") }}
-{{- /* The workload and durable setting retain the Nautobot name for value and NATS-account compatibility. */ -}}
-{{- $consumerName := ternary (include "nv-config-manager.nautobotConsumerName" $) (include "nv-config-manager.configManagerConsumerName" $) (eq $consumerType "nautobot") }}
+{{- if and $isDcim $autoscaling.consumers.nautobot }}
+{{- $consumerConfig = $autoscaling.consumers.nautobot }}
+{{- end }}
+{{- $streamName := ternary (include "nv-config-manager.dcimStream" $) $.Values.externalServices.nats.streams.configManager.name $isDcim }}
+{{- $consumerName := ternary (include "nv-config-manager.dcimConsumerName" $) (include "nv-config-manager.configManagerConsumerName" $) $isDcim }}
 {{- if $consumerConfig.enabled }}
 {{- /*
 On a shared external Prometheus, fixed stream and consumer names do not identify

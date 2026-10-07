@@ -142,32 +142,35 @@ spec:
     app: {{ $renderName }}
     component: api
 ---
-# Render Service - Nautobot Consumer Deployment
+# Render Service - DCIM Consumer Deployment
+{{- /* The deprecated consumers.nautobot values are honored when present. */}}
+{{- $dcimConsumer := .Values.renderService.consumers.nautobot | default .Values.renderService.consumers.dcim }}
+{{- $dcimAutoscaling := .Values.renderService.autoscaling.consumers.nautobot | default .Values.renderService.autoscaling.consumers.dcim }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ $renderName }}-consumer-nautobot
+  name: {{ $renderName }}-consumer-dcim
   namespace: {{ .Values.global.namespace }}
   labels:
     app: {{ $renderName }}
-    component: consumer-nautobot
+    component: consumer-dcim
     app.kubernetes.io/name: nv-config-manager
     app.kubernetes.io/component: render-service
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
-  {{- if not (and .Values.renderService.autoscaling.enabled .Values.renderService.autoscaling.consumers.nautobot.enabled) }}
-  replicas: {{ .Values.renderService.consumers.nautobot.replicas }}
+  {{- if not (and .Values.renderService.autoscaling.enabled $dcimAutoscaling.enabled) }}
+  replicas: {{ $dcimConsumer.replicas }}
   {{- end }}
   selector:
     matchLabels:
       app: {{ $renderName }}
-      component: consumer-nautobot
+      component: consumer-dcim
   {{- include "nv-config-manager.deploymentStrategy" (dict "root" .) | nindent 2 }}
   template:
     metadata:
       labels:
         app: {{ $renderName }}
-        component: consumer-nautobot
+        component: consumer-dcim
         {{- include "nv-config-manager.spiffe.podLabels" . | nindent 8 }}
         {{- include "nv-config-manager.customPodLabels" . | nindent 8 }}
       annotations:
@@ -186,7 +189,7 @@ spec:
         - name: {{ . }}
         {{- end }}
       {{- end }}
-      {{- include "nv-config-manager.scheduling" .Values.renderService.consumers.nautobot | nindent 6 }}
+      {{- include "nv-config-manager.scheduling" $dcimConsumer | nindent 6 }}
       {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
       initContainers:
       # Wait for NATS to be available before starting consumer
@@ -223,7 +226,7 @@ spec:
         - name: metrics
           containerPort: 8000
         resources:
-          {{- toYaml .Values.renderService.consumers.nautobot.resources | nindent 10 }}
+          {{- toYaml $dcimConsumer.resources | nindent 10 }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
         {{- if .Values.secrets.vault.configSecrets.enabled }}
@@ -409,8 +412,8 @@ spec:
       {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
       initContainers:
       # Wait for dependencies before running direct template update renders.
-      {{- if eq (.Values.dcim.provider | default "nautobot-2x") "nautobot-2x" }}
-      {{- include "nv-config-manager.waitForNautobot" . | nindent 6 }}
+      {{- if .Values.dcim.readiness.enabled }}
+      {{- include "nv-config-manager.waitForDCIM" . | nindent 6 }}
       {{- end }}
       {{- include "nv-config-manager.waitForRedis" . | nindent 6 }}
       {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}

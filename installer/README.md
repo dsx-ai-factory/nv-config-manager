@@ -102,7 +102,21 @@ Checks include:
 - `cluster.hostname` is non-empty
 - At least one site defined
 - `sso.issuer_url` required when SSO is enabled
-- Custom jobs require local Nautobot (`services.nautobot: true`)
+- `dcim.server` required when `dcim.local` is false
+- Provider-specific checks, such as custom and post-deploy Nautobot jobs requiring
+  `dcim.local: true` for the `nautobot-2x` provider
+
+### `nvcm-installer providers list`
+
+List the DCIM installer providers installed in the current Python environment.
+
+```bash
+nvcm-installer providers list
+```
+
+Each line shows the entry-point name, display name, supported installer API
+versions, supported modes (`local`, `external`), and the implementing module.
+The name is the value used for `dcim.provider`.
 
 ### `nvcm-installer generate-values`
 
@@ -305,18 +319,19 @@ Toggle individual NVIDIA Config Manager services on or off.
 | DHCP | DHCP server |
 | Temporal | Temporal workflow engine |
 | Config Store | Configuration storage API |
-| Nautobot | Local Nautobot DCIM stack |
 
-When Nautobot is disabled, configure an external Nautobot URL in the
-[External Services](#3-external-services) section.
+The DCIM provider and its deployment mode are not services toggles. They are
+configured in the [External Services](#3-external-services) section and stored
+under `dcim` (`dcim.provider`, `dcim.local`, `dcim.server`).
 
-For an independently packaged DCIM provider, set `dcim.provider`,
-`dcim.server`, and `services.nautobot: false` in the installer YAML. Provider
-wheel images are configured with `dcim.provider_packages`, and
-provider-specific non-secret settings are supplied through `dcim.options`.
-The bundled TUI remains Nautobot-focused; a provider installer replaces that
-screen while inheriting the rest of the wizard. See the external-provider
-example in [Configuration Samples](../docs/install/configuration-samples.mdx).
+For an independently packaged DCIM provider, set `dcim.provider` to the
+installed provider's entry-point name. `dcim.local: true` deploys the
+provider's in-cluster stack; `dcim.local: false` with `dcim.server` uses an
+existing instance. Provider wheel images for the service containers are
+configured with `dcim.provider_packages`, non-secret runtime options are
+supplied through `dcim.options`, and installer-side provider settings live
+under `dcim.settings`. See the external-provider example in
+[Configuration Samples](../docs/install/configuration-samples.mdx).
 Core Temporal workflows remain available for every selected DCIM provider; the
 provider package supplies their normalized data operations.
 
@@ -324,43 +339,77 @@ See [Contribute a DCIM Provider](../docs/development/contributing-dcim-provider.
 for provider packaging, provider-owned event handlers, render data, and test
 expectations.
 
-### Derived DCIM provider installers
+### Installer provider plugins
 
-An external provider should package its own installer and inherit the common
-deployment and TUI implementations instead of copying their orchestration:
+The installer discovers DCIM providers through the
+`nv_config_manager.installer.dcim` entry-point group. The entry-point name must
+equal `InstallerProviderMetadata.name` and the `dcim.provider` value. The
+installer package registers
+`nautobot-2x = nv_config_manager_installer.providers.nautobot:NautobotInstallerProvider`.
+A provider package registers its own entry point, usually behind an
+`installer` extra that depends on `nv-config-manager-installer`, and must be
+installed in the same Python environment as the installer.
+`nvcm-installer providers list` shows what is installed.
 
-- Subclass `NVConfigManagerInstallConfig` for provider deployment fields, then
-  select it with `CONFIG_MODEL` on both `Deployer` and the TUI application.
-- Replace provider-owned panels through the TUI application's `SCREEN_CLASSES`.
-  The deploy screen exposes `deployer_class()` / `create_deployer()` factories.
-- Extend `Deployer.create_steps()`, `_local_image_builds()`,
-  `_run_provider_pre_helm_install()`, and `_run_provider_post_helm_install()` to
-  build, install, and bootstrap provider-owned pods around the common Helm
-  release. Pass `--project-root` when provider image contexts live in a sibling
-  repository.
-- For DSX Air, subclass `SimConfig` and `SimOrchestrator`. The orchestrator has
-  hooks for generated install YAML, simulation-manager construction, provider
-  pre/post-deploy work, rendered-config readiness, deploy commands, and
-  provider UI hostnames. A derived Air TUI replaces its topology/launch screens
-  through `SCREEN_CLASSES`; the launch screen exposes `create_orchestrator()`.
+A provider subclasses `DCIMInstallerProvider`
+(`src/nv_config_manager_installer/providers/api.py`). Static contributions are
+class attributes:
 
-Provider deployment belongs in these lifecycle hooks, not in progress
-callbacks. This keeps the CLI and both TUIs on the same orchestration path.
+- `metadata`: display name, `supports_local` / `supports_external`, default
+  token Secret name, default event stream and subject, server placeholder.
+- `settings_model`: Pydantic model that validates `dcim.settings`.
+- `secrets`: `SecretGroupSpec` groups exposed as `secrets.k8s.<name>` and
+  `secrets.vault.paths.<name>`, extra CNPG `databases`, extra NATS Secret names.
+- `images`: local image builds, first-party image keys, override keys.
+- `tui`: wizard sections inserted after an anchor section (default
+  `network_secrets`) and an optional DCIM panel on External Services.
+- `air`: DSX Air launch status, `AirProviderHooks`, population panel, and Air
+  settings model.
+
+Runtime hooks default to no-ops, so a provider implements only the stages it
+owns. The deployer passes itself as the `ProviderDeployContext` (config,
+options, callback, `k8s`, `secrets_state`, `is_rerun`, NATS user and URL,
+`provider_state`, step and Secret helpers):
+
+- Configuration: `validate_config`, `prune_yaml`.
+- Secrets: `generate_secret_state`, `token_secret_data`, `openbao_groups`,
+  `align_openbao_tokens`.
+- Helm: `helm_values`, deep-merged over the installer-generated values.
+- Deploy: `deploy_steps` (steps spliced before or after core step ids),
+  `detect_existing_state`, `create_secrets`, `pre_helm_install`,
+  `post_helm_install`, `post_gateway`, `post_restart`, `refresh_caches_needed`,
+  `integration_test_env`.
+- Summary: `endpoints`, `bootstrap_secret_hints`.
+
+Core Helm values always emit disabled reference-provider stubs
+(`nautobot.enabled: false`, `cnpg.nautobot.enabled: false`,
+`externalServices.nautobot.local: false`,
+`nautobotNats.accounts.nautobot.enabled: false`). The `nautobot-2x` provider's
+`helm_values()` enables them when `dcim.local` is true. An external provider
+deploys its own in-cluster stack from `pre_helm_install` and points
+`dcim.server` at it. The Nautobot provider under
+`src/nv_config_manager_installer/providers/nautobot/` is the reference
+implementation.
 
 #### 3. External Services
 
 ![External Services](../docs/assets/images/installer/03-external-services.svg)
 
-Override in-cluster services with external instances. Leave disabled to use the
-default in-cluster deployments.
+Select the DCIM provider, then override in-cluster services with external
+instances. Leave overrides disabled to use the default in-cluster deployments.
 
 **DCIM provider**
 
 | Field | Description |
 |-------|-------------|
-| Provider name | `nautobot-2x` for the built-in provider, or the installed external provider's entry-point name |
-| Use external DCIM | Toggle — disables the in-cluster Nautobot stack |
-| DCIM endpoint | URL of the external provider; required when the provider is not the bundled `nautobot-2x` implementation |
+| DCIM Provider | Select from installed providers (`nvcm-installer providers list`); stored as `dcim.provider` |
+| Deploy in cluster | Toggle for `dcim.local`; deploys the provider's in-cluster stack. Disabled when the provider supports only one mode |
+| DCIM endpoint | `dcim.server`; required when not deploying in cluster |
+| Provider fields | Optional panel supplied by the selected provider |
+
+Switching providers resets `dcim.settings`, `dcim.token_secret_name`,
+`dcim.event_stream`, and `dcim.event_subject`; empty values use the provider's
+defaults.
 
 **Redis**
 
@@ -382,7 +431,7 @@ default in-cluster deployments.
 | Temporal Visibility Host | Hostname for the Temporal Visibility database |
 | Config Store Host | Hostname for the Config Store database |
 | DHCP Host | Hostname for the DHCP database |
-| Nautobot Host | Hostname for the Nautobot database |
+| DCIM Host | Hostname for the DCIM provider database (`external_services.postgres.dcim_host`) |
 
 #### 4. App Secrets
 
@@ -411,9 +460,11 @@ When **ESO** is selected, additional Vault fields appear:
 
 **Vault Paths** — Each secret group maps to a Vault path. Toggle groups on/off and
 customize paths to match your Vault layout. Application-secret rows show the logical
-field, editable Vault key, and initial value in columns. Supported groups: Nautobot,
-Redis, PostgreSQL, Network/Device Creds, Nautobot App, OIDC, Redfish, BMC, Slack, Jira,
-CNPG Backup.
+field, editable Vault key, and initial value in columns. Core groups: Redis,
+PostgreSQL, Network/Device Creds, OIDC, Redfish, BMC, Slack, Jira, CNPG Backup.
+The selected DCIM provider adds its own groups (Nautobot and Nautobot App for
+`nautobot-2x`); a provider without its own groups uses the generic `dcim` and
+`nats` groups.
 
 With `kubernetes`, values are edited in grouped Secret Values cards. With `eso`, values
 are edited beside their Vault key mappings. Enter a password or token to use it as
@@ -461,7 +512,10 @@ paths to discover additional required secrets.
 
 ![Ingest Data](../docs/assets/images/installer/06-ingest-data.svg)
 
-Custom Nautobot jobs and post-deploy job execution.
+Custom Nautobot jobs and post-deploy job execution. This section is provided
+by the `nautobot-2x` provider and appears after Network Secrets when that
+provider is selected. Its values are stored under `dcim.settings` (`jobs`,
+`jobs_config`, `run_after_deploy`).
 Path fields open an interactive directory picker (see below).
 
 ![Ingest Data File Picker](../docs/assets/images/installer/16-ingest-data-file-picker.svg)
@@ -475,8 +529,8 @@ Path fields open an interactive directory picker (see below).
 | Post-Deploy Jobs | Nautobot jobs to run after deployment (class name + JSON input; local Nautobot only) |
 
 > **Note:** Bundled bootstrap jobs are always available from the Nautobot image.
-> Custom and post-deploy jobs require local Nautobot (`services.nautobot: true`). If
-> Nautobot is set to remote, configure and run those jobs directly on that instance.
+> Custom and post-deploy jobs require local Nautobot (`dcim.local: true`). When
+> `dcim.local` is false, configure and run those jobs directly on that instance.
 
 #### 7. Template Plugins
 
@@ -757,8 +811,9 @@ network_secrets:
     required: true
 sites:
   - name: dc01
-services:
-  nautobot: true
+dcim:
+  provider: nautobot-2x
+  local: true
 ```
 
 ### File Storage Example (on-prem with OS images)
@@ -786,8 +841,9 @@ secrets:
   method: kubernetes
 sites:
   - name: dc01
-services:
-  nautobot: true
+dcim:
+  provider: nautobot-2x
+  local: true
 ```
 
 ### Full Example (AWS with SSO)
@@ -874,6 +930,24 @@ sites:
     vault_path: secrets/nv-config-manager/site/dc02/config_secrets
 ```
 
+### Legacy keys
+
+Configuration files written before the pluggable installer still load. The
+installer rewrites these keys on load and saves the file in the new shape:
+
+| Legacy key | Current key |
+|------------|-------------|
+| `services.nautobot` | `dcim.local` |
+| `services.external_nautobot_url` | `dcim.server` |
+| `content.jobs` | `dcim.settings.jobs` (`nautobot-2x`) |
+| `content.jobs_config` | `dcim.settings.jobs_config` (`nautobot-2x`) |
+| `content.run_after_deploy` | `dcim.settings.run_after_deploy` (`nautobot-2x`) |
+| `external_services.postgres.nautobot_host` | `external_services.postgres.dcim_host` |
+
+An empty `dcim.token_secret_name` uses the provider default (`nautobot-token`
+for `nautobot-2x`, `dcim-token` otherwise). Empty `dcim.event_stream` and
+`dcim.event_subject` use the provider defaults.
+
 ---
 
 ## Deployment Steps
@@ -902,6 +976,10 @@ execute in order. Steps are automatically skipped when not applicable.
 | 17 | **Refresh Caches** | Restart config-store-cache and dhcp-refresh pods |
 | 18 | **Run Tests** | Run integration tests from a ZTP pod with streamed output (skip if not requested or SSO enabled) |
 | 19 | **Endpoints** | Display service URLs for all enabled services |
+
+Steps 8, 14, and 16 are contributed by the `nautobot-2x` provider through
+`deploy_steps()`. Other providers splice their own steps around the core step
+ids (see [Installer provider plugins](#installer-provider-plugins)).
 
 **Re-run intelligence:** The deployer detects existing deployments and content
 checksums. On re-runs, it only restarts services when associated jobs or template
@@ -991,6 +1069,11 @@ installer/
 │   ├── k8s.py                 # Kubernetes Python client helpers
 │   ├── registry_client.py     # Docker V2 API for tag fetching
 │   ├── template_scanner.py    # Jinja2 template secret discovery
+│   ├── providers/
+│   │   ├── api.py             # DCIMInstallerProvider contract and contributions
+│   │   ├── registry.py        # Entry-point discovery and resolution
+│   │   ├── errors.py
+│   │   └── nautobot/          # Reference provider (nautobot-2x): secrets, helm, deploy, TUI, Air
 │   └── tui/
 │       ├── app.py             # Main Textual application
 │       ├── app.tcss           # Textual CSS styles
@@ -1001,7 +1084,6 @@ installer/
 │           ├── external_services.py
 │           ├── vault.py       # App Secrets + Git tokens + Sites
 │           ├── network_secrets.py
-│           ├── content.py     # Ingest Data (jobs + post-deploy)
 │           ├── render.py      # Template Plugins + node selector
 │           ├── ztp.py         # OS Images (ZTP storage)
 │           ├── workflow_rbac.py

@@ -35,7 +35,6 @@ from nv_config_manager_installer.schema import (
     PasswordSource,
     SecretsConfig,
     SecretsMethod,
-    ServicesConfig,
     SiteConfig,
     SSOConfig,
     VaultConfig,
@@ -186,8 +185,9 @@ class TestOpenBaoPopulator:
 
     def test_populates_external_dcim_token_without_nautobot_secrets(self):
         config = self._config()
-        config.dcim = DCIMConfig(provider="synthetic", server="https://synthetic.example")
-        config.services = ServicesConfig(nautobot=False)
+        config.dcim = DCIMConfig(
+            provider="synthetic", server="https://synthetic.example", local=False
+        )
         config.secrets.vault.paths.dcim = VaultPathConfig(enabled=True)
         client = InMemoryOpenBaoClient()
 

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import os
+import time
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
@@ -85,6 +86,34 @@ EVENT_FAILED_COUNTER = Counter(
     ["model", "instance", "exception_class", "namespace"],
 )
 
+DCIM_CHANGE_PROCESSING_TIME = Histogram(
+    "nv_config_manager_dcim_change_message_processing_time",
+    "Time spent processing a render for a DCIM change",
+    ["instance", "namespace"],
+    buckets=HISTOGRAM_BUCKETS,
+)
+DCIM_CHANGE_END_TO_END_TIME = Histogram(
+    "nv_config_manager_dcim_change_message_end_to_end_time",
+    "End-to-end time from DCIM message publish to config store persistence in seconds",
+    ["instance", "namespace"],
+    buckets=HISTOGRAM_BUCKETS,
+)
+DCIM_CHANGE_RECEIVED_COUNTER = Counter(
+    "nv_config_manager_dcim_change_messages_received",
+    "DCIM change messages received via NATS",
+    ["instance", "namespace"],
+)
+DCIM_CHANGE_PROCESSED_COUNTER = Counter(
+    "nv_config_manager_dcim_change_messages_processed",
+    "DCIM change messages processed by the dispatcher",
+    ["instance", "namespace"],
+)
+DCIM_CHANGE_FAILED_COUNTER = Counter(
+    "nv_config_manager_dcim_change_messages_failed",
+    "DCIM change messages that failed to process",
+    ["instance", "exception_class", "namespace"],
+)
+# nautobot_change_* series are deprecated aliases of dcim_change_* kept for one release.
 NAUTOBOT_CHANGE_PROCESSING_TIME = Histogram(
     "nv_config_manager_nautobot_change_message_processing_time",
     "Time spent processing a render for a nautobot change",
@@ -112,6 +141,16 @@ NAUTOBOT_CHANGE_FAILED_COUNTER = Counter(
     "Nautobot change messages that failed to process",
     ["instance", "exception_class", "namespace"],
 )
+
+
+def _inc_change_counters(*counters: Counter, labels: tuple[str, ...]) -> None:
+    for counter in counters:
+        counter.labels(*labels).inc()
+
+
+def _observe_change_times(*histograms: Histogram, labels: tuple[str, ...], seconds: float) -> None:
+    for histogram in histograms:
+        histogram.labels(*labels).observe(seconds)
 
 
 class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-public-methods
@@ -207,26 +246,47 @@ class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-publi
             ).inc()
 
     async def nautobot_change_dispatch(self, data: dict[str, Any]) -> None:
-        """Invoke a device render for a nautobot change."""
-        NAUTOBOT_CHANGE_RECEIVED_COUNTER.labels(self.instance, self.namespace).inc()
+        """Invoke a device render for a DCIM change."""
+        labels = (self.instance, self.namespace)
+        _inc_change_counters(
+            DCIM_CHANGE_RECEIVED_COUNTER, NAUTOBOT_CHANGE_RECEIVED_COUNTER, labels=labels
+        )
+        started = time.perf_counter()
         try:
-            with NAUTOBOT_CHANGE_PROCESSING_TIME.labels(self.instance, self.namespace).time():
-                await execute_render(
-                    data["device_id"],
-                    data["commit_message"],
-                    data["user"],
-                )
-                e2e_time = (
-                    datetime.now(UTC) - datetime.fromisoformat(data["@timestamp"])
-                ).total_seconds()
-                NAUTOBOT_CHANGE_END_TO_END_TIME.labels(
-                    self.instance,
-                    self.namespace,
-                ).observe(e2e_time)
-                NAUTOBOT_CHANGE_PROCESSED_COUNTER.labels(self.instance, self.namespace).inc()
+            await execute_render(
+                data["device_id"],
+                data["commit_message"],
+                data["user"],
+            )
+            _observe_change_times(
+                DCIM_CHANGE_PROCESSING_TIME,
+                NAUTOBOT_CHANGE_PROCESSING_TIME,
+                labels=labels,
+                seconds=time.perf_counter() - started,
+            )
+            e2e_time = (
+                datetime.now(UTC) - datetime.fromisoformat(data["@timestamp"])
+            ).total_seconds()
+            _observe_change_times(
+                DCIM_CHANGE_END_TO_END_TIME,
+                NAUTOBOT_CHANGE_END_TO_END_TIME,
+                labels=labels,
+                seconds=e2e_time,
+            )
+            _inc_change_counters(
+                DCIM_CHANGE_PROCESSED_COUNTER, NAUTOBOT_CHANGE_PROCESSED_COUNTER, labels=labels
+            )
 
         except (RenderException, ConfigStoreException, DCIMError) as exc:
-            self.logger.exception("Error processing nautobot device change event: %s", data)
-            NAUTOBOT_CHANGE_FAILED_COUNTER.labels(
-                self.instance, exc.__class__.__name__, self.namespace
-            ).inc()
+            self.logger.exception("Error processing DCIM device change event: %s", data)
+            _observe_change_times(
+                DCIM_CHANGE_PROCESSING_TIME,
+                NAUTOBOT_CHANGE_PROCESSING_TIME,
+                labels=labels,
+                seconds=time.perf_counter() - started,
+            )
+            _inc_change_counters(
+                DCIM_CHANGE_FAILED_COUNTER,
+                NAUTOBOT_CHANGE_FAILED_COUNTER,
+                labels=(self.instance, exc.__class__.__name__, self.namespace),
+            )

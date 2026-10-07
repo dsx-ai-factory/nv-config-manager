@@ -114,7 +114,7 @@ class ClusterScreen(Container):
         yield Label("─" * 40, classes="section-divider")
         yield Label("Data centers managed by this NVIDIA Config Manager deployment.")
         yield Label(
-            "Each name must match the slug of the corresponding Nautobot Location.",
+            "Each name must match the slug of the corresponding DCIM location.",
             classes="field-label-compact",
         )
         yield Label(

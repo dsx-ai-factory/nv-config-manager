@@ -24,8 +24,8 @@ import pytest
 import yaml
 
 from nv_config_manager_installer.helm_values import _GLOBAL_IMAGE_DEFAULTS, generate_helm_values
+from nv_config_manager_installer.providers.nautobot import NautobotInstallerProvider
 from nv_config_manager_installer.schema import (
-    NV_CONFIG_MANAGER_IMAGE_KEYS,
     ClusterConfig,
     ContentConfig,
     DCIMConfig,
@@ -41,8 +41,6 @@ from nv_config_manager_installer.schema import (
     ImagesConfig,
     ImageSource,
     InfrastructureConfig,
-    JobPath,
-    JobsConfig,
     JWTProvider,
     K8sSecretGroup,
     KubernetesSecretsConfig,
@@ -72,6 +70,7 @@ from nv_config_manager_installer.schema import (
     ZTPStorageConfig,
     ZTPStorageType,
     get_known_workflows,
+    image_keys,
 )
 
 
@@ -289,13 +288,7 @@ class TestGenerateHelmValues:
             assert "streams" not in nats
 
     def test_nautobot_disabled(self):
-        config = _make_config(
-            services=ServicesConfig(
-                nautobot=False,
-                external_nautobot_url="https://nb.example.com",
-            ),
-            content=ContentConfig(jobs=[]),
-        )
+        config = _make_config(dcim=DCIMConfig(local=False, server="https://nb.example.com"))
         values = _gen(config)
 
         assert values["nautobot"]["enabled"] is False
@@ -754,9 +747,7 @@ class TestGenerateHelmValues:
 
     def test_custom_jobs_in_values(self):
         config = _make_config(
-            content=ContentConfig(
-                jobs=[JobPath(path="/opt/jobs/custom")],
-            ),
+            dcim=DCIMConfig(settings={"jobs": [{"path": "/opt/jobs/custom"}]}),
         )
         values = _gen(config)
 
@@ -771,13 +762,15 @@ class TestGenerateHelmValues:
 
     def test_custom_jobs_node_selector_in_values(self):
         config = _make_config(
-            content=ContentConfig(
-                jobs=[JobPath(path="/opt/jobs/custom")],
-                jobs_config=JobsConfig(
-                    storage_class="local-path",
-                    access_mode="ReadWriteOnce",
-                    node_selector={"kubernetes.io/hostname": "worker-1"},
-                ),
+            dcim=DCIMConfig(
+                settings={
+                    "jobs": [{"path": "/opt/jobs/custom"}],
+                    "jobs_config": {
+                        "storage_class": "local-path",
+                        "access_mode": "ReadWriteOnce",
+                        "node_selector": {"kubernetes.io/hostname": "worker-1"},
+                    },
+                }
             ),
         )
         values = _gen(config)
@@ -806,13 +799,7 @@ class TestGenerateHelmValues:
         }
 
     def test_external_nautobot(self):
-        config = _make_config(
-            services=ServicesConfig(
-                nautobot=False,
-                external_nautobot_url="https://nb.prod.example.com",
-            ),
-            content=ContentConfig(jobs=[]),
-        )
+        config = _make_config(dcim=DCIMConfig(local=False, server="https://nb.prod.example.com"))
         values = _gen(config)
 
         ext = values["externalServices"]
@@ -867,9 +854,8 @@ class TestGenerateHelmValues:
                         image="registry.example/synthetic-provider:1.0",
                     )
                 ],
+                local=False,
             ),
-            services=ServicesConfig(nautobot=False),
-            content=ContentConfig(jobs=[]),
         )
 
         values = _gen(config)
@@ -896,8 +882,35 @@ class TestGenerateHelmValues:
         assert values["externalServices"]["nautobot"] == {"local": False}
         assert values["externalServices"]["nats"]["local"] is True
         assert values["nautobotNats"]["enabled"] is True
+        assert values["nautobotNats"]["accounts"]["nautobot"]["enabled"] is False
         assert values["nautobot"]["enabled"] is False
+        assert values["cnpg"]["nautobot"]["enabled"] is False
         assert values["mcp"]["enabled"] is True
+
+    def test_external_dcim_uses_provider_default_token_secret_and_events(self):
+        config = _make_config(
+            dcim=DCIMConfig(provider="synthetic", server="https://synthetic.example", local=False),
+        )
+
+        values = _gen(config)
+
+        assert values["dcim"]["tokenSecret"] == {"name": "dcim-token", "key": "token"}
+        assert values["dcim"]["events"] == {
+            "stream": "synthetic-dcim",
+            "subject": "synthetic.change",
+        }
+
+    def test_nautobot_values_match_reference_layout(self):
+        values = _gen(_make_config())
+
+        assert values["dcim"]["tokenSecret"] == {"name": "nautobot-token", "key": "token"}
+        assert "events" not in values["dcim"]
+        assert values["externalServices"]["nautobot"] == {
+            "local": True,
+            "localServer": "http://nautobot-nv-config-manager",
+        }
+        assert values["cnpg"]["nautobot"] == {"enabled": True, "enablePDB": False}
+        assert values["nautobotNats"]["accounts"]["nautobot"]["enabled"] is True
 
 
 class TestImagesInHelmValues:
@@ -1152,7 +1165,9 @@ class TestImagesInHelmValues:
         data = yaml.safe_load(chart_values.read_text())
         chart_keys = set(data["global"]["images"])
 
-        registered = {key for key, _ in NV_CONFIG_MANAGER_IMAGE_KEYS} | set(_GLOBAL_IMAGE_DEFAULTS)
+        registered = {key for key, _ in image_keys(NautobotInstallerProvider())} | set(
+            _GLOBAL_IMAGE_DEFAULTS
+        )
 
         missing = chart_keys - registered
         assert not missing, (

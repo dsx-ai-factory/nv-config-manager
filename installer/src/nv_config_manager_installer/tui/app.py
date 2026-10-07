@@ -28,9 +28,14 @@ from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Label, Static
 
+from nv_config_manager_installer.providers.api import DCIMInstallerProvider
+from nv_config_manager_installer.providers.registry import (
+    get_installer_provider,
+    installed_provider,
+    resolve_provider,
+)
 from nv_config_manager_installer.schema import NVConfigManagerInstallConfig
 from nv_config_manager_installer.tui.screens.cluster import ClusterScreen
-from nv_config_manager_installer.tui.screens.content import IngestDataScreen
 from nv_config_manager_installer.tui.screens.deploy import DeployScreen
 from nv_config_manager_installer.tui.screens.external_services import ExternalServicesScreen
 from nv_config_manager_installer.tui.screens.images import ImagesScreen
@@ -51,7 +56,6 @@ SECTION_LABELS: tuple[tuple[str, str], ...] = (
     ("external_services", "External Services"),
     ("secrets", "App Secrets"),
     ("network_secrets", "Network Secrets"),
-    ("ingest_data", "Ingest Data"),
     ("render", "Template Plugins"),
     ("ztp", "OS Images"),
     ("workflows", "Workflows"),
@@ -171,7 +175,6 @@ class NVConfigManagerInstallerApp(App[None]):
         "external_services": ExternalServicesScreen,
         "secrets": SecretsScreen,
         "network_secrets": NetworkSecretsScreen,
-        "ingest_data": IngestDataScreen,
         "render": RenderScreen,
         "ztp": ZTPScreen,
         "workflows": WorkflowsScreen,
@@ -197,10 +200,12 @@ class NVConfigManagerInstallerApp(App[None]):
         self,
         config: NVConfigManagerInstallConfig | None = None,
         config_path: Path | None = None,
+        provider: DCIMInstallerProvider | None = None,
     ) -> None:
         super().__init__()
         self.config = config or self.create_default_config()
         self.config_path = config_path or Path("nv-config-manager-install.yaml")
+        self.provider = provider if provider is not None else installed_provider(self.config)
         self.active_section = "cluster"
         self._nav_items: dict[str, NavItem] = {}
         self._screens: dict[str, Container] = {}
@@ -230,21 +235,93 @@ class NVConfigManagerInstallerApp(App[None]):
             screens.append(screen)
         return screens
 
+    def _provider_sections(self) -> tuple[tuple[str, str, type[Container]], ...]:
+        if self.provider is None:
+            return ()
+        return self.provider.tui.sections
+
+    def _provider_anchor(self) -> str:
+        return self.provider.tui.insert_after if self.provider is not None else ""
+
     def section_labels(self) -> tuple[tuple[str, str], ...]:
-        """Return ordered navigation entries for this installer."""
-        return self.SECTION_LABELS
+        """Return ordered navigation entries, with provider sections after their anchor."""
+        labels: list[tuple[str, str]] = []
+        anchor = self._provider_anchor()
+        for section_id, label in self.SECTION_LABELS:
+            labels.append((section_id, label))
+            if section_id == anchor:
+                labels.extend((sid, lbl) for sid, lbl, _cls in self._provider_sections())
+        return tuple(labels)
 
     def create_default_config(self) -> NVConfigManagerInstallConfig:
         """Create the configuration model edited by this installer."""
         return self.CONFIG_MODEL()
 
     def validate_config(self) -> NVConfigManagerInstallConfig:
-        """Validate and preserve the configuration model selected by a derived app."""
-        return self.CONFIG_MODEL.model_validate(self.config.model_dump())
+        """Validate the configuration against the schema and the selected provider."""
+        config = self.CONFIG_MODEL.model_validate(self.config.model_dump())
+        resolve_provider(config)
+        return config
 
     def screen_classes(self) -> dict[str, type[Container]]:
         """Return screen implementations keyed by section identifier."""
-        return dict(self.SCREEN_CLASSES)
+        classes = dict(self.SCREEN_CLASSES)
+        classes.update({sid: cls for sid, _lbl, cls in self._provider_sections()})
+        ordered = {sid: classes[sid] for sid, _lbl in self.section_labels() if sid in classes}
+        ordered.update(classes)
+        return ordered
+
+    async def set_provider(self, name: str) -> None:
+        """Switch the DCIM provider and rebuild the screens that depend on it."""
+        if self.provider is not None and self.provider.metadata.name == name:
+            return
+        provider = get_installer_provider(name)
+        old_sections = [sid for sid, _lbl, _cls in self._provider_sections()]
+        self.provider = provider
+        self.config.dcim.provider = name
+
+        dependent = [
+            sid
+            for sid, screen in self._screens.items()
+            if sid in old_sections or getattr(screen, "PROVIDER_DEPENDENT", False)
+        ]
+        for section_id in dependent:
+            await self._screens.pop(section_id).remove()
+            if section_id in old_sections:
+                await self._nav_items.pop(section_id).remove()
+        if self.active_section not in self._screens and self.active_section not in dict(
+            self.section_labels()
+        ):
+            self.active_section = "external_services"
+
+        sidebar = self.query_one("#sidebar", VerticalScroll)
+        content = self.query_one("#content-area", VerticalScroll)
+        labels = self.section_labels()
+        classes = self.screen_classes()
+        previous_id = ""
+        for section_id, label in labels:
+            if section_id in self._screens:
+                previous_id = section_id
+                continue
+            screen = self.create_screen(section_id, classes[section_id])
+            screen.display = section_id == self.active_section
+            self._screens[section_id] = screen
+            if previous_id:
+                content.mount(screen, after=self._screens[previous_id])
+            else:
+                content.mount(screen, before=0)
+            if section_id not in self._nav_items:
+                item = NavItem(section_id, label)
+                item.add_class("nav-item")
+                self._nav_items[section_id] = item
+                if previous_id:
+                    sidebar.mount(item, after=self._nav_items[previous_id])
+                else:
+                    sidebar.mount(item, after=self.query_one("#sidebar-title"))
+            previous_id = section_id
+        self._nav_items = {sid: self._nav_items[sid] for sid, _lbl in labels}
+        self._highlight_nav(self.active_section)
+        self._update_all_statuses()
 
     def create_screen(self, section_id: str, screen_class: type[Container]) -> Container:
         """Construct a section screen; derived installers may inject dependencies here."""

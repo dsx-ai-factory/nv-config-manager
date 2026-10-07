@@ -50,6 +50,7 @@ from nv_config_manager_installer.deployer import (
     StepStatus,
 )
 from nv_config_manager_installer.k8s import kubectl_current_context
+from nv_config_manager_installer.providers.api import DCIMInstallerProvider
 from nv_config_manager_installer.schema import (
     GatewayType,
     ImageSource,
@@ -571,6 +572,8 @@ class LogViewerWidget(Vertical):
 class DeployScreen(Container):
     """Full deployment dashboard: steps + pod status + log viewer."""
 
+    PROVIDER_DEPENDENT = True
+
     def __init__(self, config: NVConfigManagerInstallConfig, **kwargs: object) -> None:
         super().__init__(**kwargs)
         self._config = config
@@ -613,13 +616,13 @@ class DeployScreen(Container):
                 yield PodStatusWidget(self._config.cluster.namespace, id="pod-status-panel")
             yield LogViewerWidget(self._config.cluster.namespace, id="log-viewer-panel")
 
-    def _get_initial_steps(self) -> list[DeployStep]:
-        """Return the selected deployer's steps for the initial render."""
-        return self.deployer_class().create_steps()
+    def _provider(self) -> DCIMInstallerProvider | None:
+        """Return the DCIM provider selected in the containing app."""
+        return getattr(self.app, "provider", None)
 
-    def deployer_class(self) -> type[Deployer]:
-        """Return the deployment engine used by this screen."""
-        return Deployer
+    def _get_initial_steps(self) -> list[DeployStep]:
+        """Return the pipeline steps, including the provider's, for the initial render."""
+        return Deployer.create_steps(self._provider())
 
     def create_deployer(
         self,
@@ -627,8 +630,8 @@ class DeployScreen(Container):
         options: DeployOptions,
         callback: DeployCallback,
     ) -> Deployer:
-        """Construct the deployment engine; provider screens may override this factory."""
-        return self.deployer_class()(config, options, callback)
+        """Construct the deployment engine for the selected provider."""
+        return Deployer(config, options, callback, provider=self._provider())
 
     def on_mount(self) -> None:
         self._sync_image_defaults()

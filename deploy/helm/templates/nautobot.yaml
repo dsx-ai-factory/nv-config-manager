@@ -82,11 +82,13 @@ spec:
                 secretKeyRef:
                   name: {{ $natsSecretName }}
                   key: password
+            {{- if .Values.nautobotNats.accounts.nautobot.enabled }}
             - name: NAUTOBOT_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: nats-nautobot
                   key: password
+            {{- end }}
           args:
             - "-c"
             - "/etc/nats/nats.conf"
@@ -225,15 +227,10 @@ spec:
         - |
           set -e
           NV_CONFIG_MANAGER_SERVER="nats://${NATS_USER}:${NATS_PASSWORD}@{{ $natsName }}:4222"
-          NAUTOBOT_SERVER="nats://${NAUTOBOT_USER}:${NAUTOBOT_PASSWORD}@{{ $natsName }}:4222"
           CONFIG_MANAGER_STREAM="{{ .Values.externalServices.nats.streams.configManager.name }}"
           CONFIG_MANAGER_SUBJECTS="{{ join "," .Values.externalServices.nats.streams.configManager.subjects }}"
-          DCIM_STREAM="{{ .Values.dcim.events.stream | default .Values.externalServices.nats.streams.nautobot.name }}"
-          {{- if .Values.dcim.events.subject }}
-          DCIM_SUBJECTS="{{ .Values.dcim.events.subject }}"
-          {{- else }}
-          DCIM_SUBJECTS="{{ join "," .Values.externalServices.nats.streams.nautobot.subjects }}"
-          {{- end }}
+          DCIM_STREAM="{{ include "nv-config-manager.dcimStream" . }}"
+          DCIM_SUBJECTS="{{ include "nv-config-manager.dcimSubjects" . }}"
           MAX_BYTES="{{ .Values.nautobotNats.natsReady.streamMaxBytes | default 104857600 | int64 }}"
           
           echo "Waiting for NATS server..."
@@ -312,14 +309,16 @@ spec:
           value: {{ .Values.externalServices.nats.streams.configManager.name | quote }}
         - name: NV_CONFIG_MANAGER_NATS_STREAM_SUBJECTS
           value: {{ join "," .Values.externalServices.nats.streams.configManager.subjects | quote }}
+        - name: DCIM_NATS_STREAM_NAME
+          value: {{ include "nv-config-manager.dcimStream" . | quote }}
+        - name: DCIM_NATS_STREAM_SUBJECTS
+          value: {{ include "nv-config-manager.dcimSubjects" . | quote }}
+        # Deprecated aliases retained for one release.
         - name: NAUTOBOT_NATS_STREAM_NAME
-          value: {{ .Values.dcim.events.stream | default .Values.externalServices.nats.streams.nautobot.name | quote }}
+          value: {{ include "nv-config-manager.dcimStream" . | quote }}
         - name: NAUTOBOT_NATS_STREAM_SUBJECTS
-          {{- if .Values.dcim.events.subject }}
-          value: {{ .Values.dcim.events.subject | quote }}
-          {{- else }}
-          value: {{ join "," .Values.externalServices.nats.streams.nautobot.subjects | quote }}
-          {{- end }}
+          value: {{ include "nv-config-manager.dcimSubjects" . | quote }}
+        {{- if .Values.nautobotNats.accounts.nautobot.enabled }}
         - name: NAUTOBOT_USER
           value: "nautobot"
         - name: NAUTOBOT_PASSWORD
@@ -327,6 +326,7 @@ spec:
             secretKeyRef:
               name: nats-nautobot
               key: password
+        {{- end }}
         resources:
           {{- toYaml .Values.nautobotNats.natsReady.resources | nindent 10 }}
       containers:
