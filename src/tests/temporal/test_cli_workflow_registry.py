@@ -16,11 +16,12 @@
 
 import re
 from collections.abc import Callable
+from typing import Any
 
 import click
 import pytest
 from click.testing import CliRunner
-from pydantic import BaseModel
+from pydantic import BaseModel, create_model
 from temporalio import workflow
 
 from nv_config_manager.temporal import cli as temporal_cli
@@ -227,6 +228,68 @@ def test_cli_refuses_a_workflow_named_like_a_builtin_command(
         f"Error: workflow CliReservedNameWorkflow uses CLI name '{command_name}', "
         "which is reserved for a built-in command"
     ) in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("input_class", "field_name"),
+    [
+        (create_model("_HostnameInput", hostname=(str, ...)), "hostname"),
+        (
+            create_model("_DeviceNameInput", device_id=(str, ...), device_name=(str, ...)),
+            "device_name",
+        ),
+    ],
+    ids=["common-option", "device-name-shortcut"],
+)
+def test_cli_refuses_a_workflow_input_field_named_like_a_common_option(
+    input_class: type[BaseModel],
+    field_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(CliReservedNameWorkflow, "workflow_input_class", input_class)
+    discovery = temporal_cli.WorkflowDiscovery(workflows=[CliReservedNameWorkflow])
+    group = _builtin_command_group()
+
+    with pytest.raises(SystemExit) as exc_info:
+        temporal_cli.register_workflow_commands(group, discovery.workflows)
+
+    assert exc_info.value.code == 1
+    assert set(group.commands) == BUILTIN_COMMANDS
+    assert (
+        f"Error: workflow CliReservedNameWorkflow has input fields ['{field_name}'], "
+        "which are reserved for common CLI options"
+    ) in capsys.readouterr().err
+
+
+def test_cli_sends_a_device_name_field_when_the_workflow_has_no_device_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without device_id there is no --device-name shortcut, so the field is the workflow's."""
+    sent: dict[str, Any] = {}
+    monkeypatch.setattr(
+        temporal_cli,
+        "_build_auth",
+        lambda *_args: (None, "https://workflow.example.com/v1/workflow"),
+    )
+    monkeypatch.setattr(
+        temporal_cli.WorkflowClient,
+        "invoke_workflow",
+        lambda _self, _info, parameters, **_kwargs: sent.update(parameters),
+    )
+    input_class = create_model("_DeviceNameOnlyInput", device_name=(str, ...))
+    monkeypatch.setattr(CliReservedNameWorkflow, "workflow_input_class", input_class)
+    discovery = temporal_cli.WorkflowDiscovery(workflows=[CliReservedNameWorkflow])
+    group = _builtin_command_group()
+    temporal_cli.register_workflow_commands(group, discovery.workflows)
+    (command_name,) = set(group.commands) - BUILTIN_COMMANDS
+
+    result = CliRunner().invoke(
+        group, [command_name, "--hostname", "config-manager.example.com", "--device-name", "sw1"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert sent == {"device_name": "sw1"}
 
 
 def _registry_without_builtin_plugin() -> WorkflowRegistry:

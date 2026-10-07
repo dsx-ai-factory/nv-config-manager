@@ -558,10 +558,11 @@ def create_workflow_command(workflow_name: str, workflow_info: WorkflowInfo) -> 
         auth, workflow_api_url = _build_auth(base_hostname, issuer, client_id, insecure)
 
         # Handle device name to device ID conversion
-        device_name = kwargs.pop("device_name", None)
         device_id = kwargs.get("device_id")
 
         if "device_id" in workflow_info.parameters:
+            # --device-name exists only here; otherwise device_name is a workflow field.
+            device_name = kwargs.pop("device_name", None)
             # Handle Pydantic undefined values
             if device_id == "PydanticUndefined":
                 device_id = None
@@ -999,7 +1000,7 @@ workflow-cli backup -e qa --device-name switch001
 
 
 def register_workflow_commands(group: click.Group, workflows: Mapping[str, WorkflowInfo]) -> None:
-    """Add a command per workflow, refusing a name that would replace an existing command."""
+    """Add a command per workflow, refusing names or input fields that clash with the CLI's own."""
     for workflow_name, workflow_info in workflows.items():
         if workflow_name in group.commands:
             click.echo(
@@ -1008,7 +1009,18 @@ def register_workflow_commands(group: click.Group, workflows: Mapping[str, Workf
                 err=True,
             )
             sys.exit(1)
-        group.add_command(create_workflow_command(workflow_name, workflow_info))
+
+        command = create_workflow_command(workflow_name, workflow_info)
+        names = [param.name for param in command.params if param.name]
+        clashes = sorted({name for name in names if names.count(name) > 1})
+        if clashes:
+            click.echo(
+                f"Error: workflow {workflow_info.name} has input fields {clashes}, "
+                "which are reserved for common CLI options",
+                err=True,
+            )
+            sys.exit(1)
+        group.add_command(command)
 
 
 register_workflow_commands(cli, discovery.workflows)
