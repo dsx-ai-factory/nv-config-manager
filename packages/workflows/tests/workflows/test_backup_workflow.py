@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
-from temporalio import activity
+from temporalio import activity, workflow
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError, WorkflowHandle
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError, FailureError
@@ -41,13 +41,26 @@ from nv_config_manager_workflows.activities.deploy import (
     DiffActivityInput,
 )
 from nv_config_manager_workflows.activities.nats import PublishNatsInput
-from nv_config_manager_workflows.workflows.backup import BackupInput, BackupWorkflow, TriggerEnum
+from nv_config_manager_workflows.workflows.backup import (
+    UNATTENDED_TERMINATE_ON_FAILURE_PATCH_ID,
+    BackupInput,
+    BackupWorkflow,
+    TriggerEnum,
+)
 
 from .conftest import mock_send_slack_message
 
 # Test-specific retry policy and timeout
 TEST_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 TEST_TIMEOUT = timedelta(seconds=10)
+_REAL_WORKFLOW_PATCHED = workflow.patched
+
+
+def _legacy_unattended_patch(patch_id: str) -> bool:
+    """Replay a history recorded before unattended backups terminated on failure."""
+    if patch_id == UNATTENDED_TERMINATE_ON_FAILURE_PATCH_ID:
+        return False
+    return _REAL_WORKFLOW_PATCHED(patch_id)
 
 
 def test_backup_input_optional_metadata_defaults_to_none() -> None:
@@ -623,6 +636,19 @@ async def _start_failing_backup(env: Any, trigger: TriggerEnum) -> tuple[Worker,
     return worker, handle
 
 
+async def _wait_for_failed_load_stage(handle: WorkflowHandle) -> None:
+    async def load_stage_failed() -> bool:
+        stages = await handle.query("stages")
+        stage = next(s for s in stages if s["name"] == "load_running_configuration")
+        return bool(stage["state"] == "FAILED")
+
+    for _ in range(60):
+        if await load_stage_failed():
+            return
+        await asyncio.sleep(0.5)
+    pytest.fail("load_running_configuration stage never reported FAILED")
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("trigger", [TriggerEnum.SCHEDULED, TriggerEnum.SYSLOG])
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
@@ -649,6 +675,28 @@ async def test_unattended_backup_fails_instead_of_waiting_for_retry(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("trigger", [TriggerEnum.SCHEDULED, TriggerEnum.SYSLOG])
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
+@patch(
+    "nv_config_manager_workflows.workflows.backup.DEFAULT_ACTIVITY_RETRY_POLICY",
+    TEST_RETRY_POLICY,
+)
+@patch(
+    "nv_config_manager_workflows.workflows.backup.workflow.patched",
+    _legacy_unattended_patch,
+)
+async def test_unattended_backup_recorded_before_patch_waits_for_retry(
+    mock_time: Any, trigger: TriggerEnum, env: Any
+) -> None:
+    worker, handle = await _start_failing_backup(env, trigger)
+    async with worker:
+        await _wait_for_failed_load_stage(handle)
+        description = await handle.describe()
+        assert description.status == WorkflowExecutionStatus.RUNNING
+        await handle.terminate()
+
+
+@pytest.mark.asyncio
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 @patch(
     "nv_config_manager_workflows.workflows.backup.DEFAULT_ACTIVITY_RETRY_POLICY",
@@ -657,19 +705,7 @@ async def test_unattended_backup_fails_instead_of_waiting_for_retry(
 async def test_api_backup_waits_for_retry_after_stage_failure(mock_time: Any, env: Any) -> None:
     worker, handle = await _start_failing_backup(env, TriggerEnum.API)
     async with worker:
-
-        async def load_stage_failed() -> bool:
-            stages = await handle.query("stages")
-            stage = next(s for s in stages if s["name"] == "load_running_configuration")
-            return bool(stage["state"] == "FAILED")
-
-        for _ in range(60):
-            if await load_stage_failed():
-                break
-            await asyncio.sleep(0.5)
-        else:
-            pytest.fail("load_running_configuration stage never reported FAILED")
-
+        await _wait_for_failed_load_stage(handle)
         description = await handle.describe()
         assert description.status == WorkflowExecutionStatus.RUNNING
         await handle.terminate()
