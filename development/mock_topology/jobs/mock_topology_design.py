@@ -86,12 +86,7 @@ class MockTopologyDesign(DesignJob):
 
     def _ensure_role_content_type_memberships(self, data: dict[str, Any]) -> None:
         """Add required role content types without removing existing memberships."""
-        try:
-            job_result = self.job_result
-        except AttributeError:
-            job_result = None
-
-        context = self.Meta.context_class(data=data, job_result=job_result)
+        context = self._build_topology_context(data)
         role_data = [
             *context.json.get("role_content_type_extensions", []),
             *context.json.get("roles", []),
@@ -123,60 +118,91 @@ class MockTopologyDesign(DesignJob):
             BGP_STATUS_CONTENT_TYPES,
         )
 
+        context = self._build_topology_context(data)
+        for routing_instance_data in context.json.get(BGP_ROUTING_INSTANCES_KEY, []):
+            inputs = self._get_bgp_routing_instance_inputs(routing_instance_data)
+            if not inputs:
+                continue
+
+            device, asn_int = inputs
+            router_id = self._get_device_router_id(device)
+            asn_obj = self._ensure_autonomous_system(asn_int, active_status)
+            self._ensure_device_routing_instance(device, asn_obj, router_id, active_status)
+
+    def _build_topology_context(self, data: dict[str, Any]) -> BaseContext:
+        """Build the topology context for the current job result, if any."""
         try:
             job_result = self.job_result
         except AttributeError:
             job_result = None
 
-        context = self.Meta.context_class(data=data, job_result=job_result)
-        for routing_instance_data in context.json.get(BGP_ROUTING_INSTANCES_KEY, []):
-            device_name = routing_instance_data.get(BGP_DEVICE_KEY)
-            asn = routing_instance_data.get(BGP_ASN_KEY)
-            if asn is None:
-                continue
+        return self.Meta.context_class(data=data, job_result=job_result)
 
-            if not device_name:
-                continue
+    @staticmethod
+    def _get_bgp_routing_instance_inputs(
+        routing_instance_data: dict[str, Any],
+    ) -> tuple[Device, int] | None:
+        """Return the device and integer ASN for a routing-instance seed entry."""
+        device_name = routing_instance_data.get(BGP_DEVICE_KEY)
+        asn = routing_instance_data.get(BGP_ASN_KEY)
+        if asn is None:
+            return None
 
-            try:
-                asn_int = int(asn)
-            except (TypeError, ValueError) as exc:
-                logger.warning("Could not use BGP ASN %r for %s: %s", asn, device_name, exc)
-                continue
+        if not device_name:
+            return None
 
-            try:
-                device = Device.objects.get(name=device_name)
-            except Device.DoesNotExist:
-                logger.warning("Could not find device %r while creating BGP objects", device_name)
-                continue
+        try:
+            asn_int = int(asn)
+        except (TypeError, ValueError) as exc:
+            logger.warning("Could not use BGP ASN %r for %s: %s", asn, device_name, exc)
+            return None
 
-            router_id = self._get_device_router_id(device)
-            asn_obj, asn_created = AutonomousSystem.objects.get_or_create(
-                asn=asn_int,
-                defaults={"status": active_status},
-            )
-            asn_changed = asn_obj.status_id != active_status.id
-            if asn_changed:
-                asn_obj.status = active_status
-            if asn_created or asn_changed:
-                asn_obj.validated_save()
+        try:
+            device = Device.objects.get(name=device_name)
+        except Device.DoesNotExist:
+            logger.warning("Could not find device %r while creating BGP objects", device_name)
+            return None
 
-            routing_instance, routing_created = BGPRoutingInstance.objects.get_or_create(
-                device=device,
-                autonomous_system=asn_obj,
-                defaults={
-                    "router_id": router_id,
-                    "status": active_status,
-                },
-            )
-            routing_changed = routing_instance.status_id != active_status.id
-            if routing_changed:
-                routing_instance.status = active_status
-            if router_id and routing_instance.router_id_id != router_id.id:
-                routing_instance.router_id = router_id
-                routing_changed = True
-            if routing_created or routing_changed:
-                routing_instance.validated_save()
+        return device, asn_int
+
+    @staticmethod
+    def _ensure_autonomous_system(asn_int: int, active_status: Status) -> AutonomousSystem:
+        """Create or activate the autonomous system for an ASN."""
+        asn_obj, asn_created = AutonomousSystem.objects.get_or_create(
+            asn=asn_int,
+            defaults={"status": active_status},
+        )
+        asn_changed = asn_obj.status_id != active_status.id
+        if asn_changed:
+            asn_obj.status = active_status
+        if asn_created or asn_changed:
+            asn_obj.validated_save()
+        return asn_obj
+
+    @staticmethod
+    def _ensure_device_routing_instance(
+        device: Device,
+        asn_obj: AutonomousSystem,
+        router_id: Any | None,
+        active_status: Status,
+    ) -> None:
+        """Create or update the device routing instance for an autonomous system."""
+        routing_instance, routing_created = BGPRoutingInstance.objects.get_or_create(
+            device=device,
+            autonomous_system=asn_obj,
+            defaults={
+                "router_id": router_id,
+                "status": active_status,
+            },
+        )
+        routing_changed = routing_instance.status_id != active_status.id
+        if routing_changed:
+            routing_instance.status = active_status
+        if router_id and routing_instance.router_id_id != router_id.id:
+            routing_instance.router_id = router_id
+            routing_changed = True
+        if routing_created or routing_changed:
+            routing_instance.validated_save()
 
     def _ensure_bgp_peerings(self, data: dict[str, Any]) -> None:
         """Create BGP peer endpoints required by render templates."""
@@ -185,12 +211,7 @@ class MockTopologyDesign(DesignJob):
             BGP_STATUS_CONTENT_TYPES,
         )
 
-        try:
-            job_result = self.job_result
-        except AttributeError:
-            job_result = None
-
-        context = self.Meta.context_class(data=data, job_result=job_result)
+        context = self._build_topology_context(data)
         for peering_data in context.json.get(BGP_PEERINGS_KEY, []):
             local_endpoint = self._get_bgp_endpoint_inputs(
                 peering_data.get(BGP_DEVICE_KEY),
@@ -320,12 +341,7 @@ class MockTopologyDesign(DesignJob):
             )
             return
 
-        try:
-            job_result = self.job_result
-        except AttributeError:
-            job_result = None
-
-        context = self.Meta.context_class(data=data, job_result=job_result)
+        context = self._build_topology_context(data)
         global_defaults = getattr(context, GLOBAL_DEFAULTS_KEY, None) or context.json.get(
             GLOBAL_DEFAULTS_KEY,
             {},
@@ -358,29 +374,46 @@ class MockTopologyDesign(DesignJob):
                 )
                 continue
 
-            association = RelationshipAssociation.objects.filter(
-                relationship=relationship,
-                source_type=prefix_type,
-                source_id=prefix.id,
-            ).first()
-            if association:
-                changed = (
-                    association.destination_type_id != ip_address_type.id
-                    or association.destination_id != gateway.id
-                )
-                if changed:
-                    association.destination_type = ip_address_type
-                    association.destination_id = gateway.id
-                    association.validated_save()
-                continue
+            self._ensure_prefix_gateway_association(
+                relationship,
+                prefix_type,
+                ip_address_type,
+                prefix,
+                gateway,
+            )
 
-            RelationshipAssociation(
-                relationship=relationship,
-                source_type=prefix_type,
-                source_id=prefix.id,
-                destination_type=ip_address_type,
-                destination_id=gateway.id,
-            ).validated_save()
+    @staticmethod
+    def _ensure_prefix_gateway_association(
+        relationship: Relationship,
+        prefix_type: ContentType,
+        ip_address_type: ContentType,
+        prefix: Prefix,
+        gateway: IPAddress,
+    ) -> None:
+        """Create or update the prefix-to-gateway relationship association."""
+        association = RelationshipAssociation.objects.filter(
+            relationship=relationship,
+            source_type=prefix_type,
+            source_id=prefix.id,
+        ).first()
+        if association:
+            changed = (
+                association.destination_type_id != ip_address_type.id
+                or association.destination_id != gateway.id
+            )
+            if changed:
+                association.destination_type = ip_address_type
+                association.destination_id = gateway.id
+                association.validated_save()
+            return
+
+        RelationshipAssociation(
+            relationship=relationship,
+            source_type=prefix_type,
+            source_id=prefix.id,
+            destination_type=ip_address_type,
+            destination_id=gateway.id,
+        ).validated_save()
 
     @staticmethod
     def _get_device_router_id(device: Device) -> Any | None:

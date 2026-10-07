@@ -329,6 +329,81 @@ def _auto_create_groups() -> bool:
     return os.getenv("NV_CONFIG_MANAGER_AUTO_CREATE_GROUPS", "").strip().lower() in _TRUTHY
 
 
+def _read_mapping_file(path: str) -> Any:
+    """Read and YAML-parse *path*; return ``None`` when the file does not exist.
+
+    Funnel every filesystem failure mode into ``GroupMappingError`` so the
+    caller's documented fail-closed path always runs.  An ``isfile()`` check
+    plus a bare ``open()`` would leave a TOCTOU window (file deleted between
+    check and open) and would not catch ``PermissionError`` /
+    ``IsADirectoryError`` / ``UnicodeDecodeError``; any of those would surface
+    as a raw ``OSError`` past ``except GroupMappingError`` in the caller and
+    crash the login.  Catch and translate them here instead.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return yaml.safe_load(fh)
+    except FileNotFoundError:
+        # The "no mapping configured" / "ConfigMap not yet mounted" case.
+        # ``mapping_is_configured()`` already gates whether we run RBAC at
+        # all, and explicitly documents that an env-var-set + file-missing
+        # state must surface as an empty load so the caller exercises the
+        # revoke/demote path -- so the caller returns ``{}`` here too.
+        return None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise GroupMappingReadError(f"Failed to read {path}: {exc}") from exc
+    except yaml.YAMLError as exc:
+        raise GroupMappingParseError(f"Failed to parse {path}: {exc}") from exc
+
+
+def _mapping_entries(path: str, data: dict[str, Any]) -> list[Any]:
+    """Return the list of group entries under ``groups:`` (validated shape)."""
+    # Distinguish "key absent" (feature unconfigured -- legitimate no-op) from
+    # "key present with wrong shape" (operator error -- raise).  A
+    # ``data.get("groups") or []`` idiom would collapse ``groups: {}``,
+    # ``groups: ""``, ``groups: false`` into the empty list and silently
+    # disable RBAC instead of surfacing the misconfiguration.
+    if "groups" not in data:
+        return []
+    entries = data["groups"]
+
+    # Explicit ``groups: null`` is the YAML idiom for "key present, no value" --
+    # treat it identically to an empty list / absent key.  Empty list
+    # (``groups: []``) is also fine.
+    if entries is None:
+        return []
+
+    if not isinstance(entries, list):
+        raise GroupMappingParseError(f"{path}: 'groups' must be a list of group entries, got {type(entries).__name__}")
+    return entries
+
+
+def _validate_group_entry(path: str, entry: Any) -> str:
+    """Validate one ``groups:`` entry and return its ``name``."""
+    if not isinstance(entry, dict):
+        raise GroupMappingParseError(f"{path}: each group entry must be a mapping, got {type(entry).__name__}")
+    name = entry.get("name")
+    if not name or not isinstance(name, str):
+        raise GroupMappingParseError(f"{path}: each group entry must have a non-empty string 'name'")
+    # ``is_superuser`` controls a privilege boundary; reject quoted/truthy
+    # surrogates (``"true"``, ``1``) up-front so a YAML typo can't
+    # silently promote everyone in a role.
+    if "is_superuser" in entry and not isinstance(entry["is_superuser"], bool):
+        raise GroupMappingParseError(
+            f"{path}: group {name!r}: 'is_superuser' must be a YAML bool (true/false), got "
+            f"{type(entry['is_superuser']).__name__} (did you quote it?)"
+        )
+    # ``nautobot_permissions`` is iterated as a dict of action → mapping;
+    # a non-mapping here would explode later with an opaque TypeError.
+    perms = entry.get("nautobot_permissions")
+    if perms is not None and not isinstance(perms, dict):
+        raise GroupMappingParseError(
+            f"{path}: group {name!r}: 'nautobot_permissions' must be a mapping of "
+            f"action → config, got {type(perms).__name__}"
+        )
+    return name
+
+
 def load_group_mapping(path: str | None = None) -> dict[str, dict[str, Any]]:
     """Load and normalise the group-mapping YAML.
 
@@ -337,83 +412,21 @@ def load_group_mapping(path: str | None = None) -> dict[str, dict[str, Any]]:
     feature is opt-in and should never crash a login when unconfigured.
     """
     path = path or _mapping_path()
+    data = _read_mapping_file(path)
 
-    # Funnel every filesystem failure mode into ``GroupMappingError`` so the
-    # caller's documented fail-closed path always runs.  An ``isfile()`` check
-    # plus a bare ``open()`` would leave a TOCTOU window (file deleted between
-    # check and open) and would not catch ``PermissionError`` /
-    # ``IsADirectoryError`` / ``UnicodeDecodeError``; any of those would surface
-    # as a raw ``OSError`` past ``except GroupMappingError`` in the caller and
-    # crash the login.  Catch and translate them here instead.
-    try:
-        with open(path, encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
-    except FileNotFoundError:
-        # The "no mapping configured" / "ConfigMap not yet mounted" case.
-        # ``mapping_is_configured()`` already gates whether we run RBAC at
-        # all, and explicitly documents that an env-var-set + file-missing
-        # state must surface as an empty load so the caller exercises the
-        # revoke/demote path -- so we return ``{}`` here too.
-        return {}
-    except (OSError, UnicodeDecodeError) as exc:
-        raise GroupMappingReadError(f"Failed to read {path}: {exc}") from exc
-    except yaml.YAMLError as exc:
-        raise GroupMappingParseError(f"Failed to parse {path}: {exc}") from exc
-
-    # Distinguish "empty file" (``None`` -- legit, treat as no mappings) from
-    # "non-mapping top-level" (``false`` / ``0`` / ``[]`` / ``""`` -- operator
-    # error, must surface).  Coercing every falsy value into ``{}`` would bypass
-    # the validator below and silently disable RBAC, so handle them explicitly.
+    # Distinguish "empty file" / missing file (``None`` -- legit, treat as no
+    # mappings) from "non-mapping top-level" (``false`` / ``0`` / ``[]`` /
+    # ``""`` -- operator error, must surface).  Coercing every falsy value into
+    # ``{}`` would bypass the validator below and silently disable RBAC, so
+    # handle them explicitly.
     if data is None:
         return {}
     if not isinstance(data, dict):
         raise GroupMappingParseError(f"{path}: top-level must be a mapping, got {type(data).__name__}")
 
-    # Entries live under ``groups:``.  Distinguish "key absent" (feature
-    # unconfigured -- legitimate no-op) from "key present with wrong shape"
-    # (operator error -- raise).  A ``data.get("groups") or []`` idiom would
-    # collapse ``groups: {}``, ``groups: ""``, ``groups: false`` into the empty
-    # list and silently disable RBAC instead of surfacing the misconfiguration.
-    if "groups" in data:
-        source_key, entries = "groups", data["groups"]
-    else:
-        source_key, entries = None, []
-
-    # Explicit ``groups: null`` is the YAML idiom for "key present, no value" --
-    # treat it identically to an empty list / absent key.  Empty list
-    # (``groups: []``) is also fine.
-    if entries is None:
-        entries = []
-
-    if not isinstance(entries, list):
-        raise GroupMappingParseError(
-            f"{path}: {source_key!r} must be a list of group entries, got {type(entries).__name__}"
-        )
-
     out: dict[str, dict[str, Any]] = {}
-    for entry in entries:
-        if not isinstance(entry, dict):
-            raise GroupMappingParseError(f"{path}: each group entry must be a mapping, got {type(entry).__name__}")
-        name = entry.get("name")
-        if not name or not isinstance(name, str):
-            raise GroupMappingParseError(f"{path}: each group entry must have a non-empty string 'name'")
-        # ``is_superuser`` controls a privilege boundary; reject quoted/truthy
-        # surrogates (``"true"``, ``1``) up-front so a YAML typo can't
-        # silently promote everyone in a role.
-        if "is_superuser" in entry and not isinstance(entry["is_superuser"], bool):
-            raise GroupMappingParseError(
-                f"{path}: group {name!r}: 'is_superuser' must be a YAML bool (true/false), got "
-                f"{type(entry['is_superuser']).__name__} (did you quote it?)"
-            )
-        # ``nautobot_permissions`` is iterated as a dict of action → mapping;
-        # a non-mapping here would explode later with an opaque TypeError.
-        perms = entry.get("nautobot_permissions")
-        if perms is not None and not isinstance(perms, dict):
-            raise GroupMappingParseError(
-                f"{path}: group {name!r}: 'nautobot_permissions' must be a mapping of "
-                f"action → config, got {type(perms).__name__}"
-            )
-        out[name] = entry
+    for entry in _mapping_entries(path, data):
+        out[_validate_group_entry(path, entry)] = entry
     return out
 
 
@@ -730,86 +743,119 @@ def _apply_group_permission_config(group: Group, perms_config: dict[str, dict[st
     # actions, the ``<group>_<action>`` rows are the marker and a stale
     # membership marker (from a prior membership-only state) is pruned below.
     if not perms_config:
-        marker_name = _membership_marker_name(group.name)
-        if _object_permission_owned_by_other(marker_name, group):
-            log.warning(
-                "rbac: membership marker %r already exists and is owned by another "
-                "group/user; skipping -- membership for group %r will not be tracked "
-                "(resolve the ObjectPermission name collision)",
-                marker_name,
-                group.name,
-            )
-        else:
+        marker_name = _ensure_membership_marker(group)
+        if marker_name is not None:
             kept_perm_names.add(marker_name)
-            marker, _created = ObjectPermission.objects.update_or_create(
-                name=marker_name,
-                defaults={"actions": [], "constraints": {}},
-            )
-            marker.object_types.set([])
-            if group not in marker.groups.all():
-                marker.groups.add(group)
 
     for action, action_config in perms_config.items():
-        if not isinstance(action_config, dict):
-            log.warning(
-                "rbac: group %r action %r config must be a mapping, got %s; skipping",
-                group.name,
-                action,
-                type(action_config).__name__,
-            )
-            continue
-        perm_name = f"{group.name}_{action}"
-
-        # Foreign collision: the name is owned elsewhere, so leave the row
-        # entirely alone -- keep it off the prune list too (it isn't ours).
-        if _object_permission_owned_by_other(perm_name, group):
+        perm_name = _apply_action_permission(group, action, action_config)
+        if perm_name is not None:
             kept_perm_names.add(perm_name)
-            log.warning(
-                "rbac: ObjectPermission %r already exists and is bound to another "
-                "group or user; skipping so a name collision cannot overwrite a "
-                "permission this module does not own (the <group>_* namespace is "
-                "reserved for nv-config-manager)",
-                perm_name,
-            )
-            continue
 
-        # Validate constraints BEFORE marking the perm as kept.  Nautobot accepts
-        # a mapping or a non-empty list of mappings; anything else is malformed.
-        # A malformed value is skipped WITHOUT keeping the name, so an existing
-        # managed row is pruned below (fail closed: revoke rather than grant an
-        # unconstrained perm or silently retain the last-good one).
-        constraints = action_config.get("constraints")
-        if constraints is None:
-            constraints = {}
-        if not _is_valid_constraints(constraints):
-            log.warning(
-                "rbac: group %r action %r has malformed constraints (%s); skipping "
-                "and pruning any existing managed permission instead of granting it",
-                group.name,
-                action,
-                type(action_config.get("constraints")).__name__,
-            )
-            continue
+    _prune_stale_group_permissions(group, existing_perms, kept_perm_names)
 
-        kept_perm_names.add(perm_name)
-        content_types = _resolve_content_types(action_config.get("content_types") or [])
-        perm, _created = ObjectPermission.objects.update_or_create(
-            name=perm_name,
-            defaults={"actions": [action], "constraints": constraints},
+
+def _ensure_membership_marker(group: Group) -> str | None:
+    """Upsert the inert membership marker for *group*; return its name if kept.
+
+    Returns ``None`` (and logs) when the marker name is owned by another
+    group/user, in which case the row is left untouched.
+    """
+    marker_name = _membership_marker_name(group.name)
+    if _object_permission_owned_by_other(marker_name, group):
+        log.warning(
+            "rbac: membership marker %r already exists and is owned by another "
+            "group/user; skipping -- membership for group %r will not be tracked "
+            "(resolve the ObjectPermission name collision)",
+            marker_name,
+            group.name,
         )
+        return None
+    marker, _created = ObjectPermission.objects.update_or_create(
+        name=marker_name,
+        defaults={"actions": [], "constraints": {}},
+    )
+    marker.object_types.set([])
+    if group not in marker.groups.all():
+        marker.groups.add(group)
+    return marker_name
 
-        current_cts = set(perm.object_types.all())
-        desired_cts = set(content_types)
-        if current_cts != desired_cts:
-            perm.object_types.set(content_types)
 
-        if group not in perm.groups.all():
-            perm.groups.add(group)
+def _apply_action_permission(group: Group, action: str, action_config: Any) -> str | None:
+    """Upsert the ``<group>_<action>`` ObjectPermission for one action.
 
-    # Prune any per-action permissions that used to exist but are no longer in
-    # config.  We only manage ObjectPermissions we created (matching our
-    # "<group>_<action>" naming); anything else attached to the group is left
-    # alone so operators can layer additional manual permissions if desired.
+    Returns the permission name when it must be kept (excluded from the prune
+    pass) -- either because it was upserted or because it is owned by another
+    group/user and must be left alone.  Returns ``None`` when the config is
+    malformed so any existing managed row is pruned (fail closed).
+    """
+    if not isinstance(action_config, dict):
+        log.warning(
+            "rbac: group %r action %r config must be a mapping, got %s; skipping",
+            group.name,
+            action,
+            type(action_config).__name__,
+        )
+        return None
+    perm_name = f"{group.name}_{action}"
+
+    # Foreign collision: the name is owned elsewhere, so leave the row
+    # entirely alone -- keep it off the prune list too (it isn't ours).
+    if _object_permission_owned_by_other(perm_name, group):
+        log.warning(
+            "rbac: ObjectPermission %r already exists and is bound to another "
+            "group or user; skipping so a name collision cannot overwrite a "
+            "permission this module does not own (the <group>_* namespace is "
+            "reserved for nv-config-manager)",
+            perm_name,
+        )
+        return perm_name
+
+    # Validate constraints BEFORE marking the perm as kept.  Nautobot accepts
+    # a mapping or a non-empty list of mappings; anything else is malformed.
+    # A malformed value is skipped WITHOUT keeping the name, so an existing
+    # managed row is pruned (fail closed: revoke rather than grant an
+    # unconstrained perm or silently retain the last-good one).
+    constraints = action_config.get("constraints")
+    if constraints is None:
+        constraints = {}
+    if not _is_valid_constraints(constraints):
+        log.warning(
+            "rbac: group %r action %r has malformed constraints (%s); skipping "
+            "and pruning any existing managed permission instead of granting it",
+            group.name,
+            action,
+            type(action_config.get("constraints")).__name__,
+        )
+        return None
+
+    content_types = _resolve_content_types(action_config.get("content_types") or [])
+    perm, _created = ObjectPermission.objects.update_or_create(
+        name=perm_name,
+        defaults={"actions": [action], "constraints": constraints},
+    )
+
+    current_cts = set(perm.object_types.all())
+    desired_cts = set(content_types)
+    if current_cts != desired_cts:
+        perm.object_types.set(content_types)
+
+    if group not in perm.groups.all():
+        perm.groups.add(group)
+    return perm_name
+
+
+def _prune_stale_group_permissions(
+    group: Group,
+    existing_perms: dict[str, ObjectPermission],
+    kept_perm_names: set[str],
+) -> None:
+    """Detach (and delete, if orphaned) managed perms no longer in config.
+
+    We only manage ObjectPermissions we created (matching our
+    ``"<group>_<action>"`` naming); anything else attached to the group is left
+    alone so operators can layer additional manual permissions if desired.
+    """
     managed_prefix = f"{group.name}_"
     stale = {
         name: perm

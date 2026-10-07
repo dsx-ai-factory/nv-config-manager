@@ -414,6 +414,30 @@ class LoadBootstrapData(Job):
             self.logger.failure("Error reading tags file", extra={"grouping": "tags"})
             self.logger.debug(str(e))
 
+    def _upsert_custom_field(self, key, cf_data):
+        """Create or update a single custom field, logging failures instead of raising."""
+        try:
+            defaults = {
+                "label": cf_data.get("label", key),
+                "type": cf_data.get("type", "text"),
+                "description": cf_data.get("description", ""),
+            }
+            # filter_logic is optional; only override Nautobot's default when set.
+            if "filter_logic" in cf_data:
+                defaults["filter_logic"] = cf_data["filter_logic"]
+            cf, created = CustomField.objects.update_or_create(key=key, defaults=defaults)
+            # Add content_types without removing memberships created by other jobs.
+            if "content_types" in cf_data:
+                self.add_content_types(cf, cf_data["content_types"])
+        except Exception as exc:
+            self.logger.failure(f"Error processing custom field '{key}': {exc}")
+            return
+
+        self.logger.success(
+            f"{'Created' if created else 'Updated'} custom field: {key}",
+            extra={"grouping": "custom_fields", "object": cf},
+        )
+
     def load_custom_fields(self):
         """Load custom fields from YAML template."""
         self.logger.info("Loading Custom Fields", extra={"grouping": "custom_fields"})
@@ -442,27 +466,20 @@ class LoadBootstrapData(Job):
             if not self.should_load_item(cf_data, f"custom field '{key}'"):
                 continue
 
-            try:
-                defaults = {
-                    "label": cf_data.get("label", key),
-                    "type": cf_data.get("type", "text"),
-                    "description": cf_data.get("description", ""),
-                }
-                # filter_logic is optional; only override Nautobot's default when set.
-                if "filter_logic" in cf_data:
-                    defaults["filter_logic"] = cf_data["filter_logic"]
-                cf, created = CustomField.objects.update_or_create(key=key, defaults=defaults)
-                # Add content_types without removing memberships created by other jobs.
-                if "content_types" in cf_data:
-                    self.add_content_types(cf, cf_data["content_types"])
-            except Exception as exc:
-                self.logger.failure(f"Error processing custom field '{key}': {exc}")
-                continue
+            self._upsert_custom_field(key, cf_data)
 
-            self.logger.success(
-                f"{'Created' if created else 'Updated'} custom field: {key}",
-                extra={"grouping": "custom_fields", "object": cf},
+    def _resolve_platform_manufacturer(self, name, manufacturer_name):
+        """Return the Manufacturer for a platform, or None if unset or not found."""
+        if not manufacturer_name:
+            return None
+        try:
+            return Manufacturer.objects.get(name=manufacturer_name)
+        except Manufacturer.DoesNotExist:
+            self.logger.warning(
+                f"Manufacturer not found for platform {name}: {manufacturer_name}",
+                extra={"grouping": "platforms"},
             )
+            return None
 
     def load_platforms(self):
         """Load platforms from YAML template."""
@@ -496,15 +513,7 @@ class LoadBootstrapData(Job):
                         continue
 
                     # Get manufacturer if specified
-                    manufacturer = None
-                    if manufacturer_name:
-                        try:
-                            manufacturer = Manufacturer.objects.get(name=manufacturer_name)
-                        except Manufacturer.DoesNotExist:
-                            self.logger.warning(
-                                f"Manufacturer not found for platform {name}: {manufacturer_name}",
-                                extra={"grouping": "platforms"},
-                            )
+                    manufacturer = self._resolve_platform_manufacturer(name, manufacturer_name)
 
                     platform, created = Platform.objects.get_or_create(
                         name=name,
@@ -593,6 +602,19 @@ class LoadBootstrapData(Job):
             self.logger.failure("Error reading tenants file", extra={"grouping": "tenants"})
             self.logger.debug(str(e))
 
+    def _resolve_parent_location_type(self, lt_data):
+        """Return the parent LocationType named in ``lt_data``, or None if unset or not found."""
+        if not ("parent" in lt_data and lt_data["parent"]):
+            return None
+        try:
+            return LocationType.objects.get(name=lt_data["parent"])
+        except LocationType.DoesNotExist:
+            self.logger.warning(
+                f"Parent location type not found: {lt_data['parent']}",
+                extra={"grouping": "location_types"},
+            )
+            return None
+
     def load_location_types(self):
         """Load location types from YAML template."""
         self.logger.info("Loading Location Types", extra={"grouping": "location_types"})
@@ -623,15 +645,7 @@ class LoadBootstrapData(Job):
                         continue
 
                     # Get parent location type if specified
-                    parent = None
-                    if "parent" in lt_data and lt_data["parent"]:
-                        try:
-                            parent = LocationType.objects.get(name=lt_data["parent"])
-                        except LocationType.DoesNotExist:
-                            self.logger.warning(
-                                f"Parent location type not found: {lt_data['parent']}",
-                                extra={"grouping": "location_types"},
-                            )
+                    parent = self._resolve_parent_location_type(lt_data)
 
                     lt, created = LocationType.objects.get_or_create(
                         name=name,
@@ -915,6 +929,85 @@ class LoadBootstrapData(Job):
             )
             self.logger.debug(str(e))
 
+    def _apply_config_context_schema(self, name, cc_data, defaults):
+        """Add the named config context schema to ``defaults`` if specified and found."""
+        if not ("schema" in cc_data and cc_data["schema"]):
+            return
+        schema_name = cc_data["schema"]
+        try:
+            schema = ConfigContextSchema.objects.get(name=schema_name)
+            defaults["config_context_schema"] = schema
+        except ConfigContextSchema.DoesNotExist:
+            self.logger.warning(
+                f"Schema not found for config context '{name}': {schema_name}",
+                extra={"grouping": "config_contexts"},
+            )
+
+    def _get_config_context_objects(self, model, object_names, label):
+        """Look up ``model`` instances by name, logging a warning for each one not found."""
+        objects = []
+        for object_name in object_names:
+            try:
+                objects.append(model.objects.get(name=object_name))
+            except model.DoesNotExist:
+                self.logger.warning(
+                    f"{label} not found for config context: {object_name}",
+                    extra={"grouping": "config_contexts"},
+                )
+        return objects
+
+    def _load_single_config_context(self, cc_data):
+        """Create or update a single config context and its role/platform assignments."""
+        name = cc_data.get("name")
+        if not name:
+            self.logger.warning("Skipping config context with no name")
+            return
+
+        # Check deployment type filtering
+        if not self.should_load_item(cc_data, f"config context '{name}'"):
+            return
+
+        # Build defaults dict
+        defaults = {
+            "description": cc_data.get("description", ""),
+            "weight": cc_data.get("weight", 1000),
+            "is_active": cc_data.get("is_active", True),
+            "data": cc_data.get("data", {}),
+        }
+
+        # Get schema if specified
+        self._apply_config_context_schema(name, cc_data, defaults)
+
+        cc, created = ConfigContext.objects.update_or_create(
+            name=name,
+            defaults=defaults,
+        )
+
+        # Set roles if specified
+        if "roles" in cc_data and cc_data["roles"]:
+            roles = self._get_config_context_objects(Role, cc_data["roles"], "Role")
+            if roles:
+                cc.roles.set(roles)
+
+        # Set platforms if specified
+        if "platforms" in cc_data and cc_data["platforms"]:
+            platforms = self._get_config_context_objects(Platform, cc_data["platforms"], "Platform")
+            if platforms:
+                cc.platforms.set(platforms)
+
+        cc.validated_save()
+
+        if created:
+            self.logger.success(
+                f"Created config context: {name}",
+                extra={"grouping": "config_contexts", "object": cc},
+            )
+        else:
+            self.logger.info(
+                f"Config context already exists: {name}",
+                extra={"grouping": "config_contexts", "object": cc},
+            )
+
     def load_config_contexts(self):
         """Load config contexts from YAML template."""
         self.logger.info("Loading Config Contexts", extra={"grouping": "config_contexts"})
@@ -935,83 +1028,7 @@ class LoadBootstrapData(Job):
 
             for cc_data in config_contexts:
                 try:
-                    name = cc_data.get("name")
-                    if not name:
-                        self.logger.warning("Skipping config context with no name")
-                        continue
-
-                    # Check deployment type filtering
-                    if not self.should_load_item(cc_data, f"config context '{name}'"):
-                        continue
-
-                    # Build defaults dict
-                    defaults = {
-                        "description": cc_data.get("description", ""),
-                        "weight": cc_data.get("weight", 1000),
-                        "is_active": cc_data.get("is_active", True),
-                        "data": cc_data.get("data", {}),
-                    }
-
-                    # Get schema if specified
-                    if "schema" in cc_data and cc_data["schema"]:
-                        schema_name = cc_data["schema"]
-                        try:
-                            schema = ConfigContextSchema.objects.get(name=schema_name)
-                            defaults["config_context_schema"] = schema
-                        except ConfigContextSchema.DoesNotExist:
-                            self.logger.warning(
-                                f"Schema not found for config context '{name}': {schema_name}",
-                                extra={"grouping": "config_contexts"},
-                            )
-
-                    cc, created = ConfigContext.objects.update_or_create(
-                        name=name,
-                        defaults=defaults,
-                    )
-
-                    # Set roles if specified
-                    if "roles" in cc_data and cc_data["roles"]:
-                        roles = []
-                        for role_name in cc_data["roles"]:
-                            try:
-                                role = Role.objects.get(name=role_name)
-                                roles.append(role)
-                            except Role.DoesNotExist:
-                                self.logger.warning(
-                                    f"Role not found for config context: {role_name}",
-                                    extra={"grouping": "config_contexts"},
-                                )
-                        if roles:
-                            cc.roles.set(roles)
-
-                    # Set platforms if specified
-                    if "platforms" in cc_data and cc_data["platforms"]:
-                        platforms = []
-                        for platform_name in cc_data["platforms"]:
-                            try:
-                                platform = Platform.objects.get(name=platform_name)
-                                platforms.append(platform)
-                            except Platform.DoesNotExist:
-                                self.logger.warning(
-                                    f"Platform not found for config context: {platform_name}",
-                                    extra={"grouping": "config_contexts"},
-                                )
-                        if platforms:
-                            cc.platforms.set(platforms)
-
-                    cc.validated_save()
-
-                    if created:
-                        self.logger.success(
-                            f"Created config context: {name}",
-                            extra={"grouping": "config_contexts", "object": cc},
-                        )
-                    else:
-                        self.logger.info(
-                            f"Config context already exists: {name}",
-                            extra={"grouping": "config_contexts", "object": cc},
-                        )
-
+                    self._load_single_config_context(cc_data)
                 except Exception as e:
                     self.logger.error(
                         f"Error processing config context: {cc_data.get('name', 'unknown')}",

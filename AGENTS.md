@@ -51,15 +51,19 @@ def do_something():
     v1 = CoreV1Api()
     ...
 
+
 # Wrong — import buried inside a function
 def do_something():
     from kubernetes.client import CoreV1Api
+
     v1 = CoreV1Api()
     ...
+
 
 # Exception — circular dependency with comment
 def get_app():
     from nv_config_manager_installer.tui.app import NVConfigManagerApp  # avoid circular import
+
     return NVConfigManagerApp()
 ```
 
