@@ -10,7 +10,7 @@ The structured log fields most useful for triage are:
 
 | Field | Use |
 | :---- | :-- |
-| `service` | Service that emitted the log, such as `render`, `dhcp`, `ztp`, `temporal-api`, `temporal-worker`, or `config-store`. |
+| `service` | Service that emitted the log, such as `render`, `dhcp`, `ztp`, `temporal-api`, `temporal-worker`, `temporal-scheduler`, or `config-store`. |
 | `category` | Subsystem label used for filtering and dashboard panels. |
 | `levelname` | Severity: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
 | `message` | Human-readable message template. |
@@ -214,7 +214,55 @@ Warning and error messages:
 | WARNING | `"Ignoring retry request for non-retryable stage."` |
 | WARNING | `"Ignoring retry request for non-failed stage."` |
 | ERROR | `"No RBAC configuration found for %s"` |
-| ERROR | `"Error querying desired devices from Nautobot, leaving schedules unchanged."` |
+| ERROR | `"Error querying desired backup devices from the configured DCIM, leaving schedules unchanged."` |
+
+#### Workflow registry diagnostics
+
+The Temporal API (`temporal-api`), worker (`temporal-worker`), and scheduler host (`temporal-scheduler`) each log these `temporal.workflow` records at startup: one per installed workflow plugin, then one manifest summary.
+
+- `"Loaded workflow plugin %s version %s: %d workflows, %d activities, %d schedulers"`
+- `"Workflow registry manifest %s: %d plugins, %d workflows, %d activities, %d schedulers"`
+
+| Field | Use |
+| :---- | :-- |
+| `event_type` | `workflow_plugin` for a per-plugin record, `workflow_registry_manifest` for the summary. |
+| `plugin`, `plugin_version` | Plugin name and version. Per-plugin records only. |
+| `plugins` | Every plugin as `name==version`, in registry order. Summary only. |
+| `workflow_count`, `activity_count`, `scheduler_count` | Contributions of the plugin, or registry totals in the summary. |
+| `scheduler_identities` | Scheduler identities the plugin contributes, or every registered identity in the summary. |
+| `registry_fingerprint` | `sha256:` fingerprint of the plugin names, versions, counts, and workflow, activity, and scheduler names. |
+
+The fingerprint is identical across processes running the same image and plugin set, so a different fingerprint between the API, worker, and scheduler host indicates image or plugin skew. It is not a security signature. These records never include configuration values, descriptor metadata, or entry-point paths.
+
+A process exits with a traceback for `WorkflowRegistrationError` or one of its subclasses (for example `WorkflowPluginDiscoveryError` or `WorkflowSchedulerIdentityError`) instead of these records when plugin discovery or validation fails, or when the built-in plugin is not registered in the `nv_config_manager.workflows` entry-point group.
+
+#### Workflow scheduler host
+
+The scheduler host runs as its own process and sets `service` to `temporal-scheduler` on every log record, including records from the schedulers it runs. Filter on `service` to separate it from the Temporal worker. The host messages below use the `temporal.workflow` category; plugin schedulers may log under other categories. Lifecycle messages name the scheduler identity and the plugin that contributed it. Failure messages name only the exception type and never include configuration values.
+
+Representative INFO messages:
+
+- `"Loaded workflow plugin %s version %s: %d workflows, %d activities, %d schedulers"`
+- `"Workflow registry manifest %s: %d plugins, %d workflows, %d activities, %d schedulers"`
+- `"Enabled workflow schedulers: %s"`
+- `"Constructing workflow scheduler %s from plugin %s"`
+- `"Constructed workflow scheduler %s from plugin %s"`
+- `"Started workflow scheduler %s from plugin %s"`
+- `"Stopped workflow scheduler %s from plugin %s"`
+- `"Received signal %s, stopping workflow schedulers"`
+
+Warning and error messages:
+
+| Level | Message |
+| :---- | :------ |
+| WARNING | `"Scheduler host enabled with no selected scheduler contributions"` |
+| ERROR | `"Failed to construct workflow scheduler %s from plugin %s: %s"` |
+| ERROR | `"Workflow scheduler %s from plugin %s failed: %s"` |
+| ERROR | `"Workflow scheduler %s from plugin %s returned unexpectedly"` |
+
+The `"Scheduler host enabled with no selected scheduler contributions"` warning occurs only when the host runs outside Helm with `NVCM_ENABLED_SCHEDULERS` set to an empty value; Helm does not render the scheduler Deployment when no scheduler is selected.
+
+The host exits with a `SchedulerHostError` traceback instead of a log record, before any scheduler starts, when `NVCM_ENABLED_SCHEDULERS` lists an identity more than once or names an unregistered identity (`"Unknown enabled workflow scheduler identities: ..."`).
 
 ### `temporal.activity`
 

@@ -133,7 +133,7 @@ nv-config-manager-dhcp-api = "nv_config_manager.dhcp.api:main"
 nv-config-manager-temporal-worker = "nv_config_manager.temporal.worker.main:cli_main"
 nv-config-manager-temporal-api = "nv_config_manager.temporal.api.main:main"
 nv-config-manager-temporal-archive = "nv_config_manager.temporal.archive.main:main"
-nv-config-manager-temporal-scheduler = "nv_config_manager.temporal.ngc.schedulers.backup:main"
+nv-config-manager-temporal-scheduler = "nv_config_manager.temporal.scheduler.main:main"
 workflow-cli = "nv_config_manager.temporal.cli:main"
 
 # Render Service
@@ -232,6 +232,8 @@ packages = ["src/nv_config_manager"]
 [tool.pytest.ini_options]
 cache_dir = ".cache/pytest_cache"
 asyncio_mode = "auto"
+# Importable, not installed: the fixture plugin is never discovered through entry points.
+pythonpath = ["packages/workflows/tests/fixtures/plugin/src"]
 testpaths = [
     "src/tests",
     "development/mock_topology/tests",

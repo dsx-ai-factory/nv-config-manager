@@ -23,22 +23,11 @@ from typing import Any, cast
 import pytest
 
 from nv_config_manager.temporal import converter as legacy_converter
-from nv_config_manager.temporal.common.activities import REGISTERED_COMMON_ACTIVITIES
 from nv_config_manager.temporal.common.activities import lock as legacy_lock_activities
 from nv_config_manager.temporal.common.decorators import workflow as legacy_workflow_decorator
 from nv_config_manager.temporal.hello_world.activities import (
-    REGISTERED_ACTIVITIES as HELLO_WORLD_ACTIVITIES,
-)
-from nv_config_manager.temporal.hello_world.activities import (
     hello_world as legacy_hello_world_activities,
 )
-from nv_config_manager.temporal.hello_world.workflows import (
-    LOCAL_TEST_WORKFLOWS as HELLO_WORLD_LOCAL_TEST_WORKFLOWS,
-)
-from nv_config_manager.temporal.hello_world.workflows import (
-    REGISTERED_WORKFLOWS as HELLO_WORLD_WORKFLOWS,
-)
-from nv_config_manager.temporal.ngc.activities import REGISTERED_ACTIVITIES as NGC_ACTIVITIES
 from nv_config_manager.temporal.ngc.activities import backup as legacy_backup_activities
 from nv_config_manager.temporal.ngc.activities import bmc as legacy_bmc_activities
 from nv_config_manager.temporal.ngc.activities import (
@@ -71,7 +60,7 @@ from nv_config_manager.temporal.ngc.activities import render as legacy_render_ac
 from nv_config_manager.temporal.ngc.activities import slack as legacy_slack_activities
 from nv_config_manager.temporal.ngc.activities import ticketing as legacy_ticketing_activities
 from nv_config_manager.temporal.ngc.activities import ufm as legacy_ufm_activities
-from nv_config_manager.temporal.ngc.workflows import REGISTERED_WORKFLOWS as NGC_WORKFLOWS
+from nv_config_manager.temporal.workflow_registry import build_workflow_registry
 from nv_config_manager_workflows import converter as canonical_converter
 from nv_config_manager_workflows.activities import backup as canonical_backup_activities
 from nv_config_manager_workflows.activities import bmc as canonical_bmc_activities
@@ -110,18 +99,9 @@ from nv_config_manager_workflows.decorators import workflow as canonical_workflo
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
 from nv_config_manager_workflows.metadata import lock as workflow_lock
 from nv_config_manager_workflows.registration.contract import activity_name, workflow_type_name
+from nv_config_manager_workflows.workflows import LOCAL_TEST_WORKFLOWS
 
 _FIXTURES = Path(__file__).with_name("fixtures")
-_REGISTERED_ACTIVITIES = [
-    *NGC_ACTIVITIES,
-    *HELLO_WORLD_ACTIVITIES,
-    *REGISTERED_COMMON_ACTIVITIES,
-]
-_REGISTERED_WORKFLOWS = [
-    *NGC_WORKFLOWS,
-    *HELLO_WORLD_WORKFLOWS,
-    *HELLO_WORLD_LOCAL_TEST_WORKFLOWS,
-]
 
 
 def _required_name(name: str | None) -> str:
@@ -131,15 +111,16 @@ def _required_name(name: str | None) -> str:
 
 
 def _registered_type_names() -> dict[str, list[str]]:
-    """Read the type names Temporal sees from every worker registration source."""
+    """Read the type names Temporal sees from the worker's registry and local-test workflows."""
+    registry = build_workflow_registry()
     return {
         "activities": sorted(
             _required_name(activity_name(cast(Callable[..., Any], registered)))
-            for registered in _REGISTERED_ACTIVITIES
+            for registered in registry.all_activities
         ),
         "workflows": sorted(
             _required_name(workflow_type_name(cast(type[WorkflowMetadataMixin], registered)))
-            for registered in _REGISTERED_WORKFLOWS
+            for registered in [*registry.all_workflows, *LOCAL_TEST_WORKFLOWS]
         ),
     }
 

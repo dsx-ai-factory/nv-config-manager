@@ -20,8 +20,8 @@ from pathlib import Path
 import yaml
 
 import nv_config_manager.temporal.ngc.workflows as workflows
-from nv_config_manager.temporal.ngc.workflows import REGISTERED_WORKFLOWS
 from nv_config_manager.temporal.ngc.workflows.deploy import TenantDeployWorkflow
+from nv_config_manager_workflows.workflows.builtin import BUILTIN_WORKFLOWS
 
 
 def _load_all_workflow_classes():
@@ -44,14 +44,14 @@ def test_workflow_registration():
     """Test that all workflows are registered."""
     workflow_classes = _load_all_workflow_classes()
     for workflow_class in workflow_classes:
-        assert workflow_class in REGISTERED_WORKFLOWS, (
+        assert workflow_class in BUILTIN_WORKFLOWS, (
             f"Workflow {workflow_class.__name__} not registered"
         )
 
 
 def test_tenant_deploy_is_worker_internal():
     """Keep Tenant Deploy executable as a child without exposing a public start surface."""
-    assert TenantDeployWorkflow in REGISTERED_WORKFLOWS
+    assert TenantDeployWorkflow in BUILTIN_WORKFLOWS
     assert TenantDeployWorkflow.get_workflow_api_endpoint() is None
     assert not TenantDeployWorkflow.has_complete_metadata()
 

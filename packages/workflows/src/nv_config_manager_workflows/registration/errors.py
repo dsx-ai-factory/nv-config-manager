@@ -42,3 +42,35 @@ class WorkflowConflictError(WorkflowRegistrationError):
 
 class WorkflowRequiredActivityError(WorkflowRegistrationError):
     """A workflow requires an activity that no installed plugin supplies."""
+
+
+class WorkflowSchedulerRegistrationError(WorkflowRegistrationError):
+    """Base class for an invalid scheduler contribution."""
+
+
+class WorkflowSchedulerIdentityError(WorkflowSchedulerRegistrationError):
+    """A scheduler does not declare a usable stable identity."""
+
+
+class WorkflowSchedulerDuplicateIdentityError(WorkflowSchedulerIdentityError):
+    """More than one scheduler contribution declares the same stable identity."""
+
+
+class WorkflowSchedulerAbstractError(WorkflowSchedulerRegistrationError):
+    """A scheduler contribution is abstract and cannot be constructed."""
+
+
+class WorkflowSchedulerConstructorError(WorkflowSchedulerRegistrationError):
+    """A scheduler contribution cannot be constructed without arguments."""
+
+
+class WorkflowSchedulerRunError(WorkflowSchedulerRegistrationError):
+    """A scheduler contribution does not expose a usable ``run()`` method."""
+
+
+class WorkflowSchedulerRunNotAsyncError(WorkflowSchedulerRunError):
+    """A scheduler contribution exposes a synchronous ``run()`` method."""
+
+
+class WorkflowSchedulerRunArgumentsError(WorkflowSchedulerRunError):
+    """A scheduler contribution's ``run()`` method requires arguments."""

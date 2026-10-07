@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, Self, cast
 
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.registration.builtin import BUILTIN_PLUGIN_NAME
 from nv_config_manager_workflows.registration.contract import (
     workflow_api_enabled,
     workflow_mcp_enabled,
@@ -43,6 +44,15 @@ class PluginInfo:
     scheduler_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class SchedulerRegistration:
+    """One validated scheduler together with its immutable plugin provenance."""
+
+    plugin: str
+    identity: str
+    scheduler: type[WorkflowScheduler]
+
+
 @dataclass
 class WorkflowRegistry:
     """Built-in and plugin workflows merged into one validated catalog."""
@@ -50,6 +60,7 @@ class WorkflowRegistry:
     all_workflows: list[type[WorkflowMetadataMixin]] = field(default_factory=list)
     all_activities: list[Callable[..., Any]] = field(default_factory=list)
     all_schedulers: list[type[WorkflowScheduler]] = field(default_factory=list)
+    scheduler_registrations: tuple[SchedulerRegistration, ...] = ()
     api_workflows: list[type[WorkflowMetadataMixin]] = field(default_factory=list)
     mcp_workflows: list[type[WorkflowMetadataMixin]] = field(default_factory=list)
     plugin_diagnostics: list[PluginInfo] = field(default_factory=list)
@@ -65,15 +76,17 @@ class WorkflowRegistry:
 
         Returns:
             A registry whose lists are empty on a clean install with no
-            populated plugins, ordered by plugin name and then by the order each
-            descriptor declares.
+            populated plugins, ordered with the built-in plugin first, then by
+            plugin name, and then by the order each descriptor declares.
 
         Raises:
             WorkflowRegistrationError: Discovery or validation rejected the
                 installed set; see the subclasses in ``errors`` for which.
         """
         discovered = discover_workflow_plugins() if plugins is None else dict(plugins)
-        ordered = dict(sorted(discovered.items()))
+        ordered = dict(
+            sorted(discovered.items(), key=lambda item: (item[0] != BUILTIN_PLUGIN_NAME, item[0]))
+        )
         validate_plugins(ordered)
 
         all_workflows = [
@@ -83,12 +96,22 @@ class WorkflowRegistry:
             )
         ]
         all_activities = list(dict.fromkeys(a for d in ordered.values() for a in d.activities))
-        all_schedulers = list(dict.fromkeys(s for d in ordered.values() for s in d.schedulers))
+        scheduler_registrations = tuple(
+            SchedulerRegistration(
+                plugin=plugin_name,
+                identity=scheduler.scheduler_identity,
+                scheduler=scheduler,
+            )
+            for plugin_name, descriptor in ordered.items()
+            for scheduler in descriptor.schedulers
+        )
+        all_schedulers = [registration.scheduler for registration in scheduler_registrations]
 
         return cls(
             all_workflows=all_workflows,
             all_activities=all_activities,
             all_schedulers=all_schedulers,
+            scheduler_registrations=scheduler_registrations,
             api_workflows=[w for w in all_workflows if workflow_api_enabled(w)],
             mcp_workflows=[w for w in all_workflows if workflow_mcp_enabled(w)],
             plugin_diagnostics=[

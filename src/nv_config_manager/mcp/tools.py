@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Iterable
 from typing import Annotated, Any, cast
 
 from mcp.server.fastmcp import FastMCP
@@ -42,14 +43,19 @@ from nv_config_manager.mcp.workflows import (
     discover_mcp_workflows,
     normalize_workflow_parameters,
 )
+from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
 
 PUBLIC_DOCS_MCP_SERVER_URL = (
     "https://docs.nvidia.com/switch-infrastructure/config-manager/_mcp/server"
 )
 
 
-def register_tools(server: FastMCP, settings: MCPSettings) -> None:
-    """Register NVIDIA Config Manager MCP tools."""
+def register_tools(
+    server: FastMCP,
+    settings: MCPSettings,
+    workflows: Iterable[type[WorkflowMetadataMixin]],
+) -> None:
+    """Register NVIDIA Config Manager MCP tools and the given MCP-enabled workflows."""
 
     def nautobot_tool() -> Any:
         """Register an optional tool when the selected provider supports it."""
@@ -308,7 +314,7 @@ def register_tools(server: FastMCP, settings: MCPSettings) -> None:
         """Get details for a Workflow API execution visible to the caller."""
         return await fetch_workflow_detail(settings, workflow_id)
 
-    for workflow in discover_mcp_workflows():
+    for workflow in discover_mcp_workflows(workflows):
         _register_workflow_starter(server, settings, workflow)
 
 
