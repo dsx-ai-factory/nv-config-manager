@@ -19,8 +19,18 @@ import os
 
 import pytest
 
+from nv_config_manager.ztp.api.device_reads import reset_device_reads
+
 # Get the directory containing this conftest.py
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+@pytest.fixture(autouse=True)
+def _reset_device_reads():
+    """Keep one test's cached device from answering the next test."""
+    reset_device_reads()
+    yield
+    reset_device_reads()
 
 
 @pytest.fixture
