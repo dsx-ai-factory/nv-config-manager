@@ -21,13 +21,10 @@ from nautobot.core.api import ContentTypeField
 from rest_framework import serializers
 
 from nautobot_app_overlays import models
-from nautobot_app_overlays.choices import ASSIGNABLE_CONTENT_TYPES, IsolationTypeChoices
-
-# Overlay isolation types whose members must not carry IB PKey attributes (GUID, membership type).
-_GUIDLESS_ISOLATION_TYPES = (
-    IsolationTypeChoices.VXLAN_EVPN,
-    IsolationTypeChoices.SPECTRUM_X_VRF,
-    IsolationTypeChoices.IB_MKEY,
+from nautobot_app_overlays.choices import (
+    ASSIGNABLE_CONTENT_TYPES,
+    GUIDLESS_ISOLATION_TYPES,
+    IsolationTypeChoices,
 )
 
 
@@ -73,7 +70,7 @@ class OverlayAssignmentSerializer(NautobotModelSerializer):
         isolation_type = overlay.isolation_type
         if isolation_type == IsolationTypeChoices.IB_PKEY:
             errors = self._ib_pkey_member_errors(data)
-        elif isolation_type in _GUIDLESS_ISOLATION_TYPES:
+        elif isolation_type in GUIDLESS_ISOLATION_TYPES:
             errors = self._guidless_member_errors(data, isolation_type)
         else:
             errors = {}
@@ -120,14 +117,11 @@ class VXLANSerializer(NautobotModelSerializer):
         fields = "__all__"
 
     def validate(self, data):
-        """Validate VXLAN can only be associated with VXLAN/EVPN overlays."""
+        """Validate VXLAN can only be associated with VXLAN-compatible overlays."""
         data = super().validate(data)
         overlay = data.get("overlay") or (self.instance.overlay if self.instance else None)
 
-        if overlay and overlay.isolation_type not in (
-            IsolationTypeChoices.VXLAN_EVPN,
-            IsolationTypeChoices.SPECTRUM_X_VRF,
-        ):
+        if overlay and overlay.isolation_type not in models.VXLAN.VXLAN_COMPATIBLE_ISOLATION_TYPES:
             raise serializers.ValidationError(
                 {"overlay": "VXLANs can only be associated with VXLAN/EVPN or Spectrum X overlays."}
             )

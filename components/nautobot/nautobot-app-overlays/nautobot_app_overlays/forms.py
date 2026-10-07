@@ -35,6 +35,7 @@ from nautobot.tenancy.models import Tenant
 
 from nautobot_app_overlays import models
 from nautobot_app_overlays.choices import (
+    GUIDLESS_ISOLATION_TYPES,
     IsolationTypeChoices,
     OverlayAssignmentRoleChoices,
     PKeyMembershipTypeChoices,
@@ -42,13 +43,6 @@ from nautobot_app_overlays.choices import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Overlay isolation types whose assignments must not carry IB PKey attributes (GUID, membership type).
-_GUIDLESS_ISOLATION_TYPES = (
-    IsolationTypeChoices.VXLAN_EVPN,
-    IsolationTypeChoices.SPECTRUM_X_VRF,
-    IsolationTypeChoices.IB_MKEY,
-)
 
 # OverlayAssignmentForm object types, each backed by a same-named picker field, and the
 # error raised when that picker is left empty.
@@ -334,7 +328,7 @@ class OverlayAssignmentForm(NautobotModelForm):
                 self.add_error("guid", "GUID is required for IB PKey overlay assignments.")
             return
 
-        if isolation_type not in _GUIDLESS_ISOLATION_TYPES:
+        if isolation_type not in GUIDLESS_ISOLATION_TYPES:
             return
         for field_name, label in (("guid", "GUID"), ("membership_type", "Membership type")):
             if cleaned_data.get(field_name):

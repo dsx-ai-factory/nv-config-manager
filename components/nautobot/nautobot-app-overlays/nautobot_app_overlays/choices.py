@@ -38,6 +38,14 @@ class IsolationTypeChoices(ChoiceSet):
     )
 
 
+# Overlay isolation types whose assignments must not carry IB PKey attributes (GUID, membership type).
+GUIDLESS_ISOLATION_TYPES = (
+    IsolationTypeChoices.VXLAN_EVPN,
+    IsolationTypeChoices.SPECTRUM_X_VRF,
+    IsolationTypeChoices.IB_MKEY,
+)
+
+
 class OverlayAssignmentRoleChoices(ChoiceSet):
     """Choices for OverlayAssignment role field."""
 
