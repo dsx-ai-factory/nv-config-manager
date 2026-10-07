@@ -23,6 +23,13 @@ from rest_framework import serializers
 from nautobot_app_overlays import models
 from nautobot_app_overlays.choices import ASSIGNABLE_CONTENT_TYPES, IsolationTypeChoices
 
+# Overlay isolation types whose members must not carry IB PKey attributes (GUID, membership type).
+_GUIDLESS_ISOLATION_TYPES = (
+    IsolationTypeChoices.VXLAN_EVPN,
+    IsolationTypeChoices.SPECTRUM_X_VRF,
+    IsolationTypeChoices.IB_MKEY,
+)
+
 
 class OverlaySerializer(NautobotModelSerializer):
     """Serializer for Overlay model."""
@@ -64,37 +71,43 @@ class OverlayAssignmentSerializer(NautobotModelSerializer):
             return data
 
         isolation_type = overlay.isolation_type
-        assigned_object_type = data.get("assigned_object_type") or (
-            self.instance.assigned_object_type if self.instance else None
-        )
-        object_model = assigned_object_type.model if assigned_object_type else None
-        guid = data.get("guid", getattr(self.instance, "guid", None) if self.instance else None)
-        membership_type = data.get(
-            "membership_type", getattr(self.instance, "membership_type", None) if self.instance else None
-        )
-
-        errors = {}
-
         if isolation_type == IsolationTypeChoices.IB_PKEY:
-            if object_model and object_model != "interface":
-                errors["assigned_object_type"] = "IB PKey overlays can only have Interface members."
-            if not guid:
-                errors["guid"] = "GUID is required for IB PKey overlay members."
-
-        elif isolation_type in (
-            IsolationTypeChoices.VXLAN_EVPN,
-            IsolationTypeChoices.SPECTRUM_X_VRF,
-            IsolationTypeChoices.IB_MKEY,
-        ):
-            if guid:
-                errors["guid"] = f"GUID should not be set for {isolation_type} overlay members."
-            if membership_type:
-                errors["membership_type"] = f"Membership type should not be set for {isolation_type} overlay members."
+            errors = self._ib_pkey_member_errors(data)
+        elif isolation_type in _GUIDLESS_ISOLATION_TYPES:
+            errors = self._guidless_member_errors(data, isolation_type)
+        else:
+            errors = {}
 
         if errors:
             raise serializers.ValidationError(errors)
 
         return data
+
+    def _effective_value(self, data, field):
+        """Return the submitted value for ``field``, falling back to the instance being updated."""
+        return data.get(field, getattr(self.instance, field, None))
+
+    def _ib_pkey_member_errors(self, data):
+        """Return field errors for a member of an IB PKey overlay."""
+        errors = {}
+        assigned_object_type = data.get("assigned_object_type") or (
+            self.instance.assigned_object_type if self.instance else None
+        )
+        object_model = assigned_object_type.model if assigned_object_type else None
+        if object_model and object_model != "interface":
+            errors["assigned_object_type"] = "IB PKey overlays can only have Interface members."
+        if not self._effective_value(data, "guid"):
+            errors["guid"] = "GUID is required for IB PKey overlay members."
+        return errors
+
+    def _guidless_member_errors(self, data, isolation_type):
+        """Return field errors for a member of an overlay type that must not carry IB PKey attributes."""
+        errors = {}
+        if self._effective_value(data, "guid"):
+            errors["guid"] = f"GUID should not be set for {isolation_type} overlay members."
+        if self._effective_value(data, "membership_type"):
+            errors["membership_type"] = f"Membership type should not be set for {isolation_type} overlay members."
+        return errors
 
 
 class VXLANSerializer(NautobotModelSerializer):

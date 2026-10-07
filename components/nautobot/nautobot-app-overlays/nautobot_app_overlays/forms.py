@@ -42,6 +42,23 @@ from nautobot_app_overlays.choices import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Overlay isolation types whose assignments must not carry IB PKey attributes (GUID, membership type).
+_GUIDLESS_ISOLATION_TYPES = (
+    IsolationTypeChoices.VXLAN_EVPN,
+    IsolationTypeChoices.SPECTRUM_X_VRF,
+    IsolationTypeChoices.IB_MKEY,
+)
+
+# OverlayAssignmentForm object types, each backed by a same-named picker field, and the
+# error raised when that picker is left empty.
+_MISSING_OBJECT_MESSAGES = {
+    "device": "Please select a device.",
+    "interface": "Please select an interface.",
+    "rack": "Please select a rack.",
+    "vxlan": "Please select a VXLAN.",
+}
+
 # -----------------------------------------------------------------------------
 # Overlay Forms
 # -----------------------------------------------------------------------------
@@ -272,20 +289,19 @@ class OverlayAssignmentForm(NautobotModelForm):
 
         # If editing an existing assignment, populate the object type and object fields
         if self.instance and self.instance.pk:
-            assigned_obj = self.instance.assigned_object
-            if assigned_obj:
-                model_name = assigned_obj._meta.model_name
-                self.initial["object_type"] = model_name
-                if model_name == "device":
-                    self.initial["device"] = assigned_obj
-                elif model_name == "interface":
-                    self.initial["interface"] = assigned_obj
-                    if hasattr(assigned_obj, "device") and assigned_obj.device:
-                        self.initial["device"] = assigned_obj.device
-                elif model_name == "rack":
-                    self.initial["rack"] = assigned_obj
-                elif model_name == "vxlan":
-                    self.initial["vxlan"] = assigned_obj
+            self._set_assigned_object_initial(self.instance.assigned_object)
+
+    def _set_assigned_object_initial(self, assigned_obj):
+        """Pre-select the object type and object picker for an existing assignment."""
+        if not assigned_obj:
+            return
+        model_name = assigned_obj._meta.model_name
+        self.initial["object_type"] = model_name
+        if model_name not in _MISSING_OBJECT_MESSAGES:
+            return
+        self.initial[model_name] = assigned_obj
+        if model_name == "interface" and getattr(assigned_obj, "device", None):
+            self.initial["device"] = assigned_obj.device
 
     def clean(self):
         """Validate that the selected object matches the object type and isolation constraints."""
@@ -302,50 +318,38 @@ class OverlayAssignmentForm(NautobotModelForm):
 
         # Validate object type against overlay isolation type
         if overlay:
-            isolation_type = overlay.isolation_type
+            self._validate_isolation_constraints(overlay.isolation_type, object_type, cleaned_data)
 
-            if isolation_type == IsolationTypeChoices.IB_PKEY:
-                if object_type != "interface":
-                    raise forms.ValidationError(
-                        "IB PKey overlays can only have Interface assignments. Please select an interface."
-                    )
-                if not cleaned_data.get("guid"):
-                    self.add_error("guid", "GUID is required for IB PKey overlay assignments.")
-
-            elif isolation_type in (
-                IsolationTypeChoices.VXLAN_EVPN,
-                IsolationTypeChoices.SPECTRUM_X_VRF,
-                IsolationTypeChoices.IB_MKEY,
-            ):
-                if cleaned_data.get("guid"):
-                    self.add_error("guid", f"GUID should not be set for {isolation_type} overlay assignments.")
-                if cleaned_data.get("membership_type"):
-                    self.add_error(
-                        "membership_type",
-                        f"Membership type should not be set for {isolation_type} overlay assignments.",
-                    )
-
-        # Get the selected object based on type
-        selected_object = None
-        if object_type == "device":
-            selected_object = cleaned_data.get("device")
-            if not selected_object:
-                raise forms.ValidationError("Please select a device.")
-        elif object_type == "interface":
-            selected_object = cleaned_data.get("interface")
-            if not selected_object:
-                raise forms.ValidationError("Please select an interface.")
-        elif object_type == "rack":
-            selected_object = cleaned_data.get("rack")
-            if not selected_object:
-                raise forms.ValidationError("Please select a rack.")
-        elif object_type == "vxlan":
-            selected_object = cleaned_data.get("vxlan")
-            if not selected_object:
-                raise forms.ValidationError("Please select a VXLAN.")
-
-        cleaned_data["_selected_object"] = selected_object
+        cleaned_data["_selected_object"] = self._get_selected_object(object_type, cleaned_data)
         return cleaned_data
+
+    def _validate_isolation_constraints(self, isolation_type, object_type, cleaned_data):
+        """Enforce the member rules implied by the overlay's isolation type."""
+        if isolation_type == IsolationTypeChoices.IB_PKEY:
+            if object_type != "interface":
+                raise forms.ValidationError(
+                    "IB PKey overlays can only have Interface assignments. Please select an interface."
+                )
+            if not cleaned_data.get("guid"):
+                self.add_error("guid", "GUID is required for IB PKey overlay assignments.")
+            return
+
+        if isolation_type not in _GUIDLESS_ISOLATION_TYPES:
+            return
+        for field_name, label in (("guid", "GUID"), ("membership_type", "Membership type")):
+            if cleaned_data.get(field_name):
+                self.add_error(field_name, f"{label} should not be set for {isolation_type} overlay assignments.")
+
+    @staticmethod
+    def _get_selected_object(object_type, cleaned_data):
+        """Return the object chosen for ``object_type``, raising if the picker was left empty."""
+        missing_message = _MISSING_OBJECT_MESSAGES.get(object_type)
+        if missing_message is None:
+            return None
+        selected_object = cleaned_data.get(object_type)
+        if not selected_object:
+            raise forms.ValidationError(missing_message)
+        return selected_object
 
     def save(self, commit=True):
         """Save the form, setting the GenericForeignKey fields."""
@@ -355,14 +359,8 @@ class OverlayAssignmentForm(NautobotModelForm):
 
         if not selected_object:
             object_type = self.cleaned_data.get("object_type")
-            if object_type == "device":
-                selected_object = self.cleaned_data.get("device")
-            elif object_type == "interface":
-                selected_object = self.cleaned_data.get("interface")
-            elif object_type == "rack":
-                selected_object = self.cleaned_data.get("rack")
-            elif object_type == "vxlan":
-                selected_object = self.cleaned_data.get("vxlan")
+            if object_type in _MISSING_OBJECT_MESSAGES:
+                selected_object = self.cleaned_data.get(object_type)
 
         if not selected_object:
             raise forms.ValidationError("No object selected. Please select a device, interface, or rack.")
