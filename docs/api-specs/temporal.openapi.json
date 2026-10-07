@@ -957,6 +957,92 @@
         "title": "NetworkDeviceData",
         "type": "object"
       },
+      "OptionItem": {
+        "description": "One normalized option rendered by a workflow form field.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "OptionItem",
+        "type": "object"
+      },
+      "OptionSourceMeta": {
+        "description": "Optional metadata accompanying normalized form options.",
+        "properties": {
+          "matching_device_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matching Device Count"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "title": "OptionSourceMeta",
+        "type": "object"
+      },
+      "OptionSourceResponse": {
+        "description": "Normalized response for a Python-declared direct option source.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OptionItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OptionSourceMeta"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "OptionSourceResponse",
+        "type": "object"
+      },
       "Overlay": {
         "description": "Overlay data for dropdown population.",
         "properties": {
@@ -2161,6 +2247,52 @@
         "title": "WorkflowDetailResponse",
         "type": "object"
       },
+      "WorkflowFormResponse": {
+        "description": "Version 1 input form of an API workflow, rendered with RJSF.\n\n``schema`` is the form projection of the input model's JSON Schema,\n``ui_schema`` a validated subset of an RJSF ``uiSchema``, ``requires`` the\ncapabilities the UI must support before rendering, and ``ui_component`` a\nfirst-party named form or ``null``.",
+        "properties": {
+          "requires": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Requires",
+            "type": "array"
+          },
+          "schema": {
+            "additionalProperties": true,
+            "title": "Schema",
+            "type": "object"
+          },
+          "ui_component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ui Component"
+          },
+          "ui_schema": {
+            "additionalProperties": true,
+            "title": "Ui Schema",
+            "type": "object"
+          },
+          "ui_schema_version": {
+            "title": "Ui Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema",
+          "ui_schema",
+          "ui_schema_version",
+          "requires",
+          "ui_component"
+        ],
+        "title": "WorkflowFormResponse",
+        "type": "object"
+      },
       "WorkflowListResponse": {
         "description": "Workflow List Response Model.",
         "properties": {
@@ -2225,6 +2357,17 @@
             },
             "title": "Execute Roles",
             "type": "array"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group"
           },
           "input_class": {
             "title": "Input Class",
@@ -3017,6 +3160,59 @@
         ]
       }
     },
+    "/v1/parameter/diagnostics/command-options": {
+      "get": {
+        "description": "Return grouped command options for the selected devices.",
+        "operationId": "get_diagnostics_command_options_v1_parameter_diagnostics_command_options_get",
+        "parameters": [
+          {
+            "description": "Selected managed device IDs",
+            "in": "query",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "description": "Selected managed device IDs",
+              "items": {
+                "type": "string"
+              },
+              "title": "Device Id",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptionSourceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Diagnostics Command Options",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
     "/v1/parameter/diagnostics/commands": {
       "get": {
         "description": "Return the diagnostics command catalog for the requested platform(s).\n\nPass one or more ``?platform=<slug>`` query params (e.g. ``cumulus-linux``).\nWhen no platform is given, commands from all platforms are returned.\nCommands that appear on multiple platforms are deduplicated by name.",
@@ -3312,6 +3508,140 @@
           }
         ],
         "summary": "Get Overlays",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/parameter/password-users": {
+      "get": {
+        "description": "Return password users from the first device matching the supplied filters.",
+        "operationId": "get_password_user_options_v1_parameter_password_users_get",
+        "parameters": [
+          {
+            "description": "Location containing the target devices",
+            "in": "query",
+            "name": "location",
+            "required": true,
+            "schema": {
+              "description": "Location containing the target devices",
+              "title": "Location",
+              "type": "string"
+            }
+          },
+          {
+            "description": "DCIM location type for the location identifier",
+            "in": "query",
+            "name": "location_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DCIMLocationType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "DCIM location type for the location identifier",
+              "title": "Location Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tenant",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant"
+            }
+          },
+          {
+            "description": "Limit to NVIDIA Config Manager-managed devices",
+            "in": "query",
+            "name": "managed_only",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Limit to NVIDIA Config Manager-managed devices",
+              "title": "Managed Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptionSourceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Password User Options",
         "tags": [
           "parameters"
         ]
@@ -5298,6 +5628,60 @@
           }
         ],
         "summary": "Get Workflow Types",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/{name}/form": {
+      "get": {
+        "description": "Return the v1 input form of an API workflow, looked up by its class name.",
+        "operationId": "get_workflow_form_v1_workflow__name__form_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowFormResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No API workflow has this class name."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "The workflow's third-party form failed contract validation."
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Workflow Form",
         "tags": [
           "workflow"
         ]

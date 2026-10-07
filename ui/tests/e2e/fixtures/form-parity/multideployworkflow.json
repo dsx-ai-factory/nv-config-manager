@@ -1,0 +1,82 @@
+{
+  "workflow": "MultiDeployWorkflow",
+  "input_model": "MultiDeployInput",
+  "scenarios": [
+    {
+      "name": "role only",
+      "legacy_url": "/workflows/multideployworkflow/form",
+      "new_url": "/workflows/new/MultiDeployWorkflow",
+      "legacy_payload": {
+        "role": "cin-leaf",
+        "max_batch_size": 10,
+        "location": null,
+        "status": null,
+        "tenant": null,
+        "commit_confirm": true
+      },
+      "generic_payload": {
+        "role": "cin-leaf",
+        "max_batch_size": 10,
+        "commit_confirm": true
+      }
+    },
+    {
+      "name": "every field",
+      "legacy_url": "/workflows/multideployworkflow/form",
+      "new_url": "/workflows/new/MultiDeployWorkflow",
+      "legacy_payload": {
+        "role": "cin-spine",
+        "max_batch_size": 25,
+        "location": "RNO1",
+        "location_type": "Site",
+        "status": [
+          "Active",
+          "Planned"
+        ],
+        "tenant": "TenantA",
+        "commit_confirm": false
+      },
+      "generic_payload": {
+        "role": "cin-spine",
+        "max_batch_size": 25,
+        "location": "RNO1",
+        "location_type": "Site",
+        "status": [
+          "Active",
+          "Planned"
+        ],
+        "tenant": "TenantA",
+        "commit_confirm": false
+      }
+    },
+    {
+      "name": "prefill from URL",
+      "legacy_url": "/workflows/multideployworkflow/form?role=cin-spine&max_batch_size=15&location=RNO1&status=Active&status=Provisioning&tenant=TenantA",
+      "new_url": "/workflows/new/MultiDeployWorkflow?role=cin-spine&max_batch_size=15&location=RNO1&status=Active&status=Provisioning&tenant=TenantA",
+      "legacy_payload": {
+        "role": "cin-spine",
+        "max_batch_size": 15,
+        "location": "RNO1",
+        "location_type": "Site",
+        "status": [
+          "Active",
+          "Provisioning"
+        ],
+        "tenant": "TenantA",
+        "commit_confirm": true
+      },
+      "generic_payload": {
+        "role": "cin-spine",
+        "max_batch_size": 15,
+        "location": "RNO1",
+        "location_type": "Site",
+        "status": [
+          "Active",
+          "Provisioning"
+        ],
+        "tenant": "TenantA",
+        "commit_confirm": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,203 @@
+{
+  "slug": "ibportguiddiscoveryworkflow",
+  "workflow": "IBPortGuidDiscoveryWorkflow",
+  "input_model": "IBPortGuidDiscoveryInput",
+  "python_module": "nv_config_manager_workflows.workflows.ib_port_guid_discovery",
+  "api_endpoint": "/v1/workflow/ngc/ib_port_guid_discovery",
+  "legacy_route": "/workflows/ibportguiddiscoveryworkflow/form",
+  "components": [
+    "ui/src/app/workflows/ibportguiddiscoveryworkflow/form/page.tsx:21",
+    "ui/src/app/workflows/ibportguiddiscoveryworkflow/form/ib-port-guid-discovery-workflow-form.tsx:52",
+    "ui/src/components/forms/formfield.tsx:60",
+    "ui/src/hooks/useEnvData.ts:25",
+    "ui/src/hooks/useDevices.ts:36",
+    "ui/src/lib/location-options.ts:25",
+    "ui/src/lib/utils.tsx:153"
+  ],
+  "playwright_specs": [],
+  "nautobot_links": [],
+  "fields": [
+    {
+      "name": "site",
+      "python_field": null,
+      "schema_type": null,
+      "required_in_schema": false,
+      "required_in_ui": true,
+      "label": "Site",
+      "description": null,
+      "schema_title": null,
+      "schema_description": null,
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "combobox (SelectBox, searchable by default)",
+      "proposed_widget": "site_reference",
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/location",
+        "params": {
+          "location_type": [
+            "Site",
+            "Module"
+          ]
+        },
+        "depends_on": null,
+        "label_key": "name",
+        "value_key": "id",
+        "notes": "Fetched by useEnvData as ?location_type=Site&location_type=Module (ui/src/hooks/useEnvData.ts:37). The submitted form value is not the raw id: mapLocationOptions encodes 'dcim-location:[\"<location_type>\",\"<id>\"]' when location_type is set and falls back to the bare id otherwise (ui/src/lib/location-options.ts:25-36). Static param is repeated (array)."
+      },
+      "query_param": null,
+      "query_param_normalization": null,
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "required ('Site is required'); UI-only field"
+      ],
+      "submit_transform": "UI-only filter; not sent (ui/src/app/workflows/ibportguiddiscoveryworkflow/form/ib-port-guid-discovery-workflow-form.tsx:103-107)"
+    },
+    {
+      "name": "ufm_device_id",
+      "python_field": "ufm_device_id",
+      "schema_type": "string",
+      "required_in_schema": true,
+      "required_in_ui": true,
+      "label": "UFM Device",
+      "description": null,
+      "schema_title": "Ufm Device Id",
+      "schema_description": "Identifier of the UFM device used to discover port GUIDs.",
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "combobox (SelectBox, searchable)",
+      "proposed_widget": "device_reference",
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/device",
+        "params": {
+          "role": "UFM"
+        },
+        "depends_on": {
+          "site": "site",
+          "site_type": "site"
+        },
+        "label_key": "name",
+        "value_key": "id",
+        "notes": "Request suppressed until site is non-empty; the encoded site value is decoded into site=<id> plus site_type=<location_type> query params (ui/src/hooks/useDevices.ts:43-56). Rows map name -> label, id -> value (useDevices.ts:59-61). No managed_only (UFM appliances are unmanaged) (ui/src/app/workflows/ibportguiddiscoveryworkflow/form/ib-port-guid-discovery-workflow-form.tsx:80-91). Cleared whenever site changes, including on mount (ui/src/app/workflows/ibportguiddiscoveryworkflow/form/ib-port-guid-discovery-workflow-form.tsx:95-98)."
+      },
+      "query_param": null,
+      "query_param_normalization": null,
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "non-empty ('UFM device is required'); schema is string with no minLength"
+      ],
+      "submit_transform": "sent as-is (device id)"
+    },
+    {
+      "name": "switch_device_ids",
+      "python_field": "switch_device_ids",
+      "schema_type": "array[string] (maxItems 1000)",
+      "required_in_schema": true,
+      "required_in_ui": true,
+      "label": "Switch Devices",
+      "description": null,
+      "schema_title": "Switch Device Ids",
+      "schema_description": "Identifiers of the InfiniBand switches whose interfaces will be synchronized.",
+      "ui_default": [],
+      "schema_default": null,
+      "widget_today": "multiselect (SelectBox multiple, searchable)",
+      "proposed_widget": "device_reference",
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/device",
+        "params": {
+          "managed_only": true
+        },
+        "depends_on": {
+          "site": "site",
+          "site_type": "site"
+        },
+        "label_key": "name",
+        "value_key": "id",
+        "notes": "Request suppressed until site is non-empty; the encoded site value is decoded into site=<id> plus site_type=<location_type> query params (ui/src/hooks/useDevices.ts:43-56). Rows map name -> label, id -> value (useDevices.ts:59-61). No platform/role filter: lists every managed device at the site, not only IB switches (ui/src/app/workflows/ibportguiddiscoveryworkflow/form/ib-port-guid-discovery-workflow-form.tsx:69-78). Cleared whenever site changes (ui/src/app/workflows/ibportguiddiscoveryworkflow/form/ib-port-guid-discovery-workflow-form.tsx:95-98)."
+      },
+      "query_param": null,
+      "query_param_normalization": null,
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "at least one ('At least one switch device is required'); schema has maxItems 1000 but no minItems"
+      ],
+      "submit_transform": "sent as-is (device id array)"
+    },
+    {
+      "name": "dry_run",
+      "python_field": "dry_run",
+      "schema_type": "boolean",
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": "Dry run",
+      "description": "Compute the UFM-to-DCIM GUID mappings without writing ib_guid back onto any interface. Uncheck to apply the changes.",
+      "schema_title": "Dry Run",
+      "schema_description": "Whether to report changes without updating the DCIM.",
+      "ui_default": true,
+      "schema_default": true,
+      "widget_today": "checkbox",
+      "proposed_widget": null,
+      "options": null,
+      "query_param": null,
+      "query_param_normalization": null,
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [],
+      "submit_transform": "always sent as a boolean"
+    }
+  ],
+  "payload_transform": "params = {ufm_device_id, switch_device_ids, dry_run} straight from form values; site is dropped (ui/src/app/workflows/ibportguiddiscoveryworkflow/form/ib-port-guid-discovery-workflow-form.tsx:103-107). startWorkflow POSTs to /v1/workflow/ngc/ib_port_guid_discovery; 2xx redirects to /workflows/{id} (the following success toast and form.reset() are effectively moot); error -> destructive toast 'Failed to create workflow: <error>' (ui/src/app/workflows/ibportguiddiscoveryworkflow/form/ib-port-guid-discovery-workflow-form.tsx:100-125).",
+  "discrepancies": [
+    "No e2e Playwright spec covers this form; only the docs screenshot loads it (ui/tests/docs-screenshots/workflowForms.spec.ts:446-449).",
+    "site is UI-only; IBPortGuidDiscoveryInput has no site field and the value only scopes the device option requests.",
+    "No query-param prefill (no useSearchParams), unlike the sibling InfiniBand Cable Validation form that submits the same ufm_device_id/switch_device_ids shape.",
+    "Option filters differ from the cable-validation form for the same field names: here UFM = role=UFM (no managed_only) and switches = managed_only=true with no platform filter; cable validation uses platform=UFM and platform=MLNX-OS with no managed_only.",
+    "Client-only: ufm_device_id non-empty and switch_device_ids min 1 (schema: no minLength; maxItems 1000 but no minItems).",
+    "Labels/descriptions differ from schema: 'UFM Device'/'Ufm Device Id', 'Switch Devices'/'Switch Device Ids', 'Dry run'/'Dry Run'; dry_run help text differs from the schema description."
+  ],
+  "contract_gaps": [
+    "BLOCKING for generic: site is not an input-model field, so it cannot carry a UiHint, and depends_on {site: site} cannot reference it because dependencies must name sibling model fields. Generic support needs either a device_reference widget that embeds its own site scope or a UI-only/virtual field concept.",
+    "Site option values are encoded 'dcim-location:[type,id]' and must expand into two device query params (site, site_type) (ui/src/hooks/useDevices.ts:43-50); depends_on maps one field to one query param with the raw value.",
+    "Location options need a repeated static param (location_type=Site&location_type=Module); OptionSource.params values are scalar-only.",
+    "device_reference on an array field (switch_device_ids) must render a multi-select; the contract does not define device_reference applicability for arrays or how it carries per-field filters (role=UFM vs managed_only=true).",
+    "Clearing dependent selections when site changes requires an explicit hint."
+  ],
+  "contract_shape": "cascade",
+  "v1_support": "generic",
+  "named_component_reason": null,
+  "sources": [
+    "ui/src/app/workflows/ibportguiddiscoveryworkflow/form/page.tsx:19-23",
+    "ui/src/app/workflows/ibportguiddiscoveryworkflow/form/ib-port-guid-discovery-workflow-form.tsx:41-48",
+    "ui/src/app/workflows/ibportguiddiscoveryworkflow/form/ib-port-guid-discovery-workflow-form.tsx:55-98",
+    "ui/src/app/workflows/ibportguiddiscoveryworkflow/form/ib-port-guid-discovery-workflow-form.tsx:100-125",
+    "ui/src/app/workflows/ibportguiddiscoveryworkflow/form/ib-port-guid-discovery-workflow-form.tsx:136-191",
+    "ui/src/components/forms/formfield.tsx:76-98",
+    "ui/src/components/ui/selectbox.tsx:90",
+    "ui/src/hooks/useEnvData.ts:34-41",
+    "ui/src/hooks/useEnvData.ts:89",
+    "ui/src/hooks/useDevices.ts:36-65",
+    "ui/src/lib/location-options.ts:25-59",
+    "ui/src/types/data-table.types.ts:173-177",
+    "ui/src/lib/utils.tsx:153-184",
+    "src/nv_config_manager/temporal/api/parameter_v1.py:82-90",
+    "src/nv_config_manager/temporal/api/parameter_v1.py:236-249",
+    "packages/workflows/src/nv_config_manager_workflows/workflows/ib_port_guid_discovery.py:69-80",
+    "packages/workflows/src/nv_config_manager_workflows/workflows/ib_port_guid_discovery.py:96-105",
+    "packages/workflows/src/nv_config_manager_workflows/workflow_references.py:24,83-87",
+    "ui/tests/docs-screenshots/workflowForms.spec.ts:446-449",
+    "ui/src/config/site.ts:164-168",
+    "model_json_schema() of IBPortGuidDiscoveryInput (dumped via uv run python)"
+  ]
+}

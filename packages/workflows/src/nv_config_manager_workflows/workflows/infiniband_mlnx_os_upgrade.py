@@ -14,7 +14,9 @@
 # limitations under the License.
 """Infiniband Mellanox OS Upgrade Workflow Definition."""
 
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import ClassVar
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
@@ -29,6 +31,7 @@ from nv_config_manager_workflows.stage import (
     StateEnum,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import OptionSource, device_field
 from nv_config_manager_workflows.workflow_references import DeviceReference
 
 with workflow.unsafe.imports_passed_through():
@@ -67,6 +70,21 @@ __all__ = [
 class InfinibandMlnxOSUpgradeInput(BaseModel):
     """Infiniband Mellanox OS Upgrade Workflow Input Definition."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "device_id": {
+            **device_field(
+                OptionSource(
+                    "/v1/parameter/device",
+                    "name",
+                    "id",
+                    params={"managed_only": True, "platform": "MLNX-OS"},
+                ),
+                filters=("site", "tenant", "status"),
+            ),
+            "ui:title": "Device",
+        },
+    }
+
     device_id: DeviceReference = Field(
         description="Identifier of the InfiniBand switch to upgrade."
     )
@@ -81,6 +99,7 @@ class InfinibandMlnxOSUpgradeWorkflow(WorkflowMetadataMixin, StageMixin):
 
     # Workflow metadata
     workflow_name = "InfiniBand MLNX-OS Upgrade"
+    workflow_group = "InfiniBand"
     workflow_description = (
         "Upgrade MLNX-OS on Infiniband switches with validation and rollback capabilities"
     )

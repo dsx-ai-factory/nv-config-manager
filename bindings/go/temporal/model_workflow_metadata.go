@@ -26,6 +26,7 @@ type WorkflowMetadata struct {
 	DisplayName  string         `json:"display_name"`
 	Endpoint     string         `json:"endpoint"`
 	ExecuteRoles []string       `json:"execute_roles"`
+	Group        NullableString `json:"group,omitempty"`
 	InputClass   string         `json:"input_class"`
 	Name         string         `json:"name"`
 	Namespace    NullableString `json:"namespace"`
@@ -180,6 +181,51 @@ func (o *WorkflowMetadata) SetExecuteRoles(v []string) {
 	o.ExecuteRoles = v
 }
 
+// GetGroup returns the Group field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *WorkflowMetadata) GetGroup() string {
+	if o == nil || IsNil(o.Group.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.Group.Get()
+}
+
+// GetGroupOk returns a tuple with the Group field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *WorkflowMetadata) GetGroupOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.Group.Get(), o.Group.IsSet()
+}
+
+// HasGroup returns a boolean if a field has been set.
+func (o *WorkflowMetadata) HasGroup() bool {
+	if o != nil && o.Group.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetGroup gets a reference to the given NullableString and assigns it to the Group field.
+func (o *WorkflowMetadata) SetGroup(v string) {
+	o.Group.Set(&v)
+}
+
+// SetGroupNil sets the value for Group to be an explicit nil
+func (o *WorkflowMetadata) SetGroupNil() {
+	o.Group.Set(nil)
+}
+
+// UnsetGroup ensures that no value is present for Group, not even an explicit nil
+func (o *WorkflowMetadata) UnsetGroup() {
+	o.Group.Unset()
+}
+
 // GetInputClass returns the InputClass field value
 func (o *WorkflowMetadata) GetInputClass() string {
 	if o == nil {
@@ -293,6 +339,9 @@ func (o WorkflowMetadata) ToMap() (map[string]interface{}, error) {
 	toSerialize["display_name"] = o.DisplayName
 	toSerialize["endpoint"] = o.Endpoint
 	toSerialize["execute_roles"] = o.ExecuteRoles
+	if o.Group.IsSet() {
+		toSerialize["group"] = o.Group.Get()
+	}
 	toSerialize["input_class"] = o.InputClass
 	toSerialize["name"] = o.Name
 	toSerialize["namespace"] = o.Namespace.Get()

@@ -1,0 +1,280 @@
+{
+  "slug": "spxoverlaytenantchangeworkflow",
+  "workflow": "SpXOverlayTenantChangeWorkflow",
+  "input_model": "SpXOverlayTenantChangeInput",
+  "python_module": "nv_config_manager_workflows.workflows.spx_overlay",
+  "api_endpoint": "/v1/workflow/ngc/spx_overlay_tenant_change",
+  "legacy_route": "/workflows/spxoverlaytenantchangeworkflow/form",
+  "components": [
+    "ui/src/app/workflows/spxoverlaytenantchangeworkflow/form/page.tsx:21",
+    "ui/src/app/workflows/spxoverlaytenantchangeworkflow/form/spx-overlay-tenant-change-workflow-form.tsx:64",
+    "ui/src/components/forms/formfield.tsx:60",
+    "ui/src/components/ui/selectbox.tsx:97",
+    "ui/src/hooks/useEnvData.ts:25",
+    "ui/src/hooks/useDevices.ts:36",
+    "ui/src/hooks/useDeviceInterfaces.ts:36",
+    "ui/src/hooks/useOverlays.ts:40",
+    "ui/src/hooks/useSyncSelectFromQuery.ts:38",
+    "ui/src/lib/location-options.ts:62",
+    "ui/src/lib/utils.tsx:153"
+  ],
+  "playwright_specs": [
+    "ui/tests/e2e/spxOverlaySelectors.spec.ts",
+    "ui/tests/e2e/spxOverlayTenantChangePorts.spec.ts"
+  ],
+  "nautobot_links": [],
+  "fields": [
+    {
+      "name": "site",
+      "python_field": "site",
+      "schema_type": "string",
+      "required_in_schema": true,
+      "required_in_ui": true,
+      "label": "Site",
+      "description": null,
+      "schema_title": "Site",
+      "schema_description": "Site containing the target network device.",
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "select",
+      "proposed_widget": "site_reference",
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/location",
+        "params": {
+          "location_type": [
+            "Site",
+            "Module"
+          ]
+        },
+        "depends_on": {},
+        "label_key": "name",
+        "value_key": "id",
+        "notes": "From useEnvData (useEnvData.ts:34-41). The UI value is 'dcim-location:[\"<location_type>\",\"<id>\"]' when the row has location_type (location-options.ts:21-36). Legacy display-name links resolve to the typed option (spxOverlaySelectors.spec.ts:21-51)."
+      },
+      "query_param": "site",
+      "query_param_normalization": "Once locations load, the value is resolved by encoded value, id, or display name. It is replaced only while the current value is empty or still equals the raw query, and an unresolvable value becomes '' (spx-overlay-tenant-change-workflow-form.tsx:130-145).",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "Trimmed min 1 'Site is required' (:54); the schema has no minLength",
+        "A manual site change clears device, overlay_id and port_names (:259-263)",
+        "Disabled while devices load (:258)"
+      ],
+      "submit_transform": "The encoded option is decoded: site = option id, or the raw value if no option matches. The location type is emitted as site_type (:220-223)."
+    },
+    {
+      "name": "overlay_id",
+      "python_field": "overlay_id",
+      "schema_type": "string | null",
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": "Overlay ID (optional — leave blank to remove)",
+      "description": null,
+      "schema_title": "Overlay ID",
+      "schema_description": "Identifier of the SpX overlay to assign and deploy tenant configuration for. Omit the overlay_id property or explicitly set it to null to remove the selected ports' current SpX assignment.",
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "select",
+      "proposed_widget": "select",
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/overlay",
+        "params": {
+          "isolation_type": "spectrum_x_vrf"
+        },
+        "depends_on": {
+          "location": "site",
+          "location_type": "site"
+        },
+        "label_key": "name",
+        "value_key": "name",
+        "notes": "useOverlays({enabled: Boolean(site), isolationType: 'spectrum_x_vrf', location: site}) (:112-120). There is no request until a site is selected. location and location_type are split from the encoded site value (useOverlays.ts:49-58; spxOverlaySelectors.spec.ts:21-51). The UI uses the overlay's name as the value, not its id."
+      },
+      "query_param": "overlay_id",
+      "query_param_normalization": "useSyncSelectFromQuery: after options load, the value is kept only if it equals an option value, otherwise it becomes '' (:194-201).",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "Trimmed (:55)",
+        "Disabled until a site is selected (:273)"
+      ],
+      "submit_transform": "'' becomes an explicit JSON null (overlay_id: data.overlay_id || null, :224). The key is always present (spxOverlaySelectors.spec.ts:126-131)."
+    },
+    {
+      "name": "device_id",
+      "python_field": "device_id",
+      "schema_type": "string",
+      "required_in_schema": true,
+      "required_in_ui": true,
+      "label": "Device",
+      "description": null,
+      "schema_title": "Device ID",
+      "schema_description": "Identifier of the target network device.",
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "select",
+      "proposed_widget": "device_reference",
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/device",
+        "params": {
+          "managed_only": true
+        },
+        "depends_on": {
+          "site": "site",
+          "site_type": "site"
+        },
+        "label_key": "name",
+        "value_key": "id",
+        "notes": "useDevices({site, filterParams: [site, managed_only=true]}) (:95-105). site_type is decoded from the encoded site value (useDevices.ts:42-50), and there is no request until site is set."
+      },
+      "query_param": "device-id",
+      "query_param_normalization": "Kept only if present in the loaded device options, otherwise cleared (:147-160).",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "Trimmed min 1 'Device is required' (:56)",
+        "Disabled until a site is selected and while devices load (:283)",
+        "Changing device clears port_names (:162-165, :284)"
+      ],
+      "submit_transform": "UI form field 'device' is renamed to 'device_id' (:225)."
+    },
+    {
+      "name": "port_names",
+      "python_field": "port_names",
+      "schema_type": "array[string] (minItems 1)",
+      "required_in_schema": true,
+      "required_in_ui": true,
+      "label": "Ports",
+      "description": null,
+      "schema_title": "Port Names",
+      "schema_description": "Names of the device interfaces to assign to the overlay.",
+      "ui_default": [],
+      "schema_default": null,
+      "widget_today": "multiselect",
+      "proposed_widget": "multiselect",
+      "options": {
+        "kind": "async",
+        "static_values": null,
+        "endpoint": "/v1/parameter/device/{device_id}/interfaces",
+        "params": {},
+        "depends_on": {
+          "{device_id} (path)": "device_id"
+        },
+        "label_key": "name",
+        "value_key": "name",
+        "notes": "useDeviceInterfaces(device) (useDeviceInterfaces.ts:36-66) puts the selected device id in the URL path (encodeURIComponent), not in a query param. Results are sorted by name server-side (parameter_v1.py:302-313). A load failure shows an inline alert, 'Unable to load interfaces for the selected device. Try again.' (:299-303)."
+      },
+      "query_param": "port_names",
+      "query_param_normalization": "Single param holding a comma-separated list (searchParams.get, not getAll): split on ',', trimmed, empties dropped (normalizePortNames :44-48, :71-75). It is applied only when the selected device equals the device-id query value, then filtered to interfaces present on the device (:162-192).",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "At least one non-empty port: 'At least one port is required' (:57-59)",
+        "Every port must exist in the loaded interfaces, otherwise setError 'Select at least one port available on the selected device' and no submit (:204-217)",
+        "Submit is disabled unless site, device and valid ports are set and nothing is loading (:305-316)",
+        "Disabled until site and device are selected (:297)"
+      ],
+      "submit_transform": "normalizePortNames (split on ',' and trim), then filtered to the loaded interface names (:204-207, :226)."
+    },
+    {
+      "name": "site_type",
+      "python_field": "site_type",
+      "schema_type": "$ref DCIMLocationType (string) | null",
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": null,
+      "description": null,
+      "schema_title": null,
+      "schema_description": "DCIM location type for the site identifier.",
+      "ui_default": null,
+      "schema_default": null,
+      "widget_today": "none (derived from the selected site option)",
+      "proposed_widget": null,
+      "options": null,
+      "query_param": null,
+      "query_param_normalization": null,
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [],
+      "submit_transform": "location.locationType (:223). The key is omitted when undefined."
+    },
+    {
+      "name": "namespace_tag",
+      "python_field": "namespace_tag",
+      "schema_type": "string",
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": null,
+      "description": null,
+      "schema_title": "Namespace Tag",
+      "schema_description": "Tag identifying the namespace used for allocation.",
+      "ui_default": null,
+      "schema_default": "spectrumx",
+      "widget_today": "not rendered",
+      "proposed_widget": null,
+      "options": null,
+      "query_param": null,
+      "query_param_normalization": null,
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [],
+      "submit_transform": "Never sent, so the server default 'spectrumx' always applies."
+    }
+  ],
+  "payload_transform": "onSubmit (spx-overlay-tenant-change-workflow-form.tsx:203-239) normalizes and validates port_names against the loaded interfaces, then builds {site: option?.id ?? data.site, site_type: option?.locationType, overlay_id: data.overlay_id || null, device_id: data.device, port_names: validPortNames} and POSTs it to /v1/workflow/ngc/spx_overlay_tenant_change. site_type is dropped when undefined; overlay_id is always present and may be null; namespace_tag is never sent. The JSON key order (site, site_type, overlay_id, device_id, port_names) differs from the model declaration order (overlay_id, device_id, port_names, site, site_type, namespace_tag).",
+  "discrepancies": [
+    "Blank overlay_id is sent as an explicit null. The schema treats an omitted key and null the same (both remove the assignment), so a renderer that omits the key is semantically equal but not byte-identical.",
+    "namespace_tag is a schema field the UI never exposes; the workflow always runs with the default 'spectrumx'. The creation and deletion forms do expose it.",
+    "overlay_id submits the overlay row's 'name', not its 'id' (useOverlays.ts:66-69).",
+    "port_names is checked against the device's interface list only on the client; the schema enforces only minItems 1.",
+    "The visible field order (site, overlay_id, device, ports) differs from the model declaration order (overlay_id, device_id, port_names, site).",
+    "The UI requires site to be non-empty; the schema has no minLength.",
+    "Golden byte-parity would fail on key order alone unless the comparison ignores key order, because this form's JSON key order differs from declaration order."
+  ],
+  "contract_gaps": [
+    "port_names options need a path-parameter dependency (/v1/parameter/device/{device_id}/interfaces), but OptionSource.depends_on maps sibling fields only to query params. Either path templating or a query-param interfaces endpoint is required.",
+    "Empty-to-null submit semantics for an optional select (overlay_id must be sent as null, not omitted or '') are not expressible.",
+    "The comma-separated query param has to be normalized into an array field (port_names=swp1,swp2), and query_param defines no split rule.",
+    "Conditional prefill (port_names applied only when the device matches the device-id query) is not expressible.",
+    "Cascade resets (site change clears device, overlay_id and port_names; device change clears port_names) and disabled-until-parent-selected behaviour are implied by depends_on but not specified.",
+    "Submit-time membership validation (every value must be in the loaded options) and the inline option-load error alert are unspecified renderer behaviours.",
+    "The overlay and device depends_on need location/site_type derived from the encoded site option.",
+    "There is no hidden hint to suppress namespace_tag, which a schema-driven renderer would show."
+  ],
+  "contract_shape": "cascade",
+  "v1_support": "generic",
+  "named_component_reason": null,
+  "sources": [
+    "ui/src/app/workflows/spxoverlaytenantchangeworkflow/form/page.tsx:19-23",
+    "ui/src/app/workflows/spxoverlaytenantchangeworkflow/form/spx-overlay-tenant-change-workflow-form.tsx:44-60",
+    "ui/src/app/workflows/spxoverlaytenantchangeworkflow/form/spx-overlay-tenant-change-workflow-form.tsx:64-239",
+    "ui/src/app/workflows/spxoverlaytenantchangeworkflow/form/spx-overlay-tenant-change-workflow-form.tsx:250-319",
+    "ui/src/components/forms/formfield.tsx:60-141",
+    "ui/src/hooks/useEnvData.ts:30-41",
+    "ui/src/hooks/useDevices.ts:36-64",
+    "ui/src/hooks/useDeviceInterfaces.ts:36-66",
+    "ui/src/hooks/useOverlays.ts:38-78",
+    "ui/src/hooks/useSyncSelectFromQuery.ts:38-68",
+    "ui/src/lib/location-options.ts:19-77",
+    "ui/src/lib/utils.tsx:153-183",
+    "ui/src/types/data-table.types.ts:136-143",
+    "ui/tests/e2e/spxOverlaySelectors.spec.ts:21-148",
+    "ui/tests/e2e/spxOverlayTenantChangePorts.spec.ts:21-155",
+    "ui/tests/docs-screenshots/workflowForms.spec.ts:549-550",
+    "packages/workflows/src/nv_config_manager_workflows/workflows/spx_overlay.py:847-871",
+    "packages/workflows/src/nv_config_manager_workflows/workflows/spx_overlay.py:888-898",
+    "src/nv_config_manager/temporal/api/parameter_v1.py:183-218",
+    "src/nv_config_manager/temporal/api/parameter_v1.py:236-313"
+  ]
+}

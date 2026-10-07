@@ -37,6 +37,7 @@ import {
 interface Option {
   value: string;
   key: string;
+  description?: string;
 }
 
 interface SelectBoxProps {
@@ -246,7 +247,7 @@ const SelectBox = React.forwardRef<HTMLInputElement, SelectBoxProps>(
                     <CommandItem
                       key={option.value}
                       value={option.value}
-                      keywords={[option.key]}
+                      keywords={[option.key, option.description ?? ""]}
                       onSelect={() => handleSelect(option.value)}
                     >
                       {multiple && (
@@ -261,7 +262,14 @@ const SelectBox = React.forwardRef<HTMLInputElement, SelectBoxProps>(
                           <CheckIcon />
                         </div>
                       )}
-                      <span>{option.key}</span>
+                      <span className="flex min-w-0 flex-col">
+                        <span>{option.key}</span>
+                        {option.description ? (
+                          <span className="text-xs font-normal text-muted-foreground">
+                            {option.description}
+                          </span>
+                        ) : null}
+                      </span>
                       {!multiple && option.value === value && (
                         <CheckIcon
                           className={cn(

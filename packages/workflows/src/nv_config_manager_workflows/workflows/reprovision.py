@@ -14,7 +14,9 @@
 # limitations under the License.
 """Network Device Reprovision Workflow Definition."""
 
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import ClassVar
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
@@ -29,6 +31,7 @@ from nv_config_manager_workflows.stage import (
     StageOutput,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import OptionSource, device_field
 from nv_config_manager_workflows.workflow_references import DeviceReference
 
 with workflow.unsafe.imports_passed_through():
@@ -71,6 +74,25 @@ __all__ = [
 class ReprovisionInput(BaseModel):
     """Reprovision Workflow Input Definition."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "device_id": {
+            **device_field(
+                OptionSource(
+                    "/v1/parameter/device",
+                    "name",
+                    "id",
+                    params={"managed_only": True, "platform": ["Cumulus Linux", "NV-OS"]},
+                ),
+                filters=("site", "tenant", "status"),
+            ),
+            "ui:title": "Device",
+            "ui:help": (
+                "This workflow is destructive. It will replace all existing configuration on "
+                "the device with the intended configuration."
+            ),
+        },
+    }
+
     device_id: DeviceReference = Field(
         description="Identifier of the network device to reprovision."
     )
@@ -82,6 +104,7 @@ class ReprovisionWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
 
     # Workflow metadata
     workflow_name = "Reprovision"
+    workflow_group = "Lifecycle & Security"
     workflow_description = "Reprovision a network device using pre- and post-ZTP backups"
     workflow_input_class = ReprovisionInput
     workflow_api_enabled = True

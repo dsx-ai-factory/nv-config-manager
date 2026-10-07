@@ -15,7 +15,9 @@
 """Diagnostics Workflow Definition."""
 
 import asyncio
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
@@ -32,7 +34,16 @@ from nv_config_manager_workflows.stage import (
     StateEnum,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import (
+    Dependency,
+    FormSchema,
+    OptionSource,
+    ServerOwned,
+    api_options,
+    device_field,
+)
 from nv_config_manager_workflows.workflow_references import DeviceReferences
+from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.dcim import (
@@ -112,11 +123,59 @@ _PREFLIGHT_RETRY = RetryPolicy(maximum_attempts=1)  # fail fast before touching 
 
 
 class DiagnosticsWorkflowInput(BaseModel):
-    device_ids: DeviceReferences = Field(description="DCIM identifiers of the devices to diagnose.")
-    commands: list[str] = Field(
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:order": [
+            "device_ids",
+            "commands",
+            "ticketing_platform",
+            "issue_key",
+            "include_tech_support",
+        ],
+        "ui:globalOptions": {"hideSchemaDescriptions": True},
+        "device_ids": {
+            **device_field(
+                MANAGED_DEVICE_SOURCE,
+                filters=["site"],
+                site_required=False,
+            ),
+            "ui:title": "Devices",
+        },
+        "commands": {
+            **api_options(
+                OptionSource(
+                    "/v1/parameter/diagnostics/command-options",
+                    "label",
+                    "value",
+                    depends_on={"device_id": Dependency("device_ids")},
+                    response="options-v1",
+                ),
+                presentation="grouped-checkboxes",
+                select_all=True,
+                show_descriptions=True,
+            ),
+            "ui:title": "Commands",
+        },
+        "ticketing_platform": {"ui:widget": "hidden"},
+        "issue_key": {
+            "ui:title": "Issue Key (optional — leave blank for ticketless mode)",
+            "ui:placeholder": "NETSUPPORT-1234",
+        },
+        "include_tech_support": {
+            "ui:title": "Include tech support bundle",
+            "ui:help": (
+                "Collect and upload a full tech support archive for each device. "
+                "This significantly increases runtime."
+            ),
+        },
+    }
+
+    device_ids: Annotated[DeviceReferences, FormSchema(min_items=1)] = Field(
+        description="DCIM identifiers of the devices to diagnose."
+    )
+    commands: Annotated[list[str], FormSchema(min_items=1)] = Field(
         description="Diagnostic command catalog names to run on each device."
     )
-    ticketing_platform: str = Field(
+    ticketing_platform: Annotated[str, FormSchema(default="jira")] = Field(
         default="", description="Ticketing platform to update; empty enables ticketless mode."
     )
     issue_key: str = Field(
@@ -125,7 +184,7 @@ class DiagnosticsWorkflowInput(BaseModel):
     include_tech_support: bool = Field(
         default=False, description="Whether to collect a technical-support bundle from each device."
     )
-    user: str = Field(
+    user: Annotated[str, ServerOwned()] = Field(
         default="",
         description="Engineer username or email, populated from request authentication when omitted.",
     )
@@ -310,6 +369,7 @@ class DiagnosticsWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
     """Run diagnostic commands against network devices and attach results to a ticket."""
 
     workflow_name = "Device Diagnostics"
+    workflow_group = "Validation & Diagnostics"
     workflow_description = (
         "Run diagnostic commands against network devices and attach results to a ticketing issue"
     )

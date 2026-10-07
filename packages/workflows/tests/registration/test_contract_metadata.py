@@ -32,10 +32,12 @@ from nv_config_manager_workflows.registration.contract import (
     workflow_class_name,
     workflow_cli_name,
     workflow_declared_name,
+    workflow_group,
     workflow_has_complete_metadata,
     workflow_mcp_enabled,
     workflow_mcp_tool_name,
     workflow_required_activity_names,
+    workflow_ui_component,
 )
 from nv_config_manager_workflows.registration.errors import WorkflowRegistrationError
 from nv_config_manager_workflows.stage import StageMixin
@@ -64,6 +66,7 @@ class FullyDeclaredWorkflow(WorkflowMetadataMixin, StageMixin):
     workflow_api_enabled = True
     workflow_api_endpoint = "/config/apply-golden-config"
     workflow_mcp_enabled = True
+    workflow_group = "Configuration"
     workflow_required_activities = (collect_facts, apply_configuration)
 
     @workflow.run
@@ -99,6 +102,10 @@ class NestedEndpointWorkflow(WorkflowMetadataMixin, StageMixin):
 class DisabledMcpWorkflow(WorkflowMetadataMixin, StageMixin):
     workflow_api_endpoint = "/config/apply-golden-config"
     workflow_mcp_enabled = False
+
+
+class FormComponentWorkflow(WorkflowMetadataMixin, StageMixin):
+    workflow_ui_component = "tenant-deploy"
 
 
 class FailingCliNameWorkflow(WorkflowMetadataMixin, StageMixin):
@@ -210,6 +217,31 @@ class TestMcpExposure:
     )
     def test_tool_names_are_derived_from_a_path_alone(self, endpoint: str, expected: str) -> None:
         assert mcp_tool_name_for_endpoint(endpoint) == expected
+
+
+class TestUiComponent:
+    def test_undeclared_component_reads_as_none(self) -> None:
+        assert workflow_ui_component(BareWorkflow) is None
+        assert workflow_ui_component(FullyDeclaredWorkflow) is None
+
+    def test_declared_component_is_returned_verbatim(self) -> None:
+        assert workflow_ui_component(FormComponentWorkflow) == "tenant-deploy"
+
+    def test_the_component_is_not_required_api_metadata(self) -> None:
+        assert "workflow_ui_component" not in METADATA_ATTRIBUTES
+        assert workflow_has_complete_metadata(FullyDeclaredWorkflow)
+
+
+class TestWorkflowGroup:
+    def test_undeclared_group_reads_as_none(self) -> None:
+        assert workflow_group(BareWorkflow) is None
+
+    def test_declared_group_is_returned_verbatim(self) -> None:
+        assert workflow_group(FullyDeclaredWorkflow) == "Configuration"
+
+    def test_group_is_not_required_api_metadata(self) -> None:
+        assert "workflow_group" not in METADATA_ATTRIBUTES
+        assert workflow_has_complete_metadata(FullyDeclaredWorkflow)
 
 
 class TestMetadataCompleteness:

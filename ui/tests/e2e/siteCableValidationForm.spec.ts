@@ -14,7 +14,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { expect, type Page } from "@playwright/test";
+
+/**
+ * The Site Cable Validation form on its class-name route, rendered by the RJSF form
+ * because the legacy `/workflows/sitecablevalidationworkflow/form` redirects
+ * there.
+ *
+ * The legacy page always sent `device_type_ids: []` and `raise_for_invalid: false`. The
+ * RJSF form does not submit model inputs it does not project, and the server fills in
+ * the same defaults (see `fixtures/form-parity/sitecablevalidationworkflow.json`), so
+ * the payload assertions below no longer list them. Its wording comes from the server's
+ * `ui_schema`.
+ */
+import { expect, type Page, type Request } from "@playwright/test";
 import {
   SITES_LIST,
   ROLES_LIST,
@@ -22,7 +34,10 @@ import {
   TENANT_LIST,
   FORBIDDEN_SITE_ID,
 } from "@/mocks/data";
+import { mockServerCatalogAndUser } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT } from "./shared/utils";
+
+const FORM_PATH = "/workflows/new/SiteCableValidationWorkflow";
 
 const statusSelectButton = (page: Page) =>
   page
@@ -38,9 +53,16 @@ const openStatusSelect = async (page: Page) => {
   await expect(openSelectDialog(page)).toBeVisible({ timeout: TEST_TIMEOUT });
 };
 
+/** Query of an option request as sorted `[name, value]` pairs (repeats kept). */
+const queryOf = (request: Request) =>
+  [...new URL(request.url()).searchParams.entries()].sort(
+    ([a, x], [b, y]) => a.localeCompare(b) || x.localeCompare(y)
+  );
+
 test.describe("Site Cable Validation Form", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/workflows/sitecablevalidationworkflow/form");
+    await mockServerCatalogAndUser(page, ["reader", "executor"]);
+    await page.goto(FORM_PATH);
   });
 
   test("renders form with correct title", async ({ page }) => {
@@ -48,6 +70,61 @@ test.describe("Site Cable Validation Form", () => {
       name: "New Site Cable Validation Workflow",
     });
     await expect(title).toBeVisible({ timeout: TEST_TIMEOUT });
+  });
+
+  test("shows the legacy fields in order and loads the legacy option lists", async ({
+    page,
+  }) => {
+    const optionRequests: Request[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname.startsWith("/v1/parameter/")) {
+        optionRequests.push(request);
+      }
+    });
+    await page.goto(FORM_PATH);
+
+    await expect(page.locator("form label")).toHaveText([
+      "Site *",
+      "Roles",
+      "Device Status",
+      "Tenant",
+    ]);
+    // Like the legacy page: no help text (schema descriptions) under the fields.
+    await expect(page.locator("form p")).toHaveCount(0);
+    for (const placeholder of ["Select a Site...", "Select Roles...", "Select a Tenant..."]) {
+      await expect(page.getByRole("button", { name: placeholder, exact: true })).toBeVisible();
+    }
+    await expect(
+      page.getByRole("button", {
+        name: `${STATUS_LIST.active}, ${STATUS_LIST.provisioned}. Open options`,
+        exact: true,
+      })
+    ).toBeVisible({ timeout: TEST_TIMEOUT });
+    // Same endpoints and query parameters as the legacy page's useEnvData.
+    await expect
+      .poll(() =>
+        [
+          ...new Set(
+            optionRequests.map((request) =>
+              JSON.stringify([new URL(request.url()).pathname, queryOf(request)])
+            )
+          ),
+        ]
+          .sort()
+          .map((request) => JSON.parse(request))
+      )
+      .toEqual([
+        [
+          "/v1/parameter/location",
+          [
+            ["location_type", "Module"],
+            ["location_type", "Site"],
+          ],
+        ],
+        ["/v1/parameter/role", [["managed_only", "true"]]],
+        ["/v1/parameter/status", [["content_type", "dcim.device"]]],
+        ["/v1/parameter/tenant", [["managed_only", "true"]]],
+      ]);
   });
 
   test("submits the location type for colliding DCIM location IDs", async ({ page }) => {
@@ -60,7 +137,7 @@ test.describe("Site Cable Validation Form", () => {
         ],
       });
     });
-    await page.goto("/workflows/sitecablevalidationworkflow/form");
+    await page.goto(FORM_PATH);
 
     await page.locator("form").getByRole("button", { name: "Site" }).click();
     await page.getByRole("dialog").getByText("Module 1", { exact: true }).click();
@@ -80,7 +157,7 @@ test.describe("Site Cable Validation Form", () => {
     await page.getByRole("button", { name: "Submit" }).click();
 
     // Check for all required field validations
-    await expect(page.getByText("Site is required")).toBeVisible({
+    await expect(page.locator("form p")).toHaveText(["Site is required"], {
       timeout: TEST_TIMEOUT,
     });
     await expect(page.getByText("Roles is required")).not.toBeVisible({
@@ -106,7 +183,7 @@ test.describe("Site Cable Validation Form", () => {
 
     // Navigate with all URL parameters
     await page.goto(
-      "/workflows/sitecablevalidationworkflow/form" +
+      FORM_PATH +
         `?site=${SITES_LIST.pdx01}` +
         `&role=${ROLES_LIST.leaf}` +
         `&status=${STATUS_LIST.active}` +
@@ -152,8 +229,6 @@ test.describe("Site Cable Validation Form", () => {
       roles: [ROLES_LIST.leaf],
       status: [STATUS_LIST.active],
       tenant: TENANT_LIST.tenant_a,
-      device_type_ids: [],
-      raise_for_invalid: false,
     });
 
     // Wait for navigation to confirm submission completed
@@ -172,7 +247,7 @@ test.describe("Site Cable Validation Form", () => {
 
     // Navigate with initial URL parameters
     await page.goto(
-      "/workflows/sitecablevalidationworkflow/form" +
+      FORM_PATH +
         `?site=${SITES_LIST.pdx01}` +
         `&role=${ROLES_LIST.leaf}` +
         `&status=${STATUS_LIST.active}` +
@@ -226,8 +301,6 @@ test.describe("Site Cable Validation Form", () => {
       roles: [ROLES_LIST.leaf, ROLES_LIST.spine],
       status: [STATUS_LIST.active],
       tenant: TENANT_LIST.ngc,
-      device_type_ids: [],
-      raise_for_invalid: false,
     });
 
     // Wait for navigation to confirm submission completed
@@ -328,8 +401,6 @@ test.describe("Site Cable Validation Form", () => {
         STATUS_LIST.planned,
       ],
       tenant: TENANT_LIST.tenant_a,
-      device_type_ids: [],
-      raise_for_invalid: false,
     });
 
     // Wait for navigation to confirm submission completed with a 30-second timeout
@@ -338,12 +409,65 @@ test.describe("Site Cable Validation Form", () => {
     ).toBeVisible({ timeout: TEST_TIMEOUT });
   });
 
+  test("requires at least one Device Status", async ({ page }) => {
+    // Like the legacy page, a cleared Device Status blocks the submission: the form
+    // projection adds `minItems: 1` (the model itself accepts an empty list).
+    const posts: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST" && request.url().includes("/v1/workflow/ngc/site_cable_validation")) {
+        posts.push(request.url());
+      }
+    });
+
+    await page.getByRole("button", { name: "Site" }).click();
+    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
+    await page
+      .getByRole("heading", { name: "New Site Cable Validation Workflow" })
+      .click();
+
+    await page.getByRole("button", { name: `Remove ${STATUS_LIST.active}` }).click();
+    await page.getByRole("button", { name: `Remove ${STATUS_LIST.provisioned}` }).click();
+
+    await page.getByRole("button", { name: "Submit" }).click();
+    await expect(page.getByText("At least 1 Device Status is required")).toBeVisible();
+    expect(posts).toEqual([]);
+
+    // Live validation after the failed submit: one status clears the message.
+    await page.getByRole("button", { name: "Select Device Status...", exact: true }).click();
+    await openSelectDialog(page).getByRole("option", { name: STATUS_LIST.planned, exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByText("At least 1 Device Status is required")).toHaveCount(0);
+  });
+
+  test("shows FastAPI 422 errors on the field and a string detail form-level", async ({ page }) => {
+    let reply: unknown = [
+      { type: "value_error", loc: ["body", "roles", 0], msg: "Value error, unknown role" },
+    ];
+    await page.route("**/v1/workflow/ngc/site_cable_validation", (route) =>
+      route.fulfill({ status: 422, json: { detail: reply } })
+    );
+    await page.goto(`${FORM_PATH}?site=${SITES_LIST.pdx01}&role=${ROLES_LIST.leaf}`);
+    await expect(
+      page.getByRole("button", { name: `${ROLES_LIST.leaf}. Open options`, exact: true })
+    ).toBeVisible({ timeout: TEST_TIMEOUT });
+
+    await page.getByRole("button", { name: "Submit" }).click();
+    // A list item's error shows on the list's picker, with the item number.
+    await expect(page.getByText("Item 1: Value error, unknown role")).toBeVisible();
+
+    reply = "Site PDX01 has no cabling plan";
+    await page.getByRole("button", { name: "Submit" }).click();
+    await expect(
+      page.getByRole("alert").filter({ hasText: "The workflow input is invalid" })
+    ).toContainText("Site PDX01 has no cabling plan");
+  });
+
   test(`disables form during submission`, async ({ page }) => {
-    let markSubmissionStarted: () => void;
+    let markSubmissionStarted!: () => void;
     const submissionStarted = new Promise<void>((resolve) => {
       markSubmissionStarted = resolve;
     });
-    let releaseSubmission: () => void;
+    let releaseSubmission!: () => void;
     const submissionReleased = new Promise<void>((resolve) => {
       releaseSubmission = resolve;
     });
@@ -452,7 +576,10 @@ test.describe("Site Cable Validation Form", () => {
       hasText: "Forbidden: You do not have permission to run this workflow",
     });
 
-    await expect(errorTitle).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(errorMessage).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expect(errorTitle).toHaveText("Workflow Failed", { timeout: TEST_TIMEOUT });
+    await expect(errorMessage).toHaveText(
+      "Forbidden: You do not have permission to run this workflow",
+      { timeout: TEST_TIMEOUT }
+    );
   });
 });

@@ -15,7 +15,7 @@
 
 import dataclasses
 from types import MappingProxyType
-from typing import Any
+from typing import Annotated, Any, ClassVar
 
 import pytest
 from pydantic import BaseModel
@@ -23,6 +23,7 @@ from temporalio import activity, workflow
 
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
 from nv_config_manager_workflows.registration import registry as registry_module
+from nv_config_manager_workflows.registration.builtin import BUILTIN_PLUGIN_NAME
 from nv_config_manager_workflows.registration.descriptor import (
     UNKNOWN_PLUGIN_VERSION,
     WorkflowPluginDescriptor,
@@ -31,13 +32,24 @@ from nv_config_manager_workflows.registration.errors import WorkflowConflictErro
 from nv_config_manager_workflows.registration.registry import (
     PluginInfo,
     SchedulerRegistration,
+    WorkflowFormDiagnostic,
     WorkflowRegistry,
 )
 from nv_config_manager_workflows.stage import StageMixin
+from nv_config_manager_workflows.ui import FormSchema, WorkflowFormContractError
 
 
 class DeviceInput(BaseModel):
     device: str
+
+
+class InvalidFormInput(BaseModel):
+    """Declares a form-only default its field rejects, with a multi-line Pydantic error."""
+
+    rjsf_ui_schema: ClassVar[dict[str, Any]] = {"device": {"ui:widget": "radio"}}
+
+    device: str
+    count: Annotated[int, FormSchema(default="many")] = 1
 
 
 @activity.defn
@@ -357,6 +369,118 @@ class TestBuildInputs:
         assert registry.all_workflows == [AlphaWorkflow]
 
     def test_a_rejected_plugin_set_fails_the_build(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(BetaWorkflow, "workflow_api_endpoint", "/config/alpha")
+
+        with pytest.raises(WorkflowConflictError):
+            WorkflowRegistry.build(
+                installed(
+                    plugin("alpha-plugin", workflows=(AlphaWorkflow,)),
+                    plugin("beta-plugin", workflows=(BetaWorkflow,)),
+                )
+            )
+
+
+class TestForms:
+    def test_every_api_workflow_gets_a_form_and_an_owner(self) -> None:
+        registry = WorkflowRegistry.build(
+            installed(
+                plugin("alpha-plugin", workflows=(AlphaWorkflow, InternalWorkflow)),
+                plugin("beta-plugin", workflows=(BetaWorkflow,)),
+            )
+        )
+
+        assert set(registry.forms) == {AlphaWorkflow, BetaWorkflow}
+        assert registry.forms[AlphaWorkflow]["schema"]["required"] == ["device"]
+        assert registry.form_diagnostics == {}
+        assert registry.owner(BetaWorkflow) == "beta-plugin"
+        assert registry.owner(InternalWorkflow) == "alpha-plugin"
+
+    def test_a_re_exported_workflow_is_owned_by_its_first_contributor(self) -> None:
+        registry = WorkflowRegistry.build(
+            installed(
+                plugin("alpha-plugin", workflows=(AlphaWorkflow,)),
+                plugin(BUILTIN_PLUGIN_NAME, workflows=(AlphaWorkflow,)),
+            )
+        )
+
+        assert registry.owner(AlphaWorkflow) == BUILTIN_PLUGIN_NAME
+
+    def test_an_invalid_third_party_form_is_isolated(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(BetaWorkflow, "workflow_input_class", InvalidFormInput)
+
+        registry = WorkflowRegistry.build(
+            installed(
+                plugin("alpha-plugin", workflows=(AlphaWorkflow,)),
+                plugin("beta-plugin", workflows=(BetaWorkflow,)),
+            )
+        )
+
+        assert BetaWorkflow in registry.api_workflows
+        assert BetaWorkflow not in registry.forms
+        assert AlphaWorkflow in registry.forms
+        diagnostic = registry.form_diagnostics[BetaWorkflow]
+        assert diagnostic == WorkflowFormDiagnostic(
+            plugin="beta-plugin", workflow="BetaWorkflow", message=diagnostic.message
+        )
+        assert "FormSchema default 'many' is not valid for the field" in diagnostic.message
+        assert "\n" not in diagnostic.message
+
+    @pytest.mark.parametrize(
+        "ui_schema", [{"device": {"ui:widget": ["hidden"]}}, {"ui:order": [["device"]]}]
+    )
+    def test_a_wrongly_typed_third_party_declaration_is_isolated(
+        self, monkeypatch: pytest.MonkeyPatch, ui_schema: dict[str, Any]
+    ) -> None:
+        class WronglyTypedInput(DeviceInput):
+            rjsf_ui_schema: ClassVar[dict[str, Any]] = ui_schema
+
+        monkeypatch.setattr(BetaWorkflow, "workflow_input_class", WronglyTypedInput)
+
+        registry = WorkflowRegistry.build(
+            installed(plugin("beta-plugin", workflows=(BetaWorkflow,)))
+        )
+
+        assert BetaWorkflow in registry.api_workflows
+        assert "invalid form declaration (TypeError: unhashable type: 'list')" in (
+            registry.form_diagnostics[BetaWorkflow].message
+        )
+
+    def test_a_third_party_ui_component_is_a_form_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(BetaWorkflow, "workflow_ui_component", "beta-editor", raising=False)
+
+        registry = WorkflowRegistry.build(
+            installed(plugin("beta-plugin", workflows=(BetaWorkflow,)))
+        )
+
+        assert "only available to the built-in plugin" in (
+            registry.form_diagnostics[BetaWorkflow].message
+        )
+
+    def test_the_builtin_plugin_may_name_a_ui_component(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(BetaWorkflow, "workflow_ui_component", "beta-editor", raising=False)
+
+        registry = WorkflowRegistry.build(
+            installed(plugin(BUILTIN_PLUGIN_NAME, workflows=(BetaWorkflow,)))
+        )
+
+        assert registry.forms[BetaWorkflow]["ui_component"] == "beta-editor"
+
+    def test_an_invalid_builtin_form_fails_the_build(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(BetaWorkflow, "workflow_input_class", InvalidFormInput)
+
+        with pytest.raises(WorkflowFormContractError, match="FormSchema default"):
+            WorkflowRegistry.build(
+                installed(plugin(BUILTIN_PLUGIN_NAME, workflows=(BetaWorkflow,)))
+            )
+
+    def test_ordinary_registration_errors_stay_fatal_for_third_parties(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(BetaWorkflow, "workflow_input_class", InvalidFormInput)
         monkeypatch.setattr(BetaWorkflow, "workflow_api_endpoint", "/config/alpha")
 
         with pytest.raises(WorkflowConflictError):

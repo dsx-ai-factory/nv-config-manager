@@ -1,0 +1,7 @@
+{
+  "HelloWorld": "Example workflow, deliberately absent from the production launcher.",
+  "HelloWorldApproval": "Example approval workflow, deliberately absent from the production launcher.",
+  "NVLinkSwitchFirmwareUpgradeWorkflow": "Hidden from the launcher; API-only until a reviewed form exists.",
+  "RedfishProvisioningWorkflow": "Hidden from the launcher; API-only until a reviewed form exists.",
+  "SpXOverlayAssignmentWorkflow": "Hidden from the launcher; its required device: str | NetworkDeviceData union would render an unintended type chooser."
+}

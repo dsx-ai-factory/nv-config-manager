@@ -26,7 +26,7 @@ from uuid import uuid4
 import brotli
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, Field, computed_field
 from temporalio.client import (
     Client,
     WorkflowExecutionDescription,
@@ -48,6 +48,7 @@ from nv_config_manager.temporal.api.dynamic_endpoints import (
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
 from nv_config_manager.temporal.api.workflow_catalog import (
     WORKFLOW_API_CATALOG,
+    WORKFLOW_REGISTRY,
     WORKFLOW_TYPE_CATALOG,
 )
 from nv_config_manager.temporal.api.workflow_submission import resolve_workflow_references
@@ -166,12 +167,29 @@ class WorkflowMetadata(BaseModel):
     input_class: str
     read_roles: list[str]
     execute_roles: list[str]
+    group: str | None = None
 
 
 class WorkflowMetadataResponse(BaseModel):
     """Workflow metadata response."""
 
     workflows: list[WorkflowMetadata]
+
+
+class WorkflowFormResponse(BaseModel):
+    """Version 1 input form of an API workflow, rendered with RJSF.
+
+    ``schema`` is the form projection of the input model's JSON Schema,
+    ``ui_schema`` a validated subset of an RJSF ``uiSchema``, ``requires`` the
+    capabilities the UI must support before rendering, and ``ui_component`` a
+    first-party named form or ``null``.
+    """
+
+    json_schema: dict[str, Any] = Field(alias="schema")
+    ui_schema: dict[str, Any]
+    ui_schema_version: int
+    requires: list[str]
+    ui_component: str | None
 
 
 class WorkflowResponse(BaseModel):
@@ -821,6 +839,32 @@ async def get_workflow_metadata() -> WorkflowMetadataResponse:
         if name in workflows_info
     ]
     return WorkflowMetadataResponse(workflows=workflows)
+
+
+@router.get(
+    "/{name}/form",
+    responses={
+        404: {"description": "No API workflow has this class name."},
+        503: {"description": "The workflow's third-party form failed contract validation."},
+    },
+)
+async def get_workflow_form(name: str) -> WorkflowFormResponse:
+    """Return the v1 input form of an API workflow, looked up by its class name."""
+    workflow = next((w for w in WORKFLOW_API_CATALOG if w.__name__ == name), None)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail=f"Workflow '{name}' not found")
+    diagnostic = WORKFLOW_REGISTRY.form_diagnostics.get(workflow)
+    if diagnostic is not None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "workflow_form_unavailable",
+                "plugin": diagnostic.plugin,
+                "workflow": diagnostic.workflow,
+                "message": diagnostic.message,
+            },
+        )
+    return WorkflowFormResponse.model_validate(WORKFLOW_REGISTRY.forms[workflow])
 
 
 @router.get("/{workflow_id}")

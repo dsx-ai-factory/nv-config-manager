@@ -155,6 +155,7 @@ def _require_valid_metadata(workflows: list[_OwnedWorkflow]) -> None:
         _require_input_class(owned.item, label)
         _require_bool_api_flag(owned.item, label)
         _require_bool_mcp_flag(owned.item, label)
+        _require_text(getattr(owned.item, "workflow_group", None), "workflow_group", label)
         _require_activity_names_wellformed(owned.item, label)
         _require_endpoint_wellformed(owned.item, label)
         _require_metadata_for_exposed_surfaces(owned.item, label)

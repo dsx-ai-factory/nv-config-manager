@@ -38,6 +38,7 @@ builtin = "nv_config_manager_workflows.registration:builtin_plugin"
 [dependency-groups]
 dev = [
     "aioresponses>=0.7.9",
+    "jsonschema>=4.23.0",
     "pytest>=8.3.3",
     "pytest-asyncio>=0.23.7",
     "responses>=0.25.3",

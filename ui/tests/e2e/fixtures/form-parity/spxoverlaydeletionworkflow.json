@@ -1,0 +1,108 @@
+{
+  "workflow": "SpXOverlayDeletionWorkflow",
+  "input_model": "SpXOverlayDeletionInput",
+  "scenarios": [
+    {
+      "name": "manual fill",
+      "legacy_url": "/workflows/spxoverlaydeletionworkflow/form",
+      "new_url": "/workflows/new/SpXOverlayDeletionWorkflow",
+      "legacy_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "overlay_id": "test-overlay-submission",
+        "namespace_tag": "tenant-a"
+      },
+      "generic_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "overlay_id": "test-overlay-submission",
+        "namespace_tag": "tenant-a"
+      }
+    },
+    {
+      "name": "manual fill, default namespace tag",
+      "legacy_url": "/workflows/spxoverlaydeletionworkflow/form",
+      "new_url": "/workflows/new/SpXOverlayDeletionWorkflow",
+      "legacy_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "overlay_id": "test-overlay-submission",
+        "namespace_tag": "spectrumx"
+      },
+      "generic_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "overlay_id": "test-overlay-submission",
+        "namespace_tag": "spectrumx"
+      }
+    },
+    {
+      "name": "namespace tag chosen before the site",
+      "legacy_url": "/workflows/spxoverlaydeletionworkflow/form",
+      "new_url": "/workflows/new/SpXOverlayDeletionWorkflow",
+      "legacy_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "overlay_id": "test-overlay-submission",
+        "namespace_tag": "tenant-a"
+      },
+      "generic_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "overlay_id": "test-overlay-submission",
+        "namespace_tag": "tenant-a"
+      }
+    },
+    {
+      "name": "prefill from URL, namespace alias",
+      "legacy_url": "/workflows/spxoverlaydeletionworkflow/form?site=PDX01&overlay_id=test-overlay-1&namespace=tenant-a",
+      "new_url": "/workflows/new/SpXOverlayDeletionWorkflow?site=PDX01&overlay_id=test-overlay-1&namespace=tenant-a",
+      "legacy_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "overlay_id": "test-overlay-1",
+        "namespace_tag": "tenant-a"
+      },
+      "generic_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "overlay_id": "test-overlay-1",
+        "namespace_tag": "tenant-a"
+      }
+    },
+    {
+      "name": "prefill from URL, namespace_tag",
+      "legacy_url": "/workflows/spxoverlaydeletionworkflow/form?site=RNO1&overlay_id=test-overlay-2&namespace_tag=tenant-a",
+      "new_url": "/workflows/new/SpXOverlayDeletionWorkflow?site=RNO1&overlay_id=test-overlay-2&namespace_tag=tenant-a",
+      "legacy_payload": {
+        "site": "RNO1",
+        "site_type": "Site",
+        "overlay_id": "test-overlay-2",
+        "namespace_tag": "tenant-a"
+      },
+      "generic_payload": {
+        "site": "RNO1",
+        "site_type": "Site",
+        "overlay_id": "test-overlay-2",
+        "namespace_tag": "tenant-a"
+      }
+    },
+    {
+      "name": "prefill, then a different site, overlay, and namespace tag",
+      "legacy_url": "/workflows/spxoverlaydeletionworkflow/form?site=PDX01&overlay_id=test-overlay-1&namespace=tenant-a",
+      "new_url": "/workflows/new/SpXOverlayDeletionWorkflow?site=PDX01&overlay_id=test-overlay-1&namespace=tenant-a",
+      "legacy_payload": {
+        "site": "RNO1",
+        "site_type": "Site",
+        "overlay_id": "modified-vpc",
+        "namespace_tag": "spectrumx"
+      },
+      "generic_payload": {
+        "site": "RNO1",
+        "site_type": "Site",
+        "overlay_id": "modified-vpc",
+        "namespace_tag": "spectrumx"
+      }
+    }
+  ]
+}

@@ -15,7 +15,9 @@
 """Site Password Rotation Workflow Definition."""
 
 import asyncio
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
@@ -36,7 +38,20 @@ from nv_config_manager_workflows.stage import (
     StageOutput,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import (
+    Dependency,
+    FormSchema,
+    OptionSource,
+    api_options,
+    location_field,
+)
 from nv_config_manager_workflows.workflow_references import LocationReference
+from nv_config_manager_workflows.workflows._form_sources import (
+    DEVICE_STATUS_SOURCE,
+    LOCATION_SOURCE,
+    MANAGED_ROLE_SOURCE,
+    MANAGED_TENANT_SOURCE,
+)
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_dcim import (
@@ -95,6 +110,45 @@ DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(
 class SitePasswordRotationInput(BaseModel):
     """Site Password Rotation Workflow Input Definition."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:order": [
+            "location",
+            "roles",
+            "status",
+            "tenant",
+            "selected_secret",
+            "location_type",
+        ],
+        "ui:globalOptions": {"hideSchemaDescriptions": True},
+        "location": location_field(LOCATION_SOURCE, type_field="location_type"),
+        "location_type": {"ui:widget": "hidden"},
+        "roles": api_options(MANAGED_ROLE_SOURCE),
+        "status": {**api_options(DEVICE_STATUS_SOURCE), "ui:title": "Device Status"},
+        "tenant": api_options(MANAGED_TENANT_SOURCE),
+        "selected_secret": {
+            **api_options(
+                OptionSource(
+                    "/v1/parameter/password-users",
+                    "label",
+                    "value",
+                    params={"managed_only": True},
+                    depends_on={
+                        "location": Dependency("location"),
+                        "location_type": Dependency("location_type", required=False),
+                        "role": Dependency("roles", required=False),
+                        "status": Dependency("status"),
+                        "tenant": Dependency("tenant", required=False),
+                    },
+                    clear_on_change=True,
+                    response="options-v1",
+                ),
+                show_descriptions=True,
+                meta_text={"key": "matching_device_count", "label": "Matching devices"},
+            ),
+            "ui:title": "Secret to Rotate",
+        },
+    }
+
     location: LocationReference = Field(
         min_length=1,
         description="Location containing the devices to update.",
@@ -102,14 +156,14 @@ class SitePasswordRotationInput(BaseModel):
     location_type: DCIMLocationType | None = Field(
         default=None, description="DCIM location type for the location identifier."
     )
-    selected_secret: str = Field(
+    selected_secret: Annotated[str, FormSchema(min_length=1)] = Field(
         description="Name of the managed secret containing the replacement password."
     )
     roles: list[str] = Field(
         default=[],
         description="Device roles used to filter the selected network devices.",
     )
-    status: list[str] = Field(
+    status: Annotated[list[str], FormSchema(min_items=1)] = Field(
         default=DEFAULT_CONFIG_MANAGER_STATUS,
         description="Device statuses used to filter the selected network devices.",
     )
@@ -134,6 +188,7 @@ class SitePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
 
     # Workflow metadata
     workflow_name = "Site Password Rotation"
+    workflow_group = "Lifecycle & Security"
     workflow_description = (
         "Rotate passwords across all devices in a site with coordinated deployment"
     )

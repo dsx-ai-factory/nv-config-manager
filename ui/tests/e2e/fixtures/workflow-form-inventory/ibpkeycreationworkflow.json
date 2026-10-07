@@ -1,0 +1,107 @@
+{
+  "slug": "ibpkeycreationworkflow",
+  "workflow": "IBPKeyCreationWorkflow",
+  "input_model": "IBPKeyCreationInput",
+  "python_module": "nv_config_manager_workflows.workflows.ib_pkey_creation",
+  "api_endpoint": "/v1/workflow/ngc/ib_pkey_creation",
+  "legacy_route": "/workflows/ibpkeycreationworkflow/form",
+  "components": [
+    "ui/src/app/workflows/ibpkeycreationworkflow/form/page.tsx:21",
+    "ui/src/app/workflows/ibpkeycreationworkflow/form/ib-pkey-creation-form.tsx:57",
+    "ui/src/components/forms/formfield.tsx:60",
+    "ui/src/lib/utils.tsx:153"
+  ],
+  "playwright_specs": [
+    "ui/tests/e2e/ibPkeyCreationForm.spec.ts"
+  ],
+  "nautobot_links": [],
+  "fields": [
+    {
+      "name": "host",
+      "python_field": "host",
+      "schema_type": "string",
+      "required_in_schema": true,
+      "required_in_ui": true,
+      "label": "UFM Host",
+      "description": null,
+      "schema_title": "Host",
+      "schema_description": "Hostname of the UFM server managing the InfiniBand fabric.",
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "input",
+      "proposed_widget": "text",
+      "options": null,
+      "query_param": "host",
+      "query_param_normalization": "single value via searchParams.get('host'); no validation at prefill (ui/src/app/workflows/ibpkeycreationworkflow/form/ib-pkey-creation-form.tsx:65); trimmed by zod on submit",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [
+        "non-empty after trim ('Host is required'); schema is type string with no minLength"
+      ],
+      "submit_transform": "zod .trim()"
+    },
+    {
+      "name": "pkey",
+      "python_field": "pkey",
+      "schema_type": "anyOf[string, null]",
+      "required_in_schema": false,
+      "required_in_ui": false,
+      "label": "PKey (optional)",
+      "description": "Dynamic help below the input (ib-pkey-creation-form.tsx:46-55): blank -> 'Leave blank to auto-assign the next free PKey.'; not matching /^0[xX][0-9a-fA-F]{1,4}$/ -> 'Expected format: 0x followed by 1-4 hex digits (e.g. 0x8001). Server will reject if invalid.'; otherwise 'Will be canonicalized server-side to 0xNNNN.' Placeholder '0x8001 (leave blank to auto-assign)'.",
+      "schema_title": "Pkey",
+      "schema_description": "Partition key to create; automatically allocated when omitted.",
+      "ui_default": "",
+      "schema_default": null,
+      "widget_today": "input",
+      "proposed_widget": "text",
+      "options": null,
+      "query_param": "pkey",
+      "query_param_normalization": "single value via searchParams.get('pkey'); no validation at prefill (ui/src/app/workflows/ibpkeycreationworkflow/form/ib-pkey-creation-form.tsx:66)",
+      "visible_if": null,
+      "readonly": false,
+      "requires_together": [],
+      "client_only_validation": [],
+      "submit_transform": "zod .trim(); key omitted when the trimmed value is empty (never sent as \"\" or null) (ui/src/app/workflows/ibpkeycreationworkflow/form/ib-pkey-creation-form.tsx:76-77)"
+    }
+  ],
+  "payload_transform": "params = {host: trimmed host}; params.pkey is added only when the trimmed pkey is non-empty (ui/src/app/workflows/ibpkeycreationworkflow/form/ib-pkey-creation-form.tsx:76-77). No other keys are ever sent. startWorkflow POSTs JSON.stringify(params) to workflowApiUrl + '/v1/workflow/ngc/ib_pkey_creation' (credentials: include, Content-Type: application/json); 2xx redirects to /workflows/{id}; non-2xx throws result.error ?? result.detail and the form shows a destructive 'Workflow Failed' toast (ui/src/lib/utils.tsx:153-184).",
+  "discrepancies": [
+    "Schema fields not rendered and never submitted: site (anyOf[string, null], default null), site_type (anyOf[$ref DCIMLocationType, null], default null, no schema title), ip_over_ib (boolean, default true), pkey_min (integer, default 1), pkey_max (integer, default 32766) (packages/workflows/src/nv_config_manager_workflows/workflows/ib_pkey_creation.py:92-110). Legacy POST body is only {host} or {host, pkey}.",
+    "IBPKeyCreationInput has no pkey validator (ib_pkey_creation.py:99-101), unlike the member-add/update/delete inputs (_ib_pkey_helpers.py:60-68). A malformed pkey is accepted at POST and only fails at runtime when validate_pkey_available calls int(pkey, 16) (packages/workflows/src/nv_config_manager_workflows/activities/ib_pkey/ufm_activities.py:76-77); the requested value is used as-is (ufm_activities.py:83), not canonicalized at input time. The UI comment (ui/src/app/workflows/ibpkeycreationworkflow/form/ib-pkey-creation-form.tsx:31) and hint copy ('Server will reject if invalid', 'Will be canonicalized server-side to 0xNNNN') overstate input-time validation.",
+    "Playwright 'shows hint when pkey is non-canonical and lets server decide' (ui/tests/e2e/ibPkeyCreationForm.spec.ts:85-101) passes only because the MSW mock rejects the POST with 400 (ui/src/mocks/handlers/ibPkeyCreationHandlers.ts:26,42); the real API would accept it and the workflow would fail later.",
+    "host: UI rejects empty/whitespace (ui/src/app/workflows/ibpkeycreationworkflow/form/ib-pkey-creation-form.tsx:35); schema only requires presence (type string, no minLength).",
+    "Labels differ from schema titles: 'UFM Host' vs 'Host', 'PKey (optional)' vs 'Pkey'; schema descriptions are not displayed.",
+    "Blank pkey: legacy omits the key (server default null -> auto-assign). If a renderer sent pkey: \"\" the model would accept it and the runtime would fail on int('', 16)."
+  ],
+  "contract_gaps": [
+    "The legacy form does not expose site, site_type, ip_over_ib, pkey_min, or pkey_max, so the generic form must hide or omit those schema fields to preserve payload parity.",
+    "Optional scalars serialize as anyOf[T, null] (pkey, site, site_type), so the renderer must support nullable anyOf fields for this flat form.",
+    "Blank-optional semantics are undefined: legacy omits pkey when blank; the contract does not say whether an empty text input submits \"\", null, or omits the key.",
+    "Value-dependent help text (three variants keyed on the current pkey value) has no v1 equivalent; help is static.",
+    "site_type has no schema title (anyOf with $ref), so an inferred label falls back to the key."
+  ],
+  "contract_shape": "flat",
+  "v1_support": "generic",
+  "named_component_reason": null,
+  "sources": [
+    "ui/src/app/workflows/ibpkeycreationworkflow/form/page.tsx:19-23",
+    "ui/src/app/workflows/ibpkeycreationworkflow/form/ib-pkey-creation-form.tsx:31-37",
+    "ui/src/app/workflows/ibpkeycreationworkflow/form/ib-pkey-creation-form.tsx:46-55",
+    "ui/src/app/workflows/ibpkeycreationworkflow/form/ib-pkey-creation-form.tsx:60-68",
+    "ui/src/app/workflows/ibpkeycreationworkflow/form/ib-pkey-creation-form.tsx:73-90",
+    "ui/src/app/workflows/ibpkeycreationworkflow/form/ib-pkey-creation-form.tsx:105-124",
+    "ui/src/components/forms/formfield.tsx:99-115",
+    "ui/src/lib/utils.tsx:153-184",
+    "packages/workflows/src/nv_config_manager_workflows/workflows/ib_pkey_creation.py:78-110",
+    "packages/workflows/src/nv_config_manager_workflows/workflows/ib_pkey_creation.py:144-157",
+    "packages/workflows/src/nv_config_manager_workflows/workflows/_ib_pkey_helpers.py:60-68",
+    "packages/workflows/src/nv_config_manager_workflows/activities/ib_pkey/ufm_activities.py:60-95",
+    "packages/workflows/src/nv_config_manager_workflows/activities/ib_pkey/helpers.py:69-71",
+    "ui/src/mocks/handlers/ibPkeyCreationHandlers.ts:26-56",
+    "ui/tests/e2e/ibPkeyCreationForm.spec.ts:35-101",
+    "ui/tests/docs-screenshots/workflowForms.spec.ts:405-412",
+    "ui/src/config/site.ts:170-174",
+    "model_json_schema() of IBPKeyCreationInput (dumped via uv run python)"
+  ]
+}

@@ -20,6 +20,7 @@ import { mockApiURL as apiURL } from "@/config/mockApiUrl";
 import { ALL_WORKFLOW_DATA, workflowsMockData } from "@/mocks/data";
 import { FORBIDDEN_WORKFLOW_ID } from "@/mocks/data/formData";
 import { createGenericWorkflow } from "@/mocks/data/workflows/genericWorkflow";
+import { getWorkflowFormFixture } from "@/mocks/data/workflowForms";
 
 export const workflowTypes = [
   "BackupWorkflow",
@@ -346,6 +347,23 @@ export const workflowFetchingHandlers = [
       { status: 200 }
     );
   }),
+  http.get(
+    sanitizeUrl(`${apiURL}/v1/workflow/:name/form`),
+    async ({ params }) => {
+      const name = String(params.name);
+      const form = getWorkflowFormFixture(name);
+
+      await delay(300);
+
+      if (!form) {
+        return HttpResponse.json(
+          { detail: `Workflow '${name}' not found` },
+          { status: 404 }
+        );
+      }
+      return HttpResponse.json(form, { status: 200 });
+    }
+  ),
   http.get(sanitizeUrl(`${apiURL}/v1/workflow/:id`), async ({ params }) => {
     const { id } = params;
 

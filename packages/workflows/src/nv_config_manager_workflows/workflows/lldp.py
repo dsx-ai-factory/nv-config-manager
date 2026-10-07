@@ -14,7 +14,9 @@
 # limitations under the License.
 """LLDP Workflows."""
 
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import ClassVar
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
@@ -22,7 +24,9 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.ui import device_field
 from nv_config_manager_workflows.workflow_references import OptionalDeviceReference
+from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.dcim import (
@@ -55,6 +59,19 @@ __all__ = ["DEFAULT_ACTIVITY_RETRY_POLICY", "PortLLDPInfoInput", "PortLLDPInfoWo
 class PortLLDPInfoInput(BaseModel):
     """Input for Port LLDP Info Workflow."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "device_id": {
+            **device_field(MANAGED_DEVICE_SOURCE, filters=("site",), site_required=False),
+            "ui:title": "Device",
+            "ui:help": "Select a device and interface, or enter a remote MAC address.",
+        },
+        "interface": {"ui:title": "Interface"},
+        "remote_mac_address": {
+            "ui:title": "MAC Address",
+            "ui:help": "Use this instead of the device and interface fields.",
+        },
+    }
+
     device_id: OptionalDeviceReference = Field(
         default=None, description="Identifier of the network device to inspect."
     )
@@ -70,6 +87,7 @@ class PortLLDPInfoWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
 
     # Workflow metadata
     workflow_name = "Port LLDP Info"
+    workflow_group = "Validation & Diagnostics"
     workflow_description = "Gather LLDP neighbor data for network port analysis and troubleshooting"
     workflow_input_class = PortLLDPInfoInput
     workflow_api_enabled = True
