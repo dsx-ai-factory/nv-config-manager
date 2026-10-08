@@ -915,6 +915,104 @@ gateway:
     maxConnectionDuration: 0s
     # TCP connect timeout - time to establish connection to backend
     connectTimeout: 10s
+  # Retry policy for requests the gateway never managed to hand to a backend.
+  # Envoy does not retry at all unless this is set, so a single refused
+  # connection reaches the client as a 503. That is most likely while endpoints
+  # are churning - a rollout, or an autoscaler scaling in - where a pod stops
+  # accepting connections a moment before the gateway stops routing to it.
+  # Envoy Gateway only; kgateway TrafficPolicy has a separate retry schema and
+  # is not covered here.
+  retry:
+    enabled: true
+    # Total attempts is numRetries + 1.
+    numRetries: 2
+    # Deliberately narrow. Both triggers mean the request never reached a
+    # backend, so replaying it cannot apply a write twice. Excluded on purpose:
+    # 5xx/retriable-status-codes, where the backend may have already committed,
+    # and reset, which can arrive after the request was sent.
+    triggers:
+      - connect-failure
+      - refused-stream
+    backOff:
+      baseInterval: 100ms
+      maxInterval: 1s
+    # Adds a status-code retry for the 502 the OIDC browser proxy returns when
+    # it cannot reach a backend. Restricted to methods that are safe to replay,
+    # because a 502 cannot be distinguished from a write that already committed.
+    # Only takes effect when oidc.enabled puts the proxy in the request path.
+    safeMethods:
+      enabled: true
+      methods:
+        - GET
+        - HEAD
+      httpStatusCodes:
+        - 502
+  # Passive health checking, i.e. Envoy outlier detection. Complements the
+  # retry above rather than duplicating it: a retry saves the request that
+  # failed, while ejection saves the requests behind it, by pulling a failing
+  # endpoint out of the pool instead of letting every later request rediscover
+  # it for itself.
+  #
+  # Off by default, unlike the retry. The thresholds below are only meaningful
+  # against a known replica count and a known churn pattern, and neither is
+  # knowable from inside this chart. Turning it on without that context risks
+  # either never ejecting or ejecting healthy endpoints.
+  #
+  # Worth knowing what it can see, because ejection judges whatever the gateway
+  # connects to, which is not always the component. With oidc.enabled the
+  # browser routes resolve to the shared oauth2-proxy Deployment, so on those
+  # routes this ejects an unreachable proxy replica and cannot reach the
+  # component's pods at all - they are behind the proxy, invisible here. The
+  # mTLS and auth-bypass routes, and every route when oidc is disabled, resolve
+  # to the component pods directly, which is where this does what it reads as.
+  passiveHealthCheck:
+    enabled: false
+    # Transport-level failures: connection refused, connect timeout, reset —
+    # cases where no response ever came back. Envoy's default is 5; 1 ejects on
+    # the first, which is what a terminating pod actually produces, because the
+    # retry is steered elsewhere and any success resets the counter. A
+    # threshold of 2 is rarely reached before the pod is gone.
+    consecutiveLocalOriginFailures: 1
+    # Ejecting on real 5xx responses is off. Envoy tests this threshold with
+    # equality against a counter that has already been incremented, so 0 is
+    # never reached and the detector never fires.
+    #
+    # Deliberate, because a 5xx only indicts the endpoint that returned it if
+    # that endpoint is the application. Behind the oidc proxy it is not: every
+    # proxy replica forwards to the same component Service, so one failing
+    # component pod makes all of them answer 502 alike. Ejecting one would
+    # remove a healthy proxy, leave the failing pod in place, and hand the
+    # retry to a proxy that reaches it just the same - and with two proxy
+    # replicas, maxEjectionPercent below permits exactly that one ejection.
+    #
+    # Raise it, 5 is a reasonable start, where the gateway talks to component
+    # pods directly: oidc disabled, or an install whose traffic arrives on the
+    # mTLS or auth-bypass routes, which bypass the proxy regardless.
+    consecutive5XxErrors: 0
+    # Ejection on consecutive 502/503/504 only, counted separately from the
+    # 5xx detector above. Unset leaves it off: Envoy Gateway enforces this
+    # detector whenever the field is present, so it is omitted from the policy
+    # rather than rendered as a default. The same proxy caveat applies, more
+    # sharply, since 502 is exactly what the oidc proxy answers when a
+    # component pod fails. Set it, e.g. to 5, only where the gateway talks to
+    # component pods directly.
+    consecutiveGatewayErrors: null
+    interval: 3s
+    baseEjectionTime: 30s
+    # Envoy admits an ejection when (active_ejections + 1) / endpoints is <=
+    # this, so the default of 10 cannot eject even one endpoint from a pool
+    # smaller than ten - it leaves everything above configured but inert.
+    #
+    # 50 keeps at least half the pool serving, which is not the same as a
+    # majority: an even pool can lose exactly half, so three of six may be
+    # ejected. Deliberately not 49, which reads safer but rounds the wrong way
+    # for the pool this most often applies to - the two-replica oidc proxy,
+    # where one ejection is 50% and nothing could ever be ejected at 49.
+    maxEjectionPercent: 50
+    # Required, not merely advisable: Envoy only counts local-origin failures
+    # separately when this is set, and consecutiveLocalOriginFailures above is
+    # ignored entirely when it is false.
+    splitExternalLocalOriginErrors: true
   # CORS configuration
   cors:
     enabled: true

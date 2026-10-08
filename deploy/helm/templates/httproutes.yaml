@@ -109,6 +109,37 @@ backendRefs:
 {{- end }}
 {{- end }}
 
+{{/*
+An extra rule on a browser route, identical to the catch-all below it except
+that it matches only methods that are safe to replay. It exists so a
+BackendTrafficPolicy can attach a status-code retry to those methods alone: with
+oidc.enabled, oauth2-proxy proxies to the component Service, so a pod that stops
+accepting mid-rollout makes the proxy answer 502 rather than the connection
+failing at the gateway, and a 502 cannot be told apart from a write that already
+committed.
+
+Emitted before the catch-all for readability only. Gateway API resolves ties by
+match specificity, not list order, and ranks a method match above a bare path
+prefix, so this rule wins for the methods it lists and everything else falls
+through.
+*/}}
+{{- define "nv-config-manager.browserSafeMethodRule" }}
+{{- $root := $.root }}
+{{- if include "nv-config-manager.browserSafeMethodRetryEnabled" $root }}
+{{- $sm := $root.Values.gateway.retry.safeMethods }}
+- name: {{ include "nv-config-manager.browserSafeMethodRuleName" $root }}
+  matches:
+  {{- range ($sm.methods | default (list "GET" "HEAD")) }}
+  - path:
+      type: PathPrefix
+      value: /
+    method: {{ . | quote }}
+  {{- end }}
+  {{- include "nv-config-manager.protectedIdentityHeaders" (dict "redirectHostname" $.redirectHostname) | nindent 2 }}
+  {{- include "nv-config-manager.browserBackendRefs" (dict "root" $root "backendName" $.backendName "backendPort" $.backendPort "proxyPort" $.proxyPort) | nindent 2 }}
+{{- end }}
+{{- end }}
+
 # =============================================================================
 # Auth Bypass HTTPRoute Helper Template
 # =============================================================================
@@ -227,6 +258,7 @@ spec:
   hostnames:
   - {{ tpl .Values.renderService.gateway.hostname . | quote }}
   rules:
+  {{- include "nv-config-manager.browserSafeMethodRule" (dict "root" . "redirectHostname" (tpl .Values.renderService.gateway.hostname .) "backendName" (printf "%s-api" $renderName) "backendPort" 9000 "proxyPort" 9101) | nindent 2 }}
   - matches:
     - path:
         type: PathPrefix
@@ -274,6 +306,7 @@ spec:
   hostnames:
   - {{ tpl .Values.networkZtp.gateway.hostname . | quote }}
   rules:
+  {{- include "nv-config-manager.browserSafeMethodRule" (dict "root" . "redirectHostname" (tpl .Values.networkZtp.gateway.hostname .) "backendName" (printf "%s-api" $ztpName) "backendPort" 9000 "proxyPort" 9102) | nindent 2 }}
   - matches:
     - path:
         type: PathPrefix
@@ -319,6 +352,7 @@ spec:
   hostnames:
   - {{ tpl .Values.networkDhcp.gateway.hostname . | quote }}
   rules:
+  {{- include "nv-config-manager.browserSafeMethodRule" (dict "root" . "redirectHostname" (tpl .Values.networkDhcp.gateway.hostname .) "backendName" (printf "%s-internal" $dhcpName) "backendPort" 9000 "proxyPort" 9103) | nindent 2 }}
   - matches:
     - path:
         type: PathPrefix
@@ -364,6 +398,7 @@ spec:
   hostnames:
   - {{ tpl .Values.temporal.gateway.api.hostname . | quote }}
   rules:
+  {{- include "nv-config-manager.browserSafeMethodRule" (dict "root" . "redirectHostname" (tpl .Values.temporal.gateway.api.hostname .) "backendName" (printf "%s-api" $temporalName) "backendPort" 9000 "proxyPort" 9104) | nindent 2 }}
   - matches:
     - path:
         type: PathPrefix
@@ -385,6 +420,7 @@ spec:
   hostnames:
   - {{ tpl .Values.temporal.gateway.devUi.hostname . | quote }}
   rules:
+  {{- include "nv-config-manager.browserSafeMethodRule" (dict "root" . "redirectHostname" (tpl .Values.temporal.gateway.devUi.hostname .) "backendName" (printf "%s-web-service" $temporalName) "backendPort" 8080 "proxyPort" 9105) | nindent 2 }}
   - matches:
     - path:
         type: PathPrefix
@@ -438,6 +474,7 @@ spec:
   hostnames:
   - {{ .Values.gateway.baseHostname | quote }}
   rules:
+  {{- include "nv-config-manager.browserSafeMethodRule" (dict "root" . "redirectHostname" .Values.gateway.baseHostname "backendName" $uiName "backendPort" 3000 "proxyPort" 9100) | nindent 2 }}
   - matches:
     - path:
         type: PathPrefix
@@ -496,6 +533,7 @@ spec:
   hostnames:
   - {{ tpl .Values.nautobot.gateway.hostname . | quote }}
   rules:
+  {{- include "nv-config-manager.browserSafeMethodRule" (dict "root" . "redirectHostname" (tpl .Values.nautobot.gateway.hostname .) "backendName" $nautobotName "backendPort" 80 "proxyPort" 9106) | nindent 2 }}
   - matches:
     - path:
         type: PathPrefix
@@ -541,6 +579,7 @@ spec:
   hostnames:
   - {{ tpl .Values.configStore.gateway.api.hostname . | quote }}
   rules:
+  {{- include "nv-config-manager.browserSafeMethodRule" (dict "root" . "redirectHostname" (tpl .Values.configStore.gateway.api.hostname .) "backendName" (printf "%s-api" $configStoreName) "backendPort" 9000 "proxyPort" 9107) | nindent 2 }}
   - matches:
     - path:
         type: PathPrefix
@@ -586,6 +625,7 @@ spec:
   hostnames:
   - {{ tpl .Values.mcp.gateway.hostname . | quote }}
   rules:
+  {{- include "nv-config-manager.browserSafeMethodRule" (dict "root" . "redirectHostname" (tpl .Values.mcp.gateway.hostname .) "backendName" $mcpName "backendPort" 9000 "proxyPort" 9108) | nindent 2 }}
   - matches:
     - path:
         type: PathPrefix

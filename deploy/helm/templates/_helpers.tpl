@@ -1215,6 +1215,27 @@ Result depends on configuration:
 {{- end }}
 
 {{/*
+Name of the method-matched rule on the browser HTTPRoutes. Shared so the rule
+and the BackendTrafficPolicy that targets it by sectionName cannot drift apart.
+*/}}
+{{- define "nv-config-manager.browserSafeMethodRuleName" -}}
+safe-methods
+{{- end }}
+
+{{/*
+True when the browser routes should carry a separate method-matched rule for
+the safe-method retry. Requires oauth2-proxy to actually be in the request
+path, and Envoy Gateway, since the retry rides on a BackendTrafficPolicy.
+*/}}
+{{- define "nv-config-manager.browserSafeMethodRetryEnabled" -}}
+{{- $r := .Values.gateway.retry | default dict -}}
+{{- $sm := $r.safeMethods | default dict -}}
+{{- if and .Values.oidc.enabled $r.enabled $sm.enabled (eq (include "nv-config-manager.gatewayControllerType" .) "envoyGateway") -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
 Generate a chart-owned CNPG PodMonitor name.
 
 Short names remain readable. If the release + cluster name exceeds the DNS
