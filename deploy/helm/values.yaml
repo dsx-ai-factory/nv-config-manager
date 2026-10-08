@@ -1254,10 +1254,7 @@ renderService:
       # Namespace label to filter NATS metrics. When namespaces repeat across
       # clusters in a shared backend, also set natsMetricsLabels.
       natsMetricsNamespace: ""
-      # Extra exact-match labels identifying the NATS exporter in your backend.
-      # For example: {cluster: nv-pdx04-gni-wl-prd-001} or
-      # {k8s_cluster_name: customer-cluster}. Values are treated as strings.
-      # namespace, stream_name, consumer_name, and is_consumer_leader are reserved.
+      # Additional exact-match labels to scope NATS metrics.
       natsMetricsLabels: {}
       # Ignore null values from Prometheus (prevents scale-to-zero issues when no data)
       ignoreNullValues: "true"
