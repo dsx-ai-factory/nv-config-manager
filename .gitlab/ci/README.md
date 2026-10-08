@@ -344,10 +344,10 @@ main and RC promotion buttons.
 
 GitLab's protected tag pattern does not establish who created a mirrored tag.
 Before using RC promotion, configure an active GitHub tag ruleset covering
-`*.*.*` that restricts creation, updates, and deletion to repository admins or
-a narrowly controlled release identity. This policy must be enforced by GitHub;
-a check in the tagged commit's own workflow cannot protect against arbitrary
-tagged CI configuration.
+`*.*.*` and `bindings/go/v*.*.*` that restricts creation, updates, and deletion
+to repository admins or a narrowly controlled release identity. This policy
+must be enforced by GitHub; a check in the tagged commit's own workflow cannot
+protect against arbitrary tagged CI configuration.
 
 The RC workflow's admin/source checks cover workflow-driven tags only. If the
 ruleset uses an admin-only bypass, the workflow needs an admin-owned
