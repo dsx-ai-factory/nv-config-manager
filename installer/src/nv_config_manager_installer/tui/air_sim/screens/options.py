@@ -84,6 +84,11 @@ class OptionsScreen(Container):
         yield Label("Deployment", classes="subsection-label")
         yield Label("nv-config-manager Git Ref", classes="field-label")
         yield Input(value=self._config.config_manager_ref, id="config-manager-ref")
+        yield Static(
+            "Branch or tag for remote repositories. Ignored for local checkouts; "
+            "their current working-tree files are uploaded.",
+            classes="field-hint",
+        )
         yield Static("", id="build-mode-hint", classes="field-hint")
         yield Label(
             "Cumulus Version Override  (leave blank to use topology values)",
