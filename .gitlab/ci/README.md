@@ -162,7 +162,7 @@ Protected** - unprotected variables are visible to the untrusted
 | `NVCM_VALUES_REPO_PATH` | Downstream values repository path |
 | `NV_CONFIG_MANAGER_VALUES_REPO_URL` | Optional full downstream values repo override |
 | `NVCM_MIRROR_API_TOKEN` | Project access token (Reporter, `read_api`) used to verify the source pipeline/job and artifact jobs; protected + masked |
-| `NVCM_TEST_ENV_TARGETS` | One record per env: `env\|env_branch\|namespace\|release_name\|baseline_values\|state_dir\|argocd_application` (see `scripts/test_env_config.sh`) |
+| `NVCM_TEST_ENV_TARGETS` | One record per env: `env\|env_branch\|namespace\|release_name\|baseline_values\|state_dir\|argocd_application[\|shared_values]`. The optional eighth field supplies a shared overlay (see `scripts/test_env_config.sh`). |
 | `NVCM_CHART_REPO` | Helm repo URL ArgoCD reads the promoted chart from, e.g. `https://helm.ngc.nvidia.com/nvidian/cfa` (must match the `ngc` target in `NVCM_CHART_TARGETS`); written into deploy-state as `chartRepo` |
 | `NVCM_ARGOCD_SERVER` | ArgoCD API base URL used by the post-deployment health gate |
 | `NVCM_ARGOCD_AUTH_TOKEN` | Protected, masked, and hidden token for a read-only ArgoCD role allowed to `get` only the allowlisted Applications; disable **Expand variable reference** and confirm the saved variable remains masked |
@@ -170,6 +170,17 @@ Protected** - unprotected variables are visible to the untrusted
 | `NVCM_ARGOCD_PROJECT` | Required ArgoCD project containing the allowlisted Applications |
 | `NVCM_ARGOCD_SYNC_TIMEOUT` / `NVCM_ARGOCD_POLL_INTERVAL` | Optional health-gate tuning in seconds; defaults to 1800 / 10. The sync timeout may be lowered but must not exceed 1800, preserving headroom under the job's 35-minute timeout; the poll interval must be greater than zero |
 | `NVCM_UPSTREAM_GITHUB_REPO` | Optional override for the upstream GitHub repo checked by the stale-HEAD guard (default `dsx-ai-factory/nv-config-manager`) |
+
+For an environment with a shared overlay, Helm renders shared values first,
+then the cell baseline, then human overrides and image digest parameters.
+Both baseline layers are validated at the same downstream main revision and
+snapshotted onto the environment branch with deployment state. Rollback restores
+both layers from the requested deployment commit; release/reset refreshes both
+from main. Human overrides remain untouched by promotion and rollback. Existing
+seven-field records keep their current behavior; an empty eighth field also
+disables the overlay. When enabling an overlay, seed its path on the environment
+branch before switching the ApplicationSet. A rollback target must contain all
+configured layers.
 
 The ArgoCD token should come from a project role with only this policy:
 

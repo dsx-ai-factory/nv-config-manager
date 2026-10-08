@@ -20,12 +20,7 @@ from nv_config_manager.temporal.hello_world.workflows.hello_world_workflow impor
     HelloWorldRunning,
 )
 
-REGISTERED_WORKFLOWS = [HelloWorld, HelloWorldApproval]
-LOCAL_TEST_WORKFLOWS = [HelloWorldRunning]
-
 __all__ = [
-    "LOCAL_TEST_WORKFLOWS",
-    "REGISTERED_WORKFLOWS",
     "HelloWorld",
     "HelloWorldApproval",
     "HelloWorldRunning",
