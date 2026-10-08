@@ -920,8 +920,13 @@ gateway:
   # connection reaches the client as a 503. That is most likely while endpoints
   # are churning - a rollout, or an autoscaler scaling in - where a pod stops
   # accepting connections a moment before the gateway stops routing to it.
-  # Envoy Gateway only; kgateway TrafficPolicy has a separate retry schema and
-  # is not covered here.
+  # Honoured under both gateway controllers. The two policy schemas differ -
+  # numRetries against attempts, a nested backOff against backoffBaseInterval -
+  # so each controller has its own template, but the values below drive both and
+  # the trigger names are Envoy's either way. maxInterval is the exception: it
+  # is honoured under Envoy Gateway and ignored under kgateway, which sends no
+  # cap and so gets Envoy's fallback of 10x baseInterval. The two agree at the
+  # values below, where maxInterval is exactly that, and diverge at any other.
   retry:
     enabled: true
     # Total attempts is numRetries + 1.

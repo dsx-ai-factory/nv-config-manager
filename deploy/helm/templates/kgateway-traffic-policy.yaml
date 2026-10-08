@@ -1,3 +1,47 @@
+{{- /* -----------------------------------------------------------------------
+  kgateway's retry, driven by the same gateway.retry values as the Envoy
+  Gateway policy but a different schema: attempts rather than numRetries,
+  retryOn as a flat list, and statusCodes as a sibling rather than nested under
+  retryOn. maxInterval has no equivalent here: kgateway sends no cap and Envoy
+  falls back to 10x the base interval. That matches the values shipped in
+  values.yaml, where maxInterval is exactly 10x baseInterval, but the two
+  controllers diverge on any other value - raising maxInterval alone would take
+  effect under Envoy Gateway and be ignored here.
+
+  Accepts the root context, or a dict of `root` plus `statusCodes` to add the
+  status-code retry for safe methods.
+  ----------------------------------------------------------------------- */}}
+{{- define "nv-config-manager.kgatewayRetry" -}}
+{{- $root := .root | default . -}}
+{{- $r := $root.Values.gateway.retry | default dict -}}
+{{- if $r.enabled -}}
+retry:
+  {{- /* attempts is retries, not total tries, so it maps straight across from
+       numRetries. dig, not `default`, for the same reason as the Envoy
+       template: 0 is meaningful - kgateway documents it as disabling retries -
+       and `default` would rewrite it to 2. */}}
+  attempts: {{ dig "numRetries" 2 $r | int }}
+  backoffBaseInterval: {{ dig "backOff" "baseInterval" "100ms" $r | quote }}
+  retryOn:
+    {{- range ($r.triggers | default (list "connect-failure" "refused-stream")) }}
+    - {{ . | quote }}
+    {{- end }}
+    {{- if .statusCodes }}
+    {{- /* Envoy ignores retriable_status_codes unless retry_on includes this,
+         and unlike Envoy Gateway, kgateway inserts it for you as soon as
+         statusCodes is non-empty. Listed anyway, into a set that dedupes it, so
+         the rendered policy states what will be in effect rather than relying on
+         the reader knowing that. */}}
+    - "retriable-status-codes"
+    {{- end }}
+  {{- if .statusCodes }}
+  statusCodes:
+    {{- range (dig "safeMethods" "httpStatusCodes" (list 502) $r) }}
+    - {{ . | int }}
+    {{- end }}
+  {{- end }}
+{{- end -}}
+{{- end }}
 {{- if and .Values.gateway.enabled (eq (include "nv-config-manager.gatewayControllerType" .) "kgateway") }}
 {{/*
 Route labels avoid duplicating every HTTPRoute name here and, unlike a
@@ -19,6 +63,7 @@ spec:
   timeouts:
     request: {{ .Values.gateway.timeout.requestTimeout | default "300s" }}
     streamIdle: {{ .Values.gateway.timeout.connectionIdleTimeout | default "60s" }}
+  {{- include "nv-config-manager.kgatewayRetry" . | nindent 2 }}
 
 {{- if .Values.networkZtp.enabled }}
 ---
@@ -38,6 +83,7 @@ spec:
   timeouts:
     request: {{ .Values.networkZtp.upload.timeout | default "3600s" }}
     streamIdle: {{ .Values.networkZtp.upload.idleTimeout | default "300s" }}
+  {{- include "nv-config-manager.kgatewayRetry" . | nindent 2 }}
 {{- end }}
 
 ---
@@ -90,5 +136,64 @@ spec:
             key: nv-config-manager
             value: global
         {{- end }}
+{{- end }}
+
+{{- if include "nv-config-manager.browserSafeMethodRetryEnabled" . }}
+{{- $ruleName := include "nv-config-manager.browserSafeMethodRuleName" . }}
+{{/*
+Adds the status-code retry to the safe-method rule alone, so the 502 the oidc
+proxy returns for an unreachable backend is retried for methods that can be
+replayed and not for writes, which a 502 cannot be distinguished from.
+
+One policy per timeout profile rather than one overall, and each repeats its
+profile's timeouts alongside the retry. kgateway ranks a policy targeting a
+rule above one targeting the route, but resolves the two by merging rather
+than by wholesale replacement as Envoy Gateway does. Carrying the timeouts
+here means the rule ends up correctly configured under either reading, instead
+of depending on which one is right.
+*/}}
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: {{ include "nv-config-manager.componentName" (dict "root" . "component" "default-safe-method-retry") }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+spec:
+  # sectionName on a selector, so this stays label-driven like the policies
+  # above instead of needing every browser route named here.
+  targetSelectors:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    matchLabels:
+      nv-config-manager.nvidia.com/timeout-profile: default
+    sectionName: {{ $ruleName }}
+  timeouts:
+    request: {{ .Values.gateway.timeout.requestTimeout | default "300s" }}
+    streamIdle: {{ .Values.gateway.timeout.connectionIdleTimeout | default "60s" }}
+  {{- include "nv-config-manager.kgatewayRetry" (dict "root" . "statusCodes" true) | nindent 2 }}
+
+{{- if .Values.networkZtp.enabled }}
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: {{ include "nv-config-manager.componentName" (dict "root" . "component" "upload-safe-method-retry") }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+spec:
+  targetSelectors:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    matchLabels:
+      nv-config-manager.nvidia.com/timeout-profile: upload
+    sectionName: {{ $ruleName }}
+  timeouts:
+    request: {{ .Values.networkZtp.upload.timeout | default "3600s" }}
+    streamIdle: {{ .Values.networkZtp.upload.idleTimeout | default "300s" }}
+  {{- include "nv-config-manager.kgatewayRetry" (dict "root" . "statusCodes" true) | nindent 2 }}
+{{- end }}
 {{- end }}
 {{- end }}

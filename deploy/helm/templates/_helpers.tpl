@@ -1225,12 +1225,14 @@ safe-methods
 {{/*
 True when the browser routes should carry a separate method-matched rule for
 the safe-method retry. Requires oauth2-proxy to actually be in the request
-path, and Envoy Gateway, since the retry rides on a BackendTrafficPolicy.
+path; the rule itself is plain Gateway API, and each controller attaches its
+own policy to it - a BackendTrafficPolicy on Envoy Gateway, a TrafficPolicy on
+kgateway - so it is emitted for both.
 */}}
 {{- define "nv-config-manager.browserSafeMethodRetryEnabled" -}}
 {{- $r := .Values.gateway.retry | default dict -}}
 {{- $sm := $r.safeMethods | default dict -}}
-{{- if and .Values.oidc.enabled $r.enabled $sm.enabled (eq (include "nv-config-manager.gatewayControllerType" .) "envoyGateway") -}}
+{{- if and .Values.oidc.enabled $r.enabled $sm.enabled -}}
 true
 {{- end -}}
 {{- end }}
