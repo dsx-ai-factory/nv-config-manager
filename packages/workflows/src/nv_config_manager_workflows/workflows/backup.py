@@ -62,8 +62,15 @@ with workflow.unsafe.imports_passed_through():
 
 
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
+UNATTENDED_TERMINATE_ON_FAILURE_PATCH_ID = "backup-unattended-terminate-on-failure-v1"
 
-__all__ = ["DEFAULT_ACTIVITY_RETRY_POLICY", "BackupInput", "BackupWorkflow", "TriggerEnum"]
+__all__ = [
+    "DEFAULT_ACTIVITY_RETRY_POLICY",
+    "UNATTENDED_TERMINATE_ON_FAILURE_PATCH_ID",
+    "BackupInput",
+    "BackupWorkflow",
+    "TriggerEnum",
+]
 
 
 class TriggerEnum(StrEnum):
@@ -73,6 +80,9 @@ class TriggerEnum(StrEnum):
     SYSLOG = "SYSLOG"
     WORKFLOW = "WORKFLOW"
     API = "API"
+
+
+UNATTENDED_TRIGGERS = frozenset({TriggerEnum.SCHEDULED, TriggerEnum.SYSLOG})
 
 
 class BackupInput(StageWorkflowInput):
@@ -314,6 +324,14 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
             # therefore the user did not get set.
             raise ApplicationError("Missing user for backup attribution.")
         self.set_input(workflow_input)
+        if workflow_input.trigger in UNATTENDED_TRIGGERS and workflow.patched(
+            UNATTENDED_TERMINATE_ON_FAILURE_PATCH_ID
+        ):
+            # Nobody sends a retry signal to these runs. A run left waiting for one is
+            # closed by the server's execution timeout, which never evicts it from the
+            # worker's workflow cache, so unattended failures would accumulate in memory.
+            # Histories recorded before this patch keep the wait-for-retry path.
+            self.set_terminate_on_failure(True)
 
         # Execute load_running_configuration and check_drift in parallel
         load_config_output, drift_output = await asyncio.gather(
