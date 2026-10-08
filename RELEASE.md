@@ -20,9 +20,9 @@ Tagging jobs require both the original operator and anyone rerunning the job
 to be repository admins. Review the release commit, CI results, migration notes,
 and changelog before promotion.
 
-Tagging uses a dedicated GitHub App configured on the `release-tagging`
-environment with the `RELEASE_APP_CLIENT_ID` variable and
-`RELEASE_APP_PRIVATE_KEY` secret.
+Tagging uses a repository write deploy key stored as `RELEASE_TAG_SSH_KEY` in the
+`release-tagging` environment, restricted to `main`. The release tag ruleset
+must allow repository admins and deploy keys to bypass its restrictions.
 
 ## Release Steps
 
