@@ -1,4 +1,4 @@
-.PHONY: help install dev test lint format sort-check sort-fix clean docker-build docker-push ui-install ui-dev ui-build \
+.PHONY: help install dev test test-workflow-wheels lint format sort-check sort-fix clean docker-build docker-push ui-install ui-dev ui-build \
         local-up local-down local-destroy local-status local-logs deploy kind-up kind-up-sec kind-up-sec-kgateway kind-up-secure kind-down topology install-cert workflow-perf-seed \
         openapi openapi-check go-bindings python-bindings api-generate docs-assets docs-assets-check docs-format docs-lint docs-lint-fern docs-live docs-preview docs-publish docs-publish-in-ci docs-screenshots docs-air-sim-screenshots docs-ui-screenshots \
         obs-grafana obs-prometheus obs-loki obs-alloy obs-port-forward obs-port-forward-stop
@@ -115,6 +115,7 @@ help:
 	@echo "  make test-cov         - Run tests with coverage (parallel)"
 	@echo "  make test-integration - Run integration tests (requires running cluster)"
 	@echo "  make test-nautobot-plugin - Run vendored Nautobot plugin's Django suite in one-shot container"
+	@echo "  make test-workflow-wheels - Run built workflow wheels and fixture plugin in a clean venv (needs network)"
 	@echo "  make lint             - Run linters"
 	@echo "  make format           - Format code"
 	@echo "  make clean            - Clean build artifacts"
@@ -179,6 +180,12 @@ test-integration-local:
 	@echo "🧪 Running integration tests against local Envoy Gateway..."
 	@echo "   Using namespace: $(NAMESPACE)"
 	uv run pytest src/tests/integration/ -v --nv-config-manager-namespace $(NAMESPACE) --timeout=900
+
+# Builds the workflow package and fixture plugin, installs them into an empty venv
+# without the root service distribution, and runs them from outside the repository.
+# Needs network access for PyPI and the Temporal dev server download.
+test-workflow-wheels:
+	./scripts/check-workflow-wheels.sh
 
 # Runs the vendored Nautobot plugin's Django test suite (nv_config_manager/tests/)
 # inside a one-shot container built from the local nautobot image. Spins up
@@ -274,12 +281,13 @@ format: sort-fix
 	uv run ruff check --fix src/ packages/
 
 # Enforces alphabetical order for lists marked with `# keep-sorted start` /
-# `# keep-sorted end` comments (see src/nv_config_manager/temporal/ngc/workflows/__init__.py).
+# `# keep-sorted end` comments (see
+# packages/workflows/src/nv_config_manager_workflows/workflows/builtin.py).
 sort-check:
-	find src -name '*.py' -print0 | xargs -0 go run github.com/google/keep-sorted@$(KEEP_SORTED_VERSION) --mode=lint
+	find src packages -name '*.py' -print0 | xargs -0 go run github.com/google/keep-sorted@$(KEEP_SORTED_VERSION) --mode=lint
 
 sort-fix:
-	find src -name '*.py' -print0 | xargs -0 go run github.com/google/keep-sorted@$(KEEP_SORTED_VERSION) --mode=fix
+	find src packages -name '*.py' -print0 | xargs -0 go run github.com/google/keep-sorted@$(KEEP_SORTED_VERSION) --mode=fix
 
 # OpenAPI spec generation
 openapi:

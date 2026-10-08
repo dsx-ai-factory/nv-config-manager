@@ -288,8 +288,8 @@ uv run --project installer ruff check installer/src/ installer/tests/
 ```
 
 Lists where order is insignificant (a registry or lookup table where entries
-are read by name, not by position — e.g. `REGISTERED_WORKFLOWS` in
-`src/nv_config_manager/temporal/ngc/workflows/__init__.py`) should stay
+are read by name, not by position — e.g. `BUILTIN_WORKFLOWS` in
+`packages/workflows/src/nv_config_manager_workflows/workflows/builtin.py`) should stay
 alphabetically ordered for readability. Wrap those in `# keep-sorted start` /
 `# keep-sorted end` comments, enforced by
 [keep-sorted](https://github.com/google/keep-sorted), pinned via

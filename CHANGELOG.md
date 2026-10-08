@@ -8,7 +8,14 @@ version before the selected release candidate is promoted.
 
 ## Unreleased
 
-- No unreleased changes have been recorded yet.
+### Fixed
+
+- Render consumers on bundled NATS now re-create their stream when it is
+  missing, instead of retrying `stream not found` until restarted. A NATS pod
+  rescheduled after nats-box started came back without JetStream state, and
+  nothing re-ran stream setup. Runtime-created streams now use the configured
+  names, subjects, and the same limits as nats-ready.
+- nats-ready no longer logs NATS passwords or token-only credentials in the server address.
 
 ## 1.3.1
 

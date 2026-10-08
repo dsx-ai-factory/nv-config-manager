@@ -138,14 +138,10 @@ async def test_workflow_starter_exposes_workflow_specific_input_schema(
     }
 
 
-async def test_related_mcp_servers_includes_public_docs(
-    monkeypatch: pytest.MonkeyPatch,
-    settings: MCPSettings,
-) -> None:
-    monkeypatch.setattr(tools, "discover_mcp_workflows", lambda: [])
+async def test_related_mcp_servers_includes_public_docs(settings: MCPSettings) -> None:
     server = FakeServer()
 
-    tools.register_tools(server, settings)
+    tools.register_tools(server, settings, [])
     result = await server.tools["list_related_mcp_servers"]()
 
     assert result["servers"] == [
@@ -187,11 +183,10 @@ async def test_list_nautobot_types_preserves_upstream_truncation(
             },
         }
 
-    monkeypatch.setattr(tools, "discover_mcp_workflows", lambda: [])
     monkeypatch.setattr(tools, "nautobot_graphql_query", fake_nautobot_graphql_query)
     server = FakeServer()
 
-    tools.register_tools(server, settings)
+    tools.register_tools(server, settings, [])
     result = await server.tools["list_nautobot_types"]()
 
     assert result["truncated"] is True
@@ -207,6 +202,7 @@ def test_provider_without_mcp_capability_omits_nautobot_specific_tools(
     tools.register_tools(
         server,
         replace(settings, dcim_provider_name="nautobot-3x", nautobot_mcp_enabled=False),
+        [],
     )
 
     assert "search_devices" not in server.tools

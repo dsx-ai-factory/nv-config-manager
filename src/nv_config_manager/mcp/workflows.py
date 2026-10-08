@@ -16,16 +16,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, cast, get_args
 
 from pydantic import BaseModel
 
-from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
-from nv_config_manager.temporal.hello_world.workflows import (
-    REGISTERED_WORKFLOWS as HELLO_WORLD_WORKFLOWS,
-)
-from nv_config_manager.temporal.ngc.workflows import REGISTERED_WORKFLOWS as NGC_WORKFLOWS
+from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.registration import workflow_mcp_tool_name
 
 SITE_LEVEL_DEVICE_FILTER_FIELDS = frozenset(
     {"site", "roles", "status", "tenant", "device_type_ids"}
@@ -93,35 +91,27 @@ class MCPWorkflow:
         return f"{self.description}\n\n{self.tool_prompt}"
 
 
-def discover_mcp_workflows() -> list[MCPWorkflow]:
-    """Discover workflows explicitly enabled for MCP."""
-    workflows: list[MCPWorkflow] = []
-    for workflow_class in NGC_WORKFLOWS + HELLO_WORLD_WORKFLOWS:
-        if not issubclass(workflow_class, WorkflowMetadataMixin):
-            continue
-        metadata_workflow = cast(type[WorkflowMetadataMixin], workflow_class)
-        if not metadata_workflow.has_complete_metadata():
-            continue
-        if not metadata_workflow.get_workflow_mcp_enabled():
-            continue
-
-        endpoint = metadata_workflow.get_workflow_api_endpoint()
-        input_class = metadata_workflow.get_workflow_input_class()
-        if not endpoint or not input_class:
-            continue
-
-        workflow_name = workflow_class.__name__
-        workflows.append(
+def discover_mcp_workflows(
+    workflows: Iterable[type[WorkflowMetadataMixin]],
+) -> list[MCPWorkflow]:
+    """Describe the registry's MCP-enabled workflows."""
+    mcp_workflows: list[MCPWorkflow] = []
+    for workflow_class in workflows:
+        # Registry validation guarantees an MCP workflow declares all three.
+        tool_name = cast(str, workflow_mcp_tool_name(workflow_class))
+        endpoint = cast(str, workflow_class.get_workflow_api_endpoint())
+        input_class = cast(type[BaseModel], workflow_class.get_workflow_input_class())
+        mcp_workflows.append(
             MCPWorkflow(
-                tool_name=_tool_name_from_endpoint(endpoint),
-                workflow_name=workflow_name,
-                description=metadata_workflow.get_workflow_description(),
+                tool_name=tool_name,
+                workflow_name=workflow_class.__name__,
+                description=workflow_class.get_workflow_description(),
                 endpoint=endpoint,
                 input_class=input_class,
                 tool_prompt=_tool_prompt_for_input_class(input_class),
             )
         )
-    return sorted(workflows, key=lambda workflow: workflow.tool_name)
+    return sorted(mcp_workflows, key=lambda workflow: workflow.tool_name)
 
 
 def normalize_workflow_parameters(
@@ -144,11 +134,6 @@ def normalize_workflow_parameters(
             normalized[field_name] = None
 
     return normalized
-
-
-def _tool_name_from_endpoint(endpoint: str) -> str:
-    slug = endpoint.strip("/").split("/")[-1]
-    return f"run_{slug.replace('-', '_')}"
 
 
 def _tool_prompt_for_input_class(input_class: type[BaseModel]) -> str | None:

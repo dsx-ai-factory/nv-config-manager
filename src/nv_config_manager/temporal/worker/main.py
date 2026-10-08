@@ -26,19 +26,14 @@ from temporalio.worker import Worker
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
 from nv_config_manager.temporal.converter import get_data_converter
-from nv_config_manager.temporal.hello_world.workflows import (
-    LOCAL_TEST_WORKFLOWS as HELLO_WORLD_LOCAL_TEST_WORKFLOWS,
-)
-from nv_config_manager.temporal.hello_world.workflows import (
-    REGISTERED_WORKFLOWS as HELLO_WORLD_REGISTERED_WORKFLOWS,
-)
-from nv_config_manager.temporal.ngc.workflows import (
-    REGISTERED_WORKFLOWS as NGC_REGISTERED_WORKFLOWS,
-)
 from nv_config_manager.temporal.runtime import configure_workflow_runtime
 from nv_config_manager.temporal.telemetry import setup_telemetry
+from nv_config_manager.temporal.workflow_registry import (
+    build_workflow_registry,
+    log_workflow_registry,
+)
 from nv_config_manager_workflows.registration.registry import WorkflowRegistry
-from nv_config_manager_workflows.registration.validation import validate_workflow_catalog
+from nv_config_manager_workflows.workflows import LOCAL_TEST_WORKFLOWS
 
 configure_logging(service="temporal-worker")
 
@@ -46,6 +41,14 @@ configure_logging(service="temporal-worker")
 def _enabled_env_flag(name: str) -> bool:
     """Return true when an environment flag is explicitly enabled."""
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _registered_workflows(registry: WorkflowRegistry) -> list[type[Any]]:
+    """Return a copy of the registry's workflows, plus the local-test workflows when opted in."""
+    workflows: list[type[Any]] = list(registry.all_workflows)
+    if _enabled_env_flag("NVCM_ENABLE_LOCAL_TEST_WORKFLOWS"):
+        workflows.extend(LOCAL_TEST_WORKFLOWS)
+    return workflows
 
 
 async def main() -> None:
@@ -61,19 +64,9 @@ async def main() -> None:
         runtime=runtime,
     )
 
-    registry = WorkflowRegistry.build()
-    workflows: list[type[Any]] = list(
-        dict.fromkeys(
-            [
-                *NGC_REGISTERED_WORKFLOWS,
-                *HELLO_WORLD_REGISTERED_WORKFLOWS,
-                *registry.all_workflows,
-            ]
-        )
-    )
-    validate_workflow_catalog(workflows, activities=registry.all_activities)
-    if _enabled_env_flag("NVCM_ENABLE_LOCAL_TEST_WORKFLOWS"):
-        workflows.extend(HELLO_WORLD_LOCAL_TEST_WORKFLOWS)
+    registry = build_workflow_registry()
+    workflows = _registered_workflows(registry)
+    log_workflow_registry(registry)
 
     # The TracingInterceptor is registered on the client above, which already
     # covers worker activity/workflow calls. Registering it again here would

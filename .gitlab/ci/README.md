@@ -111,8 +111,11 @@ charts or updating downstream values.
 | -------- | ------- |
 | `FORCE_PULSE_SCAN` | Set to `true` to force image builds and Pulse scan jobs |
 | `PULSE_NSPECT_ID` | Pulse project or engagement identifier |
-| `SSA_CLIENT_ID` | Service account client ID used by Pulse scanner authentication |
-| `SSA_CLIENT_SECRET` | Service account client secret used by Pulse scanner authentication |
+| `VAULT_SERVER_URL` | Vault HTTPS URL and GitLab ID token audience for Pulse |
+| `VAULT_NAMESPACE` | Vault namespace containing the Pulse SSA mount and GitLab auth mount |
+| `VAULT_AUTH_PATH` | GitLab JWT auth mount, without the `auth/` prefix |
+| `VAULT_AUTH_ROLE` | Read-only JWT role restricted to the mirror project and protected refs |
+| `NVCM_PULSE_VAULT_MOUNT` | SSA engine mount; Pulse reads its `issue/creds` endpoint |
 | `NV_CONFIG_MANAGER_CONTAINER_SCAN_POLICY_TOKEN` | Token that can read the internal container scan policy file |
 | `NVCM_CONTAINER_SCAN_POLICY_PROJECT` | URL-encoded GitLab project path for the internal scan policy project |
 | `NVCM_CONTAINER_SCAN_POLICY_FILE` | URL-encoded internal scan policy file path |
@@ -135,6 +138,14 @@ repository for both `linux/amd64` and `linux/arm64`, mints a fresh SSA token at
 scan time, and applies the configured internal policy file fetched from
 `NVCM_CONTAINER_SCAN_POLICY_PROJECT`. The matrix also scans the exact pinned
 upstream oauth2-proxy image shipped by the Helm chart on both architectures.
+
+The runner fetches SSA `client_id` and `secret` through GitLab's native Vault
+resolver before each scan and provides temporary files to the setup script.
+The script reads them and exports `SSA_CLIENT_ID` and `SSA_CLIENT_SECRET` for
+the scanner, replacing the component's Vault sidecar setup. There is no fallback to
+stored SSA CI variables. Configure the Vault variables as protected, and grant
+the JWT role only `read` on `<mount>/issue/creds`, bound to the mirror project
+and protected refs. Remove the old SSA variables after a Vault-backed scan succeeds.
 
 ## Non-Production Promote Pipeline (test / test01 / kiwi-qa)
 
@@ -162,7 +173,7 @@ Protected** - unprotected variables are visible to the untrusted
 | `NVCM_VALUES_REPO_PATH` | Downstream values repository path |
 | `NV_CONFIG_MANAGER_VALUES_REPO_URL` | Optional full downstream values repo override |
 | `NVCM_MIRROR_API_TOKEN` | Project access token (Reporter, `read_api`) used to verify the source pipeline/job and artifact jobs; protected + masked |
-| `NVCM_TEST_ENV_TARGETS` | One record per env: `env\|env_branch\|namespace\|release_name\|baseline_values\|state_dir\|argocd_application` (see `scripts/test_env_config.sh`) |
+| `NVCM_TEST_ENV_TARGETS` | One record per env: `env\|env_branch\|namespace\|release_name\|baseline_values\|state_dir\|argocd_application[\|shared_values]`. The optional eighth field supplies a shared overlay (see `scripts/test_env_config.sh`). |
 | `NVCM_CHART_REPO` | Helm repo URL ArgoCD reads the promoted chart from, e.g. `https://helm.ngc.nvidia.com/nvidian/cfa` (must match the `ngc` target in `NVCM_CHART_TARGETS`); written into deploy-state as `chartRepo` |
 | `NVCM_ARGOCD_SERVER` | ArgoCD API base URL used by the post-deployment health gate |
 | `NVCM_ARGOCD_AUTH_TOKEN` | Protected, masked, and hidden token for a read-only ArgoCD role allowed to `get` only the allowlisted Applications; disable **Expand variable reference** and confirm the saved variable remains masked |
@@ -170,6 +181,17 @@ Protected** - unprotected variables are visible to the untrusted
 | `NVCM_ARGOCD_PROJECT` | Required ArgoCD project containing the allowlisted Applications |
 | `NVCM_ARGOCD_SYNC_TIMEOUT` / `NVCM_ARGOCD_POLL_INTERVAL` | Optional health-gate tuning in seconds; defaults to 1800 / 10. The sync timeout may be lowered but must not exceed 1800, preserving headroom under the job's 35-minute timeout; the poll interval must be greater than zero |
 | `NVCM_UPSTREAM_GITHUB_REPO` | Optional override for the upstream GitHub repo checked by the stale-HEAD guard (default `dsx-ai-factory/nv-config-manager`) |
+
+For an environment with a shared overlay, Helm renders shared values first,
+then the cell baseline, then human overrides and image digest parameters.
+Both baseline layers are validated at the same downstream main revision and
+snapshotted onto the environment branch with deployment state. Rollback restores
+both layers from the requested deployment commit; release/reset refreshes both
+from main. Human overrides remain untouched by promotion and rollback. Existing
+seven-field records keep their current behavior; an empty eighth field also
+disables the overlay. When enabling an overlay, seed its path on the environment
+branch before switching the ApplicationSet. A rollback target must contain all
+configured layers.
 
 The ArgoCD token should come from a project role with only this policy:
 

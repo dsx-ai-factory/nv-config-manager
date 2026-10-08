@@ -20,7 +20,7 @@ FROM temporalio/ui:${TEMPORAL_UI_VERSION} AS ui-upstream
 FROM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS dockerize-builder
 RUN CGO_ENABLED=0 GOBIN=/out go install github.com/jwilder/dockerize@v0.15.1
 
-FROM golang:1.26.6-alpine@sha256:3889b425f035be855a72fb4755265311293b6d414521f0a519d819df32222d83 AS bootstrap-builder
+FROM golang:1.26.8-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS bootstrap-builder
 WORKDIR /src
 COPY components/temporal/go.mod ./
 COPY components/temporal/cmd/ ./cmd/
@@ -29,17 +29,17 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/temporal-bootstrap
 # Rebuild the version-matched UI server until an upstream release includes the
 # patched Go toolchain and dependency versions. The released module contains
 # the same embedded frontend assets as the upstream image.
-FROM golang:1.26.6-alpine@sha256:3889b425f035be855a72fb4755265311293b6d414521f0a519d819df32222d83 AS ui-server-builder
+FROM golang:1.26.8-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS ui-server-builder
 ARG TEMPORAL_UI_VERSION
 WORKDIR /src
 RUN ui_version="${TEMPORAL_UI_VERSION%%@*}" && \
     go mod download github.com/temporalio/ui-server/v2@v${ui_version} && \
     cp -R /go/pkg/mod/github.com/temporalio/ui-server/v2@v${ui_version}/. . && \
     chmod -R u+w . && \
-    go get golang.org/x/crypto@v0.55.0 \
-        golang.org/x/net@v0.57.0 \
+    go get golang.org/x/crypto@v0.56.0 \
+        golang.org/x/net@v0.58.0 \
         golang.org/x/text@v0.41.0 \
-        google.golang.org/grpc@v1.82.1 && \
+        google.golang.org/grpc@v1.83.2 && \
     CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/ui-server ./cmd/server/main.go
 
 # =============================================================================

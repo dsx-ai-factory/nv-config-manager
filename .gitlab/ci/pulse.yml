@@ -52,8 +52,15 @@
 
       : "${PULSE_IMAGE_NAME:?Set PULSE_IMAGE_NAME}"
       : "${PULSE_NSPECT_ID:?Set PULSE_NSPECT_ID}"
-      : "${SSA_CLIENT_ID:?Set SSA_CLIENT_ID}"
-      : "${SSA_CLIENT_SECRET:?Set SSA_CLIENT_SECRET}"
+      # The runner resolves these files from Vault before starting the job.
+      # Separate names prevent legacy CI variables from overriding Vault values.
+      : "${NVCM_PULSE_SSA_CLIENT_ID_FILE:?Vault must provide the SSA client ID}"
+      : "${NVCM_PULSE_SSA_CLIENT_SECRET_FILE:?Vault must provide the SSA client secret}"
+      SSA_CLIENT_ID="$(cat "$NVCM_PULSE_SSA_CLIENT_ID_FILE")"
+      SSA_CLIENT_SECRET="$(cat "$NVCM_PULSE_SSA_CLIENT_SECRET_FILE")"
+      : "${SSA_CLIENT_ID:?Vault SSA client ID is empty}"
+      : "${SSA_CLIENT_SECRET:?Vault SSA client secret is empty}"
+      export SSA_CLIENT_ID SSA_CLIENT_SECRET
 
       image_target_exports="$(bash .gitlab/ci/scripts/image_target_env.sh)" || exit $?
       eval "$image_target_exports"
@@ -123,7 +130,7 @@ include:
           PULSE_IMAGE_NAME:
             - oauth2-proxy
           PULSE_EXTERNAL_IMAGE:
-            - quay.io/oauth2-proxy/oauth2-proxy:v7.15.4
+            - quay.io/oauth2-proxy/oauth2-proxy:v7.15.5
           PULSE_CONTAINER_SCANNER_PLATFORM:
             - linux/amd64
             - linux/arm64
@@ -131,6 +138,32 @@ include:
 # Parallel scans can race while registering a newly changed policy. The first
 # upload wins and the remaining jobs can safely reuse it on retry.
 pulse-scan-images:
+  # Resolve secrets in the runner rather than using the component's sidecar.
+  # Its script sees an empty template destination and skips file acquisition.
+  services: []
+  before_script: *pulse-scan-before-script
+  id_tokens:
+    VAULT_JWT_TOKEN:
+      aud: "$VAULT_SERVER_URL"
+  secrets:
+    NVCM_PULSE_SSA_CLIENT_ID_FILE:
+      vault:
+        engine:
+          name: generic
+          path: "$NVCM_PULSE_VAULT_MOUNT"
+        path: issue/creds
+        field: client_id
+      token: "$VAULT_JWT_TOKEN"
+      file: true
+    NVCM_PULSE_SSA_CLIENT_SECRET_FILE:
+      vault:
+        engine:
+          name: generic
+          path: "$NVCM_PULSE_VAULT_MOUNT"
+        path: issue/creds
+        field: secret
+      token: "$VAULT_JWT_TOKEN"
+      file: true
   allow_failure: true
   timeout: 1h
   retry:

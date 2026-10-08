@@ -24,8 +24,7 @@ from temporalio import workflow
 
 from nv_config_manager.temporal.api import dynamic_endpoints, workflow_v1
 from nv_config_manager.temporal.api.dynamic_endpoints import register_dynamic_endpoints
-from nv_config_manager.temporal.api.workflow_catalog import build_workflow_api_catalog
-from nv_config_manager.temporal.ngc.workflows.deploy import DeployWorkflow
+from nv_config_manager.temporal.api.workflow_catalog import WORKFLOW_REGISTRY
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
 from nv_config_manager_workflows.registration.builtin import (
     BUILTIN_PLUGIN_NAME,
@@ -69,7 +68,7 @@ class _HiddenPluginWorkflow(WorkflowMetadataMixin, StageMixin):
 @workflow.defn
 class _DeployEndpointCollisionWorkflow(WorkflowMetadataMixin, StageMixin):
     workflow_name = "Deploy Endpoint Collision"
-    workflow_description = "Conflicts with a service-owned endpoint"
+    workflow_description = "Conflicts with a built-in endpoint"
     workflow_input_class = _PluginInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/deploy"
@@ -83,55 +82,56 @@ def _plugin_registry() -> WorkflowRegistry:
         name="api-catalog-test",
         workflows=(_VisiblePluginWorkflow, _HiddenPluginWorkflow),
     )
+    # A second plugin re-listing the same class objects must not duplicate them.
+    relisting = WorkflowPluginDescriptor(
+        name="api-catalog-test-relist",
+        workflows=(_VisiblePluginWorkflow, _HiddenPluginWorkflow),
+    )
     return WorkflowRegistry.build(
         {
             BUILTIN_PLUGIN_NAME: builtin_plugin(),
             descriptor.name: descriptor,
+            relisting.name: relisting,
         }
     )
 
 
-def test_catalog_appends_only_registry_api_workflows() -> None:
-    catalog = build_workflow_api_catalog(_plugin_registry())
-
-    assert DeployWorkflow in catalog
-    assert _VisiblePluginWorkflow in catalog
-    assert _HiddenPluginWorkflow not in catalog
+def test_module_registry_includes_the_builtin_plugin() -> None:
+    assert BUILTIN_PLUGIN_NAME in {plugin.name for plugin in WORKFLOW_REGISTRY.plugin_diagnostics}
 
 
-def test_catalog_rejects_plugin_collisions_with_service_workflows() -> None:
+def test_catalog_rejects_plugin_collisions_with_builtin_workflows() -> None:
     descriptor = WorkflowPluginDescriptor(
         name="api-catalog-collision-test",
         workflows=(_DeployEndpointCollisionWorkflow,),
     )
-    registry = WorkflowRegistry.build(
-        {
-            BUILTIN_PLUGIN_NAME: builtin_plugin(),
-            descriptor.name: descriptor,
-        }
-    )
-
     with pytest.raises(WorkflowConflictError, match="workflow API endpoint"):
-        build_workflow_api_catalog(registry)
+        WorkflowRegistry.build(
+            {
+                BUILTIN_PLUGIN_NAME: builtin_plugin(),
+                descriptor.name: descriptor,
+            }
+        )
 
 
-def test_dynamic_routes_include_only_api_enabled_plugin_workflows() -> None:
-    catalog = build_workflow_api_catalog(_plugin_registry())
+def test_dynamic_routes_include_plugin_api_workflows_once() -> None:
     router = APIRouter(prefix="/workflow")
 
-    register_dynamic_endpoints(router, workflows=catalog)
+    register_dynamic_endpoints(router, workflows=_plugin_registry().api_workflows)
 
-    route_paths = {route.path for route in router.routes}
-    assert "/workflow/plugin/visible" in route_paths
+    route_paths = [route.path for route in router.routes]
+    assert route_paths.count("/workflow/plugin/visible") == 1
+    assert route_paths.count("/workflow/ngc/deploy") == 1
     assert "/workflow/plugin/hidden" not in route_paths
 
 
 @pytest.mark.asyncio
-async def test_types_and_metadata_include_only_api_enabled_plugin_workflows(
+async def test_metadata_includes_plugin_api_workflows_once_and_types_include_all(
     mocker: MockerFixture,
 ) -> None:
-    catalog = build_workflow_api_catalog(_plugin_registry())
-    mocker.patch.object(workflow_v1, "WORKFLOW_API_CATALOG", catalog)
+    registry = _plugin_registry()
+    mocker.patch.object(workflow_v1, "WORKFLOW_API_CATALOG", tuple(registry.api_workflows))
+    mocker.patch.object(workflow_v1, "WORKFLOW_TYPE_CATALOG", tuple(registry.all_workflows))
     rbac = MagicMock()
     rbac.get_workflow_roles.side_effect = lambda workflow_name: {
         "read_roles": {"reader", workflow_name},
@@ -141,13 +141,14 @@ async def test_types_and_metadata_include_only_api_enabled_plugin_workflows(
 
     workflow_types = await workflow_v1.get_workflow_types()
     metadata = await workflow_v1.get_workflow_metadata()
-    workflows_by_name = {item.name: item for item in metadata.workflows}
+    metadata_names = [item.name for item in metadata.workflows]
 
-    assert _VisiblePluginWorkflow.__name__ in workflow_types
-    assert _HiddenPluginWorkflow.__name__ not in workflow_types
-    assert _VisiblePluginWorkflow.__name__ in workflows_by_name
-    assert _HiddenPluginWorkflow.__name__ not in workflows_by_name
-    visible = workflows_by_name[_VisiblePluginWorkflow.__name__]
+    assert workflow_types.count(_VisiblePluginWorkflow.__name__) == 1
+    assert metadata_names.count(_VisiblePluginWorkflow.__name__) == 1
+    assert _HiddenPluginWorkflow.__name__ not in metadata_names
+    # /types lists every registered workflow type, including API-disabled ones.
+    assert workflow_types.count(_HiddenPluginWorkflow.__name__) == 1
+    visible = metadata.workflows[metadata_names.index(_VisiblePluginWorkflow.__name__)]
     assert visible.endpoint == "/plugin/visible"
     assert visible.read_roles == [_VisiblePluginWorkflow.__name__, "reader"]
     assert visible.execute_roles == [_VisiblePluginWorkflow.__name__, "executor"]

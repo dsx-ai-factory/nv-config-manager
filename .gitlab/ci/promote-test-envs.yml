@@ -365,9 +365,14 @@ test-promote-chart:
       # Render with identical inputs for any package, so the locally validated
       # one and the published one can be compared.
       render_chart() {
-        helm template "${NVCM_ENV_RELEASE_NAME}" "$1" \
-          -f "/tmp/values-repo/${NVCM_ENV_BASELINE_VALUES}" \
-          -f "$overrides_file" \
+        chart_input="$1"
+        render_output="$2"
+        set --
+        if [ -n "${NVCM_ENV_SHARED_VALUES:-}" ]; then
+          set -- -f "/tmp/values-repo/${NVCM_ENV_SHARED_VALUES}"
+        fi
+        set -- "$@" -f "/tmp/values-repo/${NVCM_ENV_BASELINE_VALUES}" -f "$overrides_file"
+        helm template "${NVCM_ENV_RELEASE_NAME}" "$chart_input" "$@" \
           --set "global.images.nvConfigManager.digest=${DIGEST_NV_CONFIG_MANAGER}" \
           --set "global.images.nvConfigManagerUi.digest=${DIGEST_NV_CONFIG_MANAGER_UI}" \
           --set "global.images.kea.digest=${DIGEST_NV_CONFIG_MANAGER_KEA}" \
@@ -377,7 +382,7 @@ test-promote-chart:
           --set "global.images.temporalServer.digest=${DIGEST_NV_CONFIG_MANAGER_TEMPORAL}" \
           --set "global.images.temporalBootstrap.digest=${DIGEST_NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP}" \
           --set "global.images.temporalUi.digest=${DIGEST_NV_CONFIG_MANAGER_TEMPORAL_UI}" \
-          > "$2"
+          > "$render_output"
       }
 
       echo "🔍 Validating render for ${NVCM_ENV}..."
@@ -545,10 +550,13 @@ test-rollback-env:
         echo "       (re-run without NVCM_ROLLBACK_TO to list valid candidates)."
         exit 1
       fi
-      # And it must actually carry this env's deploy-state AND the baseline
-      # snapshot that state was rendered against - both are restored together.
+      # Require state and every baseline layer at the rollback revision.
       baseline_file="${NVCM_ENV_BASELINE_VALUES}"
-      for f in "$state_file" "$baseline_file"; do
+      set -- "$baseline_file"
+      if [ -n "${NVCM_ENV_SHARED_VALUES:-}" ]; then
+        set -- "$@" "$NVCM_ENV_SHARED_VALUES"
+      fi
+      for f in "$state_file" "$@"; do
         if ! git cat-file -e "${NVCM_ROLLBACK_TO}:${f}" 2>/dev/null; then
           echo "ERROR: ${NVCM_ROLLBACK_TO} does not contain ${f}."
           exit 1
@@ -556,13 +564,17 @@ test-rollback-env:
       done
 
       echo "Rolling ${NVCM_PROMOTE_ENV} back to deploy-state @ ${NVCM_ROLLBACK_TO}"
-      # Restore BOTH files. ArgoCD renders the baseline from this branch (it
+      # Restore state and all values layers. ArgoCD renders from this branch (it
       # rejects a multi-source app referencing one repo at two revisions), so
       # restoring only deploy-state would pin the old chart and digests against
       # whatever baseline happens to be on the branch now - a mixed state, not a
       # rollback. Taking both from the same commit is what makes it exact.
       git show "${NVCM_ROLLBACK_TO}:${state_file}"    > "$state_file"
-      git show "${NVCM_ROLLBACK_TO}:${baseline_file}" > "$baseline_file"
+      for f in "$@"; do
+        mkdir -p "$(dirname "$f")"
+        git show "${NVCM_ROLLBACK_TO}:${f}" > "$f"
+      done
+      git add -- "$@"
 
       # Idempotency guard, matching test-release-env and write_deploy_state.sh:
       # if the branch already carries these exact deployment pins, stop rather
@@ -576,7 +588,7 @@ test-rollback-env:
       git show "HEAD:${state_file}" 2>/dev/null \
         | yq "$strip_audit" > "${CI_PROJECT_DIR}/rollback-current.yaml" || true
       if cmp -s "${CI_PROJECT_DIR}/rollback-current.yaml" "${CI_PROJECT_DIR}/rollback-new.yaml" \
-         && git diff --quiet "$baseline_file"; then
+         && git diff --cached --quiet -- "$@"; then
         echo "✓ ${NVCM_ENV_BRANCH} already carries the deploy-state and baseline from ${NVCM_ROLLBACK_TO}; nothing to roll back."
         exit 0
       fi
@@ -588,11 +600,11 @@ test-rollback-env:
       yq -i '.occupant = strenv(occupant) | .updatedAt = strenv(updated_at)' "$state_file"
 
       git diff "$state_file"
-      if ! git diff --quiet "$baseline_file"; then
-        echo "Baseline snapshot also restored:"
-        git diff --stat "$baseline_file"
+      if ! git diff --cached --quiet -- "$@"; then
+        echo "Baseline snapshots also restored:"
+        git diff --cached --stat -- "$@"
       fi
-      git add "$state_file" "$baseline_file"
+      git add "$state_file" "$@"
       git commit -m "[nvcm CI] Rollback ${NVCM_PROMOTE_ENV} to deploy-state @ ${NVCM_ROLLBACK_TO}
 
       Triggered by: ${occupant}
@@ -646,20 +658,24 @@ test-release-env:
       # branch, so leaving a stale snapshot would hand the next occupant a slot
       # running old baseline config while the deploy-state claims it is clean.
       baseline_file="${NVCM_ENV_BASELINE_VALUES}"
+      set -- "$baseline_file"
+      if [ -n "${NVCM_ENV_SHARED_VALUES:-}" ]; then
+        set -- "$@" "$NVCM_ENV_SHARED_VALUES"
+      fi
       baseline_rev="$(git rev-parse origin/main)"
-      git checkout origin/main -- "$baseline_file"
+      git checkout origin/main -- "$@"
       # Keep the restored canonical's provenance honest: it ships a
       # baselineRevision from whenever it was last edited on main, but the
       # snapshot beside it now comes from main's current HEAD.
       export baseline_rev
       yq -i '.baselineRevision = strenv(baseline_rev)' "${NVCM_ENV_STATE_DIR}/deploy-state.yaml"
 
-      if git diff --cached --quiet && git diff --quiet; then
+      git add "${NVCM_ENV_STATE_DIR}/" "$@"
+      if git diff --cached --quiet; then
         echo "✓ ${NVCM_PROMOTE_ENV} already matches the canonicals; nothing to release."
         exit 0
       fi
 
-      git add "${NVCM_ENV_STATE_DIR}/" "$baseline_file"
       git commit -m "[nvcm CI] Release ${NVCM_PROMOTE_ENV}: reset deploy-state, overrides and baseline to canonicals
 
       Triggered by: ${GITLAB_USER_LOGIN:-${GITLAB_USER_NAME:-ci}}

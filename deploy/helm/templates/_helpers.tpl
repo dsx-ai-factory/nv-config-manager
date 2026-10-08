@@ -108,6 +108,19 @@ Workload ServiceAccount (Vault K8s/JWT auth binds to this identity; must match V
 {{- end }}
 
 {{/*
+max_bytes that nats-ready applies to bundled NATS streams. Runtime services
+use the same value when they re-create a missing stream, so the two agree.
+The nats-ready binary embeds 20 GiB; the nats CLI path uses streamMaxBytes.
+*/}}
+{{- define "nv-config-manager.localStreamMaxBytes" -}}
+{{- if .Values.nautobotNats.natsReady.useNatsCli -}}
+{{- .Values.nautobotNats.natsReady.streamMaxBytes | default 104857600 | int64 -}}
+{{- else -}}
+21474836480
+{{- end -}}
+{{- end -}}
+
+{{/*
 Deployment rollout strategy.
 Pass root and, optionally, strategy. Global strategy wins when set so local
 overrides can switch every Deployment to Recreate in one place.
