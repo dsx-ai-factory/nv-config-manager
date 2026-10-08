@@ -111,8 +111,11 @@ charts or updating downstream values.
 | -------- | ------- |
 | `FORCE_PULSE_SCAN` | Set to `true` to force image builds and Pulse scan jobs |
 | `PULSE_NSPECT_ID` | Pulse project or engagement identifier |
-| `SSA_CLIENT_ID` | Service account client ID used by Pulse scanner authentication |
-| `SSA_CLIENT_SECRET` | Service account client secret used by Pulse scanner authentication |
+| `VAULT_SERVER_URL` | Vault HTTPS URL and GitLab ID token audience for Pulse |
+| `VAULT_NAMESPACE` | Vault namespace containing the Pulse SSA mount and GitLab auth mount |
+| `VAULT_AUTH_PATH` | GitLab JWT auth mount, without the `auth/` prefix |
+| `VAULT_AUTH_ROLE` | Read-only JWT role restricted to the mirror project and protected refs |
+| `NVCM_PULSE_VAULT_MOUNT` | SSA engine mount; Pulse reads its `issue/creds` endpoint |
 | `NV_CONFIG_MANAGER_CONTAINER_SCAN_POLICY_TOKEN` | Token that can read the internal container scan policy file |
 | `NVCM_CONTAINER_SCAN_POLICY_PROJECT` | URL-encoded GitLab project path for the internal scan policy project |
 | `NVCM_CONTAINER_SCAN_POLICY_FILE` | URL-encoded internal scan policy file path |
@@ -135,6 +138,13 @@ repository for both `linux/amd64` and `linux/arm64`, mints a fresh SSA token at
 scan time, and applies the configured internal policy file fetched from
 `NVCM_CONTAINER_SCAN_POLICY_PROJECT`. The matrix also scans the exact pinned
 upstream oauth2-proxy image shipped by the Helm chart on both architectures.
+
+The runner fetches SSA `client_id` and `secret` through GitLab's native Vault
+resolver before each scan. The job supplies them to the scanner using temporary
+files and replaces the component's Vault sidecar setup. There is no fallback to
+stored SSA CI variables. Configure the Vault variables as protected, and grant
+the JWT role only `read` on `<mount>/issue/creds`, bound to the mirror project
+and protected refs. Remove the old SSA variables after a Vault-backed scan succeeds.
 
 ## Non-Production Promote Pipeline (test / test01 / kiwi-qa)
 
