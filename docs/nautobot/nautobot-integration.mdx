@@ -259,10 +259,11 @@ Earlier releases kept the Nautobot cache in Redis database `0`. After the upgrad
 
 ```bash
 export REDISCLI_AUTH=<redis-password>
-redis-cli -h <redis-host> -n 0 --scan --pattern ':1:nautobot*' | xargs -r -n 500 redis-cli -h <redis-host> -n 0 UNLINK
+REDIS=(redis-cli -h <redis-host> -p <redis-port> -n 0)
+"${REDIS[@]}" --scan --pattern ':1:nautobot*' | xargs -r -n 500 "${REDIS[@]}" UNLINK
 ```
 
-The pattern matches only Nautobot cache keys. Config Manager's own keys in database `0` are not affected.
+Use the host and port from `externalServices.redis.host` and `externalServices.redis.port`. When `externalServices.redis.ssl` is `true`, add `--tls` to the `REDIS` array, plus any certificate options your Redis server requires. The pattern matches only Nautobot cache keys. Config Manager's own keys in database `0` are not affected.
 
 ## Metrics
 
