@@ -51,6 +51,8 @@
   - when: never
 
 .test-env-ops-rules: &test-env-ops-rules
+  - if: $NVCM_PROMOTE_ENV == "demo01" && $NVCM_DEMO_PROMOTION_READY != "true"
+    when: never
   - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa|demo01)$/ && $NVCM_PROMOTE_PR == null
     when: manual
     allow_failure: true
