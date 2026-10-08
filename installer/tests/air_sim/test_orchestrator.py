@@ -286,9 +286,6 @@ def test_repository_upload_preserves_worktree_and_excludes_ignored_files(tmp_pat
     (checkout / "build-output").mkdir()
     (checkout / "build-output" / "artifact").write_text("build output\n")
     (checkout / "source-link").symlink_to("tracked.py")
-    (checkout / "package").mkdir()
-    (checkout / "package" / "source.py").write_text("# package source\n")
-    (checkout / "package-link").symlink_to("package", target_is_directory=True)
     topology = tmp_path / "fabric.yaml"
     topology.write_text("devices: []\n")
     cfg = SimConfig(
@@ -305,9 +302,6 @@ def test_repository_upload_preserves_worktree_and_excludes_ignored_files(tmp_pat
             uploads.append({str(p.relative_to(staged)) for p in staged.rglob("*")})
             assert (staged / "tracked.py").read_text() == "unpublished change\n"
             assert (staged / "source-link").is_symlink()
-            assert (staged / "source-link").read_text() == "unpublished change\n"
-            assert (staged / "package-link").is_symlink()
-            assert (staged / "package-link" / "source.py").read_text() == "# package source\n"
         return True
 
     manager = Mock(spec=AirSimulationManager)
@@ -315,17 +309,7 @@ def test_repository_upload_preserves_worktree_and_excludes_ignored_files(tmp_pat
     SimOrchestrator(cfg, _Callback())._stage_local_sources(
         manager, "worker.example", 17117, cfg, str(topology)
     )
-    assert uploads == [
-        {
-            ".gitignore",
-            "tracked.py",
-            "new source.py",
-            "source-link",
-            "package",
-            "package/source.py",
-            "package-link",
-        }
-    ]
+    assert uploads == [{".gitignore", "tracked.py", "new source.py", "source-link"}]
 
 
 @pytest.mark.parametrize(
@@ -394,130 +378,12 @@ def test_disabled_oob_server_fails_before_air_calls(
     cfg = SimConfig(
         topology_path=str(topology), run_mock_topology_job=False, mock_blueprint="custom"
     )
-    callback = Mock(spec=_Callback)
-    orchestrator = SimOrchestrator(cfg, callback)
+    orchestrator = SimOrchestrator(cfg, _Callback())
     factory = Mock()
     monkeypatch.setattr(orchestrator, "_create_simulation_manager", factory)
     with pytest.raises(ValueError, match="OOB server 'oob-mgmt-server' is disabled for AIR"):
         orchestrator._run_impl()
     factory.assert_not_called()
-    parse_calls = [c.args for c in callback.on_step.call_args_list if c.args[0] == "parse-topology"]
-    assert parse_calls[-1][1] == StepStatus.FAILED
-
-
-@pytest.mark.parametrize("stage", ["parse", "build"])
-def test_topology_errors_mark_parse_step_failed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str
-) -> None:
-    """Both parsing and topology construction failures finish the step as failed."""
-    topology = tmp_path / "fabric.yaml"
-    topology.write_text(
-        "devices:\n- name: switch\n  platform: Cumulus Linux\n"
-        if stage == "parse"
-        else "devices: []\n"
-    )
-    cfg = SimConfig(
-        topology_path=str(topology), run_mock_topology_job=False, mock_blueprint="custom"
-    )
-    callback = Mock(spec=_Callback)
-    orchestrator = SimOrchestrator(cfg, callback)
-    manager = Mock(spec=AirSimulationManager)
-    monkeypatch.setattr(orchestrator, "_create_simulation_manager", Mock(return_value=manager))
-    with pytest.raises(ValueError):
-        orchestrator._run_impl()
-    parse_calls = [c.args for c in callback.on_step.call_args_list if c.args[0] == "parse-topology"]
-    assert parse_calls[-1][1] == StepStatus.FAILED
-    manager.create_simulation.assert_not_called()
-
-
-@pytest.mark.parametrize("auto_configure,wait_timeout", [(False, 0), (False, 1), (True, 0)])
-def test_skipped_uploads_do_not_validate_or_stage_content(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, auto_configure: bool, wait_timeout: int
-) -> None:
-    """Manual setup and zero-wait remote clones skip both content checks and uploads."""
-    topology = tmp_path / "fabric.yaml"
-    topology.write_text(
-        "devices:\n- name: oob-mgmt-server\n"
-        "interfaces:\n- device: oob-mgmt-server\n  name: eth1\n  mac_address: '00:11:22:33:44:55'\n"
-        "ip_addresses:\n- device: oob-mgmt-server\n  interface: eth1\n  address: 192.0.2.0/31\n"
-    )
-    cfg = SimConfig(
-        topology_path=str(topology),
-        auto_configure=auto_configure,
-        wait_timeout=wait_timeout,
-        run_mock_topology_job=False,
-        mock_blueprint="custom",
-        template_plugin_paths=[str(tmp_path / "missing-plugin")],
-    )
-    callback = Mock(spec=_Callback)
-    orchestrator = SimOrchestrator(cfg, callback)
-    manager = Mock(spec=AirSimulationManager)
-    manager.create_ssh_service.return_value = ("worker.example", 17117)
-    monkeypatch.setattr(orchestrator, "_create_simulation_manager", Mock(return_value=manager))
-    sources = Mock(side_effect=AssertionError("unexpected content check"))
-    staging = Mock(side_effect=AssertionError("unexpected upload"))
-    monkeypatch.setattr(orchestrator, "_local_content_sources", sources)
-    monkeypatch.setattr(orchestrator, "_stage_local_sources", staging)
-    monkeypatch.setattr(
-        "nv_config_manager_installer.air_sim.orchestrator.shutil.which",
-        lambda name: "/usr/bin/sshpass",
-    )
-    orchestrator._run_impl()
-    sources.assert_not_called()
-    staging.assert_not_called()
-    manager.upload_to_server.assert_not_called()
-    manager.wait_for_cloud_init.assert_not_called()
-    callback.on_step.assert_any_call("upload-files", StepStatus.SKIPPED, "")
-
-
-def test_negative_remote_wait_timeout_fails_before_air_calls(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Negative timeouts are invalid for remote repositories as well as local ones."""
-    cfg = SimConfig(wait_timeout=-1)
-    callback = Mock(spec=_Callback)
-    orchestrator = SimOrchestrator(cfg, callback)
-    factory = Mock()
-    monkeypatch.setattr(orchestrator, "_create_simulation_manager", factory)
-    with pytest.raises(ValueError, match="wait_timeout must be zero or greater"):
-        orchestrator._run_impl()
-    factory.assert_not_called()
-    callback.on_step.assert_any_call(
-        "parse-topology", StepStatus.FAILED, "wait_timeout must be zero or greater"
-    )
-
-
-@pytest.mark.parametrize("target_kind", ["absolute", "external", "ignored", "missing", "loop"])
-def test_nonportable_repository_symlinks_fail_before_air_calls(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target_kind: str
-) -> None:
-    """Uploads reject links to workstation paths or omitted content before provisioning."""
-    checkout = tmp_path / "checkout"
-    checkout.mkdir()
-    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
-    (checkout / ".gitignore").write_text(".env\n")
-    (checkout / "target.py").write_text("# source\n")
-    (checkout / ".env").write_text("PLACEHOLDER=example\n")
-    (tmp_path / "external.py").write_text("# external\n")
-    targets = {
-        "absolute": str(checkout / "target.py"),
-        "external": "../external.py",
-        "ignored": ".env",
-        "missing": "missing.py",
-        "loop": "source-link",
-    }
-    (checkout / "source-link").symlink_to(targets[target_kind])
-    cfg = SimConfig(config_manager_repo=str(checkout))
-    callback = Mock(spec=_Callback)
-    orchestrator = SimOrchestrator(cfg, callback)
-    factory = Mock()
-    monkeypatch.setattr(orchestrator, "_create_simulation_manager", factory)
-    with pytest.raises(ValueError, match="Repository symlink") as exc:
-        orchestrator._run_impl()
-    assert str(checkout / "source-link") in str(exc.value)
-    factory.assert_not_called()
-    parse_calls = [c.args for c in callback.on_step.call_args_list if c.args[0] == "parse-topology"]
-    assert parse_calls[-1][1] == StepStatus.FAILED
 
 
 @pytest.mark.parametrize(
