@@ -283,7 +283,7 @@ spec:
 {{- end }}
 
 {{- /* Nautobot Probe */}}
-{{- if and .Values.monitoring.probes.enabled .Values.nautobot.enabled }}
+{{- if and .Values.monitoring.probes.enabled .Values.nautobot.enabled .Values.externalServices.nautobot.local }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: Probe
@@ -310,7 +310,71 @@ spec:
       - {{ $probeScheme }}://{{ tpl .Values.nautobot.gateway.hostname . }}/health
 {{- end }}
 
+{{- /*
+  Routes the probes above do not exercise. Each service's healthcheck path is
+  matched by its auth-bypass route, so the main `/` route (served by the OIDC
+  proxy) and the JWT-only svc-* route need their own targets. The OIDC proxy
+  answers /ping itself without authenticating.
+*/}}
+{{- $nautobotLocal := and .Values.nautobot.enabled .Values.externalServices.nautobot.local }}
+{{- $routedServices := list
+    (dict "enabled" .Values.renderService.enabled "name" $renderName "component" "render-service" "gateway" .Values.renderService.gateway "health" "/healthcheck")
+    (dict "enabled" .Values.networkZtp.enabled "name" $ztpName "component" "network-ztp" "gateway" .Values.networkZtp.gateway "health" "/healthcheck")
+    (dict "enabled" .Values.networkDhcp.enabled "name" $dhcpName "component" "network-dhcp" "gateway" .Values.networkDhcp.gateway "health" "/healthcheck")
+    (dict "enabled" .Values.temporal.enabled "name" (printf "%s-api" $temporalName) "component" "temporal-api" "gateway" .Values.temporal.gateway.api "health" "/healthcheck")
+    (dict "enabled" .Values.configStore.enabled "name" $configStoreName "component" "config-store" "gateway" .Values.configStore.gateway.api "health" "/healthcheck")
+    (dict "enabled" .Values.mcp.enabled "name" $mcpName "component" "mcp" "gateway" .Values.mcp.gateway "health" "/healthcheck")
+    (dict "enabled" $nautobotLocal "name" $nautobotName "component" "nautobot" "gateway" .Values.nautobot.gateway "health" "/health" "skipProxy" true)
+}}
+{{- if .Values.oidc.enabled }}
+{{- range $svc := $routedServices }}
+{{- if $svc.enabled }}
+{{- if not $svc.skipProxy }}
+{{ include "nv-config-manager.blackboxProbe" (dict
+    "root" $
+    "name" (printf "%s-proxy" $svc.name)
+    "component" $svc.component
+    "scheme" $probeScheme
+    "target" (printf "%s://%s/ping" $probeScheme (tpl $svc.gateway.hostname $))) }}
+{{- end }}
+{{- with $svc.gateway.svcHostname }}
+{{ include "nv-config-manager.blackboxProbe" (dict
+    "root" $
+    "name" (printf "%s-svc" $svc.name)
+    "component" $svc.component
+    "scheme" $probeScheme
+    "target" (printf "%s://%s%s" $probeScheme (tpl . $) $svc.health)) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- if and .Values.ui.enabled .Values.oidc.authUtility.enabled }}
+{{ include "nv-config-manager.blackboxProbe" (dict
+    "root" .
+    "name" (printf "%s-auth-utility" $uiName)
+    "component" "ui"
+    "scheme" $probeScheme
+    "target" (printf "%s://%s/auth/discovery" $probeScheme .Values.gateway.baseHostname)) }}
+{{- end }}
+{{- end }}
+
 {{- end }}{{- /* end hasIngress check */}}
+
+{{- /*
+  Bundled NATS has no HTTPRoute, so the exporter probes the in-cluster
+  monitoring endpoint. Set monitoring.probes.nats.target when the exporter
+  cannot resolve cluster-local service names.
+*/}}
+{{- $natsBundled := or .Values.nautobotNats.enabled .Values.externalServices.nats.local }}
+{{- $natsProbe := .Values.monitoring.probes.nats | default dict }}
+{{- if and .Values.monitoring.probes .Values.monitoring.probes.enabled .Values.monitoring.probes.blackboxExporterUrl $natsBundled ($natsProbe.enabled | default false) }}
+{{ include "nv-config-manager.blackboxProbe" (dict
+    "root" .
+    "name" $natsName
+    "component" "nats"
+    "scheme" $probeScheme
+    "target" ($natsProbe.target | default (printf "http://%s.%s.svc:8222/healthz" $natsName $namespace))) }}
+{{- end }}
 
 {{- if and .Values.monitoring.podMonitors .Values.monitoring.podMonitors.enabled }}
 {{- /* Render Service PodMonitor */}}
