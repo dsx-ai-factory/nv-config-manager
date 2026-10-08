@@ -119,6 +119,10 @@ export default function ConfigsPage() {
     }
   };
 
+  // Ignore leading/trailing whitespace so a trailing space does not miss matches.
+  // The input keeps the raw value so a space between words can still be typed.
+  const normalizedSearch = searchQuery.trim();
+
   // Debounced search effect
   useEffect(() => {
     if (!config?.configStoreApiUrl) return;
@@ -130,7 +134,7 @@ export default function ConfigsPage() {
       try {
         const results = await searchDevices(
           config.configStoreApiUrl,
-          searchQuery,
+          normalizedSearch,
           100,
           fileType,
           showInactive
@@ -146,14 +150,14 @@ export default function ConfigsPage() {
     }, 300);
 
     return () => clearTimeout(timeoutId);
-  }, [searchQuery, fileType, showInactive, config?.configStoreApiUrl]);
+  }, [normalizedSearch, fileType, showInactive, config?.configStoreApiUrl]);
 
   // Client-side filtering for instant feedback as user types
   const filteredDevices = useMemo(() => {
-    if (!searchQuery.trim()) return devices;
-    const query = searchQuery.toLowerCase();
+    if (!normalizedSearch) return devices;
+    const query = normalizedSearch.toLowerCase();
     return devices.filter(device => device.name.toLowerCase().includes(query));
-  }, [devices, searchQuery]);
+  }, [devices, normalizedSearch]);
 
   if (configLoading) {
     return (
@@ -235,11 +239,11 @@ export default function ConfigsPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <CardTitle>
-                  {searchQuery ? `Search Results (${filteredDevices.length})` : `All Devices (${devices.length})`}
+                  {normalizedSearch ? `Search Results (${filteredDevices.length})` : `All Devices (${devices.length})`}
                 </CardTitle>
                 <CardDescription>
-                  {searchQuery 
-                    ? `Devices matching "${searchQuery}" sorted by most recent update`
+                  {normalizedSearch 
+                    ? `Devices matching "${normalizedSearch}" sorted by most recent update`
                     : "Most recently updated devices"}
                 </CardDescription>
               </div>
@@ -264,8 +268,8 @@ export default function ConfigsPage() {
             )}
             {!isLoading && filteredDevices.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
-                {searchQuery 
-                  ? `No devices found matching "${searchQuery}"`
+                {normalizedSearch 
+                  ? `No devices found matching "${normalizedSearch}"`
                   : "No devices found"}
               </div>
             )}
