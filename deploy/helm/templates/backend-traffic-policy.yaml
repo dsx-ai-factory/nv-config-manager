@@ -69,6 +69,12 @@ healthCheck:
          should not quietly enable a detector that misattributes failures on
          proxied routes. */}}
     consecutive5XxErrors: {{ dig "consecutive5XxErrors" 0 $p | int }}
+    {{- /* Presence alone turns enforcement on in Envoy Gateway, so an unset
+         value must omit the key rather than fall back to a default. */}}
+    {{- $gatewayErrors := get $p "consecutiveGatewayErrors" }}
+    {{- if not (kindIs "invalid" $gatewayErrors) }}
+    consecutiveGatewayErrors: {{ $gatewayErrors | int }}
+    {{- end }}
     interval: {{ dig "interval" "3s" $p | quote }}
     baseEjectionTime: {{ dig "baseEjectionTime" "30s" $p | quote }}
     maxEjectionPercent: {{ dig "maxEjectionPercent" 50 $p | int }}

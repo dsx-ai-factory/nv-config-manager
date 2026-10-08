@@ -989,6 +989,14 @@ gateway:
     # pods directly: oidc disabled, or an install whose traffic arrives on the
     # mTLS or auth-bypass routes, which bypass the proxy regardless.
     consecutive5XxErrors: 0
+    # Ejection on consecutive 502/503/504 only, counted separately from the
+    # 5xx detector above. Unset leaves it off: Envoy Gateway enforces this
+    # detector whenever the field is present, so it is omitted from the policy
+    # rather than rendered as a default. The same proxy caveat applies, more
+    # sharply, since 502 is exactly what the oidc proxy answers when a
+    # component pod fails. Set it, e.g. to 5, only where the gateway talks to
+    # component pods directly.
+    consecutiveGatewayErrors: null
     interval: 3s
     baseEjectionTime: 30s
     # Envoy admits an ejection when (active_ejections + 1) / endpoints is <=
