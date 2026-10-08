@@ -17,8 +17,10 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
+import subprocess
 import tempfile
 from collections.abc import Callable
 from dataclasses import replace
@@ -215,6 +217,66 @@ class SimOrchestrator:
                 return repo_candidate.resolve()
         return None
 
+    def _local_content_sources(
+        self, cfg: SimConfig, topology_path: str
+    ) -> list[tuple[str, Path, int | None]]:
+        """Resolve and validate all content using the same rules before boot and upload."""
+        specs: list[tuple[str, str, int | None]] = [("topologies", topology_path, None)]
+        if cfg.use_mock_context_for_fabric or cfg.run_mock_topology_job:
+            specs.append(
+                ("mock-topology", cfg.mock_topology_path or str(DEFAULT_MOCK_TOPOLOGY_PATH), None)
+            )
+        specs.extend(
+            ("template-plugins", path, index)
+            for index, path in enumerate(template_plugin_paths(cfg))
+        )
+        specs.extend(
+            ("jobs", path, index) for index, path in enumerate(cfg.extra_job_paths) if path
+        )
+        job_names = {"mock_topology"} if cfg.run_mock_topology_job else set()
+        sources: list[tuple[str, Path, int | None]] = []
+        for category, configured_path, index in specs:
+            local_path = self._local_content_path(configured_path)
+            if local_path is None:
+                raise FileNotFoundError(
+                    f"Local AIR {category} content does not exist: {configured_path}. "
+                    "Content paths must exist on this machine and are uploaded to AIR; "
+                    "remote-only paths are not supported."
+                )
+            if category == "topologies":
+                if not local_path.is_file():
+                    raise ValueError(f"AIR topology must be a file: {configured_path}")
+            elif not local_path.is_dir():
+                raise ValueError(f"AIR {category} content must be a directory: {configured_path}")
+            if category == "jobs":
+                if local_path.name in job_names:
+                    raise ValueError(f"Duplicate AIR job package name: {local_path.name}")
+                job_names.add(local_path.name)
+            sources.append((category, local_path, index))
+        return sources
+
+    @staticmethod
+    def _repository_files(checkout: Path) -> list[Path]:
+        """Select existing tracked files and non-ignored new files from a Git checkout."""
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(checkout),
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "-z",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        paths = {Path(os.fsdecode(path)) for path in result.stdout.split(b"\0") if path}
+        return sorted(
+            path for path in paths if (checkout / path).is_file() or (checkout / path).is_symlink()
+        )
+
     def _stage_local_sources(
         self,
         manager: AirSimulationManager,
@@ -224,38 +286,29 @@ class SimOrchestrator:
         topology_path: str,
     ) -> SimConfig:
         """Upload local repository and content inputs, returning remote-path config."""
+        sources = self._local_content_sources(cfg, topology_path)
         local_repo = self._local_repository_path(cfg.config_manager_repo)
         if local_repo:
-            if not manager.upload_to_server(host, port, str(local_repo), CONFIG_MANAGER_REMOTE_DIR):
-                raise RuntimeError(f"Failed to upload local repository {local_repo}")
+            with tempfile.TemporaryDirectory(prefix="nvcm-air-repo-") as tmpdir:
+                repository_root = Path(tmpdir)
+                for path in self._repository_files(local_repo):
+                    destination = repository_root / path
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(local_repo / path, destination, follow_symlinks=False)
+                if not manager.upload_to_server(
+                    host, port, str(repository_root), CONFIG_MANAGER_REMOTE_DIR
+                ):
+                    raise RuntimeError(f"Failed to upload local repository {local_repo}")
             self._log(f"Uploaded local repository {local_repo} to {CONFIG_MANAGER_REMOTE_DIR}")
 
         staged = replace(cfg)
-        content_specs: list[tuple[str, str, int | None]] = [("topologies", topology_path, None)]
-        mock_path = cfg.mock_topology_path or str(DEFAULT_MOCK_TOPOLOGY_PATH)
-        if cfg.use_mock_context_for_fabric or cfg.run_mock_topology_job:
-            content_specs.append(("mock-topology", mock_path, None))
-        content_specs.extend(
-            ("template-plugins", path, index)
-            for index, path in enumerate(template_plugin_paths(cfg))
-        )
-        content_specs.extend(
-            ("jobs", path, index) for index, path in enumerate(cfg.extra_job_paths) if path
-        )
-
         remote_paths: dict[tuple[str, int | None], str] = {}
         with tempfile.TemporaryDirectory(prefix="nvcm-air-content-") as tmpdir:
             staging_root = Path(tmpdir)
-            for category, configured_path, index in content_specs:
-                local_path = self._local_content_path(configured_path)
-                if local_path is None:
-                    raise FileNotFoundError(
-                        f"Local AIR {category} content does not exist: {configured_path}. "
-                        "Content paths must exist on this machine and are uploaded to AIR; "
-                        "remote-only paths are not supported."
-                    )
-                prefix = f"{index:02d}-" if index is not None else ""
-                destination = staging_root / category / f"{prefix}{local_path.name}"
+            for category, local_path, index in sources:
+                prefix = f"{index:02d}-" if category == "template-plugins" else ""
+                name = "mock_topology" if category == "mock-topology" else local_path.name
+                destination = staging_root / category / f"{prefix}{name}"
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 if local_path.is_dir():
                     shutil.copytree(local_path, destination)
@@ -277,7 +330,6 @@ class SimOrchestrator:
         staged.topology_path = remote_paths[("topologies", None)]
         if ("mock-topology", None) in remote_paths:
             staged.mock_topology_path = remote_paths[("mock-topology", None)]
-            cfg._air_remote_mock_topology_path = staged.mock_topology_path
         staged.template_plugin_paths = [
             remote_paths[("template-plugins", index)]
             for index, _path in enumerate(template_plugin_paths(cfg))
@@ -369,11 +421,23 @@ class SimOrchestrator:
             raise FileNotFoundError(
                 f"Local config_manager_repo does not exist: {cfg.config_manager_repo}"
             )
+        if local_repo and cfg.auto_configure:
+            if cfg.wait_timeout <= 0:
+                raise ValueError(
+                    "Local config_manager_repo requires wait_timeout greater than zero"
+                )
+            self._repository_files(local_repo)
 
         self._step("parse-topology", StepStatus.RUNNING)
         topology_path = self._resolve_topology_path(cfg)
         if cfg.cumulus_version:
             topology_path = _create_version_override_yaml(topology_path, cfg.cumulus_version)
+        if cfg.auto_configure and cfg.config_manager_repo and cfg.wait_timeout != 0:
+            try:
+                self._local_content_sources(cfg, topology_path)
+            except (FileNotFoundError, ValueError) as exc:
+                self._step("parse-topology", StepStatus.FAILED, str(exc))
+                raise
 
         nvcm_server: NVCMServerConfig | None = None
         if cfg.server_mode == "use-existing":
@@ -394,6 +458,9 @@ class SimOrchestrator:
             minimal_mode=False,
             nvcm_server=nvcm_server,
         )
+        server_dev = builder.devices.get(cfg.oob_server_name)
+        if cfg.auto_configure and server_dev is not None and not server_dev.air_enabled:
+            raise ValueError(f"OOB server '{cfg.oob_server_name}' is disabled for AIR")
         self._step("parse-topology", StepStatus.SUCCESS)
 
         self._step("validate-images", StepStatus.RUNNING)

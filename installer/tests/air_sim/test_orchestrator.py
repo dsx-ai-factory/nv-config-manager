@@ -16,6 +16,10 @@
 
 from __future__ import annotations
 
+import importlib
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -175,17 +179,24 @@ def test_repository_helpers_preserve_relative_local_paths(
     assert SimOrchestrator._is_local_repository_reference(repo) is True
 
 
-def test_stage_local_sources_uploads_repo_and_content(tmp_path: Path) -> None:
+def test_stage_local_sources_uploads_repo_and_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     checkout = tmp_path / "checkout"
     checkout.mkdir()
+    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+    (checkout / "source.py").write_text("# unpublished source\n")
     topology = tmp_path / "fabric.yaml"
     topology.write_text("devices: []\n")
-    mock_topology = tmp_path / "mock_topology"
+    mock_topology = tmp_path / "custom_mock_content"
     (mock_topology / "context" / "demo").mkdir(parents=True)
     plugin = tmp_path / "plugin"
     plugin.mkdir()
-    job = tmp_path / "job.py"
-    job.write_text("# job\n")
+    job = tmp_path / "myjobs"
+    job.mkdir()
+    (job / "__init__.py").write_text("")
+    (job / "helper.py").write_text("VALUE = 42\n")
+    (job / "jobs.py").write_text("from custom.myjobs.helper import VALUE\nclass Foo: pass\n")
 
     uploads: list[tuple[str, str, set[str]]] = []
 
@@ -194,6 +205,8 @@ def test_stage_local_sources_uploads_repo_and_content(tmp_path: Path) -> None:
             local = Path(local_path)
             contents = {str(path.relative_to(local)) for path in local.rglob("*")}
             uploads.append((local_path, remote_path, contents))
+            if remote_path == "/home/nvcm/air-content":
+                shutil.copytree(local / "jobs" / "myjobs", tmp_path / "custom" / "myjobs")
             return True
 
     cfg = SimConfig(
@@ -203,6 +216,7 @@ def test_stage_local_sources_uploads_repo_and_content(tmp_path: Path) -> None:
         mock_topology_path=str(mock_topology),
         template_plugin_paths=[str(plugin)],
         extra_job_paths=[str(job)],
+        extra_run_after_deploy=[{"job": "custom.myjobs.jobs.Foo"}],
     )
     orchestrator = SimOrchestrator(cfg, _Callback())
 
@@ -210,18 +224,140 @@ def test_stage_local_sources_uploads_repo_and_content(tmp_path: Path) -> None:
         Manager(), "worker.example", 17117, cfg, str(topology)
     )
 
-    assert uploads[0][0] == str(checkout.resolve())
     assert uploads[0][1] == "/home/nvcm/nv-config-manager"
+    assert uploads[0][2] == {"source.py"}
     assert uploads[1][1] == "/home/nvcm/air-content"
     assert "topologies/fabric.yaml" in uploads[1][2]
     assert "mock-topology/mock_topology" in uploads[1][2]
     assert "template-plugins/00-plugin" in uploads[1][2]
-    assert "jobs/00-job.py" in uploads[1][2]
+    assert "jobs/myjobs/jobs.py" in uploads[1][2]
     assert staged.topology_path == "/home/nvcm/air-content/topologies/fabric.yaml"
     assert staged.mock_topology_path == "/home/nvcm/air-content/mock-topology/mock_topology"
     assert staged.template_plugin_paths == ["/home/nvcm/air-content/template-plugins/00-plugin"]
-    assert staged.extra_job_paths == ["/home/nvcm/air-content/jobs/00-job.py"]
-    assert getattr(cfg, "_air_remote_mock_topology_path") == staged.mock_topology_path
+    assert staged.extra_job_paths == ["/home/nvcm/air-content/jobs/myjobs"]
+    assert staged.extra_run_after_deploy == [{"job": "custom.myjobs.jobs.Foo"}]
+    (tmp_path / "custom" / "__init__.py").write_text("")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    try:
+        module = importlib.import_module("custom.myjobs.jobs")
+        assert module.VALUE == 42
+        assert module.Foo.__module__ == "custom.myjobs.jobs"
+    finally:
+        for name in list(sys.modules):
+            if name == "custom" or name.startswith("custom.myjobs"):
+                sys.modules.pop(name)
+
+
+def test_repository_upload_preserves_worktree_and_excludes_ignored_files(tmp_path: Path) -> None:
+    """Unpublished changes survive upload, while ignored local files and deletions do not."""
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+    (checkout / ".gitignore").write_text(".env\n*.local.yaml\nbuild-output/\n")
+    (checkout / "tracked.py").write_text("original\n")
+    (checkout / "deleted.py").write_text("deleted\n")
+    subprocess.run(["git", "-C", str(checkout), "add", "."], check=True)
+    (checkout / "tracked.py").write_text("unpublished change\n")
+    (checkout / "deleted.py").unlink()
+    (checkout / "new source.py").write_text("new source\n")
+    (checkout / ".env").write_text("PLACEHOLDER=example\n")
+    (checkout / "install.local.yaml").write_text("placeholder: example\n")
+    (checkout / "build-output").mkdir()
+    (checkout / "build-output" / "artifact").write_text("build output\n")
+    (checkout / "source-link").symlink_to("tracked.py")
+    topology = tmp_path / "fabric.yaml"
+    topology.write_text("devices: []\n")
+    cfg = SimConfig(
+        config_manager_repo=str(checkout),
+        topology_path=str(topology),
+        mock_blueprint="custom",
+        run_mock_topology_job=False,
+    )
+    uploads = []
+
+    def upload(host, port, local_path, remote_path):
+        if remote_path == "/home/nvcm/nv-config-manager":
+            staged = Path(local_path)
+            uploads.append({str(p.relative_to(staged)) for p in staged.rglob("*")})
+            assert (staged / "tracked.py").read_text() == "unpublished change\n"
+            assert (staged / "source-link").is_symlink()
+        return True
+
+    manager = Mock(spec=AirSimulationManager)
+    manager.upload_to_server.side_effect = upload
+    SimOrchestrator(cfg, _Callback())._stage_local_sources(
+        manager, "worker.example", 17117, cfg, str(topology)
+    )
+    assert uploads == [{".gitignore", "tracked.py", "new source.py", "source-link"}]
+
+
+@pytest.mark.parametrize(
+    "failure", ["missing-plugin", "missing-job", "job-file", "duplicate-job", "mock-collision"]
+)
+def test_content_validation_fails_before_air_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    """Invalid job and plugin inputs fail without creating an AIR client or simulation."""
+    topology = tmp_path / "fabric.yaml"
+    topology.write_text("devices: []\n")
+    cfg = SimConfig(
+        topology_path=str(topology), mock_blueprint="custom", run_mock_topology_job=False
+    )
+    if failure == "missing-plugin":
+        cfg.template_plugin_paths = [str(tmp_path / "missing")]
+    elif failure == "missing-job":
+        cfg.extra_job_paths = [str(tmp_path / "missing")]
+    elif failure == "job-file":
+        job = tmp_path / "job.py"
+        job.write_text("# job\n")
+        cfg.extra_job_paths = [str(job)]
+    elif failure == "duplicate-job":
+        for parent in ("one", "two"):
+            (tmp_path / parent / "myjobs").mkdir(parents=True)
+        cfg.extra_job_paths = [str(tmp_path / parent / "myjobs") for parent in ("one", "two")]
+    else:
+        job = tmp_path / "mock_topology"
+        job.mkdir()
+        cfg.run_mock_topology_job = True
+        cfg.mock_topology_path = str(tmp_path)
+        cfg.extra_job_paths = [str(job)]
+    orchestrator = SimOrchestrator(cfg, _Callback())
+    factory = Mock()
+    monkeypatch.setattr(orchestrator, "_create_simulation_manager", factory)
+    with pytest.raises((FileNotFoundError, ValueError)):
+        orchestrator._run_impl()
+    factory.assert_not_called()
+
+
+@pytest.mark.parametrize("wait_timeout", [0, -1])
+def test_local_repository_cannot_skip_upload_with_zero_wait(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, wait_timeout: int
+) -> None:
+    """A local checkout cannot produce an apparently usable empty remote workspace."""
+    cfg = SimConfig(config_manager_repo=str(tmp_path), wait_timeout=wait_timeout)
+    orchestrator = SimOrchestrator(cfg, _Callback())
+    factory = Mock()
+    monkeypatch.setattr(orchestrator, "_create_simulation_manager", factory)
+    with pytest.raises(ValueError, match="requires wait_timeout greater than zero"):
+        orchestrator._run_impl()
+    factory.assert_not_called()
+
+
+def test_disabled_oob_server_fails_before_air_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A disabled management server gets a direct configuration error before provisioning."""
+    topology = tmp_path / "fabric.yaml"
+    topology.write_text("devices:\n- name: oob-mgmt-server\n  _air:\n    enabled: false\n")
+    cfg = SimConfig(
+        topology_path=str(topology), run_mock_topology_job=False, mock_blueprint="custom"
+    )
+    orchestrator = SimOrchestrator(cfg, _Callback())
+    factory = Mock()
+    monkeypatch.setattr(orchestrator, "_create_simulation_manager", factory)
+    with pytest.raises(ValueError, match="OOB server 'oob-mgmt-server' is disabled for AIR"):
+        orchestrator._run_impl()
+    factory.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -257,7 +393,9 @@ def test_staging_rejects_content_missing_locally(
     monkeypatch.setattr(
         orchestrator,
         "_local_content_path",
-        lambda path: None if path == resolved_missing else topology,
+        lambda path: (
+            None if path == resolved_missing else (topology if path == str(topology) else tmp_path)
+        ),
     )
     manager = Mock(spec=AirSimulationManager)
     with pytest.raises(FileNotFoundError, match="remote-only paths are not supported") as exc:
@@ -279,7 +417,9 @@ def test_staging_failure_marks_upload_step_failed(
     manager.create_ssh_service.return_value = ("worker.example", 17117)
     builder = Mock(
         devices={
-            cfg.oob_server_name: SimpleNamespace(interface_macs={"eth1": "00:11:22:33:44:55"})
+            cfg.oob_server_name: SimpleNamespace(
+                interface_macs={"eth1": "00:11:22:33:44:55"}, air_enabled=True
+            )
         },
         lb_allowed_prefixes=[],
         relay_return_prefixes=[],
@@ -295,6 +435,7 @@ def test_staging_failure_marks_upload_step_failed(
     monkeypatch.setattr(f"{module}.generate_server_cloud_init", Mock(return_value="cloud-init"))
     monkeypatch.setattr(f"{module}.shutil.which", Mock(return_value="/usr/bin/sshpass"))
     monkeypatch.setattr(orchestrator, "_create_simulation_manager", Mock(return_value=manager))
+    monkeypatch.setattr(orchestrator, "_local_content_sources", Mock(return_value=[]))
     error = error_type("staging failed")
     monkeypatch.setattr(orchestrator, "_stage_local_sources", Mock(side_effect=error))
 

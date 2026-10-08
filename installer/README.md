@@ -347,17 +347,20 @@ deployment and TUI implementations instead of copying their orchestration:
 Provider deployment belongs in these lifecycle hooks, not in progress
 callbacks. This keeps the CLI and both TUIs on the same orchestration path.
 
-AIR topology files, mock-topology directories, content jobs, and template-plugin
-directories must exist locally and are always uploaded to the simulation. They
-can live outside the application checkout. Relative content paths are resolved
-from the invoking working directory, then from the checkout containing the
-running installer (`PROJECT_ROOT`). Selecting a different local application
-checkout with `config_manager_repo` does not change this content search path.
-Use explicit local paths for content in other checkouts or independent directories.
-Bundled content must also be present locally; missing paths are errors,
-not references to files in the remote repository or on the AIR server. This is
-independent of `config_manager_repo`, which may select either a remote Git
-repository to clone or a local application checkout to upload.
+AIR topology files, mock-topology directories, job packages, and template-plugin
+directories must exist locally. For automatic setup, these inputs are checked
+before AIR is contacted and uploaded after cloud-init. Relative paths resolve
+from the invoking directory, then the running installer's checkout (`PROJECT_ROOT`),
+regardless of `config_manager_repo`. Use explicit paths for content elsewhere.
+Jobs must be directories with unique package names; the name `mock_topology` is
+reserved when the mock-topology job is enabled. Package names are preserved so
+imports and post-deploy job identifiers continue to work.
+
+`config_manager_repo` accepts a remote Git repository or a local Git checkout.
+Local uploads include tracked working-tree files and non-ignored new files,
+preserving unpublished changes while excluding ignored untracked configuration and
+build output. Automatic setup with a local checkout requires `wait_timeout > 0`
+so the repository can be uploaded after cloud-init.
 
 #### 3. External Services
 

@@ -190,13 +190,11 @@ def test_sim_config_regenerates_blank_oob_ssh_password(tmp_path) -> None:
 def test_sim_config_does_not_persist_runtime_staging_paths(tmp_path) -> None:
     config_path = tmp_path / "air-sim.yaml"
     cfg = SimConfig()
-    cfg._air_remote_mock_topology_path = "/home/nvcm/air-content/mock-topology"
     cfg._air_content_staged = True
 
     cfg.to_yaml(config_path)
 
     persisted = yaml.safe_load(config_path.read_text())
-    assert "_air_remote_mock_topology_path" not in persisted
     assert "_air_content_staged" not in persisted
 
 

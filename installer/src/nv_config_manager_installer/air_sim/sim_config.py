@@ -92,8 +92,7 @@ class SimConfig:
     no_aggressive_dhcp: bool = False
     no_reset_before_dhcp: bool = False
 
-    # Runtime-only paths populated after local content is copied to the AIR box.
-    _air_remote_mock_topology_path: str = field(default="", init=False, repr=False)
+    # Runtime-only state populated after local content is copied to the AIR box.
     _air_content_staged: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:

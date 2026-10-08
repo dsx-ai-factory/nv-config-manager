@@ -210,6 +210,15 @@ def test_air_topology_builder_preserves_explicit_oob_server_cpu_mode(tmp_path: P
     assert "cpu_mode" not in topology["nodes"]["oob-mleaf-01"]
 
 
+@pytest.mark.parametrize("enabled", ["false", 0, 1, None, [], {}])
+def test_air_enabled_requires_boolean(tmp_path: Path, enabled: Any) -> None:
+    """Malformed enablement values must not silently launch inventory-only nodes."""
+    topology_path = tmp_path / "site-design.yaml"
+    _write_yaml(topology_path, {"devices": [{"name": "server", "_air": {"enabled": enabled}}]})
+    with pytest.raises(ValueError, match="_air.enabled must be a boolean"):
+        AirTopologyBuilder(str(topology_path))
+
+
 @pytest.mark.parametrize("device_name", ["oob-mgmt-server", "oob-mleaf-01"])
 def test_air_topology_builder_accepts_null_air_config(tmp_path: Path, device_name: str) -> None:
     """A YAML null AIR block uses defaults for both server and switch nodes."""
