@@ -111,6 +111,7 @@ def test_cache_db_1_is_allowed() -> None:
         (("externalServices.redis.nautobotCacheDb=null",), None),
         ((), "externalServices.redis.nautobotCacheDb="),
         ((), "externalServices.redis.nautobotCacheDb=two"),
+        ((), "externalServices.redis.nautobotCacheDb=010"),
         (("externalServices.redis.nautobotCacheDb=-1",), None),
     ],
 )
@@ -119,7 +120,7 @@ def test_cache_db_must_be_a_non_negative_integer(
 ) -> None:
     result = _helm_template(*set_args, set_string=set_string)
     assert result.returncode != 0
-    assert "nautobotCacheDb must be a non-negative integer" in result.stderr
+    assert "nautobotCacheDb must be a non-negative decimal integer" in result.stderr
 
 
 def test_external_nautobot_skips_cache_db_check() -> None:
