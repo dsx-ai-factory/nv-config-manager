@@ -18,6 +18,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { useRuntimeConfig } from "@/config/runtime";
 import { sanitizeUrl } from "@/lib/utils";
+import { parseLocationValue } from "@/lib/location-options";
 import { DeviceOption } from "@/types/workflow-form.types";
 
 interface UseDevicesProps {
@@ -39,7 +40,15 @@ const useDevices = ({
 }: UseDevicesProps): UseDevicesReturn => {
   const { config } = useRuntimeConfig();
   const apiURL = config?.workflowApiUrl;
-  const params = new URLSearchParams([...filterParams]).toString();
+  const location = parseLocationValue(site);
+  const normalizedFilterParams = filterParams.filter(
+    ([name]) => name !== "site" && name !== "site_type"
+  );
+  if (location) {
+    normalizedFilterParams.push(["site", location.id]);
+    if (location.locationType) normalizedFilterParams.push(["site_type", location.locationType]);
+  }
+  const params = new URLSearchParams(normalizedFilterParams).toString();
 
   const { data, error, isLoading } = useSWR(
     site && apiURL ? sanitizeUrl(`${apiURL}${path}?${params}`) : null,

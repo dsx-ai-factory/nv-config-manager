@@ -17,7 +17,7 @@
 Requires:
   - Running Kind cluster with nv-config-manager deployed
   - Worker deployed with mockDevices=true (values-local-diagnostics.yaml)
-  - Mock Nautobot topology loaded: make topology
+  - Mock DCIM topology loaded: make topology
   - Jira server accessible from developer machine (corporate network)
   - A valid Jira issue key: --jira-issue-key GNI-1234 or JIRA_ISSUE_KEY env var
 
@@ -151,12 +151,12 @@ def jira_issue_key(request: pytest.FixtureRequest) -> str:
 
 @pytest.fixture(scope="session")
 def diagnostics_input(
-    nautobot_device_ids: list[str],
+    dcim_device_ids: list[str],
     jira_issue_key: str,
 ) -> dict[str, Any]:
     """Standard single-device diagnostics payload used by most happy-path tests."""
     return {
-        "device_ids": [nautobot_device_ids[0]],
+        "device_ids": [dcim_device_ids[0]],
         "commands": ["show_version"],
         "ticketing_platform": "jira",
         "issue_key": jira_issue_key,
@@ -299,7 +299,7 @@ def test_diagnostics_workflow_comment_posted(
 def test_diagnostics_workflow_with_tech_support(
     temporal_api_url: str,
     temporal_client: requests.Session,
-    nautobot_device_ids: list[str],
+    dcim_device_ids: list[str],
     jira_issue_key: str,
 ) -> None:
     """include_tech_support=True; result.tech_support_urls is non-empty and
@@ -307,7 +307,7 @@ def test_diagnostics_workflow_with_tech_support(
     print("\n=== test_diagnostics_workflow_with_tech_support ===")
 
     payload = {
-        "device_ids": [nautobot_device_ids[0]],
+        "device_ids": [dcim_device_ids[0]],
         "commands": ["show_version"],
         "ticketing_platform": "jira",
         "issue_key": jira_issue_key,
@@ -341,7 +341,7 @@ def test_diagnostics_workflow_with_tech_support(
 def test_diagnostics_workflow_invalid_ticket_fails(
     temporal_api_url: str,
     temporal_client: requests.Session,
-    nautobot_device_ids: list[str],
+    dcim_device_ids: list[str],
 ) -> None:
     """issue_key='NOTREAL-9999'; validate_ticket stage reaches FAILED quickly.
 
@@ -352,7 +352,7 @@ def test_diagnostics_workflow_invalid_ticket_fails(
     print("\n=== test_diagnostics_workflow_invalid_ticket_fails ===")
 
     payload = {
-        "device_ids": [nautobot_device_ids[0]],
+        "device_ids": [dcim_device_ids[0]],
         "commands": ["show_version"],
         "ticketing_platform": "jira",
         "issue_key": "NOTREAL-9999",
@@ -387,7 +387,7 @@ def test_diagnostics_workflow_invalid_ticket_fails(
 def test_diagnostics_workflow_command_normalization(
     temporal_api_url: str,
     temporal_client: requests.Session,
-    nautobot_device_ids: list[str],
+    dcim_device_ids: list[str],
     jira_issue_key: str,
 ) -> None:
     """commands=['show version'] (spaces) normalizes to 'show_version'; workflow completes.
@@ -395,7 +395,7 @@ def test_diagnostics_workflow_command_normalization(
     print("\n=== test_diagnostics_workflow_command_normalization ===")
 
     payload = {
-        "device_ids": [nautobot_device_ids[0]],
+        "device_ids": [dcim_device_ids[0]],
         "commands": ["show version"],  # spaces — must normalize to "show_version"
         "ticketing_platform": "jira",
         "issue_key": jira_issue_key,
@@ -415,7 +415,7 @@ def test_diagnostics_workflow_command_normalization(
 def test_diagnostics_workflow_unknown_commands_ignored(
     temporal_api_url: str,
     temporal_client: requests.Session,
-    nautobot_device_ids: list[str],
+    dcim_device_ids: list[str],
     jira_issue_key: str,
 ) -> None:
     """commands=['nonexistent_command']; workflow completes with empty outputs (no crash).
@@ -423,7 +423,7 @@ def test_diagnostics_workflow_unknown_commands_ignored(
     print("\n=== test_diagnostics_workflow_unknown_commands_ignored ===")
 
     payload = {
-        "device_ids": [nautobot_device_ids[0]],
+        "device_ids": [dcim_device_ids[0]],
         "commands": ["nonexistent_command"],
         "ticketing_platform": "jira",
         "issue_key": jira_issue_key,
@@ -443,20 +443,20 @@ def test_diagnostics_workflow_unknown_commands_ignored(
 def test_diagnostics_workflow_multiple_devices(
     temporal_api_url: str,
     temporal_client: requests.Session,
-    nautobot_device_ids: list[str],
+    dcim_device_ids: list[str],
     jira_issue_key: str,
 ) -> None:
     """3 device_ids; result.devices_count == 3."""
     print("\n=== test_diagnostics_workflow_multiple_devices ===")
 
-    if len(nautobot_device_ids) < 3:
+    if len(dcim_device_ids) < 3:
         pytest.skip(
-            f"Need at least 3 cumulus-linux devices in Nautobot, "
-            f"found {len(nautobot_device_ids)}. Load more mock devices: make topology"
+            f"Need at least 3 Cumulus Linux devices in the DCIM, "
+            f"found {len(dcim_device_ids)}. Load more mock devices: make topology"
         )
 
     payload = {
-        "device_ids": nautobot_device_ids[:3],
+        "device_ids": dcim_device_ids[:3],
         "commands": ["show_version"],
         "ticketing_platform": "jira",
         "issue_key": jira_issue_key,

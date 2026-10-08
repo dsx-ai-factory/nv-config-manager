@@ -1,0 +1,48 @@
+fragment remote_peer on DeviceType {
+  name
+  config_context
+  interfaces(name__re: "lo|Loopback") {
+    name
+    ip_addresses {
+      host
+    }
+  }
+}
+
+query ($location: [String]!) {
+  wan_devices: devices(role: ["WAN", "TAN-BBR"], location: $location) {
+    ...remote_peer
+  }
+  route_servers: devices(tags: "route-server", location: $location) {
+    ...remote_peer
+  }
+  prefixes(tags: "role-aggregate", location: $location) {
+    prefix
+    role {
+      name
+    }
+    tags {
+      name
+    }
+  }
+  uc_jumphost_prefixes: prefixes(tags: "uc-jumphost", location: $location) {
+    prefix
+    role {
+      name
+    }
+    tags {
+      name
+    }
+  }
+  vlans {
+    vid
+    rel_vlan_to_helper_address {
+      host
+    }
+  }
+  locations(name:$location) {
+    tags {
+      name
+    }
+  }
+}

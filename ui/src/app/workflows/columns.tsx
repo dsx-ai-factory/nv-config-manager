@@ -99,6 +99,9 @@ function getWorkflowStatusLabel(status: string): string {
 }
 
 function getWorkflowDisplayStatus(workflow: WorkflowColumns): string {
+  if (workflow.status != "RUNNING") {
+    return workflow.status;
+  }
   if (workflow.failed_stage) {
     return "FAILED";
   }
@@ -219,7 +222,11 @@ function DeviceNameCell({
       param="device_name"
       value={deviceNameValue}
     >
-      {renderDeviceNameField(workflow, config?.nautobotUrl)}
+      {renderDeviceNameField(
+        workflow,
+        config?.dcimUrl,
+        config?.dcimDisplayName
+      )}
     </FilterableValue>
   );
 }

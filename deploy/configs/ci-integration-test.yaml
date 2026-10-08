@@ -1,7 +1,7 @@
 # =============================================================================
 # NVIDIA Config Manager - CI Integration Test Config
 # =============================================================================
-# Used by the integration-test CI job via:
+# Used by the GitHub Kind integration workflow via:
 #   make kind-up INSTALL_CONFIG=deploy/configs/ci-integration-test.yaml HELM_TIMEOUT=20m
 # =============================================================================
 

@@ -7,8 +7,8 @@ readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11,<3.12"
 dependencies = [
-    # Security: Stay on Nautobot 2.x while fixing CVE-2026-44797/CVE-2026-44798
-    "nautobot==2.4.36",
+    # Stay on Nautobot 2.x; 2.4.43 permits the patched cryptography 50.x release.
+    "nautobot==2.4.43",
     "nautobot-fsus>=3.0.1",
     "nautobot-broker-nats",
     "nautobot-firewall-models>=2.2.0",
@@ -31,14 +31,17 @@ dependencies = [
     # Security: Fix urllib3 vulnerabilities (CVE-2026-44431, CVE-2026-44432)
     "urllib3>=2.7.0",
     # Security: Fix GitPython vulnerability (GHSA-mv93-w799-cj2w)
-    "gitpython>=3.1.50",
+    "gitpython>=3.1.62",
     # Security: Fix vulnerable OpenSSL bundled in cryptography wheels (GHSA-537c-gmf6-5ccf)
-    "cryptography>=48.0.1",
+    # Security: Fix PKCS#7 decryption oracle (GHSA-g6cj-pr64-35w5)
+    "cryptography>=50.0.0",
     # Security: Fix Pillow decompression-bomb bypasses
     # (GHSA-5x94-69rx-g8h2, GHSA-phj9-mv4w-65pm, GHSA-45hq-cxwh-f6vc, GHSA-8v84-f9pq-wr9x)
     "pillow>=12.3.0",
     # Security: Fix DoS via unbounded recursion (GHSA-jr27-m4p2-rc6r, GHSA-63vm-454h-vhhq)
-    "pyasn1>=0.6.3",
+    "pyasn1>=0.6.4",
+    "soupsieve>=2.8.4",
+    "sqlparse>=0.6.0",
     # Multi-provider JWT validation (external IdPs, Azure AD, SPIFFE JWT-SVIDs)
     # cryptography is already a transitive dep of nautobot but pin for JWKS key support
     "PyJWT[crypto]>=2.13.0",

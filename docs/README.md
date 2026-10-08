@@ -23,6 +23,7 @@ make docs-preview
 
 - Content pages live under `docs/**/*.mdx`.
 - Navigation is defined in `docs/fern/docs.yml`.
+- DCIM integrations follow [Contribute a DCIM Provider](development/contributing-dcim-provider.mdx); keep generic service documentation provider-neutral and put bundled Nautobot behavior in the Nautobot documentation.
 - OpenAPI specs are generated into `docs/api-specs/` with `make openapi`.
 - Installer TUI screenshots are generated into `docs/assets/images/installer/` with `make docs-screenshots`.
 - DSX Air sim TUI screenshots are generated into `docs/assets/images/air-sim/` with `make docs-air-sim-screenshots`.
@@ -32,8 +33,8 @@ make docs-preview
 
 The Next.js UI screenshots use `ui/playwright.docs.config.ts` and the
 docs-only specs in `ui/tests/docs-screenshots/`. The specs start the UI, serve
-mocked workflow API data, pre-populates workflow forms with stable URL
-parameters, captures workflow page states, and writes PNGs to
+mocked workflow API data, prepopulate workflow forms with stable URL
+parameters, capture workflow page states, and write PNGs to
 their matching directories under `docs/assets/images/`.
 
 Live screenshots against `https://nvcm.air` are also possible when the browser

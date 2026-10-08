@@ -3,7 +3,7 @@
 ## Development Setup
 
 ```bash
-git clone https://github.com/NVIDIA/nv-config-manager.git
+git clone https://github.com/dsx-ai-factory/nv-config-manager.git
 cd nv-config-manager/components/nautobot/nautobot-app-overlays
 
 # Copy credentials

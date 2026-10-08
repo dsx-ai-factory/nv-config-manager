@@ -80,7 +80,11 @@ def build_content_jobs(cfg: SimConfig) -> tuple[list[dict[str, str]], list[dict[
 
     if cfg.run_mock_topology_job:
         jobs.append(
-            {"path": _remote_repo_path(cfg.mock_topology_path or "development/mock_topology")}
+            {
+                "path": cfg.mock_topology_path
+                if cfg._air_content_staged
+                else _remote_repo_path(cfg.mock_topology_path or "development/mock_topology")
+            }
         )
         run_after_deploy.append(
             {
@@ -93,7 +97,7 @@ def build_content_jobs(cfg: SimConfig) -> tuple[list[dict[str, str]], list[dict[
 
     for path in cfg.extra_job_paths:
         if path:
-            jobs.append({"path": _remote_repo_path(path)})
+            jobs.append({"path": path if cfg._air_content_staged else _remote_repo_path(path)})
 
     for job_spec in cfg.extra_run_after_deploy:
         normalized = _normalize_post_deploy_job(job_spec)
@@ -103,17 +107,26 @@ def build_content_jobs(cfg: SimConfig) -> tuple[list[dict[str, str]], list[dict[
     return jobs, run_after_deploy
 
 
-def build_template_plugins(cfg: SimConfig) -> list[dict[str, str]]:
-    """Return installer content.template_plugins entries."""
+def template_plugin_paths(cfg: SimConfig) -> list[str]:
+    """Return configured and inferred local template-plugin paths."""
     paths = [path for path in cfg.template_plugin_paths if path]
 
-    if cfg.run_mock_topology_job and cfg.mock_blueprint in _DEMO_TEMPLATE_BLUEPRINTS:
+    if cfg.mock_blueprint in _DEMO_TEMPLATE_BLUEPRINTS and not cfg._air_content_staged:
         default_path = DEFAULT_AIR_DEMO_TEMPLATE_PLUGIN_PATH.as_posix()
         default_remote_path = _remote_repo_path(default_path)
         if all(_remote_repo_path(path) != default_remote_path for path in paths):
             paths.append(default_path)
 
-    return [{"path": _remote_repo_path(path)} for path in paths]
+    return paths
+
+
+def build_template_plugins(cfg: SimConfig) -> list[dict[str, str]]:
+    """Return installer content.template_plugins entries."""
+    paths = template_plugin_paths(cfg)
+
+    return [
+        {"path": path if cfg._air_content_staged else _remote_repo_path(path)} for path in paths
+    ]
 
 
 def generate_air_sim_install_config(

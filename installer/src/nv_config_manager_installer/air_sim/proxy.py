@@ -23,10 +23,10 @@ import subprocess
 import time
 from dataclasses import dataclass
 
-from nv_config_manager_installer.air_sim.constants import NVCM_BOX_USER
+from nv_config_manager_installer.air_sim.constants import CONFIG_MANAGER_HOSTNAME, NVCM_BOX_USER
 
 SOCKS_PORT = 8080
-_NVCM_URL = "https://nautobot.nvcm.air"
+_NVCM_URL = f"https://{CONFIG_MANAGER_HOSTNAME}"
 
 _SSH_OPTS = [
     "-o",
@@ -66,6 +66,7 @@ class ProxyInfo:
     port: int
     password: str
     socks_port: int = SOCKS_PORT
+    target_url: str = _NVCM_URL
 
     # ── Per-platform command strings ──────────────────────────────────────────
 
@@ -90,7 +91,7 @@ class ProxyInfo:
         return (
             f'chromium-browser --proxy-server="socks5://localhost:{self.socks_port}"'
             f' --user-data-dir="/tmp/chrome-nvcm-proxy"'
-            f" --ignore-certificate-errors {_NVCM_URL}"
+            f" --ignore-certificate-errors {self.target_url}"
         )
 
     def browser_cmd_windows(self) -> str:
@@ -101,7 +102,7 @@ class ProxyInfo:
             f" '--proxy-server=socks5://localhost:{p}'"
             f" '--user-data-dir=%TEMP%\\chrome-nvcm-proxy'"
             f" '--ignore-certificate-errors'"
-            f" '{_NVCM_URL}'"
+            f" '{self.target_url}'"
         )
 
     def teleport_forward_cmd(self, remote_host: str) -> str:
@@ -164,7 +165,7 @@ class ProxyInfo:
         system = platform.system()
         proxy_arg = f"--proxy-server=socks5://localhost:{self.socks_port}"
         user_data = r"%TEMP%\chrome-nvcm-proxy" if system == "Windows" else "/tmp/chrome-nvcm-proxy"
-        extra = ["--ignore-certificate-errors", _NVCM_URL]
+        extra = ["--ignore-certificate-errors", self.target_url]
 
         exe = _find_browser(system)
         if not exe:

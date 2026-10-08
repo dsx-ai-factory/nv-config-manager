@@ -17,8 +17,10 @@
 from __future__ import annotations
 
 import tempfile
+from itertools import product
 from pathlib import Path
 
+import pytest
 import yaml
 
 from nv_config_manager_installer.helm_values import _GLOBAL_IMAGE_DEFAULTS, generate_helm_values
@@ -26,6 +28,10 @@ from nv_config_manager_installer.schema import (
     NV_CONFIG_MANAGER_IMAGE_KEYS,
     ClusterConfig,
     ContentConfig,
+    DCIMConfig,
+    DCIMProviderPackage,
+    ExternalNATSConfig,
+    ExternalRedisConfig,
     ExternalServicesConfig,
     ExternalTemporalConfig,
     GatewayType,
@@ -43,6 +49,7 @@ from nv_config_manager_installer.schema import (
     LBProvider,
     LoadBalancerConfig,
     MonitoringConfig,
+    NATSAuthMethod,
     NVConfigManagerInstallConfig,
     RBACConfig,
     RedfishConfig,
@@ -113,6 +120,7 @@ class TestGenerateHelmValues:
         assert values["global"]["baseDomain"] == "test.example.com"
         assert values["global"]["environment"] == "prod"
         assert values["secrets"]["method"] == "kubernetes"
+        assert values["dcim"]["provider"] == "nautobot-2x"
 
         ext = values["externalServices"]
         assert ext["nautobot"]["local"] is True
@@ -282,15 +290,18 @@ class TestGenerateHelmValues:
 
     def test_nautobot_disabled(self):
         config = _make_config(
-            services=ServicesConfig(nautobot=False),
+            services=ServicesConfig(
+                nautobot=False,
+                external_nautobot_url="https://nb.example.com",
+            ),
             content=ContentConfig(jobs=[]),
         )
         values = _gen(config)
 
         assert values["nautobot"]["enabled"] is False
         assert "admin" not in values["nautobot"]
-        assert values["nautobotNats"]["enabled"] is False
-        assert "server" not in values["externalServices"].get("nats", {})
+        assert values["nautobotNats"]["enabled"] is True
+        assert values["externalServices"]["nats"]["local"] is True
 
     def test_cnpg_per_database_clusters(self):
         values = _gen(_make_config())
@@ -459,6 +470,12 @@ class TestGenerateHelmValues:
         assert (
             values["global"]["images"]["nvConfigManager"]["repository"]
             == "nvcr.io/nvidian/cfa/nv-config-manager"
+        )
+
+    def test_redis_exporter_image_default(self):
+        assert _GLOBAL_IMAGE_DEFAULTS["redisExporter"] == (
+            "docker.io/oliver006/redis_exporter",
+            "v1.90.0",
         )
 
     def test_sso_enabled(self):
@@ -801,9 +818,85 @@ class TestGenerateHelmValues:
         ext = values["externalServices"]
         assert ext["nautobot"]["local"] is False
         assert ext["nautobot"]["server"] == "https://nb.prod.example.com"
-        assert "server" not in ext.get("nats", {})
+        assert ext["nats"]["local"] is True
         assert ext["redis"]["local"] is True
         assert ext["postgres"]["temporal"]["host"] == "cluster-temporal-rw"
+        assert values["mcp"]["enabled"] is True
+
+    def test_external_nats_is_independent_of_bundled_nautobot(self):
+        config = _make_config(
+            external_services=ExternalServicesConfig(
+                nats=ExternalNATSConfig(
+                    enabled=True,
+                    server="nats://nats.prod.example.com:4222",
+                    auth_method=NATSAuthMethod.JWT,
+                    creds_path="/etc/nats/prod.creds",
+                )
+            )
+        )
+
+        values = _gen(config)
+
+        assert values["externalServices"]["nautobot"]["local"] is True
+        assert values["externalServices"]["nats"] == {
+            "server": "nats://nats.prod.example.com:4222",
+            "authMethod": "JWT",
+            "local": False,
+            "user": "nv-config-manager",
+            "secretName": "",
+            "externalSecretName": "",
+            "credsPath": "/etc/nats/prod.creds",
+        }
+        assert values["nautobotNats"]["enabled"] is False
+
+    def test_external_dcim_values_use_generic_configuration(self):
+        config = _make_config(
+            dcim=DCIMConfig(
+                provider="synthetic",
+                server="https://synthetic.example",
+                public_url="https://synthetic-ui.example",
+                display_name="Synthetic DCIM",
+                event_stream="synthetic-dcim",
+                event_subject="synthetic.change",
+                options={"tenant": "lab"},
+                token_secret_name="synthetic-dcim-token",
+                token_secret_key="access-token",
+                provider_packages=[
+                    DCIMProviderPackage(
+                        name="synthetic",
+                        image="registry.example/synthetic-provider:1.0",
+                    )
+                ],
+            ),
+            services=ServicesConfig(nautobot=False),
+            content=ContentConfig(jobs=[]),
+        )
+
+        values = _gen(config)
+
+        assert values["dcim"] == {
+            "provider": "synthetic",
+            "server": "https://synthetic.example",
+            "publicUrl": "https://synthetic-ui.example",
+            "displayName": "Synthetic DCIM",
+            "events": {"stream": "synthetic-dcim", "subject": "synthetic.change"},
+            "tokenSecret": {"name": "synthetic-dcim-token", "key": "access-token"},
+            "options": {"tenant": "lab"},
+            "providerPackages": {
+                "enabled": True,
+                "images": [
+                    {
+                        "name": "synthetic",
+                        "image": "registry.example/synthetic-provider:1.0",
+                        "pullPolicy": "IfNotPresent",
+                    }
+                ],
+            },
+        }
+        assert values["externalServices"]["nautobot"] == {"local": False}
+        assert values["externalServices"]["nats"]["local"] is True
+        assert values["nautobotNats"]["enabled"] is True
+        assert values["nautobot"]["enabled"] is False
         assert values["mcp"]["enabled"] is True
 
 
@@ -987,6 +1080,11 @@ class TestImagesInHelmValues:
         )
         assert images["natsExporter"]["tag"] == "0.20.1"
         assert (
+            images["redisExporter"]["repository"]
+            == "registry.example.com/nv-config-manager/oliver006/redis_exporter"
+        )
+        assert images["redisExporter"]["tag"] == "v1.90.0"
+        assert (
             images["temporalServer"]["repository"]
             == "registry.example.com/nv-config-manager/nvidian/cfa/nv-config-manager-temporal"
         )
@@ -1006,6 +1104,10 @@ class TestImagesInHelmValues:
         assert (
             values["renderService"]["templatePlugins"]["installerImage"]
             == "registry.example.com/nv-config-manager/library/python:3.13-alpine"
+        )
+        assert (
+            values["dcim"]["providerPackages"]["installerImage"]
+            == "registry.example.com/nv-config-manager/library/python:3.13-bookworm"
         )
         assert (
             values["gateway"]["envoyProxy"]["image"]
@@ -1067,6 +1169,129 @@ class TestImagesInHelmValues:
 
 
 class TestMonitoringHelmValues:
+    @pytest.mark.parametrize(
+        ("external_redis_enabled", "explicit", "observability", "monitoring"),
+        product((False, True), repeat=4),
+    )
+    def test_redis_metrics_boolean_truth_table(
+        self,
+        external_redis_enabled: bool,
+        explicit: bool,
+        observability: bool,
+        monitoring: bool,
+    ):
+        config = _make_config(
+            external_services=ExternalServicesConfig(
+                redis=ExternalRedisConfig(
+                    enabled=external_redis_enabled,
+                    host="redis.example.com" if external_redis_enabled else "",
+                ),
+            ),
+            infrastructure=InfrastructureConfig(
+                monitoring=MonitoringConfig(
+                    enabled=monitoring,
+                    observability_enabled=observability,
+                    redis_metrics_enabled=explicit,
+                ),
+            ),
+        )
+
+        values = _gen(config)
+        exporter = not external_redis_enabled and (explicit or observability)
+
+        assert values["externalServices"]["redis"]["metricsExport"]["enabled"] is exporter
+        assert values["monitoring"]["podMonitors"]["redis"]["enabled"] is (
+            exporter and (monitoring or observability)
+        )
+
+    def test_explicit_redis_metrics_without_monitoring_enables_exporter_only(self):
+        config = _make_config(
+            infrastructure=InfrastructureConfig(
+                monitoring=MonitoringConfig(redis_metrics_enabled=True),
+            ),
+        )
+
+        values = _gen(config)
+
+        assert values["externalServices"]["redis"]["metricsExport"]["enabled"] is True
+        assert values["monitoring"]["podMonitors"]["redis"]["enabled"] is False
+
+    def test_explicit_redis_metrics_with_monitoring_enables_pod_monitor(self):
+        config = _make_config(
+            infrastructure=InfrastructureConfig(
+                monitoring=MonitoringConfig(enabled=True, redis_metrics_enabled=True),
+            ),
+        )
+
+        values = _gen(config)
+
+        assert values["externalServices"]["redis"]["metricsExport"]["enabled"] is True
+        assert values["monitoring"]["podMonitors"]["redis"]["enabled"] is True
+
+    def test_observability_automatically_enables_redis_metrics(self):
+        config = _make_config(
+            infrastructure=InfrastructureConfig(
+                monitoring=MonitoringConfig(observability_enabled=True),
+            ),
+        )
+
+        values = _gen(config)
+
+        assert values["externalServices"]["redis"]["metricsExport"]["enabled"] is True
+        assert values["monitoring"]["podMonitors"]["redis"]["enabled"] is True
+
+    def test_external_redis_suppresses_exporter_and_pod_monitor(self):
+        config = _make_config(
+            external_services=ExternalServicesConfig(
+                redis=ExternalRedisConfig(enabled=True, host="redis.example.com"),
+            ),
+            infrastructure=InfrastructureConfig(
+                monitoring=MonitoringConfig(
+                    observability_enabled=True,
+                    redis_metrics_enabled=True,
+                ),
+            ),
+        )
+
+        values = _gen(config)
+
+        assert values["externalServices"]["redis"]["local"] is False
+        assert values["externalServices"]["redis"]["metricsExport"]["enabled"] is False
+        assert values["monitoring"]["podMonitors"]["redis"]["enabled"] is False
+
+    def test_external_redis_without_host_uses_bundled_redis_metrics(self):
+        config = _make_config(
+            external_services=ExternalServicesConfig(
+                redis=ExternalRedisConfig(enabled=True),
+            ),
+            infrastructure=InfrastructureConfig(
+                monitoring=MonitoringConfig(enabled=True, redis_metrics_enabled=True),
+            ),
+        )
+
+        values = _gen(config)
+
+        assert values["externalServices"]["redis"]["local"] is True
+        assert values["externalServices"]["redis"]["metricsExport"]["enabled"] is True
+        assert values["monitoring"]["podMonitors"]["redis"]["enabled"] is True
+
+    def test_disabled_redis_metrics_emit_false_upgrade_overrides(self):
+        config = _make_config(
+            infrastructure=InfrastructureConfig(
+                monitoring=MonitoringConfig(enabled=True, redis_metrics_enabled=True),
+            ),
+        )
+        enabled_values = _gen(config)
+        assert enabled_values["externalServices"]["redis"]["metricsExport"]["enabled"] is True
+        assert enabled_values["monitoring"]["podMonitors"]["redis"]["enabled"] is True
+
+        config.infrastructure.monitoring.enabled = False
+        config.infrastructure.monitoring.redis_metrics_enabled = False
+        values = _gen(config)
+
+        assert values["externalServices"]["redis"]["metricsExport"]["enabled"] is False
+        assert values["monitoring"]["podMonitors"]["redis"]["enabled"] is False
+
     def test_monitoring_enabled_sets_default_prometheus_namespace(self):
         config = _make_config(
             infrastructure=InfrastructureConfig(

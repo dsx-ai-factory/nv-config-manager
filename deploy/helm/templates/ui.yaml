@@ -91,13 +91,14 @@ spec:
         # Config Store API URL
         - name: CONFIG_STORE_API_URL
           value: "https://{{ tpl .Values.configStore.gateway.api.hostname . }}"
-        # Nautobot URL
-        - name: NAUTOBOT_URL
-          {{- if .Values.externalServices.nautobot.local }}
-          value: "https://{{ tpl .Values.nautobot.gateway.hostname . }}"
-          {{- else }}
-          value: {{ required "externalServices.nautobot.server is required when nautobot.local=false" .Values.externalServices.nautobot.server | quote }}
-          {{- end }}
+        # Selected DCIM provider's public URL. Provider-specific device links
+        # are enabled only for the built-in Nautobot provider in the UI.
+        - name: DCIM_URL
+          value: {{ include "nv-config-manager.dcimPublicUrl" . | quote }}
+        - name: DCIM_PROVIDER
+          value: {{ .Values.dcim.provider | default "nautobot-2x" | quote }}
+        - name: DCIM_DISPLAY_NAME
+          value: {{ include "nv-config-manager.dcimDisplayName" . | quote }}
         # Render Service URL
         - name: RENDER_SERVICE_URL
           value: "https://{{ tpl .Values.renderService.gateway.hostname . }}"

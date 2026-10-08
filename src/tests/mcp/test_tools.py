@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -63,6 +64,7 @@ def settings() -> MCPSettings:
         nautobot_auth_mode="jwt",
         nautobot_token_fallback_enabled=False,
         max_response_bytes=10_000,
+        nautobot_mcp_enabled=True,
     )
 
 
@@ -136,14 +138,10 @@ async def test_workflow_starter_exposes_workflow_specific_input_schema(
     }
 
 
-async def test_related_mcp_servers_includes_public_docs(
-    monkeypatch: pytest.MonkeyPatch,
-    settings: MCPSettings,
-) -> None:
-    monkeypatch.setattr(tools, "discover_mcp_workflows", lambda: [])
+async def test_related_mcp_servers_includes_public_docs(settings: MCPSettings) -> None:
     server = FakeServer()
 
-    tools.register_tools(server, settings)
+    tools.register_tools(server, settings, [])
     result = await server.tools["list_related_mcp_servers"]()
 
     assert result["servers"] == [
@@ -185,12 +183,30 @@ async def test_list_nautobot_types_preserves_upstream_truncation(
             },
         }
 
-    monkeypatch.setattr(tools, "discover_mcp_workflows", lambda: [])
     monkeypatch.setattr(tools, "nautobot_graphql_query", fake_nautobot_graphql_query)
     server = FakeServer()
 
-    tools.register_tools(server, settings)
+    tools.register_tools(server, settings, [])
     result = await server.tools["list_nautobot_types"]()
 
     assert result["truncated"] is True
     assert result["data"]["types"][0]["name"] == "Device"
+
+
+def test_provider_without_mcp_capability_omits_nautobot_specific_tools(
+    settings: MCPSettings,
+) -> None:
+    """Nautobot tools require the selected provider capability, not its name."""
+    server = FakeServer()
+
+    tools.register_tools(
+        server,
+        replace(settings, dcim_provider_name="nautobot-3x", nautobot_mcp_enabled=False),
+        [],
+    )
+
+    assert "search_devices" not in server.tools
+    assert "get_device_id" not in server.tools
+    assert "query_nautobot" not in server.tools
+    assert "list_nautobot_types" not in server.tools
+    assert "get_nautobot_type" not in server.tools

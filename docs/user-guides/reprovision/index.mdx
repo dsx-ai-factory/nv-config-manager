@@ -25,7 +25,7 @@ Before running Reprovision, confirm the following are in place:
 - **ZTP is enabled** on the device record (the `ztp_enabled` flag on the Config Manager Info tab).
 - **Device is reachable** on its current management IP and responds to the API-driven factory reset. The workflow has no path forward against an unreachable device — and an unreachable device that has truly been factory-reset will ZTP on its own anyway.
 - **Device status** is one of Provisioning, Provisioned, or Active so that Nautobot considers it in scope for ZTP.
-- **Network path is healthy.** DHCP (UDP 67/68) and ZTP (TCP 443/80) must be open end-to-end between the device subnet and Config Manager. The switch's upstream relay path must be up.
+- **Network path is healthy.** The Config Manager cluster must reach Cumulus NVUE on TCP 8765 to initiate the factory reset. In the return direction, DHCP (UDP 67/68), the configured HTTP/HTTPS bootstrap port, and ZTP SFTP on TCP 2222 must be open from the device network to Config Manager. The switch's upstream relay path must be up.
 - **Cumulus Linux 5.x** is installed. ZTP will not proceed on pre-5.x releases; upgrade the device first using the [Switch OS Upgrade](../switch-os-upgrade/index.mdx) workflow.
 - **Approval to take the device offline.** Reprovisioning reboots the switch and re-applies its full configuration; any traffic transiting the device will be disrupted.
 
@@ -99,10 +99,10 @@ The `pre_reprovision_backup` stage stops before factory reset and links to both 
 
 **ZTP failed to complete within 30 minutes.**
 
-The `execute_ztp` stage gives ZTP a hard 30-minute deadline. If it expires, the device either never received DHCP, never reached the ZTP service, or stalled partway through. Work through the [Monitoring DHCP and ZTP](../new-site-deployment/index.mdx#monitoring-dhcp-and-ztp) and [Common errors](../new-site-deployment/index.mdx#common-errors-and-troubleshooting) sections of the New Site Bringup guide, filtering logs by the device's UUID, MAC, or uplink IP. The most common causes for an otherwise-healthy device are:
+The `execute_ztp` stage gives ZTP a hard 30-minute deadline. If it expires, the device either never received DHCP, never reached the ZTP service, or stalled partway through. Work through the [Monitoring DHCP and ZTP](../new-site-deployment/index.mdx#monitoring-dhcp-and-ztp) and [Common errors](../new-site-deployment/index.mdx#common-errors-and-troubleshooting) sections of the New Site Bringup guide, filtering both the ZTP `http-lb` and `sftp` container logs by the device's UUID, MAC, or uplink IP. The most common causes for an otherwise-healthy device are:
 
 - The device factory-reset but no longer has a static DHCP reservation because its MAC or serial was changed in Nautobot without saving.
-- A firewall or security-group change has dropped UDP 67/68 or TCP 443 between the device subnet and Config Manager.
+- A firewall or security-group change has dropped UDP 67/68, the configured HTTP/HTTPS bootstrap port, or TCP 2222 for SFTP between the device subnet and Config Manager.
 - The device is on a Cumulus release older than 5.x and cannot ZTP. Upgrade with the [Switch OS Upgrade](../switch-os-upgrade/index.mdx) workflow first.
 
 **Device is stuck and the workflow is still running.**

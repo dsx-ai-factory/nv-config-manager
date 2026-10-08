@@ -14,9 +14,12 @@
 # limitations under the License.
 """Tests for API endpoints."""
 
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+
+from nv_config_manager.config_store.api.main import app
 
 
 @pytest.mark.asyncio
@@ -60,6 +63,48 @@ async def test_create_config(client):
     assert data["file_type"] == "intended"
     assert data["version"] == 1
     assert data["content"] == "hostname test-device"
+
+
+@pytest.mark.asyncio
+async def test_device_identifier_uses_configured_provider_validation(client):
+    """Config Store accepts NetBox IDs and rejects IDs invalid for that provider."""
+    cache_service = MagicMock()
+    cache_service.dcim_client.is_valid_device_id.side_effect = str.isdigit
+    cache_service.get_device_metadata = AsyncMock(return_value=None)
+    app.state.cache_service = cache_service
+    try:
+        response = await client.post(
+            "/v1/config/42/config.yaml",
+            json={
+                "content": "hostname netbox-device",
+                "author": "test@example.com",
+                "commit_message": "Store config for NetBox device",
+            },
+        )
+        assert response.status_code == 201
+        assert response.json()["device_uuid"] == "42"
+
+        response = await client.post(
+            "/v1/config/not-an-integer/config.yaml",
+            json={
+                "content": "hostname invalid-device",
+                "author": "test@example.com",
+                "commit_message": "Invalid provider identifier",
+            },
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"].endswith("not-an-integer")
+    finally:
+        app.state.cache_service = None
+
+
+@pytest.mark.asyncio
+async def test_device_identifier_validation_fails_closed(client):
+    """Unchecked identifiers are not accepted when the DCIM client is unavailable."""
+    app.state.dcim_client = None
+    response = await client.get(f"/v1/config/device/{uuid4()}")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "DCIM provider validation is unavailable"
 
 
 @pytest.mark.asyncio

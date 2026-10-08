@@ -30,6 +30,10 @@ import { useToast } from "@/components/ui/use-toast";
 import { CumulusHardwareValidationWorkflowInput } from "@/types/data-table.types";
 import { useEnvData } from "@/hooks";
 import { getErrorMessage, startWorkflow } from "@/lib/utils";
+import {
+  resolveLocationFormValue,
+  resolveLocationOption,
+} from "@/lib/location-options";
 import { DEFAULT_SITE_WORKFLOW_STATUSES } from "@/lib/workflow-defaults";
 import { WorkflowFormField } from "@/components/forms/formfield";
 
@@ -105,7 +109,10 @@ export const CumulusHardwareValidationWorkflowForm = () => {
   //const params = new URLSearchParams(filterParams).toString();
   React.useEffect(() => {
     if (!isManualChange) {
-      setSingleQueryValue(form, querySite, siteCableData.siteData, "site");
+      form.setValue(
+        "site",
+        resolveLocationFormValue(siteCableData.siteData, querySite) ?? ""
+      );
       setMultiQueryValue(form, queryRoles, siteCableData.rolesData, "roles");
       setMultiQueryValue(
         form,
@@ -134,8 +141,10 @@ export const CumulusHardwareValidationWorkflowForm = () => {
   /** Starts the workflow with the validated form data. */
   const onSubmit = async (data: CumulusValidationFormData) => {
       setIsSubmitting(true);
+      const location = resolveLocationOption(siteCableData.siteData, data.site);
       const workflowParams: CumulusHardwareValidationWorkflowInput = {
-        site: data.site,
+        site: location?.id ?? data.site,
+        site_type: location?.locationType,
         roles: data.roles,
         status: data.status,
         tenant: data.tenant || undefined,

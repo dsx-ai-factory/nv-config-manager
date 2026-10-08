@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 
+import yaml
+
 from nv_config_manager_installer.air_sim.constants import (
     CONFIG_MANAGER_REMOTE_DIR,
     DEFAULT_AIR_DEMO_TEMPLATE_PLUGIN_PATH,
@@ -105,6 +107,7 @@ def test_custom_jobs_do_not_infer_mock_topology() -> None:
 def test_template_plugin_paths_are_included_without_generation() -> None:
     cfg = SimConfig(
         run_mock_topology_job=False,
+        mock_blueprint="custom",
         template_plugin_paths=[
             "development/template_plugins/demo",
             "/opt/external/template-plugin.tar.gz",
@@ -124,6 +127,28 @@ def test_template_plugin_paths_are_included_without_generation() -> None:
     assert install_config["content"]["template_plugins"] == [
         {"path": f"{CONFIG_MANAGER_REMOTE_DIR}/development/template_plugins/demo"},
         {"path": "/opt/external/template-plugin.tar.gz"},
+    ]
+
+
+def test_external_dcim_can_skip_population_and_keep_demo_template_plugin() -> None:
+    """DCIM population is independent from provider-neutral demo content."""
+    cfg = SimConfig(
+        generate_fabric_from_mock_context=True,
+        run_mock_topology_job=False,
+        mock_blueprint="air_superpod",
+        deployment_name="demo",
+    )
+
+    jobs, run_after_deploy = build_content_jobs(cfg)
+
+    assert jobs == []
+    assert run_after_deploy == []
+    assert build_template_plugins(cfg) == [
+        {
+            "path": (
+                f"{CONFIG_MANAGER_REMOTE_DIR}/{DEFAULT_AIR_DEMO_TEMPLATE_PLUGIN_PATH.as_posix()}"
+            )
+        }
     ]
 
 
@@ -162,13 +187,26 @@ def test_sim_config_regenerates_blank_oob_ssh_password(tmp_path) -> None:
     assert len(cfg.oob_ssh_password) == 24
 
 
+def test_sim_config_does_not_persist_runtime_staging_paths(tmp_path) -> None:
+    config_path = tmp_path / "air-sim.yaml"
+    cfg = SimConfig()
+    cfg._air_content_staged = True
+
+    cfg.to_yaml(config_path)
+
+    persisted = yaml.safe_load(config_path.read_text())
+    assert "_air_content_staged" not in persisted
+
+
 def test_demo_template_plugin_is_static_and_public_named() -> None:
     plugin_dir = PROJECT_ROOT / DEFAULT_AIR_DEMO_TEMPLATE_PLUGIN_PATH
 
     assert (plugin_dir / "pyproject.toml").is_file()
     assert not (plugin_dir / "scripts").exists()
 
-    plugin_text = "\n".join(path.read_text() for path in plugin_dir.rglob("*") if path.is_file())
+    source_files = [plugin_dir / "pyproject.toml"]
+    source_files.extend(path for path in (plugin_dir / "src").rglob("*") if path.is_file())
+    plugin_text = "\n".join(path.read_text(encoding="utf-8") for path in source_files)
     assert "generate_template_plugin" not in plugin_text
     assert "kiwi" not in plugin_text.lower()
     assert 'dhcp_servers("nvcm", true)' in plugin_text

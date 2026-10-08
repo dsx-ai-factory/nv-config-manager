@@ -1,0 +1,67 @@
+[project]
+name = "nv-config-manager-workflows"
+version = "1.0.0"
+description = "Reusable Temporal workflow and activity library for NVIDIA Config Manager network automation"
+authors = [{ name = "NVIDIA Corporation" }]
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.13"
+dependencies = [
+    "aiohttp>=3.14.1",
+    "junos-eznc>=2.8.2",
+    "nats-py>=2.9.0",
+    "netaddr>=1.3.0",
+    "netmiko>=4.3.0",
+    "nv-config-manager-clients",
+    "nv-config-manager-dcim",
+    "nv-config-manager-infrastructure",
+    "nv-config-manager-logging",
+    "openpyxl>=3.1.0",
+    "pandas>=2.3.0",
+    "paramiko>=3.4.0",
+    "py-markdown-table>=1.1.0",
+    "pydantic>=2.10.2",
+    "pyeapi>=1.0.2",
+    "requests>=2.33.0",
+    "ruamel-yaml>=0.18.6",
+    "slack-sdk>=3.35.0",
+    "temporalio>=1.29.0,<1.32.0",
+    "urllib3>=2.7.0",
+]
+
+[project.scripts]
+nv-config-manager-workflows-manifest = "nv_config_manager_workflows.registration.manifest:main"
+
+[project.entry-points."nv_config_manager.workflows"]
+builtin = "nv_config_manager_workflows.registration:builtin_plugin"
+
+[dependency-groups]
+dev = [
+    "aioresponses>=0.7.9",
+    "pytest>=8.3.3",
+    "pytest-asyncio>=0.23.7",
+    "responses>=0.25.3",
+    "ruff==0.16.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nv_config_manager_workflows"]
+
+[tool.hatch.build.targets.sdist]
+# The fixture plugin is a separate distribution built from its own pyproject.toml.
+exclude = ["tests/fixtures/plugin"]
+
+[tool.pytest.ini_options]
+cache_dir = ".cache/pytest_cache"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["B", "ANN"]

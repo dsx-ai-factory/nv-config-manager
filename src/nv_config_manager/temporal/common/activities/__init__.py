@@ -20,14 +20,7 @@ from nv_config_manager.temporal.common.activities.lock import (
     renew_workflow_lock,
 )
 
-REGISTERED_COMMON_ACTIVITIES = [
-    acquire_workflow_lock,
-    renew_workflow_lock,
-    release_workflow_lock,
-]
-
 __all__ = [
-    "REGISTERED_COMMON_ACTIVITIES",
     "acquire_workflow_lock",
     "release_workflow_lock",
     "renew_workflow_lock",

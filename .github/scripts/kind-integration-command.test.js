@@ -165,7 +165,7 @@ test("does not duplicate an active Kind integration run", async () => {
       {
         head_sha: CURRENT_SHA,
         status: "in_progress",
-        html_url: "https://github.com/NVIDIA/nv-config-manager/actions/runs/1",
+        html_url: "https://github.com/dsx-ai-factory/nv-config-manager/actions/runs/1",
       },
     ],
   });
@@ -199,7 +199,7 @@ test("still reports already-running run when acknowledgement reaction fails", as
       {
         head_sha: CURRENT_SHA,
         status: "in_progress",
-        html_url: "https://github.com/NVIDIA/nv-config-manager/actions/runs/1",
+        html_url: "https://github.com/dsx-ai-factory/nv-config-manager/actions/runs/1",
       },
     ],
   });
@@ -251,7 +251,7 @@ test("already-running acknowledgement failure falls back to console without core
         {
           head_sha: CURRENT_SHA,
           status: "in_progress",
-          html_url: "https://github.com/NVIDIA/nv-config-manager/actions/runs/1",
+          html_url: "https://github.com/dsx-ai-factory/nv-config-manager/actions/runs/1",
         },
       ],
     });

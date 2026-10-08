@@ -34,11 +34,13 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
 
-HTTP_TRACE_EXCLUDED_URLS = r"/(?:healthcheck|metrics)/?$"
+HTTP_TRACE_EXCLUDED_URLS = r"/(?:healthcheck|livez|metrics)/?$"
 HTTP_TRACE_EXCLUDED_PATHS = frozenset(
     {
         "/healthcheck",
         "/healthcheck/",
+        "/livez",
+        "/livez/",
         "/metrics",
         "/metrics/",
     }

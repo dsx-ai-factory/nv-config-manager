@@ -14,7 +14,6 @@
 # limitations under the License.
 """V1 Render API Endpoints."""
 
-import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,8 +24,8 @@ from nv_config_manager.common.auth import get_sso_user
 from nv_config_manager.common.client.render import FileCommit
 from nv_config_manager.common.config import (
     is_aggregate_environment,
-    pynautobot_client,
 )
+from nv_config_manager.dcim import dcim_client_session
 from nv_config_manager.render.events.util import queue_render_batch
 from nv_config_manager.render.lock import create_lock
 from nv_config_manager.render.render import execute_render
@@ -85,27 +84,12 @@ class BulkRenderResponse(BaseModel):
     )
 
 
-def get_render_enabled_devices() -> list[str]:
-    """Get all render-enabled device UUIDs from Nautobot."""
-    nb = pynautobot_client()
+async def get_render_enabled_devices() -> list[str]:
+    """Get all render-enabled device IDs from the selected DCIM provider."""
     is_aggregate_managed = is_aggregate_environment()
-
-    query = """
-    query render_devices($is_aggregate_managed: Boolean) {
-      config_manager_devices(render_enabled: true, is_aggregate_managed: $is_aggregate_managed) {
-        id
-      }
-    }
-    """
-
-    variables = {}
-    if is_aggregate_managed is not None:
-        variables["is_aggregate_managed"] = is_aggregate_managed
-
     try:
-        response = nb.graphql.query(query, variables)
-        devices = response.json["data"]["config_manager_devices"]
-        return [device["id"] for device in devices]
+        async with dcim_client_session() as dcim_client:
+            return await dcim_client.get_render_enabled_device_ids(is_aggregate_managed)
     except Exception as exc:
         raise HTTPException(
             status_code=500, detail=f"Failed to query render-enabled devices: {exc}"
@@ -138,7 +122,7 @@ async def render(
 
 
 @router.post("/all", response_model=BulkRenderResponse, response_model_exclude_none=True)
-def render_all(
+async def render_all(
     request: Request,
     response: Response,
     body: RenderRequest | None = None,
@@ -152,7 +136,7 @@ def render_all(
         commit_message = f"Bulk render initiated by {user}"
 
     # Get all render-enabled devices
-    device_uuids = get_render_enabled_devices()
+    device_uuids = await get_render_enabled_devices()
 
     if not device_uuids:
         response.status_code = 200
@@ -163,8 +147,8 @@ def render_all(
     # Queue renders for all devices using optimized batch processing
     timestamp = datetime.now(UTC).isoformat()
 
-    queued_count, failed_devices = asyncio.run(
-        queue_render_batch(device_uuids, commit_message, user, timestamp)
+    queued_count, failed_devices = await queue_render_batch(
+        device_uuids, commit_message, user, timestamp
     )
 
     response.status_code = 202
@@ -177,7 +161,7 @@ def render_all(
 
 
 @router.post("/batch", response_model=BulkRenderResponse, response_model_exclude_none=True)
-def render_batch(
+async def render_batch(
     request: Request,
     response: Response,
     body: BatchRenderRequest,
@@ -197,14 +181,12 @@ def render_batch(
     # Queue renders for specified devices using batch processing
     timestamp = datetime.now(UTC).isoformat()
 
-    queued_count, failed_devices = asyncio.run(
-        queue_render_batch(
-            body.device_uuids,
-            commit_message,
-            user,
-            timestamp,
-            max_concurrency=body.max_concurrency,
-        )
+    queued_count, failed_devices = await queue_render_batch(
+        body.device_uuids,
+        commit_message,
+        user,
+        timestamp,
+        max_concurrency=body.max_concurrency,
     )
 
     response.status_code = 202

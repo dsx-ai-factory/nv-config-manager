@@ -151,6 +151,12 @@ class InfraScreen(Container):
             value=infra.monitoring.observability_enabled,
             id="monitoring-observability-enabled",
         )
+        yield LabeledSwitch(
+            "Enable local Redis metrics exporter "
+            "(local observability enables Redis metrics automatically)",
+            value=infra.monitoring.redis_metrics_enabled,
+            id="monitoring-redis-metrics-enabled",
+        )
 
         yield Label("Load Balancer", classes="field-label")
         with RadioSet(id="lb-provider"):
@@ -200,6 +206,7 @@ class InfraScreen(Container):
     def on_mount(self) -> None:
         self._toggle_cnpg_fields()
         self._toggle_lb_fields()
+        self._sync_redis_metrics_state(self._config)
         self._rebuild_prefix_rows()
 
     def on_labeled_switch_changed(self, event: LabeledSwitch.Changed) -> None:
@@ -240,6 +247,11 @@ class InfraScreen(Container):
         is_nlb = self.query_one("#lb-nlb", RadioButton).value
         self.query_one("#lb-ip-fields").display = not is_none and not is_nlb
         self.query_one("#nlb-fields").display = is_nlb
+
+    def _sync_redis_metrics_state(self, config: NVConfigManagerInstallConfig) -> None:
+        switch = self.query_one("#monitoring-redis-metrics-enabled", LabeledSwitch)
+        switch.value = config.infrastructure.monitoring.redis_metrics_enabled
+        switch.disabled = config.external_services.redis.enabled
 
     def _rebuild_prefix_rows(self) -> None:
         container = self.query_one("#lb-prefix-list", Vertical)
@@ -315,6 +327,9 @@ class InfraScreen(Container):
         infra.monitoring.observability_enabled = self.query_one(
             "#monitoring-observability-enabled", LabeledSwitch
         ).value
+        infra.monitoring.redis_metrics_enabled = self.query_one(
+            "#monitoring-redis-metrics-enabled", LabeledSwitch
+        ).value
 
         lb_map = {
             "lb-none": LBProvider.NONE,
@@ -367,6 +382,7 @@ class InfraScreen(Container):
         self.query_one(
             "#monitoring-observability-enabled", LabeledSwitch
         ).value = infra.monitoring.observability_enabled
+        self._sync_redis_metrics_state(config)
 
         provider_radio_map = {
             LBProvider.NONE: "#lb-none",

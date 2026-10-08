@@ -12,37 +12,49 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Ensure all activities are registered."""
+"""Verify the NGC activity compatibility surface."""
 
-import inspect
-from pathlib import Path
+from collections.abc import Callable
+from typing import Any
 
 from nv_config_manager.temporal.ngc import activities
-from nv_config_manager.temporal.ngc.activities import REGISTERED_ACTIVITIES
+from nv_config_manager_workflows.activities import builtin
+from nv_config_manager_workflows.activities.hello_world import HELLO_WORLD_ACTIVITIES
+from nv_config_manager_workflows.activities.lock import LOCK_ACTIVITIES
+
+_NGC_CATALOG_NAMES = (
+    "BACKUP_ACTIVITIES",
+    "BMC_ACTIVITIES",
+    "CABLE_VALIDATION_ACTIVITIES",
+    "CONFIG_ACTIVITIES",
+    "DCIM_ACTIVITIES",
+    "DEPLOY_ACTIVITIES",
+    "DEVICE_ACTIVITIES",
+    "DEVICE_PASSWORD_ROTATION_ACTIVITIES",
+    "DIAGNOSTICS_ACTIVITIES",
+    "HARDWARE_VALIDATION_ACTIVITIES",
+    "IB_GUID_DISCOVERY_ACTIVITIES",
+    "IB_PKEY_ACTIVITIES",
+    "NATS_ACTIVITIES",
+    "NVLINKSWITCH_FIRMWARE_ACTIVITIES",
+    "OS_ACTIVITIES",
+    "RENDER_ACTIVITIES",
+    "SLACK_ACTIVITIES",
+    "TICKETING_ACTIVITIES",
+    "UFM_ACTIVITIES",
+)
 
 
-def _load_all_activity_methods():
-    """Load all workflow classes from the workflows module."""
-    activity_methods = []
-    activity_path = Path(inspect.getsourcefile(activities)).parent
-    for path in activity_path.glob("*.py"):
-        if path.stem == "__init__":
-            continue
-        module = getattr(activities, path.stem)
-
-        for _, obj in inspect.getmembers(module, inspect.isfunction):
-            # Risky if temporal SDK changes, but not finding a better method
-            # for identifying functions with @activity.defn decorator
-            if hasattr(obj, "__temporal_activity_definition"):
-                activity_methods.append(obj)
-
-    return activity_methods
+def _expected_ngc_activities() -> tuple[Callable[..., Any], ...]:
+    """Exclude activity domains registered by other service workers."""
+    excluded = {*HELLO_WORLD_ACTIVITIES, *LOCK_ACTIVITIES}
+    return tuple(activity for activity in builtin.BUILTIN_ACTIVITIES if activity not in excluded)
 
 
-def test_activity_registration():
-    """Test that all activities are registered."""
-    activity_methods = _load_all_activity_methods()
-    for activity_method in activity_methods:
-        assert activity_method in REGISTERED_ACTIVITIES, (
-            f"Activity {activity_method.__name__} not registered"
-        )
+def test_service_root_reexports_canonical_ngc_activity_objects() -> None:
+    """Legacy root imports keep resolving to the package-owned objects."""
+    for catalog_name in _NGC_CATALOG_NAMES:
+        assert getattr(activities, catalog_name) is getattr(builtin, catalog_name)
+
+    for activity in _expected_ngc_activities():
+        assert getattr(activities, activity.__name__) is activity

@@ -80,6 +80,7 @@ DEFAULT_AIR_DEMO_TEMPLATE_PLUGIN_PATH = (
 
 CONFIG_MANAGER_REPO_DIR = "nv-config-manager"
 CONFIG_MANAGER_REMOTE_DIR = f"/home/{NVCM_BOX_USER}/{CONFIG_MANAGER_REPO_DIR}"
+AIR_CONTENT_REMOTE_DIR = f"/home/{NVCM_BOX_USER}/air-content"
 CONFIG_MANAGER_INSTALL_CONFIG = "nv-config-manager-install.yaml"
 CONFIG_MANAGER_NAMESPACE = "nv-config-manager"
 CONFIG_MANAGER_RELEASE = "nv-config-manager"
@@ -96,7 +97,7 @@ CONFIG_MANAGER_TEMPORAL_FRONTEND_DEPLOYMENT = f"{CONFIG_MANAGER_TEMPORAL_DEPLOYM
 CONFIG_MANAGER_TEMPORAL_WORKER_DEPLOYMENT = (
     f"{CONFIG_MANAGER_TEMPORAL_DEPLOYMENT}-{CONFIG_MANAGER_COMPONENT_PREFIX}-worker"
 )
-DEFAULT_CONFIG_MANAGER_REPO = "https://github.com/NVIDIA/nv-config-manager"
+DEFAULT_CONFIG_MANAGER_REPO = "https://github.com/dsx-ai-factory/nv-config-manager"
 
 AGGRESSIVE_DHCLIENT_CONF = """\
 option rfc3442-classless-static-routes code 121 = array of unsigned integer 8;

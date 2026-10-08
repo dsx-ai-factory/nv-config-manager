@@ -35,7 +35,7 @@ func (r ApiLoadBootscriptV1DeviceDeviceUuidBootScriptGetRequest) Execute() (stri
 /*
 LoadBootscriptV1DeviceDeviceUuidBootScriptGet Load Bootscript
 
-Load the bootscript for the given nautobot device UUID.
+Load the bootscript for the given DCIM device ID.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param deviceUuid
@@ -150,7 +150,7 @@ func (r ApiLoadConfigurationV1DeviceDeviceUuidConfigConfigletGetRequest) Execute
 /*
 LoadConfigurationV1DeviceDeviceUuidConfigConfigletGet Load Configuration
 
-Load the specified configuration file for the given nautobot device UUID.
+Load the specified configuration file for the given DCIM device ID.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param deviceUuid
@@ -717,7 +717,7 @@ func (r ApiValidateSerialV1DeviceDeviceUuidValidateSerialPostRequest) Execute() 
 /*
 ValidateSerialV1DeviceDeviceUuidValidateSerialPost Validate Serial
 
-Validate the device serial number matches nautobot.
+Validate the device serial number matches the selected DCIM.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param deviceUuid
