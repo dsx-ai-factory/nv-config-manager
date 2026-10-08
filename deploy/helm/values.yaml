@@ -1252,11 +1252,13 @@ renderService:
       # Prometheus/Mimir server address
       serverAddress: ""
       # Namespace label to filter NATS metrics. When namespaces repeat across
-      # clusters in a shared backend, also set natsMetricsCluster.
+      # clusters in a shared backend, also set natsMetricsLabels.
       natsMetricsNamespace: ""
-      # Optional cluster label identifying the cluster hosting the NATS exporter.
-      # This can differ from the cluster running nv-config-manager.
-      natsMetricsCluster: ""
+      # Extra exact-match labels identifying the NATS exporter in your backend.
+      # For example: {cluster: nv-pdx04-gni-wl-prd-001} or
+      # {k8s_cluster_name: customer-cluster}. Values are treated as strings.
+      # namespace, stream_name, consumer_name, and is_consumer_leader are reserved.
+      natsMetricsLabels: {}
       # Ignore null values from Prometheus (prevents scale-to-zero issues when no data)
       ignoreNullValues: "true"
       # Skip TLS verification (only for testing, not recommended for production)
