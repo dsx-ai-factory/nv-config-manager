@@ -33,9 +33,9 @@ so the two cannot disagree about which Prometheus KEDA queries.
 {{- if $consumerConfig.enabled }}
 {{- /*
 On a shared external Prometheus, fixed stream and consumer names do not identify
-the site. Require the exporter namespace label to scope the series. Operators
-using a centralized metrics backend must configure this to a label value that
-is unique for the site/cluster, even when Kubernetes namespace names repeat.
+the site. Require the exporter namespace label to scope the series. When the
+namespace repeats across clusters in a centralized backend, also configure
+natsMetricsCluster to identify the cluster hosting the NATS exporter.
 */}}
 {{- if and $prometheus.serverAddress (not $prometheus.natsMetricsNamespace) }}
 {{- fail (printf "renderService.autoscaling.prometheus.natsMetricsNamespace is required for the %s consumer when serverAddress points at an external Prometheus, otherwise the trigger query can match NATS series from another environment." $consumerType) }}
@@ -92,10 +92,9 @@ spec:
         # Query NATS consumer pending messages
         # consumer_name matches the fixed durable configured for the stream
         # is_consumer_leader="true" avoids double-counting in HA
-        # namespace distinguishes sites that use the same fixed durable names;
-        #   centralized metrics backends require a site-unique label value
+        # namespace and optional cluster distinguish sites with fixed durables.
         query: |
-          max(nats_consumer_num_pending{is_consumer_leader="true", stream_name="{{ $streamName }}", consumer_name="{{ $consumerName }}"{{- if $prometheus.natsMetricsNamespace }}, namespace="{{ $prometheus.natsMetricsNamespace }}"{{- end }}})
+          max(nats_consumer_num_pending{is_consumer_leader="true", stream_name="{{ $streamName }}", consumer_name="{{ $consumerName }}"{{- if $prometheus.natsMetricsNamespace }}, namespace="{{ $prometheus.natsMetricsNamespace }}"{{- end }}{{- if $prometheus.natsMetricsCluster }}, cluster={{ $prometheus.natsMetricsCluster | toJson }}{{- end }}})
         threshold: {{ $consumerConfig.targetPendingPerPod | default 10 | quote }}
         {{- if $prometheus.ignoreNullValues }}
         ignoreNullValues: {{ $prometheus.ignoreNullValues | quote }}
