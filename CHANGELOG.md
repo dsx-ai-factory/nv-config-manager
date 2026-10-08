@@ -25,7 +25,9 @@ version before the selected release candidate is promoted.
   set by `externalServices.redis.nautobotCacheDb` (default 2). On a shared
   external Redis, set it to a database nothing else uses. The chart rejects a
   value equal to `externalServices.redis.db` or `lockDb` when it deploys
-  Nautobot.
+  Nautobot. After upgrading, delete the leftover `:1:nautobot*` keys from
+  database 0; see "Upgrading From an Earlier Release" in the Nautobot
+  integration docs.
 
 ## 1.3.1
 

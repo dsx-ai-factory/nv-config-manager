@@ -253,6 +253,17 @@ Every Nautobot web pod start runs `nautobot-server post_upgrade`. That command c
 
 This setting does not apply when Config Manager uses an existing Nautobot instance.
 
+### Upgrading From an Earlier Release
+
+Earlier releases kept the Nautobot cache in Redis database `0`. After the upgrade, Nautobot no longer reads those keys, but many of them have no expiry and stay in database `0` until Redis restarts or loses its data. Delete them once every Nautobot pod runs the new release:
+
+```bash
+export REDISCLI_AUTH=<redis-password>
+redis-cli -h <redis-host> -n 0 --scan --pattern ':1:nautobot*' | xargs -r -n 500 redis-cli -h <redis-host> -n 0 UNLINK
+```
+
+The pattern matches only Nautobot cache keys. Config Manager's own keys in database `0` are not affected.
+
 ## Metrics
 
 Nautobot metrics are controlled by the chart's `nautobot.metrics` settings and Nautobot's built-in Prometheus metrics support. No capacity-metrics plugin is installed in the Config Manager Nautobot image. Refer to the [Nautobot documentation](https://docs.nautobot.com/projects/core/en/stable/user-guide/administration/guides/prometheus-metrics/) for available metrics.
