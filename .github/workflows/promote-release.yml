@@ -30,20 +30,27 @@ jobs:
       tags_exist: ${{ steps.resolve.outputs.tags_exist }}
       target_tag: ${{ steps.resolve.outputs.target_tag }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Require repository admin
         env:
           GH_TOKEN: ${{ github.token }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           set -euo pipefail
-          permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${GITHUB_ACTOR}/permission" --jq .permission)"
-          if [ "$permission" != "admin" ]; then
-            echo "Only repository admins may promote release tags. ${GITHUB_ACTOR} has ${permission} permission."
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Run this workflow from main; select the release source using its inputs."
             exit 1
           fi
+          for actor in "$GITHUB_ACTOR" "$TRIGGERING_ACTOR"; do
+            permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${actor}/permission" --jq .permission)"
+            if [ "$permission" != "admin" ]; then
+              echo "Only repository admins may promote release tags. ${actor} has ${permission} permission."
+              exit 1
+            fi
+          done
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Resolve promotion
         id: resolve
@@ -147,11 +154,51 @@ jobs:
     runs-on: linux-amd64-cpu4
     environment: release-tagging
     permissions:
-      contents: write
+      contents: read
     steps:
+      - name: Require repository admin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Run this workflow from main; select the release source using its inputs."
+            exit 1
+          fi
+          for actor in "$GITHUB_ACTOR" "$TRIGGERING_ACTOR"; do
+            permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${actor}/permission" --jq .permission)"
+            if [ "$permission" != "admin" ]; then
+              echo "Only repository admins may promote release tags. ${actor} has ${permission} permission."
+              exit 1
+            fi
+          done
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check release App configuration
+        env:
+          RELEASE_APP_CLIENT_ID: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASE_APP_CLIENT_ID" ] || [ -z "$RELEASE_APP_PRIVATE_KEY" ]; then
+            echo "Configure RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY on the release-tagging environment."
+            exit 1
+          fi
+
+      - name: Create release App token
+        id: release-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
 
       - name: Create and push stable tags
         if: needs.validate.outputs.tags_exist != 'true'
@@ -160,7 +207,7 @@ jobs:
           GO_TARGET_TAG: ${{ needs.validate.outputs.go_target_tag }}
           SOURCE_RC_TAG: ${{ needs.validate.outputs.source_rc_tag }}
           TARGET_TAG: ${{ needs.validate.outputs.target_tag }}
-          TAG_PUSH_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN || github.token }}
+          TAG_PUSH_TOKEN: ${{ steps.release-token.outputs.token }}
         run: |
           set -euo pipefail
           git fetch --force --prune --tags origin '+refs/heads/*:refs/remotes/origin/*'
@@ -178,7 +225,7 @@ jobs:
       - name: Publish GitHub Release
         env:
           COMMIT: ${{ needs.validate.outputs.commit }}
-          GH_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN || github.token }}
+          GH_TOKEN: ${{ steps.release-token.outputs.token }}
           TARGET_TAG: ${{ needs.validate.outputs.target_tag }}
         run: |
           set -euo pipefail
