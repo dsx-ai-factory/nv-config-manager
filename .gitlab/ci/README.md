@@ -299,3 +299,35 @@ Project settings required (GitLab UI):
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key for air-gapped bundle uploads |
 | `NVCM_AIRGAPPED_S3_BUCKET` | S3 bucket for air-gapped bundles |
 | `NVCM_AIRGAPPED_S3_REGION` | AWS region for air-gapped bundle uploads |
+
+### Deploy a main build
+
+After a protected main push builds successfully, start `deploy-main-to-test`,
+`deploy-main-to-test01`, `deploy-main-to-kiwi-qa`, or `deploy-main-to-demo01` in
+that build's pipeline. No variables or release tag are needed. The child checks
+its parent button and successful build jobs, publishes the packaged chart as
+`0.0.0-main.<full commit SHA>`, and deploys the recorded multi-architecture image
+digests. Chart and image artifacts expire after one week; use a newer build if
+they have expired. A failed deployment does not change the parent build status.
+
+Every target needs a protected environment with the existing operator ACL,
+a protected `NVCM_TEST_ENV_TARGETS` record, and a seeded env branch in the values
+repository. Demo uses target `demo01`; adopt its ApplicationSet into the state
+flow and configure its demo-scoped ArgoCD connection before setting the protected
+`NVCM_DEMO_PROMOTION_READY=true` variable to expose its button. Main promotions preserve overrides and use the
+same rendering, hold, rollback, and ArgoCD convergence checks as PR promotions.
+CI configuration changes also rebuild artifacts so their pipeline can offer the
+buttons. Documentation-only commits continue to skip artifact builds.
+
+### Deploy an RC tag
+
+A protected RC tag such as `1.4.0-rc.4` offers `deploy-rc-to-test`,
+`deploy-rc-to-test01`, `deploy-rc-to-kiwi-qa`, and `deploy-rc-to-demo01` after
+`update-version` and `helm-publish-release` succeed. These buttons use the tag's
+published chart version and recorded release-image digests. They preserve the
+same values overrides and use the same render and ArgoCD convergence gates as
+main promotion. Demo retains its setup readiness gate for RCs too.
+
+The tag's commit must contain this pipeline configuration; older tags do not
+acquire buttons retroactively. Chart and digest artifacts expire after one week.
+Stable release tags and other prerelease names do not expose these RC buttons.
