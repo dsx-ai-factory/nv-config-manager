@@ -1251,8 +1251,11 @@ renderService:
     prometheus:
       # Prometheus/Mimir server address
       serverAddress: ""
-      # Namespace label to filter NATS metrics (prevents cross-environment matching)
+      # Namespace label to filter NATS metrics. When namespaces repeat across
+      # clusters in a shared backend, also set natsMetricsLabels.
       natsMetricsNamespace: ""
+      # Additional exact-match labels to scope NATS metrics.
+      natsMetricsLabels: {}
       # Ignore null values from Prometheus (prevents scale-to-zero issues when no data)
       ignoreNullValues: "true"
       # Skip TLS verification (only for testing, not recommended for production)
