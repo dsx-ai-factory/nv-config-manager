@@ -140,8 +140,9 @@ scan time, and applies the configured internal policy file fetched from
 upstream oauth2-proxy image shipped by the Helm chart on both architectures.
 
 The runner fetches SSA `client_id` and `secret` through GitLab's native Vault
-resolver before each scan. The job supplies them to the scanner using temporary
-files and replaces the component's Vault sidecar setup. There is no fallback to
+resolver before each scan and provides temporary files to the setup script.
+The script reads them and exports `SSA_CLIENT_ID` and `SSA_CLIENT_SECRET` for
+the scanner, replacing the component's Vault sidecar setup. There is no fallback to
 stored SSA CI variables. Configure the Vault variables as protected, and grant
 the JWT role only `read` on `<mount>/issue/creds`, bound to the mirror project
 and protected refs. Remove the old SSA variables after a Vault-backed scan succeeds.
