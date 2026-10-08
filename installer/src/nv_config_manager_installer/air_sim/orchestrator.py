@@ -278,9 +278,34 @@ class SimOrchestrator:
                 f"Cannot read repository '{checkout}': a Git checkout and the git executable are required"
             ) from exc
         paths = {Path(os.fsdecode(path)) for path in result.stdout.split(b"\0") if path}
-        return sorted(
+        selected = sorted(
             path for path in paths if (checkout / path).is_file() or (checkout / path).is_symlink()
         )
+        root = checkout.resolve()
+        for path in selected:
+            source = checkout / path
+            if not source.is_symlink():
+                continue
+            target = Path(os.readlink(source))
+            try:
+                resolved_target = source.resolve()
+                relative_target = resolved_target.relative_to(root)
+            except (ValueError, RuntimeError) as exc:
+                raise ValueError(
+                    f"Repository symlink '{source}' must point within the checkout"
+                ) from exc
+            if target.is_absolute():
+                raise ValueError(f"Repository symlink '{source}' must use a relative target")
+            target_in_upload = relative_target in paths
+            if resolved_target.is_dir():
+                target_in_upload = any(item.is_relative_to(relative_target) for item in selected)
+            elif not resolved_target.is_file():
+                target_in_upload = False
+            if not target_in_upload:
+                raise ValueError(
+                    f"Repository symlink '{source}' points to content excluded from upload"
+                )
+        return selected
 
     def _stage_local_sources(
         self,
@@ -417,55 +442,60 @@ class SimOrchestrator:
 
     def _run_impl(self) -> tuple[str, int]:
         cfg = self._cfg
-        local_repo = self._local_repository_path(cfg.config_manager_repo)
-        if (
-            cfg.config_manager_repo
-            and local_repo is None
-            and self._is_local_repository_reference(cfg.config_manager_repo)
-        ):
-            raise FileNotFoundError(
-                f"Local config_manager_repo does not exist: {cfg.config_manager_repo}"
-            )
-        if local_repo and cfg.auto_configure:
-            if cfg.wait_timeout <= 0:
-                raise ValueError(
-                    "Local config_manager_repo requires wait_timeout greater than zero"
-                )
-            self._repository_files(local_repo)
-
-        self._step("parse-topology", StepStatus.RUNNING)
-        topology_path = self._resolve_topology_path(cfg)
-        if cfg.cumulus_version:
-            topology_path = _create_version_override_yaml(topology_path, cfg.cumulus_version)
-        if cfg.auto_configure and cfg.config_manager_repo and cfg.wait_timeout != 0:
-            try:
-                self._local_content_sources(cfg, topology_path)
-            except (FileNotFoundError, ValueError) as exc:
-                self._step("parse-topology", StepStatus.FAILED, str(exc))
-                raise
-
-        nvcm_server: NVCMServerConfig | None = None
-        if cfg.server_mode == "use-existing":
-            nvcm_server = NVCMServerConfig(
-                use_existing_server=cfg.oob_server_name,
-                nvcm_size=cfg.size,
-            )
-        elif cfg.server_mode == "create-new" and cfg.attach_switch and cfg.attach_interface:
-            nvcm_server = NVCMServerConfig(
-                attach_switch=cfg.attach_switch,
-                attach_interface=cfg.attach_interface,
-                nvcm_size=cfg.size,
-            )
-
-        builder = AirTopologyBuilder(
-            yaml_path=topology_path,
-            simulation_name=cfg.simulation_name or None,
-            minimal_mode=False,
-            nvcm_server=nvcm_server,
+        upload_sources = (
+            cfg.auto_configure and bool(cfg.config_manager_repo) and cfg.wait_timeout > 0
         )
-        server_dev = builder.devices.get(cfg.oob_server_name)
-        if cfg.auto_configure and server_dev is not None and not server_dev.air_enabled:
-            raise ValueError(f"OOB server '{cfg.oob_server_name}' is disabled for AIR")
+        self._step("parse-topology", StepStatus.RUNNING)
+        try:
+            if cfg.wait_timeout < 0:
+                raise ValueError("wait_timeout must be zero or greater")
+            local_repo = self._local_repository_path(cfg.config_manager_repo)
+            if (
+                cfg.config_manager_repo
+                and local_repo is None
+                and self._is_local_repository_reference(cfg.config_manager_repo)
+            ):
+                raise FileNotFoundError(
+                    f"Local config_manager_repo does not exist: {cfg.config_manager_repo}"
+                )
+            if local_repo and cfg.auto_configure:
+                if not upload_sources:
+                    raise ValueError(
+                        "Local config_manager_repo requires wait_timeout greater than zero"
+                    )
+                self._repository_files(local_repo)
+
+            topology_path = self._resolve_topology_path(cfg)
+            if cfg.cumulus_version:
+                topology_path = _create_version_override_yaml(topology_path, cfg.cumulus_version)
+            if upload_sources:
+                self._local_content_sources(cfg, topology_path)
+
+            nvcm_server: NVCMServerConfig | None = None
+            if cfg.server_mode == "use-existing":
+                nvcm_server = NVCMServerConfig(
+                    use_existing_server=cfg.oob_server_name,
+                    nvcm_size=cfg.size,
+                )
+            elif cfg.server_mode == "create-new" and cfg.attach_switch and cfg.attach_interface:
+                nvcm_server = NVCMServerConfig(
+                    attach_switch=cfg.attach_switch,
+                    attach_interface=cfg.attach_interface,
+                    nvcm_size=cfg.size,
+                )
+
+            builder = AirTopologyBuilder(
+                yaml_path=topology_path,
+                simulation_name=cfg.simulation_name or None,
+                minimal_mode=False,
+                nvcm_server=nvcm_server,
+            )
+            server_dev = builder.devices.get(cfg.oob_server_name)
+            if cfg.auto_configure and server_dev is not None and not server_dev.air_enabled:
+                raise ValueError(f"OOB server '{cfg.oob_server_name}' is disabled for AIR")
+        except Exception as exc:
+            self._step("parse-topology", StepStatus.FAILED, str(exc))
+            raise
         self._step("parse-topology", StepStatus.SUCCESS)
 
         self._step("validate-images", StepStatus.RUNNING)
@@ -481,7 +511,11 @@ class SimOrchestrator:
         else:
             self._step("validate-images", StepStatus.SKIPPED, "No Cumulus devices")
 
-        topology = builder.build_topology()
+        try:
+            topology = builder.build_topology()
+        except Exception as exc:
+            self._step("parse-topology", StepStatus.FAILED, str(exc))
+            raise
         self._log(
             f"Site: {builder.site_name}  "
             f"Devices: {len(builder.devices)}  "
@@ -581,7 +615,7 @@ class SimOrchestrator:
         self._step("create-ssh", StepStatus.SUCCESS)
         self._cb.on_ssh_ready(host, port)
 
-        if not full_setup or cfg.wait_timeout == 0:
+        if not upload_sources:
             for step_id in ("wait-setup", "upload-files", "run-deploy", "post-deploy"):
                 self._step(step_id, StepStatus.SKIPPED)
             self._log(f"\nMonitor setup: {_monitor_setup_command(host, port)}")

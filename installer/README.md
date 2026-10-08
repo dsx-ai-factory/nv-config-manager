@@ -361,6 +361,9 @@ Local uploads include tracked working-tree files and non-ignored new files,
 preserving unpublished changes while excluding ignored untracked configuration and
 build output. Automatic setup with a local checkout requires `wait_timeout > 0`
 so the repository can be uploaded after cloud-init.
+Repository symlinks must use relative targets within the checkout and point to
+content included in the upload. Nonportable links are rejected before AIR is
+contacted. Negative wait timeouts are rejected for all repository sources.
 
 #### 3. External Services
 
