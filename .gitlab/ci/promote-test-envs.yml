@@ -51,7 +51,7 @@
   - when: never
 
 .test-env-ops-rules: &test-env-ops-rules
-  - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa)$/ && $NVCM_PROMOTE_PR == null
+  - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa|demo01)$/ && $NVCM_PROMOTE_PR == null
     when: manual
     allow_failure: true
   - when: never
@@ -373,6 +373,7 @@ test-promote-chart:
         fi
         set -- "$@" -f "/tmp/values-repo/${NVCM_ENV_BASELINE_VALUES}" -f "$overrides_file"
         helm template "${NVCM_ENV_RELEASE_NAME}" "$chart_input" "$@" \
+          --set-string "global.images.nvConfigManagerUi.tag=${PROMOTE_VERSION}" \
           --set "global.images.nvConfigManager.digest=${DIGEST_NV_CONFIG_MANAGER}" \
           --set "global.images.nvConfigManagerUi.digest=${DIGEST_NV_CONFIG_MANAGER_UI}" \
           --set "global.images.kea.digest=${DIGEST_NV_CONFIG_MANAGER_KEA}" \

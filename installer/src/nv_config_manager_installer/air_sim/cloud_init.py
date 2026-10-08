@@ -359,7 +359,7 @@ _SETUP_SCRIPT_TEMPLATE = textwrap.dedent("""\
     echo ">>> Ensuring /home/nvcm ownership..."
     chown nvcm:nvcm /home/nvcm
 
-    echo ">>> Cloning repositories..."
+    echo ">>> Preparing repository workspace..."
     __CLONE_COMMANDS__
 
     # ==========================================================================
@@ -447,6 +447,7 @@ def generate_setup_script(
     lb_allowed_prefixes: str,
     relay_return_networks: str,
     bgp_asn: str,
+    clone_repository: bool = True,
 ) -> str:
     """Build the full OOB-server setup bash script from the template.
 
@@ -467,7 +468,12 @@ def generate_setup_script(
         f'su - nvcm -c "git clone -b {shlex.quote(config_manager_ref)}'
         f' {shlex.quote(clone_repo)} {shlex.quote(CONFIG_MANAGER_REMOTE_DIR)}"'
     )
-    if git_token_username:
+    if not clone_repository:
+        clone_lines = (
+            f"install -d -o {NVCM_BOX_USER} -g {NVCM_BOX_USER} "
+            f"{shlex.quote(CONFIG_MANAGER_REMOTE_DIR)}"
+        )
+    elif git_token_username:
         quoted_ref = shlex.quote(config_manager_ref)
         quoted_repo = shlex.quote(clone_repo)
         quoted_remote_dir = shlex.quote(CONFIG_MANAGER_REMOTE_DIR)
@@ -519,6 +525,7 @@ def generate_server_cloud_init(
     lb_allowed_prefixes: str = "0.0.0.0/0",
     relay_return_networks: str = "",
     bgp_asn: str = "4266000000",
+    local_config_manager_repo: bool = False,
 ) -> str:
     """Generate cloud-init user-data for the oob-mgmt-server.
 
@@ -528,11 +535,12 @@ def generate_server_cloud_init(
     ``oob_ssh_password`` sets the ``nvcm`` account password for SSH access to
     the OOB management server.
 
-    When *config_manager_repo* is supplied, produces a full-setup cloud-init that
-    installs all prerequisites, creates a Kind cluster with MetalLB, clones the
-    nv-config-manager repository. ``git_token`` is optional and is written to a
-    root-only token file for private clones, keeping public GitHub clones
-    tokenless by default while still allowing private forks.
+    When *config_manager_repo* is supplied, or *local_config_manager_repo* is
+    true, produces a full-setup cloud-init that installs all prerequisites and
+    creates a Kind cluster with MetalLB. Remote repositories are cloned;
+    local repositories are uploaded by the orchestrator after cloud-init.
+    ``git_token`` is optional and is written to a root-only token file for
+    private clones, keeping public GitHub clones tokenless by default.
     """
     netplan_yaml = yaml.dump(
         {
@@ -569,7 +577,7 @@ def generate_server_cloud_init(
         ["netplan", "apply"],
     ]
 
-    if config_manager_repo:
+    if config_manager_repo or local_config_manager_repo:
         git_token_username = _git_token_username(config_manager_repo, git_token)
         setup_script = generate_setup_script(
             deploy_size=deploy_size,
@@ -583,6 +591,7 @@ def generate_server_cloud_init(
             lb_allowed_prefixes=lb_allowed_prefixes,
             relay_return_networks=relay_return_networks,
             bgp_asn=bgp_asn,
+            clone_repository=not local_config_manager_repo,
         )
         kind_config = generate_kind_config(deploy_size)
 
