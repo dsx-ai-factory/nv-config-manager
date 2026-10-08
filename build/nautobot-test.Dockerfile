@@ -11,7 +11,7 @@
 ARG BASE_TAG=latest
 FROM nv-config-manager-nautobot:${BASE_TAG} AS app
 
-FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS test
+FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36 AS test
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \

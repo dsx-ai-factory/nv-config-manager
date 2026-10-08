@@ -1,6 +1,6 @@
-.PHONY: help install dev test lint format clean docker-build docker-push ui-install ui-dev ui-build \
+.PHONY: help install dev test test-workflow-wheels lint format sort-check sort-fix clean docker-build docker-push ui-install ui-dev ui-build \
         local-up local-down local-destroy local-status local-logs deploy kind-up kind-up-sec kind-up-sec-kgateway kind-up-secure kind-down topology install-cert workflow-perf-seed \
-        openapi openapi-check go-bindings api-generate docs-assets docs-assets-check docs-format docs-lint docs-lint-fern docs-live docs-preview docs-publish docs-publish-in-ci docs-screenshots docs-air-sim-screenshots docs-ui-screenshots \
+        openapi openapi-check go-bindings python-bindings api-generate docs-assets docs-assets-check docs-format docs-lint docs-lint-fern docs-live docs-preview docs-publish docs-publish-in-ci docs-screenshots docs-air-sim-screenshots docs-ui-screenshots \
         obs-grafana obs-prometheus obs-loki obs-alloy obs-port-forward obs-port-forward-stop
 
 # Configuration
@@ -31,6 +31,8 @@ endif
 WORKFLOW_PERF_COUNT ?= 100
 WORKFLOW_PERF_RUNNING_COUNT ?= 150
 WORKFLOW_PERF_FAILED_COUNT ?= 1
+# Pinned like the Ruff version in pyproject.toml. Bump deliberately.
+KEEP_SORTED_VERSION ?= v0.10.0
 
 # Generate unique image tag: SHA-TIMESTAMP (e.g., abc1234-1704067200)
 GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -55,15 +57,13 @@ NAUTOBOT_APP_OVERLAYS_VERSION ?= $(TEMPLATE_ENGINE_VERSION)
 NAUTOBOT_APP_OVERLAYS_VERSION_ARG = $(if $(NAUTOBOT_APP_OVERLAYS_VERSION),--build-arg NAUTOBOT_APP_OVERLAYS_VERSION=$(NAUTOBOT_APP_OVERLAYS_VERSION),)
 NAUTOBOT_NV_CONFIG_MANAGER_VERSION ?= $(TEMPLATE_ENGINE_VERSION)
 NAUTOBOT_NV_CONFIG_MANAGER_VERSION_ARG = $(if $(NAUTOBOT_NV_CONFIG_MANAGER_VERSION),--build-arg NAUTOBOT_NV_CONFIG_MANAGER_VERSION=$(NAUTOBOT_NV_CONFIG_MANAGER_VERSION),)
-# Keep this aligned with the currently approved production server version.
-# A Temporal server upgrade is a separately planned schema migration.
-TEMPORAL_SERVER_VERSION ?= 1.29.7
-# Admin tools run only in the bootstrap init containers. Temporal publishes
-# 1.29.7 under its fully qualified server/tctl/CLI tag.
-TEMPORAL_ADMIN_TOOLS_VERSION ?= 1.29.7-tctl-1.18.4-cli-1
-# UI is independently deployable and does not change Temporal persistence.
-TEMPORAL_UI_VERSION ?= 2.52.1
-TEMPORAL_BUILD_ARGS = --build-arg TEMPORAL_SERVER_VERSION=$(TEMPORAL_SERVER_VERSION) --build-arg TEMPORAL_ADMIN_TOOLS_VERSION=$(TEMPORAL_ADMIN_TOOLS_VERSION) --build-arg TEMPORAL_UI_VERSION=$(TEMPORAL_UI_VERSION)
+# Default Temporal tag@digest pins live in build/temporal.Dockerfile.
+# Explicit development overrides may use tag or tag@sha256:digest. A server
+# upgrade still requires a separately planned schema migration.
+TEMPORAL_SERVER_VERSION ?=
+TEMPORAL_ADMIN_TOOLS_VERSION ?=
+TEMPORAL_UI_VERSION ?=
+TEMPORAL_BUILD_ARGS = $(if $(TEMPORAL_SERVER_VERSION),--build-arg TEMPORAL_SERVER_VERSION=$(TEMPORAL_SERVER_VERSION),) $(if $(TEMPORAL_ADMIN_TOOLS_VERSION),--build-arg TEMPORAL_ADMIN_TOOLS_VERSION=$(TEMPORAL_ADMIN_TOOLS_VERSION),) $(if $(TEMPORAL_UI_VERSION),--build-arg TEMPORAL_UI_VERSION=$(TEMPORAL_UI_VERSION),)
 
 # Default target
 help:
@@ -115,6 +115,7 @@ help:
 	@echo "  make test-cov         - Run tests with coverage (parallel)"
 	@echo "  make test-integration - Run integration tests (requires running cluster)"
 	@echo "  make test-nautobot-plugin - Run vendored Nautobot plugin's Django suite in one-shot container"
+	@echo "  make test-workflow-wheels - Run built workflow wheels and fixture plugin in a clean venv (needs network)"
 	@echo "  make lint             - Run linters"
 	@echo "  make format           - Format code"
 	@echo "  make clean            - Clean build artifacts"
@@ -128,7 +129,8 @@ help:
 	@echo "  make openapi          - Generate OpenAPI specs for all FastAPI services"
 	@echo "  make openapi-check    - Check if OpenAPI specs are up-to-date"
 	@echo "  make go-bindings      - Generate Go clients from the committed OpenAPI specs"
-	@echo "  make api-generate     - Regenerate OpenAPI specs and Go clients"
+	@echo "  make python-bindings  - Generate Python clients from the committed OpenAPI specs"
+	@echo "  make api-generate     - Regenerate OpenAPI specs, Go and Python clients"
 	@echo "  make docs-assets      - Mirror source assets into Fern docs assets"
 	@echo "  make docs-assets-check - Check if mirrored docs assets are up-to-date"
 	@echo "  make docs-lint        - Lint documentation markdown with rumdl"
@@ -178,6 +180,12 @@ test-integration-local:
 	@echo "🧪 Running integration tests against local Envoy Gateway..."
 	@echo "   Using namespace: $(NAMESPACE)"
 	uv run pytest src/tests/integration/ -v --nv-config-manager-namespace $(NAMESPACE) --timeout=900
+
+# Builds the workflow package and fixture plugin, installs them into an empty venv
+# without the root service distribution, and runs them from outside the repository.
+# Needs network access for PyPI and the Temporal dev server download.
+test-workflow-wheels:
+	./scripts/check-workflow-wheels.sh
 
 # Runs the vendored Nautobot plugin's Django test suite (nv_config_manager/tests/)
 # inside a one-shot container built from the local nautobot image. Spins up
@@ -263,14 +271,23 @@ docker-build-nb-test:
 		-f build/nautobot-test.Dockerfile build/
 	@echo "✅ Built $(NB_TEST_IMAGE)"
 
-lint:
-	uv run ruff check src/
-	uv run ty check src/nv_config_manager/
-	uv run mypy src/nv_config_manager --no-incremental
+lint: sort-check
+	uv run ruff check src/ packages/
+	uv run ty check src/nv_config_manager/ packages/
+	uv run mypy src/nv_config_manager packages --no-incremental
 
-format:
-	uv run ruff format src/
-	uv run ruff check --fix src/
+format: sort-fix
+	uv run ruff format src/ packages/
+	uv run ruff check --fix src/ packages/
+
+# Enforces alphabetical order for lists marked with `# keep-sorted start` /
+# `# keep-sorted end` comments (see
+# packages/workflows/src/nv_config_manager_workflows/workflows/builtin.py).
+sort-check:
+	find src packages -name '*.py' -print0 | xargs -0 go run github.com/google/keep-sorted@$(KEEP_SORTED_VERSION) --mode=lint
+
+sort-fix:
+	find src packages -name '*.py' -print0 | xargs -0 go run github.com/google/keep-sorted@$(KEEP_SORTED_VERSION) --mode=fix
 
 # OpenAPI spec generation
 openapi:
@@ -282,9 +299,13 @@ openapi-check:
 go-bindings:
 	./scripts/generate_go_bindings.sh
 
+python-bindings:
+	uv run python scripts/generate_python_bindings.py
+
 api-generate:
 	$(MAKE) openapi
 	$(MAKE) go-bindings
+	$(MAKE) python-bindings
 
 # Documentation targets
 docs-assets:

@@ -23,7 +23,7 @@ var _ MappedNullable = &DeleteDeviceResponse{}
 type DeleteDeviceResponse struct {
 	// Number of config versions deleted
 	DeletedVersions int32 `json:"deleted_versions"`
-	// Device UUID
+	// DCIM provider device identifier
 	DeviceUuid string `json:"device_uuid"`
 	// Human-readable result message
 	Message string `json:"message"`

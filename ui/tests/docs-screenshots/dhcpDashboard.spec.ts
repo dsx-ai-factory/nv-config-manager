@@ -45,7 +45,9 @@ test.beforeEach(async ({ page }) => {
       json: {
         configStoreApiUrl: "http://localhost:9001",
         dhcpUrl: "http://127.0.0.1:3000",
-        nautobotUrl: "https://nautobot.nvcm.air",
+        dcimUrl: "https://nautobot.nvcm.air",
+        dcimProvider: "nautobot",
+        dcimDisplayName: "Nautobot",
         renderServiceUrl: "http://localhost:9002",
         workflowApiUrl: "http://localhost:9000",
         ztpUrl: "http://localhost:9003",

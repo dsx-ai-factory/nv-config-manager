@@ -1,0 +1,48 @@
+id
+name
+rack {
+  name
+}
+position
+role {
+  name
+}
+tenant {
+  name
+}
+device_type {
+  model
+}
+location {
+  name
+  location_type {
+    name
+  }
+  parent {
+    name
+    location_type {
+      name
+    }
+    parent {
+      name
+      location_type {
+        name
+      }
+    }
+  }
+}
+device_bays {
+  id
+  name
+  installed_device {
+    id
+  }
+}
+interfaces {
+  id
+  name
+  mac_address
+  device {
+    name
+  }
+}

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Iterable
 from typing import Annotated, Any, cast
 
 from mcp.server.fastmcp import FastMCP
@@ -42,14 +43,25 @@ from nv_config_manager.mcp.workflows import (
     discover_mcp_workflows,
     normalize_workflow_parameters,
 )
+from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
 
 PUBLIC_DOCS_MCP_SERVER_URL = (
     "https://docs.nvidia.com/switch-infrastructure/config-manager/_mcp/server"
 )
 
 
-def register_tools(server: FastMCP, settings: MCPSettings) -> None:
-    """Register NVIDIA Config Manager MCP tools."""
+def register_tools(
+    server: FastMCP,
+    settings: MCPSettings,
+    workflows: Iterable[type[WorkflowMetadataMixin]],
+) -> None:
+    """Register NVIDIA Config Manager MCP tools and the given MCP-enabled workflows."""
+
+    def nautobot_tool() -> Any:
+        """Register an optional tool when the selected provider supports it."""
+        if settings.nautobot_mcp_enabled:
+            return server.tool()
+        return lambda function: function
 
     @server.tool()
     async def list_related_mcp_servers() -> dict[str, Any]:
@@ -72,7 +84,7 @@ def register_tools(server: FastMCP, settings: MCPSettings) -> None:
             ]
         }
 
-    @server.tool()
+    @nautobot_tool()
     async def search_devices(
         query: str | None = None,
         hostname: str | None = None,
@@ -130,7 +142,7 @@ def register_tools(server: FastMCP, settings: MCPSettings) -> None:
             raise MCPClientError("At least one search identifier is required.")
         return await nautobot_rest_get(settings, "dcim/devices/", params=params)
 
-    @server.tool()
+    @nautobot_tool()
     async def get_device_id(
         query: str | None = None,
         hostname: str | None = None,
@@ -154,12 +166,12 @@ def register_tools(server: FastMCP, settings: MCPSettings) -> None:
             return {"found": False, "ambiguous": True, "matches": devices}
         return {"found": True, "device": devices[0], "device_id": devices[0].get("id")}
 
-    @server.tool()
+    @nautobot_tool()
     async def query_nautobot(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
         """Run a read-only Nautobot GraphQL query."""
         return await nautobot_graphql_query(settings, query, variables)
 
-    @server.tool()
+    @nautobot_tool()
     async def list_nautobot_types(
         name_contains: str | None = None,
         limit: int = 100,
@@ -184,7 +196,7 @@ def register_tools(server: FastMCP, settings: MCPSettings) -> None:
             types = [item for item in types if needle in str(item.get("name", "")).lower()]
         return {"truncated": upstream_truncated, "data": {"types": types[: clamp_limit(limit)]}}
 
-    @server.tool()
+    @nautobot_tool()
     async def get_nautobot_type(type_name: str) -> dict[str, Any]:
         """Inspect a Nautobot GraphQL schema type."""
         gql_query = """
@@ -302,7 +314,7 @@ def register_tools(server: FastMCP, settings: MCPSettings) -> None:
         """Get details for a Workflow API execution visible to the caller."""
         return await fetch_workflow_detail(settings, workflow_id)
 
-    for workflow in discover_mcp_workflows():
+    for workflow in discover_mcp_workflows(workflows):
         _register_workflow_starter(server, settings, workflow)
 
 

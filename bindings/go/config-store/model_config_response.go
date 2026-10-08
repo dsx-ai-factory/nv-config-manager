@@ -32,9 +32,9 @@ type ConfigResponse struct {
 	ContentHash string `json:"content_hash"`
 	// Timestamp when version was created
 	CreatedAt time.Time `json:"created_at"`
-	// Device metadata from Nautobot
+	// Device metadata from the selected DCIM provider
 	Device NullableDeviceMetadata `json:"device,omitempty"`
-	// Device UUID
+	// DCIM provider device identifier
 	DeviceUuid string `json:"device_uuid"`
 	// Config file type (intended or backup)
 	FileType FileType `json:"file_type"`

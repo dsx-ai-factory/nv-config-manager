@@ -72,12 +72,17 @@ export type DeviceResult = {
 export type SiteResult = {
   name: string;
   id: string;
+  location_type?: string | null;
 };
 
-export type SiteOption = {
-  key: string;
-  value: string;
+export type LocationResult = SiteResult;
+
+export type LocationOption = Option & {
+  id: string;
+  locationType?: string;
 };
+
+export type SiteOption = LocationOption;
 
 export type DeviceOption = {
   key: string;

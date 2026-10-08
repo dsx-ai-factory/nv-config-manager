@@ -645,7 +645,9 @@ async function setupDocsMocks(page: Page): Promise<void> {
     await fulfillJson(route, {
       configStoreApiUrl: "http://localhost:9001",
       dhcpUrl: "http://localhost:9004",
-      nautobotUrl: "https://nautobot.nvcm.air",
+      dcimUrl: "https://nautobot.nvcm.air",
+      dcimProvider: "nautobot",
+      dcimDisplayName: "Nautobot",
       renderServiceUrl: "http://localhost:9002",
       workflowApiUrl: "http://localhost:9000",
       ztpUrl: "http://localhost:9003",

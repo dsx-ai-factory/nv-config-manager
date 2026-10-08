@@ -4,8 +4,8 @@
 # ArgoCD values repository. The ApplicationSet's git file generator reads this
 # file and deploys the pinned chart version + image digests.
 #
-# The deploy-state file is the ONLY file this script touches - human-owned
-# overrides on the env branch are never modified.
+# Snapshot the cell baseline and optional shared overlay alongside deploy-state.
+# Human-owned overrides on the env branch are never modified.
 #
 # Requires (FILE artifacts, read as the source of truth - see "Attested inputs"
 #          below): promote.env from test-promote-build (PR_NUM, PR_SHA),
@@ -13,7 +13,9 @@
 #          BASELINE_REVISION, ENV_BRANCH_REVISION), and digests.env from
 #          test-promote-push-images (DIGEST_<IMAGE> x9)
 # Requires (eval of test_env_config.sh): NVCM_ENV, NVCM_ENV_BRANCH,
-#          NVCM_ENV_NAMESPACE, NVCM_ENV_RELEASE_NAME, NVCM_ENV_STATE_DIR
+#          NVCM_ENV_NAMESPACE, NVCM_ENV_RELEASE_NAME, NVCM_ENV_STATE_DIR,
+#          NVCM_ENV_ARGOCD_APPLICATION, NVCM_ENV_BASELINE_VALUES,
+#          NVCM_ENV_SHARED_VALUES (optional)
 # Requires (protected variables): NV_CONFIG_MANAGER_VALUES_PUSH_TOKEN,
 #          NVCM_VALUES_REPO_PATH (or NV_CONFIG_MANAGER_VALUES_REPO_URL),
 #          NVCM_CHART_REPO (Helm repo URL ArgoCD reads the chart from, e.g.
@@ -25,6 +27,8 @@ set -euo pipefail
 : "${NVCM_ENV_NAMESPACE:?eval test_env_config.sh first}"
 : "${NVCM_ENV_RELEASE_NAME:?eval test_env_config.sh first}"
 : "${NVCM_ENV_STATE_DIR:?eval test_env_config.sh first}"
+: "${NVCM_ENV_ARGOCD_APPLICATION:?eval test_env_config.sh first}"
+: "${NVCM_ENV_BASELINE_VALUES:?eval test_env_config.sh first}"
 : "${NVCM_CHART_REPO:?Set NVCM_CHART_REPO to the Helm repo URL ArgoCD reads the chart from}"
 
 # ---------------------------------------------------------------------------
@@ -84,6 +88,16 @@ fi
 
 state_file="${NVCM_ENV_STATE_DIR}/deploy-state.yaml"
 occupant="${GITLAB_USER_LOGIN:-${GITLAB_USER_NAME:-ci}}"
+deploy_attest="${CI_PROJECT_DIR}/deploy.env"
+
+write_deploy_attestation() {
+    local git_revision="$1"
+    {
+        printf 'ARGOCD_APPLICATION=%s\n' "$NVCM_ENV_ARGOCD_APPLICATION"
+        printf 'ARGOCD_EXPECTED_CHART_REVISION=%s\n' "$PROMOTE_VERSION"
+        printf 'ARGOCD_EXPECTED_GIT_REVISION=%s\n' "$git_revision"
+    } > "$deploy_attest"
+}
 
 echo "Committing deploy-state for env '${NVCM_ENV}' to ${values_repo_display}@${NVCM_ENV_BRANCH}:${state_file}"
 
@@ -193,38 +207,55 @@ rm -f "${state_file}.new"
 # re-committing a prior deploy-state also restores the baseline it was rendered
 # against, with no dependency on main's history. baseline_rev stays in
 # deploy-state as provenance recording where this snapshot came from.
-baseline_file="${NVCM_ENV_BASELINE_VALUES}"
-if ! git cat-file -e "${baseline_rev}:${baseline_file}" 2>/dev/null; then
-    echo "ERROR: ${baseline_rev} does not contain ${baseline_file}." >&2
-    echo "The render gate validated against a baseline this commit lacks - refusing"
-    echo "to deploy a baseline that was never validated."
-    exit 1
+baseline_files=("${NVCM_ENV_BASELINE_VALUES}")
+if [[ -n "${NVCM_ENV_SHARED_VALUES:-}" ]]; then
+    baseline_files+=("$NVCM_ENV_SHARED_VALUES")
 fi
-git show "${baseline_rev}:${baseline_file}" > "$baseline_file"
+for file in "${baseline_files[@]}"; do
+    if ! git cat-file -e "${baseline_rev}:${file}" 2>/dev/null; then
+        echo "ERROR: ${baseline_rev} does not contain ${file}." >&2
+        echo "Refusing to deploy values that were not validated by the render gate."
+        exit 1
+    fi
+done
+for file in "${baseline_files[@]}"; do
+    mkdir -p "$(dirname "$file")"
+    git show "${baseline_rev}:${file}" > "$file"
+done
+# Stage before comparing so a newly introduced overlay is included too.
+git add "$state_file" "${baseline_files[@]}"
 
-if git diff --quiet "$state_file" "$baseline_file"; then
+if git diff --cached --quiet -- "$state_file" "${baseline_files[@]}"; then
     echo "No deploy-state or baseline changes; ${NVCM_ENV} is already at ${PROMOTE_VERSION}."
+    write_deploy_attestation "$(git rev-parse HEAD)"
     exit 0
 fi
 
 echo "Deploy-state diff:"
-git diff "$state_file"
-if ! git diff --quiet "$baseline_file"; then
-    echo "Baseline snapshot diff (from main @ ${baseline_rev}):"
-    git diff --stat "$baseline_file"
+git diff --cached -- "$state_file"
+if ! git diff --cached --quiet -- "${baseline_files[@]}"; then
+    echo "Baseline snapshots diff (from main @ ${baseline_rev}):"
+    git diff --cached --stat -- "${baseline_files[@]}"
 fi
 
-git add "$state_file" "$baseline_file"
-git commit -m "[nvcm CI] Promote PR #${PR_NUM} (${PROMOTE_VERSION}) to ${NVCM_ENV}
+source_label="PR #${PR_NUM}"
+source_kind="$(sed -n 's/^SOURCE_KIND=//p' "$promote_attest")"
+if [[ "$source_kind" == main || "$source_kind" == rc ]]; then
+    [[ "$PR_NUM" == 0 ]] || { echo 'ERROR: build promotion must have pr: 0' >&2; exit 1; }
+    source_label="$source_kind"
+fi
+
+git commit -m "[nvcm CI] Promote ${source_label} (${PROMOTE_VERSION}) to ${NVCM_ENV}
 
 Source commit: ${PR_SHA}
 Baseline: ${baseline_rev}
 Triggered by: ${occupant}
 Pipeline: ${CI_PIPELINE_URL}"
 git push origin "HEAD:refs/heads/${NVCM_ENV_BRANCH}"
+write_deploy_attestation "$(git rev-parse HEAD)"
 
 echo ""
-echo "Deploy-state committed. ArgoCD will sync ${NVCM_ENV} to chart ${PROMOTE_VERSION} with digest-pinned images."
+echo "Deploy-state committed. Waiting for ArgoCD to sync ${NVCM_ENV} to chart ${PROMOTE_VERSION} with digest-pinned images."
 # Only build the web view URL from a known project path - a full-URL override
 # has no clean path and could otherwise produce a malformed/credential URL.
 if [[ -n "$values_repo_path" ]]; then

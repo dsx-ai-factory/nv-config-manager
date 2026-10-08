@@ -1,0 +1,46 @@
+id
+name
+rack {
+  name
+}
+position
+role {
+  name
+}
+platform {
+  name
+}
+device_type {
+  model
+}
+primary_ip4 {
+  host
+}
+primary_ip6 {
+  host
+}
+config_context
+location {
+  name
+  location_type {
+    name
+  }
+  parent {
+    name
+    location_type {
+      name
+    }
+    parent {
+      name
+      location_type {
+        name
+      }
+    }
+  }
+}
+configmanagerdevicestatus {
+  render_enabled
+  deploy_enabled
+  backup_enabled
+  ztp_enabled
+}

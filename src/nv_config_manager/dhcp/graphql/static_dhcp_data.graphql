@@ -1,5 +1,0 @@
-query static_data {
-  config_contexts(schema:"nv-config-manager-kea-static-data", is_active: true) {
-    data
-  }
-}

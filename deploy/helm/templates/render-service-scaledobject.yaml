@@ -14,6 +14,14 @@
 {{- $serviceName := include "nv-config-manager.componentName" (dict "root" . "component" "render") }}
 {{- $autoscaling := .Values.renderService.autoscaling }}
 {{- $prometheus := $autoscaling.prometheus }}
+{{- range $label, $value := $prometheus.natsMetricsLabels }}
+{{- if not (regexMatch "^[a-zA-Z_][a-zA-Z0-9_]*$" $label) }}
+{{- fail (printf "renderService.autoscaling.prometheus.natsMetricsLabels has invalid label name %q" $label) }}
+{{- end }}
+{{- if has $label (list "__name__" "namespace" "stream_name" "consumer_name" "is_consumer_leader") }}
+{{- fail (printf "renderService.autoscaling.prometheus.natsMetricsLabels cannot override reserved label %q" $label) }}
+{{- end }}
+{{- end }}
 {{- /*
 Fall back to the Prometheus this release deploys itself. Deployments pointing at
 an external Prometheus set serverAddress explicitly and are unaffected. The
@@ -26,14 +34,16 @@ so the two cannot disagree about which Prometheus KEDA queries.
 {{- if $autoscaling.consumers }}
 {{- range $consumerType := list "device" "template" "nautobot" }}
 {{- $consumerConfig := index $autoscaling.consumers $consumerType }}
-{{- $streamName := ternary $.Values.externalServices.nats.streams.nautobot.name $.Values.externalServices.nats.streams.configManager.name (eq $consumerType "nautobot") }}
+{{- $dcimStreamName := $.Values.dcim.events.stream | default $.Values.externalServices.nats.streams.nautobot.name }}
+{{- $streamName := ternary $dcimStreamName $.Values.externalServices.nats.streams.configManager.name (eq $consumerType "nautobot") }}
+{{- /* The workload and durable setting retain the Nautobot name for value and NATS-account compatibility. */ -}}
 {{- $consumerName := ternary (include "nv-config-manager.nautobotConsumerName" $) (include "nv-config-manager.configManagerConsumerName" $) (eq $consumerType "nautobot") }}
 {{- if $consumerConfig.enabled }}
 {{- /*
 On a shared external Prometheus, fixed stream and consumer names do not identify
-the site. Require the exporter namespace label to scope the series. Operators
-using a centralized metrics backend must configure this to a label value that
-is unique for the site/cluster, even when Kubernetes namespace names repeat.
+the site. Require the exporter namespace label to scope the series. When the
+namespace repeats across clusters in a centralized backend, also configure
+natsMetricsLabels to identify the NATS exporter using the backend's label names.
 */}}
 {{- if and $prometheus.serverAddress (not $prometheus.natsMetricsNamespace) }}
 {{- fail (printf "renderService.autoscaling.prometheus.natsMetricsNamespace is required for the %s consumer when serverAddress points at an external Prometheus, otherwise the trigger query can match NATS series from another environment." $consumerType) }}
@@ -90,10 +100,9 @@ spec:
         # Query NATS consumer pending messages
         # consumer_name matches the fixed durable configured for the stream
         # is_consumer_leader="true" avoids double-counting in HA
-        # namespace distinguishes sites that use the same fixed durable names;
-        #   centralized metrics backends require a site-unique label value
+        # namespace and optional extra labels distinguish sites with fixed durables.
         query: |
-          max(nats_consumer_num_pending{is_consumer_leader="true", stream_name="{{ $streamName }}", consumer_name="{{ $consumerName }}"{{- if $prometheus.natsMetricsNamespace }}, namespace="{{ $prometheus.natsMetricsNamespace }}"{{- end }}})
+          max(nats_consumer_num_pending{is_consumer_leader="true", stream_name="{{ $streamName }}", consumer_name="{{ $consumerName }}"{{- if $prometheus.natsMetricsNamespace }}, namespace="{{ $prometheus.natsMetricsNamespace }}"{{- end }}{{- range $label, $value := $prometheus.natsMetricsLabels }}, {{ $label }}={{ $value | toString | toJson }}{{- end }}})
         threshold: {{ $consumerConfig.targetPendingPerPod | default 10 | quote }}
         {{- if $prometheus.ignoreNullValues }}
         ignoreNullValues: {{ $prometheus.ignoreNullValues | quote }}

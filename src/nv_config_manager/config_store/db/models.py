@@ -50,11 +50,7 @@ class ConfigFile(Base):
         primary_key=True,
         default=uuid4,
     )
-    device_uuid: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),  # type: ignore[call-overload]
-        nullable=False,
-        index=True,
-    )
+    device_uuid: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     filename: Mapped[str] = mapped_column(Text, nullable=False)
     file_type: Mapped[FileType] = mapped_column(
         Enum(FileType, values_callable=lambda x: [e.value for e in x]),

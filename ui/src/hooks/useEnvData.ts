@@ -19,6 +19,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { useRuntimeConfig } from "@/config/runtime";
 import { Option } from "@/types/workflow-form.types";
+import { mapLocationOptions } from "@/lib/location-options";
 import { sanitizeUrl, mapRoles } from "@/lib/utils";
 
 const useEnvData = () => {
@@ -85,8 +86,7 @@ const useEnvData = () => {
     if (tenantsError) console.error(tenantsError);
   }, [tenantsError]);
 
-  const sites =
-    siteData && !siteError ? mapRoles(siteData, "name", "id") : [];
+  const sites = siteData && !siteError ? mapLocationOptions(siteData) : [];
   const roles =
     rolesData && !rolesError ? mapRoles(rolesData, "name", "name") : [];
   const statuses =

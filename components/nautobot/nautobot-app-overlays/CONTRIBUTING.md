@@ -15,7 +15,7 @@ Thank you for your interest in contributing to the Nautobot Overlays app!
 1. Clone the NVIDIA Config Manager repository:
 
 ```bash
-git clone https://github.com/NVIDIA/nv-config-manager.git
+git clone https://github.com/dsx-ai-factory/nv-config-manager.git
 cd nv-config-manager/components/nautobot/nautobot-app-overlays
 ```
 

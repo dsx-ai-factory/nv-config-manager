@@ -20,6 +20,7 @@ from paramiko import SFTPAttributes
 from paramiko.common import AUTH_SUCCESSFUL, OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED, OPEN_SUCCEEDED
 from paramiko.sftp import SFTP_OK
 
+from nv_config_manager.dcim import ZTPDevice
 from nv_config_manager.ztp.sftp.main import (
     ObjectStorageRangeReader,
     ZTPServer,
@@ -93,23 +94,30 @@ def test_read(sftp_handle):
     assert result == b"cont"
 
 
-@patch("nv_config_manager.ztp.sftp.main.NautobotClient")
-def test_load_ztp_file(mock_nb_client, sftp_server, mock_device_data):
+def test_load_ztp_file(sftp_server):
     """Test loading ZTP configuration file."""
-    # Mock device data
-    mock_device = MagicMock()
-    mock_device.addresses = ["192.168.1.1"]
-    # Make load_file an async mock
-    mock_device.load_file = AsyncMock(return_value="test config")
+    dcim_device = ZTPDevice(
+        device_id="device1",
+        name="device-1",
+        addresses=["192.168.1.1"],
+        platform_name="Cumulus Linux",
+        firmware_version=None,
+        config_store_instance=None,
+    )
+    with (
+        patch(
+            "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.get_ztp_device",
+            new_callable=AsyncMock,
+            return_value=dcim_device,
+        ),
+        patch(
+            "nv_config_manager.ztp.device.DeviceData.load_file",
+            new_callable=AsyncMock,
+            return_value="test config",
+        ),
+    ):
+        result = sftp_server._load_ztp_file("device1", "config.txt")
 
-    # Create a mock NautobotClient instance (async context manager)
-    mock_nb_instance = MagicMock()
-    mock_nb_instance.get_device_data = AsyncMock(return_value=mock_device)
-    mock_nb_instance.__aenter__ = AsyncMock(return_value=mock_nb_instance)
-    mock_nb_instance.__aexit__ = AsyncMock(return_value=None)
-    mock_nb_client.return_value = mock_nb_instance
-
-    result = sftp_server._load_ztp_file("device1", "config.txt")
     assert isinstance(result, io.BytesIO)
     assert result.getvalue() == b"test config"
 

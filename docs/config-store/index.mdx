@@ -11,7 +11,7 @@ The Config Store service provides PostgreSQL-backed configuration storage with v
 The Config Store service:
 
 - Stores versioned device configurations (intended and backup)
-- Integrates with Nautobot for device metadata enrichment
+- Integrates with the selected DCIM provider for device metadata enrichment
 - Provides a REST API for configuration management
 - Includes a web UI for browsing and comparing configurations
 
@@ -56,7 +56,7 @@ POST /v1/config/{device_uuid}/{filename}
 {
     "content": "hostname device01\n...",
     "author": "user@example.com",
-    "commit_message": "Triggered from nb dcim.device update on leaf01 by netops at 2026-05-26T18:42:00Z",
+    "commit_message": "Triggered from dcim device update on leaf01 by netops at 2026-05-26T18:42:00Z",
     "file_type": "intended"
 }
 
@@ -90,21 +90,21 @@ POST /v1/config/{device_uuid}/batch
             "filename": "boot-script",
             "content": "...",
             "author": "user@example.com",
-            "commit_message": "Triggered from nb dcim.device update on leaf01 by netops at 2026-05-26T18:42:00Z",
+            "commit_message": "Triggered from dcim device update on leaf01 by netops at 2026-05-26T18:42:00Z",
             "file_type": "intended"
         },
         {
             "filename": "startup.yaml",
             "content": "...",
             "author": "user@example.com",
-            "commit_message": "Triggered from nb dcim.device update on leaf01 by netops at 2026-05-26T18:42:00Z",
+            "commit_message": "Triggered from dcim device update on leaf01 by netops at 2026-05-26T18:42:00Z",
             "file_type": "intended"
         }
     ]
 }
 ```
 
-Batch requests should be a single config type in normal operation. Intended config batches typically write `boot-script` and `startup.yaml` together. The render service passes the same Nautobot-change-derived `commit_message` for every file in the batch. Backup captures are typically single-file writes to `POST /v1/config/{device_uuid}/{filename}` with `"file_type": "backup"`.
+Batch requests should be a single config type in normal operation. Intended config batches typically write `boot-script` and `startup.yaml` together. The render service passes the same provider-change-derived `commit_message` for every file in the batch. Backup captures are typically single-file writes to `POST /v1/config/{device_uuid}/{filename}` with `"file_type": "backup"`.
 
 The batch endpoint returns version metadata for files that were created or updated and a list of filenames that were skipped because their content already matched the latest stored version:
 
@@ -186,7 +186,7 @@ GET /v1/admin/devices/search?q=leaf&file_type=intended&include_inactive=false
 # Permanently delete all config versions for a device
 DELETE /v1/admin/devices/{device_uuid}
 
-# Check Nautobot metadata cache state
+# Check DCIM metadata cache state
 GET /v1/admin/cache/status
 
 # Test whether one device is present in the metadata cache
@@ -202,11 +202,11 @@ The Config Store includes a Next.js web interface.
 
 ### Features
 
-- **Device Browser**: Search and browse by device UUID or name
+- **Device Browser**: Search and browse by provider-owned device ID or name
 - **Version History**: View all versions with metadata
 - **Diff Viewer**: Side-by-side comparison of any versions
 - **Device Search**: Find devices by name and switch between intended and backup config views
-- **Nautobot Integration**: Rich device metadata display
+- **DCIM Provider Integration**: Rich device metadata display
 
 ### Accessing the UI
 
@@ -245,15 +245,16 @@ host = redis.nv-config-manager.svc.cluster.local
 port = 6379
 db = 0
 
-[nautobot]
-# For metadata enrichment
-url = https://nautobot.config-manager.example.com
+[dcim]
+# Provider-backed metadata enrichment
+provider = nautobot-2x
+server = https://nautobot.config-manager.example.com
 token = your-api-token
 ```
 
 ## Cache Refresh Service
 
-A background service keeps Redis cache in sync with Nautobot:
+A background service keeps Redis cache in sync with the selected DCIM provider:
 
 ```bash
 # View cache refresh logs
@@ -297,12 +298,12 @@ In general:
   kubectl logs -n $NAMESPACE -l app=<app-name>
   ```
 
-### Nautobot Integration Issues
+### DCIM Integration Issues
 
-Check the service logs for Nautobot connection errors:
+Check the service logs for DCIM provider connection errors:
 
 ```bash
-kubectl logs -n $NAMESPACE -l app.kubernetes.io/component=config-store --all-containers | grep -i nautobot
+kubectl logs -n $NAMESPACE -l app.kubernetes.io/component=config-store --all-containers | grep -i dcim
 ```
 
 ### Gateway Not Working

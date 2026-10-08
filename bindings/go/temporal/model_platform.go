@@ -15,7 +15,7 @@ import (
 	"fmt"
 )
 
-// Platform Network device platform types.
+// Platform Network device platform types understood by the workflow services.
 type Platform string
 
 // List of Platform

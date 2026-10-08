@@ -1,0 +1,11 @@
+{
+  "object_kind": "push",
+  "project_id": 7,
+  "ref": "refs/heads/pull-request/123",
+  "after": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "checkout_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "user_id": 7,
+  "project": {
+    "id": 7
+  }
+}

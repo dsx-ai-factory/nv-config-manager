@@ -8,7 +8,7 @@ const reportKindIntegrationResult = require("./kind-integration-result.js");
 
 const SHA = "a".repeat(40);
 const DEFAULT_SERVER_URL = "https://github.com";
-const RUN_URL = "https://github.com/NVIDIA/nv-config-manager/actions/runs/123";
+const RUN_URL = "https://github.com/dsx-ai-factory/nv-config-manager/actions/runs/123";
 const TEMPLATE_BODY = `## Description
 
 Example PR.

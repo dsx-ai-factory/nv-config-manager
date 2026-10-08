@@ -7,7 +7,7 @@
 # - Supervisor is needed for process management (kea-dhcp4 + stork-agent)
 # - Stork agent requires shell scripts and dynamic configuration
 
-FROM nvcr.io/nvidia/base/ubuntu:noble-20260217
+FROM nvcr.io/nvidia/base/ubuntu:noble-20260217@sha256:57a7daab5579d4b4cfbe25b59dc9d22d0c4cec24e5608523e77fd5f12e9da51a
 
 ARG APT_MIRROR=""
 ARG APT_MIRROR_GPG_KEY_URL=""
@@ -36,10 +36,10 @@ RUN set -eux; \
     { getent group kea >/dev/null || groupadd -r kea; } && \
     { id -u kea >/dev/null 2>&1 || useradd -r -g kea kea; }
 
-# Install Stork agent (pinned to 2.4.x for Go dependency CVE fixes)
+# Install Stork agent (pinned to upstream 2.4.2 for patched Go dependencies)
 COPY build/setup.stork.deb.sh /tmp/setup.stork.deb.sh
 RUN bash /tmp/setup.stork.deb.sh && \
-    apt-get install -y --no-install-recommends isc-stork-agent=2.4.1* && \
+    apt-get install -y --no-install-recommends isc-stork-agent=2.4.2* && \
     rm /tmp/setup.stork.deb.sh && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*

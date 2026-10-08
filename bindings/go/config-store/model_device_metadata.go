@@ -20,13 +20,15 @@ import (
 // checks if the DeviceMetadata type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &DeviceMetadata{}
 
-// DeviceMetadata Device metadata from Nautobot.
+// DeviceMetadata Device metadata from the selected DCIM provider.
 type DeviceMetadata struct {
+	// Provider UI link for the device
+	DeviceUrl NullableString `json:"device_url,omitempty"`
 	// When metadata was last refreshed
 	LastUpdated NullableTime `json:"last_updated,omitempty"`
 	// Device name
 	Name string `json:"name"`
-	// Link to device in Nautobot
+	// Legacy alias for device_url when the selected provider is Nautobot
 	NautobotUrl NullableString `json:"nautobot_url,omitempty"`
 	// Platform/OS name
 	Platform NullableString `json:"platform,omitempty"`
@@ -59,6 +61,51 @@ func NewDeviceMetadata(name string, site string) *DeviceMetadata {
 func NewDeviceMetadataWithDefaults() *DeviceMetadata {
 	this := DeviceMetadata{}
 	return &this
+}
+
+// GetDeviceUrl returns the DeviceUrl field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *DeviceMetadata) GetDeviceUrl() string {
+	if o == nil || IsNil(o.DeviceUrl.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.DeviceUrl.Get()
+}
+
+// GetDeviceUrlOk returns a tuple with the DeviceUrl field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *DeviceMetadata) GetDeviceUrlOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.DeviceUrl.Get(), o.DeviceUrl.IsSet()
+}
+
+// HasDeviceUrl returns a boolean if a field has been set.
+func (o *DeviceMetadata) HasDeviceUrl() bool {
+	if o != nil && o.DeviceUrl.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetDeviceUrl gets a reference to the given NullableString and assigns it to the DeviceUrl field.
+func (o *DeviceMetadata) SetDeviceUrl(v string) {
+	o.DeviceUrl.Set(&v)
+}
+
+// SetDeviceUrlNil sets the value for DeviceUrl to be an explicit nil
+func (o *DeviceMetadata) SetDeviceUrlNil() {
+	o.DeviceUrl.Set(nil)
+}
+
+// UnsetDeviceUrl ensures that no value is present for DeviceUrl, not even an explicit nil
+func (o *DeviceMetadata) UnsetDeviceUrl() {
+	o.DeviceUrl.Unset()
 }
 
 // GetLastUpdated returns the LastUpdated field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -389,6 +436,9 @@ func (o DeviceMetadata) MarshalJSON() ([]byte, error) {
 
 func (o DeviceMetadata) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
+	if o.DeviceUrl.IsSet() {
+		toSerialize["device_url"] = o.DeviceUrl.Get()
+	}
 	if o.LastUpdated.IsSet() {
 		toSerialize["last_updated"] = o.LastUpdated.Get()
 	}

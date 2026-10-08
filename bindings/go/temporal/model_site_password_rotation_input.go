@@ -23,6 +23,8 @@ var _ MappedNullable = &SitePasswordRotationInput{}
 type SitePasswordRotationInput struct {
 	// Location containing the devices to update.
 	Location string `json:"location"`
+	// DCIM location type for the location identifier.
+	LocationType NullableString `json:"location_type,omitempty"`
 	// Device roles used to filter the selected network devices.
 	Roles []string `json:"roles,omitempty"`
 	// Name of the managed secret containing the replacement password.
@@ -76,6 +78,51 @@ func (o *SitePasswordRotationInput) GetLocationOk() (*string, bool) {
 // SetLocation sets field value
 func (o *SitePasswordRotationInput) SetLocation(v string) {
 	o.Location = v
+}
+
+// GetLocationType returns the LocationType field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *SitePasswordRotationInput) GetLocationType() string {
+	if o == nil || IsNil(o.LocationType.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.LocationType.Get()
+}
+
+// GetLocationTypeOk returns a tuple with the LocationType field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *SitePasswordRotationInput) GetLocationTypeOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.LocationType.Get(), o.LocationType.IsSet()
+}
+
+// HasLocationType returns a boolean if a field has been set.
+func (o *SitePasswordRotationInput) HasLocationType() bool {
+	if o != nil && o.LocationType.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetLocationType gets a reference to the given NullableString and assigns it to the LocationType field.
+func (o *SitePasswordRotationInput) SetLocationType(v string) {
+	o.LocationType.Set(&v)
+}
+
+// SetLocationTypeNil sets the value for LocationType to be an explicit nil
+func (o *SitePasswordRotationInput) SetLocationTypeNil() {
+	o.LocationType.Set(nil)
+}
+
+// UnsetLocationType ensures that no value is present for LocationType, not even an explicit nil
+func (o *SitePasswordRotationInput) UnsetLocationType() {
+	o.LocationType.Unset()
 }
 
 // GetRoles returns the Roles field value if set, zero value otherwise.
@@ -224,6 +271,9 @@ func (o SitePasswordRotationInput) MarshalJSON() ([]byte, error) {
 func (o SitePasswordRotationInput) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["location"] = o.Location
+	if o.LocationType.IsSet() {
+		toSerialize["location_type"] = o.LocationType.Get()
+	}
 	if !IsNil(o.Roles) {
 		toSerialize["roles"] = o.Roles
 	}

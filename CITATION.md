@@ -8,6 +8,6 @@ appropriate for your publication venue.
   title = {NVIDIA Config Manager},
   author = {{NVIDIA Config Manager Development Team}},
   year = {2026},
-  url = {https://github.com/NVIDIA/nv-config-manager}
+  url = {https://github.com/dsx-ai-factory/nv-config-manager}
 }
 ```

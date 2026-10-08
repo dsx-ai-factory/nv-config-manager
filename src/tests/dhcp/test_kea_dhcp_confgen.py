@@ -20,15 +20,16 @@ from unittest.mock import patch
 
 import pytest
 import requests
+from nv_config_manager_dcim_nautobot_2x.provider import NautobotDCIMClient as NautobotClient
 from testcontainers.core.container import DockerContainer
 
 from nv_config_manager.dhcp.kea import KeaClient
 from nv_config_manager.dhcp.kea_dhcp_confgen import (
     DhcpConfigGenerationError,
+    _format_options_for_kea,
     generate_config,
     inject_lease_db_config,
 )
-from nv_config_manager.dhcp.nautobot import NautobotClient
 from nv_config_manager.dhcp.redis import RedisClient
 
 # Get the directory containing this test file
@@ -41,8 +42,29 @@ class MockNautobotClient(NautobotClient):
     async def graphql_query(self, query, variables=None):
         if "auto_dhcp_subnets" in query:
             path = os.path.join(_THIS_DIR, "resources/auto_dhcp_subnets.json")
-        elif "dhcp_contexts" in query:
-            path = os.path.join(_THIS_DIR, "resources/dhcp_contexts.json")
+        elif "dhcp_subnet_gateways" in query:
+            path = os.path.join(_THIS_DIR, "resources/auto_dhcp_subnets.json")
+        elif "dhcp_context_device_ids" in query or "dhcp_device_contexts" in query:
+            with open(os.path.join(_THIS_DIR, "resources/dhcp_contexts.json")) as f:
+                entries = json.load(f)["data"]["config_manager_devices"]
+            if "dhcp_context_device_ids" in query:
+                return {
+                    "data": {
+                        "config_manager_devices": [
+                            {"device": {"id": entry["device"]["id"]}} for entry in entries
+                        ]
+                    }
+                }
+            requested_ids = set((variables or {}).get("ids", []))
+            return {
+                "data": {
+                    "devices": [
+                        entry["device"]
+                        for entry in entries
+                        if entry["device"]["id"] in requested_ids
+                    ]
+                }
+            }
         elif "static_data" in query:
             path = os.path.join(_THIS_DIR, "resources/static_data.json")
         elif "site_dhcp_options" in query:
@@ -417,11 +439,21 @@ class MockNautobotClientWithMissingGateway(MockNautobotClient):
                             "id": "prefix-no-gateway",
                             "prefix": "10.240.128.0/27",
                             "ip_version": 4,
-                            "rel_prefix_to_gateway": None,  # No gateway set
                         }
                     ],
                     "pool_ips": [],
                     "reserved_ips": [],
+                }
+            }
+        if "dhcp_subnet_gateways" in query:
+            return {
+                "data": {
+                    "prefixes": [
+                        {
+                            "id": "prefix-no-gateway",
+                            "rel_prefix_to_gateway": None,
+                        }
+                    ]
                 }
             }
         # Delegate other queries to parent
@@ -1095,6 +1127,8 @@ class MockErrorCasesClient(MockNautobotClient):
 
         if "auto_dhcp_subnets" in query:
             path = os.path.join(_THIS_DIR, "resources/auto_dhcp_subnets_errors.json")
+        elif "dhcp_subnet_gateways" in query:
+            path = os.path.join(_THIS_DIR, "resources/auto_dhcp_subnets_errors.json")
         elif "dhcp_contexts" in query:
             path = os.path.join(_THIS_DIR, "resources/dhcp_contexts_errors.json")
         elif "static_data" in query or "config_contexts" in query:
@@ -1450,6 +1484,45 @@ async def test_override_router_option_error():
             MockRedisClient(),
             version=4,
         )
+
+
+def test_format_options_for_kea_includes_vendor_space():
+    """Option 43 suboptions carry space so Kea does not emit them as dhcp4."""
+    site_option_defs = {
+        "cumulus-provision-url": {
+            "name": "cumulus-provision-url",
+            "code": 239,
+            "space": "dhcp4",
+        },
+        "config-file-name": {
+            "name": "config-file-name",
+            "code": 1,
+            "space": "vendor-encapsulated-options-space",
+        },
+        "transfer-mode": {
+            "name": "transfer-mode",
+            "code": 3,
+            "space": "vendor-encapsulated-options-space",
+        },
+    }
+
+    option_data = _format_options_for_kea(
+        {
+            "cumulus-provision-url": "http://ztp.example/boot-script",
+            "transfer-mode": "http",
+            "config-file-name": "http://ztp.example/config/full-config",
+            "hostname": "switch-01",
+        },
+        site_option_defs,
+    )
+
+    by_name = {entry["name"]: entry for entry in option_data}
+    assert by_name["cumulus-provision-url"]["code"] == 239
+    assert "space" not in by_name["cumulus-provision-url"]
+    assert by_name["transfer-mode"]["space"] == "vendor-encapsulated-options-space"
+    assert by_name["transfer-mode"]["code"] == 3
+    assert by_name["config-file-name"]["space"] == "vendor-encapsulated-options-space"
+    assert "code" not in by_name["hostname"]
 
 
 @pytest.mark.asyncio

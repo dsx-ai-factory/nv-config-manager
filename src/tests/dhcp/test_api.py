@@ -299,9 +299,7 @@ def test_healthcheck_status_error():
             mock_load_kea.return_value = {"some": "data"}
             rsp = client.get("/healthcheck")
             assert rsp.status_code == 500
-            assert rsp.json() == {
-                "detail": [{"arguments": {"pid": 9, "reload": 63173, "uptime": 63173}, "result": 1}]
-            }
+            assert rsp.json() == {"detail": "Kea DHCPv4 is unavailable"}
 
 
 def test_healthcheck_http_error():
@@ -319,6 +317,183 @@ def test_healthcheck_http_error():
             rsp = client.get("/healthcheck")
             assert rsp.status_code == 500
             assert rsp.json() == {"detail": "HTTP ERROR"}
+
+
+def test_healthcheck_not_ready_when_redis_has_no_config():
+    """Strict readiness: an unconfigured pod must NOT be ready even if Redis is empty.
+
+    This is the core of "preserve strict DHCP traffic gating": a freshly started
+    Kea on the bootstrap config (memfile lease-db) with no desired config in
+    Redis previously returned "OK" so the refresh process could reach it. That
+    escape hatch is removed -- the bootstrap path now reaches Kea via the
+    internal validation Service instead, so readiness stays strict.
+    """
+    client = TestClient(app)
+
+    with (
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.status",
+            new_callable=AsyncMock,
+            return_value=[{"arguments": {"pid": 9}, "result": 0}],
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.get_config",
+            new_callable=AsyncMock,
+            return_value=MIN_UNSYNCED_CONFIG,
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.RedisClient.load_kea_config",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+    ):
+        rsp = client.get("/healthcheck")
+
+    assert rsp.status_code == 500
+    assert rsp.json() == {"detail": "Lease database not present in Dhcp4 config"}
+
+
+def test_healthcheck_ready_when_kea_online_and_config_applied():
+    """Readiness reflects Kea-online AND desired config applied (postgresql lease-db)."""
+    client = TestClient(app)
+
+    with (
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.status",
+            new_callable=AsyncMock,
+            return_value=[{"arguments": {"pid": 9}, "result": 0}],
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.get_config",
+            new_callable=AsyncMock,
+            return_value=MIN_READY_CONFIG,
+        ),
+    ):
+        rsp = client.get("/healthcheck")
+
+    assert rsp.status_code == 200
+    assert rsp.json() == "OK"
+
+
+def test_healthcheck_reports_config_get_failure():
+    """A KEA config-get error surfaces as an unready (500) response."""
+    client = TestClient(app)
+
+    with (
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.status",
+            new_callable=AsyncMock,
+            return_value=[{"arguments": {"pid": 9}, "result": 0}],
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.get_config",
+            new_callable=AsyncMock,
+            return_value=[{"result": 1, "text": "configuration unavailable"}],
+        ),
+    ):
+        rsp = client.get("/healthcheck")
+
+    assert rsp.status_code == 500
+    assert rsp.json() == {"detail": "Failed to get KEA config: configuration unavailable"}
+
+
+def test_livez_ready_when_kea_online_without_applied_config():
+    """Liveness only checks Kea is alive; an unapplied config must NOT fail it.
+
+    A config mismatch must never restart a live Kea, so /livez returns OK for a
+    bootstrap-only Kea (memfile lease-db) and never inspects the running config.
+    """
+    client = TestClient(app)
+
+    with (
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.status",
+            new_callable=AsyncMock,
+            return_value=[{"arguments": {"pid": 9}, "result": 0}],
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.get_config",
+            new_callable=AsyncMock,
+        ) as mock_get_config,
+    ):
+        rsp = client.get("/livez")
+
+    assert rsp.status_code == 200
+    assert rsp.json() == "OK"
+    # Liveness must not depend on the applied configuration.
+    mock_get_config.assert_not_awaited()
+
+
+def test_livez_fails_when_kea_process_offline():
+    """Liveness fails when a Kea process reports unhealthy so kubelet recycles Kea."""
+    client = TestClient(app)
+
+    with patch(
+        "nv_config_manager.dhcp.api.KeaClient.status",
+        new_callable=AsyncMock,
+        return_value=[{"arguments": {"pid": 9}, "result": 1}],
+    ):
+        rsp = client.get("/livez")
+
+    assert rsp.status_code == 500
+    assert rsp.json() == {"detail": "Kea DHCPv4 is unavailable"}
+
+
+def test_livez_scopes_the_status_check_to_the_dhcp4_service():
+    """Liveness must ask about kea-dhcp4, not about the control agent itself.
+
+    An unscoped ``status-get`` is answered by kea-ctrl-agent about its own
+    process, so it stays ``result: 0`` while kea-dhcp4 is dead. supervisord
+    restarts kea-dhcp4 in place without recycling the container, so an unscoped
+    check would leave a dead DHCP server running forever.
+    """
+    client = TestClient(app)
+
+    with patch(
+        "nv_config_manager.dhcp.api.KeaClient.status",
+        new_callable=AsyncMock,
+        return_value=[{"arguments": {"pid": 62948, "sockets": {"status": "ready"}}, "result": 0}],
+    ) as mock_status:
+        rsp = client.get("/livez")
+
+    assert rsp.status_code == 200
+    mock_status.assert_awaited_once_with(version=4)
+
+
+def test_livez_fails_when_the_control_agent_cannot_reach_dhcp4():
+    """A control agent that cannot forward to kea-dhcp4 must fail liveness."""
+    unreachable = [
+        {
+            "result": 1,
+            "text": "forwarding socket is not configured for the server type dhcp4",
+        }
+    ]
+    client = TestClient(app)
+
+    with patch(
+        "nv_config_manager.dhcp.api.KeaClient.status",
+        new_callable=AsyncMock,
+        return_value=unreachable,
+    ):
+        rsp = client.get("/livez")
+
+    assert rsp.status_code == 500
+    assert rsp.json() == {"detail": "Kea DHCPv4 is unavailable"}
+
+
+def test_livez_reports_timeout():
+    """Kea control-channel timeouts surface as a liveness failure."""
+    client = TestClient(app)
+
+    with patch(
+        "nv_config_manager.dhcp.api.KeaClient.status",
+        new_callable=AsyncMock,
+        side_effect=TimeoutError("KEA Request timed out"),
+    ):
+        rsp = client.get("/livez")
+
+    assert rsp.status_code == 500
+    assert rsp.json() == {"detail": "KEA Request timed out"}
 
 
 def test_metrics():

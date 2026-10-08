@@ -88,7 +88,7 @@ export const STATUS_LIST_API_RESPONSE = [
 ];
 
 export const TENANT_LIST = {
-  nsv: "TenantA",
+  tenant_a: "TenantA",
   ngc: "TenantB",
 } as const;
 export const TENANT_LIST_API_RESPONSE = [

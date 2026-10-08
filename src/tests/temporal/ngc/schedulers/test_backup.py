@@ -12,118 +12,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from unittest.mock import ANY, AsyncMock, Mock, patch
+"""The legacy scheduler module path re-exports the moved scheduler host entry point."""
 
-import pytest
-
-from nv_config_manager.temporal.ngc.schedulers.backup import BackupScheduler
-
-
-@pytest.mark.asyncio
-@patch("nv_config_manager.temporal.client.nautobot.NautobotClient.graphql_query")
-async def test_devices_to_schedule(graphql_query_mock):
-    # Mock query response
-    query_response = {
-        "data": {
-            "config_manager_devices": [
-                {
-                    "device": {
-                        "id": "device1",
-                        "platform": {"name": "Arista EOS"},
-                        "status": {"name": "Provisioned"},
-                    }
-                },
-                {
-                    "device": {
-                        "id": "device2",
-                        "platform": {"name": "Cumulus Linux"},
-                        "status": {"name": "Active"},
-                    }
-                },
-                {
-                    "device": {
-                        "id": "device3",
-                        "platform": {"name": "NV-OS"},
-                        "status": {"name": "Inactive"},
-                    }
-                },
-                {
-                    "device": {
-                        "id": "device4",
-                        "platform": {"name": "MLNX-OS"},
-                        "status": {"name": "Provisioned"},
-                    }
-                },
-                {
-                    "device": {
-                        "id": "device5",
-                        "platform": None,
-                        "status": {"name": "Provisioned"},
-                    }
-                },
-                {
-                    "device": {
-                        "id": "device6",
-                        "platform": {"name": "Juniper Junos"},
-                        "status": {"name": "Active"},
-                    }
-                },
-                {
-                    "device": {
-                        "id": "device7",
-                        "platform": {"name": "Juniper Junos"},
-                        "status": {"name": "Inactive"},
-                    }
-                },
-            ]
-        }
-    }
-    graphql_query_mock.return_value = query_response
-
-    scheduler = BackupScheduler()
-    devices = await scheduler.devices_to_schedule()
-
-    assert devices == {"device1", "device2", "device6"}
+from nv_config_manager.temporal.ngc.schedulers import backup
+from nv_config_manager.temporal.scheduler import main as scheduler_main
+from nv_config_manager_workflows.schedulers.backup import (
+    BackupScheduler as CanonicalBackupScheduler,
+)
 
 
-@pytest.mark.asyncio
-async def test_scheduled_devices():
-    schedules = [
-        Mock(id="backup-device1"),
-        Mock(id="backup-device2"),
-        Mock(id="other-schedule"),
-    ]
-
-    mock_list_schedules = AsyncMock()
-    mock_list_schedules.__aiter__.return_value = schedules
-
-    mock_client = AsyncMock()
-    mock_client.list_schedules.return_value = mock_list_schedules
-
-    scheduler = BackupScheduler()
-    scheduled_devices = await scheduler.scheduled_devices(mock_client)
-
-    assert scheduled_devices == {"device1", "device2"}
+def test_legacy_backup_scheduler_is_the_canonical_package_class() -> None:
+    assert backup.BackupScheduler is CanonicalBackupScheduler
 
 
-@pytest.mark.asyncio
-@patch("nv_config_manager.temporal.ngc.schedulers.backup.BackupScheduler.temporal_client")
-@patch("nv_config_manager.temporal.ngc.schedulers.backup.BackupScheduler.devices_to_schedule")
-@patch("nv_config_manager.temporal.ngc.schedulers.backup.BackupScheduler.scheduled_devices")
-@patch("nv_config_manager.temporal.ngc.schedulers.backup.BackupScheduler.schedule_device")
-@patch("nv_config_manager.temporal.ngc.schedulers.backup.BackupScheduler.unschedule_device")
-async def test_reconcile_schedules(
-    unschedule_device_mock,
-    schedule_device_mock,
-    scheduled_devices_mock,
-    devices_to_schedule_mock,
-    temporal_client_mock,
-):
-    devices_to_schedule_mock.return_value = {"device1", "device2"}
-    scheduled_devices_mock.return_value = {"device2", "device3"}
+def test_legacy_main_is_the_scheduler_host_entry_point() -> None:
+    assert backup.main is scheduler_main.main
 
-    scheduler = BackupScheduler()
-    await scheduler.reconcile_schedules()
 
-    schedule_device_mock.assert_called_once_with("device1", ANY)
-    unschedule_device_mock.assert_called_once_with("device3", ANY)
+def test_legacy_module_exports_only_compatibility_names() -> None:
+    assert backup.__all__ == ["BackupScheduler", "main"]

@@ -33,7 +33,7 @@ type DeviceLatestConfig struct {
 	Name string `json:"name"`
 	// Site name
 	Site string `json:"site"`
-	// Device UUID
+	// DCIM provider device identifier
 	Uuid string `json:"uuid"`
 }
 

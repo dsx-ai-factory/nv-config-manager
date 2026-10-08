@@ -1,0 +1,35 @@
+fragment DeviceIdentity on DeviceType {
+  id
+  name
+}
+
+fragment DeviceRenderStatus on DeviceType {
+  id
+  configmanagerdevicestatus {
+    render_enabled
+  }
+}
+
+fragment LocationIdentity on LocationType {
+  name
+  location_type {
+    name
+  }
+}
+
+fragment DeviceMetadata on DeviceType {
+  ...DeviceIdentity
+  role { name }
+  platform { name }
+  rack { name }
+  primary_ip4 { host }
+  location {
+    ...LocationIdentity
+    parent {
+      ...LocationIdentity
+      parent {
+        ...LocationIdentity
+      }
+    }
+  }
+}

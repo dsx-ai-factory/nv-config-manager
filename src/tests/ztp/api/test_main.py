@@ -57,6 +57,21 @@ def test_healthcheck_is_async():
     assert inspect.iscoroutinefunction(healthcheck)
 
 
+@pytest.mark.parametrize("exists", [True, False])
+def test_file_head_checks_metadata_without_downloading(client, exists):
+    storage = AsyncMock()
+    storage.__aenter__.return_value = storage
+    if not exists:
+        storage.get_object_metadata.side_effect = S3NotFoundException("missing")
+    with patch("nv_config_manager.ztp.api.files_v1.get_storage_client", return_value=storage):
+        response = client.head("/v1/files/platform/1.0/image.bin", headers=SSO_HEADERS)
+    assert response.status_code == (200 if exists else 404)
+    assert response.content == b""
+    storage.get_object_metadata.assert_awaited_once_with("platform", "1.0", "image.bin")
+    storage.get_object.assert_not_called()
+    storage.__aexit__.assert_awaited_once()
+
+
 def test_docs(client):
     """Verify Swagger Doc endpoint."""
     rsp = client.get("/docs")
@@ -84,7 +99,7 @@ def test_device_v1_bootscript(
     ]
 
     with patch(
-        "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         return_value=mock_device_data,
     ):
         with patch(
@@ -97,18 +112,67 @@ def test_device_v1_bootscript(
             assert rsp.status_code == 200
 
     with patch(
-        "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         return_value=mock_not_found_data,
     ):
         rsp = client.get(f"/v1/device/{uuid4()}/boot-script")
         assert rsp.status_code == 404
 
     with patch(
-        "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         return_value=mock_no_render_data,
     ):
         rsp = client.get(f"/v1/device/{uuid4()}/boot-script")
         assert rsp.status_code == 404
+
+
+@patch("nv_config_manager.ztp.api.device_v1.Request.client")
+def test_device_v1_anonymous_reads_dcim_once(mock_request_client, mock_device_data, client):
+    """The IP allowlist check and the handler share a single DCIM read."""
+    mock_request_client.host = "testclient"
+    mock_device_data["data"]["config_manager_device"]["device"]["interfaces"] = [
+        {"ip_addresses": [{"host": "testclient"}]}
+    ]
+
+    with patch(
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+        return_value=mock_device_data,
+    ) as mock_query:
+        with patch(
+            "nv_config_manager.ztp.device.DeviceData.load_file",
+            new_callable=AsyncMock,
+            return_value="boot-script content",
+        ):
+            rsp = client.get(f"/v1/device/{uuid4()}/boot-script")
+
+    assert rsp.status_code == 200
+    assert mock_query.call_count == 1
+
+
+@patch("nv_config_manager.ztp.api.device_v1.Request.client")
+def test_device_v1_anonymous_allowlist_does_not_mutate_device(
+    mock_request_client, mock_device_data, client
+):
+    """The loopback entry is added to a copy, not to the shared device data."""
+    mock_request_client.host = "testclient"
+    mock_device_data["data"]["config_manager_device"]["device"]["interfaces"] = [
+        {"ip_addresses": [{"host": "testclient"}]}
+    ]
+    seen = []
+
+    async def _capture(self, filename):
+        seen.append(list(self.addresses))
+        return "boot-script content"
+
+    with patch(
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+        return_value=mock_device_data,
+    ):
+        with patch("nv_config_manager.ztp.device.DeviceData.load_file", _capture):
+            rsp = client.get(f"/v1/device/{uuid4()}/boot-script")
+
+    assert rsp.status_code == 200
+    assert seen == [["testclient"]]
 
 
 @patch("nv_config_manager.ztp.api.device_v1.Request.client")
@@ -121,7 +185,7 @@ def test_device_v1_config(mock_request_client, mock_device_data, mock_not_found_
     ]
 
     with patch(
-        "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         return_value=mock_device_data,
     ):
         with patch(
@@ -137,7 +201,7 @@ def test_device_v1_config(mock_request_client, mock_device_data, mock_not_found_
             assert rsp.status_code == 200
 
         with patch(
-            "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+            "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
             return_value=mock_not_found_data,
         ):
             rsp = client.get(f"/v1/device/{uuid4()}/config/startup.yaml")
@@ -149,7 +213,7 @@ def test_device_v1_config(mock_request_client, mock_device_data, mock_not_found_
     ]
 
     with patch(
-        "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         return_value=mock_device_data,
     ):
         rsp = client.get(f"/v1/device/{uuid4()}/config/startup.yaml")
@@ -168,7 +232,7 @@ def test_device_v1_config_auth_disabled_bypasses_ip_check(
 
     with patch("nv_config_manager.common.auth._auth_config", AuthConfig(required=False)):
         with patch(
-            "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+            "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
             return_value=mock_device_data,
         ):
             with patch(
@@ -196,7 +260,7 @@ def test_device_v1_firmware(mock_device_data, mock_not_found_data, client):
     mock_streaming_body.iter_chunks = async_iter_chunks
 
     with patch(
-        "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         return_value=mock_device_data,
     ):
         # Object found - mock S3Client with async context manager and streaming methods
@@ -268,7 +332,7 @@ def test_device_v1_firmware(mock_device_data, mock_not_found_data, client):
             assert rsp.status_code == 404
 
     with patch(
-        "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         return_value=mock_not_found_data,
     ):
         rsp = client.get(f"/v1/device/{uuid4()}/firmware", headers=SSO_HEADERS)
@@ -279,7 +343,7 @@ def test_device_v1_firmware_checksum(mock_device_data, mock_not_found_data, clie
     """Test device firmware checksum v1 endpoint."""
 
     with patch(
-        "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         return_value=mock_device_data,
     ):
         # Object found - mock S3Client with async context manager
@@ -307,7 +371,7 @@ def test_device_v1_firmware_checksum(mock_device_data, mock_not_found_data, clie
             assert rsp.status_code == 404
 
     with patch(
-        "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         return_value=mock_not_found_data,
     ):
         rsp = client.get(f"/v1/device/{uuid4()}/firmware/checksum", headers=SSO_HEADERS)
@@ -322,7 +386,7 @@ def test_device_v1_config_store_exceptions(mock_request_client, mock_device_data
     ]
 
     with patch(
-        "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         return_value=mock_device_data,
     ):
         with patch(
@@ -350,12 +414,12 @@ def test_device_v1_provisioned(mock_request_client, mock_device_data, client):
     ]
 
     with patch(
-        "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         new_callable=AsyncMock,
         return_value=mock_device_data,
     ):
         with patch(
-            "nv_config_manager.ztp.nautobot.NautobotClient.set_status_provisioned",
+            "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.set_status_provisioned",
             new_callable=AsyncMock,
         ):
             # Mock the temporal_client as an async context manager
@@ -377,7 +441,7 @@ def test_device_v1_provisioned(mock_request_client, mock_device_data, client):
             rsp = client.post(f"/v1/device/{uuid4()}/provisioned")
             assert rsp.json() == {
                 "detail": "Unauthorized: client IP testclient2 is not associated with this device. "
-                "Ensure the requesting IP is assigned to the device in Nautobot."
+                "Ensure the requesting IP is assigned to the device in the DCIM."
             }
             assert rsp.status_code == 403
 
@@ -394,12 +458,12 @@ def test_device_v1_provisioned_auth_disabled_bypasses_ip_check(
 
     with patch("nv_config_manager.common.auth._auth_config", AuthConfig(required=False)):
         with patch(
-            "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+            "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
             new_callable=AsyncMock,
             return_value=mock_device_data,
         ):
             with patch(
-                "nv_config_manager.ztp.nautobot.NautobotClient.set_status_provisioned",
+                "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.set_status_provisioned",
                 new_callable=AsyncMock,
             ):
                 mock_temporal_client = MagicMock()
@@ -425,11 +489,11 @@ def test_device_v1_validate_serial(mock_request_client, mock_device_data, client
     ]
 
     with patch(
-        "nv_config_manager.ztp.nautobot.NautobotClient.graphql_query",
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         return_value=mock_device_data,
     ):
         with patch(
-            "nv_config_manager.ztp.nautobot.NautobotClient.get_device_serial",
+            "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.get_device_serial",
             return_value="expected_serial",
         ):
             rsp = client.post(

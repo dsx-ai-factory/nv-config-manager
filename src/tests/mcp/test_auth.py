@@ -23,10 +23,10 @@ from nv_config_manager.mcp.auth import (
 )
 from nv_config_manager.mcp.clients import (
     MCPAuthError,
+    _nautobot_auth_headers,
     config_store_client,
     dhcp_client,
     fetch_workflows,
-    nautobot_client,
     workflow_client,
 )
 from nv_config_manager.mcp.settings import MCPSettings
@@ -67,47 +67,43 @@ async def test_downstream_clients_omit_auth_headers_when_auth_is_disabled(
 
 
 def test_nautobot_token_mode_uses_configured_token_without_bearer_token() -> None:
-    client = nautobot_client(
+    headers = _nautobot_auth_headers(
         _settings(nautobot_auth_mode="token", nautobot_read_only_token="ro-token")
     )
 
-    assert client._resolve_headers() == {"Authorization": "Token ro-token"}
+    assert headers == {"Authorization": "Token ro-token"}
 
 
 def test_nautobot_token_mode_requires_read_only_token() -> None:
-    client = nautobot_client(_settings(nautobot_auth_mode="token"))
-
     with pytest.raises(MCPAuthError, match="nautobot_read_only_token"):
-        client._resolve_headers()
+        _nautobot_auth_headers(_settings(nautobot_auth_mode="token"))
 
 
 def test_nautobot_jwt_mode_does_not_fallback_to_configured_token() -> None:
-    client = nautobot_client(
-        _settings(nautobot_auth_mode="jwt", nautobot_read_only_token="ro-token")
-    )
-
     with pytest.raises(MCPAuthError, match="Bearer token"):
-        client._resolve_headers()
+        _nautobot_auth_headers(
+            _settings(nautobot_auth_mode="jwt", nautobot_read_only_token="ro-token")
+        )
 
 
 def test_nautobot_jwt_mode_uses_configured_token_when_auth_is_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("nv_config_manager.mcp.clients.config_auth_required", lambda: False)
-    client = nautobot_client(
+    headers = _nautobot_auth_headers(
         _settings(nautobot_auth_mode="jwt", nautobot_read_only_token="ro-token")
     )
 
-    assert client._resolve_headers() == {"Authorization": "Token ro-token"}
+    assert headers == {"Authorization": "Token ro-token"}
 
 
 def test_nautobot_jwt_mode_omits_auth_when_auth_is_disabled_without_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("nv_config_manager.mcp.clients.config_auth_required", lambda: False)
-    client = nautobot_client(_settings(nautobot_auth_mode="jwt"))
+    headers = _nautobot_auth_headers(_settings(nautobot_auth_mode="jwt"))
 
-    assert client._resolve_headers() == {}
+    assert headers == {}
 
 
 def _settings(
