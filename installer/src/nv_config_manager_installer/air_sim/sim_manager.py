@@ -2235,6 +2235,24 @@ class AirSimulationManager:
                     return False
 
                 if "status: done" in status_text:
+                    # TextIOWrapper can buffer log lines that select() no longer sees.
+                    # Check the files directly before declaring a missing marker.
+                    marker = subprocess.run(
+                        [
+                            *ssh_base,
+                            "sudo grep -Fq -- "
+                            f"{shlex.quote(self._SETUP_COMPLETE_MARKER)} "
+                            "/var/log/nvcm-setup.log /var/log/cloud-init-output.log",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    if marker.returncode == 0:
+                        LOG.info("\nCloud-init setup finished successfully.")
+                        proc.terminate()
+                        proc.wait(timeout=5)
+                        return True
                     done_seen_at = done_seen_at or now
                     if now - done_seen_at > 5:
                         LOG.warning(
