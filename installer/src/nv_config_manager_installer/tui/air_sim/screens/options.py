@@ -69,8 +69,16 @@ class OptionsScreen(Container):
             placeholder="token for a private fork",
             id="git-token",
         )
-        yield Label("nv-config-manager repo URL", classes="field-label")
-        yield Input(value=self._config.config_manager_repo, id="config-manager-repo")
+        yield Label("Config Manager Repository", classes="field-label")
+        yield Input(
+            value=self._config.config_manager_repo,
+            placeholder="Git URL or local checkout path",
+            id="config-manager-repo",
+        )
+        yield Static(
+            "Enter a Git URL to clone or a local checkout path to upload.",
+            classes="field-hint",
+        )
 
         yield Label("─" * 40, classes="section-divider")
         yield Label("Deployment", classes="subsection-label")

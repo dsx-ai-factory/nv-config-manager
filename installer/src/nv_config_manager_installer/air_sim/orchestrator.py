@@ -258,20 +258,25 @@ class SimOrchestrator:
     @staticmethod
     def _repository_files(checkout: Path) -> list[Path]:
         """Select existing tracked files and non-ignored new files from a Git checkout."""
-        result = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(checkout),
-                "ls-files",
-                "--cached",
-                "--others",
-                "--exclude-standard",
-                "-z",
-            ],
-            check=True,
-            capture_output=True,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(checkout),
+                    "ls-files",
+                    "--cached",
+                    "--others",
+                    "--exclude-standard",
+                    "-z",
+                ],
+                check=True,
+                capture_output=True,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            raise ValueError(
+                f"Cannot read repository '{checkout}': a Git checkout and the git executable are required"
+            ) from exc
         paths = {Path(os.fsdecode(path)) for path in result.stdout.split(b"\0") if path}
         return sorted(
             path for path in paths if (checkout / path).is_file() or (checkout / path).is_symlink()

@@ -248,6 +248,27 @@ def test_stage_local_sources_uploads_repo_and_content(
                 sys.modules.pop(name)
 
 
+@pytest.mark.parametrize(
+    "error", [subprocess.CalledProcessError(128, ["git"]), FileNotFoundError("git")]
+)
+def test_repository_file_errors_identify_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    """Invalid checkouts and unavailable Git fail clearly before any AIR calls."""
+    cfg = SimConfig(config_manager_repo=str(tmp_path))
+    orchestrator = SimOrchestrator(cfg, _Callback())
+    factory = Mock()
+    monkeypatch.setattr(orchestrator, "_create_simulation_manager", factory)
+    monkeypatch.setattr(
+        "nv_config_manager_installer.air_sim.orchestrator.subprocess.run", Mock(side_effect=error)
+    )
+    with pytest.raises(ValueError, match="a Git checkout") as exc:
+        orchestrator._run_impl()
+    assert str(tmp_path) in str(exc.value)
+    assert exc.value.__cause__ is error
+    factory.assert_not_called()
+
+
 def test_repository_upload_preserves_worktree_and_excludes_ignored_files(tmp_path: Path) -> None:
     """Unpublished changes survive upload, while ignored local files and deletions do not."""
     checkout = tmp_path / "checkout"
