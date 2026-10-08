@@ -7,7 +7,13 @@
 {{- end -}}
 {{- if and .Values.nautobot.enabled .Values.externalServices.nautobot.local -}}
   {{- $redis := .Values.externalServices.redis -}}
+  {{- if not (regexMatch "^[0-9]+$" (toString $redis.nautobotCacheDb)) -}}
+    {{- fail (printf "externalServices.redis.nautobotCacheDb must be a non-negative integer, got %q" (toString $redis.nautobotCacheDb)) -}}
+  {{- end -}}
   {{- $cacheDb := int $redis.nautobotCacheDb -}}
+  {{- if eq $cacheDb 0 -}}
+    {{- fail "externalServices.redis.nautobotCacheDb must not be 0: the bundled Nautobot's Celery broker uses Redis database 0, and nautobot-server post_upgrade flushes the Nautobot cache database" -}}
+  {{- end -}}
   {{- if or (eq (int $redis.db) $cacheDb) (eq (int $redis.lockDb) $cacheDb) -}}
     {{- fail (printf "externalServices.redis.nautobotCacheDb (%d) must differ from externalServices.redis.db and lockDb: nautobot-server post_upgrade flushes the Nautobot cache database" $cacheDb) -}}
   {{- end -}}

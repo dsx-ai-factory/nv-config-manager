@@ -35,7 +35,9 @@ _CHART_DIR = Path(__file__).resolve().parents[3] / "deploy" / "helm"
 _NAUTOBOT_ENV_CONFIGMAP = "test-nv-config-manager-nautobot-env"
 
 
-def _helm_template(*set_args: str) -> subprocess.CompletedProcess[str]:
+def _helm_template(
+    *set_args: str, set_string: str | None = None
+) -> subprocess.CompletedProcess[str]:
     if shutil.which("helm") is None:
         pytest.skip("helm binary not available")
     if not (_CHART_DIR / "charts").is_dir():
@@ -51,6 +53,8 @@ def _helm_template(*set_args: str) -> subprocess.CompletedProcess[str]:
     ]
     for pair in set_args:
         cmd += ["--set", pair]
+    if set_string is not None:
+        cmd += ["--set-string", set_string]
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
@@ -84,6 +88,38 @@ def test_cache_db_must_differ_from_manager_dbs(key: str) -> None:
     )
     assert result.returncode != 0
     assert "nautobotCacheDb (5) must differ" in result.stderr
+
+
+def test_cache_db_must_not_be_celery_broker_db() -> None:
+    result = _helm_template(
+        "externalServices.redis.db=3",
+        "externalServices.redis.lockDb=3",
+        "externalServices.redis.nautobotCacheDb=0",
+    )
+    assert result.returncode != 0
+    assert "Celery broker uses Redis database 0" in result.stderr
+
+
+def test_cache_db_1_is_allowed() -> None:
+    env = _nautobot_env("externalServices.redis.nautobotCacheDb=1")
+    assert env["NAUTOBOT_CACHE_REDIS_DB"] == "1"
+
+
+@pytest.mark.parametrize(
+    ("set_args", "set_string"),
+    [
+        (("externalServices.redis.nautobotCacheDb=null",), None),
+        ((), "externalServices.redis.nautobotCacheDb="),
+        ((), "externalServices.redis.nautobotCacheDb=two"),
+        (("externalServices.redis.nautobotCacheDb=-1",), None),
+    ],
+)
+def test_cache_db_must_be_a_non_negative_integer(
+    set_args: tuple[str, ...], set_string: str | None
+) -> None:
+    result = _helm_template(*set_args, set_string=set_string)
+    assert result.returncode != 0
+    assert "nautobotCacheDb must be a non-negative integer" in result.stderr
 
 
 def test_external_nautobot_skips_cache_db_check() -> None:

@@ -73,7 +73,7 @@ if _LOGOUT_REDIRECT_MW not in MIDDLEWARE:  # noqa: F405
 CACHES = {
     "default": {
         "BACKEND": "django_prometheus.cache.backends.redis.RedisCache",
-        "LOCATION": parse_redis_connection(redis_database=int(os.getenv("NAUTOBOT_CACHE_REDIS_DB", "2"))),
+        "LOCATION": parse_redis_connection(redis_database=int(os.getenv("NAUTOBOT_CACHE_REDIS_DB") or "2")),
         "TIMEOUT": 300,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",

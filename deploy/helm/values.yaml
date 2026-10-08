@@ -620,7 +620,7 @@ externalServices:
     # web pod start runs `nautobot-server post_upgrade`, which clears this
     # cache with FLUSHDB and deletes every key in the database. On a shared
     # external Redis, pick a database nothing else uses. Must differ from db
-    # and lockDb.
+    # and lockDb, and must not be 0 (Nautobot's Celery broker).
     nautobotCacheDb: 2
     ssl: false
     passwordAuth: true
