@@ -16,37 +16,23 @@ candidates). Apply Semantic Versioning: incompatible public API or configuration
 changes require a major version; compatible features a minor version; compatible
 fixes a patch. Document migration steps for breaking changes before promotion.
 
-Only repository administrators can trigger successful tag creation. Review the
-release commit, CI results, migration notes, and changelog before promotion.
+Tagging jobs require both the original operator and anyone rerunning the job
+to be repository admins. Review the release commit, CI results, migration notes,
+and changelog before promotion.
 
-## Tagging Workflow Setup
-
-Restrict tag creation, updates, and deletion with an active GitHub tag ruleset.
-Cover all tags (`~ALL`), or at least `*.*.*` and `bindings/go/v*.*.*`, with bypass
-limited to repository admins and a dedicated release GitHub App.
-
-Register an organization-owned release App with **Contents: write**, webhooks
-disabled, and installation limited to this repository. Add that App to the tag
-ruleset bypass list; keep the generic GitHub Actions identity out of that list.
-Before providing its private key, configure the `release-tagging` environment
-to allow only the `main` branch and no tags. Store `RELEASE_APP_CLIENT_ID` as an
-environment variable and `RELEASE_APP_PRIVATE_KEY` as an environment secret.
-Keep the private key out of repository secrets. Both workflows generate a
-short-lived App token limited to this repository, without a personal PAT or
-`GITHUB_TOKEN` fallback.
-
-Run both workflows from `main`; their inputs select the source commit or RC.
-Maintenance RCs can still use `source_ref=release/X.Y.Z`. Both the original operator
-and anyone rerunning a tagging job must currently be repository admins.
-Approved PR deployments retain their separate [mirror promotion approval
-path](.gitlab/ci/README.md); these settings govern release tagging.
+Tagging uses a dedicated GitHub App configured on the `release-tagging`
+environment with the `RELEASE_APP_CLIENT_ID` variable and
+`RELEASE_APP_PRIVATE_KEY` secret.
 
 ## Release Steps
+
+Run both tagging workflows from `main`; their inputs select the source.
 
 1. Merge reviewed changes and release notes into `main`.
 1. Run **Create RC Tag** with `source_ref=main`. Keep
    `require_public_ci_success=true`. The workflow checks main ancestry and creates
-   the platform and Go binding tags atomically.
+   the platform and Go binding tags atomically. For a maintenance RC, use
+   `source_ref=release/X.Y.Z` to tag that protected branch's tip.
 1. Validate the candidate using the project's release qualification process.
 1. Run **Promote Release** for the validated candidate. The workflow promotes the
    same commit and publishes a GitHub Release using its changelog section.
