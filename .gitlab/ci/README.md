@@ -349,8 +349,8 @@ to repository admins or a narrowly controlled release identity. This policy
 must be enforced by GitHub; a check in the tagged commit's own workflow cannot
 protect against arbitrary tagged CI configuration.
 
-The RC workflow's admin/source checks cover workflow-driven tags only. If the
-ruleset uses an admin-only bypass, the workflow needs an admin-owned
-`RELEASE_TAG_TOKEN` scoped to its protected `release-tagging` environment;
-its `GITHUB_TOKEN` fallback must not be given a repository-wide tag bypass.
-Restrict that environment to approved workflow refs before providing a token.
+The RC workflow's admin/source checks cover workflow-driven tags only. It uses
+a repository write deploy key stored as `RELEASE_TAG_SSH_KEY` in the main-only
+`release-tagging` environment. Allow deploy keys in the tag ruleset bypass;
+this applies to every write deploy key on the repository. Keep other deploy
+keys read-only and do not give `GITHUB_TOKEN` a repository-wide tag bypass.
