@@ -299,3 +299,21 @@ Project settings required (GitLab UI):
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key for air-gapped bundle uploads |
 | `NVCM_AIRGAPPED_S3_BUCKET` | S3 bucket for air-gapped bundles |
 | `NVCM_AIRGAPPED_S3_REGION` | AWS region for air-gapped bundle uploads |
+
+### Deploy a main build
+
+After a protected main push builds successfully, start `deploy-main-to-test`,
+`deploy-main-to-test01`, `deploy-main-to-kiwi-qa`, or `deploy-main-to-demo01` in
+that build's pipeline. No variables or release tag are needed. The child checks
+its parent button and successful build jobs, publishes the packaged chart as
+`0.0.0-main.<full commit SHA>`, and deploys the recorded multi-architecture image
+digests. Chart and image artifacts expire after one week; use a newer build if
+they have expired. A failed deployment does not change the parent build status.
+
+Every target needs a protected environment with the existing operator ACL,
+a protected `NVCM_TEST_ENV_TARGETS` record, and a seeded env branch in the values
+repository. Demo uses target `demo01`; adopt its ApplicationSet into the state
+flow before using its button. Main promotions preserve overrides and use the
+same rendering, hold, rollback, and ArgoCD convergence checks as PR promotions.
+CI configuration changes also rebuild artifacts so their pipeline can offer the
+buttons. Documentation-only commits continue to skip artifact builds.

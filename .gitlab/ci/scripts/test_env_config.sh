@@ -47,10 +47,10 @@ requested_env="$(trim "${1:?usage: test_env_config.sh <env>}")"
 # overridable would let the same variable injection this guards against widen
 # it. Adding an environment is a reviewed code change, by design.
 case "$requested_env" in
-  test|test01|kiwi-qa) ;;
+  test|test01|kiwi-qa|demo01) ;;
   *)
     echo "Refusing to resolve environment '${requested_env}'." >&2
-    echo "Only the non-production environments (test, test01, kiwi-qa) may be resolved;" >&2
+    echo "Only the non-production environments (test, test01, kiwi-qa, demo01) may be resolved;" >&2
     echo "production is deployed by the tag-driven release flow, not this one." >&2
     exit 1
     ;;

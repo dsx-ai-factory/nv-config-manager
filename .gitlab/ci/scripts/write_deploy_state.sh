@@ -238,7 +238,13 @@ if ! git diff --cached --quiet -- "${baseline_files[@]}"; then
     git diff --cached --stat -- "${baseline_files[@]}"
 fi
 
-git commit -m "[nvcm CI] Promote PR #${PR_NUM} (${PROMOTE_VERSION}) to ${NVCM_ENV}
+source_label="PR #${PR_NUM}"
+if [[ "$(sed -n 's/^SOURCE_KIND=//p' "$promote_attest")" == main ]]; then
+    [[ "$PR_NUM" == 0 ]] || { echo 'ERROR: main promotion must have pr: 0' >&2; exit 1; }
+    source_label="main"
+fi
+
+git commit -m "[nvcm CI] Promote ${source_label} (${PROMOTE_VERSION}) to ${NVCM_ENV}
 
 Source commit: ${PR_SHA}
 Baseline: ${baseline_rev}

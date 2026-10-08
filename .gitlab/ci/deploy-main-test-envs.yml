@@ -1,0 +1,108 @@
+---
+# Optional fixed-target promotions of this pipeline's main build.
+.main-build-rules: &main-build-rules
+  - if: $GITLAB_USER_EMAIL == $CI_PUSH_EMAIL
+    when: never
+  - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"
+    changes:
+      - .gitlab/**/*
+      - .gitlab-ci.yml
+      - build/**/*
+      - components/**/*
+      - db/**/*
+      - deploy/helm/**/*
+      - src/**/*
+      - ui/**/*
+      - pyproject.toml
+      - uv.lock
+    when: on_success
+  - when: never
+
+main-build-chart:
+  extends: pr-build-chart
+  tags: [dca, docker, linux/amd64]
+  image: $NVCM_CI_IMAGE_ALPINE
+  rules: *main-build-rules
+  before_script:
+    - apk add -q bash git curl helm yq
+  script:
+    - |
+      export promote_version="0.0.0-main.${CI_COMMIT_SHA}"
+      yq -i '.version = strenv(promote_version) | .appVersion = strenv(promote_version)' deploy/helm/Chart.yaml
+    - helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    - helm repo add grafana https://grafana.github.io/helm-charts
+    - helm dependency build deploy/helm
+    - helm package deploy/helm --destination chart
+  artifacts:
+    paths: [chart/]
+    expire_in: 1 week
+
+.main-promote-button:
+  stage: deploy
+  inherit:
+    variables: false
+  needs:
+    - job: docker-manifest-main
+      artifacts: false
+    - job: main-build-chart
+      artifacts: false
+  rules:
+    - if: $GITLAB_USER_EMAIL == $CI_PUSH_EMAIL
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"
+      changes:
+        - .gitlab/**/*
+        - .gitlab-ci.yml
+        - build/**/*
+        - components/**/*
+        - db/**/*
+        - deploy/helm/**/*
+        - src/**/*
+        - ui/**/*
+        - pyproject.toml
+        - uv.lock
+      when: manual
+      allow_failure: true
+    - when: never
+  variables:
+    NVCM_PROMOTE_SOURCE_PIPELINE_ID: $CI_PIPELINE_ID
+    NVCM_PROMOTE_SOURCE_SHA: $CI_COMMIT_SHA
+  trigger:
+    include:
+      - local: .gitlab/ci/deploy-main-test-envs-child.yml
+    forward:
+      yaml_variables: true
+      pipeline_variables: false
+
+deploy-main-to-test:
+  extends: .main-promote-button
+  variables:
+    NVCM_PROMOTE_ENV: test
+  environment:
+    name: test
+    action: prepare
+
+deploy-main-to-test01:
+  extends: .main-promote-button
+  variables:
+    NVCM_PROMOTE_ENV: test01
+  environment:
+    name: test01
+    action: prepare
+
+deploy-main-to-kiwi-qa:
+  extends: .main-promote-button
+  variables:
+    NVCM_PROMOTE_ENV: kiwi-qa
+  environment:
+    name: kiwi-qa
+    action: prepare
+
+deploy-main-to-demo01:
+  extends: .main-promote-button
+  variables:
+    NVCM_PROMOTE_ENV: demo01
+  environment:
+    name: demo01
+    action: prepare
+
