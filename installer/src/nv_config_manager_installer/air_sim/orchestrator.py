@@ -634,30 +634,33 @@ class SimOrchestrator:
         self._step("upload-files", StepStatus.RUNNING)
         try:
             runtime_cfg = self._stage_local_sources(manager, host, port, cfg, topology_path)
+            install_yaml = self._generate_install_yaml(
+                runtime_cfg,
+                site_name=builder.site_name,
+                lb_allowed_prefixes=lb_allowed,
+            )
+            tmp_path: Path | None = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".yaml", prefix="nv-config-manager-install-", delete=False
+                ) as tmp:
+                    tmp_path = Path(tmp.name)
+                    tmp.write(install_yaml)
+
+                ok = manager.upload_to_server(
+                    host,
+                    port,
+                    str(tmp_path),
+                    f"/home/{NVCM_BOX_USER}/{CONFIG_MANAGER_INSTALL_CONFIG}",
+                )
+                if not ok:
+                    raise RuntimeError(f"Failed to upload {CONFIG_MANAGER_INSTALL_CONFIG}")
+            finally:
+                if tmp_path is not None:
+                    tmp_path.unlink(missing_ok=True)
         except Exception as exc:
             self._step("upload-files", StepStatus.FAILED, str(exc))
             raise
-        install_yaml = self._generate_install_yaml(
-            runtime_cfg,
-            site_name=builder.site_name,
-            lb_allowed_prefixes=lb_allowed,
-        )
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", prefix="nv-config-manager-install-", delete=False
-        ) as tmp:
-            tmp.write(install_yaml)
-            tmp_path = tmp.name
-
-        ok = manager.upload_to_server(
-            host,
-            port,
-            tmp_path,
-            f"/home/{NVCM_BOX_USER}/{CONFIG_MANAGER_INSTALL_CONFIG}",
-        )
-        Path(tmp_path).unlink(missing_ok=True)
-        if not ok:
-            self._step("upload-files", StepStatus.FAILED)
-            raise RuntimeError(f"Failed to upload {CONFIG_MANAGER_INSTALL_CONFIG}")
         self._log(f"Uploaded {CONFIG_MANAGER_INSTALL_CONFIG}")
         self._step("upload-files", StepStatus.SUCCESS)
 
