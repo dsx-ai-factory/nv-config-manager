@@ -313,7 +313,8 @@ they have expired. A failed deployment does not change the parent build status.
 Every target needs a protected environment with the existing operator ACL,
 a protected `NVCM_TEST_ENV_TARGETS` record, and a seeded env branch in the values
 repository. Demo uses target `demo01`; adopt its ApplicationSet into the state
-flow before using its button. Main promotions preserve overrides and use the
+flow and configure its demo-scoped ArgoCD connection before setting the protected
+`NVCM_DEMO_PROMOTION_READY=true` variable to expose its button. Main promotions preserve overrides and use the
 same rendering, hold, rollback, and ArgoCD convergence checks as PR promotions.
 CI configuration changes also rebuild artifacts so their pipeline can offer the
 buttons. Documentation-only commits continue to skip artifact builds.

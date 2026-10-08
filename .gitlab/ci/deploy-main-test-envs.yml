@@ -46,7 +46,7 @@ main-build-chart:
       artifacts: false
     - job: main-build-chart
       artifacts: false
-  rules:
+  rules: &main-promote-button-rules
     - if: $GITLAB_USER_EMAIL == $CI_PUSH_EMAIL
       when: never
     - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"
@@ -100,9 +100,13 @@ deploy-main-to-kiwi-qa:
 
 deploy-main-to-demo01:
   extends: .main-promote-button
+  # Enable only after the demo-scoped ArgoCD connection has been verified.
+  rules:
+    - if: $NVCM_DEMO_PROMOTION_READY != "true"
+      when: never
+    - *main-promote-button-rules
   variables:
     NVCM_PROMOTE_ENV: demo01
   environment:
     name: demo01
     action: prepare
-
