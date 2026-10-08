@@ -318,3 +318,16 @@ flow and configure its demo-scoped ArgoCD connection before setting the protecte
 same rendering, hold, rollback, and ArgoCD convergence checks as PR promotions.
 CI configuration changes also rebuild artifacts so their pipeline can offer the
 buttons. Documentation-only commits continue to skip artifact builds.
+
+### Deploy an RC tag
+
+A protected RC tag such as `1.4.0-rc.4` offers `deploy-rc-to-test`,
+`deploy-rc-to-test01`, `deploy-rc-to-kiwi-qa`, and `deploy-rc-to-demo01` after
+`update-version` and `helm-publish-release` succeed. These buttons use the tag's
+published chart version and recorded release-image digests. They preserve the
+same values overrides and use the same render and ArgoCD convergence gates as
+main promotion. Demo retains its setup readiness gate for RCs too.
+
+The tag's commit must contain this pipeline configuration; older tags do not
+acquire buttons retroactively. Chart and digest artifacts expire after one week.
+Stable release tags and other prerelease names do not expose these RC buttons.

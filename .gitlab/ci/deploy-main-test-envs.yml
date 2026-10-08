@@ -110,3 +110,56 @@ deploy-main-to-demo01:
   environment:
     name: demo01
     action: prepare
+
+# RC buttons consume the already-published chart and release-tag image digests.
+.rc-promote-button:
+  extends: .main-promote-button
+  stage: release
+  needs:
+    - job: update-version
+      artifacts: false
+    - job: helm-publish-release
+      artifacts: false
+  rules: &rc-promote-button-rules
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_TAG =~ /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-rc\.(0|[1-9][0-9]*)$/ && $CI_COMMIT_REF_PROTECTED == "true"
+      when: manual
+      allow_failure: true
+    - when: never
+  variables:
+    NVCM_PROMOTE_SOURCE_TAG: $CI_COMMIT_TAG
+
+deploy-rc-to-test:
+  extends: .rc-promote-button
+  variables:
+    NVCM_PROMOTE_ENV: test
+  environment:
+    name: test
+    action: prepare
+
+deploy-rc-to-test01:
+  extends: .rc-promote-button
+  variables:
+    NVCM_PROMOTE_ENV: test01
+  environment:
+    name: test01
+    action: prepare
+
+deploy-rc-to-kiwi-qa:
+  extends: .rc-promote-button
+  variables:
+    NVCM_PROMOTE_ENV: kiwi-qa
+  environment:
+    name: kiwi-qa
+    action: prepare
+
+deploy-rc-to-demo01:
+  extends: .rc-promote-button
+  rules:
+    - if: $NVCM_DEMO_PROMOTION_READY != "true"
+      when: never
+    - *rc-promote-button-rules
+  variables:
+    NVCM_PROMOTE_ENV: demo01
+  environment:
+    name: demo01
+    action: prepare

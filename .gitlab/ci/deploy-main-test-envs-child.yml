@@ -1,7 +1,7 @@
 ---
 stages: [deploy]
 workflow:
-  name: "Deploy main build to ${NVCM_PROMOTE_ENV}"
+  name: "Deploy build to ${NVCM_PROMOTE_ENV}"
 include:
   - local: .gitlab/ci/images.yml
   - local: .gitlab/ci/promote-test-envs.yml

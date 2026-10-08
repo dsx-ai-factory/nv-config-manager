@@ -2,6 +2,8 @@
 .main-promote-rules: &main-promote-rules
   - if: $CI_PIPELINE_SOURCE == "parent_pipeline" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true" && $NVCM_PROMOTE_SOURCE_PIPELINE_ID && $NVCM_PROMOTE_SOURCE_SHA && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa|demo01)$/ && $NVCM_PROMOTE_PR == null
     when: on_success
+  - if: $CI_PIPELINE_SOURCE == "parent_pipeline" && $CI_COMMIT_TAG =~ /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-rc\.(0|[1-9][0-9]*)$/ && $CI_COMMIT_REF_PROTECTED == "true" && $NVCM_PROMOTE_SOURCE_PIPELINE_ID && $NVCM_PROMOTE_SOURCE_SHA && $NVCM_PROMOTE_SOURCE_TAG && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa|demo01)$/ && $NVCM_PROMOTE_PR == null
+    when: on_success
   - when: never
 
 main-promote-prepare:

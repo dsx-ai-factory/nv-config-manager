@@ -239,9 +239,10 @@ if ! git diff --cached --quiet -- "${baseline_files[@]}"; then
 fi
 
 source_label="PR #${PR_NUM}"
-if [[ "$(sed -n 's/^SOURCE_KIND=//p' "$promote_attest")" == main ]]; then
-    [[ "$PR_NUM" == 0 ]] || { echo 'ERROR: main promotion must have pr: 0' >&2; exit 1; }
-    source_label="main"
+source_kind="$(sed -n 's/^SOURCE_KIND=//p' "$promote_attest")"
+if [[ "$source_kind" == main || "$source_kind" == rc ]]; then
+    [[ "$PR_NUM" == 0 ]] || { echo 'ERROR: build promotion must have pr: 0' >&2; exit 1; }
+    source_label="$source_kind"
 fi
 
 git commit -m "[nvcm CI] Promote ${source_label} (${PROMOTE_VERSION}) to ${NVCM_ENV}
