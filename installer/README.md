@@ -347,6 +347,24 @@ deployment and TUI implementations instead of copying their orchestration:
 Provider deployment belongs in these lifecycle hooks, not in progress
 callbacks. This keeps the CLI and both TUIs on the same orchestration path.
 
+AIR topology files, mock-topology directories, job packages, and template-plugin
+directories must exist locally. For automatic setup, these inputs are checked
+before AIR is contacted and uploaded after cloud-init. Relative paths resolve
+from the invoking directory, then the running installer's checkout (`PROJECT_ROOT`),
+regardless of `config_manager_repo`. Use explicit paths for content elsewhere.
+Jobs must be directories with unique package names; the name `mock_topology` is
+reserved when the mock-topology job is enabled. Package names are preserved so
+imports and post-deploy job identifiers continue to work.
+
+`config_manager_repo` accepts a remote Git repository or a local Git checkout.
+Local uploads include tracked working-tree files and non-ignored new files,
+preserving unpublished changes while excluding ignored untracked configuration and
+build output. Automatic setup with a local checkout requires `wait_timeout > 0`
+so the repository can be uploaded after cloud-init.
+Repository symlinks must use relative targets within the checkout and point to
+content included in the upload. Nonportable links are rejected before AIR is
+contacted. Negative wait timeouts are rejected for all repository sources.
+
 #### 3. External Services
 
 ![External Services](../docs/assets/images/installer/03-external-services.svg)
