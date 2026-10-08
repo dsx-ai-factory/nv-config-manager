@@ -265,7 +265,7 @@ class SimOrchestrator:
                     f"{AIR_CONTENT_REMOTE_DIR}/{category}/{destination.name}"
                 )
 
-            if any(staging_root.iterdir()) and not manager.upload_to_server(
+            if not manager.upload_to_server(
                 host,
                 port,
                 str(staging_root),

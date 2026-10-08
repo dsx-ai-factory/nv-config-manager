@@ -326,6 +326,8 @@ class AirTopologyBuilder:
 
         for intf in interfaces_data:
             device_name = intf.get("device")
+            if device_name not in self.devices or not self.devices[device_name].air_enabled:
+                continue
             intf_name = intf.get("name")
             intf_type = intf.get("type", "")
             description = intf.get("description") or ""
@@ -337,9 +339,6 @@ class AirTopologyBuilder:
                 )
             mac_address = None if raw_mac == "auto" else raw_mac
             needs_auto = raw_mac == "auto"
-
-            if device_name not in self.devices:
-                continue
 
             if description.lower() == "exit":
                 self.exit_interfaces.append((device_name, intf_name))
@@ -667,6 +666,12 @@ class AirTopologyBuilder:
         Groups devices by (model, role, firmware_version) to reduce simulation size.
         Useful for testing configuration rendering without full topology.
         """
+        if self.nvcm_server and self.nvcm_server.attach_switch:
+            attach_switch = self.nvcm_server.attach_switch
+            attach_device = self.devices.get(attach_switch)
+            if attach_device is not None and not attach_device.air_enabled:
+                raise ValueError(f"Switch '{attach_switch}' is disabled for AIR")
+
         topology: dict[str, Any] = {
             "oob": False,
             "nodes": {},

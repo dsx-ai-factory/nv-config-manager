@@ -26,6 +26,7 @@ import yaml
 from nv_config_manager_installer.air_sim.context_topology import (
     build_site_design_from_mock_context,
 )
+from nv_config_manager_installer.air_sim.models import NVCMServerConfig
 from nv_config_manager_installer.air_sim.topology import AirTopologyBuilder
 
 
@@ -320,6 +321,61 @@ def test_cumulus_eth0_without_mac_requires_air_enabled(
         topology = builder.build_topology()
         assert "inventory-switch" in builder.devices
         assert "inventory-switch" not in topology["nodes"]
+
+
+@pytest.mark.parametrize("air_enabled", [False, True])
+def test_interface_mac_validation_only_applies_to_air_devices(
+    tmp_path: Path, air_enabled: bool
+) -> None:
+    """Inventory-only devices must not fail AIR-specific MAC validation."""
+    _write_context(tmp_path)
+    site_design = build_site_design_from_mock_context(
+        "demo_blueprint", "demo", context_root=tmp_path
+    )
+    device = next(d for d in site_design["devices"] if d["name"] == "oob-mleaf-01")
+    device["_air"] = {"enabled": air_enabled}
+    interface = next(i for i in site_design["interfaces"] if i["device"] == device["name"])
+    interface["mac_address"] = 12345
+    topology_path = tmp_path / "site-design.yaml"
+    _write_yaml(topology_path, site_design)
+
+    if air_enabled:
+        with pytest.raises(ValueError, match="mac_address must be a string"):
+            AirTopologyBuilder(str(topology_path))
+    else:
+        builder = AirTopologyBuilder(str(topology_path))
+        assert device["name"] in builder.devices
+        assert device["name"] not in builder.build_topology()["nodes"]
+
+
+@pytest.mark.parametrize("minimal_mode", [False, True])
+@pytest.mark.parametrize("air_enabled", [False, True])
+def test_nvcm_server_attachment_requires_air_enabled_switch(
+    tmp_path: Path, minimal_mode: bool, air_enabled: bool
+) -> None:
+    """Both topology modes reject disabled targets and retain valid attachments."""
+    _write_context(tmp_path)
+    site_design = build_site_design_from_mock_context(
+        "demo_blueprint", "demo", context_root=tmp_path
+    )
+    switch = next(d for d in site_design["devices"] if d["name"] == "oob-mleaf-01")
+    switch["_air"] = {"enabled": air_enabled}
+    topology_path = tmp_path / "site-design.yaml"
+    _write_yaml(topology_path, site_design)
+    server = NVCMServerConfig(attach_switch=switch["name"], attach_interface="swp2")
+    builder = AirTopologyBuilder(str(topology_path), minimal_mode=minimal_mode, nvcm_server=server)
+
+    if air_enabled:
+        topology = builder.build_topology()
+        assert server.server_name in topology["nodes"]
+        assert any(
+            isinstance(endpoint, dict) and endpoint.get("node") == server.server_name
+            for link in topology["links"]
+            for endpoint in link
+        )
+    else:
+        with pytest.raises(ValueError, match="Switch 'oob-mleaf-01'"):
+            builder.build_topology()
 
 
 def test_air_topology_builder_omits_inventory_only_devices_in_minimal_mode(
