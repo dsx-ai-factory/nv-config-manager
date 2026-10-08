@@ -18,7 +18,7 @@
 {{- if not (regexMatch "^[a-zA-Z_][a-zA-Z0-9_]*$" $label) }}
 {{- fail (printf "renderService.autoscaling.prometheus.natsMetricsLabels has invalid label name %q" $label) }}
 {{- end }}
-{{- if has $label (list "namespace" "stream_name" "consumer_name" "is_consumer_leader") }}
+{{- if has $label (list "__name__" "namespace" "stream_name" "consumer_name" "is_consumer_leader") }}
 {{- fail (printf "renderService.autoscaling.prometheus.natsMetricsLabels cannot override reserved label %q" $label) }}
 {{- end }}
 {{- end }}
