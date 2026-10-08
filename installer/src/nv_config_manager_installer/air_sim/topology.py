@@ -262,7 +262,7 @@ class AirTopologyBuilder:
 
             device_type = device.get("device_type", {})
             model = device_type.get("model", "Unknown")
-            air_config = device.get("_air", {})
+            air_config = device.get("_air") or {}
             air_enabled = air_config.get("enabled", True) is not False
             raw_serial = device.get("serial", "")
             serial = "" if raw_serial == "auto" else raw_serial

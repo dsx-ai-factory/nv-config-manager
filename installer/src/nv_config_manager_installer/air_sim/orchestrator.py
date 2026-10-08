@@ -138,8 +138,10 @@ class SimOrchestrator:
             self._cb.on_complete(success, host, port)
 
     def _resolve_topology_path(self, cfg: SimConfig) -> str:
+        """Resolve a local topology or generate one from the selected mock context."""
         if cfg.topology_path:
-            return cfg.topology_path
+            topology_path = self._local_content_path(cfg.topology_path)
+            return str(topology_path) if topology_path else cfg.topology_path
         if cfg.use_mock_context_for_fabric:
             configured_root = cfg.mock_topology_path or str(DEFAULT_MOCK_TOPOLOGY_PATH)
             mock_root = self._local_content_path(configured_root)

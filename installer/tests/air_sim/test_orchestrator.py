@@ -56,6 +56,29 @@ def test_resolve_topology_prefers_direct_path() -> None:
     assert orchestrator._resolve_topology_path(cfg) == "/tmp/direct.yaml"
 
 
+def test_resolve_topology_uses_installer_checkout_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Topology parsing must use the same checkout fallback as content staging."""
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    topology = checkout / "fabric.yaml"
+    topology.write_text("devices: []\n")
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    monkeypatch.setattr("nv_config_manager_installer.air_sim.orchestrator.PROJECT_ROOT", checkout)
+    cfg = SimConfig(topology_path="fabric.yaml")
+    orchestrator = SimOrchestrator(cfg, _Callback())
+
+    assert orchestrator._resolve_topology_path(cfg) == str(topology)
+
+    # An explicit path in the invoking directory takes precedence over bundled content.
+    local_topology = workdir / "fabric.yaml"
+    local_topology.write_text("devices: []\n")
+    assert orchestrator._resolve_topology_path(cfg) == str(local_topology)
+
+
 def test_resolve_topology_generates_from_mock_context(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
 

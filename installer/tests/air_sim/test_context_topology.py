@@ -209,6 +209,26 @@ def test_air_topology_builder_preserves_explicit_oob_server_cpu_mode(tmp_path: P
     assert "cpu_mode" not in topology["nodes"]["oob-mleaf-01"]
 
 
+@pytest.mark.parametrize("device_name", ["oob-mgmt-server", "oob-mleaf-01"])
+def test_air_topology_builder_accepts_null_air_config(tmp_path: Path, device_name: str) -> None:
+    """A YAML null AIR block uses defaults for both server and switch nodes."""
+    _write_context(tmp_path)
+    site_design = build_site_design_from_mock_context(
+        "demo_blueprint", "demo", context_root=tmp_path
+    )
+    device = next(device for device in site_design["devices"] if device["name"] == device_name)
+    device["_air"] = None
+    topology_path = tmp_path / "site-design.yaml"
+    _write_yaml(topology_path, site_design)
+
+    builder = AirTopologyBuilder(str(topology_path))
+    topology = builder.build_topology()
+
+    assert builder.devices[device["name"]].air_enabled is True
+    assert builder.devices[device["name"]].air_config == {}
+    assert device["name"] in topology["nodes"]
+
+
 def test_air_topology_builder_omits_inventory_only_devices_and_their_cables(
     tmp_path: Path,
 ) -> None:
