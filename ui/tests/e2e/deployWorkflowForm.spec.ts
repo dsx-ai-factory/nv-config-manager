@@ -42,10 +42,14 @@ const FORM_PATH = "/workflows/new/deploy";
 const FORM_TITLE = "New Configuration Deploy Workflow";
 const ENDPOINT = "/v1/workflow/ngc/deploy";
 
-/** A SelectBox trigger by its exact accessible name: the selection, or the placeholder. */
+const escapeRegExp = (text: string) =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** A SelectBox trigger whose stable field label precedes this selection or placeholder. */
 const picker = (page: Page, name: string) =>
-  page.getByRole("button", { name, exact: true });
-const selected = (page: Page, label: string) => picker(page, `${label}. Open options`);
+  page.getByRole("combobox", { name: new RegExp(`: ${escapeRegExp(name)}$`) });
+const selected = (page: Page, label: string) =>
+  picker(page, `${label}. Open options`);
 
 const SELECT_SITE = "Select a Site...";
 const SELECT_DEVICE = "Select a Device...";
@@ -145,7 +149,10 @@ test.describe(`${FORM_TITLE} Form`, () => {
     await choose(page, SELECT_DEVICE, initialDevice);
 
     await selected(page, initialSite).click();
-    await page.getByRole("dialog").getByText(changedSite, { exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByText(changedSite, { exact: true })
+      .click();
 
     await expect(picker(page, SELECT_DEVICE)).toBeVisible({
       timeout: TEST_TIMEOUT,
@@ -187,7 +194,10 @@ test.describe(`${FORM_TITLE} Form`, () => {
     await expect(selected(page, firstDevice)).toBeVisible();
 
     await selected(page, firstSite).click();
-    await page.getByRole("dialog").getByText(secondSite, { exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByText(secondSite, { exact: true })
+      .click();
     await expect(picker(page, SELECT_DEVICE)).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
@@ -197,7 +207,10 @@ test.describe(`${FORM_TITLE} Form`, () => {
     await expect(selected(page, secondDevice)).toBeVisible();
 
     await selected(page, secondSite).click();
-    await page.getByRole("dialog").getByText(firstSite, { exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByText(firstSite, { exact: true })
+      .click();
     await expect(picker(page, SELECT_DEVICE)).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
@@ -266,7 +279,9 @@ test.describe(`${FORM_TITLE} - Error Scenarios`, () => {
       hasText: "Forbidden: You do not have permission to run this workflow",
     });
 
-    await expect(errorTitle).toHaveText("Workflow Failed", { timeout: TEST_TIMEOUT });
+    await expect(errorTitle).toHaveText("Workflow Failed", {
+      timeout: TEST_TIMEOUT,
+    });
     // The generic toast: the server's message, without the legacy page's prefix.
     await expect(errorMessage).toHaveText(
       "Forbidden: You do not have permission to run this workflow",
@@ -300,17 +315,28 @@ test.describe(`${FORM_TITLE} - Error Scenarios`, () => {
     await choose(page, SELECT_DEVICE, first.name);
     await page.getByRole("button", { name: "Submit" }).click();
 
-    await expect(page.getByText("Value error, device is not managed")).toBeVisible();
     await expect(
-      page.getByRole("alert").filter({ hasText: "The workflow input is invalid" })
+      page.getByText("Value error, device is not managed")
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole("alert")
+        .filter({ hasText: "The workflow input is invalid" })
     ).toContainText("user: Field required");
     // No toast for a mapped validation error.
-    await expect(page.locator("div.text-sm.font-semibold", { hasText: "Workflow Failed" })).toHaveCount(0);
+    await expect(
+      page.locator("div.text-sm.font-semibold", { hasText: "Workflow Failed" })
+    ).toHaveCount(0);
 
     // Changing the device clears its server error.
     await selected(page, first.name).click();
-    await page.getByRole("dialog").getByText(second.name, { exact: true }).click();
-    await expect(page.getByText("Value error, device is not managed")).toHaveCount(0);
+    await page
+      .getByRole("dialog")
+      .getByText(second.name, { exact: true })
+      .click();
+    await expect(
+      page.getByText("Value error, device is not managed")
+    ).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Submit" })).toBeEnabled();
   });
 });
@@ -359,7 +385,10 @@ test.describe("Deploy Config Form - Additional Tests", () => {
 
     const newSiteName = SITES_LIST.rno1;
     await selected(page, siteName).click();
-    await page.getByRole("dialog").getByText(newSiteName, { exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByText(newSiteName, { exact: true })
+      .click();
 
     const newDeviceName = DEVICES_LIST[newSiteName][0].name;
     await choose(page, SELECT_DEVICE, newDeviceName);

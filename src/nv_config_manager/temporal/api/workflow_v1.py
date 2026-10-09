@@ -26,7 +26,7 @@ from uuid import uuid4
 import brotli
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 from fastapi.responses import Response
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, WithJsonSchema, computed_field
 from temporalio.client import (
     Client,
     WorkflowExecutionDescription,
@@ -82,12 +82,48 @@ from nv_config_manager.temporal.converter import get_data_converter
 from nv_config_manager.temporal.telemetry import get_runtime
 from nv_config_manager_workflows.registration.form_catalog import WORKFLOW_FORM_ID_PATTERN
 from nv_config_manager_workflows.tech_support import tech_support_key
+from nv_config_manager_workflows.ui import wire_schema
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_API)
 
 router = APIRouter(prefix="/workflow", tags=["workflow"])
 
 _VISIBILITY_SAFE_VALUE = re.compile(r"^[\w.@:/ -]+$")
+
+
+def _inline_form_schema_references(value: Any, definitions: dict[str, Any]) -> Any:
+    """Inline local wire-schema references for OpenAPI and its client generators."""
+    if isinstance(value, list):
+        return [_inline_form_schema_references(item, definitions) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    reference = value.get("$ref")
+    if isinstance(reference, str) and reference.startswith("#/$defs/"):
+        name = reference.rsplit("/", 1)[-1]
+        target = definitions[name]
+        siblings = {key: item for key, item in value.items() if key != "$ref"}
+        return {
+            **_inline_form_schema_references(target, definitions),
+            **_inline_form_schema_references(siblings, definitions),
+        }
+    return {key: _inline_form_schema_references(item, definitions) for key, item in value.items()}
+
+
+def _workflow_form_ui_schema() -> dict[str, Any]:
+    """Return the canonical v1 UI-schema contract with self-contained references."""
+    contract = wire_schema()
+    definitions = cast(dict[str, Any], contract["$defs"])
+    return cast(
+        dict[str, Any],
+        _inline_form_schema_references(definitions["uiSchema"], definitions),
+    )
+
+
+type WorkflowFormUiSchema = Annotated[
+    dict[str, Any],
+    WithJsonSchema(_workflow_form_ui_schema()),
+]
 _WORKFLOW_FORM_UNAVAILABLE_MESSAGE = (
     "This workflow form is unavailable because its plugin failed form validation."
 )
@@ -212,7 +248,7 @@ class WorkflowFormResponse(BaseModel):
     """
 
     json_schema: dict[str, Any] = Field(alias="schema")
-    ui_schema: dict[str, Any]
+    ui_schema: WorkflowFormUiSchema
     ui_schema_version: Literal[1]
     requires: list[str]
 

@@ -22,7 +22,7 @@ var _ MappedNullable = &WorkflowFormResponse{}
 type WorkflowFormResponse struct {
 	Requires             []string               `json:"requires"`
 	Schema               map[string]interface{} `json:"schema"`
-	UiSchema             map[string]interface{} `json:"ui_schema"`
+	UiSchema             WorkflowFormUiSchema   `json:"ui_schema"`
 	UiSchemaVersion      int32                  `json:"ui_schema_version"`
 	AdditionalProperties map[string]interface{}
 }
@@ -33,7 +33,7 @@ type _WorkflowFormResponse WorkflowFormResponse
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewWorkflowFormResponse(requires []string, schema map[string]interface{}, uiSchema map[string]interface{}, uiSchemaVersion int32) *WorkflowFormResponse {
+func NewWorkflowFormResponse(requires []string, schema map[string]interface{}, uiSchema WorkflowFormUiSchema, uiSchemaVersion int32) *WorkflowFormResponse {
 	this := WorkflowFormResponse{}
 	this.Requires = requires
 	this.Schema = schema
@@ -99,9 +99,9 @@ func (o *WorkflowFormResponse) SetSchema(v map[string]interface{}) {
 }
 
 // GetUiSchema returns the UiSchema field value
-func (o *WorkflowFormResponse) GetUiSchema() map[string]interface{} {
+func (o *WorkflowFormResponse) GetUiSchema() WorkflowFormUiSchema {
 	if o == nil {
-		var ret map[string]interface{}
+		var ret WorkflowFormUiSchema
 		return ret
 	}
 
@@ -110,15 +110,15 @@ func (o *WorkflowFormResponse) GetUiSchema() map[string]interface{} {
 
 // GetUiSchemaOk returns a tuple with the UiSchema field value
 // and a boolean to check if the value has been set.
-func (o *WorkflowFormResponse) GetUiSchemaOk() (map[string]interface{}, bool) {
+func (o *WorkflowFormResponse) GetUiSchemaOk() (*WorkflowFormUiSchema, bool) {
 	if o == nil {
-		return map[string]interface{}{}, false
+		return nil, false
 	}
-	return o.UiSchema, true
+	return &o.UiSchema, true
 }
 
 // SetUiSchema sets field value
-func (o *WorkflowFormResponse) SetUiSchema(v map[string]interface{}) {
+func (o *WorkflowFormResponse) SetUiSchema(v WorkflowFormUiSchema) {
 	o.UiSchema = v
 }
 

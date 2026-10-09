@@ -41,9 +41,12 @@ export const formPath = (workflow: string) => {
   return `/workflows/new/${formId}`;
 };
 
-/** A SelectBox trigger by its exact accessible name: the selection, or the placeholder. */
+const escapeRegExp = (text: string) =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** A SelectBox trigger whose stable field label precedes this selection or placeholder. */
 export const picker = (page: Page, name: string) =>
-  page.getByRole("button", { name, exact: true });
+  page.getByRole("combobox", { name: new RegExp(`: ${escapeRegExp(name)}$`) });
 
 /** A SelectBox trigger showing `label` as its selection. */
 export const selected = (page: Page, label: string) =>

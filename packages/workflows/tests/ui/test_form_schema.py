@@ -73,6 +73,54 @@ def test_optional_fields_collapse_and_drop_null_defaults(projected: dict[str, An
     }
 
 
+def test_required_nullable_fields_and_collection_items_keep_null() -> None:
+    class NullableInput(BaseModel):
+        required_note: str | None
+        optional_note: str | None = None
+        values: list[str | None]
+
+    schema = project_form_schema(NullableInput)
+
+    assert schema["required"] == ["required_note", "values"]
+    assert schema["properties"]["required_note"]["anyOf"] == [
+        {"type": "string"},
+        {"type": "null"},
+    ]
+    assert schema["properties"]["optional_note"] == {
+        "title": "Optional Note",
+        "type": "string",
+    }
+    assert schema["properties"]["values"]["items"]["anyOf"] == [
+        {"type": "string"},
+        {"type": "null"},
+    ]
+
+
+def test_only_optional_uses_of_a_nullable_alias_collapse() -> None:
+    type NullableText = str | None
+
+    class NullableAliasInput(BaseModel):
+        optional_note: NullableText = None
+        required_note: NullableText
+        values: list[NullableText]
+
+    schema = project_form_schema(NullableAliasInput)
+
+    assert schema["properties"]["optional_note"] == {
+        "title": "Optional Note",
+        "type": "string",
+    }
+    assert schema["properties"]["required_note"] == {
+        "$ref": "#/$defs/NullableText",
+        "title": "Required Note",
+    }
+    assert schema["properties"]["values"]["items"] == {"$ref": "#/$defs/NullableText"}
+    assert schema["$defs"]["NullableText"]["anyOf"] == [
+        {"type": "string"},
+        {"type": "null"},
+    ]
+
+
 def test_every_property_is_titled_and_defaults_and_requiredness_are_kept(
     projected: dict[str, Any],
 ) -> None:

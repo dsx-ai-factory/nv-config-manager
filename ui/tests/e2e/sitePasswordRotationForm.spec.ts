@@ -47,22 +47,22 @@ test.describe("Site Password Rotation Form", () => {
 
   test("secret field requires location selection first", async ({ page }) => {
     await expect(
-      page.getByRole("button", { name: /select a secret to rotate/i })
+      page.getByRole("combobox", { name: /select a secret to rotate/i })
     ).toBeDisabled();
 
-    await page.getByRole("button", { name: /Select a Location/i }).click();
+    await page.getByRole("combobox", { name: /Select a Location/i }).click();
     await page
       .getByRole("dialog")
       .getByRole("option", { name: SITES_LIST.rno1 })
       .click();
 
     await expect(
-      page.getByRole("button", { name: /select a secret to rotate/i })
+      page.getByRole("combobox", { name: /select a secret to rotate/i })
     ).toBeEnabled({ timeout: TEST_TIMEOUT });
   });
 
   test("shows device count feedback", async ({ page }) => {
-    await page.getByRole("button", { name: /Select a Location/i }).click();
+    await page.getByRole("combobox", { name: /Select a Location/i }).click();
     await page
       .getByRole("dialog")
       .getByRole("option", { name: SITES_LIST.rno1 })
@@ -74,7 +74,7 @@ test.describe("Site Password Rotation Form", () => {
   });
 
   test("disables the secret picker when no devices match", async ({ page }) => {
-    await page.getByRole("button", { name: /Select a Location/i }).click();
+    await page.getByRole("combobox", { name: /Select a Location/i }).click();
     await page
       .getByRole("dialog")
       .getByRole("option", { name: SITES_LIST.rno1 })
@@ -82,7 +82,7 @@ test.describe("Site Password Rotation Form", () => {
 
     await page
       .locator("form")
-      .getByRole("button", { name: /Select Roles/i })
+      .getByRole("combobox", { name: /Select Roles/i })
       .click();
     await page
       .getByRole("dialog")
@@ -94,7 +94,7 @@ test.describe("Site Password Rotation Form", () => {
       timeout: TEST_TIMEOUT,
     });
     await expect(
-      page.getByRole("button", { name: /select a secret to rotate/i })
+      page.getByRole("combobox", { name: /select a secret to rotate/i })
     ).toBeDisabled();
   });
 
@@ -118,7 +118,7 @@ test.describe("Site Password Rotation Form", () => {
       }
     );
 
-    await page.getByRole("button", { name: /Select a Location/i }).click();
+    await page.getByRole("combobox", { name: /Select a Location/i }).click();
     await page
       .getByRole("dialog")
       .getByRole("option", { name: SITES_LIST.rno1 })
@@ -126,9 +126,8 @@ test.describe("Site Password Rotation Form", () => {
     await expect.poll(() => releases.has(SITES_LIST.rno1)).toBe(true);
 
     await page
-      .getByRole("button", {
+      .getByRole("combobox", {
         name: `${SITES_LIST.rno1}. Open options`,
-        exact: true,
       })
       .click();
     await page
@@ -148,7 +147,7 @@ test.describe("Site Password Rotation Form", () => {
     releases.get(SITES_LIST.pdx01)!();
     await currentResponse;
 
-    const secretPicker = page.getByRole("button", {
+    const secretPicker = page.getByRole("combobox", {
       name: /select a secret to rotate/i,
     });
     await expect(secretPicker).toBeEnabled({ timeout: TEST_TIMEOUT });
@@ -182,7 +181,7 @@ test.describe("Site Password Rotation Form", () => {
   });
 
   test("submits the location, filters, and secret", async ({ page }) => {
-    await page.getByRole("button", { name: /Select a Location/i }).click();
+    await page.getByRole("combobox", { name: /Select a Location/i }).click();
     await page
       .getByRole("dialog")
       .getByRole("option", { name: SITES_LIST.rno1 })
@@ -198,7 +197,7 @@ test.describe("Site Password Rotation Form", () => {
     });
     await page
       .locator("form")
-      .getByRole("button", { name: /Select a Tenant/i })
+      .getByRole("combobox", { name: /Select a Tenant/i })
       .click();
     await page
       .getByRole("dialog")
@@ -207,7 +206,7 @@ test.describe("Site Password Rotation Form", () => {
     await page.keyboard.press("Escape");
     await filteredOptions;
     await page
-      .getByRole("button", { name: /select a secret to rotate/i })
+      .getByRole("combobox", { name: /select a secret to rotate/i })
       .click();
     await page.getByRole("dialog").getByText("admin", { exact: true }).click();
 

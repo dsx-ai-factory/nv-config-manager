@@ -55,24 +55,42 @@ export const isLoading = (state: OptionSourceState): boolean =>
   (state.status === "idle" && state.missingDependencies.length === 0);
 
 export const isEmptyValue = (value: unknown): boolean =>
-  value === undefined || value === null || value === "" ||
+  value === undefined ||
+  value === null ||
+  value === "" ||
   (Array.isArray(value) && value.length === 0);
 
 /** A field's label: `ui:title`, schema `title`, or its name. */
-export const fieldLabel = ({ name, schema, uiSchema, registry }: FieldProps): string => {
+export const fieldLabel = ({
+  name,
+  schema,
+  uiSchema,
+  registry,
+}: FieldProps): string => {
   const { title } = getUiOptions(uiSchema, registry.globalUiOptions);
-  return typeof title === "string" ? title : typeof schema.title === "string" ? schema.title : name;
+  return typeof title === "string"
+    ? title
+    : typeof schema.title === "string"
+    ? schema.title
+    : name;
 };
 
 /**
  * `ui:description`, else the schema description unless
  * `ui:globalOptions.hideSchemaDescriptions` hides schema descriptions.
  */
-export const fieldDescription = ({ schema, uiSchema, registry }: FieldProps): string | undefined => {
+export const fieldDescription = ({
+  schema,
+  uiSchema,
+  registry,
+}: FieldProps): string | undefined => {
   const { description } = getUiOptions(uiSchema);
   if (typeof description === "string") return description;
-  if (registry.globalUiOptions?.hideSchemaDescriptions === true) return undefined;
-  return typeof schema.description === "string" ? schema.description : undefined;
+  if (registry.globalUiOptions?.hideSchemaDescriptions === true)
+    return undefined;
+  return typeof schema.description === "string"
+    ? schema.description
+    : undefined;
 };
 
 /**
@@ -113,23 +131,20 @@ export const Picker = ({
   onChange,
 }: PickerProps) => {
   const labelId = `${id}__label`;
-  const requiredId = `${id}__required`;
   const loadErrorId = `${id}__load-error`;
-  const describedBy = `${labelId}${required ? ` ${requiredId}` : ""} ${ariaDescribedByIds(id)}${error ? ` ${loadErrorId}` : ""}`;
+  const describedBy = `${ariaDescribedByIds(id)}${
+    error ? ` ${loadErrorId}` : ""
+  }`;
   return (
     <div className="space-y-2" data-testid={`picker-${id}`}>
       <Label id={labelId} htmlFor={id}>
         {label}
         <RequiredMark required={required} />
       </Label>
-      {required ? (
-        <span id={requiredId} className="sr-only">
-          Required
-        </span>
-      ) : null}
       <div className="flex items-center space-x-2">
         <SelectBox
           id={id}
+          accessibleLabel={label}
           options={[...options]}
           value={value}
           onChange={(next) =>
@@ -143,6 +158,8 @@ export const Picker = ({
           multiple={multiple}
           disabled={disabled}
           describedBy={describedBy}
+          required={required}
+          invalid={Boolean(error)}
         />
         {busy ? <LoadingSpinner /> : null}
       </div>

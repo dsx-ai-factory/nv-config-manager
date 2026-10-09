@@ -48,7 +48,7 @@ const THIRD_DEVICE = DEVICES_LIST.PDX01.find(
 const pickDevices = async (page: Page, ...names: string[]) => {
   await page
     .locator("form")
-    .getByRole("button", { name: "Select Devices..." })
+    .getByRole("combobox", { name: "Select Devices..." })
     .click();
   for (const name of names) {
     await page
@@ -93,7 +93,7 @@ test("submits the devices, commands, and ticket", async ({ page }) => {
   await page.goto(PATH);
   await page
     .locator("form")
-    .getByRole("button", { name: "Select a Site..." })
+    .getByRole("combobox", { name: "Select a Site..." })
     .click();
   await page
     .getByRole("dialog")
@@ -162,7 +162,7 @@ test("submits a command shared by some selected platforms only once", async ({
   await page.goto(PATH);
   await page
     .locator("form")
-    .getByRole("button", { name: "Select a Site..." })
+    .getByRole("combobox", { name: "Select a Site..." })
     .click();
   await page
     .getByRole("dialog")

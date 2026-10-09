@@ -72,10 +72,18 @@ const descriptionText = (
   const { description } = getUiOptions(uiSchema);
   if (typeof description === "string") return description;
   if (globalUiOptions?.hideSchemaDescriptions === true) return undefined;
-  return typeof schemaDescription === "string" && schemaDescription ? schemaDescription : undefined;
+  return typeof schemaDescription === "string" && schemaDescription
+    ? schemaDescription
+    : undefined;
 };
 
-const Muted = ({ id, children }: { id?: string; children: React.ReactNode }) => (
+const Muted = ({
+  id,
+  children,
+}: {
+  id?: string;
+  children: React.ReactNode;
+}) => (
   <p id={id} className="text-sm text-muted-foreground">
     {children}
   </p>
@@ -115,7 +123,9 @@ const FieldTemplate = ({
     return (
       <div className="space-y-6">
         {children}
-        {rawErrors && rawErrors.length > 0 ? <FormErrors errors={rawErrors} /> : null}
+        {rawErrors && rawErrors.length > 0 ? (
+          <FormErrors errors={rawErrors} />
+        ) : null}
       </div>
     );
   }
@@ -140,7 +150,13 @@ const FieldTemplate = ({
   );
 };
 
-const FieldErrorTemplate = ({ errors, fieldPathId }: { errors?: React.ReactNode[]; fieldPathId: { $id: string } }) =>
+const FieldErrorTemplate = ({
+  errors,
+  fieldPathId,
+}: {
+  errors?: React.ReactNode[];
+  fieldPathId: { $id: string };
+}) =>
   errors && errors.length > 0 ? (
     <div id={`${fieldPathId.$id}__error`} className="space-y-1">
       {errors.map((error, index) => (
@@ -151,8 +167,13 @@ const FieldErrorTemplate = ({ errors, fieldPathId }: { errors?: React.ReactNode[
     </div>
   ) : null;
 
-const FieldHelpTemplate = ({ help, fieldPathId }: { help?: string | React.ReactElement; fieldPathId: { $id: string } }) =>
-  help ? <Muted id={`${fieldPathId.$id}__help`}>{help}</Muted> : null;
+const FieldHelpTemplate = ({
+  help,
+  fieldPathId,
+}: {
+  help?: string | React.ReactElement;
+  fieldPathId: { $id: string };
+}) => (help ? <Muted id={`${fieldPathId.$id}__help`}>{help}</Muted> : null);
 
 /** The root object is the form itself; a nested object is a fieldset. */
 const ObjectFieldTemplate = ({
@@ -167,10 +188,16 @@ const ObjectFieldTemplate = ({
     <React.Fragment key={property.name}>{property.content}</React.Fragment>
   ));
   if (fieldPathId.path.length === 0) return <>{body}</>;
-  const description = descriptionText(uiSchema, schema.description, registry.globalUiOptions);
+  const description = descriptionText(
+    uiSchema,
+    schema.description,
+    registry.globalUiOptions
+  );
   return (
     <fieldset className="space-y-6 rounded-md border p-4">
-      {title ? <legend className="px-1 text-sm font-semibold">{title}</legend> : null}
+      {title ? (
+        <legend className="px-1 text-sm font-semibold">{title}</legend>
+      ) : null}
       {description ? <Muted>{description}</Muted> : null}
       {body}
     </fieldset>
@@ -189,7 +216,11 @@ const ArrayFieldTemplate = ({
   disabled,
   readonly,
 }: ArrayFieldTemplateProps) => {
-  const description = descriptionText(uiSchema, schema.description, registry.globalUiOptions);
+  const description = descriptionText(
+    uiSchema,
+    schema.description,
+    registry.globalUiOptions
+  );
   return (
     <div className="space-y-3">
       {title ? (
@@ -200,7 +231,13 @@ const ArrayFieldTemplate = ({
       ) : null}
       {items}
       {canAdd ? (
-        <Button type="button" variant="outline" size="sm" disabled={disabled || readonly} onClick={onAddClick}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled || readonly}
+          onClick={onAddClick}
+        >
           <Plus className="mr-1 h-4 w-4" />
           Add {title || "item"}
         </Button>
@@ -210,7 +247,12 @@ const ArrayFieldTemplate = ({
   );
 };
 
-const ArrayFieldItemTemplate = ({ children, buttonsProps, index, parentUiSchema }: ArrayFieldItemTemplateProps) => {
+const ArrayFieldItemTemplate = ({
+  children,
+  buttonsProps,
+  index,
+  parentUiSchema,
+}: ArrayFieldItemTemplateProps) => {
   const title = getUiOptions(parentUiSchema).title ?? "item";
   return (
     <div className="flex items-start gap-2">
@@ -250,13 +292,14 @@ const BaseInputTemplate = ({
   rawErrors,
 }: BaseInputTemplateProps) => {
   const inputProps = getInputProps(schema, type, options);
-  const isNumber = inputProps.type === "number" || inputProps.type === "integer";
+  const isNumber =
+    inputProps.type === "number" || inputProps.type === "integer";
   return (
     <Input
       id={id}
       name={htmlName || id}
       {...inputProps}
-      value={isNumber ? (value || value === 0 ? value : "") : (value ?? "")}
+      value={isNumber ? (value || value === 0 ? value : "") : value ?? ""}
       placeholder={placeholder}
       readOnly={readonly}
       disabled={disabled}
@@ -264,7 +307,11 @@ const BaseInputTemplate = ({
       aria-required={required || undefined}
       aria-invalid={rawErrors?.length ? true : undefined}
       aria-describedby={ariaDescribedByIds(id)}
-      onChange={(event) => onChange(event.target.value === "" ? options.emptyValue : event.target.value)}
+      onChange={(event) =>
+        onChange(
+          event.target.value === "" ? options.emptyValue : event.target.value
+        )
+      }
       onBlur={(event) => onBlur(id, event.target.value)}
       onFocus={(event) => onFocus(id, event.target.value)}
     />
@@ -326,7 +373,11 @@ const TextareaWidget = ({
     aria-required={required || undefined}
     aria-invalid={rawErrors?.length ? true : undefined}
     aria-describedby={ariaDescribedByIds(id)}
-    onChange={(event) => onChange(event.target.value === "" ? options.emptyValue : event.target.value)}
+    onChange={(event) =>
+      onChange(
+        event.target.value === "" ? options.emptyValue : event.target.value
+      )
+    }
     onBlur={(event) => onBlur(id, event.target.value)}
     onFocus={(event) => onFocus(id, event.target.value)}
   />
@@ -344,7 +395,11 @@ const CheckboxWidget = ({
   registry,
   onChange,
 }: WidgetProps) => {
-  const description = descriptionText(uiSchema, schema.description, registry.globalUiOptions);
+  const description = descriptionText(
+    uiSchema,
+    schema.description,
+    registry.globalUiOptions
+  );
   return (
     <div className="flex flex-row items-start space-x-3 space-y-0">
       <Checkbox
@@ -359,7 +414,9 @@ const CheckboxWidget = ({
           {label}
           <RequiredMark required={required} />
         </Label>
-        {description ? <Muted id={descriptionId(id)}>{description}</Muted> : null}
+        {description ? (
+          <Muted id={descriptionId(id)}>{description}</Muted>
+        ) : null}
       </div>
     </div>
   );
@@ -375,6 +432,8 @@ const SelectWidget = ({
   label,
   placeholder,
   options,
+  required,
+  rawErrors,
   onChange,
 }: WidgetProps) => {
   const enumOptions = options.enumOptions ?? [];
@@ -385,12 +444,16 @@ const SelectWidget = ({
   const selected = multiple
     ? (Array.isArray(value) ? value : []).map(toKey)
     : value === undefined
-      ? ""
-      : toKey(value);
+    ? ""
+    : toKey(value);
   return (
     <SelectBox
       id={id}
-      options={enumOptions.map((option, index) => ({ key: option.label, value: String(index) }))}
+      accessibleLabel={label}
+      options={enumOptions.map((option, index) => ({
+        key: option.label,
+        value: String(index),
+      }))}
       value={selected}
       onChange={(keys) =>
         onChange(
@@ -408,6 +471,8 @@ const SelectWidget = ({
       searchable={enumOptions.length > 7}
       disabled={disabled || readonly}
       describedBy={ariaDescribedByIds(id)}
+      required={required}
+      invalid={Boolean(rawErrors?.length)}
     />
   );
 };

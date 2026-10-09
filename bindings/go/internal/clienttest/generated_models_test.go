@@ -121,6 +121,38 @@ func TestGeneratedWorkflowMetadataPreservesUnknownResponseProperties(t *testing.
 	}
 }
 
+func TestGeneratedWorkflowFormUiSchemaPreservesFieldEntries(t *testing.T) {
+	const payload = `{
+		"ui:globalOptions":{"hideSchemaDescriptions":true},
+		"device_id":{"ui:field":"device"}
+	}`
+
+	var schema temporal.WorkflowFormUiSchema
+	if err := json.Unmarshal([]byte(payload), &schema); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	globalOptions := schema.GetUiGlobalOptions()
+	if !globalOptions.GetHideSchemaDescriptions() {
+		t.Fatal("typed ui:globalOptions were not decoded")
+	}
+	field, ok := schema.AdditionalProperties["device_id"].(map[string]interface{})
+	if !ok || field["ui:field"] != "device" {
+		t.Fatalf("device_id field entry was not decoded: %#v", field)
+	}
+
+	encoded, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	var roundTrip map[string]interface{}
+	if err := json.Unmarshal(encoded, &roundTrip); err != nil {
+		t.Fatalf("decode round-trip JSON: %v", err)
+	}
+	if _, ok := roundTrip["device_id"]; !ok {
+		t.Fatalf("device_id field entry was not preserved: %s", encoded)
+	}
+}
+
 func TestGeneratedDhcpIpVersionUsesExportedNames(t *testing.T) {
 	if dhcp.V4 != dhcp.IpVersion(4) {
 		t.Fatalf("dhcp.V4 = %d, want 4", dhcp.V4)
