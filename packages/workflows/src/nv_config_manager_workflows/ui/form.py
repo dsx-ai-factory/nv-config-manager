@@ -94,6 +94,14 @@ QUERY_ALIASES: Mapping[tuple[str, str], tuple[str, ...]] = {
 Authors cannot declare aliases: new forms use property names and ``queryParam``.
 """
 
+QUERY_SEPARATORS: Mapping[tuple[str, str], str] = {
+    (
+        "nv_config_manager_workflows.workflows.spx_overlay.SpXOverlayTenantChangeInput",
+        "port_names",
+    ): ",",
+}
+"""Already-shipped multi-value URL delimiters, keyed by (input model, property)."""
+
 
 def _load_json(resource: str) -> dict[str, Any]:
     """Return a JSON document packaged beside this module."""
@@ -138,6 +146,15 @@ ENRICHED_API_OPTIONS_CAPABILITY = "core-field.api-options.enriched.v1"
 HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY = "theme.hide-schema-descriptions.v1"
 """Capability required by ``ui:globalOptions.hideSchemaDescriptions``."""
 
+EXCLUSIVE_GROUPS_CAPABILITY = "interaction.exclusive-groups.v1"
+"""Capability required by ``ui:globalOptions.exclusiveGroups``."""
+
+QUERY_SEPARATOR_CAPABILITY = "prefill.query-separator.v1"
+"""Capability required by a server-owned ``querySeparator`` compatibility option."""
+
+FIELD_COMPARISON_CAPABILITY = "validation.field-comparison.v1"
+"""Capability required by ``ui:globalOptions.fieldComparisons``."""
+
 _TEXT_KEYS = ("ui:title", "ui:help", "ui:description", "ui:placeholder")
 
 
@@ -172,7 +189,7 @@ def _vocabulary() -> _Vocabulary:
         ),
         author_option_keys={
             "apiOptions": frozenset(defs["apiOptionsFieldOptions"]["properties"])
-            - {"queryAliases"},
+            - {"queryAliases", "querySeparator"},
             "location": frozenset(defs["locationFieldOptions"]["properties"]) - {"queryAliases"},
             "device": frozenset(defs["deviceFieldOptions"]["properties"]) - {"queryAliases"},
             "variantRows": frozenset(defs["variantRowsFieldOptions"]["properties"]),
@@ -241,8 +258,14 @@ def derive_requires(ui_schema: Mapping[str, Any]) -> list[str]:
         required.add(FIELD_CAPABILITIES[field])
         if field == "apiOptions" and entry["ui:options"]["source"].get("response") == "options-v1":
             required.add(ENRICHED_API_OPTIONS_CAPABILITY)
+        if entry["ui:options"].get("querySeparator"):
+            required.add(QUERY_SEPARATOR_CAPABILITY)
     if ui_schema.get("ui:globalOptions", {}).get("hideSchemaDescriptions") is True:
         required.add(HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY)
+    if ui_schema.get("ui:globalOptions", {}).get("exclusiveGroups"):
+        required.add(EXCLUSIVE_GROUPS_CAPABILITY)
+    if ui_schema.get("ui:globalOptions", {}).get("fieldComparisons"):
+        required.add(FIELD_COMPARISON_CAPABILITY)
     unsupported = required - supported_capabilities()
     if unsupported:
         raise WorkflowFormContractError(
@@ -288,6 +311,8 @@ class _FormChecker:
             self.check_core_field(name, entry)
         self.check_hidden()
         self.check_scopes()
+        self.check_exclusive_groups()
+        self.check_field_comparisons()
         self.check_cycles()
         self.check_url_owners()
 
@@ -380,7 +405,7 @@ class _FormChecker:
             kind = f"a {field} field" if field else "a standard field"
             raise self.fail(
                 f"{name!r} ui:options keys {sorted(unknown)} are not supported on {kind}; "
-                f"supported: {sorted(supported)} (queryAliases is added by "
+                f"supported: {sorted(supported)} (queryAliases and querySeparator are added by "
                 "the server from its central compatibility map)"
             )
         if field is None and "rows" in options:
@@ -435,6 +460,13 @@ class _FormChecker:
             if field == "device" and "queryParam" not in options:
                 raise self.fail(f"{name!r} has shipped query aliases but no queryParam")
             options["queryAliases"] = list(aliases)
+        separator = QUERY_SEPARATORS.get((self.key, name))
+        if separator:
+            if field != "apiOptions" or json_type(prop, self.definitions) != "array":
+                raise self.fail(
+                    f"internal query separator for {name!r} requires an apiOptions string list"
+                )
+            options["querySeparator"] = separator
         self.dependencies[name] = deps
 
     def check_api_options(
@@ -573,14 +605,15 @@ class _FormChecker:
         where = f"{anchor!r} variantRows modes[{index}]"
         if not isinstance(mode, dict) or set(mode) != {"id", "label", "columns"}:
             raise self.fail(f"{where} must contain exactly id, label, and columns")
-        mode_id = require_text(mode["id"], f"{self.name} {where}.id")
+        mode_mapping = cast(dict[str, object], mode)
+        mode_id = require_text(mode_mapping["id"], f"{self.name} {where}.id")
         if not self.vocabulary.property_name.fullmatch(mode_id):
             raise self.fail(f"{where}.id must be a plain property-style name")
         if mode_id in mode_ids:
             raise self.fail(f"{anchor!r} variantRows mode ids must be unique")
         mode_ids.add(mode_id)
-        require_text(mode["label"], f"{self.name} {where}.label")
-        columns = mode["columns"]
+        require_text(mode_mapping["label"], f"{self.name} {where}.label")
+        columns = mode_mapping["columns"]
         if not isinstance(columns, list) or not columns:
             raise self.fail(f"{where}.columns must be a non-empty list")
         keyed = [isinstance(item, dict) and "itemProperty" in item for item in columns]
@@ -637,23 +670,24 @@ class _FormChecker:
             raise self.fail(
                 f"{where} must contain arrayProperty, label, and kind and only supported keys"
             )
+        column_mapping = cast(dict[str, object], column)
         array_property = self.require_property(
-            column["arrayProperty"], f"{where}.arrayProperty", wire_name=True
+            column_mapping["arrayProperty"], f"{where}.arrayProperty", wire_name=True
         )
         if array_property not in owned_properties:
             raise self.fail(
                 f"{where}.arrayProperty {array_property!r} is not listed in ownedProperties"
             )
-        require_text(column["label"], f"{self.name} {where}.label")
-        if "placeholder" in column:
-            require_text(column["placeholder"], f"{self.name} {where}.placeholder")
-        if "required" in column and not isinstance(column["required"], bool):
+        require_text(column_mapping["label"], f"{self.name} {where}.label")
+        if "placeholder" in column_mapping:
+            require_text(column_mapping["placeholder"], f"{self.name} {where}.placeholder")
+        if "required" in column_mapping and not isinstance(column_mapping["required"], bool):
             raise self.fail(f"{where}.required must be a boolean")
 
-        kind = column["kind"]
+        kind = column_mapping["kind"]
         if kind not in {"text", "select"}:
             raise self.fail(f"{where}.kind must be 'text' or 'select'")
-        choices = column.get("choices")
+        choices = column_mapping.get("choices")
         if kind == "select":
             if not isinstance(choices, list) or not choices:
                 raise self.fail(f"{where} select column needs a non-empty choices list")
@@ -663,17 +697,18 @@ class _FormChecker:
                     raise self.fail(
                         f"{where}.choices[{option_index}] must contain exactly label and value"
                     )
-                require_text(choice["label"], f"{self.name} {where} option label")
-                value = require_text(choice["value"], f"{self.name} {where} option value")
+                choice_mapping = cast(dict[str, object], choice)
+                require_text(choice_mapping["label"], f"{self.name} {where} option label")
+                value = require_text(choice_mapping["value"], f"{self.name} {where} option value")
                 if value in values:
                     raise self.fail(f"{where} option values must be unique")
                 values.add(value)
         elif choices is not None:
             raise self.fail(f"{where} text column cannot declare choices")
-        if "pattern" in column:
+        if "pattern" in column_mapping:
             if kind != "text":
                 raise self.fail(f"{where}.pattern is available only on text columns")
-            pattern = column["pattern"]
+            pattern = column_mapping["pattern"]
             if not isinstance(pattern, str):
                 raise self.fail(f"{where}.pattern must be a string")
             try:
@@ -687,7 +722,7 @@ class _FormChecker:
         if json_type(prop, self.definitions) != "array":
             raise self.fail(f"{where}.arrayProperty {array_property!r} must be an array")
         item = self.resolve_schema(prop.get("items", {}))
-        item_property_value = column.get("itemProperty")
+        item_property_value = column_mapping.get("itemProperty")
         if item_property_value is None:
             if json_type(item, self.definitions) != "string":
                 raise self.fail(f"{where} without itemProperty must name an array of strings")
@@ -828,9 +863,10 @@ class _FormChecker:
 
     def is_string_or_strings(self, prop: dict[str, Any]) -> bool:
         """Return whether a property is a string or an array of strings."""
-        kind = json_type(prop, self.definitions)
+        resolved = self.resolve_schema(prop)
+        kind = json_type(resolved, self.definitions)
         if kind == "array":
-            return json_type(prop.get("items", {}), self.definitions) == "string"
+            return json_type(resolved.get("items", {}), self.definitions) == "string"
         return kind == "string"
 
     def check_hidden(self) -> None:
@@ -871,6 +907,99 @@ class _FormChecker:
                     "but differ in siteField, filters, or siteRequired"
                 )
             seen.setdefault(scope, (name, signature))
+
+    def check_exclusive_groups(self) -> None:
+        """Validate mutually exclusive fields and device-filter owners."""
+        groups = self.ui.get("ui:globalOptions", {}).get("exclusiveGroups")
+        if groups is None:
+            return
+        if not isinstance(groups, list) or len(groups) < 2:
+            raise self.fail("ui:globalOptions.exclusiveGroups must contain at least two groups")
+        used_fields: set[str] = set()
+        used_device_filters: set[str] = set()
+        for index, group in enumerate(groups):
+            where = f"ui:globalOptions.exclusiveGroups[{index}]"
+            if (
+                not isinstance(group, dict)
+                or not group
+                or not set(group)
+                <= {
+                    "fields",
+                    "deviceFilters",
+                }
+            ):
+                raise self.fail(f"{where} must contain fields and/or deviceFilters")
+            group_mapping = cast(dict[str, object], group)
+            fields = group_mapping.get("fields", [])
+            device_filters = group_mapping.get("deviceFilters", [])
+            if (
+                not isinstance(fields, list)
+                or not isinstance(device_filters, list)
+                or not fields
+                and not device_filters
+            ):
+                raise self.fail(f"{where} must contain a non-empty fields or deviceFilters list")
+            if len(set(map(str, fields))) != len(fields):
+                raise self.fail(f"{where}.fields must be unique")
+            if len(set(map(str, device_filters))) != len(device_filters):
+                raise self.fail(f"{where}.deviceFilters must be unique")
+            for field in fields:
+                name = self.require_property(field, f"{where}.fields", wire_name=True)
+                if name in used_fields:
+                    raise self.fail(
+                        f"exclusive group field {name!r} belongs to more than one group"
+                    )
+                used_fields.add(name)
+            for device_filter in device_filters:
+                name = self.require_property(
+                    device_filter, f"{where}.deviceFilters", wire_name=True
+                )
+                if name not in fields:
+                    raise self.fail(
+                        f"{where}.deviceFilters entry {name!r} must also appear in fields"
+                    )
+                if self.fields.get(name, {}).get("ui:field") != "device":
+                    raise self.fail(f"{where}.deviceFilters entry {name!r} must be a device field")
+                if name in used_device_filters:
+                    raise self.fail(
+                        f"exclusive group device filter {name!r} belongs to more than one group"
+                    )
+                used_device_filters.add(name)
+
+    def check_field_comparisons(self) -> None:
+        """Validate declarative comparisons between projected numeric fields."""
+        comparisons = self.ui.get("ui:globalOptions", {}).get("fieldComparisons")
+        if comparisons is None:
+            return
+        if not isinstance(comparisons, list) or not comparisons:
+            raise self.fail("ui:globalOptions.fieldComparisons must be a non-empty list")
+        for index, comparison in enumerate(comparisons):
+            where = f"ui:globalOptions.fieldComparisons[{index}]"
+            if not isinstance(comparison, dict) or set(comparison) != {
+                "left",
+                "operator",
+                "right",
+                "message",
+            }:
+                raise self.fail(f"{where} must contain left, operator, right, and message")
+            comparison_mapping = cast(dict[str, object], comparison)
+            left = self.require_property(
+                comparison_mapping["left"], f"{where}.left", wire_name=True
+            )
+            right = self.require_property(
+                comparison_mapping["right"], f"{where}.right", wire_name=True
+            )
+            if left == right:
+                raise self.fail(f"{where} must compare two different fields")
+            for side, name in (("left", left), ("right", right)):
+                if json_type(self.properties[name], self.definitions) not in {
+                    "integer",
+                    "number",
+                }:
+                    raise self.fail(f"{where}.{side} {name!r} must be numeric")
+            if comparison_mapping["operator"] != "lessThan":
+                raise self.fail(f"{where}.operator must be 'lessThan'")
+            require_text(comparison_mapping["message"], f"{self.name} {where}.message")
 
     def check_cycles(self) -> None:
         """Reject an option dependency on the field itself, directly or transitively."""
@@ -942,10 +1071,14 @@ def _plain(value: Any, where: str) -> Any:
 
 __all__ = [
     "ENRICHED_API_OPTIONS_CAPABILITY",
+    "EXCLUSIVE_GROUPS_CAPABILITY",
+    "FIELD_COMPARISON_CAPABILITY",
     "FIELD_CAPABILITIES",
     "HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY",
     "IMPLICIT_SCOPE_PREFIX",
     "QUERY_ALIASES",
+    "QUERY_SEPARATORS",
+    "QUERY_SEPARATOR_CAPABILITY",
     "RJSF_UI_SCHEMA_ATTRIBUTE",
     "UI_SCHEMA_VERSION",
     "build_form",

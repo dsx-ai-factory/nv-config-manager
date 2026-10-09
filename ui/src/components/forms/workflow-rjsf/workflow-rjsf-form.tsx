@@ -27,21 +27,36 @@
  */
 import * as React from "react";
 import Form, { type IChangeEvent } from "@rjsf/core";
-import { getSubmitButtonOptions, type RJSFSchema, type UiSchema } from "@rjsf/utils";
+import {
+  getSubmitButtonOptions,
+  type RJSFSchema,
+  type UiSchema,
+} from "@rjsf/utils";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
 import { getErrorMessage, startWorkflow } from "@/lib/utils";
-import type { WorkflowCatalogEntry, WorkflowFormResponse } from "@/types/workflow-catalog.types";
+import type {
+  WorkflowCatalogEntry,
+  WorkflowFormResponse,
+} from "@/types/workflow-catalog.types";
 
 import { useShellState } from "./context";
 import { buildPayload } from "./payload";
 import { snapshotQuery, type SearchParamsLike } from "./prefill";
 import { mapServerErrors } from "./server-errors";
-import { RJSF_DEFAULT_STATE_BEHAVIOR, type FormData } from "./state";
+import {
+  activeExclusiveGroups,
+  RJSF_DEFAULT_STATE_BEHAVIOR,
+  type FormData,
+} from "./state";
 import { workflowTheme } from "./theme";
-import { createCustomValidate, createTransformErrors, workflowValidator } from "./validator";
+import {
+  createCustomValidate,
+  createTransformErrors,
+  workflowValidator,
+} from "./validator";
 
 export interface WorkflowRjsfFormProps {
   /** Normalised catalog entry: title and submit endpoint. */
@@ -65,19 +80,50 @@ const RjsfForm = ({ entry, form, searchParams }: WorkflowRjsfFormProps) => {
   const { state, dispatch, context } = useShellState(schema, uiSchema, query);
   const [submitAttempted, setSubmitAttempted] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
+  const renderedUiSchema = React.useMemo(() => {
+    const active = activeExclusiveGroups(
+      state.formData,
+      state.filters,
+      context.layout.exclusiveGroups
+    );
+    if (active.length !== 1) return uiSchema;
+    const disabled = new Set(
+      context.layout.exclusiveGroups.flatMap((group, index) =>
+        index === active[0] ? [] : group.fields
+      )
+    );
+    if (disabled.size === 0) return uiSchema;
+    return {
+      ...uiSchema,
+      ...Object.fromEntries(
+        [...disabled].map((name) => [
+          name,
+          { ...(uiSchema[name] ?? {}), "ui:disabled": true },
+        ])
+      ),
+    };
+  }, [uiSchema, state.formData, state.filters, context.layout.exclusiveGroups]);
 
   const transformErrors = React.useMemo(
     () => createTransformErrors(schema, uiSchema, context.layout),
     [schema, uiSchema, context.layout]
   );
-  const customValidate = React.useMemo(() => createCustomValidate(schema, uiSchema), [schema, uiSchema]);
+  const customValidate = React.useMemo(
+    () => createCustomValidate(schema, uiSchema),
+    [schema, uiSchema]
+  );
   const { submitText = "Submit" } = getSubmitButtonOptions(uiSchema);
   const submitPath = `/v1/workflow${entry.endpoint}`;
 
   // This render's form data is the merge base for the changes RJSF reports from it.
   const base = state.formData;
   const onChange = (event: IChangeEvent) =>
-    dispatch({ type: "rjsf-change", base, next: (event.formData ?? {}) as FormData });
+    dispatch({
+      type: "rjsf-change",
+      base,
+      next: (event.formData ?? {}) as FormData,
+      exclusiveGroups: context.layout.exclusiveGroups,
+    });
 
   const submit = async () => {
     // The payload comes from the shell state, never from an RJSF event snapshot.
@@ -89,12 +135,21 @@ const RjsfForm = ({ entry, form, searchParams }: WorkflowRjsfFormProps) => {
     } catch (error) {
       const mapped =
         statusOf(error) === 422
-          ? mapServerErrors(schema, uiSchema, context.layout, (error as { detail?: unknown }).detail)
+          ? mapServerErrors(
+              schema,
+              uiSchema,
+              context.layout,
+              (error as { detail?: unknown }).detail
+            )
           : null;
       if (mapped) {
         dispatch({ type: "server-errors", errors: mapped });
       } else {
-        toast({ variant: "destructive", title: "Workflow Failed", description: getErrorMessage(error) });
+        toast({
+          variant: "destructive",
+          title: "Workflow Failed",
+          description: getErrorMessage(error),
+        });
       }
       setSubmitting(false);
     }
@@ -103,7 +158,7 @@ const RjsfForm = ({ entry, form, searchParams }: WorkflowRjsfFormProps) => {
   return (
     <Form
       schema={schema}
-      uiSchema={uiSchema}
+      uiSchema={renderedUiSchema}
       formData={state.formData}
       formContext={context}
       validator={workflowValidator}

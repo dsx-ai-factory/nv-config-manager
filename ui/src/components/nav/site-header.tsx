@@ -20,7 +20,7 @@ import Link from "next/link";
 import { siteConfig } from "@/config/site";
 import { MainNav } from "@/components/nav";
 import { ThemeToggle } from "@/components/theme";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useId, useMemo, useState } from "react";
 import { LogOut, PlusIcon, UserCircle } from "lucide-react";
 import {
   Popover,
@@ -56,6 +56,7 @@ const WorkflowLauncherEntry = ({
   onSelect: () => void;
   userRoles: ReadonlySet<string>;
 }) => {
+  const reasonId = useId();
   const permission = getWorkflowExecutePermission(
     item.metadata,
     userRoles,
@@ -75,6 +76,7 @@ const WorkflowLauncherEntry = ({
       <Tooltip>
         <TooltipTrigger asChild>
           <button
+            aria-describedby={reasonId}
             aria-disabled="true"
             className={cn(
               "flex w-full cursor-not-allowed rounded-sm border-none bg-transparent px-3 py-2 text-left opacity-50",
@@ -88,6 +90,9 @@ const WorkflowLauncherEntry = ({
         <TooltipContent side="left">
           <p>{permission.reason}</p>
         </TooltipContent>
+        <span className="sr-only" id={reasonId}>
+          {permission.reason}
+        </span>
       </Tooltip>
     </TooltipProvider>
   );

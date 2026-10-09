@@ -155,6 +155,10 @@ export const formDriver = (page: Page): FormDriver => ({
   async select(label, ...options) {
     const trigger = selectTrigger(page, label);
     const dialog = page.getByRole("dialog");
+    const optionLocator = (option: string) =>
+      dialog
+        .getByRole("option")
+        .filter({ has: page.getByText(option, { exact: true }) });
     // A field that starts loading re-renders and can close a popover opened just
     // before, so reopen until the first option shows. Enter, not a click: selected-item
     // chips cover the middle of a multiselect.
@@ -163,12 +167,10 @@ export const formDriver = (page: Page): FormDriver => ({
         await expect(trigger).toBeEnabled({ timeout: 1000 });
         await trigger.press("Enter", { timeout: 1000 });
       }
-      await expect(dialog.getByRole("option", { name: options[0], exact: true })).toBeVisible({
-        timeout: 1000,
-      });
+      await expect(optionLocator(options[0])).toBeVisible({ timeout: 1000 });
     }).toPass();
     for (const option of options) {
-      await dialog.getByRole("option", { name: option, exact: true }).click();
+      await optionLocator(option).click();
     }
     // A single select closes on pick; a multiselect stays open.
     if (await dialog.isVisible()) await page.keyboard.press("Escape");

@@ -151,6 +151,16 @@ class SpXOverlayCreationInput(BaseModel):
     """SpX Overlay Creation Workflow Input Definition."""
 
     rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:globalOptions": {
+            "fieldComparisons": [
+                {
+                    "left": "rd_min",
+                    "operator": "lessThan",
+                    "right": "rd_max",
+                    "message": "RD Min must be less than RD Max",
+                }
+            ]
+        },
         "site": ui.location_field(LOCATION_SOURCE, type_field="site_type"),
         "site_type": {"ui:widget": "hidden"},
         "tenant": ui.api_options(ui.OptionSource("/v1/parameter/tenant", "name", "name")),
@@ -207,6 +217,13 @@ class SpXOverlayCreationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin
         get_available_route_distinguishers,
         provision_vrf,
     )
+
+    @classmethod
+    async def canonicalize_input(cls, body: BaseModel) -> BaseModel:
+        """Reject an empty or inverted RD allocation range at the API boundary."""
+        if isinstance(body, SpXOverlayCreationInput) and body.rd_min >= body.rd_max:
+            raise ApplicationError("rd_min must be less than rd_max", non_retryable=True)
+        return body
 
     def __init__(self) -> None:
         """Initialize workflow."""

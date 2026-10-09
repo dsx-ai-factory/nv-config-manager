@@ -31,7 +31,7 @@ import {
 } from "@rjsf/utils";
 
 import { initialPending, standardPrefill } from "./prefill";
-import { propertiesOf } from "./ui-schema";
+import { propertiesOf, type ExclusiveGroup } from "./ui-schema";
 import { workflowValidator } from "./validator";
 
 export type FormData = Record<string, unknown>;
@@ -46,7 +46,10 @@ export interface ScopeFilters {
   status: readonly string[];
 }
 
-export const EMPTY_SCOPE: ScopeFilters = Object.freeze({ tenant: [], status: [] });
+export const EMPTY_SCOPE: ScopeFilters = Object.freeze({
+  tenant: [],
+  status: [],
+});
 
 /**
  * Passed both to the initial `getDefaultFormState` and to `<Form>`, so the shell and
@@ -59,10 +62,11 @@ export const EMPTY_SCOPE: ScopeFilters = Object.freeze({ tenant: [], status: [] 
  *   option also skips optional top-level defaults, which {@link createInitialState}
  *   therefore seeds itself.
  */
-export const RJSF_DEFAULT_STATE_BEHAVIOR: Experimental_DefaultFormStateBehavior = {
-  arrayMinItems: { populate: "never" },
-  emptyObjectFields: "populateRequiredDefaults",
-};
+export const RJSF_DEFAULT_STATE_BEHAVIOR: Experimental_DefaultFormStateBehavior =
+  {
+    arrayMinItems: { populate: "never" },
+    emptyObjectFields: "populateRequiredDefaults",
+  };
 
 export interface ShellState {
   /** Projected properties only. */
@@ -74,11 +78,28 @@ export interface ShellState {
 }
 
 export type ShellAction =
-  | { type: "field-patch"; owner: Owner; patch: FormData; source: Source }
-  | { type: "filter-patch"; scope: string; patch: Partial<ScopeFilters>; source: Source }
+  | {
+      type: "field-patch";
+      owner: Owner;
+      patch: FormData;
+      source: Source;
+      exclusiveGroups?: readonly ExclusiveGroup[];
+    }
+  | {
+      type: "filter-patch";
+      scope: string;
+      patch: Partial<ScopeFilters>;
+      source: Source;
+      exclusiveGroups?: readonly ExclusiveGroup[];
+    }
   | { type: "settle"; owner: Owner }
   /** `base` is the form data passed to the RJSF render that produced `next`. */
-  | { type: "rjsf-change"; base: Readonly<FormData>; next: Readonly<FormData> }
+  | {
+      type: "rjsf-change";
+      base: Readonly<FormData>;
+      next: Readonly<FormData>;
+      exclusiveGroups?: readonly ExclusiveGroup[];
+    }
   | { type: "server-errors"; errors: ErrorSchema | undefined };
 
 /**
@@ -89,7 +110,8 @@ export type ShellAction =
 export const createInitialState = (
   schema: RJSFSchema,
   uiSchema: unknown,
-  query: QuerySnapshot
+  query: QuerySnapshot,
+  exclusiveGroups: readonly ExclusiveGroup[] = []
 ): ShellState => {
   const data = standardPrefill(schema, uiSchema, query);
   for (const [name, property] of Object.entries(propertiesOf(schema))) {
@@ -105,15 +127,30 @@ export const createInitialState = (
     false,
     RJSF_DEFAULT_STATE_BEHAVIOR
   );
+  const initialFormData = (formData ?? {}) as FormData;
+  const active = activeExclusiveGroups(initialFormData, {}, exclusiveGroups);
+  const normalized =
+    active.length > 1
+      ? clearInactiveGroups(
+          initialFormData,
+          {},
+          new Set(),
+          exclusiveGroups,
+          active.at(-1)!
+        ).formData
+      : initialFormData;
   return {
-    formData: (formData ?? {}) as FormData,
+    formData: normalized,
     pending: initialPending(schema, uiSchema, query),
     filters: {},
     serverErrors: undefined,
   };
 };
 
-const withoutOwner = (pending: ReadonlySet<Owner>, owner: Owner): ReadonlySet<Owner> => {
+const withoutOwner = (
+  pending: ReadonlySet<Owner>,
+  owner: Owner
+): ReadonlySet<Owner> => {
   if (!pending.has(owner)) return pending;
   const next = new Set(pending);
   next.delete(owner);
@@ -127,19 +164,27 @@ const clearServerErrors = (
 ): ErrorSchema | undefined => {
   if (!errors || keys.length === 0) return errors;
   const rest = Object.fromEntries(
-    Object.entries(errors).filter(([key]) => key !== "__errors" && !keys.includes(key))
+    Object.entries(errors).filter(
+      ([key]) => key !== "__errors" && !keys.includes(key)
+    )
   );
   return Object.keys(rest).length > 0 ? (rest as ErrorSchema) : undefined;
 };
 
 /** Keys whose value differs between `before` and `after` (absent equals `undefined`). */
-const changedKeys = (before: Readonly<FormData>, after: Readonly<FormData>): string[] =>
+const changedKeys = (
+  before: Readonly<FormData>,
+  after: Readonly<FormData>
+): string[] =>
   [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
     (key) => !deepEquals(before[key], after[key])
   );
 
 /** Merge a patch; `undefined` deletes a property. */
-const applyPatch = (data: Readonly<FormData>, patch: Readonly<FormData>): FormData => {
+const applyPatch = (
+  data: Readonly<FormData>,
+  patch: Readonly<FormData>
+): FormData => {
   const next: FormData = { ...data };
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) delete next[key];
@@ -148,40 +193,180 @@ const applyPatch = (data: Readonly<FormData>, patch: Readonly<FormData>): FormDa
   return next;
 };
 
-export const shellReducer = (state: ShellState, action: ShellAction): ShellState => {
+const hasValue = (value: unknown): boolean =>
+  value !== undefined &&
+  value !== null &&
+  value !== "" &&
+  (!Array.isArray(value) || value.length > 0);
+
+const scopeHasValue = (scope: ScopeFilters | undefined): boolean =>
+  scope?.site !== undefined ||
+  Boolean(scope?.tenant.length) ||
+  Boolean(scope?.status.length);
+
+/** Input modes that currently contain a projected value or a device-filter value. */
+export const activeExclusiveGroups = (
+  formData: Readonly<FormData>,
+  filters: Readonly<Record<string, ScopeFilters>>,
+  groups: readonly ExclusiveGroup[]
+): number[] =>
+  groups.flatMap((group, index) =>
+    group.fields.some((field) => hasValue(formData[field])) ||
+    group.filterScopes.some((scope) => scopeHasValue(filters[scope]))
+      ? [index]
+      : []
+  );
+
+const clearInactiveGroups = (
+  formData: Readonly<FormData>,
+  filters: Readonly<Record<string, ScopeFilters>>,
+  pending: ReadonlySet<Owner>,
+  groups: readonly ExclusiveGroup[],
+  active: number
+): {
+  formData: FormData;
+  filters: Record<string, ScopeFilters>;
+  pending: ReadonlySet<Owner>;
+} => {
+  const nextData = { ...formData };
+  const nextFilters = { ...filters };
+  let nextPending = pending;
+  groups.forEach((group, index) => {
+    if (index === active) return;
+    for (const field of group.fields) {
+      delete nextData[field];
+      nextPending = withoutOwner(nextPending, `field:${field}`);
+    }
+    for (const scope of group.filterScopes) {
+      delete nextFilters[scope];
+      nextPending = withoutOwner(nextPending, `scope:${scope}`);
+    }
+  });
+  return { formData: nextData, filters: nextFilters, pending: nextPending };
+};
+
+const activatingFieldGroup = (
+  groups: readonly ExclusiveGroup[],
+  changed: readonly string[],
+  formData: Readonly<FormData>
+): number | undefined => {
+  const index = groups.findIndex((group) =>
+    changed.some(
+      (field) => group.fields.includes(field) && hasValue(formData[field])
+    )
+  );
+  return index < 0 ? undefined : index;
+};
+
+const activatingFilterGroup = (
+  groups: readonly ExclusiveGroup[],
+  scope: string,
+  filters: Readonly<Record<string, ScopeFilters>>
+): number | undefined => {
+  const index = groups.findIndex(
+    (group) =>
+      group.filterScopes.includes(scope) && scopeHasValue(filters[scope])
+  );
+  return index < 0 ? undefined : index;
+};
+
+const preferExistingPrefill = (
+  source: Source,
+  activeBefore: readonly number[],
+  activating: number | undefined
+): boolean =>
+  source === "prefill" &&
+  activating !== undefined &&
+  activeBefore.some((index) => index !== activating);
+
+export const shellReducer = (
+  state: ShellState,
+  action: ShellAction
+): ShellState => {
   switch (action.type) {
     case "field-patch": {
-      const { owner, patch, source } = action;
+      const { owner, patch, source, exclusiveGroups = [] } = action;
       // A prefill applies only while its owner is still pending: a late result after a
       // user edit or an earlier settlement is ignored.
       if (source === "prefill" && !state.pending.has(owner)) return state;
-      const formData = applyPatch(state.formData, patch);
-      const changed = changedKeys(state.formData, formData);
-      const pending = withoutOwner(state.pending, owner);
+      let formData = applyPatch(state.formData, patch);
+      let changed = changedKeys(state.formData, formData);
+      let pending = withoutOwner(state.pending, owner);
+      let filters = state.filters;
+      const activating = activatingFieldGroup(
+        exclusiveGroups,
+        changed,
+        formData
+      );
+      if (
+        preferExistingPrefill(
+          source,
+          activeExclusiveGroups(state.formData, state.filters, exclusiveGroups),
+          activating
+        )
+      ) {
+        formData = state.formData as FormData;
+        changed = [];
+      } else if (activating !== undefined) {
+        ({ formData, filters, pending } = clearInactiveGroups(
+          formData,
+          filters,
+          pending,
+          exclusiveGroups,
+          activating
+        ));
+        changed = changedKeys(state.formData, formData);
+      }
       if (changed.length === 0 && pending === state.pending) return state;
       return {
         ...state,
         formData: changed.length > 0 ? formData : state.formData,
+        filters,
         pending,
         serverErrors:
           source === "user"
             ? clearServerErrors(
                 state.serverErrors,
-                owner.startsWith("field:") ? [...changed, owner.slice("field:".length)] : changed
+                owner.startsWith("field:")
+                  ? [...changed, owner.slice("field:".length)]
+                  : changed
               )
             : state.serverErrors,
       };
     }
     case "filter-patch": {
-      const { scope, patch, source } = action;
+      const { scope, patch, source, exclusiveGroups = [] } = action;
       const owner: Owner = `scope:${scope}`;
       if (source === "prefill" && !state.pending.has(owner)) return state;
       const current = state.filters[scope] ?? EMPTY_SCOPE;
       const next: ScopeFilters = { ...current, ...patch };
       if ("site" in patch && patch.site === undefined) delete next.site;
-      const pending = withoutOwner(state.pending, owner);
+      let pending = withoutOwner(state.pending, owner);
       if (deepEquals(current, next) && pending === state.pending) return state;
-      return { ...state, filters: { ...state.filters, [scope]: next }, pending };
+      let formData = state.formData as FormData;
+      let filters: Record<string, ScopeFilters> = {
+        ...state.filters,
+        [scope]: next,
+      };
+      const activating = activatingFilterGroup(exclusiveGroups, scope, filters);
+      if (
+        preferExistingPrefill(
+          source,
+          activeExclusiveGroups(state.formData, state.filters, exclusiveGroups),
+          activating
+        )
+      ) {
+        filters = state.filters as Record<string, ScopeFilters>;
+      } else if (activating !== undefined) {
+        ({ formData, filters, pending } = clearInactiveGroups(
+          formData,
+          filters,
+          pending,
+          exclusiveGroups,
+          activating
+        ));
+      }
+      return { ...state, formData, filters, pending };
     }
     case "settle": {
       const pending = withoutOwner(state.pending, action.owner);
@@ -192,15 +377,33 @@ export const shellReducer = (state: ShellState, action: ShellAction): ShellState
       // render was given, so a field patch applied since that render survives.
       const changed = changedKeys(action.base, action.next);
       if (changed.length === 0) return state;
-      const formData = applyPatch(
+      let formData = applyPatch(
         state.formData,
         Object.fromEntries(changed.map((key) => [key, action.next[key]]))
       );
       let pending = state.pending;
-      for (const key of changed) pending = withoutOwner(pending, `field:${key}`);
+      for (const key of changed)
+        pending = withoutOwner(pending, `field:${key}`);
+      let filters = state.filters;
+      const exclusiveGroups = action.exclusiveGroups ?? [];
+      const activating = activatingFieldGroup(
+        exclusiveGroups,
+        changed,
+        formData
+      );
+      if (activating !== undefined) {
+        ({ formData, filters, pending } = clearInactiveGroups(
+          formData,
+          filters,
+          pending,
+          exclusiveGroups,
+          activating
+        ));
+      }
       return {
         ...state,
         formData,
+        filters,
         pending,
         serverErrors: clearServerErrors(state.serverErrors, changed),
       };

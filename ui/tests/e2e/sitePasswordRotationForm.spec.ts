@@ -106,7 +106,10 @@ test.describe("Site Password Rotation Form", () => {
     await page
       .getByRole("button", { name: `${SITES_LIST.rno1}. Open options`, exact: true })
       .click();
-    await page.getByRole("dialog").getByRole("option", { name: SITES_LIST.pdx01 }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("option", { name: SITES_LIST.pdx01, exact: true })
+      .click();
     await expect.poll(() => releases.has(SITES_LIST.pdx01)).toBe(true);
 
     const currentResponse = page.waitForResponse((response) => {

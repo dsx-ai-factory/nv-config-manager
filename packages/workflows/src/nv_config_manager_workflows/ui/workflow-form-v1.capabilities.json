@@ -6,6 +6,9 @@
     "core-field.device.v1",
     "core-field.location.v1",
     "core-field.variant-rows.v1",
-    "theme.hide-schema-descriptions.v1"
+    "interaction.exclusive-groups.v1",
+    "prefill.query-separator.v1",
+    "theme.hide-schema-descriptions.v1",
+    "validation.field-comparison.v1"
   ]
 }

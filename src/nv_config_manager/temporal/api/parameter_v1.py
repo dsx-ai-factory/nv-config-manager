@@ -372,13 +372,9 @@ def _diagnostic_command_options(platforms: list[str]) -> list[OptionItem]:
         ]
 
     all_names = set().union(*(catalog for _, catalog in catalogs))
-    shared_names = {
-        name for name in all_names if all(name in catalog for _, catalog in catalogs)
-    }
+    shared_names = {name for name in all_names if all(name in catalog for _, catalog in catalogs)}
     descriptions = {
-        name: description
-        for _, catalog in catalogs
-        for name, description in catalog.items()
+        name: description for _, catalog in catalogs for name, description in catalog.items()
     }
     options = [
         OptionItem(
@@ -458,6 +454,13 @@ async def get_diagnostics_command_options(
         warnings.append("Some selected devices could not be resolved.")
     if any(not device.platform for device in selected_devices):
         warnings.append("Some selected devices do not have a platform.")
+    known_platforms = {platform.value for platform in Platform}
+    unsupported_platforms = sorted(set(platforms) - known_platforms)
+    if unsupported_platforms:
+        warnings.append(
+            "Diagnostic command options are unavailable for unsupported platforms: "
+            f"{', '.join(unsupported_platforms)}."
+        )
 
     return OptionSourceResponse(
         items=_diagnostic_command_options(platforms),

@@ -61,8 +61,18 @@ test.describe("New SpX Overlay Deletion Workflow", () => {
       "Overlay ID *",
       "Namespace Tag",
     ]);
-    // Like the legacy page: no help text (schema descriptions) under the fields.
-    await expect(page.locator("form p")).toHaveCount(0);
+    // Like the legacy page: schema descriptions stay hidden. Dependency feedback is
+    // still useful while the overlay options are waiting for a site.
+    for (const description of [
+      "Site containing the SpX overlay to delete.",
+      "Identifier of the SpX overlay to delete.",
+      "Tag identifying the namespace used for allocation.",
+    ]) {
+      await expect(page.getByText(description, { exact: true })).toHaveCount(0);
+    }
+    await expect(
+      page.getByText("Select the required fields to load Overlay ID.", { exact: true })
+    ).toBeVisible();
 
     // Namespace tags load unfiltered, then for the chosen site; overlays only for a site.
     const requests: Request[] = [];

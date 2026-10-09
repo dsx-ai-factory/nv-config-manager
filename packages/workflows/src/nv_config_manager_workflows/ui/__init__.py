@@ -26,6 +26,7 @@ from nv_config_manager_workflows.ui.errors import WorkflowFormContractError
 from nv_config_manager_workflows.ui.form import (
     ENRICHED_API_OPTIONS_CAPABILITY,
     QUERY_ALIASES,
+    QUERY_SEPARATORS,
     RJSF_UI_SCHEMA_ATTRIBUTE,
     UI_SCHEMA_VERSION,
     build_form,
@@ -49,6 +50,7 @@ from nv_config_manager_workflows.ui.options import (
 __all__ = [
     "ENRICHED_API_OPTIONS_CAPABILITY",
     "QUERY_ALIASES",
+    "QUERY_SEPARATORS",
     "RJSF_UI_SCHEMA_ATTRIBUTE",
     "UI_SCHEMA_VERSION",
     "Dependency",

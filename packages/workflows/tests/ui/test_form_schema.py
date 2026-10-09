@@ -200,6 +200,31 @@ def test_form_schema_keywords_must_fit_the_property(
         project_form_schema(Model)
 
 
+@pytest.mark.parametrize("keyword", ["minimum", "maximum"])
+@pytest.mark.parametrize(
+    "value",
+    [float("nan"), float("inf"), float("-inf")],
+    ids=["nan", "positive-infinity", "negative-infinity"],
+)
+def test_form_schema_numeric_bounds_must_be_finite(keyword: str, value: float) -> None:
+    marker = FormSchema(minimum=value) if keyword == "minimum" else FormSchema(maximum=value)
+
+    class Model(BaseModel):
+        number: Annotated[float, marker]
+
+    with pytest.raises(WorkflowFormContractError, match=f"{keyword} must be a finite number"):
+        project_form_schema(Model)
+
+
+def test_form_schema_numeric_bounds_allow_large_integers() -> None:
+    minimum = 10**400
+
+    class Model(BaseModel):
+        number: Annotated[int, FormSchema(minimum=minimum)]
+
+    assert project_form_schema(Model)["properties"]["number"]["minimum"] == minimum
+
+
 def test_markers_apply_to_a_field_under_its_validation_alias() -> None:
     class Model(BaseModel):
         user: Annotated[str, ServerOwned()] = Field(default="", validation_alias="owner")

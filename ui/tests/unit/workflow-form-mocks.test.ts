@@ -24,7 +24,11 @@ import {
 } from "@/components/forms/workflow-rjsf/fields/device-field";
 import { mockApiURL } from "@/config/mockApiUrl";
 import { fetcher } from "@/lib/fetcher";
-import { buildOptionSourceRequest, mapOptionRows } from "@/lib/option-source";
+import {
+  buildOptionSourceRequest,
+  mapOptionEnvelope,
+  mapOptionRows,
+} from "@/lib/option-source";
 import { fetchWorkflowForm } from "@/lib/workflow-form";
 import { WORKFLOW_FORM_FIXTURES } from "@/mocks/data/workflowForms";
 import { handlers } from "@/mocks/handlers";
@@ -58,7 +62,14 @@ describe("MSW GET /v1/workflow/:name/form", () => {
 });
 
 /** Values that fill every dependency of every sample, known to the mocks. */
-const FILLED = { site: "PDX01", site_type: "Site", device_id: "1" };
+const FILLED = {
+  site: "PDX01",
+  site_type: "Site",
+  device_id: "1",
+  device_ids: ["1"],
+  location: "PDX01",
+  status: ["Active"],
+};
 
 const sources: Array<[string, OptionSource]> = [
   ["device Site filter", SITE_FILTER_SOURCE],
@@ -77,12 +88,11 @@ describe("MSW parameter endpoints referenced by the /form samples", () => {
     const request = buildOptionSourceRequest(mockApiURL, source, FILLED);
     if (request.kind !== "ready") throw new Error(JSON.stringify(request));
 
-    const mapping = mapOptionRows(
-      await fetcher(request.url),
-      source.label_key,
-      source.value_key,
-      source.type_key
-    );
+    const response = await fetcher(request.url);
+    const mapping =
+      source.response === "options-v1"
+        ? mapOptionEnvelope(response)
+        : mapOptionRows(response, source.label_key, source.value_key, source.type_key);
 
     expect(mapping?.options.length).toBeGreaterThan(0);
   });

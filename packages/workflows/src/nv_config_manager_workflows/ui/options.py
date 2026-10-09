@@ -263,12 +263,15 @@ def check_params(params: object, where: str) -> None:
         raise WorkflowFormContractError(f"{where} must be a mapping; got {params!r}")
     for name, value in params.items():
         require_text(name, f"{where} key")
-        is_list = isinstance(value, Sequence) and not isinstance(value, str | bytes)
-        if not (is_scalar(value) or (is_list and all(is_scalar(item) for item in value))):
-            raise WorkflowFormContractError(
-                f"{where}[{name!r}] must be a string, finite number, boolean, or a list of "
-                f"them; got {value!r}"
-            )
+        if is_scalar(value):
+            continue
+        if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+            if all(is_scalar(item) for item in value):
+                continue
+        raise WorkflowFormContractError(
+            f"{where}[{name!r}] must be a string, finite number, boolean, or a list of "
+            f"them; got {value!r}"
+        )
 
 
 __all__ = [

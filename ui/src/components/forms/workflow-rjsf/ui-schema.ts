@@ -24,11 +24,16 @@ import type { OptionSource } from "@/types/workflow-catalog.types";
 
 export type JsonObject = Readonly<Record<string, unknown>>;
 
-export type CoreFieldName = "apiOptions" | "device" | "location" | "variantRows";
+export type CoreFieldName =
+  | "apiOptions"
+  | "device"
+  | "location"
+  | "variantRows";
 
 export interface ApiOptionsOptions {
   source: OptionSource;
   queryAliases?: string[];
+  querySeparator?: string;
   presentation?: "select" | "grouped-checkboxes";
   selectAll?: boolean;
   showDescriptions?: boolean;
@@ -85,6 +90,23 @@ export interface DeviceOptions {
   queryAliases?: string[];
 }
 
+export interface ExclusiveGroupDeclaration {
+  fields?: string[];
+  deviceFilters?: string[];
+}
+
+export interface ExclusiveGroup {
+  fields: string[];
+  filterScopes: string[];
+}
+
+export interface FieldComparison {
+  left: string;
+  operator: "lessThan";
+  right: string;
+  message: string;
+}
+
 export const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -101,20 +123,25 @@ export const propertiesOf = (schema: unknown): Record<string, JsonObject> => {
 
 export const requiredOf = (schema: unknown): string[] => {
   const required = own(schema, "required");
-  return Array.isArray(required) ? required.filter((name) => typeof name === "string") : [];
+  return Array.isArray(required)
+    ? required.filter((name) => typeof name === "string")
+    : [];
 };
 
 /** Follow one local `#/$defs/...` reference. */
 export const resolveRef = (root: unknown, node: unknown): JsonObject => {
   const ref = own(node, "$ref");
-  if (typeof ref !== "string" || !ref.startsWith("#/")) return isObject(node) ? node : {};
+  if (typeof ref !== "string" || !ref.startsWith("#/"))
+    return isObject(node) ? node : {};
   let target: unknown = root;
   for (const token of ref.slice(2).split("/")) {
     target = own(target, token.replaceAll("~1", "/").replaceAll("~0", "~"));
   }
   if (!isObject(target)) return {};
   // Keywords beside `$ref` (Pydantic puts `title`, `default`, `description` there) win.
-  const siblings = Object.entries(node as JsonObject).filter(([key]) => key !== "$ref");
+  const siblings = Object.entries(node as JsonObject).filter(
+    ([key]) => key !== "$ref"
+  );
   return { ...target, ...Object.fromEntries(siblings) };
 };
 
@@ -129,7 +156,10 @@ export const fieldOptions = (uiSchema: unknown, name: string): JsonObject => {
   return isObject(options) ? options : {};
 };
 
-export const coreFieldOf = (uiSchema: unknown, name: string): CoreFieldName | undefined => {
+export const coreFieldOf = (
+  uiSchema: unknown,
+  name: string
+): CoreFieldName | undefined => {
   const field = own(fieldUi(uiSchema, name), "ui:field");
   return field === "apiOptions" ||
     field === "device" ||
@@ -139,16 +169,22 @@ export const coreFieldOf = (uiSchema: unknown, name: string): CoreFieldName | un
     : undefined;
 };
 
-export const deviceOptionsOf = (uiSchema: unknown, name: string): DeviceOptions =>
-  fieldOptions(uiSchema, name) as unknown as DeviceOptions;
+export const deviceOptionsOf = (
+  uiSchema: unknown,
+  name: string
+): DeviceOptions => fieldOptions(uiSchema, name) as unknown as DeviceOptions;
 
-export const locationOptionsOf = (uiSchema: unknown, name: string): LocationOptions =>
+export const locationOptionsOf = (
+  uiSchema: unknown,
+  name: string
+): LocationOptions =>
   fieldOptions(uiSchema, name) as unknown as LocationOptions;
 
 export const variantRowsFieldOptionsOf = (
   uiSchema: unknown,
   name: string
-): VariantRowsFieldOptions => fieldOptions(uiSchema, name) as unknown as VariantRowsFieldOptions;
+): VariantRowsFieldOptions =>
+  fieldOptions(uiSchema, name) as unknown as VariantRowsFieldOptions;
 
 export const variantRowsDeclarations = (
   schema: unknown,
@@ -160,6 +196,31 @@ export const variantRowsDeclarations = (
       : []
   );
 
+/** Resolve declarative device-filter owners to the scopes held in shell state. */
+export const exclusiveGroupsOf = (uiSchema: unknown): ExclusiveGroup[] => {
+  const globalOptions = own(uiSchema, "ui:globalOptions");
+  const declarations = own(globalOptions, "exclusiveGroups");
+  if (!Array.isArray(declarations)) return [];
+  return declarations.map((value) => {
+    const declaration = value as ExclusiveGroupDeclaration;
+    const deviceFilters = Array.isArray(declaration.deviceFilters)
+      ? declaration.deviceFilters
+      : [];
+    return {
+      fields: Array.isArray(declaration.fields) ? declaration.fields : [],
+      filterScopes: deviceFilters.map(
+        (name) => deviceOptionsOf(uiSchema, name).filterScope
+      ),
+    };
+  });
+};
+
+export const fieldComparisonsOf = (uiSchema: unknown): FieldComparison[] => {
+  const globalOptions = own(uiSchema, "ui:globalOptions");
+  const comparisons = own(globalOptions, "fieldComparisons");
+  return Array.isArray(comparisons) ? (comparisons as FieldComparison[]) : [];
+};
+
 export const isHidden = (uiSchema: unknown, name: string): boolean =>
   own(fieldUi(uiSchema, name), "ui:widget") === "hidden";
 
@@ -167,7 +228,11 @@ export const isTextarea = (uiSchema: unknown, name: string): boolean =>
   own(fieldUi(uiSchema, name), "ui:widget") === "textarea";
 
 /** Display label of a top-level property: `ui:title`, schema `title`, or its name. */
-export const labelOf = (schema: unknown, uiSchema: unknown, name: string): string => {
+export const labelOf = (
+  schema: unknown,
+  uiSchema: unknown,
+  name: string
+): string => {
   const title = own(fieldUi(uiSchema, name), "ui:title");
   if (typeof title === "string") return title;
   const property = resolveRef(schema, own(propertiesOf(schema), name));
@@ -179,7 +244,10 @@ export const labelOf = (schema: unknown, uiSchema: unknown, name: string): strin
  * remaining properties in schema order, and any property `ui:order` omits placed last
  * in schema order.
  */
-export const effectiveOrder = (schema: unknown, uiSchema: unknown): string[] => {
+export const effectiveOrder = (
+  schema: unknown,
+  uiSchema: unknown
+): string[] => {
   const names = Object.keys(propertiesOf(schema));
   const order = own(uiSchema, "ui:order");
   if (!Array.isArray(order)) return names;
@@ -187,7 +255,11 @@ export const effectiveOrder = (schema: unknown, uiSchema: unknown): string[] => 
   const rest = names.filter((name) => !listed.includes(name));
   const wildcard = order.indexOf("*");
   if (wildcard === -1) return [...listed, ...rest];
-  const before = order.slice(0, wildcard).filter((name) => names.includes(name));
-  const after = order.slice(wildcard + 1).filter((name) => names.includes(name));
+  const before = order
+    .slice(0, wildcard)
+    .filter((name) => names.includes(name));
+  const after = order
+    .slice(wildcard + 1)
+    .filter((name) => names.includes(name));
   return [...before, ...rest, ...after];
 };

@@ -20,7 +20,7 @@
  * A small RJSF theme drawn with this app's `components/ui` primitives (`@rjsf/shadcn`
  * targets Tailwind 4). Only RJSF's extension points are used: templates, the widgets
  * the v1 contract names (text, textarea, checkbox, select; RJSF's own hidden widget),
- * and the three core fields. Numbers, enums, arrays of enums, and string lists use
+ * and the four core fields. Numbers, enums, arrays of enums, and string lists use
  * RJSF's default fields with these templates.
  *
  * `ui:globalOptions.hideSchemaDescriptions` (read from `registry.globalUiOptions`)
