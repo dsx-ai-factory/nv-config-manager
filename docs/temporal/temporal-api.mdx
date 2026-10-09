@@ -349,6 +349,16 @@ Returns metadata for each API-enabled workflow and the RBAC roles needed by the 
 }
 ```
 
+Request form-discovery metadata explicitly when building a workflow launcher:
+
+```bash
+GET /v1/workflow/metadata?include=form
+```
+
+This representation adds `group`, `form_id`, and `has_form` to each workflow.
+The request without `include=form` omits those keys so clients generated from
+earlier versions of the API can continue decoding the response.
+
 ## Testing
 
 ### Unit Tests

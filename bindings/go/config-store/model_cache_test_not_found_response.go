@@ -11,7 +11,6 @@ API version: 0.1.0
 package configstore
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -26,7 +25,8 @@ type CacheTestNotFoundResponse struct {
 	// Whether device was found
 	Found *bool `json:"found,omitempty"`
 	// Not found message
-	Message string `json:"message"`
+	Message              string `json:"message"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _CacheTestNotFoundResponse CacheTestNotFoundResponse
@@ -150,6 +150,11 @@ func (o CacheTestNotFoundResponse) ToMap() (map[string]interface{}, error) {
 		toSerialize["found"] = o.Found
 	}
 	toSerialize["message"] = o.Message
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -178,15 +183,22 @@ func (o *CacheTestNotFoundResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varCacheTestNotFoundResponse := _CacheTestNotFoundResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varCacheTestNotFoundResponse)
+	err = json.Unmarshal(data, &varCacheTestNotFoundResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = CacheTestNotFoundResponse(varCacheTestNotFoundResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "device_uuid")
+		delete(additionalProperties, "found")
+		delete(additionalProperties, "message")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

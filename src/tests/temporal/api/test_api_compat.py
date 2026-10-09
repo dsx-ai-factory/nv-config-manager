@@ -117,6 +117,47 @@ def _without_added_optional_properties(
     }
 
 
+def _without_added_optional_query_parameters(
+    baseline: dict[str, Any], current: dict[str, Any]
+) -> dict[str, Any]:
+    """Return ``current`` without new optional query parameters.
+
+    Adding an optional query parameter preserves every request accepted by the
+    baseline operation, unlike adding a required parameter or changing an
+    existing parameter.
+    """
+    baseline_parameters = {
+        (parameter.get("in"), parameter.get("name"))
+        for parameter in baseline.get("parameters", [])
+        if isinstance(parameter, dict)
+    }
+    added_optional_query_parameters = [
+        parameter
+        for parameter in current.get("parameters", [])
+        if (
+            isinstance(parameter, dict)
+            and parameter.get("in") == "query"
+            and parameter.get("required", False) is False
+            and (parameter.get("in"), parameter.get("name")) not in baseline_parameters
+        )
+    ]
+    parameters = [
+        parameter
+        for parameter in current.get("parameters", [])
+        if parameter not in added_optional_query_parameters
+    ]
+    normalized = dict(current)
+    if parameters or "parameters" in baseline:
+        normalized["parameters"] = parameters
+    else:
+        normalized.pop("parameters", None)
+    if added_optional_query_parameters and "422" not in baseline.get("responses", {}):
+        responses = dict(normalized.get("responses", {}))
+        responses.pop("422", None)
+        normalized["responses"] = responses
+    return normalized
+
+
 @pytest.fixture
 def openapi_baseline() -> dict[str, Any]:
     return _read_json(_OPENAPI_BASELINE)
@@ -155,10 +196,15 @@ def test_baseline_operations_are_unchanged(
             label = f"{key.upper()} {path}" if key in _HTTP_METHODS else f"{path} [{key}]"
             if key not in current_item:
                 problems.append(f"{label}: removed")
-            elif current_item[key] != baseline_value:
-                problems.append(
-                    f"{label}: changed\n{_json_diff(baseline_value, current_item[key])}"
-                )
+            else:
+                current_value = current_item[key]
+                if key in _HTTP_METHODS:
+                    current_value = _without_added_optional_query_parameters(
+                        baseline_value, current_value
+                    )
+                if current_value == baseline_value:
+                    continue
+                problems.append(f"{label}: changed\n{_json_diff(baseline_value, current_value)}")
 
     _fail_on(problems, "Existing Temporal API operations changed")
 
@@ -211,8 +257,8 @@ def deterministic_rbac(mocker: MockerFixture) -> None:
 
 @pytest.mark.usefixtures("deterministic_rbac")
 def test_workflow_metadata_is_a_superset_of_the_baseline() -> None:
-    """Every baseline ``/metadata`` workflow keeps every key and value it had."""
-    rsp = TestClient(app).get("/v1/workflow/metadata")
+    """The form expansion keeps every captured metadata key and value."""
+    rsp = TestClient(app).get("/v1/workflow/metadata", params={"include": "form"})
     assert rsp.status_code == 200
     current: dict[str, Any] = rsp.json()
 

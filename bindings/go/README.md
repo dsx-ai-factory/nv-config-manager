@@ -36,5 +36,7 @@ make api-generate
 ```
 
 Generation requires Docker; the command uses a version-and-digest-pinned OpenAPI Generator image.
+Generated object models retain unrecognized JSON properties unless their OpenAPI schema explicitly
+sets `additionalProperties: false`, allowing clients to decode additive response fields safely.
 
 Do not edit generated service directories by hand.

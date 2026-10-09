@@ -11,7 +11,6 @@ API version: 0.1.0
 package configstore
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -31,7 +30,8 @@ type ConfigCreateRequest struct {
 	// Optional timestamp for the version (defaults to current time)
 	CreatedAt NullableTime `json:"created_at,omitempty"`
 	// Config file type (intended or backup)
-	FileType *FileType `json:"file_type,omitempty"`
+	FileType             *FileType `json:"file_type,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _ConfigCreateRequest ConfigCreateRequest
@@ -229,6 +229,11 @@ func (o ConfigCreateRequest) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.FileType) {
 		toSerialize["file_type"] = o.FileType
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -258,15 +263,24 @@ func (o *ConfigCreateRequest) UnmarshalJSON(data []byte) (err error) {
 
 	varConfigCreateRequest := _ConfigCreateRequest{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varConfigCreateRequest)
+	err = json.Unmarshal(data, &varConfigCreateRequest)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ConfigCreateRequest(varConfigCreateRequest)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "author")
+		delete(additionalProperties, "commit_message")
+		delete(additionalProperties, "content")
+		delete(additionalProperties, "created_at")
+		delete(additionalProperties, "file_type")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

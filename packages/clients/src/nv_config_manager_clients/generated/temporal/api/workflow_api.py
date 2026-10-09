@@ -3496,6 +3496,7 @@ class WorkflowApi:
     @validate_call
     async def get_workflow_metadata_v1_workflow_metadata_get(
         self,
+        include: Annotated[Optional[StrictStr], Field(description="Optional metadata expansion. Use 'form' to include group, form_id, and has_form.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -3513,6 +3514,8 @@ class WorkflowApi:
 
         Return registered workflow metadata and RBAC roles.
 
+        :param include: Optional metadata expansion. Use 'form' to include group, form_id, and has_form.
+        :type include: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -3536,6 +3539,7 @@ class WorkflowApi:
         """ # noqa: E501
 
         _param = self._get_workflow_metadata_v1_workflow_metadata_get_serialize(
+            include=include,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -3544,6 +3548,7 @@ class WorkflowApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "WorkflowMetadataResponse",
+            '422': "HTTPValidationError",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -3559,6 +3564,7 @@ class WorkflowApi:
     @validate_call
     async def get_workflow_metadata_v1_workflow_metadata_get_with_http_info(
         self,
+        include: Annotated[Optional[StrictStr], Field(description="Optional metadata expansion. Use 'form' to include group, form_id, and has_form.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -3576,6 +3582,8 @@ class WorkflowApi:
 
         Return registered workflow metadata and RBAC roles.
 
+        :param include: Optional metadata expansion. Use 'form' to include group, form_id, and has_form.
+        :type include: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -3599,6 +3607,7 @@ class WorkflowApi:
         """ # noqa: E501
 
         _param = self._get_workflow_metadata_v1_workflow_metadata_get_serialize(
+            include=include,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -3607,6 +3616,7 @@ class WorkflowApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "WorkflowMetadataResponse",
+            '422': "HTTPValidationError",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -3622,6 +3632,7 @@ class WorkflowApi:
     @validate_call
     async def get_workflow_metadata_v1_workflow_metadata_get_without_preload_content(
         self,
+        include: Annotated[Optional[StrictStr], Field(description="Optional metadata expansion. Use 'form' to include group, form_id, and has_form.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -3639,6 +3650,8 @@ class WorkflowApi:
 
         Return registered workflow metadata and RBAC roles.
 
+        :param include: Optional metadata expansion. Use 'form' to include group, form_id, and has_form.
+        :type include: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -3662,6 +3675,7 @@ class WorkflowApi:
         """ # noqa: E501
 
         _param = self._get_workflow_metadata_v1_workflow_metadata_get_serialize(
+            include=include,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -3670,6 +3684,7 @@ class WorkflowApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "WorkflowMetadataResponse",
+            '422': "HTTPValidationError",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -3680,6 +3695,7 @@ class WorkflowApi:
 
     def _get_workflow_metadata_v1_workflow_metadata_get_serialize(
         self,
+        include,
         _request_auth,
         _content_type,
         _headers,
@@ -3702,6 +3718,10 @@ class WorkflowApi:
 
         # process the path parameters
         # process the query parameters
+        if include is not None:
+
+            _query_params.append(('include', include))
+
         # process the header parameters
         # process the form parameters
         # process the body parameter

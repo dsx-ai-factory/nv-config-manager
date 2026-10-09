@@ -11,7 +11,6 @@ API version: 0.1.0
 package configstore
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -24,7 +23,8 @@ type BatchConfigResponse struct {
 	// Successfully created/updated files
 	Created []ConfigVersionResponse `json:"created"`
 	// Paths that had no changes
-	Skipped []string `json:"skipped,omitempty"`
+	Skipped              []string `json:"skipped,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _BatchConfigResponse BatchConfigResponse
@@ -118,6 +118,11 @@ func (o BatchConfigResponse) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Skipped) {
 		toSerialize["skipped"] = o.Skipped
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -145,15 +150,21 @@ func (o *BatchConfigResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varBatchConfigResponse := _BatchConfigResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varBatchConfigResponse)
+	err = json.Unmarshal(data, &varBatchConfigResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = BatchConfigResponse(varBatchConfigResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "created")
+		delete(additionalProperties, "skipped")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

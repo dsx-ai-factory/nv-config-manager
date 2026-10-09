@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -31,7 +30,8 @@ type SpXOverlayAssignmentInput struct {
 	// Site containing the target network device.
 	Site string `json:"site"`
 	// DCIM location type for the site identifier.
-	SiteType NullableString `json:"site_type,omitempty"`
+	SiteType             NullableString `json:"site_type,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _SpXOverlayAssignmentInput SpXOverlayAssignmentInput
@@ -277,6 +277,11 @@ func (o SpXOverlayAssignmentInput) ToMap() (map[string]interface{}, error) {
 	if o.SiteType.IsSet() {
 		toSerialize["site_type"] = o.SiteType.Get()
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -306,15 +311,25 @@ func (o *SpXOverlayAssignmentInput) UnmarshalJSON(data []byte) (err error) {
 
 	varSpXOverlayAssignmentInput := _SpXOverlayAssignmentInput{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varSpXOverlayAssignmentInput)
+	err = json.Unmarshal(data, &varSpXOverlayAssignmentInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = SpXOverlayAssignmentInput(varSpXOverlayAssignmentInput)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "device")
+		delete(additionalProperties, "namespace_tag")
+		delete(additionalProperties, "overlay_id")
+		delete(additionalProperties, "port_names")
+		delete(additionalProperties, "site")
+		delete(additionalProperties, "site_type")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

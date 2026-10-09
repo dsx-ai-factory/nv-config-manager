@@ -11,7 +11,6 @@ API version: 0.1.0
 package configstore
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -38,7 +37,8 @@ type DiffResponse struct {
 	// Content of source version
 	OldContent string `json:"old_content"`
 	// Target version
-	ToVersion int32 `json:"to_version"`
+	ToVersion            int32 `json:"to_version"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _DiffResponse DiffResponse
@@ -326,6 +326,11 @@ func (o DiffResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize["new_content"] = o.NewContent
 	toSerialize["old_content"] = o.OldContent
 	toSerialize["to_version"] = o.ToVersion
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -360,15 +365,28 @@ func (o *DiffResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varDiffResponse := _DiffResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varDiffResponse)
+	err = json.Unmarshal(data, &varDiffResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = DiffResponse(varDiffResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "device")
+		delete(additionalProperties, "device_uuid")
+		delete(additionalProperties, "diff")
+		delete(additionalProperties, "diff_stats")
+		delete(additionalProperties, "filename")
+		delete(additionalProperties, "from_version")
+		delete(additionalProperties, "new_content")
+		delete(additionalProperties, "old_content")
+		delete(additionalProperties, "to_version")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

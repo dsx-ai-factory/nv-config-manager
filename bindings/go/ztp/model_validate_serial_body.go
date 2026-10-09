@@ -11,7 +11,6 @@ API version: 0.1.0
 package ztp
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,7 +20,8 @@ var _ MappedNullable = &ValidateSerialBody{}
 
 // ValidateSerialBody Request body for serial number validation.
 type ValidateSerialBody struct {
-	Serial string `json:"serial"`
+	Serial               string `json:"serial"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _ValidateSerialBody ValidateSerialBody
@@ -79,6 +79,11 @@ func (o ValidateSerialBody) MarshalJSON() ([]byte, error) {
 func (o ValidateSerialBody) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["serial"] = o.Serial
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -106,15 +111,20 @@ func (o *ValidateSerialBody) UnmarshalJSON(data []byte) (err error) {
 
 	varValidateSerialBody := _ValidateSerialBody{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varValidateSerialBody)
+	err = json.Unmarshal(data, &varValidateSerialBody)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ValidateSerialBody(varValidateSerialBody)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "serial")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

@@ -19,9 +19,12 @@ var _ MappedNullable = &OptionSourceMeta{}
 
 // OptionSourceMeta Optional metadata accompanying normalized form options.
 type OptionSourceMeta struct {
-	MatchingDeviceCount NullableInt32 `json:"matching_device_count,omitempty"`
-	Warnings            []string      `json:"warnings,omitempty"`
+	MatchingDeviceCount  NullableInt32 `json:"matching_device_count,omitempty"`
+	Warnings             []string      `json:"warnings,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
+
+type _OptionSourceMeta OptionSourceMeta
 
 // NewOptionSourceMeta instantiates a new OptionSourceMeta object
 // This constructor will assign default values to properties that have it defined,
@@ -134,7 +137,34 @@ func (o OptionSourceMeta) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Warnings) {
 		toSerialize["warnings"] = o.Warnings
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
+}
+
+func (o *OptionSourceMeta) UnmarshalJSON(data []byte) (err error) {
+	varOptionSourceMeta := _OptionSourceMeta{}
+
+	err = json.Unmarshal(data, &varOptionSourceMeta)
+
+	if err != nil {
+		return err
+	}
+
+	*o = OptionSourceMeta(varOptionSourceMeta)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "matching_device_count")
+		delete(additionalProperties, "warnings")
+		o.AdditionalProperties = additionalProperties
+	}
+
+	return err
 }
 
 type NullableOptionSourceMeta struct {

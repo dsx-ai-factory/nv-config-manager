@@ -11,7 +11,6 @@ API version: 0.1.0
 package ztp
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -25,7 +24,8 @@ type FileInfo struct {
 	File         string       `json:"file"`
 	LastModified LastModified `json:"last_modified"`
 	// File size in bytes
-	Size int32 `json:"size"`
+	Size                 int32 `json:"size"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _FileInfo FileInfo
@@ -135,6 +135,11 @@ func (o FileInfo) ToMap() (map[string]interface{}, error) {
 	toSerialize["file"] = o.File
 	toSerialize["last_modified"] = o.LastModified
 	toSerialize["size"] = o.Size
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -164,15 +169,22 @@ func (o *FileInfo) UnmarshalJSON(data []byte) (err error) {
 
 	varFileInfo := _FileInfo{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varFileInfo)
+	err = json.Unmarshal(data, &varFileInfo)
 
 	if err != nil {
 		return err
 	}
 
 	*o = FileInfo(varFileInfo)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "file")
+		delete(additionalProperties, "last_modified")
+		delete(additionalProperties, "size")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

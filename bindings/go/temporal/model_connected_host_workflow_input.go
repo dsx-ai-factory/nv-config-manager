@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -22,7 +21,8 @@ var _ MappedNullable = &ConnectedHostWorkflowInput{}
 // ConnectedHostWorkflowInput Connected Host Workflow Input.
 type ConnectedHostWorkflowInput struct {
 	// Identifier of the network device to analyze.
-	DeviceId string `json:"device_id"`
+	DeviceId             string `json:"device_id"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _ConnectedHostWorkflowInput ConnectedHostWorkflowInput
@@ -80,6 +80,11 @@ func (o ConnectedHostWorkflowInput) MarshalJSON() ([]byte, error) {
 func (o ConnectedHostWorkflowInput) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["device_id"] = o.DeviceId
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -107,15 +112,20 @@ func (o *ConnectedHostWorkflowInput) UnmarshalJSON(data []byte) (err error) {
 
 	varConnectedHostWorkflowInput := _ConnectedHostWorkflowInput{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varConnectedHostWorkflowInput)
+	err = json.Unmarshal(data, &varConnectedHostWorkflowInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ConnectedHostWorkflowInput(varConnectedHostWorkflowInput)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "device_id")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

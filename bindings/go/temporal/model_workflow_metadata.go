@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -26,15 +25,17 @@ type WorkflowMetadata struct {
 	DisplayName  string   `json:"display_name"`
 	Endpoint     string   `json:"endpoint"`
 	ExecuteRoles []string `json:"execute_roles"`
-	// Stable lowercase kebab-case identifier used by this workflow's browser-form endpoints.
+	// Stable lowercase kebab-case identifier used by this workflow's browser-form endpoints. Returned by the form metadata expansion.
 	FormId NullableString `json:"form_id,omitempty" validate:"regexp=^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"`
-	Group  NullableString `json:"group,omitempty"`
-	// Whether the browser-form contract is enabled. When true, the form endpoint may still return HTTP 503 if a third-party declaration failed validation.
-	HasForm    NullableBool   `json:"has_form,omitempty"`
-	InputClass string         `json:"input_class"`
-	Name       string         `json:"name"`
-	Namespace  NullableString `json:"namespace"`
-	ReadRoles  []string       `json:"read_roles"`
+	// Launcher group returned by the form metadata expansion.
+	Group NullableString `json:"group,omitempty"`
+	// Whether the browser-form contract is enabled. When true, the form endpoint may still return HTTP 503 if a third-party declaration failed validation. Returned by the form metadata expansion.
+	HasForm              NullableBool   `json:"has_form,omitempty"`
+	InputClass           string         `json:"input_class"`
+	Name                 string         `json:"name"`
+	Namespace            NullableString `json:"namespace"`
+	ReadRoles            []string       `json:"read_roles"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _WorkflowMetadata WorkflowMetadata
@@ -446,6 +447,11 @@ func (o WorkflowMetadata) ToMap() (map[string]interface{}, error) {
 	toSerialize["name"] = o.Name
 	toSerialize["namespace"] = o.Namespace.Get()
 	toSerialize["read_roles"] = o.ReadRoles
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -481,15 +487,31 @@ func (o *WorkflowMetadata) UnmarshalJSON(data []byte) (err error) {
 
 	varWorkflowMetadata := _WorkflowMetadata{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varWorkflowMetadata)
+	err = json.Unmarshal(data, &varWorkflowMetadata)
 
 	if err != nil {
 		return err
 	}
 
 	*o = WorkflowMetadata(varWorkflowMetadata)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "cli_name")
+		delete(additionalProperties, "description")
+		delete(additionalProperties, "display_name")
+		delete(additionalProperties, "endpoint")
+		delete(additionalProperties, "execute_roles")
+		delete(additionalProperties, "form_id")
+		delete(additionalProperties, "group")
+		delete(additionalProperties, "has_form")
+		delete(additionalProperties, "input_class")
+		delete(additionalProperties, "name")
+		delete(additionalProperties, "namespace")
+		delete(additionalProperties, "read_roles")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

@@ -11,7 +11,6 @@ API version: 0.1.0
 package configstore
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -30,7 +29,8 @@ type StatsResponse struct {
 	// Number of unique devices with configs
 	UniqueDevices int32 `json:"unique_devices"`
 	// Number of unique config files (device + filename)
-	UniqueFiles int32 `json:"unique_files"`
+	UniqueFiles          int32 `json:"unique_files"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _StatsResponse StatsResponse
@@ -192,6 +192,11 @@ func (o StatsResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize["total_config_versions"] = o.TotalConfigVersions
 	toSerialize["unique_devices"] = o.UniqueDevices
 	toSerialize["unique_files"] = o.UniqueFiles
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -223,15 +228,24 @@ func (o *StatsResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varStatsResponse := _StatsResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varStatsResponse)
+	err = json.Unmarshal(data, &varStatsResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = StatsResponse(varStatsResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "storage_bytes")
+		delete(additionalProperties, "storage_mb")
+		delete(additionalProperties, "total_config_versions")
+		delete(additionalProperties, "unique_devices")
+		delete(additionalProperties, "unique_files")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

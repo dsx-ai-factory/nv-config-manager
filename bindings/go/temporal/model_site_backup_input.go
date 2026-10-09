@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -36,7 +35,8 @@ type SiteBackupInput struct {
 	// User that requested the site backup.
 	User NullableString `json:"user,omitempty"`
 	// Domain of the user requesting the site backup.
-	UserDomain NullableString `json:"user_domain,omitempty"`
+	UserDomain           NullableString `json:"user_domain,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _SiteBackupInput SiteBackupInput
@@ -398,6 +398,11 @@ func (o SiteBackupInput) ToMap() (map[string]interface{}, error) {
 	if o.UserDomain.IsSet() {
 		toSerialize["user_domain"] = o.UserDomain.Get()
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -425,15 +430,27 @@ func (o *SiteBackupInput) UnmarshalJSON(data []byte) (err error) {
 
 	varSiteBackupInput := _SiteBackupInput{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varSiteBackupInput)
+	err = json.Unmarshal(data, &varSiteBackupInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = SiteBackupInput(varSiteBackupInput)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "backup_enabled_only")
+		delete(additionalProperties, "roles")
+		delete(additionalProperties, "site")
+		delete(additionalProperties, "site_type")
+		delete(additionalProperties, "status")
+		delete(additionalProperties, "tenant")
+		delete(additionalProperties, "user")
+		delete(additionalProperties, "user_domain")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

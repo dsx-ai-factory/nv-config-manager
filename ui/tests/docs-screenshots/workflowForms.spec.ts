@@ -669,7 +669,7 @@ async function setupDocsMocks(page: Page): Promise<void> {
     await fulfillJson(route, Object.keys(DOC_WORKFLOW_DISPLAY_NAMES));
   });
 
-  await page.route("**/v1/workflow/metadata", async (route) => {
+  await page.route("**/v1/workflow/metadata?include=form", async (route) => {
     await fulfillJson(route, DOC_WORKFLOW_METADATA);
   });
 

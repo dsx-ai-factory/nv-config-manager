@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,21 +20,22 @@ var _ MappedNullable = &NetworkDeviceData{}
 
 // NetworkDeviceData Normalized network-device inventory and configuration intent.
 type NetworkDeviceData struct {
-	BackupEnabled *bool                  `json:"backup_enabled,omitempty"`
-	DeployEnabled *bool                  `json:"deploy_enabled,omitempty"`
-	DeviceType    string                 `json:"device_type"`
-	Id            string                 `json:"id"`
-	Intent        map[string]interface{} `json:"intent,omitempty"`
-	Name          string                 `json:"name"`
-	Platform      Platform               `json:"platform"`
-	Position      NullableInt32          `json:"position,omitempty"`
-	PrimaryIp4    NullableString         `json:"primary_ip4"`
-	PrimaryIp6    NullableString         `json:"primary_ip6"`
-	Rack          NullableString         `json:"rack,omitempty"`
-	RenderEnabled *bool                  `json:"render_enabled,omitempty"`
-	Role          string                 `json:"role"`
-	Site          string                 `json:"site"`
-	ZtpEnabled    *bool                  `json:"ztp_enabled,omitempty"`
+	BackupEnabled        *bool                  `json:"backup_enabled,omitempty"`
+	DeployEnabled        *bool                  `json:"deploy_enabled,omitempty"`
+	DeviceType           string                 `json:"device_type"`
+	Id                   string                 `json:"id"`
+	Intent               map[string]interface{} `json:"intent,omitempty"`
+	Name                 string                 `json:"name"`
+	Platform             Platform               `json:"platform"`
+	Position             NullableInt32          `json:"position,omitempty"`
+	PrimaryIp4           NullableString         `json:"primary_ip4"`
+	PrimaryIp6           NullableString         `json:"primary_ip6"`
+	Rack                 NullableString         `json:"rack,omitempty"`
+	RenderEnabled        *bool                  `json:"render_enabled,omitempty"`
+	Role                 string                 `json:"role"`
+	Site                 string                 `json:"site"`
+	ZtpEnabled           *bool                  `json:"ztp_enabled,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _NetworkDeviceData NetworkDeviceData
@@ -571,6 +571,11 @@ func (o NetworkDeviceData) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.ZtpEnabled) {
 		toSerialize["ztp_enabled"] = o.ZtpEnabled
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -605,15 +610,34 @@ func (o *NetworkDeviceData) UnmarshalJSON(data []byte) (err error) {
 
 	varNetworkDeviceData := _NetworkDeviceData{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varNetworkDeviceData)
+	err = json.Unmarshal(data, &varNetworkDeviceData)
 
 	if err != nil {
 		return err
 	}
 
 	*o = NetworkDeviceData(varNetworkDeviceData)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "backup_enabled")
+		delete(additionalProperties, "deploy_enabled")
+		delete(additionalProperties, "device_type")
+		delete(additionalProperties, "id")
+		delete(additionalProperties, "intent")
+		delete(additionalProperties, "name")
+		delete(additionalProperties, "platform")
+		delete(additionalProperties, "position")
+		delete(additionalProperties, "primary_ip4")
+		delete(additionalProperties, "primary_ip6")
+		delete(additionalProperties, "rack")
+		delete(additionalProperties, "render_enabled")
+		delete(additionalProperties, "role")
+		delete(additionalProperties, "site")
+		delete(additionalProperties, "ztp_enabled")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

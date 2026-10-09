@@ -11,7 +11,6 @@ API version: 0.1.0
 package configstore
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -28,7 +27,8 @@ type ConfigVersionsResponse struct {
 	// File name
 	Filename string `json:"filename"`
 	// List of versions
-	Versions []ConfigVersionResponse `json:"versions"`
+	Versions             []ConfigVersionResponse `json:"versions"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _ConfigVersionsResponse ConfigVersionsResponse
@@ -186,6 +186,11 @@ func (o ConfigVersionsResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize["device_uuid"] = o.DeviceUuid
 	toSerialize["filename"] = o.Filename
 	toSerialize["versions"] = o.Versions
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -215,15 +220,23 @@ func (o *ConfigVersionsResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varConfigVersionsResponse := _ConfigVersionsResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varConfigVersionsResponse)
+	err = json.Unmarshal(data, &varConfigVersionsResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ConfigVersionsResponse(varConfigVersionsResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "device")
+		delete(additionalProperties, "device_uuid")
+		delete(additionalProperties, "filename")
+		delete(additionalProperties, "versions")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

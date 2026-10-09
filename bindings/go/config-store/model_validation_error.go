@@ -11,7 +11,6 @@ API version: 0.1.0
 package configstore
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,11 +20,12 @@ var _ MappedNullable = &ValidationError{}
 
 // ValidationError struct for ValidationError
 type ValidationError struct {
-	Ctx   map[string]interface{} `json:"ctx,omitempty"`
-	Input interface{}            `json:"input,omitempty"`
-	Loc   []LocationInner        `json:"loc"`
-	Msg   string                 `json:"msg"`
-	Type  string                 `json:"type"`
+	Ctx                  map[string]interface{} `json:"ctx,omitempty"`
+	Input                interface{}            `json:"input,omitempty"`
+	Loc                  []LocationInner        `json:"loc"`
+	Msg                  string                 `json:"msg"`
+	Type                 string                 `json:"type"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _ValidationError ValidationError
@@ -207,6 +207,11 @@ func (o ValidationError) ToMap() (map[string]interface{}, error) {
 	toSerialize["loc"] = o.Loc
 	toSerialize["msg"] = o.Msg
 	toSerialize["type"] = o.Type
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -236,15 +241,24 @@ func (o *ValidationError) UnmarshalJSON(data []byte) (err error) {
 
 	varValidationError := _ValidationError{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varValidationError)
+	err = json.Unmarshal(data, &varValidationError)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ValidationError(varValidationError)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "ctx")
+		delete(additionalProperties, "input")
+		delete(additionalProperties, "loc")
+		delete(additionalProperties, "msg")
+		delete(additionalProperties, "type")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -24,7 +23,8 @@ type DevicePasswordRotationInput struct {
 	// Identifier of the network device to update.
 	DeviceId string `json:"device_id"`
 	// Name of the managed secret containing the replacement password.
-	SelectedSecret string `json:"selected_secret"`
+	SelectedSecret       string `json:"selected_secret"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _DevicePasswordRotationInput DevicePasswordRotationInput
@@ -108,6 +108,11 @@ func (o DevicePasswordRotationInput) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["device_id"] = o.DeviceId
 	toSerialize["selected_secret"] = o.SelectedSecret
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -136,15 +141,21 @@ func (o *DevicePasswordRotationInput) UnmarshalJSON(data []byte) (err error) {
 
 	varDevicePasswordRotationInput := _DevicePasswordRotationInput{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varDevicePasswordRotationInput)
+	err = json.Unmarshal(data, &varDevicePasswordRotationInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = DevicePasswordRotationInput(varDevicePasswordRotationInput)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "device_id")
+		delete(additionalProperties, "selected_secret")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

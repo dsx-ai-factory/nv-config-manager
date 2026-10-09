@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,10 +20,11 @@ var _ MappedNullable = &OptionItem{}
 
 // OptionItem One normalized option rendered by a workflow form field.
 type OptionItem struct {
-	Description NullableString `json:"description,omitempty"`
-	Group       NullableString `json:"group,omitempty"`
-	Label       string         `json:"label"`
-	Value       string         `json:"value"`
+	Description          NullableString `json:"description,omitempty"`
+	Group                NullableString `json:"group,omitempty"`
+	Label                string         `json:"label"`
+	Value                string         `json:"value"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _OptionItem OptionItem
@@ -204,6 +204,11 @@ func (o OptionItem) ToMap() (map[string]interface{}, error) {
 	}
 	toSerialize["label"] = o.Label
 	toSerialize["value"] = o.Value
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -232,15 +237,23 @@ func (o *OptionItem) UnmarshalJSON(data []byte) (err error) {
 
 	varOptionItem := _OptionItem{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varOptionItem)
+	err = json.Unmarshal(data, &varOptionItem)
 
 	if err != nil {
 		return err
 	}
 
 	*o = OptionItem(varOptionItem)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "description")
+		delete(additionalProperties, "group")
+		delete(additionalProperties, "label")
+		delete(additionalProperties, "value")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

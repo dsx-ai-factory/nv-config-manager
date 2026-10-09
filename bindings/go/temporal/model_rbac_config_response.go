@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,11 +20,12 @@ var _ MappedNullable = &RBACConfigResponse{}
 
 // RBACConfigResponse RBAC configuration status response.
 type RBACConfigResponse struct {
-	Error          NullableString           `json:"error,omitempty"`
-	FileExists     bool                     `json:"file_exists"`
-	Status         string                   `json:"status"`
-	Workflows      map[string]WorkflowRoles `json:"workflows,omitempty"`
-	WorkflowsCount NullableInt32            `json:"workflows_count,omitempty"`
+	Error                NullableString           `json:"error,omitempty"`
+	FileExists           bool                     `json:"file_exists"`
+	Status               string                   `json:"status"`
+	Workflows            map[string]WorkflowRoles `json:"workflows,omitempty"`
+	WorkflowsCount       NullableInt32            `json:"workflows_count,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _RBACConfigResponse RBACConfigResponse
@@ -241,6 +241,11 @@ func (o RBACConfigResponse) ToMap() (map[string]interface{}, error) {
 	if o.WorkflowsCount.IsSet() {
 		toSerialize["workflows_count"] = o.WorkflowsCount.Get()
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -269,15 +274,24 @@ func (o *RBACConfigResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varRBACConfigResponse := _RBACConfigResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varRBACConfigResponse)
+	err = json.Unmarshal(data, &varRBACConfigResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = RBACConfigResponse(varRBACConfigResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "error")
+		delete(additionalProperties, "file_exists")
+		delete(additionalProperties, "status")
+		delete(additionalProperties, "workflows")
+		delete(additionalProperties, "workflows_count")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

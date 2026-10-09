@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -34,7 +33,8 @@ type ValidateHardwareInput struct {
 	// Device statuses used to filter the selected network devices.
 	Status []string `json:"status,omitempty"`
 	// Tenant used to filter the selected network devices.
-	Tenant NullableString `json:"tenant,omitempty"`
+	Tenant               NullableString `json:"tenant,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _ValidateHardwareInput ValidateHardwareInput
@@ -336,6 +336,11 @@ func (o ValidateHardwareInput) ToMap() (map[string]interface{}, error) {
 	if o.Tenant.IsSet() {
 		toSerialize["tenant"] = o.Tenant.Get()
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -363,15 +368,26 @@ func (o *ValidateHardwareInput) UnmarshalJSON(data []byte) (err error) {
 
 	varValidateHardwareInput := _ValidateHardwareInput{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varValidateHardwareInput)
+	err = json.Unmarshal(data, &varValidateHardwareInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ValidateHardwareInput(varValidateHardwareInput)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "device_type_ids")
+		delete(additionalProperties, "raise_for_invalid")
+		delete(additionalProperties, "roles")
+		delete(additionalProperties, "site")
+		delete(additionalProperties, "site_type")
+		delete(additionalProperties, "status")
+		delete(additionalProperties, "tenant")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

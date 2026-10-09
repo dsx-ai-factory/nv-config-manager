@@ -696,8 +696,8 @@ test.describe("Workflows Page", () => {
       execute_roles: ["all"],
       ...extra,
     });
-    await page.unroute("**/v1/workflow/metadata");
-    await page.route("**/v1/workflow/metadata", (route) =>
+    await page.unroute("**/v1/workflow/metadata?include=form");
+    await page.route("**/v1/workflow/metadata?include=form", (route) =>
       route.fulfill({
         status: 200,
         json: {

@@ -11,7 +11,6 @@ API version: 0.1.0
 package dhcp
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,9 +20,10 @@ var _ MappedNullable = &ReservationPageResponse{}
 
 // ReservationPageResponse Bounded page of normalized reservations.
 type ReservationPageResponse struct {
-	NextCursor   NullableString      `json:"next_cursor,omitempty"`
-	Reservations []ReservationRecord `json:"reservations"`
-	TotalCount   int32               `json:"total_count"`
+	NextCursor           NullableString      `json:"next_cursor,omitempty"`
+	Reservations         []ReservationRecord `json:"reservations"`
+	TotalCount           int32               `json:"total_count"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _ReservationPageResponse ReservationPageResponse
@@ -155,6 +155,11 @@ func (o ReservationPageResponse) ToMap() (map[string]interface{}, error) {
 	}
 	toSerialize["reservations"] = o.Reservations
 	toSerialize["total_count"] = o.TotalCount
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -183,15 +188,22 @@ func (o *ReservationPageResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varReservationPageResponse := _ReservationPageResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varReservationPageResponse)
+	err = json.Unmarshal(data, &varReservationPageResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ReservationPageResponse(varReservationPageResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "next_cursor")
+		delete(additionalProperties, "reservations")
+		delete(additionalProperties, "total_count")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

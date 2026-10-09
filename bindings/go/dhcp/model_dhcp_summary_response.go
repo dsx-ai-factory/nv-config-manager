@@ -11,7 +11,6 @@ API version: 0.1.0
 package dhcp
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,9 +20,10 @@ var _ MappedNullable = &DhcpSummaryResponse{}
 
 // DhcpSummaryResponse Lease, reservation, and pool summary.
 type DhcpSummaryResponse struct {
-	ActiveLeaseCount int32 `json:"active_lease_count"`
-	PoolCount        int32 `json:"pool_count"`
-	ReservationCount int32 `json:"reservation_count"`
+	ActiveLeaseCount     int32 `json:"active_lease_count"`
+	PoolCount            int32 `json:"pool_count"`
+	ReservationCount     int32 `json:"reservation_count"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _DhcpSummaryResponse DhcpSummaryResponse
@@ -133,6 +133,11 @@ func (o DhcpSummaryResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize["active_lease_count"] = o.ActiveLeaseCount
 	toSerialize["pool_count"] = o.PoolCount
 	toSerialize["reservation_count"] = o.ReservationCount
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -162,15 +167,22 @@ func (o *DhcpSummaryResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varDhcpSummaryResponse := _DhcpSummaryResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varDhcpSummaryResponse)
+	err = json.Unmarshal(data, &varDhcpSummaryResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = DhcpSummaryResponse(varDhcpSummaryResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "active_lease_count")
+		delete(additionalProperties, "pool_count")
+		delete(additionalProperties, "reservation_count")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

@@ -11,7 +11,6 @@ API version: 0.1.0
 package dhcp
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -22,16 +21,17 @@ var _ MappedNullable = &LeaseRecord{}
 
 // LeaseRecord Active lease returned by the DHCP service.
 type LeaseRecord struct {
-	ClientId  NullableString `json:"client_id,omitempty"`
-	Cltt      int32          `json:"cltt"`
-	Duid      NullableString `json:"duid,omitempty"`
-	ExpiresAt NullableTime   `json:"expires_at"`
-	Hostname  *string        `json:"hostname,omitempty"`
-	HwAddress NullableString `json:"hw_address,omitempty"`
-	IpAddress string         `json:"ip_address"`
-	State     int32          `json:"state"`
-	Subnet    NullableString `json:"subnet,omitempty"`
-	ValidLft  int32          `json:"valid_lft"`
+	ClientId             NullableString `json:"client_id,omitempty"`
+	Cltt                 int32          `json:"cltt"`
+	Duid                 NullableString `json:"duid,omitempty"`
+	ExpiresAt            NullableTime   `json:"expires_at"`
+	Hostname             *string        `json:"hostname,omitempty"`
+	HwAddress            NullableString `json:"hw_address,omitempty"`
+	IpAddress            string         `json:"ip_address"`
+	State                int32          `json:"state"`
+	Subnet               NullableString `json:"subnet,omitempty"`
+	ValidLft             int32          `json:"valid_lft"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _LeaseRecord LeaseRecord
@@ -427,6 +427,11 @@ func (o LeaseRecord) ToMap() (map[string]interface{}, error) {
 		toSerialize["subnet"] = o.Subnet.Get()
 	}
 	toSerialize["valid_lft"] = o.ValidLft
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -458,15 +463,29 @@ func (o *LeaseRecord) UnmarshalJSON(data []byte) (err error) {
 
 	varLeaseRecord := _LeaseRecord{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varLeaseRecord)
+	err = json.Unmarshal(data, &varLeaseRecord)
 
 	if err != nil {
 		return err
 	}
 
 	*o = LeaseRecord(varLeaseRecord)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "client_id")
+		delete(additionalProperties, "cltt")
+		delete(additionalProperties, "duid")
+		delete(additionalProperties, "expires_at")
+		delete(additionalProperties, "hostname")
+		delete(additionalProperties, "hw_address")
+		delete(additionalProperties, "ip_address")
+		delete(additionalProperties, "state")
+		delete(additionalProperties, "subnet")
+		delete(additionalProperties, "valid_lft")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

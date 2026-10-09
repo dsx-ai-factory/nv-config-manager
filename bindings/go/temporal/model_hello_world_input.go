@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -22,7 +21,8 @@ var _ MappedNullable = &HelloWorldInput{}
 // HelloWorldInput Hello World Input Definition.
 type HelloWorldInput struct {
 	// Name to include in the workflow greeting.
-	Name string `json:"name"`
+	Name                 string `json:"name"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _HelloWorldInput HelloWorldInput
@@ -80,6 +80,11 @@ func (o HelloWorldInput) MarshalJSON() ([]byte, error) {
 func (o HelloWorldInput) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["name"] = o.Name
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -107,15 +112,20 @@ func (o *HelloWorldInput) UnmarshalJSON(data []byte) (err error) {
 
 	varHelloWorldInput := _HelloWorldInput{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varHelloWorldInput)
+	err = json.Unmarshal(data, &varHelloWorldInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = HelloWorldInput(varHelloWorldInput)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "name")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

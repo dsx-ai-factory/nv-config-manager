@@ -11,7 +11,6 @@ API version: 0.1.0
 package render
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,12 +20,13 @@ var _ MappedNullable = &ConsumerInfo{}
 
 // ConsumerInfo Consumer information model.
 type ConsumerInfo struct {
-	Name          string `json:"name"`
-	NumAckPending int32  `json:"num_ack_pending"`
-	NumDelivered  int32  `json:"num_delivered"`
-	NumPending    int32  `json:"num_pending"`
-	Stream        string `json:"stream"`
-	Subject       string `json:"subject"`
+	Name                 string `json:"name"`
+	NumAckPending        int32  `json:"num_ack_pending"`
+	NumDelivered         int32  `json:"num_delivered"`
+	NumPending           int32  `json:"num_pending"`
+	Stream               string `json:"stream"`
+	Subject              string `json:"subject"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _ConsumerInfo ConsumerInfo
@@ -214,6 +214,11 @@ func (o ConsumerInfo) ToMap() (map[string]interface{}, error) {
 	toSerialize["num_pending"] = o.NumPending
 	toSerialize["stream"] = o.Stream
 	toSerialize["subject"] = o.Subject
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -246,15 +251,25 @@ func (o *ConsumerInfo) UnmarshalJSON(data []byte) (err error) {
 
 	varConsumerInfo := _ConsumerInfo{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varConsumerInfo)
+	err = json.Unmarshal(data, &varConsumerInfo)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ConsumerInfo(varConsumerInfo)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "name")
+		delete(additionalProperties, "num_ack_pending")
+		delete(additionalProperties, "num_delivered")
+		delete(additionalProperties, "num_pending")
+		delete(additionalProperties, "stream")
+		delete(additionalProperties, "subject")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

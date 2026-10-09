@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,8 +20,9 @@ var _ MappedNullable = &Review{}
 
 // Review Individual Review.
 type Review struct {
-	Time string `json:"time"`
-	User string `json:"user"`
+	Time                 string `json:"time"`
+	User                 string `json:"user"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _Review Review
@@ -106,6 +106,11 @@ func (o Review) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["time"] = o.Time
 	toSerialize["user"] = o.User
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -134,15 +139,21 @@ func (o *Review) UnmarshalJSON(data []byte) (err error) {
 
 	varReview := _Review{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varReview)
+	err = json.Unmarshal(data, &varReview)
 
 	if err != nil {
 		return err
 	}
 
 	*o = Review(varReview)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "time")
+		delete(additionalProperties, "user")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

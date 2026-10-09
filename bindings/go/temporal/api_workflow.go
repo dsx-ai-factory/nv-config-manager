@@ -1631,6 +1631,13 @@ func (a *WorkflowAPIService) GetWorkflowFormOptionsSitePasswordRotationPasswordU
 type ApiGetWorkflowMetadataV1WorkflowMetadataGetRequest struct {
 	ctx        context.Context
 	ApiService *WorkflowAPIService
+	include    *string
+}
+
+// Optional metadata expansion. Use &#39;form&#39; to include group, form_id, and has_form.
+func (r ApiGetWorkflowMetadataV1WorkflowMetadataGetRequest) Include(include string) ApiGetWorkflowMetadataV1WorkflowMetadataGetRequest {
+	r.include = &include
+	return r
 }
 
 func (r ApiGetWorkflowMetadataV1WorkflowMetadataGetRequest) Execute() (*WorkflowMetadataResponse, *http.Response, error) {
@@ -1674,6 +1681,9 @@ func (a *WorkflowAPIService) GetWorkflowMetadataV1WorkflowMetadataGetExecute(r A
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
 
+	if r.include != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "include", r.include, "form", "")
+	}
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{}
 
@@ -1712,6 +1722,16 @@ func (a *WorkflowAPIService) GetWorkflowMetadataV1WorkflowMetadataGetExecute(r A
 		newErr := &GenericOpenAPIError{
 			body:  localVarBody,
 			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
+			var v HTTPValidationError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

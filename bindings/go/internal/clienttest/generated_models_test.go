@@ -88,6 +88,39 @@ func TestGeneratedModelsRejectNullForRequiredFields(t *testing.T) {
 	}
 }
 
+func TestGeneratedWorkflowMetadataPreservesUnknownResponseProperties(t *testing.T) {
+	const payload = `{
+		"cli_name":"example",
+		"description":"Example workflow",
+		"display_name":"Example",
+		"endpoint":"/v1/workflow/example",
+		"execute_roles":[],
+		"input_class":"ExampleInput",
+		"name":"ExampleWorkflow",
+		"namespace":null,
+		"read_roles":[],
+		"future_property":{"enabled":true}
+	}`
+
+	var metadata temporal.WorkflowMetadata
+	if err := json.Unmarshal([]byte(payload), &metadata); err != nil {
+		t.Fatalf("json.Unmarshal() rejected an unknown response property: %v", err)
+	}
+
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	var roundTrip map[string]interface{}
+	if err := json.Unmarshal(encoded, &roundTrip); err != nil {
+		t.Fatalf("decode round-trip JSON: %v", err)
+	}
+	property, ok := roundTrip["future_property"].(map[string]interface{})
+	if !ok || property["enabled"] != true {
+		t.Fatalf("future_property was not preserved: %s", encoded)
+	}
+}
+
 func TestGeneratedDhcpIpVersionUsesExportedNames(t *testing.T) {
 	if dhcp.V4 != dhcp.IpVersion(4) {
 		t.Fatalf("dhcp.V4 = %d, want 4", dhcp.V4)

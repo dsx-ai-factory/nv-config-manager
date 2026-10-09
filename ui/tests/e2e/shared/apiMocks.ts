@@ -1548,8 +1548,8 @@ export async function mockWorkflowTypesEndpoint(page: Page) {
 }
 
 /**
- * Mock `/v1/workflow/metadata`. `extraWorkflows` are appended verbatim, e.g. a plugin
- * workflow; registering this again in a test overrides the default mock.
+ * Mock `/v1/workflow/metadata?include=form`. `extraWorkflows` are appended verbatim,
+ * e.g. a plugin workflow; registering this again in a test overrides the default mock.
  */
 export async function mockWorkflowMetadataEndpoint(
   page: Page,
@@ -1671,7 +1671,7 @@ export async function mockWorkflowMetadataEndpoint(
     ],
   };
 
-  await page.route(`**/v1/workflow/metadata`, async (route) => {
+  await page.route(`**/v1/workflow/metadata?include=form`, async (route) => {
     await route.fulfill({
       status: 200,
       json: workflowMetadata,
@@ -1861,9 +1861,10 @@ export const SERVER_WORKFLOW_FORMS: Readonly<Record<string, unknown>> =
   readApiFixture("workflow_forms.json");
 
 /**
- * The current `GET /v1/workflow/metadata` response derived from the additive API
- * compatibility baseline. That baseline intentionally omits newly added default fields,
- * so add the new API's explicit `has_form: true`; explicit `false` values win.
+ * The current `GET /v1/workflow/metadata?include=form` response derived from the
+ * additive API compatibility baseline. That baseline intentionally omits newly added
+ * optional fields, so add the form expansion's explicit `has_form: true`; explicit
+ * `false` values win.
  */
 type ServerWorkflowMetadata = {
   workflows: Array<
@@ -1887,7 +1888,7 @@ export const SERVER_WORKFLOW_METADATA: ServerWorkflowMetadata = (() => {
 
 /** Serve {@link SERVER_WORKFLOW_METADATA} as the catalog and a `/whoami` user with `roles`. */
 export async function mockServerCatalogAndUser(page: Page, roles: string[]) {
-  await page.route("**/v1/workflow/metadata", (route) =>
+  await page.route("**/v1/workflow/metadata?include=form", (route) =>
     route.fulfill({ status: 200, json: SERVER_WORKFLOW_METADATA })
   );
   await page.route("**/whoami", (route) =>
