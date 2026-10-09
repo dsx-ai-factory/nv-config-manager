@@ -620,8 +620,11 @@ for a launcher interaction; existing Temporal histories deserialize that model.
 Markers are plain objects in a field's `Annotated` metadata. They change only
 the `/form` projection:
 
-- `ServerOwned()`: the server fills the field, for example the requesting
-  `user`. It is left out of the form schema and its `required` list.
+- `ServerOwned()`: the HTTP API replaces any submitted value with a
+  server-derived value, for example the authenticated requesting `user`. It is
+  left out of the form schema and its `required` list. Trusted callers that
+  construct Temporal input directly, such as schedulers and parent workflows,
+  may still provide it.
 - `FormExcluded()`: the form neither shows nor submits the field, so the model
   default applies. Use it for values that schedulers or parent workflows send,
   and for fields resolved server-side.

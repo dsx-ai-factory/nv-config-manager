@@ -70,6 +70,13 @@ globalThis.ResizeObserver ??= class {
 const labels = (text: string) =>
   screen.queryAllByText(new RegExp(`^${text}( \\*)?$`), { selector: "label" });
 
+const labelledControl = (text: string): HTMLElement => {
+  const id = labels(text)[0]?.getAttribute("for");
+  const control = id ? document.getElementById(id) : null;
+  if (!control) throw new Error(`No control is associated with the ${text} label`);
+  return control;
+};
+
 const lastProps = () => rendered.props[rendered.props.length - 1];
 const context = () => lastProps().formContext as ShellFormContext;
 const formData = () => lastProps().formData as Record<string, unknown>;
@@ -265,6 +272,20 @@ describe("initial state and RJSF agreement", () => {
     expect(host.getAttribute("aria-required")).toBe("true");
     const pkey = screen.getByRole("textbox", { name: "PKey (optional)" });
     expect(pkey.hasAttribute("aria-required")).toBe(false);
+  });
+
+  it("associates picker labels, descriptions, and required state with their buttons", async () => {
+    await renderForm(WORKFLOW_FORM_FIXTURES.BackupWorkflow);
+
+    const devicePicker = labelledControl("Device");
+    expect(devicePicker.tagName).toBe("BUTTON");
+    expect(labels("Device")[0].textContent).toBe("Device *");
+    expect(devicePicker.getAttribute("aria-describedby")).toContain(
+      `${devicePicker.id}__description`
+    );
+    expect(document.getElementById(`${devicePicker.id}__description`)?.textContent).toBe(
+      "Identifier of the network device to back up."
+    );
   });
 });
 
@@ -680,6 +701,13 @@ describe("submission errors", () => {
 
     fireEvent.click(submitButton());
     expect(await screen.findByText("Device is offline")).toBeTruthy();
+    const devicePicker = labelledControl("Device");
+    expect(devicePicker.getAttribute("aria-describedby")).toContain(
+      `${devicePicker.id}__error`
+    );
+    expect(document.getElementById(`${devicePicker.id}__error`)?.textContent).toContain(
+      "Device is offline"
+    );
 
     await act(async () =>
       context().setFields("field:device_id", { device_id: "d2" }, "user")
@@ -687,6 +715,7 @@ describe("submission errors", () => {
     await waitFor(() =>
       expect(screen.queryByText("Device is offline")).toBeNull()
     );
+    expect(document.getElementById(`${devicePicker.id}__error`)).toBeNull();
   });
 
   it("shows a string 422 detail as a form-level error", async () => {

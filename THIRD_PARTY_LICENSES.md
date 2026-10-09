@@ -83,6 +83,7 @@ The following Python packages are dependencies of NVIDIA Config Manager. See `py
 | pytest-timeout | MIT | https://github.com/pytest-dev/pytest-timeout |
 | testcontainers | Apache-2.0 | https://github.com/testcontainers/testcontainers-python |
 | aiosqlite | MIT | https://github.com/omnilib/aiosqlite |
+| jsonschema | MIT | https://github.com/python-jsonschema/jsonschema |
 | responses | Apache-2.0 | https://github.com/getsentry/responses |
 | mock | BSD-2-Clause | https://github.com/testing-cabal/mock |
 | ruff | MIT | https://github.com/astral-sh/ruff |
@@ -114,6 +115,7 @@ The following npm packages are dependencies of the NVIDIA Config Manager UI. See
 | @radix-ui/react-label | MIT | https://github.com/radix-ui/primitives |
 | @radix-ui/react-navigation-menu | MIT | https://github.com/radix-ui/primitives |
 | @radix-ui/react-popover | MIT | https://github.com/radix-ui/primitives |
+| @radix-ui/react-radio-group | MIT | https://github.com/radix-ui/primitives |
 | @radix-ui/react-scroll-area | MIT | https://github.com/radix-ui/primitives |
 | @radix-ui/react-select | MIT | https://github.com/radix-ui/primitives |
 | @radix-ui/react-slot | MIT | https://github.com/radix-ui/primitives |
@@ -121,8 +123,14 @@ The following npm packages are dependencies of the NVIDIA Config Manager UI. See
 | @radix-ui/react-tabs | MIT | https://github.com/radix-ui/primitives |
 | @radix-ui/react-toast | MIT | https://github.com/radix-ui/primitives |
 | @radix-ui/react-tooltip | MIT | https://github.com/radix-ui/primitives |
+| @rjsf/core | Apache-2.0 | https://github.com/rjsf-team/react-jsonschema-form |
+| @rjsf/utils | Apache-2.0 | https://github.com/rjsf-team/react-jsonschema-form |
+| @rjsf/validator-ajv8 | Apache-2.0 | https://github.com/rjsf-team/react-jsonschema-form |
 | @tanstack/match-sorter-utils | MIT | https://github.com/TanStack/table |
 | @tanstack/react-table | MIT | https://github.com/TanStack/table |
+| @types/react-syntax-highlighter | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
+| ajv | MIT | https://github.com/ajv-validator/ajv |
+| ajv-formats | MIT | https://github.com/ajv-validator/ajv-formats |
 | class-variance-authority | Apache-2.0 | https://github.com/joe-bell/cva |
 | clsx | MIT | https://github.com/lukeed/clsx |
 | cmdk | MIT | https://github.com/pacocoursey/cmdk |
@@ -148,16 +156,21 @@ The following npm packages are dependencies of the NVIDIA Config Manager UI. See
 
 | Package | License | URL |
 |---------|---------|-----|
+| @eslint/eslintrc | MIT | https://github.com/eslint/eslintrc |
 | @playwright/test | Apache-2.0 | https://github.com/microsoft/playwright |
+| @testing-library/dom | MIT | https://github.com/testing-library/dom-testing-library |
+| @testing-library/react | MIT | https://github.com/testing-library/react-testing-library |
 | @types/node | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/react | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/react-dom | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | eslint | MIT | https://github.com/eslint/eslint |
 | eslint-config-next | MIT | https://github.com/vercel/next.js |
+| jsdom | MIT | https://github.com/jsdom/jsdom |
 | msw | MIT | https://github.com/mswjs/msw |
 | postcss | MIT | https://github.com/postcss/postcss |
 | tailwindcss | MIT | https://github.com/tailwindlabs/tailwindcss |
 | typescript | Apache-2.0 | https://github.com/microsoft/TypeScript |
+| vitest | MIT | https://github.com/vitest-dev/vitest |
 
 ---
 

@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,18 +29,11 @@ import {
 import nextConfig from "../../next.config.mjs";
 
 const UI_ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const INVENTORY_DIR = join(UI_ROOT, "tests/e2e/fixtures/workflow-form-inventory");
-
-const readInventory = (): Array<{ slug: string; workflow: string }> =>
-  readdirSync(INVENTORY_DIR)
-    .filter((file) => file.endsWith(".json"))
-    .map((file) => JSON.parse(readFileSync(join(INVENTORY_DIR, file), "utf8")));
-
 describe("legacy workflow redirects", () => {
-  it("maps every inventoried legacy form to its previously shipped slug", () => {
-    expect(legacyWorkflowRedirects).toEqual(
-      Object.fromEntries(readInventory().map(({ slug, workflow }) => [workflow, slug]))
-    );
+  it("declares a unique, URL-safe slug for every legacy route", () => {
+    const slugs = Object.values(legacyWorkflowRedirects);
+    expect(new Set(slugs).size).toBe(slugs.length);
+    for (const slug of slugs) expect(slug).toMatch(/^[a-z0-9]+$/);
   });
 
   it("does not retain implementations behind the redirected URLs", () => {

@@ -41,6 +41,12 @@ class _Input(BaseModel):
     host: str
 
 
+class _AttributedInput(BaseModel):
+    host: str
+    user: str | None = None
+    user_domain: str | None = None
+
+
 class _CanonWorkflow(WorkflowMetadataMixin):
     workflow_name = "Canon"
     workflow_description = "Canonicalizing workflow"
@@ -51,6 +57,13 @@ class _CanonWorkflow(WorkflowMetadataMixin):
     async def canonicalize_input(cls, body: BaseModel) -> BaseModel:
         cast(_Input, body).host = "canonical"
         return body
+
+
+class _AttributedWorkflow(WorkflowMetadataMixin):
+    workflow_name = "Attributed"
+    workflow_description = "Workflow with server-owned attribution"
+    workflow_input_class = _AttributedInput
+    workflow_api_endpoint = "/attributed"
 
 
 @pytest.mark.asyncio
@@ -80,6 +93,34 @@ async def test_endpoint_canonicalizes_input_before_start(mocker):
 
     assert response.id == "wid-1"
     assert cast(_Input, captured["body"]).host == "canonical"
+
+
+@pytest.mark.asyncio
+async def test_endpoint_replaces_submitted_identity_with_authenticated_identity(mocker):
+    """HTTP callers cannot spoof input fields owned by the authenticated boundary."""
+    captured: dict[str, BaseModel] = {}
+
+    async def _fake_start(request, workflow_class, body):
+        captured["body"] = body
+        return "wid-1"
+
+    mocker.patch.object(dynamic_endpoints, "start_workflow", new=_fake_start)
+    endpoint = create_workflow_endpoint(_AttributedWorkflow, _AttributedInput, "/attributed")
+    request = MagicMock()
+    request.state.user = "trusted@example.com"
+
+    await endpoint(
+        _AttributedInput(
+            host="device-1",
+            user="spoofed@attacker.example",
+            user_domain="attacker.example",
+        ),
+        request,
+    )
+
+    submitted = cast(_AttributedInput, captured["body"])
+    assert submitted.user == "trusted@example.com"
+    assert submitted.user_domain == "example.com"
 
 
 @pytest.mark.asyncio

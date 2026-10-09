@@ -34,6 +34,7 @@ import {
   TENANT_LIST,
   TYPED_LOCATIONS_LIST_API_RESPONSE,
 } from "@/mocks/data";
+import { WORKFLOW_FORM_FIXTURES } from "@/mocks/data/workflowForms";
 
 import {
   DIAGNOSTICS_COMMANDS,
@@ -718,6 +719,12 @@ const PARITY_WORKFLOWS: ParityWorkflow[] = [
     ],
   },
 ];
+
+test("parity definitions cover every generic workflow form", () => {
+  expect(PARITY_WORKFLOWS.map(({ workflow }) => workflow).sort()).toEqual(
+    Object.keys(WORKFLOW_FORM_FIXTURES).sort()
+  );
+});
 
 for (const definition of PARITY_WORKFLOWS) {
   test.describe(`${definition.workflow} payload parity`, () => {

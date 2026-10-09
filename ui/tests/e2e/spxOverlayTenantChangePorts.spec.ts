@@ -22,10 +22,9 @@
  * location field (`siteField`, so no second Site control), and the device's ports
  * (`/v1/parameter/device/{device_id}/interfaces`), cleared when the device changes.
  *
- * Differences from the legacy page, by design: ports are linked as repeated
- * `?port_names=` parameters (the legacy comma-separated list is not split); Submit is
- * enabled while the form is incomplete and reports "<label> is required"; a ports load
- * failure shows under the Ports picker.
+ * Both repeated and legacy comma-separated `?port_names=` links are accepted. Submit
+ * is enabled while the form is incomplete and reports "<label> is required"; a ports
+ * load failure shows under the Ports picker.
  */
 import { expect, type Page } from "@playwright/test";
 

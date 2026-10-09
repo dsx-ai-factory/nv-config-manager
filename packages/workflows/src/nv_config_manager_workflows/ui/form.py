@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from functools import cache
 from typing import Any, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, PydanticUserError
 
 from nv_config_manager_workflows.ui.errors import WorkflowFormContractError
 from nv_config_manager_workflows.ui.form_schema import (
@@ -228,9 +228,9 @@ def build_form(model: type[BaseModel] | None) -> dict[str, Any]:
             _FormChecker(model, schema, ui_schema).check()
         except WorkflowFormContractError:
             raise
-        except (TypeError, KeyError, ValueError) as error:
+        except (TypeError, KeyError, ValueError, PydanticUserError) as error:
             # A wrongly typed declaration value (an unhashable widget, say) or a
-            # Pydantic JSON Schema error (PydanticUserError is a TypeError) is a
+            # Pydantic JSON Schema error is a
             # form problem too, so a third-party plugin's form stays isolated.
             raise WorkflowFormContractError(
                 f"{model.__qualname__}: invalid form declaration ({type(error).__name__}: {error})"

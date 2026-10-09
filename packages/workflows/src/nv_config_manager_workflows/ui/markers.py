@@ -29,10 +29,13 @@ UNSET: Any = object()
 
 @dataclass(frozen=True)
 class ServerOwned:
-    """The server fills this field (for example ``user``); the form never shows or sends it.
+    """The HTTP API replaces this field with a server-derived value.
+
+    The form never shows or sends it. Other trusted callers, such as schedulers
+    and parent workflows, may still set it when constructing Temporal input directly.
 
     The field must have a Pydantic default because the request body is validated
-    before the server fills it.
+    before the HTTP endpoint replaces it.
     """
 
 
