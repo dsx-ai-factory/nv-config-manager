@@ -247,7 +247,7 @@ By default, Config Manager does not create Django Groups — matching `Group` ro
 
 ## Redis Cache Database
 
-The bundled Nautobot uses the same Redis server as the rest of Config Manager (`externalServices.redis`). Its Django cache uses Redis database `externalServices.redis.nautobotCacheDb`, which defaults to `2`.
+The bundled Nautobot uses the same Redis server as the rest of Config Manager (`externalServices.redis`). Its Django cache uses Redis database `externalServices.redis.nautobotCacheDb`, which defaults to `1`. That matches Nautobot's own defaults: cache on database `1`, Celery broker on database `0`.
 
 Every Nautobot web pod start runs `nautobot-server post_upgrade`. That command clears the cache with `FLUSHDB`, which deletes every key in the cache database, not only Nautobot's keys. If `externalServices.redis.host` points at a Redis server that other applications share, set `nautobotCacheDb` to a database nothing else uses. The Redis server must be a standalone or replicated server that supports numbered databases. Redis Cluster endpoints, which only have database `0`, are not supported. The chart fails to render when `nautobotCacheDb` is not a non-negative decimal integer without leading zeros, is `0` (the database Nautobot's Celery broker uses), or equals `externalServices.redis.db` or `externalServices.redis.lockDb`.
 

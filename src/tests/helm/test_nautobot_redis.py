@@ -72,8 +72,8 @@ def _nautobot_env(*set_args: str) -> dict[str, Any]:
     pytest.fail(f"ConfigMap {_NAUTOBOT_ENV_CONFIGMAP} not rendered")
 
 
-def test_cache_db_defaults_to_2() -> None:
-    assert _nautobot_env()["NAUTOBOT_CACHE_REDIS_DB"] == "2"
+def test_cache_db_defaults_to_1() -> None:
+    assert _nautobot_env()["NAUTOBOT_CACHE_REDIS_DB"] == "1"
 
 
 def test_cache_db_is_configurable() -> None:
@@ -98,11 +98,6 @@ def test_cache_db_must_not_be_celery_broker_db() -> None:
     )
     assert result.returncode != 0
     assert "Celery broker uses Redis database 0" in result.stderr
-
-
-def test_cache_db_1_is_allowed() -> None:
-    env = _nautobot_env("externalServices.redis.nautobotCacheDb=1")
-    assert env["NAUTOBOT_CACHE_REDIS_DB"] == "1"
 
 
 @pytest.mark.parametrize(

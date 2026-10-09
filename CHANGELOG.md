@@ -22,7 +22,8 @@ version before the selected release candidate is promoted.
   Nautobot web pod runs it on start, so each deploy deleted the published KEA
   DHCP config several times, and DHCP sidecars waited up to one refresh
   interval for it to come back. The Nautobot cache now uses its own database,
-  set by `externalServices.redis.nautobotCacheDb` (default 2). On a shared
+  set by `externalServices.redis.nautobotCacheDb` (default 1, Nautobot's
+  upstream cache database). On a shared
   external Redis, set it to a database nothing else uses. The chart rejects a
   value equal to `externalServices.redis.db` or `lockDb` when it deploys
   Nautobot. After upgrading, delete the leftover `:1:nautobot*` keys from
