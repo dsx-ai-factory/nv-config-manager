@@ -48,7 +48,7 @@ _KEYWORD_TYPES: dict[str, tuple[str, ...]] = {
     "maximum": ("integer", "number"),
 }
 
-SUPPORTED_SERVER_OWNED_FIELDS = frozenset({"user", "user_domain"})
+SUPPORTED_SERVER_OWNED_FIELDS = frozenset({"user"})
 """Input fields the v1 HTTP boundary knows how to derive from authentication."""
 
 
@@ -194,7 +194,7 @@ def _validate_server_owned_fields(model: type[BaseModel]) -> None:
         names = ", ".join(repr(name) for name in sorted(unsupported))
         raise WorkflowFormContractError(
             f"{model.__qualname__} marks unsupported ServerOwned field(s) {names}; "
-            "workflow-form v1 supports only 'user' and 'user_domain'"
+            "workflow-form v1 supports only 'user'"
         )
 
 

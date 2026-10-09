@@ -38,7 +38,7 @@ from nv_config_manager.temporal.ngc.workflows.ib_pkey_member_add import (
 )
 from nv_config_manager_workflows.metadata import build_workflow_lock_key
 from nv_config_manager_workflows.mixins import ib_pkey as ib_pkey_mixins
-from nv_config_manager_workflows.ui import ServerOwned
+from nv_config_manager_workflows.ui import FormExcluded, ServerOwned
 
 
 class _Input(BaseModel):
@@ -48,7 +48,7 @@ class _Input(BaseModel):
 class _AttributedInput(BaseModel):
     host: str
     user: Annotated[str | None, ServerOwned()] = None
-    user_domain: Annotated[str | None, ServerOwned()] = None
+    user_domain: Annotated[str | None, FormExcluded()] = None
 
 
 class _CallerOwnedInput(BaseModel):
@@ -118,8 +118,8 @@ async def test_endpoint_canonicalizes_input_before_start(mocker):
 
 
 @pytest.mark.asyncio
-async def test_endpoint_replaces_submitted_identity_with_authenticated_identity(mocker):
-    """HTTP callers cannot spoof input fields owned by the authenticated boundary."""
+async def test_endpoint_replaces_owned_user_but_preserves_form_excluded_domain(mocker):
+    """The HTTP boundary owns user while configured clients retain their domain."""
     captured: dict[str, BaseModel] = {}
 
     async def _fake_start(request, workflow_class, body):
@@ -142,7 +142,7 @@ async def test_endpoint_replaces_submitted_identity_with_authenticated_identity(
 
     submitted = cast(_AttributedInput, captured["body"])
     assert submitted.user == "trusted@example.com"
-    assert submitted.user_domain == "example.com"
+    assert submitted.user_domain == "attacker.example"
 
 
 @pytest.mark.asyncio

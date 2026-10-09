@@ -517,11 +517,14 @@ class TestForms:
     def test_an_unexpected_third_party_form_id_accessor_error_is_isolated(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        @classmethod
         def raise_form_id_error(_cls: type[BetaWorkflow]) -> str:
             raise RuntimeError("form ID accessor failed\nwith private details")
 
-        monkeypatch.setattr(BetaWorkflow, "get_workflow_form_id", raise_form_id_error)
+        monkeypatch.setattr(
+            BetaWorkflow,
+            "get_workflow_form_id",
+            classmethod(raise_form_id_error),
+        )
         registry = WorkflowRegistry.build(
             installed(
                 plugin("alpha-plugin", workflows=(AlphaWorkflow,)),
@@ -542,11 +545,14 @@ class TestForms:
     def test_an_unexpected_builtin_form_id_accessor_error_is_fatal(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        @classmethod
         def raise_form_id_error(_cls: type[BetaWorkflow]) -> str:
             raise RuntimeError("form ID accessor failed")
 
-        monkeypatch.setattr(BetaWorkflow, "get_workflow_form_id", raise_form_id_error)
+        monkeypatch.setattr(
+            BetaWorkflow,
+            "get_workflow_form_id",
+            classmethod(raise_form_id_error),
+        )
         registry = WorkflowRegistry.build(
             installed(plugin(BUILTIN_PLUGIN_NAME, workflows=(BetaWorkflow,)))
         )

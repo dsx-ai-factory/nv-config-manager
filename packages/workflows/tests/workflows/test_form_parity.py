@@ -60,9 +60,9 @@ EXPECTED_DIFFERENCES: dict[tuple[str, str], str] = {
         "backupworkflow",
         "manual site and device",
     ): (
-        "the legacy Backup form sent user_domain 'nvidia.com'; the field is now ServerOwned, "
-        "so the generic form omits it and the API fills it from the authenticated identity's "
-        "email domain (fallback nvidia.com); the blank workflow_id and "
+        "the legacy Backup form sent user_domain 'nvidia.com'; the field is now FormExcluded, "
+        "so the generic form omits it and the API retains its legacy absent-value fallback; "
+        "the blank workflow_id and "
         "intended_config_commit_id it also sent are FormExcluded"
     ),
 }
