@@ -153,6 +153,15 @@ def project_form_schema(model: type[BaseModel]) -> dict[str, Any]:
     for name, info in model.model_fields.items():
         marker = field_marker(model, name)
         where = f"{model.__qualname__} field {name!r}"
+        if (
+            isinstance(marker, ServerOwned | FormExcluded)
+            and info.validation_alias is not None
+            and not isinstance(info.validation_alias, str)
+        ):
+            raise WorkflowFormContractError(
+                f"{where} uses {type(info.validation_alias).__name__} as validation_alias; "
+                "ServerOwned and FormExcluded support only string validation aliases"
+            )
         prop_name = _property_name(name, info)
         if isinstance(marker, ServerOwned | FormExcluded):
             if info.is_required():
