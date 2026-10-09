@@ -38,7 +38,7 @@ import {
   effectiveOrder,
   locationOptionsOf,
   propertiesOf,
-  variantRowsOptionsOf,
+  variantRowsFieldOptionsOf,
 } from "./ui-schema";
 
 export interface FormContext {
@@ -75,7 +75,7 @@ export const buildLayout = (schema: unknown, uiSchema: unknown): FormLayout => {
     const coreField = coreFieldOf(uiSchema, name);
     if (coreField) owners[name] = `field:${name}`;
     if (coreField === "variantRows") {
-      for (const owned of variantRowsOptionsOf(uiSchema, name).owns) {
+      for (const owned of variantRowsFieldOptionsOf(uiSchema, name).ownedProperties) {
         owners[owned] = `field:${name}`;
       }
     }

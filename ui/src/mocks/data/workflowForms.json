@@ -589,39 +589,39 @@
       "interfaces": {
         "ui:field": "variantRows",
         "ui:options": {
-          "owns": [
+          "ownedProperties": [
             "interfaces",
             "guids",
             "guid_memberships"
           ],
-          "variants": [
+          "modes": [
             {
               "id": "interfaces",
               "label": "By Interfaces",
-              "fields": [
+              "columns": [
                 {
-                  "property": "interfaces",
-                  "key": "device",
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "device",
                   "label": "Device",
                   "kind": "text",
                   "placeholder": "device (e.g. hca01)",
                   "required": true
                 },
                 {
-                  "property": "interfaces",
-                  "key": "interface",
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "interface",
                   "label": "Interface",
                   "kind": "text",
                   "placeholder": "interface (e.g. mlx5_0)",
                   "required": true
                 },
                 {
-                  "property": "interfaces",
-                  "key": "membership",
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "membership",
                   "label": "Membership Type",
                   "kind": "select",
                   "required": true,
-                  "options": [
+                  "choices": [
                     {
                       "label": "full",
                       "value": "full"
@@ -637,9 +637,9 @@
             {
               "id": "guids",
               "label": "By GUIDs",
-              "fields": [
+              "columns": [
                 {
-                  "property": "guids",
+                  "arrayProperty": "guids",
                   "label": "GUID",
                   "kind": "text",
                   "placeholder": "0x0011223344556677",
@@ -647,11 +647,11 @@
                   "pattern": "^0[xX][0-9a-fA-F]{16}$"
                 },
                 {
-                  "property": "guid_memberships",
+                  "arrayProperty": "guid_memberships",
                   "label": "Membership Type",
                   "kind": "select",
                   "required": true,
-                  "options": [
+                  "choices": [
                     {
                       "label": "full",
                       "value": "full"
@@ -773,26 +773,26 @@
       "interfaces": {
         "ui:field": "variantRows",
         "ui:options": {
-          "owns": [
+          "ownedProperties": [
             "interfaces",
             "guids"
           ],
-          "variants": [
+          "modes": [
             {
               "id": "interfaces",
               "label": "By Interfaces",
-              "fields": [
+              "columns": [
                 {
-                  "property": "interfaces",
-                  "key": "device",
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "device",
                   "label": "Device",
                   "kind": "text",
                   "placeholder": "device (e.g. hca01)",
                   "required": true
                 },
                 {
-                  "property": "interfaces",
-                  "key": "interface",
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "interface",
                   "label": "Interface",
                   "kind": "text",
                   "placeholder": "interface (e.g. mlx5_0)",
@@ -803,9 +803,9 @@
             {
               "id": "guids",
               "label": "By GUIDs",
-              "fields": [
+              "columns": [
                 {
-                  "property": "guids",
+                  "arrayProperty": "guids",
                   "label": "GUID",
                   "kind": "text",
                   "placeholder": "0x0011223344556677",
@@ -930,39 +930,39 @@
       "interfaces": {
         "ui:field": "variantRows",
         "ui:options": {
-          "owns": [
+          "ownedProperties": [
             "interfaces",
             "guids",
             "guid_memberships"
           ],
-          "variants": [
+          "modes": [
             {
               "id": "interfaces",
               "label": "By Interfaces",
-              "fields": [
+              "columns": [
                 {
-                  "property": "interfaces",
-                  "key": "device",
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "device",
                   "label": "Device",
                   "kind": "text",
                   "placeholder": "device (e.g. hca01)",
                   "required": true
                 },
                 {
-                  "property": "interfaces",
-                  "key": "interface",
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "interface",
                   "label": "Interface",
                   "kind": "text",
                   "placeholder": "interface (e.g. mlx5_0)",
                   "required": true
                 },
                 {
-                  "property": "interfaces",
-                  "key": "membership",
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "membership",
                   "label": "Membership Type",
                   "kind": "select",
                   "required": true,
-                  "options": [
+                  "choices": [
                     {
                       "label": "full",
                       "value": "full"
@@ -978,9 +978,9 @@
             {
               "id": "guids",
               "label": "By GUIDs",
-              "fields": [
+              "columns": [
                 {
-                  "property": "guids",
+                  "arrayProperty": "guids",
                   "label": "GUID",
                   "kind": "text",
                   "placeholder": "0x0011223344556677",
@@ -988,11 +988,11 @@
                   "pattern": "^0[xX][0-9a-fA-F]{16}$"
                 },
                 {
-                  "property": "guid_memberships",
+                  "arrayProperty": "guid_memberships",
                   "label": "Membership Type",
                   "kind": "select",
                   "required": true,
-                  "options": [
+                  "choices": [
                     {
                       "label": "full",
                       "value": "full"

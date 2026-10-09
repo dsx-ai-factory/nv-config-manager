@@ -150,35 +150,35 @@ class IBPKeyMemberUpdateInput(BaseModel):
         "host": {"ui:title": "UFM Host", "ui:placeholder": "ufm.example.com"},
         "pkey": {"ui:title": "PKey", "ui:placeholder": "0x8001"},
         "interfaces": variant_rows(
-            owns=["interfaces", "guids", "guid_memberships"],
-            variants=[
+            owned_properties=["interfaces", "guids", "guid_memberships"],
+            modes=[
                 {
                     "id": "interfaces",
                     "label": "By Interfaces",
-                    "fields": [
+                    "columns": [
                         {
-                            "property": "interfaces",
-                            "key": "device",
+                            "arrayProperty": "interfaces",
+                            "itemProperty": "device",
                             "label": "Device",
                             "kind": "text",
                             "placeholder": "device (e.g. hca01)",
                             "required": True,
                         },
                         {
-                            "property": "interfaces",
-                            "key": "interface",
+                            "arrayProperty": "interfaces",
+                            "itemProperty": "interface",
                             "label": "Interface",
                             "kind": "text",
                             "placeholder": "interface (e.g. mlx5_0)",
                             "required": True,
                         },
                         {
-                            "property": "interfaces",
-                            "key": "membership",
+                            "arrayProperty": "interfaces",
+                            "itemProperty": "membership",
                             "label": "Membership Type",
                             "kind": "select",
                             "required": True,
-                            "options": [
+                            "choices": [
                                 {"label": "full", "value": "full"},
                                 {"label": "limited", "value": "limited"},
                             ],
@@ -188,9 +188,9 @@ class IBPKeyMemberUpdateInput(BaseModel):
                 {
                     "id": "guids",
                     "label": "By GUIDs",
-                    "fields": [
+                    "columns": [
                         {
-                            "property": "guids",
+                            "arrayProperty": "guids",
                             "label": "GUID",
                             "kind": "text",
                             "placeholder": "0x0011223344556677",
@@ -198,11 +198,11 @@ class IBPKeyMemberUpdateInput(BaseModel):
                             "pattern": r"^0[xX][0-9a-fA-F]{16}$",
                         },
                         {
-                            "property": "guid_memberships",
+                            "arrayProperty": "guid_memberships",
                             "label": "Membership Type",
                             "kind": "select",
                             "required": True,
-                            "options": [
+                            "choices": [
                                 {"label": "full", "value": "full"},
                                 {"label": "limited", "value": "limited"},
                             ],
