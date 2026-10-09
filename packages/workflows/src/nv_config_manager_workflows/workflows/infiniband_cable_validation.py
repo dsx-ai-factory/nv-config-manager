@@ -126,6 +126,8 @@ class InfinibandCableValidationWorkflow(WorkflowMetadataMixin, StageMixin):
     workflow_input_class = InfinibandCableValidationInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/infiniband_cable_validation"
+    workflow_form_enabled = True
+    workflow_form_id = "infiniband-cable-validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
     workflow_required_activities = (

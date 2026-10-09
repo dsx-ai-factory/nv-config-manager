@@ -703,12 +703,8 @@ test.describe("Workflows Page", () => {
         json: {
           workflows: [
             catalogEntry("DeployWorkflow", "Configuration Deploy"),
-            catalogEntry("AcmeFabricAuditWorkflow", "Acme Fabric Audit", {
-              plugin: "acme",
-            }),
-            catalogEntry("RetiredWorkflow", "Retired Workflow", {
-              enabled: false,
-            }),
+            catalogEntry("AcmeFabricAuditWorkflow", "Acme Fabric Audit"),
+            catalogEntry("RetiredWorkflow", "Retired Workflow"),
           ],
         },
       })
@@ -738,6 +734,7 @@ test.describe("Workflows Page", () => {
       "All",
       "Configuration Deploy",
       "Acme Fabric Audit",
+      "Retired Workflow",
     ]);
 
     const filteredRequest = page.waitForRequest(

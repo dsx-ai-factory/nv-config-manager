@@ -16,7 +16,7 @@
  */
 
 /**
- * The Configuration Diff form on its class-name route (the legacy
+ * The Configuration Diff form on its form ID route (the legacy
  * `/workflows/configdiffworkflow/form` redirects there).
  */
 import { FORBIDDEN_DEVICE_IDS } from "@/mocks/data";

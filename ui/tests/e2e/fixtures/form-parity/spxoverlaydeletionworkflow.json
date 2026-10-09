@@ -5,7 +5,7 @@
     {
       "name": "manual fill",
       "legacy_url": "/workflows/spxoverlaydeletionworkflow/form",
-      "new_url": "/workflows/new/SpXOverlayDeletionWorkflow",
+      "new_url": "/workflows/new/spx-overlay-deletion",
       "legacy_payload": {
         "site": "PDX01",
         "site_type": "Site",
@@ -22,7 +22,7 @@
     {
       "name": "manual fill, default namespace tag",
       "legacy_url": "/workflows/spxoverlaydeletionworkflow/form",
-      "new_url": "/workflows/new/SpXOverlayDeletionWorkflow",
+      "new_url": "/workflows/new/spx-overlay-deletion",
       "legacy_payload": {
         "site": "PDX01",
         "site_type": "Site",
@@ -39,7 +39,7 @@
     {
       "name": "namespace tag chosen before the site",
       "legacy_url": "/workflows/spxoverlaydeletionworkflow/form",
-      "new_url": "/workflows/new/SpXOverlayDeletionWorkflow",
+      "new_url": "/workflows/new/spx-overlay-deletion",
       "legacy_payload": {
         "site": "PDX01",
         "site_type": "Site",
@@ -56,7 +56,7 @@
     {
       "name": "prefill from URL, namespace alias",
       "legacy_url": "/workflows/spxoverlaydeletionworkflow/form?site=PDX01&overlay_id=test-overlay-1&namespace=tenant-a",
-      "new_url": "/workflows/new/SpXOverlayDeletionWorkflow?site=PDX01&overlay_id=test-overlay-1&namespace=tenant-a",
+      "new_url": "/workflows/new/spx-overlay-deletion?site=PDX01&overlay_id=test-overlay-1&namespace=tenant-a",
       "legacy_payload": {
         "site": "PDX01",
         "site_type": "Site",
@@ -73,7 +73,7 @@
     {
       "name": "prefill from URL, namespace_tag",
       "legacy_url": "/workflows/spxoverlaydeletionworkflow/form?site=RNO1&overlay_id=test-overlay-2&namespace_tag=tenant-a",
-      "new_url": "/workflows/new/SpXOverlayDeletionWorkflow?site=RNO1&overlay_id=test-overlay-2&namespace_tag=tenant-a",
+      "new_url": "/workflows/new/spx-overlay-deletion?site=RNO1&overlay_id=test-overlay-2&namespace_tag=tenant-a",
       "legacy_payload": {
         "site": "RNO1",
         "site_type": "Site",
@@ -90,7 +90,7 @@
     {
       "name": "prefill, then a different site, overlay, and namespace tag",
       "legacy_url": "/workflows/spxoverlaydeletionworkflow/form?site=PDX01&overlay_id=test-overlay-1&namespace=tenant-a",
-      "new_url": "/workflows/new/SpXOverlayDeletionWorkflow?site=PDX01&overlay_id=test-overlay-1&namespace=tenant-a",
+      "new_url": "/workflows/new/spx-overlay-deletion?site=PDX01&overlay_id=test-overlay-1&namespace=tenant-a",
       "legacy_payload": {
         "site": "RNO1",
         "site_type": "Site",

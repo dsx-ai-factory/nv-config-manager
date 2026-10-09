@@ -19,7 +19,7 @@ import { mockServerCatalogAndUser } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT, WORKFLOW_DETAILS_TIMEOUT } from "./shared/utils";
 
 const FORM_TITLE = "New InfiniBand PKey Member Add Workflow";
-const FORM_PATH = "/workflows/new/IBPKeyMemberAddWorkflow";
+const FORM_PATH = "/workflows/new/ib-pkey-member-add";
 const ENDPOINT = "/v1/workflow/ngc/ib_pkey_member_add";
 
 const GUID_A = "0x0011223344556677";

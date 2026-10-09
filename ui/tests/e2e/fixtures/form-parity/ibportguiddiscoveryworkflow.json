@@ -5,7 +5,7 @@
     {
       "name": "manual fill, dry run",
       "legacy_url": "/workflows/ibportguiddiscoveryworkflow/form",
-      "new_url": "/workflows/new/IBPortGuidDiscoveryWorkflow",
+      "new_url": "/workflows/new/ib-port-guid-discovery",
       "legacy_payload": {
         "ufm_device_id": "32fdefda-df59-4285-9d6e-a1f220906a8d",
         "switch_device_ids": [
@@ -26,7 +26,7 @@
     {
       "name": "manual fill, dry run off",
       "legacy_url": "/workflows/ibportguiddiscoveryworkflow/form",
-      "new_url": "/workflows/new/IBPortGuidDiscoveryWorkflow",
+      "new_url": "/workflows/new/ib-port-guid-discovery",
       "legacy_payload": {
         "ufm_device_id": "2ec651a7-2a1c-4a27-bac7-b0a06f8ef49c",
         "switch_device_ids": [

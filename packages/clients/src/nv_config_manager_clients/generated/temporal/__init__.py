@@ -45,6 +45,7 @@ __all__ = [
     "ApiKeyError",
     "ApiAttributeError",
     "ApiException",
+    "ApiErrorResponse",
     "BackupInput",
     "CommandEntry",
     "ConfigDiffInput",
@@ -104,7 +105,10 @@ __all__ = [
     "ValidationError",
     "WhoamiResponse",
     "WorkflowDetailResponse",
+    "WorkflowFormNotFoundResponse",
     "WorkflowFormResponse",
+    "WorkflowFormUnavailableDetail",
+    "WorkflowFormUnavailableResponse",
     "WorkflowListResponse",
     "WorkflowMetadata",
     "WorkflowMetadataResponse",
@@ -131,6 +135,7 @@ from nv_config_manager_clients.generated.temporal.exceptions import ApiAttribute
 from nv_config_manager_clients.generated.temporal.exceptions import ApiException as ApiException
 
 # import models into sdk package
+from nv_config_manager_clients.generated.temporal.models.api_error_response import ApiErrorResponse as ApiErrorResponse
 from nv_config_manager_clients.generated.temporal.models.backup_input import BackupInput as BackupInput
 from nv_config_manager_clients.generated.temporal.models.command_entry import CommandEntry as CommandEntry
 from nv_config_manager_clients.generated.temporal.models.config_diff_input import ConfigDiffInput as ConfigDiffInput
@@ -190,7 +195,10 @@ from nv_config_manager_clients.generated.temporal.models.validate_hardware_input
 from nv_config_manager_clients.generated.temporal.models.validation_error import ValidationError as ValidationError
 from nv_config_manager_clients.generated.temporal.models.whoami_response import WhoamiResponse as WhoamiResponse
 from nv_config_manager_clients.generated.temporal.models.workflow_detail_response import WorkflowDetailResponse as WorkflowDetailResponse
+from nv_config_manager_clients.generated.temporal.models.workflow_form_not_found_response import WorkflowFormNotFoundResponse as WorkflowFormNotFoundResponse
 from nv_config_manager_clients.generated.temporal.models.workflow_form_response import WorkflowFormResponse as WorkflowFormResponse
+from nv_config_manager_clients.generated.temporal.models.workflow_form_unavailable_detail import WorkflowFormUnavailableDetail as WorkflowFormUnavailableDetail
+from nv_config_manager_clients.generated.temporal.models.workflow_form_unavailable_response import WorkflowFormUnavailableResponse as WorkflowFormUnavailableResponse
 from nv_config_manager_clients.generated.temporal.models.workflow_list_response import WorkflowListResponse as WorkflowListResponse
 from nv_config_manager_clients.generated.temporal.models.workflow_metadata import WorkflowMetadata as WorkflowMetadata
 from nv_config_manager_clients.generated.temporal.models.workflow_metadata_response import WorkflowMetadataResponse as WorkflowMetadataResponse

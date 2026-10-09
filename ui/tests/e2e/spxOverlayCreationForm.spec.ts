@@ -16,7 +16,7 @@
  */
 
 /**
- * The SpX Overlay Creation form on its class-name route (the legacy
+ * The SpX Overlay Creation form on its form ID route (the legacy
  * `/workflows/spxoverlaycreationworkflow/form` redirects there).
  *
  * Differences from the legacy page, by design: the Site's location type is submitted

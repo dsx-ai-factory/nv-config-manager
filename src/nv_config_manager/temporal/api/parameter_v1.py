@@ -18,7 +18,7 @@ from collections.abc import Mapping
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import (
@@ -62,29 +62,6 @@ class Secret(BaseModel):
 
     name: str
     description: str | None = None
-
-
-class OptionItem(BaseModel):
-    """One normalized option rendered by a workflow form field."""
-
-    label: str
-    value: str
-    description: str | None = None
-    group: str | None = None
-
-
-class OptionSourceMeta(BaseModel):
-    """Optional metadata accompanying normalized form options."""
-
-    matching_device_count: int | None = None
-    warnings: list[str] = Field(default_factory=list)
-
-
-class OptionSourceResponse(BaseModel):
-    """Normalized response for a Python-declared direct option source."""
-
-    items: list[OptionItem]
-    meta: OptionSourceMeta = Field(default_factory=OptionSourceMeta)
 
 
 router = APIRouter(prefix="/parameter", tags=["parameters"])
@@ -344,62 +321,6 @@ class CommandEntry(BaseModel):
     description: str
 
 
-_PLATFORM_LABELS = {
-    Platform.ARISTA_EOS.value: "Arista EOS",
-    Platform.CUMULUS_LINUX.value: "Cumulus Linux",
-    Platform.MLNX_OS.value: "MLNX-OS",
-    Platform.NV_OS.value: "NV-OS",
-}
-
-
-def _diagnostic_command_options(platforms: list[str]) -> list[OptionItem]:
-    """Build the command groups currently rendered by the diagnostics form."""
-    catalogs: list[tuple[str, dict[str, str]]] = []
-    for platform_name in platforms:
-        try:
-            catalog = get_available_commands(Platform(platform_name))
-        except ValueError:
-            catalog = {}
-        catalogs.append((platform_name, catalog))
-
-    if not catalogs:
-        return []
-
-    if len(catalogs) == 1:
-        return [
-            OptionItem(label=name, value=name, description=description)
-            for name, description in sorted(catalogs[0][1].items())
-        ]
-
-    all_names = set().union(*(catalog for _, catalog in catalogs))
-    shared_names = {name for name in all_names if all(name in catalog for _, catalog in catalogs)}
-    descriptions = {
-        name: description for _, catalog in catalogs for name, description in catalog.items()
-    }
-    options = [
-        OptionItem(
-            label=name,
-            value=name,
-            description=descriptions[name],
-            group="Runs on all selected devices",
-        )
-        for name in sorted(shared_names)
-    ]
-    for platform_name, catalog in catalogs:
-        group = f"{_PLATFORM_LABELS.get(platform_name, platform_name)} only"
-        options.extend(
-            OptionItem(
-                label=name,
-                value=name,
-                description=description,
-                group=group,
-            )
-            for name, description in sorted(catalog.items())
-            if name not in shared_names
-        )
-    return options
-
-
 @router.get("/diagnostics/commands")
 async def get_diagnostics_commands(
     platform: Annotated[list[str] | None, Query()] = None,
@@ -427,45 +348,6 @@ async def get_diagnostics_commands(
                 seen[name] = description
 
     return [CommandEntry(name=name, description=desc) for name, desc in sorted(seen.items())]
-
-
-@router.get(
-    "/diagnostics/command-options",
-    response_model_exclude_none=True,
-)
-async def get_diagnostics_command_options(
-    device_id: Annotated[list[str], Query(description="Selected managed device IDs")],
-) -> OptionSourceResponse:
-    """Return grouped command options for the selected devices."""
-    requested_ids = set(device_id)
-    client = create_dcim_client()
-    try:
-        async with client:
-            devices = await client.list_devices(DCIMDeviceSelectionFilter(managed_only=True))
-    except DCIMInvalidDataError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    selected_devices = [device for device in devices if device.id in requested_ids]
-    platforms = list(
-        dict.fromkeys(device.platform for device in selected_devices if device.platform)
-    )
-    warnings = []
-    if len({device.id for device in selected_devices}) != len(requested_ids):
-        warnings.append("Some selected devices could not be resolved.")
-    if any(not device.platform for device in selected_devices):
-        warnings.append("Some selected devices do not have a platform.")
-    known_platforms = {platform.value for platform in Platform}
-    unsupported_platforms = sorted(set(platforms) - known_platforms)
-    if unsupported_platforms:
-        warnings.append(
-            "Diagnostic command options are unavailable for unsupported platforms: "
-            f"{', '.join(unsupported_platforms)}."
-        )
-
-    return OptionSourceResponse(
-        items=_diagnostic_command_options(platforms),
-        meta=OptionSourceMeta(warnings=warnings),
-    )
 
 
 @router.get("/device/{device_id}/secrets")
@@ -551,59 +433,6 @@ async def get_device_password_users(device_id: str) -> list[Secret]:
         if username != "svc-ngc-cfa-nv-config-manager":
             secrets.append(Secret(name=username, description=f"{username} ({secret_name})"))
     return secrets
-
-
-@router.get(
-    "/password-users",
-    response_model_exclude_none=True,
-)
-async def get_password_user_options(  # pylint: disable=R0913
-    location: Annotated[str, Query(description="Location containing the target devices")],
-    location_type: Annotated[
-        DCIMLocationType | None,
-        Query(description="DCIM location type for the location identifier"),
-    ] = None,
-    role: Annotated[list[str] | None, Query()] = None,
-    status: Annotated[list[str] | None, Query()] = None,
-    tenant: Annotated[str | None, Query()] = None,
-    managed_only: Annotated[
-        bool, Query(description="Limit to NVIDIA Config Manager-managed devices")
-    ] = True,
-) -> OptionSourceResponse:
-    """Return password users from the first device matching the supplied filters."""
-    filters = DCIMDeviceSelectionFilter(
-        sites=(dcim_location_reference(location, location_type),),
-        statuses=tuple(status or ()),
-        roles=tuple(role or ()),
-        tenants=(tenant,) if tenant else (),
-        managed_only=managed_only,
-    )
-    client = create_dcim_client()
-    try:
-        async with client:
-            devices = await client.list_devices(filters)
-            password_mappings = (
-                await client.get_device_password_secret_names(devices[0].id) if devices else {}
-            )
-    except DCIMInvalidDataError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    items = []
-    if isinstance(password_mappings, Mapping):
-        items = [
-            OptionItem(
-                label=username,
-                value=username,
-                description=f"{username} ({secret_name})",
-            )
-            for username, secret_name in password_mappings.items()
-            if username != "svc-ngc-cfa-nv-config-manager"
-        ]
-
-    return OptionSourceResponse(
-        items=items,
-        meta=OptionSourceMeta(matching_device_count=len(devices)),
-    )
 
 
 @router.get(

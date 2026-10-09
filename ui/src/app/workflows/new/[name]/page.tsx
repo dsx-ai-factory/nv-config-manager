@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import useWorkflowCatalog from "@/hooks/useWorkflowCatalog";
 import useWorkflowForm from "@/hooks/useWorkflowForm";
 import useWhoami from "@/hooks/useWhoami";
+import { isLegacyWorkflowCatalog } from "@/lib/workflow-catalog";
 import {
   getWorkflowExecutePermission,
   WORKFLOW_FORM_API_UPGRADE_REQUIRED,
@@ -41,8 +42,8 @@ interface NewWorkflowPageProps {
 }
 
 /**
- * Next.js passes the path segment still percent-encoded, and links encode the class
- * name (`workflowFormPath`). A malformed escape stays as-is and is simply not found.
+ * Next.js passes the path segment still percent-encoded, and links encode the workflow
+ * form ID (`workflowFormPath`). A malformed escape stays as-is and is simply not found.
  */
 const decodeSegment = (segment: string): string => {
   try {
@@ -55,8 +56,8 @@ const decodeSegment = (segment: string): string => {
 const WorkflowNotFound = ({ name }: { name: string }) => (
   <PageCard title="Workflow not found">
     <p>
-      Workflow &quot;{name}&quot; was not found or is not available through the API. Check
-      the link, or choose a workflow from the New workflow menu.
+      Workflow &quot;{name}&quot; was not found or is not available through the
+      API. Check the link, or choose a workflow from the New workflow menu.
     </p>
     <ReturnToWorkflows />
   </PageCard>
@@ -92,23 +93,33 @@ const WorkflowApiUpgradeRequired = () => (
 );
 
 export default function NewWorkflowPage({ params }: NewWorkflowPageProps) {
-  const name = decodeSegment(React.use(params).name);
+  const formId = decodeSegment(React.use(params).name);
   const searchParams = useSearchParams();
-  const { catalog, error: catalogError, isLoaded: catalogLoaded } = useWorkflowCatalog();
-  const entry = catalog.find((candidate) => candidate.name === name);
+  const {
+    catalog,
+    error: catalogError,
+    isLoaded: catalogLoaded,
+  } = useWorkflowCatalog();
+  const entry = catalog.find((candidate) => candidate.form_id === formId);
+  const legacyCatalog = isLegacyWorkflowCatalog(catalog);
   // Do not probe a generic-form endpoint until metadata from a compatible API explicitly
   // advertises it. Older APIs omit `has_form` and may not have the endpoint at all.
-  const { result, reload } = useWorkflowForm(name, entry?.has_form === true);
+  const { result, reload } = useWorkflowForm(
+    formId,
+    entry?.has_form === true && entry.form_id !== null
+  );
   const { isLoaded: whoamiLoaded, isUnauthorized, userRoles } = useWhoami();
   const reasonId = React.useId();
 
+  if (catalogLoaded && (legacyCatalog || entry?.has_form === null))
+    return <WorkflowApiUpgradeRequired />;
   if (catalogLoaded && (!entry || entry.has_form === false)) {
-    return <WorkflowNotFound name={name} />;
+    return <WorkflowNotFound name={formId} />;
   }
-  if (catalogLoaded && entry?.has_form === null) return <WorkflowApiUpgradeRequired />;
-  if (!catalogLoaded && catalogError) return <CatalogUnavailable error={catalogError} />;
+  if (!catalogLoaded && catalogError)
+    return <CatalogUnavailable error={catalogError} />;
   if (!entry || !result || !whoamiLoaded) return <WorkflowFormSkeleton />;
-  if (result.kind === "not_found") return <WorkflowNotFound name={name} />;
+  if (result.kind === "not_found") return <WorkflowNotFound name={formId} />;
   if (result.kind !== "ok") {
     return (
       <FormUnavailable
@@ -119,14 +130,20 @@ export default function NewWorkflowPage({ params }: NewWorkflowPageProps) {
     );
   }
 
-  const permission = getWorkflowExecutePermission(entry, userRoles, isUnauthorized);
+  const permission = getWorkflowExecutePermission(
+    entry,
+    userRoles,
+    isUnauthorized
+  );
   return (
     <>
       {permission.allowed ? null : (
         <div className="flex justify-center px-6 pt-6">
           <Alert className="w-full max-w-3xl">
             <AlertTitle>You cannot start this workflow</AlertTitle>
-            <AlertDescription id={reasonId}>{permission.reason}</AlertDescription>
+            <AlertDescription id={reasonId}>
+              {permission.reason}
+            </AlertDescription>
           </Alert>
         </div>
       )}
@@ -136,7 +153,11 @@ export default function NewWorkflowPage({ params }: NewWorkflowPageProps) {
         aria-describedby={permission.allowed ? undefined : reasonId}
         className="min-w-0"
       >
-        <WorkflowRjsfForm entry={entry} form={result.form} searchParams={searchParams} />
+        <WorkflowRjsfForm
+          entry={entry}
+          form={result.form}
+          searchParams={searchParams}
+        />
       </fieldset>
     </>
   );

@@ -22,6 +22,7 @@ further standard keys into them, for example
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
+from nv_config_manager_workflows.ui.form_options import FormOptionSource
 from nv_config_manager_workflows.ui.option_sources import (
     DEVICE_FILTER_SOURCES,
     DeviceFilter,
@@ -34,7 +35,7 @@ type OptionPresentation = Literal["select", "grouped-checkboxes"]
 
 
 def api_options(
-    source: OptionSource,
+    source: OptionSource | FormOptionSource,
     *,
     presentation: OptionPresentation | None = None,
     select_all: bool = False,
@@ -50,7 +51,12 @@ def api_options(
     ``disable_when_no_matches`` disables the picker when response metadata reports
     ``matching_device_count`` as zero.
     """
-    options: dict[str, Any] = {"source": wire_value(source)}
+    # A symbolic provider source must retain its Python identity until the form
+    # catalog can resolve it in the context of its owning workflow. Direct URL
+    # sources continue to become plain wire values immediately.
+    options: dict[str, Any] = {
+        "source": source if isinstance(source, FormOptionSource) else wire_value(source)
+    }
     if presentation is not None:
         options["presentation"] = presentation
     if select_all:

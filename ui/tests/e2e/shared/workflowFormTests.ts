@@ -16,34 +16,46 @@
  */
 
 /**
- * Helpers for the schema-driven (RJSF) workflow forms on `/workflows/new/<ClassName>`,
+ * Helpers for the schema-driven (RJSF) workflow forms on `/workflows/new/<form_id>`,
  * and the shared suite of the single-device forms (a `device` core field with its
  * implicit Site/Tenant/Status filter scope, Nautobot's `?site=&device-id=` links).
  */
 import { expect, type Page, type Request } from "@playwright/test";
 
-import { DEVICES_LIST, FORBIDDEN_SITE_ID, SITES_LIST, TENANT_LIST } from "@/mocks/data";
+import workflowFormIds from "@/config/workflow-form-ids.json";
+import {
+  DEVICES_LIST,
+  FORBIDDEN_SITE_ID,
+  SITES_LIST,
+  TENANT_LIST,
+} from "@/mocks/data";
 
 import { mockServerCatalogAndUser } from "./apiMocks";
 import { test, TEST_TIMEOUT, WORKFLOW_DETAILS_TIMEOUT } from "./utils";
 
 type Device = (typeof DEVICES_LIST)[keyof typeof DEVICES_LIST][number];
 
-export const formPath = (workflow: string) => `/workflows/new/${workflow}`;
+export const formPath = (workflow: string) => {
+  const formId = (workflowFormIds as Record<string, string>)[workflow];
+  if (!formId) throw new Error(`Missing workflow form ID for ${workflow}`);
+  return `/workflows/new/${formId}`;
+};
 
 /** A SelectBox trigger by its exact accessible name: the selection, or the placeholder. */
 export const picker = (page: Page, name: string) =>
   page.getByRole("button", { name, exact: true });
 
 /** A SelectBox trigger showing `label` as its selection. */
-export const selected = (page: Page, label: string) => picker(page, `${label}. Open options`);
+export const selected = (page: Page, label: string) =>
+  picker(page, `${label}. Open options`);
 
 /** Open the picker named `trigger` and pick `option`. */
 export const choose = async (page: Page, trigger: string, option: string) => {
   await picker(page, trigger).click();
-  await page.getByRole("dialog").getByRole("option", { name: option, exact: true }).click();
+  const openDialog = page.locator('[role="dialog"][data-state="open"]');
+  await openDialog.getByRole("option", { name: option, exact: true }).click();
   // A multi-select stays open.
-  if (await page.getByRole("dialog").isVisible()) await page.keyboard.press("Escape");
+  if (await openDialog.isVisible()) await page.keyboard.press("Escape");
 };
 
 export const SELECT_SITE = "Select a Site...";
@@ -53,14 +65,19 @@ export const SITE_FIRST = "Select a Site first";
 /** The next POST to `endpoint`. */
 export const nextPost = (page: Page, endpoint: string): Promise<Request> =>
   page.waitForRequest(
-    (request) => request.method() === "POST" && new URL(request.url()).pathname === endpoint
+    (request) =>
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === endpoint
   );
 
 /** Collects every POST to `endpoint` (to assert that none was sent). */
 export const recordPosts = (page: Page, endpoint: string): string[] => {
   const posts: string[] = [];
   page.on("request", (request) => {
-    if (request.method() === "POST" && new URL(request.url()).pathname === endpoint) {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === endpoint
+    ) {
       posts.push(request.url());
     }
   });
@@ -77,14 +94,20 @@ export const expectWorkflowDetails = (page: Page) =>
 
 /** The generic failure toast (non-validation errors). */
 export const expectFailureToast = async (page: Page, message: string) => {
-  await expect(page.locator("div.text-sm.font-semibold", { hasText: "Workflow Failed" })).toBeVisible({
+  await expect(
+    page.locator("div.text-sm.font-semibold", { hasText: "Workflow Failed" })
+  ).toBeVisible({
     timeout: TEST_TIMEOUT,
   });
-  await expect(page.locator("div.text-sm.opacity-90", { hasText: message })).toBeVisible();
+  await expect(
+    page.locator("div.text-sm.opacity-90", { hasText: message })
+  ).toBeVisible();
 };
 
 export const noFailureToast = (page: Page) =>
-  expect(page.locator("div.text-sm.font-semibold", { hasText: "Workflow Failed" })).toHaveCount(0);
+  expect(
+    page.locator("div.text-sm.font-semibold", { hasText: "Workflow Failed" })
+  ).toHaveCount(0);
 
 /** The form-level error box (422 errors no field owns). */
 export const formErrors = (page: Page) =>
@@ -105,7 +128,7 @@ export const isDeviceOptionsRequest = (request: Request) =>
 export interface DeviceFormConfig {
   /** Workflow class name. */
   workflow: string;
-  /** Legacy page slug, still linked from Nautobot; it redirects to the class-name route. */
+  /** Legacy page slug, still linked from Nautobot; it redirects to the form ID route. */
   legacySlug: string;
   formTitle: string;
   /** Submit endpoint path. */
@@ -145,7 +168,9 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
   const otherSite = SITES_LIST.rno1;
   const device = deviceFilter(DEVICES_LIST[site]);
   const otherDevice = deviceFilter(DEVICES_LIST[otherSite]);
-  const secondDevice = deviceFilter(DEVICES_LIST[site].filter((item) => item.id !== device.id));
+  const secondDevice = deviceFilter(
+    DEVICES_LIST[site].filter((item) => item.id !== device.id)
+  );
   const payload = (id: string) => ({ device_id: id, ...extraPayload });
 
   test.describe(`${formTitle} Form`, () => {
@@ -157,7 +182,9 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
       });
     });
 
-    test("renders the device and its filters; no device list before a site", async ({ page }) => {
+    test("renders the device and its filters; no device list before a site", async ({
+      page,
+    }) => {
       await expect(page.locator("form label")).toHaveText([
         "Site *",
         "Tenant (optional)",
@@ -171,23 +198,30 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
     test("reports a missing device and sends nothing", async ({ page }) => {
       const posts = recordPosts(page, endpoint);
       await submit(page);
-      await expect(page.getByText("Device is required", { exact: true })).toBeVisible({
+      await expect(
+        page.getByText("Device is required", { exact: true })
+      ).toBeVisible({
         timeout: TEST_TIMEOUT,
       });
       await expect(page.getByText("Site is required")).toHaveCount(0);
 
       // After the failed submit, validation is live.
       await choose(page, SELECT_SITE, site);
-      await expect(page.getByText("Device is required", { exact: true })).toBeVisible();
+      await expect(
+        page.getByText("Device is required", { exact: true })
+      ).toBeVisible();
       await choose(page, SELECT_DEVICE, device.name);
-      await expect(page.getByText("Device is required", { exact: true })).toHaveCount(0);
+      await expect(
+        page.getByText("Device is required", { exact: true })
+      ).toHaveCount(0);
       expect(posts).toEqual([]);
     });
 
     test("submits the selected device and opens the run", async ({ page }) => {
       const deviceRequest = page.waitForRequest(
         (request) =>
-          isDeviceOptionsRequest(request) && new URL(request.url()).searchParams.get("site") === site
+          isDeviceOptionsRequest(request) &&
+          new URL(request.url()).searchParams.get("site") === site
       );
       await choose(page, SELECT_SITE, site);
       await deviceRequest;
@@ -204,16 +238,26 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
       await choose(page, SELECT_DEVICE, device.name);
 
       await selected(page, site).click();
-      await page.getByRole("dialog").getByRole("option", { name: otherSite, exact: true }).click();
-      await expect(picker(page, SELECT_DEVICE)).toBeVisible({ timeout: TEST_TIMEOUT });
+      await page
+        .getByRole("dialog")
+        .getByRole("option", { name: otherSite, exact: true })
+        .click();
+      await expect(picker(page, SELECT_DEVICE)).toBeVisible({
+        timeout: TEST_TIMEOUT,
+      });
 
       await choose(page, SELECT_DEVICE, otherDevice.name);
       await expect(selected(page, otherDevice.name)).toBeVisible();
 
       // The Site picker's clear button comes first.
-      await page.getByRole("button", { name: "Clear selection" }).first().click();
+      await page
+        .getByRole("button", { name: "Clear selection" })
+        .first()
+        .click();
       await expect(picker(page, SELECT_SITE)).toBeVisible();
-      await expect(picker(page, SITE_FIRST)).toBeDisabled({ timeout: TEST_TIMEOUT });
+      await expect(picker(page, SITE_FIRST)).toBeDisabled({
+        timeout: TEST_TIMEOUT,
+      });
     });
 
     if (listedDevices) {
@@ -231,7 +275,9 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
       const filtered = page.waitForRequest(
         (request) =>
           isDeviceOptionsRequest(request) &&
-          new URL(request.url()).searchParams.getAll("tenant").includes(TENANT_LIST.tenant_a)
+          new URL(request.url()).searchParams
+            .getAll("tenant")
+            .includes(TENANT_LIST.tenant_a)
       );
       await choose(page, "Select Tenant (optional)...", TENANT_LIST.tenant_a);
       await filtered;
@@ -248,7 +294,9 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
 
       await expect(selected(page, site)).toBeDisabled();
       await expect(selected(page, device.name)).toBeDisabled();
-      await expect(page.getByRole("button", { name: "Submitting..." })).toBeDisabled();
+      await expect(
+        page.getByRole("button", { name: "Submitting..." })
+      ).toBeDisabled();
       await expectWorkflowDetails(page);
     });
   });
@@ -267,7 +315,9 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
 
       await expect(selected(page, site)).toBeVisible({ timeout: TEST_TIMEOUT });
       await expect(selected(page, device.tenant)).toBeVisible();
-      await expect(selected(page, device.name)).toBeVisible({ timeout: TEST_TIMEOUT });
+      await expect(selected(page, device.name)).toBeVisible({
+        timeout: TEST_TIMEOUT,
+      });
 
       const post = nextPost(page, endpoint);
       await submit(page);
@@ -275,12 +325,19 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
       await expectWorkflowDetails(page);
     });
 
-    test("a prefilled device can be changed before submitting", async ({ page }) => {
+    test("a prefilled device can be changed before submitting", async ({
+      page,
+    }) => {
       await page.goto(`${path}?site=${site}&device-id=${device.id}`);
-      await expect(selected(page, device.name)).toBeVisible({ timeout: TEST_TIMEOUT });
+      await expect(selected(page, device.name)).toBeVisible({
+        timeout: TEST_TIMEOUT,
+      });
 
       await selected(page, site).click();
-      await page.getByRole("dialog").getByRole("option", { name: otherSite, exact: true }).click();
+      await page
+        .getByRole("dialog")
+        .getByRole("option", { name: otherSite, exact: true })
+        .click();
       await choose(page, SELECT_DEVICE, otherDevice.name);
 
       const post = nextPost(page, endpoint);
@@ -288,10 +345,16 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
       expect((await post).postDataJSON()).toEqual(payload(otherDevice.id));
     });
 
-    test("a device that is not at the linked site is dropped", async ({ page }) => {
+    test("a device that is not at the linked site is dropped", async ({
+      page,
+    }) => {
       await page.goto(`${path}?site=${otherSite}&device-id=${device.id}`);
-      await expect(selected(page, otherSite)).toBeVisible({ timeout: TEST_TIMEOUT });
-      await expect(picker(page, SELECT_DEVICE)).toBeEnabled({ timeout: TEST_TIMEOUT });
+      await expect(selected(page, otherSite)).toBeVisible({
+        timeout: TEST_TIMEOUT,
+      });
+      await expect(picker(page, SELECT_DEVICE)).toBeEnabled({
+        timeout: TEST_TIMEOUT,
+      });
       await expect(page.getByRole("button", { name: "Submit" })).toBeEnabled();
     });
   });
@@ -302,12 +365,21 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
       await page.goto(path);
     });
 
-    test("shows a forbidden submission in the failure toast", async ({ page }) => {
+    test("shows a forbidden submission in the failure toast", async ({
+      page,
+    }) => {
       await choose(page, SELECT_SITE, FORBIDDEN_SITE_ID);
-      await choose(page, SELECT_DEVICE, forbiddenFilter(DEVICES_LIST[FORBIDDEN_SITE_ID]).name);
+      await choose(
+        page,
+        SELECT_DEVICE,
+        forbiddenFilter(DEVICES_LIST[FORBIDDEN_SITE_ID]).name
+      );
       await submit(page);
 
-      await expectFailureToast(page, "Forbidden: You do not have permission to run this workflow");
+      await expectFailureToast(
+        page,
+        "Forbidden: You do not have permission to run this workflow"
+      );
       await expect(page.getByRole("button", { name: "Submit" })).toBeEnabled();
     });
 
@@ -315,31 +387,46 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
       page,
     }) => {
       await reply422(page, endpoint, [
-        { type: "value_error", loc: ["body", "device_id"], msg: "Value error, device is not managed" },
+        {
+          type: "value_error",
+          loc: ["body", "device_id"],
+          msg: "Value error, device is not managed",
+        },
         { type: "missing", loc: ["body", "user"], msg: "Field required" },
       ]);
       await choose(page, SELECT_SITE, site);
       await choose(page, SELECT_DEVICE, device.name);
       await submit(page);
 
-      await expect(page.getByText("Value error, device is not managed")).toBeVisible();
+      await expect(
+        page.getByText("Value error, device is not managed")
+      ).toBeVisible();
       await expect(formErrors(page)).toContainText("user: Field required");
       await noFailureToast(page);
 
       // Changing the device clears its server error.
       await selected(page, device.name).click();
-      await page.getByRole("dialog").getByRole("option", { name: secondDevice.name, exact: true }).click();
-      await expect(page.getByText("Value error, device is not managed")).toHaveCount(0);
+      await page
+        .getByRole("dialog")
+        .getByRole("option", { name: secondDevice.name, exact: true })
+        .click();
+      await expect(
+        page.getByText("Value error, device is not managed")
+      ).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Submit" })).toBeEnabled();
     });
 
-    test("shows a string 422 detail as a form-level error", async ({ page }) => {
+    test("shows a string 422 detail as a form-level error", async ({
+      page,
+    }) => {
       await reply422(page, endpoint, "Device is not reachable from this site");
       await choose(page, SELECT_SITE, site);
       await choose(page, SELECT_DEVICE, device.name);
       await submit(page);
 
-      await expect(formErrors(page)).toContainText("Device is not reachable from this site");
+      await expect(formErrors(page)).toContainText(
+        "Device is not reachable from this site"
+      );
       await noFailureToast(page);
     });
   });

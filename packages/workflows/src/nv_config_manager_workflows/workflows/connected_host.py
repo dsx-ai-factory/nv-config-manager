@@ -134,6 +134,8 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
     workflow_input_class = ConnectedHostWorkflowInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/connected_host_metadata"
+    workflow_form_enabled = True
+    workflow_form_id = "connected-host-metadata"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
     workflow_required_activities = (

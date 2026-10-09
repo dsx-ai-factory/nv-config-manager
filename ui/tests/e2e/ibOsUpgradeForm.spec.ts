@@ -16,7 +16,7 @@
  */
 
 /**
- * The InfiniBand MLNX-OS Upgrade form on its class-name route (the legacy
+ * The InfiniBand MLNX-OS Upgrade form on its form ID route (the legacy
  * `/workflows/infinibandmlnxosupgradeworkflow/form` redirects there). Its device source
  * loads MLNX-OS devices only.
  */

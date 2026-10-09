@@ -141,6 +141,8 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
     workflow_input_class = DeployInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/deploy"
+    workflow_form_enabled = True
+    workflow_form_id = "deploy"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         apply_approved_configuration,

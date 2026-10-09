@@ -5,7 +5,7 @@
     {
       "name": "manual fill",
       "legacy_url": "/workflows/sitecablevalidationworkflow/form",
-      "new_url": "/workflows/new/SiteCableValidationWorkflow",
+      "new_url": "/workflows/new/site-cable-validation",
       "legacy_payload": {
         "site": "PDX01",
         "site_type": "Site",
@@ -40,7 +40,7 @@
     {
       "name": "module site, defaults otherwise",
       "legacy_url": "/workflows/sitecablevalidationworkflow/form",
-      "new_url": "/workflows/new/SiteCableValidationWorkflow",
+      "new_url": "/workflows/new/site-cable-validation",
       "legacy_payload": {
         "site": "PDX01-POD1",
         "site_type": "Module",
@@ -64,7 +64,7 @@
     {
       "name": "prefill from URL",
       "legacy_url": "/workflows/sitecablevalidationworkflow/form?site=PDX01&role=cin-leaf&status=Active&tenant=TenantA",
-      "new_url": "/workflows/new/SiteCableValidationWorkflow?site=PDX01&role=cin-leaf&status=Active&tenant=TenantA",
+      "new_url": "/workflows/new/site-cable-validation?site=PDX01&role=cin-leaf&status=Active&tenant=TenantA",
       "legacy_payload": {
         "site": "PDX01",
         "site_type": "Site",
@@ -93,7 +93,7 @@
     {
       "name": "Nautobot device link",
       "legacy_url": "/workflows/sitecablevalidationworkflow/form?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&tenant=TenantB",
-      "new_url": "/workflows/new/SiteCableValidationWorkflow?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&tenant=TenantB",
+      "new_url": "/workflows/new/site-cable-validation?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&tenant=TenantB",
       "legacy_payload": {
         "site": "PDX01",
         "site_type": "Site",
@@ -119,7 +119,7 @@
     {
       "name": "Nautobot device link, module name with a space, no tenant",
       "legacy_url": "/workflows/sitecablevalidationworkflow/form?site=PDX01 Pod 1&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&tenant=",
-      "new_url": "/workflows/new/SiteCableValidationWorkflow?site=PDX01 Pod 1&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&tenant=",
+      "new_url": "/workflows/new/site-cable-validation?site=PDX01 Pod 1&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&tenant=",
       "legacy_payload": {
         "site": "PDX01-POD1",
         "site_type": "Module",

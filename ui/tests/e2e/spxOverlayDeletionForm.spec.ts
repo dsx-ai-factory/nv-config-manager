@@ -16,7 +16,7 @@
  */
 
 /**
- * The SpX Overlay Deletion form on its class-name route, rendered by the RJSF form
+ * The SpX Overlay Deletion form on its form ID route, rendered by the RJSF form
  * because the legacy `/workflows/spxoverlaydeletionworkflow/form` redirects
  * there. Its wording comes from the server's `ui_schema`.
  */
@@ -25,7 +25,7 @@ import { SITES_LIST, FORBIDDEN_SITE_ID, SPX_OVERLAY_LIST } from "@/mocks/data";
 import { mockServerCatalogAndUser } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT } from "./shared/utils";
 
-const FORM_PATH = "/workflows/new/SpXOverlayDeletionWorkflow";
+const FORM_PATH = "/workflows/new/spx-overlay-deletion";
 const SITE_PICKER = { name: "Select a Site...", exact: true } as const;
 // Until a site is chosen the overlay picker is disabled, as on the legacy page.
 const OVERLAY_PICKER = { name: "Select a Overlay ID...", exact: true } as const;

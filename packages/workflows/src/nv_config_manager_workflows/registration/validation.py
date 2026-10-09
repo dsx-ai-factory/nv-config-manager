@@ -328,7 +328,7 @@ def _require_bool_api_flag(workflow: type[WorkflowMetadataMixin], label: str) ->
 
 def _require_bool_form_flag(workflow: type[WorkflowMetadataMixin], label: str) -> None:
     """Reject a browser-form opt-in that is not a bool."""
-    form_enabled = getattr(workflow, "workflow_form_enabled", True)
+    form_enabled = getattr(workflow, "workflow_form_enabled", False)
     if not isinstance(form_enabled, bool):
         raise WorkflowRegistrationError(
             f"{label} declares workflow_form_enabled {form_enabled!r}, which is not a bool"

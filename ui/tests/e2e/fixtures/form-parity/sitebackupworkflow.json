@@ -5,7 +5,7 @@
     {
       "name": "manual fill",
       "legacy_url": "/workflows/sitebackupworkflow/form",
-      "new_url": "/workflows/new/SiteBackupWorkflow",
+      "new_url": "/workflows/new/site-backup",
       "legacy_payload": {
         "site": "PDX01",
         "site_type": "Site",
@@ -40,7 +40,7 @@
     {
       "name": "module site, defaults otherwise",
       "legacy_url": "/workflows/sitebackupworkflow/form",
-      "new_url": "/workflows/new/SiteBackupWorkflow",
+      "new_url": "/workflows/new/site-backup",
       "legacy_payload": {
         "site": "PDX01-POD1",
         "site_type": "Module",
@@ -64,7 +64,7 @@
     {
       "name": "prefill from URL",
       "legacy_url": "/workflows/sitebackupworkflow/form?site=PDX01&role=cin-leaf&status=Active&tenant=TenantA",
-      "new_url": "/workflows/new/SiteBackupWorkflow?site=PDX01&role=cin-leaf&status=Active&tenant=TenantA",
+      "new_url": "/workflows/new/site-backup?site=PDX01&role=cin-leaf&status=Active&tenant=TenantA",
       "legacy_payload": {
         "site": "PDX01",
         "site_type": "Site",
@@ -93,7 +93,7 @@
     {
       "name": "backup-enabled only off",
       "legacy_url": "/workflows/sitebackupworkflow/form",
-      "new_url": "/workflows/new/SiteBackupWorkflow",
+      "new_url": "/workflows/new/site-backup",
       "legacy_payload": {
         "site": "PDX01",
         "site_type": "Site",

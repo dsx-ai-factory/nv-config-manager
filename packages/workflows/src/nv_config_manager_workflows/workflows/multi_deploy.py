@@ -636,6 +636,8 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
     workflow_input_class = MultiDeployInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/multi_deploy"
+    workflow_form_enabled = True
+    workflow_form_id = "multi-deploy"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_network_devices,

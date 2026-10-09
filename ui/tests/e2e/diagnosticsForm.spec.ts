@@ -16,29 +16,45 @@
  */
 
 /**
- * The Device Diagnostics generic form on its class-name route (the legacy
+ * The Device Diagnostics generic form on its form ID route (the legacy
  * `/workflows/diagnosticsworkflow/form` redirects there). Devices are picked with an
- * optional Site filter; the direct option source returns the selected platforms'
- * command catalog.
+ * optional Site filter; the workflow-scoped option provider returns the selected
+ * platforms' command catalog.
  */
 import { expect, type Page } from "@playwright/test";
 
 import { DEVICES_LIST, SITES_LIST } from "@/mocks/data";
 
-import { DIAGNOSTICS_COMMANDS, mockServerCatalogAndUser } from "./shared/apiMocks";
+import {
+  DIAGNOSTICS_COMMANDS,
+  mockServerCatalogAndUser,
+} from "./shared/apiMocks";
 import { test, TEST_TIMEOUT } from "./shared/utils";
-import { formPath, nextPost, recordPosts, submit } from "./shared/workflowFormTests";
+import {
+  formPath,
+  nextPost,
+  recordPosts,
+  submit,
+} from "./shared/workflowFormTests";
 
 const PATH = formPath("DiagnosticsWorkflow");
 const TITLE = "New Device Diagnostics Workflow";
 const ENDPOINT = "/v1/workflow/ngc/diagnostics";
 const [DEVICE, , SECOND_DEVICE] = DEVICES_LIST.PDX01;
-const THIRD_DEVICE = DEVICES_LIST.PDX01.find(({ platform }) => platform === "UFM")!;
+const THIRD_DEVICE = DEVICES_LIST.PDX01.find(
+  ({ platform }) => platform === "UFM"
+)!;
 
 const pickDevices = async (page: Page, ...names: string[]) => {
-  await page.locator("form").getByRole("button", { name: "Select Devices..." }).click();
+  await page
+    .locator("form")
+    .getByRole("button", { name: "Select Devices..." })
+    .click();
   for (const name of names) {
-    await page.getByRole("dialog").getByRole("option", { name, exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("option", { name, exact: true })
+      .click();
   }
   await page.keyboard.press("Escape");
 };
@@ -47,11 +63,17 @@ test.beforeEach(async ({ page }) => {
   await mockServerCatalogAndUser(page, ["reader", "executor"]);
 });
 
-test("a legacy link opens the generic form on the class-name route", async ({ page }) => {
+test("a legacy link opens the generic form on the form ID route", async ({
+  page,
+}) => {
   await page.goto("/workflows/diagnosticsworkflow/form");
   await expect(page).toHaveURL(PATH);
-  await expect(page.getByRole("heading", { name: TITLE })).toBeVisible({ timeout: TEST_TIMEOUT });
-  await expect(page.getByText("Select the required fields to load Commands.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: TITLE })).toBeVisible({
+    timeout: TEST_TIMEOUT,
+  });
+  await expect(
+    page.getByText("Select the required fields to load Commands.")
+  ).toBeVisible();
 });
 
 test("requires a device and a command", async ({ page }) => {
@@ -69,8 +91,14 @@ test("requires a device and a command", async ({ page }) => {
 
 test("submits the devices, commands, and ticket", async ({ page }) => {
   await page.goto(PATH);
-  await page.locator("form").getByRole("button", { name: "Select a Site..." }).click();
-  await page.getByRole("dialog").getByRole("option", { name: SITES_LIST.pdx01, exact: true }).click();
+  await page
+    .locator("form")
+    .getByRole("button", { name: "Select a Site..." })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("option", { name: SITES_LIST.pdx01, exact: true })
+    .click();
   await pickDevices(page, DEVICE.name, SECOND_DEVICE.name);
 
   const [first, second] = DIAGNOSTICS_COMMANDS;
@@ -79,8 +107,12 @@ test("submits the devices, commands, and ticket", async ({ page }) => {
   });
   await page.getByLabel(first.name).click();
   await page.getByLabel(second.name).click();
-  await page.getByLabel("Issue Key (optional — leave blank for ticketless mode)").fill("NETSUPPORT-1234");
-  await page.getByRole("checkbox", { name: "Include tech support bundle" }).click();
+  await page
+    .getByLabel("Issue Key (optional — leave blank for ticketless mode)")
+    .fill("NETSUPPORT-1234");
+  await page
+    .getByRole("checkbox", { name: "Include tech support bundle" })
+    .click();
 
   const post = nextPost(page, ENDPOINT);
   await submit(page);
@@ -93,10 +125,12 @@ test("submits the devices, commands, and ticket", async ({ page }) => {
   });
 });
 
-test("submits a command shared by some selected platforms only once", async ({ page }) => {
+test("submits a command shared by some selected platforms only once", async ({
+  page,
+}) => {
   const partialCommand = "show partial support";
   await page.route(
-    /\/v1\/parameter\/diagnostics\/command-options(\?.*)?$/,
+    /\/v1\/workflow\/diagnostics\/form-options\/diagnostic-commands(\?.*)?$/,
     (route) =>
       route.fulfill({
         status: 200,
@@ -126,11 +160,19 @@ test("submits a command shared by some selected platforms only once", async ({ p
       })
   );
   await page.goto(PATH);
-  await page.locator("form").getByRole("button", { name: "Select a Site..." }).click();
-  await page.getByRole("dialog").getByRole("option", { name: SITES_LIST.pdx01, exact: true }).click();
+  await page
+    .locator("form")
+    .getByRole("button", { name: "Select a Site..." })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("option", { name: SITES_LIST.pdx01, exact: true })
+    .click();
   await pickDevices(page, DEVICE.name, SECOND_DEVICE.name, THIRD_DEVICE.name);
 
-  await expect(page.getByText("Arista EOS only")).toBeVisible({ timeout: TEST_TIMEOUT });
+  await expect(page.getByText("Arista EOS only")).toBeVisible({
+    timeout: TEST_TIMEOUT,
+  });
   await expect(page.getByText("Cumulus Linux only")).toBeVisible();
   const appearances = page.getByLabel(partialCommand);
   await expect(appearances).toHaveCount(2);

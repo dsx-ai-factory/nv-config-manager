@@ -305,6 +305,8 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, CableStatusPersistenceM
     workflow_input_class = SiteCableValidationInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/site_cable_validation"
+    workflow_form_enabled = True
+    workflow_form_id = "site-cable-validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
     workflow_required_activities = (
@@ -639,6 +641,8 @@ class DeviceCableValidationWorkflow(
     workflow_input_class = DeviceCableValidationInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/device_cable_validation"
+    workflow_form_enabled = True
+    workflow_form_id = "device-cable-validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
     workflow_required_activities = (

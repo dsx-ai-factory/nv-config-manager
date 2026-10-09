@@ -587,7 +587,7 @@
         "ui:field": "apiOptions",
         "ui:options": {
           "source": {
-            "endpoint": "/v1/parameter/diagnostics/command-options",
+            "endpoint": "/v1/workflow/diagnostics/form-options/diagnostic-commands",
             "label_key": "label",
             "value_key": "value",
             "depends_on": {
@@ -2282,7 +2282,7 @@
         "ui:field": "apiOptions",
         "ui:options": {
           "source": {
-            "endpoint": "/v1/parameter/password-users",
+            "endpoint": "/v1/workflow/site-password-rotation/form-options/password-users",
             "label_key": "label",
             "value_key": "value",
             "params": {

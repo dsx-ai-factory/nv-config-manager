@@ -178,6 +178,8 @@ class IBPKeyMemberDeleteWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
     workflow_input_class = IBPKeyMemberDeleteInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/ib_pkey_member_delete"
+    workflow_form_enabled = True
+    workflow_form_id = "ib-pkey-member-delete"
     workflow_namespace = "ngc"
     workflow_lock = WorkflowLockSpec(key_fields=["host", "pkey"])
     workflow_required_activities = (

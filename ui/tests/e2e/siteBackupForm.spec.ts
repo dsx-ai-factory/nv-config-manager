@@ -16,7 +16,7 @@
  */
 
 /**
- * The Site Configuration Backup form on its class-name route (the legacy
+ * The Site Configuration Backup form on its form ID route (the legacy
  * `/workflows/sitebackupworkflow/form` redirects there): a typed Site location, Roles,
  * Device Status, and Tenant pickers, and the backup-enabled checkbox.
  *

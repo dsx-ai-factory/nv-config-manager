@@ -16,7 +16,7 @@
  */
 
 /**
- * The SpX Overlay Tenant Change form on its class-name route (the legacy
+ * The SpX Overlay Tenant Change form on its form ID route (the legacy
  * `/workflows/spxoverlaytenantchangeworkflow/form` redirects there): a typed Site
  * location, an optional overlay of that Site, a device that takes its Site from the
  * location field (`siteField`, so no second Site control), and the device's ports

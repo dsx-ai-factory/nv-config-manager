@@ -15,11 +15,12 @@
  * limitations under the License.
  */
 import { expect, type Locator, type Page } from "@playwright/test";
+import workflowFormIds from "@/config/workflow-form-ids.json";
 import { mockWorkflowMetadataEndpoint } from "./shared/apiMocks";
 import { test } from "./shared/utils";
 
 const API_UPGRADE_REQUIRED =
-  "Upgrade the Config Manager workflow API to a version that supports browser workflow forms.";
+  "Upgrade the Config Manager workflow API before deploying this UI version. Browser workflow forms require the backend form metadata and endpoints.";
 
 type LauncherEntry = {
   title: string;
@@ -27,7 +28,8 @@ type LauncherEntry = {
   href: string | null;
 };
 
-const workflowForm = (name: string) => `/workflows/new/${name}`;
+const workflowForm = (name: keyof typeof workflowFormIds) =>
+  `/workflows/new/${workflowFormIds[name]}`;
 const launcherCollator = new Intl.Collator("en", { numeric: true });
 
 /**
@@ -35,11 +37,14 @@ const launcherCollator = new Intl.Collator("en", { numeric: true });
  * the shared Playwright mocks. That `/metadata` mock omits Configuration Diff and the
  * InfiniBand PKey workflows, so those stay disabled ("Workflow metadata is
  * unavailable."), and Multi-Configuration Deploy needs a role the mocked user lacks.
- * Every workflow form is on its class-name route (the legacy form routes redirect).
+ * Every workflow form is on its form ID route (the legacy form routes redirect).
  */
 const EXPECTED_LAUNCHER: LauncherEntry[] = [
   { title: "Configuration Backup", href: workflowForm("BackupWorkflow") },
-  { title: "Site Configuration Backup", href: workflowForm("SiteBackupWorkflow") },
+  {
+    title: "Site Configuration Backup",
+    href: workflowForm("SiteBackupWorkflow"),
+  },
   {
     title: "Connected Host Metadata",
     href: workflowForm("ConnectedHostMetadataWorkflow"),
@@ -159,7 +164,7 @@ test.describe("New workflow launcher", () => {
     );
   });
 
-  test("lists a plugin workflow from the catalog on its class-name route", async ({
+  test("lists a plugin workflow from the catalog on its form ID route", async ({
     page,
   }) => {
     const pluginWorkflow = {
@@ -168,12 +173,12 @@ test.describe("New workflow launcher", () => {
       description: "Audit the fabric.",
       endpoint: "/acme/fabric_audit",
       namespace: "acme",
-      cli_name: "acme-fabric-audit",
+      cli_name: "acme_fabric_audit",
       input_class: "AcmeFabricAuditInput",
       read_roles: ["all"],
       execute_roles: ["all"],
-      plugin: "acme",
       has_form: true,
+      form_id: "acme-fabric-audit",
     };
     await mockWorkflowMetadataEndpoint(page, [pluginWorkflow]);
 
@@ -184,7 +189,7 @@ test.describe("New workflow launcher", () => {
       ...EXPECTED_LAUNCHER,
       {
         title: "Acme Fabric Audit",
-        href: "/workflows/new/AcmeFabricAuditWorkflow",
+        href: "/workflows/new/acme-fabric-audit",
       },
     ].sort((a, b) => launcherCollator.compare(a.title, b.title));
     await expect(launcher.locator("a, button")).toHaveText(
@@ -255,7 +260,9 @@ test.describe("New workflow launcher", () => {
       exact: true,
     });
 
-    await expect(launcher.getByRole("link", { name: "Configuration Deploy" })).toHaveCount(0);
+    await expect(
+      launcher.getByRole("link", { name: "Configuration Deploy" })
+    ).toHaveCount(0);
     await deploy.hover();
     await expect(deploy).toHaveAccessibleDescription(API_UPGRADE_REQUIRED);
   });

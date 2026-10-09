@@ -44,15 +44,4 @@ describe("getWorkflowTypeFilterOptions", () => {
       }))
     );
   });
-
-  it("leaves out workflows the catalog disables", () => {
-    const [first, second] = serverMetadata.workflows;
-    const catalog = normalizeWorkflowCatalog({
-      workflows: [first, { ...second, enabled: false }],
-    });
-
-    expect(getWorkflowTypeFilterOptions(catalog)).toEqual([
-      { label: first.display_name, value: first.name },
-    ]);
-  });
 });

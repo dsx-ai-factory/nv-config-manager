@@ -99,6 +99,8 @@ class ConfigDiffWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archive
     workflow_input_class = ConfigDiffInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/config_diff"
+    workflow_form_enabled = True
+    workflow_form_id = "config-diff"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_network_device,

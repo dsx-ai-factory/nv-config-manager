@@ -40,8 +40,9 @@ from nv_config_manager_workflows.stage import (
 )
 from nv_config_manager_workflows.ui import (
     Dependency,
+    FormOptionProvider,
+    FormOptionSource,
     FormSchema,
-    OptionSource,
     api_options,
     location_field,
 )
@@ -127,10 +128,8 @@ class SitePasswordRotationInput(BaseModel):
         "tenant": api_options(TENANT_FILTER_SOURCE),
         "selected_secret": {
             **api_options(
-                OptionSource(
-                    "/v1/parameter/password-users",
-                    "label",
-                    "value",
+                FormOptionSource(
+                    "password-users",
                     params={"managed_only": True},
                     depends_on={
                         "location": Dependency("location"),
@@ -140,7 +139,6 @@ class SitePasswordRotationInput(BaseModel):
                         "tenant": Dependency("tenant", required=False),
                     },
                     clear_on_change=True,
-                    response="options-v1",
                 ),
                 show_descriptions=True,
                 meta_text={"key": "matching_device_count", "label": "Matching devices"},
@@ -194,8 +192,22 @@ class SitePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
         "Rotate passwords across all devices in a site with coordinated deployment"
     )
     workflow_input_class = SitePasswordRotationInput
+    workflow_form_option_providers = {
+        "password-users": FormOptionProvider(
+            resolver=(
+                "nv_config_manager_workflows.form_option_providers.password_rotation:"
+                "resolve_password_user_options"
+            ),
+            query_model=(
+                "nv_config_manager_workflows.form_option_providers.password_rotation:"
+                "PasswordUserOptionsQuery"
+            ),
+        )
+    }
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/site_password_rotation"
+    workflow_form_enabled = True
+    workflow_form_id = "site-password-rotation"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_network_devices,

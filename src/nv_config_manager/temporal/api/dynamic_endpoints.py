@@ -74,15 +74,22 @@ def create_workflow_endpoint(
                 "start_workflow function not set. Call set_start_workflow_function() first."
             )
 
-        if owned_fields:
-            # Authenticated request identity is authoritative only for fields whose
-            # input contract explicitly marks them as owned by the HTTP boundary.
+        inject_user = "user" in owned_fields or (
+            hasattr(body, "user") and not body.user  # type: ignore[attr-defined]
+        )
+        inject_user_domain = "user_domain" in owned_fields or (
+            hasattr(body, "user_domain") and not body.user_domain  # type: ignore[attr-defined]
+        )
+
+        if inject_user or inject_user_domain:
             user = getattr(request.state, "user", None) or get_sso_user(request)
 
-            if "user" in owned_fields:
+            # Explicitly server-owned fields are always authoritative. Unmarked
+            # legacy fields retain the previous falsey-value fallback behavior.
+            if inject_user:
                 body.user = user  # type: ignore[attr-defined]
 
-            if "user_domain" in owned_fields:
+            if inject_user_domain:
                 # Extract domain from user email or default to nvidia.com
                 # TODO: add a default user domain to INI file for external customers
                 body.user_domain = user.split("@")[1] if "@" in user else "nvidia.com"  # type: ignore[attr-defined]

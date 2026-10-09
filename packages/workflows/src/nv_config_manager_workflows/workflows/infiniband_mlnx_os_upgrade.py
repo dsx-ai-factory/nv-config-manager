@@ -106,6 +106,8 @@ class InfinibandMlnxOSUpgradeWorkflow(WorkflowMetadataMixin, StageMixin):
     workflow_input_class = InfinibandMlnxOSUpgradeInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/infiniband_mlnx_os_upgrade"
+    workflow_form_enabled = True
+    workflow_form_id = "infiniband-mlnx-os-upgrade"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         cleanup_mlnx_os,

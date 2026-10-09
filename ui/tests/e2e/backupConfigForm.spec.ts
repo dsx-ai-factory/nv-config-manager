@@ -16,7 +16,7 @@
  */
 
 /**
- * The Configuration Backup form on its class-name route (the legacy
+ * The Configuration Backup form on its form ID route (the legacy
  * `/workflows/backupworkflow/form` redirects there).
  *
  * Replaces the legacy page's "Additional Tests" (plan section 2): the legacy page posted

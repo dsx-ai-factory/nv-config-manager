@@ -30,8 +30,9 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from typing_extensions import Annotated
 
 from datetime import datetime
-from pydantic import StrictBool, StrictInt, StrictStr
+from pydantic import Field, StrictBool, StrictInt, StrictStr, field_validator
 from typing import Any, List, Optional
+from typing_extensions import Annotated
 from nv_config_manager_clients.generated.temporal.models.backup_input import BackupInput
 from nv_config_manager_clients.generated.temporal.models.config_diff_input import ConfigDiffInput
 from nv_config_manager_clients.generated.temporal.models.connected_host_workflow_input import ConnectedHostWorkflowInput
@@ -50,6 +51,7 @@ from nv_config_manager_clients.generated.temporal.models.infiniband_get_unhealth
 from nv_config_manager_clients.generated.temporal.models.infiniband_mlnx_os_upgrade_input import InfinibandMlnxOSUpgradeInput
 from nv_config_manager_clients.generated.temporal.models.multi_deploy_input import MultiDeployInput
 from nv_config_manager_clients.generated.temporal.models.nv_link_switch_firmware_upgrade_input import NVLinkSwitchFirmwareUpgradeInput
+from nv_config_manager_clients.generated.temporal.models.option_source_response import OptionSourceResponse
 from nv_config_manager_clients.generated.temporal.models.port_lldp_info_input import PortLLDPInfoInput
 from nv_config_manager_clients.generated.temporal.models.redfish_provisioning_input import RedfishProvisioningInput
 from nv_config_manager_clients.generated.temporal.models.reprovision_input import ReprovisionInput
@@ -2584,9 +2586,9 @@ class WorkflowApi:
 
 
     @validate_call
-    async def get_workflow_form_v1_workflow_name_form_get(
+    async def get_workflow_form(
         self,
-        name: StrictStr,
+        form_id: Annotated[str, Field(strict=True, description="Stable lowercase kebab-case workflow form identifier.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2602,10 +2604,10 @@ class WorkflowApi:
     ) -> WorkflowFormResponse:
         """Get Workflow Form
 
-        Return the v1 input form of an API workflow, looked up by its class name.
+        Return the v1 input form of an API workflow, looked up by its stable form ID.
 
-        :param name: (required)
-        :type name: str
+        :param form_id: Stable lowercase kebab-case workflow form identifier. (required)
+        :type form_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -2628,8 +2630,8 @@ class WorkflowApi:
         :return: Returns the result object.
         """ # noqa: E501
 
-        _param = self._get_workflow_form_v1_workflow_name_form_get_serialize(
-            name=name,
+        _param = self._get_workflow_form_serialize(
+            form_id=form_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -2638,9 +2640,9 @@ class WorkflowApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "WorkflowFormResponse",
-            '404': None,
+            '404': "WorkflowFormNotFoundResponse",
             '422': "HTTPValidationError",
-            '503': None,
+            '503': "WorkflowFormUnavailableResponse",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -2654,9 +2656,9 @@ class WorkflowApi:
 
 
     @validate_call
-    async def get_workflow_form_v1_workflow_name_form_get_with_http_info(
+    async def get_workflow_form_with_http_info(
         self,
-        name: StrictStr,
+        form_id: Annotated[str, Field(strict=True, description="Stable lowercase kebab-case workflow form identifier.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2672,10 +2674,10 @@ class WorkflowApi:
     ) -> ApiResponse[WorkflowFormResponse]:
         """Get Workflow Form
 
-        Return the v1 input form of an API workflow, looked up by its class name.
+        Return the v1 input form of an API workflow, looked up by its stable form ID.
 
-        :param name: (required)
-        :type name: str
+        :param form_id: Stable lowercase kebab-case workflow form identifier. (required)
+        :type form_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -2698,8 +2700,8 @@ class WorkflowApi:
         :return: Returns the result object.
         """ # noqa: E501
 
-        _param = self._get_workflow_form_v1_workflow_name_form_get_serialize(
-            name=name,
+        _param = self._get_workflow_form_serialize(
+            form_id=form_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -2708,9 +2710,9 @@ class WorkflowApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "WorkflowFormResponse",
-            '404': None,
+            '404': "WorkflowFormNotFoundResponse",
             '422': "HTTPValidationError",
-            '503': None,
+            '503': "WorkflowFormUnavailableResponse",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -2724,9 +2726,9 @@ class WorkflowApi:
 
 
     @validate_call
-    async def get_workflow_form_v1_workflow_name_form_get_without_preload_content(
+    async def get_workflow_form_without_preload_content(
         self,
-        name: StrictStr,
+        form_id: Annotated[str, Field(strict=True, description="Stable lowercase kebab-case workflow form identifier.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2742,10 +2744,10 @@ class WorkflowApi:
     ) -> RESTResponseType:
         """Get Workflow Form
 
-        Return the v1 input form of an API workflow, looked up by its class name.
+        Return the v1 input form of an API workflow, looked up by its stable form ID.
 
-        :param name: (required)
-        :type name: str
+        :param form_id: Stable lowercase kebab-case workflow form identifier. (required)
+        :type form_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -2768,8 +2770,8 @@ class WorkflowApi:
         :return: Returns the result object.
         """ # noqa: E501
 
-        _param = self._get_workflow_form_v1_workflow_name_form_get_serialize(
-            name=name,
+        _param = self._get_workflow_form_serialize(
+            form_id=form_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -2778,9 +2780,9 @@ class WorkflowApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "WorkflowFormResponse",
-            '404': None,
+            '404': "WorkflowFormNotFoundResponse",
             '422': "HTTPValidationError",
-            '503': None,
+            '503': "WorkflowFormUnavailableResponse",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -2789,9 +2791,9 @@ class WorkflowApi:
         return response_data.response
 
 
-    def _get_workflow_form_v1_workflow_name_form_get_serialize(
+    def _get_workflow_form_serialize(
         self,
-        name,
+        form_id,
         _request_auth,
         _content_type,
         _headers,
@@ -2813,8 +2815,8 @@ class WorkflowApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if name is not None:
-            _path_params['name'] = name
+        if form_id is not None:
+            _path_params['form_id'] = form_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -2837,7 +2839,645 @@ class WorkflowApi:
 
         return self.api_client.param_serialize(
             method='GET',
-            resource_path='/v1/workflow/{name}/form',
+            resource_path='/v1/workflow/{form_id}/form',
+            path_params=_path_params,
+            query_params=_query_params,
+            header_params=_header_params,
+            body=_body_params,
+            post_params=_form_params,
+            files=_files,
+            auth_settings=_auth_settings,
+            collection_formats=_collection_formats,
+            _host=_host,
+            _request_auth=_request_auth
+        )
+
+
+
+
+    @validate_call
+    async def get_workflow_form_options_diagnostics_diagnostic_commands(
+        self,
+        device_id: Annotated[List[Optional[StrictStr]], Field(description="Selected managed device IDs")],
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> OptionSourceResponse:
+        """Get diagnostic-commands options for DiagnosticsWorkflow
+
+        Return diagnostic-commands form options for DiagnosticsWorkflow.
+
+        :param device_id: Selected managed device IDs (required)
+        :type device_id: List[Optional[str]]
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._get_workflow_form_options_diagnostics_diagnostic_commands_serialize(
+            device_id=device_id,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '200': "OptionSourceResponse",
+            '403': "ApiErrorResponse",
+            '422': "HTTPValidationError",
+            '502': "ApiErrorResponse",
+            '504': "ApiErrorResponse",
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        await response_data.read()
+        return self.api_client.response_deserialize(
+            response_data=response_data,
+            response_types_map=_response_types_map,
+        ).data
+
+
+    @validate_call
+    async def get_workflow_form_options_diagnostics_diagnostic_commands_with_http_info(
+        self,
+        device_id: Annotated[List[Optional[StrictStr]], Field(description="Selected managed device IDs")],
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> ApiResponse[OptionSourceResponse]:
+        """Get diagnostic-commands options for DiagnosticsWorkflow
+
+        Return diagnostic-commands form options for DiagnosticsWorkflow.
+
+        :param device_id: Selected managed device IDs (required)
+        :type device_id: List[Optional[str]]
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._get_workflow_form_options_diagnostics_diagnostic_commands_serialize(
+            device_id=device_id,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '200': "OptionSourceResponse",
+            '403': "ApiErrorResponse",
+            '422': "HTTPValidationError",
+            '502': "ApiErrorResponse",
+            '504': "ApiErrorResponse",
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        await response_data.read()
+        return self.api_client.response_deserialize(
+            response_data=response_data,
+            response_types_map=_response_types_map,
+        )
+
+
+    @validate_call
+    async def get_workflow_form_options_diagnostics_diagnostic_commands_without_preload_content(
+        self,
+        device_id: Annotated[List[Optional[StrictStr]], Field(description="Selected managed device IDs")],
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> RESTResponseType:
+        """Get diagnostic-commands options for DiagnosticsWorkflow
+
+        Return diagnostic-commands form options for DiagnosticsWorkflow.
+
+        :param device_id: Selected managed device IDs (required)
+        :type device_id: List[Optional[str]]
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._get_workflow_form_options_diagnostics_diagnostic_commands_serialize(
+            device_id=device_id,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '200': "OptionSourceResponse",
+            '403': "ApiErrorResponse",
+            '422': "HTTPValidationError",
+            '502': "ApiErrorResponse",
+            '504': "ApiErrorResponse",
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        return response_data.response
+
+
+    def _get_workflow_form_options_diagnostics_diagnostic_commands_serialize(
+        self,
+        device_id,
+        _request_auth,
+        _content_type,
+        _headers,
+        _host_index,
+    ) -> RequestSerialized:
+
+        _host = None
+
+        _collection_formats: Dict[str, str] = {
+            'device_id': 'multi',
+        }
+
+        _path_params: Dict[str, str] = {}
+        _query_params: List[Tuple[str, str]] = []
+        _header_params: Dict[str, Optional[str]] = _headers or {}
+        _form_params: List[Tuple[str, str]] = []
+        _files: Dict[
+            str, Union[str, bytes, List[str], List[bytes], List[Tuple[str, bytes]]]
+        ] = {}
+        _body_params: Optional[bytes] = None
+
+        # process the path parameters
+        # process the query parameters
+        if device_id is not None:
+
+            _query_params.append(('device_id', device_id))
+
+        # process the header parameters
+        # process the form parameters
+        # process the body parameter
+
+
+        # set the HTTP header `Accept`
+        if 'Accept' not in _header_params:
+            _header_params['Accept'] = self.api_client.select_header_accept(
+                [
+                    'application/json'
+                ]
+            )
+
+
+        # authentication setting
+        _auth_settings: List[str] = [
+            'BearerAuth'
+        ]
+
+        return self.api_client.param_serialize(
+            method='GET',
+            resource_path='/v1/workflow/diagnostics/form-options/diagnostic-commands',
+            path_params=_path_params,
+            query_params=_query_params,
+            header_params=_header_params,
+            body=_body_params,
+            post_params=_form_params,
+            files=_files,
+            auth_settings=_auth_settings,
+            collection_formats=_collection_formats,
+            _host=_host,
+            _request_auth=_request_auth
+        )
+
+
+
+
+    @validate_call
+    async def get_workflow_form_options_site_password_rotation_password_users(
+        self,
+        location: Annotated[StrictStr, Field(description="Location containing the target devices")],
+        location_type: Annotated[Optional[StrictStr], Field(description="DCIM location type for the location identifier")] = None,
+        role: Optional[List[StrictStr]] = None,
+        status: Optional[List[StrictStr]] = None,
+        tenant: Optional[StrictStr] = None,
+        managed_only: Annotated[Optional[StrictBool], Field(description="Limit to NVIDIA Config Manager-managed devices")] = None,
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> OptionSourceResponse:
+        """Get password-users options for SitePasswordRotationWorkflow
+
+        Return password-users form options for SitePasswordRotationWorkflow.
+
+        :param location: Location containing the target devices (required)
+        :type location: str
+        :param location_type: DCIM location type for the location identifier
+        :type location_type: str
+        :param role:
+        :type role: List[str]
+        :param status:
+        :type status: List[str]
+        :param tenant:
+        :type tenant: str
+        :param managed_only: Limit to NVIDIA Config Manager-managed devices
+        :type managed_only: bool
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._get_workflow_form_options_site_password_rotation_password_users_serialize(
+            location=location,
+            location_type=location_type,
+            role=role,
+            status=status,
+            tenant=tenant,
+            managed_only=managed_only,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '200': "OptionSourceResponse",
+            '403': "ApiErrorResponse",
+            '422': "HTTPValidationError",
+            '502': "ApiErrorResponse",
+            '504': "ApiErrorResponse",
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        await response_data.read()
+        return self.api_client.response_deserialize(
+            response_data=response_data,
+            response_types_map=_response_types_map,
+        ).data
+
+
+    @validate_call
+    async def get_workflow_form_options_site_password_rotation_password_users_with_http_info(
+        self,
+        location: Annotated[StrictStr, Field(description="Location containing the target devices")],
+        location_type: Annotated[Optional[StrictStr], Field(description="DCIM location type for the location identifier")] = None,
+        role: Optional[List[StrictStr]] = None,
+        status: Optional[List[StrictStr]] = None,
+        tenant: Optional[StrictStr] = None,
+        managed_only: Annotated[Optional[StrictBool], Field(description="Limit to NVIDIA Config Manager-managed devices")] = None,
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> ApiResponse[OptionSourceResponse]:
+        """Get password-users options for SitePasswordRotationWorkflow
+
+        Return password-users form options for SitePasswordRotationWorkflow.
+
+        :param location: Location containing the target devices (required)
+        :type location: str
+        :param location_type: DCIM location type for the location identifier
+        :type location_type: str
+        :param role:
+        :type role: List[str]
+        :param status:
+        :type status: List[str]
+        :param tenant:
+        :type tenant: str
+        :param managed_only: Limit to NVIDIA Config Manager-managed devices
+        :type managed_only: bool
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._get_workflow_form_options_site_password_rotation_password_users_serialize(
+            location=location,
+            location_type=location_type,
+            role=role,
+            status=status,
+            tenant=tenant,
+            managed_only=managed_only,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '200': "OptionSourceResponse",
+            '403': "ApiErrorResponse",
+            '422': "HTTPValidationError",
+            '502': "ApiErrorResponse",
+            '504': "ApiErrorResponse",
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        await response_data.read()
+        return self.api_client.response_deserialize(
+            response_data=response_data,
+            response_types_map=_response_types_map,
+        )
+
+
+    @validate_call
+    async def get_workflow_form_options_site_password_rotation_password_users_without_preload_content(
+        self,
+        location: Annotated[StrictStr, Field(description="Location containing the target devices")],
+        location_type: Annotated[Optional[StrictStr], Field(description="DCIM location type for the location identifier")] = None,
+        role: Optional[List[StrictStr]] = None,
+        status: Optional[List[StrictStr]] = None,
+        tenant: Optional[StrictStr] = None,
+        managed_only: Annotated[Optional[StrictBool], Field(description="Limit to NVIDIA Config Manager-managed devices")] = None,
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> RESTResponseType:
+        """Get password-users options for SitePasswordRotationWorkflow
+
+        Return password-users form options for SitePasswordRotationWorkflow.
+
+        :param location: Location containing the target devices (required)
+        :type location: str
+        :param location_type: DCIM location type for the location identifier
+        :type location_type: str
+        :param role:
+        :type role: List[str]
+        :param status:
+        :type status: List[str]
+        :param tenant:
+        :type tenant: str
+        :param managed_only: Limit to NVIDIA Config Manager-managed devices
+        :type managed_only: bool
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._get_workflow_form_options_site_password_rotation_password_users_serialize(
+            location=location,
+            location_type=location_type,
+            role=role,
+            status=status,
+            tenant=tenant,
+            managed_only=managed_only,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '200': "OptionSourceResponse",
+            '403': "ApiErrorResponse",
+            '422': "HTTPValidationError",
+            '502': "ApiErrorResponse",
+            '504': "ApiErrorResponse",
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        return response_data.response
+
+
+    def _get_workflow_form_options_site_password_rotation_password_users_serialize(
+        self,
+        location,
+        location_type,
+        role,
+        status,
+        tenant,
+        managed_only,
+        _request_auth,
+        _content_type,
+        _headers,
+        _host_index,
+    ) -> RequestSerialized:
+
+        _host = None
+
+        _collection_formats: Dict[str, str] = {
+            'role': 'multi',
+            'status': 'multi',
+        }
+
+        _path_params: Dict[str, str] = {}
+        _query_params: List[Tuple[str, str]] = []
+        _header_params: Dict[str, Optional[str]] = _headers or {}
+        _form_params: List[Tuple[str, str]] = []
+        _files: Dict[
+            str, Union[str, bytes, List[str], List[bytes], List[Tuple[str, bytes]]]
+        ] = {}
+        _body_params: Optional[bytes] = None
+
+        # process the path parameters
+        # process the query parameters
+        if location is not None:
+
+            _query_params.append(('location', location))
+
+        if location_type is not None:
+
+            _query_params.append(('location_type', location_type))
+
+        if role is not None:
+
+            _query_params.append(('role', role))
+
+        if status is not None:
+
+            _query_params.append(('status', status))
+
+        if tenant is not None:
+
+            _query_params.append(('tenant', tenant))
+
+        if managed_only is not None:
+
+            _query_params.append(('managed_only', managed_only))
+
+        # process the header parameters
+        # process the form parameters
+        # process the body parameter
+
+
+        # set the HTTP header `Accept`
+        if 'Accept' not in _header_params:
+            _header_params['Accept'] = self.api_client.select_header_accept(
+                [
+                    'application/json'
+                ]
+            )
+
+
+        # authentication setting
+        _auth_settings: List[str] = [
+            'BearerAuth'
+        ]
+
+        return self.api_client.param_serialize(
+            method='GET',
+            resource_path='/v1/workflow/site-password-rotation/form-options/password-users',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,

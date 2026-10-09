@@ -5,7 +5,7 @@
     {
       "name": "manual site and device",
       "legacy_url": "/workflows/configdiffworkflow/form",
-      "new_url": "/workflows/new/ConfigDiffWorkflow",
+      "new_url": "/workflows/new/config-diff",
       "legacy_payload": {
         "device_id": "e9243d67-dad0-4f4b-9f6d-9cc977ff0023"
       },
@@ -16,7 +16,7 @@
     {
       "name": "manual fill narrowed by tenant",
       "legacy_url": "/workflows/configdiffworkflow/form",
-      "new_url": "/workflows/new/ConfigDiffWorkflow",
+      "new_url": "/workflows/new/config-diff",
       "legacy_payload": {
         "device_id": "e9243d67-dad0-4f4b-9f6d-9cc977ff0023"
       },
@@ -27,7 +27,7 @@
     {
       "name": "Nautobot device link",
       "legacy_url": "/workflows/configdiffworkflow/form?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&tenant=TenantB",
-      "new_url": "/workflows/new/ConfigDiffWorkflow?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&tenant=TenantB",
+      "new_url": "/workflows/new/config-diff?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&tenant=TenantB",
       "legacy_payload": {
         "device_id": "e9243d67-dad0-4f4b-9f6d-9cc977ff0023"
       },

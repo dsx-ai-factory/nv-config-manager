@@ -266,20 +266,21 @@ function SearchAttributeCell({
 }
 
 /**
- * Type filter options: every enabled catalog workflow, in catalog order, whether or not
- * it has executions. The launcher applies the same `enabled` rule.
+ * Type filter options: every catalog workflow, in catalog order, whether or not it has
+ * executions.
  */
 export const getWorkflowTypeFilterOptions = (
   workflowCatalog: readonly WorkflowCatalogEntry[]
 ): { label: string; value: string }[] =>
-  workflowCatalog
-    .filter((entry) => entry.enabled)
-    .map((entry) => ({ label: entry.display_name, value: entry.name }));
+  workflowCatalog.map((entry) => ({
+    label: entry.display_name,
+    value: entry.name,
+  }));
 
 export const getWorkflowColumns = (
   workflowCatalog: readonly WorkflowCatalogEntry[]
 ): ColumnDef<WorkflowColumns>[] => {
-  // Display names cover disabled workflows too: their past runs still show here.
+  // Index catalog metadata once for workflow display names.
   const workflowMetadataByName = new Map(
     workflowCatalog.map((entry) => [entry.name, entry])
   );

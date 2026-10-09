@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -1106,37 +1107,37 @@ func (a *WorkflowAPIService) DownloadTechSupportV1WorkflowWorkflowIdTechSupportD
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiGetWorkflowFormV1WorkflowNameFormGetRequest struct {
+type ApiGetWorkflowFormRequest struct {
 	ctx        context.Context
 	ApiService *WorkflowAPIService
-	name       string
+	formId     string
 }
 
-func (r ApiGetWorkflowFormV1WorkflowNameFormGetRequest) Execute() (*WorkflowFormResponse, *http.Response, error) {
-	return r.ApiService.GetWorkflowFormV1WorkflowNameFormGetExecute(r)
+func (r ApiGetWorkflowFormRequest) Execute() (*WorkflowFormResponse, *http.Response, error) {
+	return r.ApiService.GetWorkflowFormExecute(r)
 }
 
 /*
-GetWorkflowFormV1WorkflowNameFormGet Get Workflow Form
+GetWorkflowForm Get Workflow Form
 
-Return the v1 input form of an API workflow, looked up by its class name.
+Return the v1 input form of an API workflow, looked up by its stable form ID.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param name
-	@return ApiGetWorkflowFormV1WorkflowNameFormGetRequest
+	@param formId Stable lowercase kebab-case workflow form identifier.
+	@return ApiGetWorkflowFormRequest
 */
-func (a *WorkflowAPIService) GetWorkflowFormV1WorkflowNameFormGet(ctx context.Context, name string) ApiGetWorkflowFormV1WorkflowNameFormGetRequest {
-	return ApiGetWorkflowFormV1WorkflowNameFormGetRequest{
+func (a *WorkflowAPIService) GetWorkflowForm(ctx context.Context, formId string) ApiGetWorkflowFormRequest {
+	return ApiGetWorkflowFormRequest{
 		ApiService: a,
 		ctx:        ctx,
-		name:       name,
+		formId:     formId,
 	}
 }
 
 // Execute executes the request
 //
 //	@return WorkflowFormResponse
-func (a *WorkflowAPIService) GetWorkflowFormV1WorkflowNameFormGetExecute(r ApiGetWorkflowFormV1WorkflowNameFormGetRequest) (*WorkflowFormResponse, *http.Response, error) {
+func (a *WorkflowAPIService) GetWorkflowFormExecute(r ApiGetWorkflowFormRequest) (*WorkflowFormResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
@@ -1144,13 +1145,13 @@ func (a *WorkflowAPIService) GetWorkflowFormV1WorkflowNameFormGetExecute(r ApiGe
 		localVarReturnValue *WorkflowFormResponse
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "WorkflowAPIService.GetWorkflowFormV1WorkflowNameFormGet")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "WorkflowAPIService.GetWorkflowForm")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/workflow/{name}/form"
-	localVarPath = strings.Replace(localVarPath, "{"+"name"+"}", url.PathEscape(parameterValueToString(r.name, "name")), -1)
+	localVarPath := localBasePath + "/v1/workflow/{form_id}/form"
+	localVarPath = strings.Replace(localVarPath, "{"+"form_id"+"}", url.PathEscape(parameterValueToString(r.formId, "formId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -1195,6 +1196,17 @@ func (a *WorkflowAPIService) GetWorkflowFormV1WorkflowNameFormGetExecute(r ApiGe
 			body:  localVarBody,
 			error: localVarHTTPResponse.Status,
 		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v WorkflowFormNotFoundResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
 		if localVarHTTPResponse.StatusCode == 422 {
 			var v HTTPValidationError
 			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
@@ -1205,6 +1217,401 @@ func (a *WorkflowAPIService) GetWorkflowFormV1WorkflowNameFormGetExecute(r ApiGe
 			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
 			newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 503 {
+			var v WorkflowFormUnavailableResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiGetWorkflowFormOptionsDiagnosticsDiagnosticCommandsRequest struct {
+	ctx        context.Context
+	ApiService *WorkflowAPIService
+	deviceId   *[]*string
+}
+
+// Selected managed device IDs
+func (r ApiGetWorkflowFormOptionsDiagnosticsDiagnosticCommandsRequest) DeviceId(deviceId []*string) ApiGetWorkflowFormOptionsDiagnosticsDiagnosticCommandsRequest {
+	r.deviceId = &deviceId
+	return r
+}
+
+func (r ApiGetWorkflowFormOptionsDiagnosticsDiagnosticCommandsRequest) Execute() (*OptionSourceResponse, *http.Response, error) {
+	return r.ApiService.GetWorkflowFormOptionsDiagnosticsDiagnosticCommandsExecute(r)
+}
+
+/*
+GetWorkflowFormOptionsDiagnosticsDiagnosticCommands Get diagnostic-commands options for DiagnosticsWorkflow
+
+Return diagnostic-commands form options for DiagnosticsWorkflow.
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@return ApiGetWorkflowFormOptionsDiagnosticsDiagnosticCommandsRequest
+*/
+func (a *WorkflowAPIService) GetWorkflowFormOptionsDiagnosticsDiagnosticCommands(ctx context.Context) ApiGetWorkflowFormOptionsDiagnosticsDiagnosticCommandsRequest {
+	return ApiGetWorkflowFormOptionsDiagnosticsDiagnosticCommandsRequest{
+		ApiService: a,
+		ctx:        ctx,
+	}
+}
+
+// Execute executes the request
+//
+//	@return OptionSourceResponse
+func (a *WorkflowAPIService) GetWorkflowFormOptionsDiagnosticsDiagnosticCommandsExecute(r ApiGetWorkflowFormOptionsDiagnosticsDiagnosticCommandsRequest) (*OptionSourceResponse, *http.Response, error) {
+	var (
+		localVarHTTPMethod  = http.MethodGet
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue *OptionSourceResponse
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "WorkflowAPIService.GetWorkflowFormOptionsDiagnosticsDiagnosticCommands")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/v1/workflow/diagnostics/form-options/diagnostic-commands"
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if r.deviceId == nil {
+		return localVarReturnValue, nil, reportError("deviceId is required and must be specified")
+	}
+
+	{
+		t := *r.deviceId
+		if reflect.TypeOf(t).Kind() == reflect.Slice {
+			s := reflect.ValueOf(t)
+			for i := 0; i < s.Len(); i++ {
+				parameterAddToHeaderOrQuery(localVarQueryParams, "device_id", s.Index(i).Interface(), "form", "multi")
+			}
+		} else {
+			parameterAddToHeaderOrQuery(localVarQueryParams, "device_id", t, "form", "multi")
+		}
+	}
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v ApiErrorResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
+			var v HTTPValidationError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 502 {
+			var v ApiErrorResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 504 {
+			var v ApiErrorResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest struct {
+	ctx          context.Context
+	ApiService   *WorkflowAPIService
+	location     *string
+	locationType *string
+	role         *[]string
+	status       *[]string
+	tenant       *string
+	managedOnly  *bool
+}
+
+// Location containing the target devices
+func (r ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest) Location(location string) ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest {
+	r.location = &location
+	return r
+}
+
+// DCIM location type for the location identifier
+func (r ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest) LocationType(locationType string) ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest {
+	r.locationType = &locationType
+	return r
+}
+
+func (r ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest) Role(role []string) ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest {
+	r.role = &role
+	return r
+}
+
+func (r ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest) Status(status []string) ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest {
+	r.status = &status
+	return r
+}
+
+func (r ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest) Tenant(tenant string) ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest {
+	r.tenant = &tenant
+	return r
+}
+
+// Limit to NVIDIA Config Manager-managed devices
+func (r ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest) ManagedOnly(managedOnly bool) ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest {
+	r.managedOnly = &managedOnly
+	return r
+}
+
+func (r ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest) Execute() (*OptionSourceResponse, *http.Response, error) {
+	return r.ApiService.GetWorkflowFormOptionsSitePasswordRotationPasswordUsersExecute(r)
+}
+
+/*
+GetWorkflowFormOptionsSitePasswordRotationPasswordUsers Get password-users options for SitePasswordRotationWorkflow
+
+Return password-users form options for SitePasswordRotationWorkflow.
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@return ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest
+*/
+func (a *WorkflowAPIService) GetWorkflowFormOptionsSitePasswordRotationPasswordUsers(ctx context.Context) ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest {
+	return ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest{
+		ApiService: a,
+		ctx:        ctx,
+	}
+}
+
+// Execute executes the request
+//
+//	@return OptionSourceResponse
+func (a *WorkflowAPIService) GetWorkflowFormOptionsSitePasswordRotationPasswordUsersExecute(r ApiGetWorkflowFormOptionsSitePasswordRotationPasswordUsersRequest) (*OptionSourceResponse, *http.Response, error) {
+	var (
+		localVarHTTPMethod  = http.MethodGet
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue *OptionSourceResponse
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "WorkflowAPIService.GetWorkflowFormOptionsSitePasswordRotationPasswordUsers")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/v1/workflow/site-password-rotation/form-options/password-users"
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if r.location == nil {
+		return localVarReturnValue, nil, reportError("location is required and must be specified")
+	}
+
+	parameterAddToHeaderOrQuery(localVarQueryParams, "location", r.location, "form", "")
+	if r.locationType != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "location_type", r.locationType, "form", "")
+	}
+	if r.role != nil {
+		t := *r.role
+		if reflect.TypeOf(t).Kind() == reflect.Slice {
+			s := reflect.ValueOf(t)
+			for i := 0; i < s.Len(); i++ {
+				parameterAddToHeaderOrQuery(localVarQueryParams, "role", s.Index(i).Interface(), "form", "multi")
+			}
+		} else {
+			parameterAddToHeaderOrQuery(localVarQueryParams, "role", t, "form", "multi")
+		}
+	}
+	if r.status != nil {
+		t := *r.status
+		if reflect.TypeOf(t).Kind() == reflect.Slice {
+			s := reflect.ValueOf(t)
+			for i := 0; i < s.Len(); i++ {
+				parameterAddToHeaderOrQuery(localVarQueryParams, "status", s.Index(i).Interface(), "form", "multi")
+			}
+		} else {
+			parameterAddToHeaderOrQuery(localVarQueryParams, "status", t, "form", "multi")
+		}
+	}
+	if r.tenant != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "tenant", r.tenant, "form", "")
+	}
+	if r.managedOnly != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "managed_only", r.managedOnly, "form", "")
+	} else {
+		var defaultValue bool = true
+		parameterAddToHeaderOrQuery(localVarQueryParams, "managed_only", defaultValue, "form", "")
+		r.managedOnly = &defaultValue
+	}
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v ApiErrorResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
+			var v HTTPValidationError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 502 {
+			var v ApiErrorResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 504 {
+			var v ApiErrorResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

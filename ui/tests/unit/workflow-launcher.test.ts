@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import legacyWorkflowRedirects from "@/config/legacy-workflow-redirects.json";
+import workflowFormIds from "@/config/workflow-form-ids.json";
 import { siteConfig } from "@/config/site";
 import { workflowFormPath } from "@/config/workflow-redirects.mjs";
 import {
@@ -47,39 +48,147 @@ import type {
  * launcher listed exactly these, in this order, linking to `/workflows/<slug>/form`.
  */
 const LEGACY_SITE_WORKFLOWS = [
-  { title: "Configuration Backup", workflowName: "BackupWorkflow", slug: "backupworkflow" },
-  { title: "Site Configuration Backup", workflowName: "SiteBackupWorkflow", slug: "sitebackupworkflow" },
-  { title: "Connected Host Metadata", workflowName: "ConnectedHostMetadataWorkflow", slug: "connectedhostmetadataworkflow" },
-  { title: "Configuration Deploy", workflowName: "DeployWorkflow", slug: "deployworkflow" },
-  { title: "Configuration Diff", workflowName: "ConfigDiffWorkflow", slug: "configdiffworkflow" },
-  { title: "Multi-Configuration Deploy", workflowName: "MultiDeployWorkflow", slug: "multideployworkflow" },
-  { title: "Device Cable Validation", workflowName: "DeviceCableValidationWorkflow", slug: "devicecablevalidationworkflow" },
-  { title: "Site Cable Validation", workflowName: "SiteCableValidationWorkflow", slug: "sitecablevalidationworkflow" },
-  { title: "Port LLDP Info", workflowName: "PortLLDPInfoWorkflow", slug: "portlldpinfoworkflow" },
-  { title: "SpX Overlay Creation", workflowName: "SpXOverlayCreationWorkflow", slug: "spxoverlaycreationworkflow" },
-  { title: "SpX Overlay Deletion", workflowName: "SpXOverlayDeletionWorkflow", slug: "spxoverlaydeletionworkflow" },
-  { title: "SpX Overlay Tenant Change", workflowName: "SpXOverlayTenantChangeWorkflow", slug: "spxoverlaytenantchangeworkflow" },
-  { title: "InfiniBand Get Unhealthy Ports", workflowName: "InfinibandGetUnhealthyPortsWorkflow", slug: "infinibandgetunhealthyportsworkflow" },
-  { title: "InfiniBand Cable Validation", workflowName: "InfinibandCableValidationWorkflow", slug: "infinibandcablevalidationworkflow" },
-  { title: "InfiniBand MLNX-OS Upgrade", workflowName: "InfinibandMlnxOSUpgradeWorkflow", slug: "infinibandmlnxosupgradeworkflow" },
-  { title: "Reprovision", workflowName: "ReprovisionWorkflow", slug: "reprovisionworkflow" },
-  { title: "Switch OS Upgrade", workflowName: "SwitchOSUpgradeWorkflow", slug: "switchosupgradeworkflow" },
-  { title: "Cumulus Hardware Validation", workflowName: "ValidateHardwareWorkflow", slug: "cumulushardwarevalidationworkflow" },
-  { title: "Device Password Rotation", workflowName: "DevicePasswordRotationWorkflow", slug: "devicepasswordrotationworkflow" },
-  { title: "Site Password Rotation", workflowName: "SitePasswordRotationWorkflow", slug: "sitepasswordrotationworkflow" },
-  { title: "Device Diagnostics", workflowName: "DiagnosticsWorkflow", slug: "diagnosticsworkflow" },
-  { title: "InfiniBand Port GUID Discovery", workflowName: "IBPortGuidDiscoveryWorkflow", slug: "ibportguiddiscoveryworkflow" },
-  { title: "InfiniBand PKey Creation", workflowName: "IBPKeyCreationWorkflow", slug: "ibpkeycreationworkflow" },
-  { title: "InfiniBand PKey Member Add", workflowName: "IBPKeyMemberAddWorkflow", slug: "ibpkeymemberaddworkflow" },
-  { title: "InfiniBand PKey Member Update", workflowName: "IBPKeyMemberUpdateWorkflow", slug: "ibpkeymemberupdateworkflow" },
-  { title: "InfiniBand PKey Member Delete", workflowName: "IBPKeyMemberDeleteWorkflow", slug: "ibpkeymemberdeleteworkflow" },
+  {
+    title: "Configuration Backup",
+    workflowName: "BackupWorkflow",
+    slug: "backupworkflow",
+  },
+  {
+    title: "Site Configuration Backup",
+    workflowName: "SiteBackupWorkflow",
+    slug: "sitebackupworkflow",
+  },
+  {
+    title: "Connected Host Metadata",
+    workflowName: "ConnectedHostMetadataWorkflow",
+    slug: "connectedhostmetadataworkflow",
+  },
+  {
+    title: "Configuration Deploy",
+    workflowName: "DeployWorkflow",
+    slug: "deployworkflow",
+  },
+  {
+    title: "Configuration Diff",
+    workflowName: "ConfigDiffWorkflow",
+    slug: "configdiffworkflow",
+  },
+  {
+    title: "Multi-Configuration Deploy",
+    workflowName: "MultiDeployWorkflow",
+    slug: "multideployworkflow",
+  },
+  {
+    title: "Device Cable Validation",
+    workflowName: "DeviceCableValidationWorkflow",
+    slug: "devicecablevalidationworkflow",
+  },
+  {
+    title: "Site Cable Validation",
+    workflowName: "SiteCableValidationWorkflow",
+    slug: "sitecablevalidationworkflow",
+  },
+  {
+    title: "Port LLDP Info",
+    workflowName: "PortLLDPInfoWorkflow",
+    slug: "portlldpinfoworkflow",
+  },
+  {
+    title: "SpX Overlay Creation",
+    workflowName: "SpXOverlayCreationWorkflow",
+    slug: "spxoverlaycreationworkflow",
+  },
+  {
+    title: "SpX Overlay Deletion",
+    workflowName: "SpXOverlayDeletionWorkflow",
+    slug: "spxoverlaydeletionworkflow",
+  },
+  {
+    title: "SpX Overlay Tenant Change",
+    workflowName: "SpXOverlayTenantChangeWorkflow",
+    slug: "spxoverlaytenantchangeworkflow",
+  },
+  {
+    title: "InfiniBand Get Unhealthy Ports",
+    workflowName: "InfinibandGetUnhealthyPortsWorkflow",
+    slug: "infinibandgetunhealthyportsworkflow",
+  },
+  {
+    title: "InfiniBand Cable Validation",
+    workflowName: "InfinibandCableValidationWorkflow",
+    slug: "infinibandcablevalidationworkflow",
+  },
+  {
+    title: "InfiniBand MLNX-OS Upgrade",
+    workflowName: "InfinibandMlnxOSUpgradeWorkflow",
+    slug: "infinibandmlnxosupgradeworkflow",
+  },
+  {
+    title: "Reprovision",
+    workflowName: "ReprovisionWorkflow",
+    slug: "reprovisionworkflow",
+  },
+  {
+    title: "Switch OS Upgrade",
+    workflowName: "SwitchOSUpgradeWorkflow",
+    slug: "switchosupgradeworkflow",
+  },
+  {
+    title: "Cumulus Hardware Validation",
+    workflowName: "ValidateHardwareWorkflow",
+    slug: "cumulushardwarevalidationworkflow",
+  },
+  {
+    title: "Device Password Rotation",
+    workflowName: "DevicePasswordRotationWorkflow",
+    slug: "devicepasswordrotationworkflow",
+  },
+  {
+    title: "Site Password Rotation",
+    workflowName: "SitePasswordRotationWorkflow",
+    slug: "sitepasswordrotationworkflow",
+  },
+  {
+    title: "Device Diagnostics",
+    workflowName: "DiagnosticsWorkflow",
+    slug: "diagnosticsworkflow",
+  },
+  {
+    title: "InfiniBand Port GUID Discovery",
+    workflowName: "IBPortGuidDiscoveryWorkflow",
+    slug: "ibportguiddiscoveryworkflow",
+  },
+  {
+    title: "InfiniBand PKey Creation",
+    workflowName: "IBPKeyCreationWorkflow",
+    slug: "ibpkeycreationworkflow",
+  },
+  {
+    title: "InfiniBand PKey Member Add",
+    workflowName: "IBPKeyMemberAddWorkflow",
+    slug: "ibpkeymemberaddworkflow",
+  },
+  {
+    title: "InfiniBand PKey Member Update",
+    workflowName: "IBPKeyMemberUpdateWorkflow",
+    slug: "ibpkeymemberupdateworkflow",
+  },
+  {
+    title: "InfiniBand PKey Member Delete",
+    workflowName: "IBPKeyMemberDeleteWorkflow",
+    slug: "ibpkeymemberdeleteworkflow",
+  },
 ];
 
-const LEGACY_LAUNCHER = LEGACY_SITE_WORKFLOWS.map(({ title, workflowName }) => ({
-  name: workflowName,
-  display_name: title,
-  href: workflowFormPath(workflowName),
-}));
+const LEGACY_LAUNCHER = LEGACY_SITE_WORKFLOWS.map(
+  ({ title, workflowName }) => ({
+    name: workflowName,
+    display_name: title,
+    href: workflowFormPath(
+      workflowFormIds[workflowName as keyof typeof workflowFormIds]
+    ),
+  })
+);
 
 const launcherCollator = new Intl.Collator("en", { numeric: true });
 const ALPHABETICAL_LAUNCHER = [...LEGACY_LAUNCHER].sort(
@@ -101,13 +210,18 @@ const SERVER_METADATA_BASELINE = fileURLToPath(
 );
 
 const serverCatalog = (): WorkflowCatalogEntry[] =>
-  normalizeWorkflowCatalog(
-    {
-      workflows: (
-        JSON.parse(readFileSync(SERVER_METADATA_BASELINE, "utf8")) as WorkflowCatalogResponseWire
-      ).workflows.map((workflow) => ({ has_form: true, ...workflow })),
-    }
-  );
+  normalizeWorkflowCatalog({
+    workflows: (
+      JSON.parse(
+        readFileSync(SERVER_METADATA_BASELINE, "utf8")
+      ) as WorkflowCatalogResponseWire
+    ).workflows.map((workflow) => ({
+      has_form: true,
+      form_id:
+        workflowFormIds[workflow.name as keyof typeof workflowFormIds] ?? null,
+      ...workflow,
+    })),
+  });
 
 const overrides = siteConfig.workflowOverrides;
 
@@ -130,11 +244,17 @@ const catalogEntry = (
     read_roles: ["all"],
     execute_roles: ["all"],
     has_form: true,
+    form_id:
+      workflowFormIds[name as keyof typeof workflowFormIds] ??
+      name
+        .replace(/Workflow$/, "")
+        .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+        .toLowerCase(),
     ...extra,
   });
 
 const PLUGIN = catalogEntry("AcmeFabricAuditWorkflow", "Acme Fabric Audit", {
-  plugin: "acme",
+  form_id: "acme-fabric-audit",
 });
 
 describe("buildWorkflowLauncherItems with the shipped overrides", () => {
@@ -149,7 +269,10 @@ describe("buildWorkflowLauncherItems with the shipped overrides", () => {
   });
 
   it("does not depend on server order", () => {
-    const items = buildWorkflowLauncherItems([...serverCatalog()].reverse(), overrides);
+    const items = buildWorkflowLauncherItems(
+      [...serverCatalog()].reverse(),
+      overrides
+    );
 
     expect(visible(items)).toEqual(ALPHABETICAL_LAUNCHER);
   });
@@ -160,33 +283,50 @@ describe("buildWorkflowLauncherItems with the shipped overrides", () => {
       overrides
     );
 
-    expect(visible(items)).toEqual(ALPHABETICAL_LAUNCHER);
+    expect(visible(items)).toEqual(
+      ALPHABETICAL_LAUNCHER.map((item) =>
+        item.name === "ConfigDiffWorkflow" ? { ...item, href: "" } : item
+      )
+    );
   });
 
   it("lists the built-ins without metadata while the catalog is unavailable", () => {
     const items = buildWorkflowLauncherItems([], overrides);
 
-    expect(visible(items)).toEqual(ALPHABETICAL_LAUNCHER);
+    expect(visible(items)).toEqual(
+      ALPHABETICAL_LAUNCHER.map((item) => ({ ...item, href: "" }))
+    );
     expect(items.every((item) => item.metadata === undefined)).toBe(true);
   });
 
   it("keeps a built-in the catalog lacks alphabetized, without metadata", () => {
-    const catalog = serverCatalog().filter((entry) => entry.name !== "ConfigDiffWorkflow");
+    const catalog = serverCatalog().filter(
+      (entry) => entry.name !== "ConfigDiffWorkflow"
+    );
 
     const items = buildWorkflowLauncherItems(catalog, overrides);
 
-    expect(visible(items)).toEqual(ALPHABETICAL_LAUNCHER);
-    expect(items.find((item) => item.name === "ConfigDiffWorkflow")?.metadata).toBeUndefined();
+    expect(visible(items)).toEqual(
+      ALPHABETICAL_LAUNCHER.map((item) =>
+        item.name === "ConfigDiffWorkflow" ? { ...item, href: "" } : item
+      )
+    );
+    expect(
+      items.find((item) => item.name === "ConfigDiffWorkflow")?.metadata
+    ).toBeUndefined();
   });
 
-  it("alphabetizes an unmapped plugin workflow on the class-name route", () => {
-    const items = buildWorkflowLauncherItems([...serverCatalog(), PLUGIN], overrides);
+  it("alphabetizes an unmapped plugin workflow on its form ID route", () => {
+    const items = buildWorkflowLauncherItems(
+      [...serverCatalog(), PLUGIN],
+      overrides
+    );
 
     expect(visible(items)).toEqual([
       {
         name: "AcmeFabricAuditWorkflow",
         display_name: "Acme Fabric Audit",
-        href: "/workflows/new/AcmeFabricAuditWorkflow",
+        href: "/workflows/new/acme-fabric-audit",
       },
       ...ALPHABETICAL_LAUNCHER,
     ]);
@@ -201,7 +341,9 @@ describe("buildWorkflowLauncherItems with the shipped overrides", () => {
       .filter(([, override]) => !override.hidden)
       .map(([name]) => name);
 
-    expect([...listed].sort()).toEqual(Object.keys(legacyWorkflowRedirects).sort());
+    expect([...listed].sort()).toEqual(
+      Object.keys(legacyWorkflowRedirects).sort()
+    );
   });
 });
 
@@ -213,39 +355,34 @@ describe("buildWorkflowLauncherItems rules", () => {
       {
         name: "AcmeFabricAuditWorkflow",
         display_name: "Acme Fabric Audit",
-        href: "/workflows/new/AcmeFabricAuditWorkflow",
+        href: "/workflows/new/acme-fabric-audit",
       },
     ]);
   });
 
   it("drops workflows an override hides", () => {
-    const items = buildWorkflowLauncherItems(
-      [builtIn, PLUGIN],
-      { AcmeFabricAuditWorkflow: { hidden: true } }
-    );
+    const items = buildWorkflowLauncherItems([builtIn, PLUGIN], {
+      AcmeFabricAuditWorkflow: { hidden: true },
+    });
 
     expect(items.map((item) => item.name)).toEqual(["DeployWorkflow"]);
   });
 
-  it("drops workflows the catalog disables, even with an override", () => {
-    const disabled = catalogEntry("DeployWorkflow", "Configuration Deploy", {
-      enabled: false,
-    });
-
-    expect(
-      buildWorkflowLauncherItems([disabled], { DeployWorkflow: { title: "Deploy" } })
-    ).toEqual([]);
-  });
-
   it("drops form-less workflows", () => {
-    const formLessBuiltIn = catalogEntry("DeployWorkflow", "Configuration Deploy", {
-      has_form: false,
-    });
+    const formLessBuiltIn = catalogEntry(
+      "DeployWorkflow",
+      "Configuration Deploy",
+      {
+        has_form: false,
+      }
+    );
     const formLessPlugin = catalogEntry("NoFormWorkflow", "No Form", {
       has_form: false,
     });
 
-    expect(buildWorkflowLauncherItems([formLessBuiltIn, formLessPlugin], {})).toEqual([]);
+    expect(
+      buildWorkflowLauncherItems([formLessBuiltIn, formLessPlugin], {})
+    ).toEqual([]);
   });
 
   it("keeps workflows from an older API disabled instead of creating broken links", () => {
@@ -255,7 +392,26 @@ describe("buildWorkflowLauncherItems rules", () => {
     const [item] = buildWorkflowLauncherItems([oldApiEntry], {});
 
     expect(item.metadata).toBe(oldApiEntry);
-    expect(getWorkflowExecutePermission(item.metadata, new Set(), false)).toEqual({
+    expect(
+      getWorkflowExecutePermission(item.metadata, new Set(), false)
+    ).toEqual({
+      allowed: false,
+      reason: WORKFLOW_FORM_API_UPGRADE_REQUIRED,
+    });
+  });
+
+  it("fails closed when a form-enabled workflow omits its form ID", () => {
+    const missingFormId = catalogEntry(
+      "DeployWorkflow",
+      "Configuration Deploy",
+      { form_id: null }
+    );
+    const [item] = buildWorkflowLauncherItems([missingFormId], {});
+
+    expect(item.href).toBe("");
+    expect(
+      getWorkflowExecutePermission(item.metadata, new Set(["all"]), false)
+    ).toEqual({
       allowed: false,
       reason: WORKFLOW_FORM_API_UPGRADE_REQUIRED,
     });
@@ -267,15 +423,15 @@ describe("buildWorkflowLauncherItems rules", () => {
       DeployWorkflow: { title: "Configuration Deploy" },
     };
 
-    expect(buildWorkflowLauncherItems([renamed], override)[0].display_name).toBe(
-      "Deploy Configuration"
-    );
+    expect(
+      buildWorkflowLauncherItems([renamed], override)[0].display_name
+    ).toBe("Deploy Configuration");
     expect(buildWorkflowLauncherItems([], override)[0].display_name).toBe(
       "Configuration Deploy"
     );
-    expect(buildWorkflowLauncherItems([], { DeployWorkflow: {} })[0].display_name).toBe(
-      "DeployWorkflow"
-    );
+    expect(
+      buildWorkflowLauncherItems([], { DeployWorkflow: {} })[0].display_name
+    ).toBe("DeployWorkflow");
   });
 
   it("uses the catalog group", () => {
@@ -288,16 +444,18 @@ describe("buildWorkflowLauncherItems rules", () => {
     });
   });
 
-  it("sorts by display name and class name, ignoring catalog order", () => {
+  it("sorts by display name and class name", () => {
     const catalog = [
       catalogEntry("ZetaWorkflow", "Alpha"),
       catalogEntry("AlphaWorkflow", "Alpha"),
-      catalogEntry("LateWorkflow", "Late", { order: 20 }),
+      catalogEntry("LateWorkflow", "Late"),
       catalogEntry("BetaWorkflow", "Beta"),
-      catalogEntry("EarlyWorkflow", "Zulu", { order: 5 }),
+      catalogEntry("EarlyWorkflow", "Zulu"),
     ];
 
-    expect(buildWorkflowLauncherItems(catalog, {}).map((item) => item.name)).toEqual([
+    expect(
+      buildWorkflowLauncherItems(catalog, {}).map((item) => item.name)
+    ).toEqual([
       "AlphaWorkflow",
       "ZetaWorkflow",
       "BetaWorkflow",
@@ -306,18 +464,9 @@ describe("buildWorkflowLauncherItems rules", () => {
     ]);
   });
 
-  it("does not let catalog order move a plugin ahead of alphabetical peers", () => {
-    const ordered = { ...PLUGIN, order: 15 };
-
-    const names = buildWorkflowLauncherItems([ordered], overrides).map((item) => item.name);
-
-    expect(names[0]).toBe("AcmeFabricAuditWorkflow");
-    expect(names.slice(1)).toEqual(ALPHABETICAL_LAUNCHER.map((item) => item.name));
-  });
-
-  it("links workflows to the class-name route", () => {
+  it("links workflows to the form ID route", () => {
     expect(buildWorkflowLauncherItems([builtIn], {})[0].href).toBe(
-      "/workflows/new/DeployWorkflow"
+      "/workflows/new/deploy"
     );
   });
 });
@@ -325,7 +474,9 @@ describe("buildWorkflowLauncherItems rules", () => {
 describe("groupWorkflowLauncherItems", () => {
   it("keeps everything in one section when no group is declared", () => {
     const deploy = catalogEntry("DeployWorkflow", "Configuration Deploy");
-    const sections = groupWorkflowLauncherItems(buildWorkflowLauncherItems([deploy, PLUGIN], {}));
+    const sections = groupWorkflowLauncherItems(
+      buildWorkflowLauncherItems([deploy, PLUGIN], {})
+    );
 
     expect(sections).toHaveLength(1);
     expect(sections[0].group).toBe(DEFAULT_WORKFLOW_GROUP);
@@ -365,10 +516,12 @@ describe("groupWorkflowLauncherItems", () => {
     );
 
     expect(
-      groupWorkflowLauncherItems(items).map(({ group, items: sectionItems }) => [
-        group,
-        sectionItems.map((item) => item.name),
-      ])
+      groupWorkflowLauncherItems(items).map(
+        ({ group, items: sectionItems }) => [
+          group,
+          sectionItems.map((item) => item.name),
+        ]
+      )
     ).toEqual([
       ["Access", ["CWorkflow"]],
       ["Fabric", ["BWorkflow", "DWorkflow"]],
@@ -384,19 +537,25 @@ describe("getWorkflowExecutePermission", () => {
   });
 
   it("allows a user holding one of the execute roles", () => {
-    expect(getWorkflowExecutePermission(deploy, roles("reader", "executor"), false)).toEqual({
+    expect(
+      getWorkflowExecutePermission(deploy, roles("reader", "executor"), false)
+    ).toEqual({
       allowed: true,
     });
   });
 
   it('allows everyone when the execute roles include "all"', () => {
-    expect(getWorkflowExecutePermission(catalogEntry("A", "A"), roles(), false)).toEqual({
+    expect(
+      getWorkflowExecutePermission(catalogEntry("A", "A"), roles(), false)
+    ).toEqual({
       allowed: true,
     });
   });
 
   it("names the required roles when the user has none of them", () => {
-    expect(getWorkflowExecutePermission(deploy, roles("all", "reader"), false)).toEqual({
+    expect(
+      getWorkflowExecutePermission(deploy, roles("all", "reader"), false)
+    ).toEqual({
       allowed: false,
       reason: "Required execute roles: DeployWorkflow, executor",
     });
@@ -404,13 +563,24 @@ describe("getWorkflowExecutePermission", () => {
 
   it("explains unconfigured roles, missing metadata, and a failed /whoami", () => {
     expect(
-      getWorkflowExecutePermission(catalogEntry("A", "A", { execute_roles: [] }), roles(), false)
-    ).toEqual({ allowed: false, reason: "Required execute roles are not configured." });
-    expect(getWorkflowExecutePermission(undefined, roles("executor"), false)).toEqual({
+      getWorkflowExecutePermission(
+        catalogEntry("A", "A", { execute_roles: [] }),
+        roles(),
+        false
+      )
+    ).toEqual({
+      allowed: false,
+      reason: "Required execute roles are not configured.",
+    });
+    expect(
+      getWorkflowExecutePermission(undefined, roles("executor"), false)
+    ).toEqual({
       allowed: false,
       reason: "Workflow metadata is unavailable.",
     });
-    expect(getWorkflowExecutePermission(catalogEntry("A", "A"), roles(), true)).toEqual({
+    expect(
+      getWorkflowExecutePermission(catalogEntry("A", "A"), roles(), true)
+    ).toEqual({
       allowed: false,
       reason: "Unauthorized",
     });

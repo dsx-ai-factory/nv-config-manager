@@ -19,17 +19,16 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_WORKFLOW_GROUP,
   buildWorkflowCatalogUrl,
+  isLegacyWorkflowCatalog,
   normalizeWorkflowCatalog,
   normalizeWorkflowCatalogEntry,
-  sortWorkflowCatalog,
 } from "@/lib/workflow-catalog";
 import { workflowMetadata as mswWorkflowMetadata } from "@/mocks/handlers/workflowHandlers";
-import type {
-  WorkflowCatalogEntry,
-  WorkflowCatalogEntryWire,
-} from "@/types/workflow-catalog.types";
+import type { WorkflowCatalogEntryWire } from "@/types/workflow-catalog.types";
 
-const wire = (overrides: Partial<WorkflowCatalogEntryWire> = {}): WorkflowCatalogEntryWire => ({
+const wire = (
+  overrides: Partial<WorkflowCatalogEntryWire> = {}
+): WorkflowCatalogEntryWire => ({
   name: "BackupWorkflow",
   display_name: "Configuration Backup",
   description: "Back up a device.",
@@ -42,24 +41,14 @@ const wire = (overrides: Partial<WorkflowCatalogEntryWire> = {}): WorkflowCatalo
   ...overrides,
 });
 
-const entry = (
-  name: string,
-  display_name: string,
-  order?: number
-): WorkflowCatalogEntry =>
-  normalizeWorkflowCatalogEntry(wire({ name, display_name, order }));
-
 describe("normalizeWorkflowCatalogEntry", () => {
   it("fails closed when the server omits form availability", () => {
     const normalized = normalizeWorkflowCatalogEntry(wire());
 
     expect(normalized).toEqual({
       ...wire(),
-      plugin: null,
-      tags: [],
+      form_id: null,
       has_form: null,
-      enabled: true,
-      order: undefined,
       group: DEFAULT_WORKFLOW_GROUP,
     });
   });
@@ -67,43 +56,31 @@ describe("normalizeWorkflowCatalogEntry", () => {
   it("treats null like absent", () => {
     const normalized = normalizeWorkflowCatalogEntry(
       wire({
-        plugin: null,
-        tags: null,
+        form_id: null,
         has_form: null,
-          enabled: null,
-        order: null,
         group: null,
       })
     );
 
     expect(normalized).toMatchObject({
-      plugin: null,
-      tags: [],
+      form_id: null,
       has_form: null,
-      enabled: true,
-      order: undefined,
       group: DEFAULT_WORKFLOW_GROUP,
     });
   });
 
-  it("keeps explicit values, including enabled=false and order=0", () => {
+  it("keeps explicit values emitted by the backend", () => {
     const normalized = normalizeWorkflowCatalogEntry(
       wire({
-        plugin: "nv-config-manager-acme",
-        tags: ["network", "backup"],
+        form_id: "config-backup",
         has_form: false,
-        enabled: false,
-        order: 0,
         group: "Backups",
       })
     );
 
     expect(normalized).toMatchObject({
-      plugin: "nv-config-manager-acme",
-      tags: ["network", "backup"],
+      form_id: "config-backup",
       has_form: false,
-      enabled: false,
-      order: 0,
       group: "Backups",
     });
   });
@@ -111,18 +88,14 @@ describe("normalizeWorkflowCatalogEntry", () => {
   it("falls back to defaults for wrongly typed optional fields", () => {
     const normalized = normalizeWorkflowCatalogEntry({
       ...wire(),
-      tags: ["ok", 3, null],
+      form_id: "Not/A/Stable/ID",
       has_form: "yes",
-      enabled: "no",
-      order: Number.NaN,
       group: "",
     } as unknown as WorkflowCatalogEntryWire);
 
     expect(normalized).toMatchObject({
-      tags: ["ok"],
+      form_id: null,
       has_form: null,
-      enabled: true,
-      order: undefined,
       group: DEFAULT_WORKFLOW_GROUP,
     });
   });
@@ -139,17 +112,22 @@ describe("normalizeWorkflowCatalogEntry", () => {
 
 describe("has_form availability", () => {
   it("does not infer a generic form from input_class", () => {
-    expect(normalizeWorkflowCatalogEntry(wire({ input_class: "BackupInput" })).has_form).toBe(
-      null
-    );
-    expect(normalizeWorkflowCatalogEntry(wire({ input_class: "Unknown" })).has_form).toBe(null);
     expect(
-      normalizeWorkflowCatalogEntry(wire({ input_class: "Unknown", has_form: true }))
+      normalizeWorkflowCatalogEntry(wire({ input_class: "BackupInput" }))
         .has_form
+    ).toBe(null);
+    expect(
+      normalizeWorkflowCatalogEntry(wire({ input_class: "Unknown" })).has_form
+    ).toBe(null);
+    expect(
+      normalizeWorkflowCatalogEntry(
+        wire({ input_class: "Unknown", has_form: true })
+      ).has_form
     ).toBe(true);
     expect(
-      normalizeWorkflowCatalogEntry(wire({ input_class: "BackupInput", has_form: false }))
-        .has_form
+      normalizeWorkflowCatalogEntry(
+        wire({ input_class: "BackupInput", has_form: false })
+      ).has_form
     ).toBe(false);
   });
 });
@@ -177,55 +155,40 @@ describe("normalizeWorkflowCatalog", () => {
     expect(
       catalog.every(
         (workflow) =>
-          workflow.enabled &&
           workflow.has_form === !workflowsWithoutForms.has(workflow.name) &&
-          workflow.group === DEFAULT_WORKFLOW_GROUP &&
-          workflow.order === undefined
+          workflow.group === DEFAULT_WORKFLOW_GROUP
       )
     ).toBe(true);
   });
 });
 
-describe("sortWorkflowCatalog", () => {
-  it("puts explicit order first, then display_name, then name", () => {
-    const sorted = sortWorkflowCatalog([
-      entry("Zeta", "Alpha"),
-      entry("Second", "Zulu", 2),
-      entry("Beta", "Alpha"),
-      entry("First", "Yankee", 1),
-      entry("Other", "Bravo"),
-      entry("Negative", "Xray", -5),
-    ]);
+describe("isLegacyWorkflowCatalog", () => {
+  it("recognizes a real pre-form API response", () => {
+    const catalog = normalizeWorkflowCatalog({
+      workflows: [wire(), wire({ name: "DeployWorkflow" })],
+    });
 
-    expect(sorted.map((workflow) => workflow.name)).toEqual([
-      "Negative",
-      "First",
-      "Second",
-      "Beta",
-      "Zeta",
-      "Other",
-    ]);
+    expect(isLegacyWorkflowCatalog(catalog)).toBe(true);
   });
 
-  it("orders display names naturally and is independent of input order", () => {
-    const items = [
-      entry("A10", "Workflow 10"),
-      entry("A2", "Workflow 2"),
-      entry("A1", "Workflow 1"),
-    ];
-    const expected = ["A1", "A2", "A10"];
+  it("does not treat an empty, current, or mixed catalog as a legacy API", () => {
+    const current = normalizeWorkflowCatalog({
+      workflows: [wire({ form_id: "backup", has_form: true })],
+    });
+    const mixed = normalizeWorkflowCatalog({
+      workflows: [
+        wire(),
+        wire({
+          name: "DeployWorkflow",
+          form_id: "deploy",
+          has_form: true,
+        }),
+      ],
+    });
 
-    expect(sortWorkflowCatalog(items).map((w) => w.name)).toEqual(expected);
-    expect(sortWorkflowCatalog([...items].reverse()).map((w) => w.name)).toEqual(
-      expected
-    );
-  });
-
-  it("does not mutate its input", () => {
-    const items = [entry("B", "B"), entry("A", "A")];
-    sortWorkflowCatalog(items);
-
-    expect(items.map((workflow) => workflow.name)).toEqual(["B", "A"]);
+    expect(isLegacyWorkflowCatalog([])).toBe(false);
+    expect(isLegacyWorkflowCatalog(current)).toBe(false);
+    expect(isLegacyWorkflowCatalog(mixed)).toBe(false);
   });
 });
 

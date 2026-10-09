@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import legacyWorkflowRedirects from "@/config/legacy-workflow-redirects.json";
+import workflowFormIds from "@/config/workflow-form-ids.json";
 import {
   buildWorkflowRedirects,
   workflowFormPath,
@@ -36,10 +37,23 @@ describe("legacy workflow redirects", () => {
     for (const slug of slugs) expect(slug).toMatch(/^[a-z0-9]+$/);
   });
 
+  it("declares one unique lowercase kebab-case form ID per legacy workflow", () => {
+    expect(Object.keys(workflowFormIds).sort()).toEqual(
+      Object.keys(legacyWorkflowRedirects).sort()
+    );
+    const formIds = Object.values(workflowFormIds);
+    expect(new Set(formIds).size).toBe(formIds.length);
+    for (const formId of formIds) {
+      expect(formId).toMatch(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/);
+    }
+  });
+
   it("does not retain implementations behind the redirected URLs", () => {
     for (const legacySlug of Object.values(legacyWorkflowRedirects)) {
       expect(
-        existsSync(join(UI_ROOT, "src/app/workflows", legacySlug, "form", "page.tsx")),
+        existsSync(
+          join(UI_ROOT, "src/app/workflows", legacySlug, "form", "page.tsx")
+        ),
         legacySlug
       ).toBe(false);
     }
@@ -48,31 +62,45 @@ describe("legacy workflow redirects", () => {
 
 describe("buildWorkflowRedirects", () => {
   it("redirects nothing when there are no legacy URLs", () => {
-    expect(buildWorkflowRedirects({})).toEqual([]);
+    expect(buildWorkflowRedirects({}, {})).toEqual([]);
   });
 
-  it("redirects legacy URLs to encoded class-name routes", () => {
+  it("fails explicitly when a legacy workflow has no form ID", () => {
+    expect(() =>
+      buildWorkflowRedirects({ DeployWorkflow: "deployworkflow" }, {})
+    ).toThrow("Missing workflow form ID for DeployWorkflow");
+  });
+
+  it("redirects legacy URLs to encoded form ID routes", () => {
     const redirects = {
       DeployWorkflow: "deployworkflow",
       "Acme Audit/Workflow": "acmeauditworkflow",
     };
 
-    expect(buildWorkflowRedirects(redirects)).toEqual([
+    const formIds: Record<string, string> = {
+      DeployWorkflow: "deploy",
+      "Acme Audit/Workflow": "acme-audit",
+    };
+
+    expect(buildWorkflowRedirects(redirects, formIds)).toEqual([
       {
         source: "/workflows/deployworkflow/form",
-        destination: "/workflows/new/DeployWorkflow",
+        destination: "/workflows/new/deploy",
         permanent: false,
       },
       {
         source: "/workflows/acmeauditworkflow/form",
-        destination: "/workflows/new/Acme%20Audit%2FWorkflow",
+        destination: "/workflows/new/acme-audit",
         permanent: false,
       },
     ]);
     for (const [name, legacySlug] of Object.entries(redirects)) {
-      expect(buildWorkflowRedirects({ [name]: legacySlug })[0].destination).toBe(
-        workflowFormPath(name)
-      );
+      expect(
+        buildWorkflowRedirects(
+          { [name]: legacySlug },
+          { [name]: formIds[name] }
+        )[0].destination
+      ).toBe(workflowFormPath(formIds[name]));
     }
   });
 });
@@ -81,11 +109,15 @@ describe("next.config.mjs redirects()", () => {
   it("serves redirects for every previously shipped form URL", async () => {
     const redirects = await nextConfig.redirects?.();
 
-    expect(redirects).toEqual(buildWorkflowRedirects(legacyWorkflowRedirects));
+    expect(redirects).toEqual(
+      buildWorkflowRedirects(legacyWorkflowRedirects, workflowFormIds)
+    );
     expect(redirects).toEqual(
       Object.entries(legacyWorkflowRedirects).map(([name, legacySlug]) => ({
         source: `/workflows/${legacySlug}/form`,
-        destination: `/workflows/new/${name}`,
+        destination: `/workflows/new/${
+          workflowFormIds[name as keyof typeof workflowFormIds]
+        }`,
         permanent: false,
       }))
     );

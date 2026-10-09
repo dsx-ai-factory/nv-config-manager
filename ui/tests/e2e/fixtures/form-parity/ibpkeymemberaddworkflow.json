@@ -5,7 +5,7 @@
     {
       "name": "GUID members",
       "legacy_url": "/workflows/ibpkeymemberaddworkflow/form",
-      "new_url": "/workflows/new/IBPKeyMemberAddWorkflow",
+      "new_url": "/workflows/new/ib-pkey-member-add",
       "legacy_payload": {
         "host": "ufm-1.lab",
         "pkey": "0x8001",

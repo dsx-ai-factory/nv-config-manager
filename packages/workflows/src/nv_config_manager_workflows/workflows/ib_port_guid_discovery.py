@@ -136,6 +136,8 @@ class IBPortGuidDiscoveryWorkflow(WorkflowMetadataMixin, StageMixin):
     workflow_input_class = IBPortGuidDiscoveryInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/ib_port_guid_discovery"
+    workflow_form_enabled = True
+    workflow_form_id = "ib-port-guid-discovery"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_network_device,

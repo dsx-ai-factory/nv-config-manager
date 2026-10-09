@@ -5,7 +5,7 @@
     {
       "name": "role only",
       "legacy_url": "/workflows/multideployworkflow/form",
-      "new_url": "/workflows/new/MultiDeployWorkflow",
+      "new_url": "/workflows/new/multi-deploy",
       "legacy_payload": {
         "role": "cin-leaf",
         "max_batch_size": 10,
@@ -23,7 +23,7 @@
     {
       "name": "every field",
       "legacy_url": "/workflows/multideployworkflow/form",
-      "new_url": "/workflows/new/MultiDeployWorkflow",
+      "new_url": "/workflows/new/multi-deploy",
       "legacy_payload": {
         "role": "cin-spine",
         "max_batch_size": 25,
@@ -52,7 +52,7 @@
     {
       "name": "prefill from URL",
       "legacy_url": "/workflows/multideployworkflow/form?role=cin-spine&max_batch_size=15&location=RNO1&status=Active&status=Provisioning&tenant=TenantA",
-      "new_url": "/workflows/new/MultiDeployWorkflow?role=cin-spine&max_batch_size=15&location=RNO1&status=Active&status=Provisioning&tenant=TenantA",
+      "new_url": "/workflows/new/multi-deploy?role=cin-spine&max_batch_size=15&location=RNO1&status=Active&status=Provisioning&tenant=TenantA",
       "legacy_payload": {
         "role": "cin-spine",
         "max_batch_size": 15,

@@ -342,6 +342,8 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
     workflow_input_class = ValidateHardwareInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/cumulus_hardware_validation"
+    workflow_form_enabled = True
+    workflow_form_id = "cumulus-hardware-validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
     workflow_required_activities = (

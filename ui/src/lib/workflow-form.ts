@@ -41,7 +41,12 @@ export const SUPPORTED_CAPABILITIES: ReadonlySet<string> = new Set(
 export type WorkflowFormParseResult =
   | { ok: true; form: WorkflowFormResponse }
   | { ok: false; kind: "malformed"; issues: string[] }
-  | { ok: false; kind: "unsupported"; version?: number; capabilities: string[] };
+  | {
+      ok: false;
+      kind: "unsupported";
+      version?: number;
+      capabilities: string[];
+    };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -61,15 +66,21 @@ const formatIssues = (errors: ErrorObject[] | null | undefined): string[] => [
           .map(unescapePointerToken)
           .join(".");
         const missing =
-          error.keyword === "required" && typeof error.params.missingProperty === "string"
+          error.keyword === "required" &&
+          typeof error.params.missingProperty === "string"
             ? `${path ? "." : ""}${error.params.missingProperty}`
             : "";
-        return `${path}${missing || ""}${path || missing ? ": " : ""}${error.message ?? "invalid value"}`;
+        return `${path}${missing || ""}${path || missing ? ": " : ""}${
+          error.message ?? "invalid value"
+        }`;
       })
   ),
 ];
 
-const validateEnvelope = new Ajv2020({ allErrors: true, strict: false }).compile(wireSchema);
+const validateEnvelope = new Ajv2020({
+  allErrors: true,
+  strict: false,
+}).compile(wireSchema);
 
 /**
  * Validate a `/form` payload: version, then capabilities, then the wire schema.
@@ -92,11 +103,19 @@ export const parseWorkflowFormResponse = (
         typeof capability === "string" && !supported.has(capability)
     );
     if (unsupported.length > 0) {
-      return { ok: false, kind: "unsupported", capabilities: [...new Set(unsupported)] };
+      return {
+        ok: false,
+        kind: "unsupported",
+        capabilities: [...new Set(unsupported)],
+      };
     }
   }
   if (!validateEnvelope(payload)) {
-    return { ok: false, kind: "malformed", issues: formatIssues(validateEnvelope.errors) };
+    return {
+      ok: false,
+      kind: "malformed",
+      issues: formatIssues(validateEnvelope.errors),
+    };
   }
   return { ok: true, form: payload as unknown as WorkflowFormResponse };
 };
@@ -118,37 +137,43 @@ export type WorkflowFormResult =
 
 export type WorkflowFormResultKind = WorkflowFormResult["kind"];
 
-/** Build the form URL; the workflow name is always encoded as a single path segment. */
-export const buildWorkflowFormUrl = (apiURL: string, name: string): string =>
-  sanitizeUrl(`${apiURL}/v1/workflow/${encodeURIComponent(name)}/form`);
+/** Build the form URL; the workflow form ID is always encoded as a single path segment. */
+export const buildWorkflowFormUrl = (apiURL: string, formId: string): string =>
+  sanitizeUrl(`${apiURL}/v1/workflow/${encodeURIComponent(formId)}/form`);
 
-const notFound = (name: string): WorkflowFormResult => ({
+const notFound = (formId: string): WorkflowFormResult => ({
   kind: "not_found",
-  message: `Workflow "${name}" was not found or is not available through the API.`,
+  message: `Workflow "${formId}" was not found or is not available through the API.`,
 });
 
 const FORM_UNAVAILABLE_CODE = "workflow_form_unavailable";
 
 const unavailable = (detail: unknown): WorkflowFormResult | undefined => {
-  if (!isPlainObject(detail) || detail.code !== FORM_UNAVAILABLE_CODE) return undefined;
+  if (!isPlainObject(detail) || detail.code !== FORM_UNAVAILABLE_CODE)
+    return undefined;
   const text = (value: unknown) => (typeof value === "string" ? value : "");
   const plugin = text(detail.plugin);
   return {
     kind: "unavailable",
     message:
-      `The form of this workflow${plugin ? ` from plugin "${plugin}"` : ""} failed ` +
+      `The form of this workflow${
+        plugin ? ` from plugin "${plugin}"` : ""
+      } failed ` +
       "validation when the workflow API started, so it cannot be shown. Ask the plugin's " +
       "author to fix it. You can still start the workflow through the API or CLI.",
     diagnostic: text(detail.message),
   };
 };
 
-const classifyFetchError = (name: string, error: unknown): WorkflowFormResult => {
+const classifyFetchError = (
+  formId: string,
+  error: unknown
+): WorkflowFormResult => {
   if (error instanceof TokenError) {
     return { kind: "unauthorized", status: 401, message: error.message };
   }
   if (error instanceof APIError) {
-    if (error.status === 404) return notFound(name);
+    if (error.status === 404) return notFound(formId);
     if (error.status === 401 || error.status === 403) {
       return {
         kind: "unauthorized",
@@ -180,7 +205,8 @@ const classifyFetchError = (name: string, error: unknown): WorkflowFormResult =>
   }
   return {
     kind: "network_error",
-    message: "The workflow API could not be reached. Check your connection and retry.",
+    message:
+      "The workflow API could not be reached. Check your connection and retry.",
   };
 };
 
@@ -189,21 +215,21 @@ const NEWER_UI =
   "start it through the API or CLI.";
 
 /**
- * Load and validate `GET /v1/workflow/{name}/form`. Never throws: every failure is a
+ * Load and validate `GET /v1/workflow/{form_id}/form`. Never throws: every failure is a
  * distinct result kind so pages can render an actionable state.
  */
 export const fetchWorkflowForm = async (
   apiURL: string,
-  name: string
+  formId: string
 ): Promise<WorkflowFormResult> => {
-  // "", "." and ".." would collapse or traverse the path instead of naming a workflow.
-  if (name === "" || name === "." || name === "..") return notFound(name);
+  // "", "." and ".." would collapse or traverse the path instead of identifying a workflow.
+  if (formId === "" || formId === "." || formId === "..") return notFound(formId);
 
   let payload: unknown;
   try {
-    payload = await fetcher(buildWorkflowFormUrl(apiURL, name));
+    payload = await fetcher(buildWorkflowFormUrl(apiURL, formId));
   } catch (error) {
-    return classifyFetchError(name, error);
+    return classifyFetchError(formId, error);
   }
 
   const parsed = parseWorkflowFormResponse(payload);
@@ -215,8 +241,12 @@ export const fetchWorkflowForm = async (
         parsed.version !== undefined
           ? `This form uses UI schema version ${parsed.version}, but this UI supports ` +
             `version ${SUPPORTED_UI_SCHEMA_VERSION}. ${NEWER_UI}`
-          : `This form needs ${parsed.capabilities.length === 1 ? "a capability" : "capabilities"} ` +
-            `this UI does not support (${parsed.capabilities.join(", ")}). ${NEWER_UI}`,
+          : `This form needs ${
+              parsed.capabilities.length === 1 ? "a capability" : "capabilities"
+            } ` +
+            `this UI does not support (${parsed.capabilities.join(
+              ", "
+            )}). ${NEWER_UI}`,
     };
   }
   return {

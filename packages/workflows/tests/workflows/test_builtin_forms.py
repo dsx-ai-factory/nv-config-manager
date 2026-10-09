@@ -18,6 +18,8 @@ The full envelopes are snapshotted in
 ``src/tests/temporal/api/fixtures/workflow_forms.json``.
 """
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -28,6 +30,7 @@ from nv_config_manager_workflows.registration.form_catalog import WorkflowFormCa
 from nv_config_manager_workflows.registration.registry import WorkflowRegistry
 from nv_config_manager_workflows.ui import QUERY_ALIASES, QUERY_SEPARATORS, wire_schema
 from nv_config_manager_workflows.workflows.backup import BackupInput, BackupWorkflow, TriggerEnum
+from nv_config_manager_workflows.workflows.diagnostics import DiagnosticsWorkflow
 from nv_config_manager_workflows.workflows.ib_pkey_creation import IBPKeyCreationWorkflow
 from nv_config_manager_workflows.workflows.ib_port_guid_discovery import (
     IBPortGuidDiscoveryWorkflow,
@@ -36,7 +39,12 @@ from nv_config_manager_workflows.workflows.infiniband_cable_validation import (
     InfinibandCableValidationWorkflow,
 )
 from nv_config_manager_workflows.workflows.lldp import PortLLDPInfoWorkflow
+from nv_config_manager_workflows.workflows.site_password_rotation import (
+    SitePasswordRotationWorkflow,
+)
 from nv_config_manager_workflows.workflows.spx_overlay import SpXOverlayTenantChangeWorkflow
+
+_FORM_IDS = Path(__file__).resolve().parents[1] / "fixtures" / "builtin_form_ids.json"
 
 
 @pytest.fixture(scope="module")
@@ -54,9 +62,7 @@ def test_every_form_enabled_builtin_api_workflow_has_a_valid_form(
 ) -> None:
     validator = Draft202012Validator(wire_schema())
     form_enabled = {
-        workflow
-        for workflow in registry.api_workflows
-        if workflow.get_workflow_form_enabled()
+        workflow for workflow in registry.api_workflows if workflow.get_workflow_form_enabled()
     }
 
     assert form_catalog.diagnostics == {}
@@ -64,6 +70,15 @@ def test_every_form_enabled_builtin_api_workflow_has_a_valid_form(
     for workflow, envelope in form_catalog.forms.items():
         errors = [error.message for error in validator.iter_errors(envelope)]
         assert errors == [], workflow.__name__
+
+
+def test_every_builtin_form_id_matches_the_frozen_public_mapping(
+    form_catalog: WorkflowFormCatalog,
+) -> None:
+    expected = json.loads(_FORM_IDS.read_text())
+    actual = {workflow.__name__: form_id for workflow, form_id in form_catalog.form_ids.items()}
+
+    assert actual == expected
 
 
 def test_every_shipped_query_alias_reaches_a_core_field(
@@ -116,6 +131,70 @@ def test_backup_sends_a_hidden_api_trigger_and_picks_a_filtered_device(
     assert form["requires"] == ["core-field.device.v1"]
     # The API contract is unchanged: trigger stays required and has no default.
     assert BackupInput.model_json_schema()["required"] == ["device_id", "trigger"]
+
+
+def test_diagnostics_uses_its_workflow_owned_command_provider(
+    form_catalog: WorkflowFormCatalog,
+) -> None:
+    form = form_catalog.forms[DiagnosticsWorkflow]
+    source = form["ui_schema"]["commands"]["ui:options"]["source"]
+
+    assert source == {
+        "endpoint": ("/v1/workflow/diagnostics/form-options/diagnostic-commands"),
+        "label_key": "label",
+        "value_key": "value",
+        "depends_on": {"device_id": {"field": "device_ids"}},
+        "response": "options-v1",
+    }
+    binding = next(
+        binding for binding in form_catalog.providers if binding.workflow is DiagnosticsWorkflow
+    )
+    assert binding.source == "diagnostic-commands"
+    assert binding.declaration.resolver == (
+        "nv_config_manager_workflows.form_option_providers.diagnostics:"
+        "resolve_diagnostics_command_options"
+    )
+    assert binding.declaration.query_model == (
+        "nv_config_manager_workflows.form_option_providers.diagnostics:"
+        "DiagnosticsCommandOptionsQuery"
+    )
+
+
+def test_site_password_rotation_uses_its_workflow_owned_password_user_provider(
+    form_catalog: WorkflowFormCatalog,
+) -> None:
+    form = form_catalog.forms[SitePasswordRotationWorkflow]
+    source = form["ui_schema"]["selected_secret"]["ui:options"]["source"]
+
+    assert source == {
+        "endpoint": ("/v1/workflow/site-password-rotation/form-options/password-users"),
+        "label_key": "label",
+        "value_key": "value",
+        "params": {"managed_only": True},
+        "depends_on": {
+            "location": {"field": "location"},
+            "location_type": {"field": "location_type", "required": False},
+            "role": {"field": "roles", "required": False},
+            "status": {"field": "status"},
+            "tenant": {"field": "tenant", "required": False},
+        },
+        "clear_on_change": True,
+        "response": "options-v1",
+    }
+    binding = next(
+        binding
+        for binding in form_catalog.providers
+        if binding.workflow is SitePasswordRotationWorkflow
+    )
+    assert binding.source == "password-users"
+    assert binding.declaration.resolver == (
+        "nv_config_manager_workflows.form_option_providers.password_rotation:"
+        "resolve_password_user_options"
+    )
+    assert binding.declaration.query_model == (
+        "nv_config_manager_workflows.form_option_providers.password_rotation:"
+        "PasswordUserOptionsQuery"
+    )
 
 
 def test_spx_tenant_change_drives_the_device_from_its_site_field(

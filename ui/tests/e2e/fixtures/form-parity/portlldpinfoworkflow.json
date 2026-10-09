@@ -5,7 +5,7 @@
     {
       "name": "device and interface",
       "legacy_url": "/workflows/portlldpinfoworkflow/form",
-      "new_url": "/workflows/new/PortLLDPInfoWorkflow",
+      "new_url": "/workflows/new/port-lldp-info",
       "legacy_payload": {
         "device_id": "e9243d67-dad0-4f4b-9f6d-9cc977ff0023",
         "interface": "Ethernet1/1"
@@ -18,7 +18,7 @@
     {
       "name": "MAC address",
       "legacy_url": "/workflows/portlldpinfoworkflow/form",
-      "new_url": "/workflows/new/PortLLDPInfoWorkflow",
+      "new_url": "/workflows/new/port-lldp-info",
       "legacy_payload": {
         "remote_mac_address": "00:11:22:33:44:55"
       },
@@ -29,7 +29,7 @@
     {
       "name": "prefill device and interface from URL",
       "legacy_url": "/workflows/portlldpinfoworkflow/form?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&interface=Ethernet1/1",
-      "new_url": "/workflows/new/PortLLDPInfoWorkflow?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&interface=Ethernet1/1",
+      "new_url": "/workflows/new/port-lldp-info?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&interface=Ethernet1/1",
       "legacy_payload": {
         "device_id": "e9243d67-dad0-4f4b-9f6d-9cc977ff0023",
         "interface": "Ethernet1/1"

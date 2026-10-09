@@ -16,7 +16,7 @@
  */
 
 /**
- * The Device Password Rotation form on its class-name route (the legacy
+ * The Device Password Rotation form on its form ID route (the legacy
  * `/workflows/devicepasswordrotationworkflow/form` redirects there): a device with a
  * Site filter, and the device's password users (`/v1/parameter/device/{device_id}/
  * password_users`), cleared when the device changes.

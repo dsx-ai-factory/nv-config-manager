@@ -139,6 +139,8 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
     workflow_input_class = BackupInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/backup"
+    workflow_form_enabled = True
+    workflow_form_id = "backup"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
     workflow_required_activities = (

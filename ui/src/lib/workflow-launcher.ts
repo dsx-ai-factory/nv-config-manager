@@ -22,10 +22,12 @@ import { DEFAULT_WORKFLOW_GROUP } from "@/lib/workflow-catalog";
 import type { WorkflowMetadata } from "@/types/data-table.types";
 import type { WorkflowCatalogEntry } from "@/types/workflow-catalog.types";
 
-export type WorkflowLauncherOverrides = Readonly<Record<string, WorkflowLauncherOverride>>;
+export type WorkflowLauncherOverrides = Readonly<
+  Record<string, WorkflowLauncherOverride>
+>;
 
 export const WORKFLOW_FORM_API_UPGRADE_REQUIRED =
-  "Upgrade the Config Manager workflow API to a version that supports browser workflow forms.";
+  "Upgrade the Config Manager workflow API before deploying this UI version. Browser workflow forms require the backend form metadata and endpoints.";
 
 const canExecuteWorkflow = (
   metadata: WorkflowMetadata | undefined,
@@ -54,7 +56,10 @@ const getDisabledWorkflowReason = (
     return "Workflow metadata is unavailable.";
   }
 
-  if (metadata.has_form === null) {
+  if (
+    metadata.has_form === null ||
+    (metadata.has_form && metadata.form_id === null)
+  ) {
     return WORKFLOW_FORM_API_UPGRADE_REQUIRED;
   }
 
@@ -75,7 +80,7 @@ export type WorkflowExecutePermission =
     };
 
 /**
- * Whether the current user may start a workflow, as the launcher and the class-name
+ * Whether the current user may start a workflow, as the launcher and the form ID
  * form route decide it. The server still enforces execute roles on submit.
  *
  * @param metadata Catalog entry; `undefined` when the catalog has none.
@@ -87,9 +92,15 @@ export const getWorkflowExecutePermission = (
   userRoles: ReadonlySet<string>,
   isUnauthorized: boolean
 ): WorkflowExecutePermission =>
-  !isUnauthorized && metadata?.has_form !== null && canExecuteWorkflow(metadata, userRoles)
+  !isUnauthorized &&
+  metadata?.has_form !== null &&
+  metadata?.form_id !== null &&
+  canExecuteWorkflow(metadata, userRoles)
     ? { allowed: true }
-    : { allowed: false, reason: getDisabledWorkflowReason(metadata, isUnauthorized) };
+    : {
+        allowed: false,
+        reason: getDisabledWorkflowReason(metadata, isUnauthorized),
+      };
 
 export interface WorkflowLauncherItem {
   /** Workflow class name. */
@@ -115,11 +126,13 @@ const getOverride = (
   overrides: WorkflowLauncherOverrides,
   name: string
 ): WorkflowLauncherOverride | undefined =>
-  Object.prototype.hasOwnProperty.call(overrides, name) ? overrides[name] : undefined;
+  Object.prototype.hasOwnProperty.call(overrides, name)
+    ? overrides[name]
+    : undefined;
 
 /**
- * Launcher entries in display order: every enabled catalog workflow with a form plus
- * every overridden built-in, minus the ones an override hides.
+ * Launcher entries in display order: every catalog workflow with a form plus every
+ * overridden built-in, minus the ones an override hides.
  */
 export const buildWorkflowLauncherItems = (
   catalog: readonly WorkflowCatalogEntry[],
@@ -134,7 +147,6 @@ export const buildWorkflowLauncherItems = (
     const override = getOverride(overrides, name);
     if (
       override?.hidden ||
-      entry?.enabled === false ||
       entry?.has_form === false
     ) {
       continue;
@@ -144,7 +156,7 @@ export const buildWorkflowLauncherItems = (
       name,
       display_name: entry?.display_name || override?.title || name,
       group: entry?.group ?? DEFAULT_WORKFLOW_GROUP,
-      href: workflowFormPath(name),
+      href: entry?.form_id ? workflowFormPath(entry.form_id) : "",
       metadata: entry,
     });
   }
@@ -154,9 +166,14 @@ export const buildWorkflowLauncherItems = (
 
 const launcherCollator = new Intl.Collator("en", { numeric: true });
 
-const sortLauncherItems = (items: readonly WorkflowLauncherItem[]): WorkflowLauncherItem[] =>
+const sortLauncherItems = (
+  items: readonly WorkflowLauncherItem[]
+): WorkflowLauncherItem[] =>
   [...items].sort((a, b) => {
-    const byDisplayName = launcherCollator.compare(a.display_name, b.display_name);
+    const byDisplayName = launcherCollator.compare(
+      a.display_name,
+      b.display_name
+    );
     return byDisplayName || launcherCollator.compare(a.name, b.name);
   });
 
@@ -178,7 +195,10 @@ export const groupWorkflowLauncherItems = (
   }
 
   const ordered = [...sections]
-    .map(([group, sectionItems]) => ({ group, items: sortLauncherItems(sectionItems) }))
+    .map(([group, sectionItems]) => ({
+      group,
+      items: sortLauncherItems(sectionItems),
+    }))
     .sort((a, b) => launcherCollator.compare(a.group, b.group));
   return [
     ...ordered.filter((section) => section.group !== DEFAULT_WORKFLOW_GROUP),

@@ -61,7 +61,7 @@ import {
 export interface WorkflowRjsfFormProps {
   /** Normalised catalog entry: title and submit endpoint. */
   entry: WorkflowCatalogEntry;
-  /** Validated `/v1/workflow/{name}/form` response (see `useWorkflowForm`). */
+  /** Validated `/v1/workflow/{form_id}/form` response (see `useWorkflowForm`). */
   form: WorkflowFormResponse;
   /** Query parameters for prefill, e.g. `useSearchParams()`. Read once, on mount. */
   searchParams: SearchParamsLike | null;

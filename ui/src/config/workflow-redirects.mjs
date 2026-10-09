@@ -21,11 +21,12 @@
  */
 
 /**
- * Class-name form route that serves every browser-launchable workflow.
- * @param {string} name Workflow class name.
+ * Form-ID route that serves every browser-launchable workflow.
+ * @param {string} formId Stable workflow form ID.
  * @returns {string}
  */
-export const workflowFormPath = (name) => `/workflows/new/${encodeURIComponent(name)}`;
+export const workflowFormPath = (formId) =>
+  `/workflows/new/${encodeURIComponent(formId)}`;
 
 /**
  * Legacy per-workflow form page.
@@ -36,15 +37,20 @@ export const legacyWorkflowFormPath = (slug) => `/workflows/${slug}/form`;
 
 /**
  * Next.js `redirects()` entries: each previously shipped form URL goes to its
- * class-name route. Temporary (307) for the compatibility window. Next.js passes the
+ * form ID route. Temporary (307) for the compatibility window. Next.js passes the
  * request's query string through, including repeated parameters such as `device-id`.
  *
  * @param {Readonly<Record<string, string>>} redirects Workflow class name to legacy slug.
+ * @param {Readonly<Record<string, string>>} formIds Workflow class name to stable form ID.
  * @returns {{source: string, destination: string, permanent: false}[]}
  */
-export const buildWorkflowRedirects = (redirects) =>
-  Object.entries(redirects).map(([name, legacySlug]) => ({
-    source: legacyWorkflowFormPath(legacySlug),
-    destination: workflowFormPath(name),
-    permanent: false,
-  }));
+export const buildWorkflowRedirects = (redirects, formIds) =>
+  Object.entries(redirects).map(([name, legacySlug]) => {
+    const formId = formIds[name];
+    if (!formId) throw new Error(`Missing workflow form ID for ${name}`);
+    return {
+      source: legacyWorkflowFormPath(legacySlug),
+      destination: workflowFormPath(formId),
+      permanent: false,
+    };
+  });

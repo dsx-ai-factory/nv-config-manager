@@ -727,41 +727,45 @@ async function setupDocsMocks(page: Page): Promise<void> {
     ]);
   });
 
-  await page.route("**/v1/parameter/password-users*", async (route) => {
-    await fulfillJson(route, {
-      items: [
-        {
-          description: "cumulus (cumulus-password)",
-          label: "cumulus",
-          value: "cumulus",
-        },
-        {
-          description: "admin (admin-password)",
-          label: "admin",
-          value: "admin",
-        },
-      ],
-      meta: { matching_device_count: 5, warnings: [] },
-    });
-  });
+  await page.route(
+    "**/v1/workflow/site-password-rotation/form-options/password-users*",
+    async (route) =>
+      fulfillJson(route, {
+        items: [
+          {
+            description: "cumulus (cumulus-password)",
+            label: "cumulus",
+            value: "cumulus",
+          },
+          {
+            description: "admin (admin-password)",
+            label: "admin",
+            value: "admin",
+          },
+        ],
+        meta: { matching_device_count: 5, warnings: [] },
+      })
+  );
 
-  await page.route("**/v1/parameter/diagnostics/command-options*", async (route) => {
-    await fulfillJson(route, {
-      items: [
-        {
-          description: "Collect interface state",
-          label: "show interface",
-          value: "show interface",
-        },
-        {
-          description: "Collect LLDP neighbors",
-          label: "show lldp neighbor",
-          value: "show lldp neighbor",
-        },
-      ],
-      meta: { warnings: [] },
-    });
-  });
+  await page.route(
+    "**/v1/workflow/diagnostics/form-options/diagnostic-commands*",
+    async (route) =>
+      fulfillJson(route, {
+        items: [
+          {
+            description: "Collect interface state",
+            label: "show interface",
+            value: "show interface",
+          },
+          {
+            description: "Collect LLDP neighbors",
+            label: "show lldp neighbor",
+            value: "show lldp neighbor",
+          },
+        ],
+        meta: { warnings: [] },
+      })
+  );
 }
 
 function createDocWorkflow(fixture: DocWorkflowFixture): DocWorkflow {

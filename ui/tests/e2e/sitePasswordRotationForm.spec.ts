@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 /**
- * The Site Password Rotation generic form on its class-name route (the legacy
+ * The Site Password Rotation generic form on its form ID route (the legacy
  * `/workflows/sitepasswordrotationworkflow/form` redirects there). Its secret picker
- * is populated by a direct option source from the selected location and filters.
+ * is populated by a workflow-scoped option provider from the selected location and
+ * filters.
  */
 import { expect } from "@playwright/test";
 import { ROLES_LIST, SITES_LIST, STATUS_LIST, TENANT_LIST } from "@/mocks/data";
@@ -50,7 +51,10 @@ test.describe("Site Password Rotation Form", () => {
     ).toBeDisabled();
 
     await page.getByRole("button", { name: /Select a Location/i }).click();
-    await page.getByRole("dialog").getByRole("option", { name: SITES_LIST.rno1 }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("option", { name: SITES_LIST.rno1 })
+      .click();
 
     await expect(
       page.getByRole("button", { name: /select a secret to rotate/i })
@@ -59,18 +63,27 @@ test.describe("Site Password Rotation Form", () => {
 
   test("shows device count feedback", async ({ page }) => {
     await page.getByRole("button", { name: /Select a Location/i }).click();
-    await page.getByRole("dialog").getByRole("option", { name: SITES_LIST.rno1 }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("option", { name: SITES_LIST.rno1 })
+      .click();
 
-    await expect(
-      page.getByText(/Matching devices: \d+/)
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expect(page.getByText(/Matching devices: \d+/)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
   });
 
   test("disables the secret picker when no devices match", async ({ page }) => {
     await page.getByRole("button", { name: /Select a Location/i }).click();
-    await page.getByRole("dialog").getByRole("option", { name: SITES_LIST.rno1 }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("option", { name: SITES_LIST.rno1 })
+      .click();
 
-    await page.locator("form").getByRole("button", { name: /Select Roles/i }).click();
+    await page
+      .locator("form")
+      .getByRole("button", { name: /Select Roles/i })
+      .click();
     await page
       .getByRole("dialog")
       .getByRole("option", { name: ROLES_LIST.leaf, exact: true })
@@ -85,26 +98,38 @@ test.describe("Site Password Rotation Form", () => {
     ).toBeDisabled();
   });
 
-  test("ignores an older option response after the location changes", async ({ page }) => {
+  test("ignores an older option response after the location changes", async ({
+    page,
+  }) => {
     const releases = new Map<string, () => void>();
-    await page.route(/\/v1\/parameter\/password-users(\?.*)?$/, async (route) => {
-      const location = new URL(route.request().url()).searchParams.get("location") ?? "";
-      await new Promise<void>((resolve) => releases.set(location, resolve));
-      await route.fulfill({
-        status: 200,
-        json: {
-          items: [{ label: `${location} admin`, value: `${location}-admin` }],
-          meta: { matching_device_count: 1, warnings: [] },
-        },
-      });
-    });
+    await page.route(
+      /\/v1\/workflow\/site-password-rotation\/form-options\/password-users(\?.*)?$/,
+      async (route) => {
+        const location =
+          new URL(route.request().url()).searchParams.get("location") ?? "";
+        await new Promise<void>((resolve) => releases.set(location, resolve));
+        await route.fulfill({
+          status: 200,
+          json: {
+            items: [{ label: `${location} admin`, value: `${location}-admin` }],
+            meta: { matching_device_count: 1, warnings: [] },
+          },
+        });
+      }
+    );
 
     await page.getByRole("button", { name: /Select a Location/i }).click();
-    await page.getByRole("dialog").getByRole("option", { name: SITES_LIST.rno1 }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("option", { name: SITES_LIST.rno1 })
+      .click();
     await expect.poll(() => releases.has(SITES_LIST.rno1)).toBe(true);
 
     await page
-      .getByRole("button", { name: `${SITES_LIST.rno1}. Open options`, exact: true })
+      .getByRole("button", {
+        name: `${SITES_LIST.rno1}. Open options`,
+        exact: true,
+      })
       .click();
     await page
       .getByRole("dialog")
@@ -115,24 +140,32 @@ test.describe("Site Password Rotation Form", () => {
     const currentResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
-        url.pathname === "/v1/parameter/password-users" &&
+        url.pathname ===
+          "/v1/workflow/site-password-rotation/form-options/password-users" &&
         url.searchParams.get("location") === SITES_LIST.pdx01
       );
     });
     releases.get(SITES_LIST.pdx01)!();
     await currentResponse;
 
-    const secretPicker = page.getByRole("button", { name: /select a secret to rotate/i });
+    const secretPicker = page.getByRole("button", {
+      name: /select a secret to rotate/i,
+    });
     await expect(secretPicker).toBeEnabled({ timeout: TEST_TIMEOUT });
     await secretPicker.click();
-    await expect(page.getByRole("dialog").getByText(`${SITES_LIST.pdx01} admin`)).toBeVisible();
-    await expect(page.getByRole("dialog").getByText(`${SITES_LIST.rno1} admin`)).toHaveCount(0);
+    await expect(
+      page.getByRole("dialog").getByText(`${SITES_LIST.pdx01} admin`)
+    ).toBeVisible();
+    await expect(
+      page.getByRole("dialog").getByText(`${SITES_LIST.rno1} admin`)
+    ).toHaveCount(0);
     await page.keyboard.press("Escape");
 
     const staleResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
-        url.pathname === "/v1/parameter/password-users" &&
+        url.pathname ===
+          "/v1/workflow/site-password-rotation/form-options/password-users" &&
         url.searchParams.get("location") === SITES_LIST.rno1
       );
     });
@@ -140,29 +173,42 @@ test.describe("Site Password Rotation Form", () => {
     await staleResponse;
 
     await secretPicker.click();
-    await expect(page.getByRole("dialog").getByText(`${SITES_LIST.pdx01} admin`)).toBeVisible();
-    await expect(page.getByRole("dialog").getByText(`${SITES_LIST.rno1} admin`)).toHaveCount(0);
+    await expect(
+      page.getByRole("dialog").getByText(`${SITES_LIST.pdx01} admin`)
+    ).toBeVisible();
+    await expect(
+      page.getByRole("dialog").getByText(`${SITES_LIST.rno1} admin`)
+    ).toHaveCount(0);
   });
 
   test("submits the location, filters, and secret", async ({ page }) => {
     await page.getByRole("button", { name: /Select a Location/i }).click();
-    await page.getByRole("dialog").getByRole("option", { name: SITES_LIST.rno1 }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("option", { name: SITES_LIST.rno1 })
+      .click();
     const filteredOptions = page.waitForRequest((request) => {
       const url = new URL(request.url());
       return (
-        url.pathname === "/v1/parameter/password-users" &&
+        url.pathname ===
+          "/v1/workflow/site-password-rotation/form-options/password-users" &&
         url.searchParams.get("location") === SITES_LIST.rno1 &&
         url.searchParams.get("tenant") === TENANT_LIST.tenant_a
       );
     });
-    await page.locator("form").getByRole("button", { name: /Select a Tenant/i }).click();
+    await page
+      .locator("form")
+      .getByRole("button", { name: /Select a Tenant/i })
+      .click();
     await page
       .getByRole("dialog")
       .getByRole("option", { name: TENANT_LIST.tenant_a, exact: true })
       .click();
     await page.keyboard.press("Escape");
     await filteredOptions;
-    await page.getByRole("button", { name: /select a secret to rotate/i }).click();
+    await page
+      .getByRole("button", { name: /select a secret to rotate/i })
+      .click();
     await page.getByRole("dialog").getByText("admin", { exact: true }).click();
 
     const post = nextPost(page, "/v1/workflow/ngc/site_password_rotation");

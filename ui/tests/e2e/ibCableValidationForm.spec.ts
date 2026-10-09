@@ -16,7 +16,7 @@
  */
 
 /**
- * The InfiniBand Cable Validation form on its class-name route (the legacy
+ * The InfiniBand Cable Validation form on its form ID route (the legacy
  * `/workflows/infinibandcablevalidationworkflow/form` redirects there): a UFM device
  * and a list of MLNX-OS switches sharing one Site filter (the "fabric-devices" scope).
  *

@@ -16,7 +16,7 @@
  */
 
 /**
- * The Port LLDP Info form on its class-name route (the legacy
+ * The Port LLDP Info form on its form ID route (the legacy
  * `/workflows/portlldpinfoworkflow/form` redirects there).
  *
  * Device lookup requires Site, device, and interface. Device lookup and MAC lookup
