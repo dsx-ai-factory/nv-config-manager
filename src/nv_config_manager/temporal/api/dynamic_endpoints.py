@@ -68,14 +68,15 @@ def create_workflow_endpoint(
                 "start_workflow function not set. Call set_start_workflow_function() first."
             )
 
-        # Auto-populate user fields from request auth data if they exist and are None
+        # Authenticated request identity is authoritative at the HTTP boundary.
+        # Keep these fields in the input model for existing API clients and Temporal
+        # payloads, but never trust values submitted by an HTTP caller.
         user = getattr(request.state, "user", None) or get_sso_user(request)
 
-        # Auto-populate common user fields if they exist in the input model and are None
-        if hasattr(body, "user") and not body.user:  # type: ignore[attr-defined]
+        if hasattr(body, "user"):
             body.user = user  # type: ignore[attr-defined]
 
-        if hasattr(body, "user_domain") and not body.user_domain:  # type: ignore[attr-defined]
+        if hasattr(body, "user_domain"):
             # Extract domain from user email or default to nvidia.com
             # TODO: add a default user domain to INI file for external customers
             body.user_domain = user.split("@")[1] if "@" in user else "nvidia.com"  # type: ignore[attr-defined]

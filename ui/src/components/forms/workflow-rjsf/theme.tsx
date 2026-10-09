@@ -367,6 +367,7 @@ const CheckboxWidget = ({
 
 /** `enum`s and arrays of them (`multiple`), as the searchable SelectBox. */
 const SelectWidget = ({
+  id,
   value,
   multiple,
   disabled,
@@ -388,6 +389,7 @@ const SelectWidget = ({
       : toKey(value);
   return (
     <SelectBox
+      id={id}
       options={enumOptions.map((option, index) => ({ key: option.label, value: String(index) }))}
       value={selected}
       onChange={(keys) =>
@@ -405,6 +407,7 @@ const SelectWidget = ({
       multiple={multiple}
       searchable={enumOptions.length > 7}
       disabled={disabled || readonly}
+      describedBy={ariaDescribedByIds(id)}
     />
   );
 };

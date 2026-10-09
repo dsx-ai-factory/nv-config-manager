@@ -64,9 +64,9 @@ Key dependencies include:
 - Radix UI (MIT License) - https://github.com/radix-ui
 - TanStack Table (MIT License) - https://github.com/TanStack/table
 - Tailwind CSS (MIT License) - https://github.com/tailwindlabs/tailwindcss
-- Zod (MIT License) - https://github.com/colinhacks/zod
+- React JSON Schema Form (Apache-2.0 License) - https://github.com/rjsf-team/react-jsonschema-form
+- Ajv (MIT License) - https://github.com/ajv-validator/ajv
 - Lucide React (ISC License) - https://github.com/lucide-icons/lucide
-- React Hook Form (MIT License) - https://github.com/react-hook-form/react-hook-form
 - SWR (MIT License) - https://github.com/vercel/swr
 - date-fns (MIT License) - https://github.com/date-fns/date-fns
 

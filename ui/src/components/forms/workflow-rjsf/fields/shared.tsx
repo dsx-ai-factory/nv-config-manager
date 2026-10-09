@@ -18,7 +18,12 @@
 
 /** Pieces the three core fields share: option matching and the labelled picker. */
 import * as React from "react";
-import { getUiOptions, type FieldProps } from "@rjsf/utils";
+import {
+  ariaDescribedByIds,
+  descriptionId,
+  getUiOptions,
+  type FieldProps,
+} from "@rjsf/utils";
 
 import { Label } from "@/components/ui/label";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -106,29 +111,54 @@ export const Picker = ({
   error,
   placeholder,
   onChange,
-}: PickerProps) => (
-  <div className="space-y-2" data-testid={`picker-${id}`}>
-    <Label htmlFor={id}>
-      {label}
-      <RequiredMark required={required} />
-    </Label>
-    <div className="flex items-center space-x-2" id={id}>
-      <SelectBox
-        options={[...options]}
-        value={value}
-        onChange={(next) => onChange((Array.isArray(next) ? next : [next]).filter(Boolean))}
-        placeholder={placeholder ?? `Select ${multiple ? "" : "a "}${label}...`}
-        inputPlaceholder={`Search ${label}`}
-        emptyPlaceholder={`No ${label} found.`}
-        multiple={multiple}
-        disabled={disabled}
-      />
-      {busy ? <LoadingSpinner /> : null}
+}: PickerProps) => {
+  const labelId = `${id}__label`;
+  const requiredId = `${id}__required`;
+  const loadErrorId = `${id}__load-error`;
+  const describedBy = `${labelId}${required ? ` ${requiredId}` : ""} ${ariaDescribedByIds(id)}${error ? ` ${loadErrorId}` : ""}`;
+  return (
+    <div className="space-y-2" data-testid={`picker-${id}`}>
+      <Label id={labelId} htmlFor={id}>
+        {label}
+        <RequiredMark required={required} />
+      </Label>
+      {required ? (
+        <span id={requiredId} className="sr-only">
+          Required
+        </span>
+      ) : null}
+      <div className="flex items-center space-x-2">
+        <SelectBox
+          id={id}
+          options={[...options]}
+          value={value}
+          onChange={(next) =>
+            onChange((Array.isArray(next) ? next : [next]).filter(Boolean))
+          }
+          placeholder={
+            placeholder ?? `Select ${multiple ? "" : "a "}${label}...`
+          }
+          inputPlaceholder={`Search ${label}`}
+          emptyPlaceholder={`No ${label} found.`}
+          multiple={multiple}
+          disabled={disabled}
+          describedBy={describedBy}
+        />
+        {busy ? <LoadingSpinner /> : null}
+      </div>
+      {description ? (
+        <p id={descriptionId(id)} className="text-sm text-muted-foreground">
+          {description}
+        </p>
+      ) : null}
+      {error ? (
+        <p id={loadErrorId} className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
     </div>
-    {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
-    {error ? <p className="text-sm text-destructive">{error}</p> : null}
-  </div>
-);
+  );
+};
 
 /** Run `onChange` after a render in which `signature` differs from the previous one. */
 export const useSignatureChange = (signature: string, onChange: () => void) => {

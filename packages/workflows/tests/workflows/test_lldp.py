@@ -58,6 +58,8 @@ MOCK_NEIGHBOR_DATA = InterfaceNeighborData(
             "interface": "swp1",
             "remote_mac_address": "00:11:22:33:44:55",
         },
+        {"device_id": "device-1", "interface": "   "},
+        {"remote_mac_address": "   "},
     ],
 )
 @pytest.mark.asyncio
@@ -73,17 +75,27 @@ async def test_api_rejects_incomplete_or_mixed_lookup_methods(
 
 
 @pytest.mark.parametrize(
-    "payload",
+    ("payload", "expected"),
     [
-        {"device_id": "device-1", "interface": "swp1"},
-        {"remote_mac_address": "00:11:22:33:44:55"},
+        (
+            {"device_id": "device-1", "interface": "  swp1  "},
+            {"interface": "swp1", "remote_mac_address": None},
+        ),
+        (
+            {"remote_mac_address": "  00:11:22:33:44:55  "},
+            {"interface": None, "remote_mac_address": "00:11:22:33:44:55"},
+        ),
     ],
 )
 @pytest.mark.asyncio
-async def test_api_accepts_one_complete_lookup_method(payload: dict[str, str]) -> None:
+async def test_api_accepts_one_complete_lookup_method(
+    payload: dict[str, str], expected: dict[str, str | None]
+) -> None:
     body = PortLLDPInfoInput.model_validate(payload)
 
     assert await PortLLDPInfoWorkflow.canonicalize_input(body) is body
+    assert body.interface == expected["interface"]
+    assert body.remote_mac_address == expected["remote_mac_address"]
 
 
 @activity.defn(name="get_network_device")

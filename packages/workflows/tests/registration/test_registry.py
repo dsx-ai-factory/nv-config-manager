@@ -18,7 +18,7 @@ from types import MappingProxyType
 from typing import Annotated, Any, ClassVar
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from temporalio import activity, workflow
 
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
@@ -50,6 +50,16 @@ class InvalidFormInput(BaseModel):
 
     device: str
     count: Annotated[int, FormSchema(default="many")] = 1
+
+
+class OpaqueValue:
+    """A valid Pydantic value with no JSON Schema representation."""
+
+
+class InvalidJsonSchemaInput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    value: OpaqueValue
 
 
 @activity.defn
@@ -445,10 +455,35 @@ class TestForms:
             registry.form_diagnostics[BetaWorkflow].message
         )
 
+    def test_a_third_party_pydantic_schema_error_is_isolated(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(BetaWorkflow, "workflow_input_class", InvalidJsonSchemaInput)
+
+        registry = WorkflowRegistry.build(
+            installed(plugin("beta-plugin", workflows=(BetaWorkflow,)))
+        )
+
+        assert BetaWorkflow in registry.api_workflows
+        assert BetaWorkflow not in registry.forms
+        assert "invalid form declaration (PydanticInvalidForJsonSchema:" in (
+            registry.form_diagnostics[BetaWorkflow].message
+        )
+
     def test_an_invalid_builtin_form_fails_the_build(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(BetaWorkflow, "workflow_input_class", InvalidFormInput)
 
         with pytest.raises(WorkflowFormContractError, match="FormSchema default"):
+            WorkflowRegistry.build(
+                installed(plugin(BUILTIN_PLUGIN_NAME, workflows=(BetaWorkflow,)))
+            )
+
+    def test_a_builtin_pydantic_schema_error_fails_the_build(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(BetaWorkflow, "workflow_input_class", InvalidJsonSchemaInput)
+
+        with pytest.raises(WorkflowFormContractError, match="PydanticInvalidForJsonSchema"):
             WorkflowRegistry.build(
                 installed(plugin(BUILTIN_PLUGIN_NAME, workflows=(BetaWorkflow,)))
             )

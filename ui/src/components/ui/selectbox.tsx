@@ -41,6 +41,7 @@ interface Option {
 }
 
 interface SelectBoxProps {
+  id?: string;
   options: Option[];
   value?: string[] | string;
   onChange?: (values: string[] | string) => void;
@@ -51,6 +52,7 @@ interface SelectBoxProps {
   multiple?: boolean;
   disabled?: boolean;
   searchable?: boolean;
+  describedBy?: string;
 }
 
 const filterOption = (
@@ -89,6 +91,8 @@ const SelectBox = React.forwardRef<HTMLInputElement, SelectBoxProps>(
       multiple,
       disabled,
       searchable = true,
+      id,
+      describedBy,
     },
     ref,
   ) => {
@@ -174,9 +178,11 @@ const SelectBox = React.forwardRef<HTMLInputElement, SelectBoxProps>(
         >
           <PopoverTrigger asChild>
             <button
+              id={id}
               type="button"
               disabled={disabled}
               aria-label={triggerLabel}
+              aria-describedby={describedBy}
               className="absolute inset-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             />
           </PopoverTrigger>

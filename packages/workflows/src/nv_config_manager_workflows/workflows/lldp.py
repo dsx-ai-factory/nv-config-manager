@@ -113,6 +113,10 @@ class PortLLDPInfoWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
     async def canonicalize_input(cls, body: BaseModel) -> BaseModel:
         """Reject incomplete or mixed lookup methods at the API boundary."""
         if isinstance(body, PortLLDPInfoInput):
+            if body.interface is not None:
+                body.interface = body.interface.strip()
+            if body.remote_mac_address is not None:
+                body.remote_mac_address = body.remote_mac_address.strip()
             has_device = bool(body.device_id)
             has_interface = bool(body.interface)
             has_mac = bool(body.remote_mac_address)

@@ -452,6 +452,57 @@ describe("shellReducer", () => {
     expect(macMode.filters).toEqual({});
   });
 
+  it("clears errors for fields removed by a filter-mode transition", () => {
+    const withMac: ShellState = {
+      ...state([], { remote_mac_address: "00:11:22:33:44:55" }),
+      serverErrors: {
+        __errors: ["choose one lookup mode"],
+        remote_mac_address: { __errors: ["bad MAC"] },
+        device_id: { __errors: ["bad device"] },
+      } as unknown as ShellState["serverErrors"],
+    };
+
+    const next = shellReducer(withMac, {
+      type: "filter-patch",
+      scope: "implicit:device_id",
+      patch: { site: { id: "PDX01", type: "Site" } },
+      source: "user",
+      exclusiveGroups,
+    });
+
+    expect(next.formData).toEqual({});
+    expect(next.serverErrors).toEqual({
+      device_id: { __errors: ["bad device"] },
+    });
+  });
+
+  it("clears errors for every field changed by an RJSF mode transition", () => {
+    const withDevice: ShellState = {
+      ...state([], { device_id: "d1", interface: "swp1" }),
+      serverErrors: {
+        __errors: ["choose one lookup mode"],
+        device_id: { __errors: ["bad device"] },
+        interface: { __errors: ["bad interface"] },
+        remote_mac_address: { __errors: ["bad MAC"] },
+      } as unknown as ShellState["serverErrors"],
+    };
+
+    const next = shellReducer(withDevice, {
+      type: "rjsf-change",
+      base: withDevice.formData,
+      next: {
+        ...withDevice.formData,
+        remote_mac_address: "00:11:22:33:44:55",
+      },
+      exclusiveGroups,
+    });
+
+    expect(next.formData).toEqual({
+      remote_mac_address: "00:11:22:33:44:55",
+    });
+    expect(next.serverErrors).toBeUndefined();
+  });
+
   it("ignores a late prefill from an inactive exclusive mode and settles it", () => {
     const withMac = state(["field:device_id"], {
       remote_mac_address: "00:11:22:33:44:55",

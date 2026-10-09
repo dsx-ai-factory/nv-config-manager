@@ -173,14 +173,11 @@ test.describe("Port LLDP Info Form", () => {
   test("an empty or incomplete submission gets the API boundary's 422 inline", async ({
     page,
   }) => {
-    const message =
-      "Value error, provide device_id and interface, or remote_mac_address";
+    const message = "provide device_id and interface, or remote_mac_address";
     await page.route(`**${ENDPOINT}`, (route) =>
       route.fulfill({
         status: 422,
-        json: {
-          detail: [{ type: "value_error", loc: ["body"], msg: message }],
-        },
+        json: { detail: message },
       })
     );
     const post = nextPost(page, ENDPOINT);

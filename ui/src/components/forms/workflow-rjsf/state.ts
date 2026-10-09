@@ -348,6 +348,7 @@ export const shellReducer = (
         ...state.filters,
         [scope]: next,
       };
+      let changed: string[] = [];
       const activating = activatingFilterGroup(exclusiveGroups, scope, filters);
       if (
         preferExistingPrefill(
@@ -365,8 +366,18 @@ export const shellReducer = (
           exclusiveGroups,
           activating
         ));
+        changed = changedKeys(state.formData, formData);
       }
-      return { ...state, formData, filters, pending };
+      return {
+        ...state,
+        formData,
+        filters,
+        pending,
+        serverErrors:
+          source === "user"
+            ? clearServerErrors(state.serverErrors, changed)
+            : state.serverErrors,
+      };
     }
     case "settle": {
       const pending = withoutOwner(state.pending, action.owner);
@@ -375,20 +386,22 @@ export const shellReducer = (
     case "rjsf-change": {
       // Three-way merge: apply only what this event changed relative to the data its
       // render was given, so a field patch applied since that render survives.
-      const changed = changedKeys(action.base, action.next);
-      if (changed.length === 0) return state;
+      const eventChanged = changedKeys(action.base, action.next);
+      if (eventChanged.length === 0) return state;
       let formData = applyPatch(
         state.formData,
-        Object.fromEntries(changed.map((key) => [key, action.next[key]]))
+        Object.fromEntries(
+          eventChanged.map((key) => [key, action.next[key]])
+        )
       );
       let pending = state.pending;
-      for (const key of changed)
+      for (const key of eventChanged)
         pending = withoutOwner(pending, `field:${key}`);
       let filters = state.filters;
       const exclusiveGroups = action.exclusiveGroups ?? [];
       const activating = activatingFieldGroup(
         exclusiveGroups,
-        changed,
+        eventChanged,
         formData
       );
       if (activating !== undefined) {
@@ -400,6 +413,7 @@ export const shellReducer = (
           activating
         ));
       }
+      const changed = changedKeys(state.formData, formData);
       return {
         ...state,
         formData,
