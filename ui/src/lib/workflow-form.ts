@@ -14,8 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { AnySchema } from "ajv";
 import Ajv2020, { type ErrorObject } from "ajv/dist/2020";
 
+import { compileEcmascriptPattern } from "@/lib/ecmascript-pattern";
 import { APIError, TokenError } from "@/lib/errors";
 import { fetcher } from "@/lib/fetcher";
 import { sanitizeUrl } from "@/lib/utils";
@@ -82,6 +84,51 @@ const validateEnvelope = new Ajv2020({
   strict: false,
 }).compile(wireSchema);
 
+const schemaIssues = (schema: unknown): string[] => {
+  if (!isPlainObject(schema)) return ["schema: expected an object"];
+  try {
+    // Compiling with Ajv checks every JSON Schema pattern with the same
+    // ECMAScript Unicode semantics RJSF uses for form-data validation.
+    new Ajv2020({
+      strict: false,
+      unicodeRegExp: true,
+      validateFormats: false,
+    }).compile(schema as AnySchema);
+    return [];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "invalid JSON Schema";
+    return [`schema: ${message}`];
+  }
+};
+
+const variantRowsPatternIssues = (uiSchema: unknown): string[] => {
+  if (!isPlainObject(uiSchema)) return [];
+  const issues: string[] = [];
+  for (const [fieldName, field] of Object.entries(uiSchema)) {
+    if (!isPlainObject(field) || field["ui:field"] !== "variantRows") continue;
+    const options = field["ui:options"];
+    const modes = isPlainObject(options) ? options.modes : undefined;
+    if (!Array.isArray(modes)) continue;
+    modes.forEach((mode, modeIndex) => {
+      const columns = isPlainObject(mode) ? mode.columns : undefined;
+      if (!Array.isArray(columns)) return;
+      columns.forEach((column, columnIndex) => {
+        const pattern = isPlainObject(column) ? column.pattern : undefined;
+        if (
+          typeof pattern === "string" &&
+          compileEcmascriptPattern(pattern) === null
+        ) {
+          issues.push(
+            `ui_schema.${fieldName}.ui:options.modes[${modeIndex}].columns[${columnIndex}].pattern: ` +
+              "invalid ECMAScript regular expression"
+          );
+        }
+      });
+    });
+  }
+  return issues;
+};
+
 /**
  * Validate a `/form` payload: version, then capabilities, then the wire schema.
  * Never yields a best-effort form.
@@ -116,6 +163,13 @@ export const parseWorkflowFormResponse = (
       kind: "malformed",
       issues: formatIssues(validateEnvelope.errors),
     };
+  }
+  const patternIssues = [
+    ...schemaIssues(payload.schema),
+    ...variantRowsPatternIssues(payload.ui_schema),
+  ];
+  if (patternIssues.length > 0) {
+    return { ok: false, kind: "malformed", issues: patternIssues };
   }
   return { ok: true, form: payload as unknown as WorkflowFormResponse };
 };

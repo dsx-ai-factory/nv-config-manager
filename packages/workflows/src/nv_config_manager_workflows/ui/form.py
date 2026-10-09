@@ -718,12 +718,6 @@ class _FormChecker:
             pattern = column_mapping["pattern"]
             if not isinstance(pattern, str):
                 raise self.fail(f"{where}.pattern must be a string")
-            try:
-                re.compile(pattern)
-            except re.error as error:
-                raise self.fail(
-                    f"{where}.pattern is not a valid regular expression: {error}"
-                ) from error
 
         prop = self.properties[array_property]
         if json_type(prop, self.definitions) != "array":

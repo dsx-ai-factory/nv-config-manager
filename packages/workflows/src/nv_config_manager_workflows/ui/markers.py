@@ -60,6 +60,8 @@ class FormSchema:
     ``default`` becomes the projected ``default`` (JSON-encoded through the
     field's type), and the remaining keywords become ``minItems``, ``maxItems``,
     ``minLength``, ``maxLength``, ``minimum``, ``maximum``, and ``pattern``.
+    ``pattern`` uses the ECMAScript Unicode syntax defined by JSON Schema and is
+    compiled by the browser before the form is rendered.
     """
 
     default: Any = UNSET

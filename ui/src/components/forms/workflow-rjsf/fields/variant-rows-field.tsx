@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { compileEcmascriptPattern } from "@/lib/ecmascript-pattern";
 
 import { contextOf } from "../context";
 import type { FormData, Owner } from "../state";
@@ -155,8 +156,13 @@ export const validateVariantRowsValues = (
       const value = row[columnId(column)]?.trim() ?? "";
       if (column.required && value === "") {
         messages.push(`${column.label} is required in row ${index + 1}.`);
-      } else if (value !== "" && column.pattern && !new RegExp(column.pattern).test(value)) {
-        messages.push(`${column.label} in row ${index + 1} has an invalid format.`);
+      } else if (value !== "" && column.pattern) {
+        const pattern = compileEcmascriptPattern(column.pattern);
+        if (pattern === null) {
+          messages.push(`${column.label} has an invalid validation pattern.`);
+        } else if (!pattern.test(value)) {
+          messages.push(`${column.label} in row ${index + 1} has an invalid format.`);
+        }
       }
     });
   });
