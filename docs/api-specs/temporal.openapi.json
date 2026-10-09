@@ -2291,9 +2291,7 @@
             "type": "object"
           },
           "ui_schema": {
-            "additionalProperties": true,
-            "title": "Ui Schema",
-            "type": "object"
+            "$ref": "#/components/schemas/WorkflowFormUiSchema"
           },
           "ui_schema_version": {
             "const": 1,
@@ -2308,6 +2306,1268 @@
           "requires"
         ],
         "title": "WorkflowFormResponse",
+        "type": "object"
+      },
+      "WorkflowFormUiSchema": {
+        "additionalProperties": false,
+        "description": "The supported subset of an RJSF uiSchema: root options plus one entry per top-level schema property.",
+        "patternProperties": {
+          "^[A-Za-z_][A-Za-z0-9_]*$": {
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "ui:field": {
+                      "const": "apiOptions"
+                    }
+                  },
+                  "required": [
+                    "ui:field"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "ui:options": {
+                      "additionalProperties": false,
+                      "description": "Rendering and data-source options for the apiOptions core field.",
+                      "properties": {
+                        "disableWhenNoMatches": {
+                          "const": true,
+                          "description": "Disable the field when response metadata reports zero matching devices."
+                        },
+                        "metaText": {
+                          "additionalProperties": false,
+                          "description": "Response metadata displayed beside the option control.",
+                          "properties": {
+                            "key": {
+                              "const": "matching_device_count",
+                              "description": "Enriched-response metadata key to display."
+                            },
+                            "label": {
+                              "description": "Human-readable label shown before the metadata value.",
+                              "pattern": "\\S",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "label"
+                          ],
+                          "type": "object"
+                        },
+                        "presentation": {
+                          "description": "Control used to present the loaded options.",
+                          "enum": [
+                            "select",
+                            "grouped-checkboxes"
+                          ]
+                        },
+                        "queryAliases": {
+                          "description": "Legacy URL query parameters accepted for this field.",
+                          "items": {
+                            "description": "A string containing at least one non-whitespace character.",
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "minItems": 1,
+                          "type": "array",
+                          "uniqueItems": true
+                        },
+                        "querySeparator": {
+                          "const": ",",
+                          "description": "Legacy delimiter accepted inside each query parameter for this multi-select field."
+                        },
+                        "selectAll": {
+                          "const": true,
+                          "description": "Show a Select All control for grouped checkboxes."
+                        },
+                        "showDescriptions": {
+                          "const": true,
+                          "description": "Show option descriptions from an enriched response."
+                        },
+                        "source": {
+                          "allOf": [
+                            {
+                              "additionalProperties": false,
+                              "description": "Where a core field loads its options. endpoint is a path relative to the workflow API origin; a whole {property} path segment is filled from that sibling property and is a required dependency.",
+                              "properties": {
+                                "clear_on_change": {
+                                  "const": true,
+                                  "description": "Clear the selected value when a dependency changes."
+                                },
+                                "depends_on": {
+                                  "additionalProperties": {
+                                    "additionalProperties": false,
+                                    "description": "A sibling form property whose value supplies one option query parameter. A required dependency holds the request while empty; an optional one is omitted while empty.",
+                                    "properties": {
+                                      "field": {
+                                        "description": "Projected sibling property whose value supplies the dependency.",
+                                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                        "type": "string"
+                                      },
+                                      "required": {
+                                        "const": false,
+                                        "description": "When false, omit an empty dependency instead of holding the request."
+                                      }
+                                    },
+                                    "required": [
+                                      "field"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "description": "Query parameter names mapped to sibling form-property dependencies.",
+                                  "type": "object"
+                                },
+                                "endpoint": {
+                                  "description": "API path relative to the workflow API origin; whole {property} segments reference sibling form values.",
+                                  "pattern": "^/(?!/)[^?#\\\\\\s]*$",
+                                  "type": "string"
+                                },
+                                "label_key": {
+                                  "description": "Response-object property containing each option's display label.",
+                                  "pattern": "\\S",
+                                  "type": "string"
+                                },
+                                "params": {
+                                  "additionalProperties": {
+                                    "description": "A static query parameter; a list becomes a repeated parameter.",
+                                    "oneOf": [
+                                      {
+                                        "description": "A scalar value allowed in static option-source parameters.",
+                                        "type": [
+                                          "string",
+                                          "number",
+                                          "boolean"
+                                        ]
+                                      },
+                                      {
+                                        "items": {
+                                          "description": "A scalar value allowed in static option-source parameters.",
+                                          "type": [
+                                            "string",
+                                            "number",
+                                            "boolean"
+                                          ]
+                                        },
+                                        "type": "array"
+                                      }
+                                    ]
+                                  },
+                                  "description": "Static query parameters included with every option request.",
+                                  "type": "object"
+                                },
+                                "response": {
+                                  "const": "options-v1",
+                                  "description": "Expected enriched option-response envelope."
+                                },
+                                "type_key": {
+                                  "description": "Optional response-object property containing each option's type or group.",
+                                  "pattern": "\\S",
+                                  "type": "string"
+                                },
+                                "value_key": {
+                                  "description": "Response-object property containing each option's submitted value.",
+                                  "pattern": "\\S",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "endpoint",
+                                "label_key",
+                                "value_key"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "not": {
+                                "required": [
+                                  "type_key"
+                                ]
+                              }
+                            }
+                          ],
+                          "description": "API source that supplies selectable options."
+                        }
+                      },
+                      "required": [
+                        "source"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "ui:options"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "ui:field": {
+                      "const": "location"
+                    }
+                  },
+                  "required": [
+                    "ui:field"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "ui:options": {
+                      "additionalProperties": false,
+                      "description": "Rendering and data-source options for the location core field.",
+                      "properties": {
+                        "queryAliases": {
+                          "description": "Legacy URL query parameters accepted for this field.",
+                          "items": {
+                            "description": "A string containing at least one non-whitespace character.",
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "minItems": 1,
+                          "type": "array",
+                          "uniqueItems": true
+                        },
+                        "source": {
+                          "allOf": [
+                            {
+                              "additionalProperties": false,
+                              "description": "Where a core field loads its options. endpoint is a path relative to the workflow API origin; a whole {property} path segment is filled from that sibling property and is a required dependency.",
+                              "properties": {
+                                "clear_on_change": {
+                                  "const": true,
+                                  "description": "Clear the selected value when a dependency changes."
+                                },
+                                "depends_on": {
+                                  "additionalProperties": {
+                                    "additionalProperties": false,
+                                    "description": "A sibling form property whose value supplies one option query parameter. A required dependency holds the request while empty; an optional one is omitted while empty.",
+                                    "properties": {
+                                      "field": {
+                                        "description": "Projected sibling property whose value supplies the dependency.",
+                                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                        "type": "string"
+                                      },
+                                      "required": {
+                                        "const": false,
+                                        "description": "When false, omit an empty dependency instead of holding the request."
+                                      }
+                                    },
+                                    "required": [
+                                      "field"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "description": "Query parameter names mapped to sibling form-property dependencies.",
+                                  "type": "object"
+                                },
+                                "endpoint": {
+                                  "description": "API path relative to the workflow API origin; whole {property} segments reference sibling form values.",
+                                  "pattern": "^/(?!/)[^?#\\\\\\s]*$",
+                                  "type": "string"
+                                },
+                                "label_key": {
+                                  "description": "Response-object property containing each option's display label.",
+                                  "pattern": "\\S",
+                                  "type": "string"
+                                },
+                                "params": {
+                                  "additionalProperties": {
+                                    "description": "A static query parameter; a list becomes a repeated parameter.",
+                                    "oneOf": [
+                                      {
+                                        "description": "A scalar value allowed in static option-source parameters.",
+                                        "type": [
+                                          "string",
+                                          "number",
+                                          "boolean"
+                                        ]
+                                      },
+                                      {
+                                        "items": {
+                                          "description": "A scalar value allowed in static option-source parameters.",
+                                          "type": [
+                                            "string",
+                                            "number",
+                                            "boolean"
+                                          ]
+                                        },
+                                        "type": "array"
+                                      }
+                                    ]
+                                  },
+                                  "description": "Static query parameters included with every option request.",
+                                  "type": "object"
+                                },
+                                "response": {
+                                  "const": "options-v1",
+                                  "description": "Expected enriched option-response envelope."
+                                },
+                                "type_key": {
+                                  "description": "Optional response-object property containing each option's type or group.",
+                                  "pattern": "\\S",
+                                  "type": "string"
+                                },
+                                "value_key": {
+                                  "description": "Response-object property containing each option's submitted value.",
+                                  "pattern": "\\S",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "endpoint",
+                                "label_key",
+                                "value_key"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "not": {
+                                "required": [
+                                  "response"
+                                ]
+                              }
+                            }
+                          ],
+                          "description": "API source that supplies selectable locations."
+                        },
+                        "typeField": {
+                          "description": "Sibling property that receives the selected location's type.",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "source"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "ui:options"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "ui:field": {
+                      "const": "device"
+                    }
+                  },
+                  "required": [
+                    "ui:field"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "ui:options": {
+                      "additionalProperties": false,
+                      "description": "Rendering, filtering, and data-source options for the device core field.",
+                      "properties": {
+                        "filterScope": {
+                          "description": "Identifier used to share one filter state across device fields.",
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        "filterSources": {
+                          "additionalProperties": false,
+                          "description": "Backend-owned API sources keyed by each enabled semantic filter.",
+                          "properties": {
+                            "site": {
+                              "allOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "description": "Where a core field loads its options. endpoint is a path relative to the workflow API origin; a whole {property} path segment is filled from that sibling property and is a required dependency.",
+                                  "properties": {
+                                    "clear_on_change": {
+                                      "const": true,
+                                      "description": "Clear the selected value when a dependency changes."
+                                    },
+                                    "depends_on": {
+                                      "additionalProperties": {
+                                        "additionalProperties": false,
+                                        "description": "A sibling form property whose value supplies one option query parameter. A required dependency holds the request while empty; an optional one is omitted while empty.",
+                                        "properties": {
+                                          "field": {
+                                            "description": "Projected sibling property whose value supplies the dependency.",
+                                            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                            "type": "string"
+                                          },
+                                          "required": {
+                                            "const": false,
+                                            "description": "When false, omit an empty dependency instead of holding the request."
+                                          }
+                                        },
+                                        "required": [
+                                          "field"
+                                        ],
+                                        "type": "object"
+                                      },
+                                      "description": "Query parameter names mapped to sibling form-property dependencies.",
+                                      "type": "object"
+                                    },
+                                    "endpoint": {
+                                      "description": "API path relative to the workflow API origin; whole {property} segments reference sibling form values.",
+                                      "pattern": "^/(?!/)[^?#\\\\\\s]*$",
+                                      "type": "string"
+                                    },
+                                    "label_key": {
+                                      "description": "Response-object property containing each option's display label.",
+                                      "pattern": "\\S",
+                                      "type": "string"
+                                    },
+                                    "params": {
+                                      "additionalProperties": {
+                                        "description": "A static query parameter; a list becomes a repeated parameter.",
+                                        "oneOf": [
+                                          {
+                                            "description": "A scalar value allowed in static option-source parameters.",
+                                            "type": [
+                                              "string",
+                                              "number",
+                                              "boolean"
+                                            ]
+                                          },
+                                          {
+                                            "items": {
+                                              "description": "A scalar value allowed in static option-source parameters.",
+                                              "type": [
+                                                "string",
+                                                "number",
+                                                "boolean"
+                                              ]
+                                            },
+                                            "type": "array"
+                                          }
+                                        ]
+                                      },
+                                      "description": "Static query parameters included with every option request.",
+                                      "type": "object"
+                                    },
+                                    "response": {
+                                      "const": "options-v1",
+                                      "description": "Expected enriched option-response envelope."
+                                    },
+                                    "type_key": {
+                                      "description": "Optional response-object property containing each option's type or group.",
+                                      "pattern": "\\S",
+                                      "type": "string"
+                                    },
+                                    "value_key": {
+                                      "description": "Response-object property containing each option's submitted value.",
+                                      "pattern": "\\S",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "endpoint",
+                                    "label_key",
+                                    "value_key"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "required": [
+                                    "type_key"
+                                  ]
+                                },
+                                {
+                                  "not": {
+                                    "anyOf": [
+                                      {
+                                        "required": [
+                                          "depends_on"
+                                        ]
+                                      },
+                                      {
+                                        "required": [
+                                          "response"
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                              ],
+                              "description": "API source that supplies selectable Site and Module locations, including their location type."
+                            },
+                            "status": {
+                              "allOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "description": "Where a core field loads its options. endpoint is a path relative to the workflow API origin; a whole {property} path segment is filled from that sibling property and is a required dependency.",
+                                  "properties": {
+                                    "clear_on_change": {
+                                      "const": true,
+                                      "description": "Clear the selected value when a dependency changes."
+                                    },
+                                    "depends_on": {
+                                      "additionalProperties": {
+                                        "additionalProperties": false,
+                                        "description": "A sibling form property whose value supplies one option query parameter. A required dependency holds the request while empty; an optional one is omitted while empty.",
+                                        "properties": {
+                                          "field": {
+                                            "description": "Projected sibling property whose value supplies the dependency.",
+                                            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                            "type": "string"
+                                          },
+                                          "required": {
+                                            "const": false,
+                                            "description": "When false, omit an empty dependency instead of holding the request."
+                                          }
+                                        },
+                                        "required": [
+                                          "field"
+                                        ],
+                                        "type": "object"
+                                      },
+                                      "description": "Query parameter names mapped to sibling form-property dependencies.",
+                                      "type": "object"
+                                    },
+                                    "endpoint": {
+                                      "description": "API path relative to the workflow API origin; whole {property} segments reference sibling form values.",
+                                      "pattern": "^/(?!/)[^?#\\\\\\s]*$",
+                                      "type": "string"
+                                    },
+                                    "label_key": {
+                                      "description": "Response-object property containing each option's display label.",
+                                      "pattern": "\\S",
+                                      "type": "string"
+                                    },
+                                    "params": {
+                                      "additionalProperties": {
+                                        "description": "A static query parameter; a list becomes a repeated parameter.",
+                                        "oneOf": [
+                                          {
+                                            "description": "A scalar value allowed in static option-source parameters.",
+                                            "type": [
+                                              "string",
+                                              "number",
+                                              "boolean"
+                                            ]
+                                          },
+                                          {
+                                            "items": {
+                                              "description": "A scalar value allowed in static option-source parameters.",
+                                              "type": [
+                                                "string",
+                                                "number",
+                                                "boolean"
+                                              ]
+                                            },
+                                            "type": "array"
+                                          }
+                                        ]
+                                      },
+                                      "description": "Static query parameters included with every option request.",
+                                      "type": "object"
+                                    },
+                                    "response": {
+                                      "const": "options-v1",
+                                      "description": "Expected enriched option-response envelope."
+                                    },
+                                    "type_key": {
+                                      "description": "Optional response-object property containing each option's type or group.",
+                                      "pattern": "\\S",
+                                      "type": "string"
+                                    },
+                                    "value_key": {
+                                      "description": "Response-object property containing each option's submitted value.",
+                                      "pattern": "\\S",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "endpoint",
+                                    "label_key",
+                                    "value_key"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "not": {
+                                    "anyOf": [
+                                      {
+                                        "required": [
+                                          "type_key"
+                                        ]
+                                      },
+                                      {
+                                        "required": [
+                                          "depends_on"
+                                        ]
+                                      },
+                                      {
+                                        "required": [
+                                          "response"
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                              ],
+                              "description": "API source that supplies selectable device statuses."
+                            },
+                            "tenant": {
+                              "allOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "description": "Where a core field loads its options. endpoint is a path relative to the workflow API origin; a whole {property} path segment is filled from that sibling property and is a required dependency.",
+                                  "properties": {
+                                    "clear_on_change": {
+                                      "const": true,
+                                      "description": "Clear the selected value when a dependency changes."
+                                    },
+                                    "depends_on": {
+                                      "additionalProperties": {
+                                        "additionalProperties": false,
+                                        "description": "A sibling form property whose value supplies one option query parameter. A required dependency holds the request while empty; an optional one is omitted while empty.",
+                                        "properties": {
+                                          "field": {
+                                            "description": "Projected sibling property whose value supplies the dependency.",
+                                            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                            "type": "string"
+                                          },
+                                          "required": {
+                                            "const": false,
+                                            "description": "When false, omit an empty dependency instead of holding the request."
+                                          }
+                                        },
+                                        "required": [
+                                          "field"
+                                        ],
+                                        "type": "object"
+                                      },
+                                      "description": "Query parameter names mapped to sibling form-property dependencies.",
+                                      "type": "object"
+                                    },
+                                    "endpoint": {
+                                      "description": "API path relative to the workflow API origin; whole {property} segments reference sibling form values.",
+                                      "pattern": "^/(?!/)[^?#\\\\\\s]*$",
+                                      "type": "string"
+                                    },
+                                    "label_key": {
+                                      "description": "Response-object property containing each option's display label.",
+                                      "pattern": "\\S",
+                                      "type": "string"
+                                    },
+                                    "params": {
+                                      "additionalProperties": {
+                                        "description": "A static query parameter; a list becomes a repeated parameter.",
+                                        "oneOf": [
+                                          {
+                                            "description": "A scalar value allowed in static option-source parameters.",
+                                            "type": [
+                                              "string",
+                                              "number",
+                                              "boolean"
+                                            ]
+                                          },
+                                          {
+                                            "items": {
+                                              "description": "A scalar value allowed in static option-source parameters.",
+                                              "type": [
+                                                "string",
+                                                "number",
+                                                "boolean"
+                                              ]
+                                            },
+                                            "type": "array"
+                                          }
+                                        ]
+                                      },
+                                      "description": "Static query parameters included with every option request.",
+                                      "type": "object"
+                                    },
+                                    "response": {
+                                      "const": "options-v1",
+                                      "description": "Expected enriched option-response envelope."
+                                    },
+                                    "type_key": {
+                                      "description": "Optional response-object property containing each option's type or group.",
+                                      "pattern": "\\S",
+                                      "type": "string"
+                                    },
+                                    "value_key": {
+                                      "description": "Response-object property containing each option's submitted value.",
+                                      "pattern": "\\S",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "endpoint",
+                                    "label_key",
+                                    "value_key"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "not": {
+                                    "anyOf": [
+                                      {
+                                        "required": [
+                                          "type_key"
+                                        ]
+                                      },
+                                      {
+                                        "required": [
+                                          "depends_on"
+                                        ]
+                                      },
+                                      {
+                                        "required": [
+                                          "response"
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                              ],
+                              "description": "API source that supplies selectable tenants."
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "filters": {
+                          "description": "Filter controls shown above the device picker.",
+                          "items": {
+                            "enum": [
+                              "site",
+                              "tenant",
+                              "status"
+                            ]
+                          },
+                          "type": "array",
+                          "uniqueItems": true
+                        },
+                        "queryAliases": {
+                          "description": "Legacy URL query parameters accepted for this field.",
+                          "items": {
+                            "description": "A string containing at least one non-whitespace character.",
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "minItems": 1,
+                          "type": "array",
+                          "uniqueItems": true
+                        },
+                        "queryParam": {
+                          "description": "URL query parameter used to prefill the selected device value.",
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        "siteField": {
+                          "description": "Sibling location property used instead of an inline Site filter.",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                          "type": "string"
+                        },
+                        "siteRequired": {
+                          "description": "Whether a Site must be selected before devices can be loaded.",
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "allOf": [
+                            {
+                              "additionalProperties": false,
+                              "description": "Where a core field loads its options. endpoint is a path relative to the workflow API origin; a whole {property} path segment is filled from that sibling property and is a required dependency.",
+                              "properties": {
+                                "clear_on_change": {
+                                  "const": true,
+                                  "description": "Clear the selected value when a dependency changes."
+                                },
+                                "depends_on": {
+                                  "additionalProperties": {
+                                    "additionalProperties": false,
+                                    "description": "A sibling form property whose value supplies one option query parameter. A required dependency holds the request while empty; an optional one is omitted while empty.",
+                                    "properties": {
+                                      "field": {
+                                        "description": "Projected sibling property whose value supplies the dependency.",
+                                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                        "type": "string"
+                                      },
+                                      "required": {
+                                        "const": false,
+                                        "description": "When false, omit an empty dependency instead of holding the request."
+                                      }
+                                    },
+                                    "required": [
+                                      "field"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "description": "Query parameter names mapped to sibling form-property dependencies.",
+                                  "type": "object"
+                                },
+                                "endpoint": {
+                                  "description": "API path relative to the workflow API origin; whole {property} segments reference sibling form values.",
+                                  "pattern": "^/(?!/)[^?#\\\\\\s]*$",
+                                  "type": "string"
+                                },
+                                "label_key": {
+                                  "description": "Response-object property containing each option's display label.",
+                                  "pattern": "\\S",
+                                  "type": "string"
+                                },
+                                "params": {
+                                  "additionalProperties": {
+                                    "description": "A static query parameter; a list becomes a repeated parameter.",
+                                    "oneOf": [
+                                      {
+                                        "description": "A scalar value allowed in static option-source parameters.",
+                                        "type": [
+                                          "string",
+                                          "number",
+                                          "boolean"
+                                        ]
+                                      },
+                                      {
+                                        "items": {
+                                          "description": "A scalar value allowed in static option-source parameters.",
+                                          "type": [
+                                            "string",
+                                            "number",
+                                            "boolean"
+                                          ]
+                                        },
+                                        "type": "array"
+                                      }
+                                    ]
+                                  },
+                                  "description": "Static query parameters included with every option request.",
+                                  "type": "object"
+                                },
+                                "response": {
+                                  "const": "options-v1",
+                                  "description": "Expected enriched option-response envelope."
+                                },
+                                "type_key": {
+                                  "description": "Optional response-object property containing each option's type or group.",
+                                  "pattern": "\\S",
+                                  "type": "string"
+                                },
+                                "value_key": {
+                                  "description": "Response-object property containing each option's submitted value.",
+                                  "pattern": "\\S",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "endpoint",
+                                "label_key",
+                                "value_key"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "not": {
+                                "required": [
+                                  "type_key"
+                                ]
+                              }
+                            },
+                            {
+                              "not": {
+                                "required": [
+                                  "depends_on"
+                                ]
+                              }
+                            },
+                            {
+                              "not": {
+                                "required": [
+                                  "response"
+                                ]
+                              }
+                            }
+                          ],
+                          "description": "API source that supplies selectable devices."
+                        }
+                      },
+                      "required": [
+                        "source",
+                        "filters",
+                        "filterSources",
+                        "siteRequired",
+                        "filterScope"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "ui:options"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "ui:field": {
+                      "const": "variantRows"
+                    }
+                  },
+                  "required": [
+                    "ui:field"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "ui:options": {
+                      "additionalProperties": false,
+                      "description": "Configuration for a composite row editor that exclusively controls several projected array properties.",
+                      "properties": {
+                        "clearInactive": {
+                          "const": true,
+                          "description": "Clear properties owned by inactive modes when the active mode changes."
+                        },
+                        "minimumRows": {
+                          "description": "Minimum number of editable rows kept visible.",
+                          "minimum": 1.0,
+                          "type": "integer"
+                        },
+                        "modes": {
+                          "description": "Mutually exclusive row layouts offered to the user.",
+                          "items": {
+                            "additionalProperties": false,
+                            "description": "One mutually exclusive row layout, such as interfaces or GUIDs.",
+                            "properties": {
+                              "columns": {
+                                "description": "Columns rendered for every row in this mode.",
+                                "items": {
+                                  "additionalProperties": false,
+                                  "description": "One input column repeated in every row of a mode. arrayProperty names the projected top-level array; itemProperty names a string property inside object-array items.",
+                                  "properties": {
+                                    "arrayProperty": {
+                                      "description": "Projected top-level array property populated by this column.",
+                                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                      "type": "string"
+                                    },
+                                    "choices": {
+                                      "description": "Static choices available to a select column.",
+                                      "items": {
+                                        "additionalProperties": false,
+                                        "description": "One static choice shown by a select column.",
+                                        "properties": {
+                                          "label": {
+                                            "description": "Human-readable choice label.",
+                                            "pattern": "\\S",
+                                            "type": "string"
+                                          },
+                                          "value": {
+                                            "description": "String submitted when the choice is selected.",
+                                            "pattern": "\\S",
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "label",
+                                          "value"
+                                        ],
+                                        "type": "object"
+                                      },
+                                      "minItems": 1,
+                                      "type": "array"
+                                    },
+                                    "itemProperty": {
+                                      "description": "String property populated within each object-array item; omit for scalar arrays.",
+                                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                      "type": "string"
+                                    },
+                                    "kind": {
+                                      "description": "Input control rendered for this column.",
+                                      "enum": [
+                                        "text",
+                                        "select"
+                                      ]
+                                    },
+                                    "label": {
+                                      "description": "Human-readable column label.",
+                                      "pattern": "\\S",
+                                      "type": "string"
+                                    },
+                                    "pattern": {
+                                      "description": "Regular expression used to validate nonempty text values.",
+                                      "type": "string"
+                                    },
+                                    "placeholder": {
+                                      "description": "Hint shown while the column input is empty.",
+                                      "pattern": "\\S",
+                                      "type": "string"
+                                    },
+                                    "required": {
+                                      "description": "Whether every nonblank row must contain a value for this column.",
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "required": [
+                                    "arrayProperty",
+                                    "label",
+                                    "kind"
+                                  ],
+                                  "type": "object"
+                                },
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "id": {
+                                "description": "Stable identifier for this mode.",
+                                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                "type": "string"
+                              },
+                              "label": {
+                                "description": "Human-readable mode label.",
+                                "pattern": "\\S",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "label",
+                              "columns"
+                            ],
+                            "type": "object"
+                          },
+                          "minItems": 2,
+                          "type": "array"
+                        },
+                        "ownedProperties": {
+                          "description": "Projected array properties written exclusively by this composite field, including its anchor.",
+                          "items": {
+                            "description": "A property-style identifier used for schema properties, modes, and item properties.",
+                            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                            "type": "string"
+                          },
+                          "minItems": 2,
+                          "type": "array",
+                          "uniqueItems": true
+                        },
+                        "warning": {
+                          "description": "Warning displayed below the row editor.",
+                          "pattern": "\\S",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "ownedProperties",
+                        "modes",
+                        "minimumRows",
+                        "clearInactive"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "ui:options"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "not": {
+                    "required": [
+                      "ui:field"
+                    ]
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "ui:options": {
+                      "additionalProperties": false,
+                      "description": "Supported ui:options for a standard RJSF field.",
+                      "properties": {
+                        "rows": {
+                          "description": "Visible row count for a multiline text control.",
+                          "minimum": 1.0,
+                          "type": "integer"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            ],
+            "description": "Supported rendering directives for one projected top-level form property.",
+            "not": {
+              "required": [
+                "ui:widget",
+                "ui:field"
+              ]
+            },
+            "properties": {
+              "ui:description": {
+                "description": "UI-specific description displayed with the field.",
+                "pattern": "\\S",
+                "type": "string"
+              },
+              "ui:field": {
+                "description": "Registered core field used to render and manage the property.",
+                "enum": [
+                  "apiOptions",
+                  "device",
+                  "location",
+                  "variantRows"
+                ]
+              },
+              "ui:help": {
+                "description": "Supporting help text displayed with the field.",
+                "pattern": "\\S",
+                "type": "string"
+              },
+              "ui:options": {
+                "description": "Field-specific options validated according to ui:field.",
+                "type": "object"
+              },
+              "ui:placeholder": {
+                "description": "Hint displayed while the field is empty.",
+                "pattern": "\\S",
+                "type": "string"
+              },
+              "ui:readonly": {
+                "description": "Whether the rendered field is read-only.",
+                "type": "boolean"
+              },
+              "ui:title": {
+                "description": "Label displayed for the field.",
+                "pattern": "\\S",
+                "type": "string"
+              },
+              "ui:widget": {
+                "description": "Standard RJSF widget used to render the field.",
+                "enum": [
+                  "hidden",
+                  "text",
+                  "textarea",
+                  "checkbox",
+                  "select"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        },
+        "properties": {
+          "ui:globalOptions": {
+            "additionalProperties": false,
+            "description": "Rendering options applied to the whole form.",
+            "properties": {
+              "exclusiveGroups": {
+                "description": "Mutually exclusive input modes. A value in one mode disables and clears the others.",
+                "items": {
+                  "additionalProperties": false,
+                  "anyOf": [
+                    {
+                      "required": [
+                        "fields"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "deviceFilters"
+                      ]
+                    }
+                  ],
+                  "description": "One input mode in a mutually exclusive interaction. fields are projected properties; deviceFilters includes the non-model filters rendered by named device fields.",
+                  "properties": {
+                    "deviceFilters": {
+                      "description": "Device fields whose non-model filter controls also activate this input mode.",
+                      "items": {
+                        "description": "A property-style identifier used for schema properties, modes, and item properties.",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "fields": {
+                      "description": "Projected properties belonging to this input mode.",
+                      "items": {
+                        "description": "A property-style identifier used for schema properties, modes, and item properties.",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "requireComplete": {
+                      "const": true,
+                      "description": "Require one complete input mode and every field in the active mode before submission. When used, every group in the set must enable it."
+                    }
+                  },
+                  "type": "object"
+                },
+                "minItems": 2,
+                "type": "array"
+              },
+              "fieldComparisons": {
+                "description": "Client-side comparisons between projected numeric fields.",
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Client-side comparison between two projected numeric fields.",
+                  "properties": {
+                    "left": {
+                      "description": "Projected numeric field that receives the validation error.",
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                      "type": "string"
+                    },
+                    "message": {
+                      "description": "Validation message displayed when the comparison fails.",
+                      "pattern": "\\S",
+                      "type": "string"
+                    },
+                    "operator": {
+                      "const": "lessThan",
+                      "description": "Comparison the left value must satisfy against the right value."
+                    },
+                    "right": {
+                      "description": "Projected numeric field compared against the left value.",
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "left",
+                    "operator",
+                    "right",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "hideSchemaDescriptions": {
+                "description": "Hide descriptions inherited from the projected input schema.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "ui:order": {
+            "description": "Top-level property rendering order; an optional * inserts unlisted properties.",
+            "items": {
+              "description": "A string containing at least one non-whitespace character.",
+              "pattern": "\\S",
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "ui:submitButtonOptions": {
+            "additionalProperties": false,
+            "description": "Submit-button presentation options.",
+            "properties": {
+              "submitText": {
+                "description": "Text displayed on the submit button.",
+                "pattern": "\\S",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
         "type": "object"
       },
       "WorkflowFormUnavailableDetail": {

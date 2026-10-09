@@ -174,7 +174,7 @@ test("filters tenants by contiguous text and ranks an exact match first", async 
   );
   await page.goto(PATH);
 
-  await page.getByRole("button", { name: SELECT_TENANT, exact: true }).click();
+  await page.getByRole("combobox", { name: SELECT_TENANT }).click();
   const tenantDialog = page.getByRole("dialog");
   const tenantSearch = tenantDialog.getByPlaceholder("Search Tenant");
   await tenantSearch.fill("NGC");

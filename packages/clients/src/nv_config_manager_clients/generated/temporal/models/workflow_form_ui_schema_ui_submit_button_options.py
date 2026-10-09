@@ -31,29 +31,28 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator
-from typing import Any, ClassVar, Dict, List
-from nv_config_manager_clients.generated.temporal.models.workflow_form_ui_schema import WorkflowFormUiSchema
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Any, ClassVar, Dict, Optional
+from typing_extensions import Annotated
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
 
-class WorkflowFormResponse(BaseModel):
+class WorkflowFormUiSchemaUiSubmitButtonOptions(BaseModel):
     """
-    Version 1 input form of an API workflow, rendered with RJSF.  ``schema`` is the form projection of the input model's JSON Schema, ``ui_schema`` a validated subset of an RJSF ``uiSchema``, ``requires`` the capabilities the UI must support before rendering.
+    Submit-button presentation options.
     """ # noqa: E501
-    requires: List[StrictStr]
-    var_schema: Dict[str, Any] = Field(alias="schema")
-    ui_schema: WorkflowFormUiSchema
-    ui_schema_version: StrictInt
-    additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["requires", "schema", "ui_schema", "ui_schema_version"]
+    submit_text: Optional[Annotated[str, Field(strict=True)]] = Field(default=None, description="Text displayed on the submit button.", alias="submitText")
+    __properties: ClassVar[List[str]] = ["submitText"]
 
-    @field_validator('ui_schema_version')
-    def ui_schema_version_validate_enum(cls, value):
-        """Validates the enum"""
-        if value not in set([1]):
-            raise ValueError("must be one of enum values (1)")
+    @field_validator('submit_text')
+    def submit_text_validate_regular_expression(cls, value):
+        """Validates the regular expression"""
+        if value is None:
+            return value
+
+        if not re.match(r"\S", value):
+            raise ValueError(r"must validate the regular expression /\S/")
         return value
 
     model_config = ConfigDict(
@@ -74,7 +73,7 @@ class WorkflowFormResponse(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of WorkflowFormResponse from a JSON string"""
+        """Create an instance of WorkflowFormUiSchemaUiSubmitButtonOptions from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -86,10 +85,8 @@ class WorkflowFormResponse(BaseModel):
         * `None` is only added to the output dict for nullable fields that
           were set at model initialization. Other fields with value `None`
           are ignored.
-        * Fields in `self.additional_properties` are added to the output dict.
         """
         excluded_fields: Set[str] = set([
-            "additional_properties",
         ])
 
         _dict = self.model_dump(
@@ -97,19 +94,11 @@ class WorkflowFormResponse(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of ui_schema
-        if self.ui_schema:
-            _dict['ui_schema'] = self.ui_schema.to_dict()
-        # puts key-value pairs in additional_properties in the top level
-        if self.additional_properties is not None:
-            for _key, _value in self.additional_properties.items():
-                _dict[_key] = _value
-
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of WorkflowFormResponse from a dict"""
+        """Create an instance of WorkflowFormUiSchemaUiSubmitButtonOptions from a dict"""
         if obj is None:
             return None
 
@@ -117,14 +106,6 @@ class WorkflowFormResponse(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "requires": obj.get("requires"),
-            "schema": obj.get("schema"),
-            "ui_schema": WorkflowFormUiSchema.from_dict(obj["ui_schema"]) if obj.get("ui_schema") is not None else None,
-            "ui_schema_version": obj.get("ui_schema_version")
+            "submitText": obj.get("submitText")
         })
-        # store additional fields in additional_properties
-        for _key in obj.keys():
-            if _key not in cls.__properties:
-                _obj.additional_properties[_key] = obj.get(_key)
-
         return _obj

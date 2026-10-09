@@ -163,7 +163,7 @@ const selectTrigger = (page: Page, label: string): Locator =>
     .locator("form")
     .getByText(labelText(label))
     .locator("..")
-    .getByRole("button")
+    .getByRole("combobox")
     .first();
 
 /** Drives a form by its visible labels (see {@link FormDriver}). */
@@ -196,7 +196,7 @@ export const formDriver = (page: Page): FormDriver => ({
   async expectSelected(label, ...options) {
     await expect(selectTrigger(page, label)).toHaveAttribute(
       "aria-label",
-      `${options.join(", ")}. Open options`
+      `${label}: ${options.join(", ")}. Open options`
     );
   },
   async fill(label, value) {

@@ -69,6 +69,7 @@ globalThis.ResizeObserver ??= class {
   unobserve() {}
   disconnect() {}
 };
+Element.prototype.scrollIntoView ??= vi.fn();
 
 /** Labels with exactly this text (a required marker allowed). */
 const labels = (text: string) =>
@@ -77,7 +78,8 @@ const labels = (text: string) =>
 const labelledControl = (text: string): HTMLElement => {
   const id = labels(text)[0]?.getAttribute("for");
   const control = id ? document.getElementById(id) : null;
-  if (!control) throw new Error(`No control is associated with the ${text} label`);
+  if (!control)
+    throw new Error(`No control is associated with the ${text} label`);
   return control;
 };
 
@@ -233,12 +235,8 @@ const FILTER_SOURCES = {
   },
 } satisfies DeviceOptions["filterSources"];
 
-const sourcesFor = (
-  filters: DeviceFilter[]
-): DeviceOptions["filterSources"] =>
-  Object.fromEntries(
-    filters.map((filter) => [filter, FILTER_SOURCES[filter]])
-  );
+const sourcesFor = (filters: DeviceFilter[]): DeviceOptions["filterSources"] =>
+  Object.fromEntries(filters.map((filter) => [filter, FILTER_SOURCES[filter]]));
 
 const device = (
   filters: DeviceFilter[],
@@ -316,12 +314,55 @@ describe("initial state and RJSF agreement", () => {
 
     const devicePicker = labelledControl("Device");
     expect(devicePicker.tagName).toBe("BUTTON");
+    expect(devicePicker.getAttribute("role")).toBe("combobox");
+    expect(devicePicker.getAttribute("aria-label")).toMatch(/^Device:/);
+    expect(devicePicker.getAttribute("aria-required")).toBe("true");
+    expect(devicePicker.getAttribute("aria-haspopup")).toBe("dialog");
     expect(labels("Device")[0].textContent).toBe("Device *");
+    expect(devicePicker.getAttribute("aria-describedby")).not.toContain(
+      `${devicePicker.id}__label`
+    );
     expect(devicePicker.getAttribute("aria-describedby")).toContain(
       `${devicePicker.id}__description`
     );
-    expect(document.getElementById(`${devicePicker.id}__description`)?.textContent).toBe(
-      "Identifier of the network device to back up."
+    expect(
+      document.getElementById(`${devicePicker.id}__description`)?.textContent
+    ).toBe("Identifier of the network device to back up.");
+
+    const sitePicker = labelledControl("Site");
+    fireEvent.click(sitePicker);
+    await waitFor(() => {
+      const controlled = document.getElementById(
+        sitePicker.getAttribute("aria-controls") ?? ""
+      );
+      expect(controlled?.getAttribute("role")).toBe("dialog");
+    });
+  });
+
+  it("keeps enum labels stable and exposes their validation state", async () => {
+    const form: WorkflowFormResponse = {
+      schema: {
+        type: "object",
+        properties: {
+          mode: { type: "string", enum: ["fast", "safe"], title: "Mode" },
+        },
+        required: ["mode"],
+      },
+      ui_schema: {},
+      ui_schema_version: 1,
+      requires: [],
+    };
+    await renderForm(form);
+
+    const mode = labelledControl("Mode");
+    expect(mode.getAttribute("aria-label")).toBe("Mode: Select a Mode...");
+    expect(mode.getAttribute("aria-required")).toBe("true");
+    expect(mode.hasAttribute("aria-invalid")).toBe(false);
+
+    fireEvent.click(submitButton());
+    await waitFor(() => expect(mode.getAttribute("aria-invalid")).toBe("true"));
+    expect(mode.getAttribute("aria-describedby")).toContain(
+      `${mode.id}__error`
     );
   });
 });
@@ -411,9 +452,7 @@ describe("device filter scopes", () => {
 
     await waitFor(() =>
       expect(
-        requests.some(
-          (url) => url.pathname === "/v1/parameter/custom-tenant"
-        )
+        requests.some((url) => url.pathname === "/v1/parameter/custom-tenant")
       ).toBe(true)
     );
     const request = requests.find(
@@ -790,9 +829,9 @@ describe("submission errors", () => {
     expect(devicePicker.getAttribute("aria-describedby")).toContain(
       `${devicePicker.id}__error`
     );
-    expect(document.getElementById(`${devicePicker.id}__error`)?.textContent).toContain(
-      "Device is offline"
-    );
+    expect(
+      document.getElementById(`${devicePicker.id}__error`)?.textContent
+    ).toContain("Device is offline");
 
     await act(async () =>
       context().setFields("field:device_id", { device_id: "d2" }, "user")

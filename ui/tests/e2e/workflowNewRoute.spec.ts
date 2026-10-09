@@ -47,9 +47,12 @@ const API_UPGRADE_REQUIRED =
 const DEVICE = DEVICES_LIST[SITES_LIST.pdx01][0];
 const formIdOf = (name: keyof typeof workflowFormIds) => workflowFormIds[name];
 
-/** SelectBox trigger: its accessible name is the selection, or the placeholder. */
+const escapeRegExp = (text: string) =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** SelectBox trigger whose stable field label precedes this selection or placeholder. */
 const picker = (page: Page, name: string) =>
-  page.getByRole("button", { name, exact: true });
+  page.getByRole("combobox", { name: new RegExp(`: ${escapeRegExp(name)}$`) });
 
 const choose = async (page: Page, trigger: string, option: string) => {
   await picker(page, trigger).click();
@@ -344,11 +347,7 @@ test.describe("/workflows/new/<form_id>", () => {
         status: 200,
         json: {
           workflows: SERVER_WORKFLOW_METADATA.workflows.map(
-            ({
-              form_id: _formId,
-              has_form: _hasForm,
-              ...workflow
-            }) => workflow
+            ({ form_id: _formId, has_form: _hasForm, ...workflow }) => workflow
           ),
         },
       })
@@ -691,7 +690,9 @@ test.describe("legacy form URLs", () => {
       expect(
         new URL(response.headers()["location"], "http://ui.test").pathname,
         name
-      ).toBe(`/workflows/new/${formIdOf(name as keyof typeof workflowFormIds)}`);
+      ).toBe(
+        `/workflows/new/${formIdOf(name as keyof typeof workflowFormIds)}`
+      );
     }
   });
 

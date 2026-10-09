@@ -493,6 +493,25 @@ def test_form_operation_is_published_under_its_operation_id() -> None:
     response_schema = spec["components"]["schemas"]["WorkflowFormResponse"]
     assert list(response_schema["properties"]) == _FORM_KEYS
     assert response_schema["required"] == _FORM_KEYS
+    assert response_schema["properties"]["schema"] == {
+        "additionalProperties": True,
+        "title": "Schema",
+        "type": "object",
+    }
+    assert response_schema["properties"]["ui_schema"] == {
+        "$ref": "#/components/schemas/WorkflowFormUiSchema"
+    }
+    ui_schema = spec["components"]["schemas"]["WorkflowFormUiSchema"]
+    assert ui_schema["additionalProperties"] is False
+    assert set(ui_schema["properties"]) == {
+        "ui:globalOptions",
+        "ui:order",
+        "ui:submitButtonOptions",
+    }
+    assert (
+        ui_schema["patternProperties"]["^[A-Za-z_][A-Za-z0-9_]*$"]["additionalProperties"] is False
+    )
+    assert list(_refs(ui_schema)) == []
     assert response_schema["properties"]["ui_schema_version"]["const"] == 1
     assert path_item["get"]["responses"]["404"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/WorkflowFormNotFoundResponse"

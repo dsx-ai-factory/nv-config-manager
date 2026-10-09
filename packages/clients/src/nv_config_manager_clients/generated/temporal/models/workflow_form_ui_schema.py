@@ -31,30 +31,24 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator
-from typing import Any, ClassVar, Dict, List
-from nv_config_manager_clients.generated.temporal.models.workflow_form_ui_schema import WorkflowFormUiSchema
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Any, ClassVar, Dict, List, Optional
+from typing_extensions import Annotated
+from nv_config_manager_clients.generated.temporal.models.workflow_form_ui_schema_ui_global_options import WorkflowFormUiSchemaUiGlobalOptions
+from nv_config_manager_clients.generated.temporal.models.workflow_form_ui_schema_ui_submit_button_options import WorkflowFormUiSchemaUiSubmitButtonOptions
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
 
-class WorkflowFormResponse(BaseModel):
+class WorkflowFormUiSchema(BaseModel):
     """
-    Version 1 input form of an API workflow, rendered with RJSF.  ``schema`` is the form projection of the input model's JSON Schema, ``ui_schema`` a validated subset of an RJSF ``uiSchema``, ``requires`` the capabilities the UI must support before rendering.
+    The supported subset of an RJSF uiSchema: root options plus one entry per top-level schema property.
     """ # noqa: E501
-    requires: List[StrictStr]
-    var_schema: Dict[str, Any] = Field(alias="schema")
-    ui_schema: WorkflowFormUiSchema
-    ui_schema_version: StrictInt
+    ui_global_options: Optional[WorkflowFormUiSchemaUiGlobalOptions] = Field(default=None, alias="ui:globalOptions")
+    ui_order: Optional[List[Annotated[str, Field(strict=True)]]] = Field(default=None, description="Top-level property rendering order; an optional * inserts unlisted properties.", alias="ui:order")
+    ui_submit_button_options: Optional[WorkflowFormUiSchemaUiSubmitButtonOptions] = Field(default=None, alias="ui:submitButtonOptions")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["requires", "schema", "ui_schema", "ui_schema_version"]
-
-    @field_validator('ui_schema_version')
-    def ui_schema_version_validate_enum(cls, value):
-        """Validates the enum"""
-        if value not in set([1]):
-            raise ValueError("must be one of enum values (1)")
-        return value
+    __properties: ClassVar[List[str]] = ["ui:globalOptions", "ui:order", "ui:submitButtonOptions"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -74,7 +68,7 @@ class WorkflowFormResponse(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of WorkflowFormResponse from a JSON string"""
+        """Create an instance of WorkflowFormUiSchema from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -97,9 +91,12 @@ class WorkflowFormResponse(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of ui_schema
-        if self.ui_schema:
-            _dict['ui_schema'] = self.ui_schema.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of ui_global_options
+        if self.ui_global_options:
+            _dict['ui:globalOptions'] = self.ui_global_options.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of ui_submit_button_options
+        if self.ui_submit_button_options:
+            _dict['ui:submitButtonOptions'] = self.ui_submit_button_options.to_dict()
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -109,7 +106,7 @@ class WorkflowFormResponse(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of WorkflowFormResponse from a dict"""
+        """Create an instance of WorkflowFormUiSchema from a dict"""
         if obj is None:
             return None
 
@@ -117,10 +114,9 @@ class WorkflowFormResponse(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "requires": obj.get("requires"),
-            "schema": obj.get("schema"),
-            "ui_schema": WorkflowFormUiSchema.from_dict(obj["ui_schema"]) if obj.get("ui_schema") is not None else None,
-            "ui_schema_version": obj.get("ui_schema_version")
+            "ui:globalOptions": WorkflowFormUiSchemaUiGlobalOptions.from_dict(obj["ui:globalOptions"]) if obj.get("ui:globalOptions") is not None else None,
+            "ui:order": obj.get("ui:order"),
+            "ui:submitButtonOptions": WorkflowFormUiSchemaUiSubmitButtonOptions.from_dict(obj["ui:submitButtonOptions"]) if obj.get("ui:submitButtonOptions") is not None else None
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

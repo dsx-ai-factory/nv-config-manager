@@ -19,6 +19,7 @@ the API request body, MCP tool schemas, and generated clients are unchanged, and
 Pydantic stays the authoritative validator of every submission.
 """
 
+import copy
 import math
 import re
 from typing import Annotated, Any, TypeAliasType, get_args, get_origin
@@ -54,11 +55,13 @@ SUPPORTED_SERVER_OWNED_FIELDS = frozenset({"user", "user_domain"})
 class FormJsonSchema(GenerateJsonSchema):
     """Generate a model's JSON Schema for a form.
 
-    - An optional field is just its type. Pydantic renders ``X | None`` as
-      ``anyOf: [X, {"type": "null"}]``, which RJSF draws as a chooser between the
-      two types. A form leaves an optional field empty instead, so the field keeps
-      only ``X``, and a ``None`` default is dropped: the form omits the field and
-      the model applies the default.
+    - A non-required nullable field is just its non-null type. Pydantic renders
+      ``X | None`` as ``anyOf: [X, {"type": "null"}]``, which RJSF draws as a
+      chooser between the two types. A form leaves a non-required field empty
+      instead, so the field keeps only ``X``, and a ``None`` default is dropped:
+      the form omits the field and the model applies the default. Required nullable
+      fields and nullable collection items retain ``null`` because omitting them is
+      not an equivalent input.
     - Every field has a title. Pydantic leaves it off fields whose type is a
       ``$ref`` (enums, models), and RJSF would label them with the raw field name.
     """
@@ -71,16 +74,76 @@ class FormJsonSchema(GenerateJsonSchema):
         """Keep a ``$ref`` property's title even when it repeats the definition's title."""
         return json_schema
 
-    def nullable_schema(self, schema: core_schema.NullableSchema) -> JsonSchemaValue:
-        """Return the non-null type alone."""
-        return self.generate_inner(schema["schema"])
-
     def default_schema(self, schema: core_schema.WithDefaultSchema) -> JsonSchemaValue:
-        """Drop a ``None`` default, which the non-null type no longer allows."""
+        """Drop a ``None`` default; a non-required field represents it by omission."""
         json_schema = super().default_schema(schema)
         if "default" in json_schema and json_schema["default"] is None:
             del json_schema["default"]
         return json_schema
+
+
+def _without_null(
+    schema: dict[str, Any],
+    definitions: dict[str, Any],
+    seen: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    """Return ``schema`` without a nullable branch, preserving sibling metadata."""
+    candidates = schema.get("anyOf")
+    if isinstance(candidates, list):
+        remaining = [
+            candidate
+            for candidate in candidates
+            if not isinstance(candidate, dict) or candidate.get("type") != "null"
+        ]
+        if len(remaining) != len(candidates):
+            siblings = {key: value for key, value in schema.items() if key != "anyOf"}
+            if len(remaining) == 1 and isinstance(remaining[0], dict):
+                return {**remaining[0], **siblings}
+            return {**schema, "anyOf": remaining}
+
+    kinds = schema.get("type")
+    if isinstance(kinds, list) and "null" in kinds:
+        remaining_kinds = [kind for kind in kinds if kind != "null"]
+        return {
+            **schema,
+            "type": remaining_kinds[0] if len(remaining_kinds) == 1 else remaining_kinds,
+        }
+
+    reference = schema.get("$ref")
+    if isinstance(reference, str) and reference.startswith("#/$defs/"):
+        name = reference.rsplit("/", 1)[-1]
+        target = definitions.get(name)
+        if isinstance(target, dict) and name not in seen:
+            copied = copy.deepcopy(target)
+            collapsed = _without_null(copied, definitions, seen | {name})
+            if collapsed != copied:
+                siblings = {key: value for key, value in schema.items() if key != "$ref"}
+                return {**collapsed, **siblings}
+    return schema
+
+
+def _collapse_non_required_nulls(schema: dict[str, Any], definitions: dict[str, Any]) -> None:
+    """Collapse nullable object properties that a form can represent by omission."""
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        required = set(schema.get("required", []))
+        for name, prop in properties.items():
+            if not isinstance(prop, dict):
+                continue
+            if name not in required:
+                prop = _without_null(prop, definitions)
+                properties[name] = prop
+            _collapse_non_required_nulls(prop, definitions)
+
+    for key, value in schema.items():
+        if key == "properties":
+            continue
+        if isinstance(value, dict):
+            _collapse_non_required_nulls(value, definitions)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    _collapse_non_required_nulls(item, definitions)
 
 
 def field_marker(model: type[BaseModel], name: str) -> object | None:
@@ -148,6 +211,8 @@ def project_form_schema(model: type[BaseModel]) -> dict[str, Any]:
     """
     _reject_nested_markers(model)
     schema = model.model_json_schema(schema_generator=FormJsonSchema)
+    _collapse_non_required_nulls(schema, schema.get("$defs", {}))
+    schema = FormJsonSchema().sort(schema)
     properties: dict[str, Any] = schema.get("properties", {})
     definitions: dict[str, Any] = schema.get("$defs", {})
     for name, info in model.model_fields.items():
