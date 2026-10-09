@@ -19,15 +19,11 @@ parameters the legacy workflow forms sent.
 """
 
 from nv_config_manager_workflows.ui import Dependency, OptionSource
-
-LOCATION_SOURCE = OptionSource(
-    "/v1/parameter/location",
-    "name",
-    "id",
-    type_key="location_type",
-    params={"location_type": ["Site", "Module"]},
+from nv_config_manager_workflows.ui.option_sources import (
+    SITE_FILTER_SOURCE,
+    STATUS_FILTER_SOURCE,
+    TENANT_FILTER_SOURCE,
 )
-"""Site and module locations: labelled by name, valued by id, typed by location type."""
 
 MANAGED_DEVICE_SOURCE = OptionSource(
     "/v1/parameter/device", "name", "id", params={"managed_only": True}
@@ -38,16 +34,6 @@ MANAGED_ROLE_SOURCE = OptionSource(
     "/v1/parameter/role", "name", "name", params={"managed_only": True}
 )
 """Roles assigned to managed devices, by name."""
-
-MANAGED_TENANT_SOURCE = OptionSource(
-    "/v1/parameter/tenant", "name", "name", params={"managed_only": True}
-)
-"""Tenants that own managed devices, by name."""
-
-DEVICE_STATUS_SOURCE = OptionSource(
-    "/v1/parameter/status", "name", "name", params={"content_type": "dcim.device"}
-)
-"""Device statuses, by name."""
 
 NAMESPACE_TAG_SOURCE = OptionSource(
     "/v1/parameter/namespace-tag",
@@ -66,10 +52,10 @@ silently run with the default tag instead of the one shown.
 """
 
 __all__ = [
-    "DEVICE_STATUS_SOURCE",
-    "LOCATION_SOURCE",
     "MANAGED_DEVICE_SOURCE",
     "MANAGED_ROLE_SOURCE",
-    "MANAGED_TENANT_SOURCE",
     "NAMESPACE_TAG_SOURCE",
+    "SITE_FILTER_SOURCE",
+    "STATUS_FILTER_SOURCE",
+    "TENANT_FILTER_SOURCE",
 ]

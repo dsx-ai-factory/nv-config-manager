@@ -50,10 +50,10 @@ from nv_config_manager_workflows.stage import (
 from nv_config_manager_workflows.ui import FormSchema, ServerOwned, api_options, location_field
 from nv_config_manager_workflows.workflow_references import LocationReference
 from nv_config_manager_workflows.workflows._form_sources import (
-    DEVICE_STATUS_SOURCE,
-    LOCATION_SOURCE,
     MANAGED_ROLE_SOURCE,
-    MANAGED_TENANT_SOURCE,
+    SITE_FILTER_SOURCE,
+    STATUS_FILTER_SOURCE,
+    TENANT_FILTER_SOURCE,
 )
 
 with workflow.unsafe.imports_passed_through():
@@ -113,11 +113,11 @@ class SiteBackupInput(BaseModel):
     """Site Configuration Backup Workflow Input Definition."""
 
     rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
-        "site": location_field(LOCATION_SOURCE, type_field="site_type"),
+        "site": location_field(SITE_FILTER_SOURCE, type_field="site_type"),
         "site_type": {"ui:widget": "hidden"},
         "roles": api_options(MANAGED_ROLE_SOURCE),
-        "status": {**api_options(DEVICE_STATUS_SOURCE), "ui:title": "Device Status"},
-        "tenant": api_options(MANAGED_TENANT_SOURCE),
+        "status": {**api_options(STATUS_FILTER_SOURCE), "ui:title": "Device Status"},
+        "tenant": api_options(TENANT_FILTER_SOURCE),
         "backup_enabled_only": {
             "ui:title": "Backup enabled only",
             "ui:help": (

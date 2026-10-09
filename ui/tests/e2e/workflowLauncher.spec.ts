@@ -18,6 +18,9 @@ import { expect, type Locator, type Page } from "@playwright/test";
 import { mockWorkflowMetadataEndpoint } from "./shared/apiMocks";
 import { test } from "./shared/utils";
 
+const API_UPGRADE_REQUIRED =
+  "Upgrade the Config Manager workflow API to a version that supports browser workflow forms.";
+
 type LauncherEntry = {
   title: string;
   /** Link target, or `null` when the entry renders disabled. */
@@ -170,6 +173,7 @@ test.describe("New workflow launcher", () => {
       read_roles: ["all"],
       execute_roles: ["all"],
       plugin: "acme",
+      has_form: true,
     };
     await mockWorkflowMetadataEndpoint(page, [pluginWorkflow]);
 
@@ -218,5 +222,41 @@ test.describe("New workflow launcher", () => {
     await expect(deploy).toHaveAccessibleDescription(
       "Workflow metadata is unavailable."
     );
+  });
+
+  test("disables links with an API upgrade message when metadata omits has_form", async ({
+    page,
+  }) => {
+    await page.route("**/v1/workflow/metadata", (route) =>
+      route.fulfill({
+        status: 200,
+        json: {
+          workflows: [
+            {
+              name: "DeployWorkflow",
+              display_name: "Configuration Deploy",
+              description: "Deploy configuration.",
+              endpoint: "/ngc/deploy",
+              namespace: "ngc",
+              cli_name: "deploy",
+              input_class: "DeployInput",
+              read_roles: ["all"],
+              execute_roles: ["all"],
+            },
+          ],
+        },
+      })
+    );
+
+    await page.goto("/workflows");
+    const launcher = await openLauncher(page);
+    const deploy = launcher.getByRole("button", {
+      name: "Configuration Deploy",
+      exact: true,
+    });
+
+    await expect(launcher.getByRole("link", { name: "Configuration Deploy" })).toHaveCount(0);
+    await deploy.hover();
+    await expect(deploy).toHaveAccessibleDescription(API_UPGRADE_REQUIRED);
   });
 });

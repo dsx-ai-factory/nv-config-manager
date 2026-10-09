@@ -34,7 +34,10 @@ import {
   shellReducer,
   type ShellState,
 } from "@/components/forms/workflow-rjsf/state";
-import { effectiveOrder } from "@/components/forms/workflow-rjsf/ui-schema";
+import {
+  type DeviceOptions,
+  effectiveOrder,
+} from "@/components/forms/workflow-rjsf/ui-schema";
 import {
   createCustomValidate,
   createTransformErrors,
@@ -64,8 +67,29 @@ const DEVICE_OPTIONS = {
     value_key: "id",
   },
   filters: ["site", "tenant", "status"],
+  filterSources: {
+    site: {
+      endpoint: "/v1/parameter/location",
+      label_key: "name",
+      value_key: "id",
+      type_key: "location_type",
+      params: { location_type: ["Site", "Module"] },
+    },
+    tenant: {
+      endpoint: "/v1/parameter/tenant",
+      label_key: "name",
+      value_key: "name",
+      params: { managed_only: true },
+    },
+    status: {
+      endpoint: "/v1/parameter/status",
+      label_key: "name",
+      value_key: "name",
+      params: { content_type: "dcim.device" },
+    },
+  },
   siteRequired: true,
-};
+} satisfies Omit<DeviceOptions, "filterScope">;
 
 /** A form with a shared scope ("fabric"), a private one, and standard fields. */
 const scoped = {
@@ -106,6 +130,7 @@ const scoped = {
       "ui:options": {
         ...DEVICE_OPTIONS,
         filters: ["tenant"],
+        filterSources: { tenant: DEVICE_OPTIONS.filterSources.tenant },
         filterScope: "implicit:backup_device_id",
         queryParam: "backup",
         queryAliases: ["backup-device"],
@@ -424,8 +449,15 @@ describe("shellReducer", () => {
     {
       fields: ["device_id", "interface"],
       filterScopes: ["implicit:device_id"],
+      deviceFields: ["device_id"],
+      requireComplete: false,
     },
-    { fields: ["remote_mac_address"], filterScopes: [] },
+    {
+      fields: ["remote_mac_address"],
+      filterScopes: [],
+      deviceFields: [],
+      requireComplete: false,
+    },
   ];
 
   it("clears the inactive fields and filters when a mode is activated", () => {
@@ -702,5 +734,73 @@ describe("validation messages", () => {
         message: "RD Min must be less than RD Max",
       }),
     ]);
+  });
+
+  it("requires one complete declared exclusive input mode", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        device_id: { type: "string", title: "Device" },
+        interface: { type: "string", title: "Interface" },
+        remote_mac_address: { type: "string", title: "MAC Address" },
+      },
+    } as RJSFSchema;
+    const uiSchema = {
+      "ui:globalOptions": {
+        exclusiveGroups: [
+          {
+            fields: ["device_id", "interface"],
+            deviceFilters: ["device_id"],
+            requireComplete: true,
+          },
+          { fields: ["remote_mac_address"], requireComplete: true },
+        ],
+      },
+      device_id: {
+        "ui:field": "device",
+        "ui:options": {
+          filterScope: "implicit:device_id",
+          siteRequired: true,
+        },
+      },
+    };
+    const layout = buildLayout(schema, uiSchema);
+    const validate = (
+      formData: Record<string, unknown>,
+      filters: Record<string, { site?: { id: string; type: string } }> = {}
+    ) =>
+      workflowValidator.validateFormData(
+        formData,
+        schema,
+        createCustomValidate(schema, uiSchema, layout, filters),
+        createTransformErrors(schema, uiSchema, layout),
+        uiSchema
+      ).errors;
+
+    expect(messages(validate({}))).toEqual([
+      "Provide Site, Device, Interface or MAC Address",
+    ]);
+    expect(messages(validate({ interface: "swp1" }))).toEqual([
+      "Device is required",
+      "Site is required for Device",
+    ]);
+    expect(
+      validate(
+        { device_id: "d1", interface: "swp1" },
+        { "implicit:device_id": { site: { id: "PDX01", type: "Site" } } }
+      )
+    ).toEqual([]);
+    expect(validate({ remote_mac_address: "00:11:22:33:44:55" })).toEqual(
+      []
+    );
+    expect(
+      messages(
+        validate({
+          device_id: "d1",
+          interface: "swp1",
+          remote_mac_address: "00:11:22:33:44:55",
+        })
+      )
+    ).toEqual(["Choose only one input mode"]);
   });
 });

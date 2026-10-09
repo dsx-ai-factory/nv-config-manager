@@ -50,10 +50,10 @@ from nv_config_manager_workflows.stage import (
 from nv_config_manager_workflows.ui import FormSchema, api_options, location_field
 from nv_config_manager_workflows.workflow_references import OptionalLocationReference
 from nv_config_manager_workflows.workflows._form_sources import (
-    DEVICE_STATUS_SOURCE,
-    LOCATION_SOURCE,
     MANAGED_ROLE_SOURCE,
-    MANAGED_TENANT_SOURCE,
+    SITE_FILTER_SOURCE,
+    STATUS_FILTER_SOURCE,
+    TENANT_FILTER_SOURCE,
 )
 
 with workflow.unsafe.imports_passed_through():
@@ -162,10 +162,10 @@ class MultiDeployInput(BaseModel):
     rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
         "role": api_options(MANAGED_ROLE_SOURCE),
         "max_batch_size": {"ui:title": "Max Batch Size", "ui:placeholder": "10"},
-        "location": location_field(LOCATION_SOURCE, type_field="location_type"),
+        "location": location_field(SITE_FILTER_SOURCE, type_field="location_type"),
         "location_type": {"ui:widget": "hidden"},
-        "status": {**api_options(DEVICE_STATUS_SOURCE), "ui:title": "Device Status"},
-        "tenant": api_options(MANAGED_TENANT_SOURCE),
+        "status": {**api_options(STATUS_FILTER_SOURCE), "ui:title": "Device Status"},
+        "tenant": api_options(TENANT_FILTER_SOURCE),
         "commit_confirm": {
             "ui:title": "Use commit-confirm",
             "ui:help": (

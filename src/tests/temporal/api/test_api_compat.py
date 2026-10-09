@@ -51,7 +51,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pytest_mock import MockerFixture
 
-from nv_config_manager.temporal.api import dynamic_endpoints
+from nv_config_manager.temporal.api import workflow_catalog
 from nv_config_manager.temporal.api.main import app
 
 _FIXTURES = Path(__file__).with_name("fixtures")
@@ -206,7 +206,7 @@ def deterministic_rbac(mocker: MockerFixture) -> None:
         "read_roles": {"reader", workflow_name},
         "execute_roles": {"executor", workflow_name},
     }
-    mocker.patch.object(dynamic_endpoints, "RBACConfig", return_value=rbac)
+    mocker.patch.object(workflow_catalog, "RBACConfig", return_value=rbac)
 
 
 @pytest.mark.usefixtures("deterministic_rbac")

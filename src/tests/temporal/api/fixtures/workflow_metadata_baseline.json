@@ -136,6 +136,7 @@
         "executor"
       ],
       "group": null,
+      "has_form": false,
       "input_class": "HelloWorldInput",
       "name": "HelloWorld",
       "namespace": "hello_world",
@@ -154,6 +155,7 @@
         "executor"
       ],
       "group": null,
+      "has_form": false,
       "input_class": "HelloWorldInput",
       "name": "HelloWorldApproval",
       "namespace": "hello_world",
@@ -334,6 +336,7 @@
         "executor"
       ],
       "group": null,
+      "has_form": false,
       "input_class": "NVLinkSwitchFirmwareUpgradeInput",
       "name": "NVLinkSwitchFirmwareUpgradeWorkflow",
       "namespace": "ngc",
@@ -370,6 +373,7 @@
         "executor"
       ],
       "group": null,
+      "has_form": false,
       "input_class": "RedfishProvisioningInput",
       "name": "RedfishProvisioningWorkflow",
       "namespace": "ngc",
@@ -460,6 +464,7 @@
         "executor"
       ],
       "group": null,
+      "has_form": false,
       "input_class": "SpXOverlayAssignmentInput",
       "name": "SpXOverlayAssignmentWorkflow",
       "namespace": "ngc",

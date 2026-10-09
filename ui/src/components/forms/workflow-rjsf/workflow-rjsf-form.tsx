@@ -109,8 +109,14 @@ const RjsfForm = ({ entry, form, searchParams }: WorkflowRjsfFormProps) => {
     [schema, uiSchema, context.layout]
   );
   const customValidate = React.useMemo(
-    () => createCustomValidate(schema, uiSchema),
-    [schema, uiSchema]
+    () =>
+      createCustomValidate(
+        schema,
+        uiSchema,
+        context.layout,
+        state.filters
+      ),
+    [schema, uiSchema, context.layout, state.filters]
   );
   const { submitText = "Submit" } = getSubmitButtonOptions(uiSchema);
   const submitPath = `/v1/workflow${entry.endpoint}`;

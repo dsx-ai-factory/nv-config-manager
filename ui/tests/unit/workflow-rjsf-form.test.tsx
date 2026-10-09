@@ -37,6 +37,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FormUnavailable } from "@/components/forms/workflow/form-load-error";
 import type { ShellFormContext } from "@/components/forms/workflow-rjsf/context";
 import { RJSF_DEFAULT_STATE_BEHAVIOR } from "@/components/forms/workflow-rjsf/state";
+import type {
+  DeviceFilter,
+  DeviceOptions,
+} from "@/components/forms/workflow-rjsf/ui-schema";
 import { WorkflowRjsfForm } from "@/components/forms/workflow-rjsf/workflow-rjsf-form";
 import { WORKFLOW_FORM_FIXTURES } from "@/mocks/data/workflowForms";
 import type {
@@ -207,7 +211,39 @@ const renderForm = async (
 const submitButton = () =>
   screen.getByRole("button", { name: /submit|create pkey/i });
 
-const device = (filters: string[], extra: Record<string, unknown> = {}) => ({
+const FILTER_SOURCES = {
+  site: {
+    endpoint: "/v1/parameter/location",
+    label_key: "name",
+    value_key: "id",
+    type_key: "location_type",
+    params: { location_type: ["Site", "Module"] },
+  },
+  tenant: {
+    endpoint: "/v1/parameter/tenant",
+    label_key: "name",
+    value_key: "name",
+    params: { managed_only: true },
+  },
+  status: {
+    endpoint: "/v1/parameter/status",
+    label_key: "name",
+    value_key: "name",
+    params: { content_type: "dcim.device" },
+  },
+} satisfies DeviceOptions["filterSources"];
+
+const sourcesFor = (
+  filters: DeviceFilter[]
+): DeviceOptions["filterSources"] =>
+  Object.fromEntries(
+    filters.map((filter) => [filter, FILTER_SOURCES[filter]])
+  );
+
+const device = (
+  filters: DeviceFilter[],
+  extra: Record<string, unknown> = {}
+) => ({
   "ui:field": "device",
   "ui:options": {
     source: {
@@ -217,6 +253,7 @@ const device = (filters: string[], extra: Record<string, unknown> = {}) => ({
       params: { managed_only: true },
     },
     filters,
+    filterSources: sourcesFor(filters),
     siteRequired: true,
     ...extra,
   },
@@ -341,6 +378,53 @@ describe("exclusive input modes", () => {
 });
 
 describe("device filter scopes", () => {
+  it("loads filter controls from the sources in the form contract", async () => {
+    const form: WorkflowFormResponse = {
+      schema: {
+        type: "object",
+        properties: {
+          device_id: { type: "string", title: "Device" },
+        },
+      },
+      ui_schema: {
+        device_id: device(["tenant"], {
+          filterScope: "implicit:device_id",
+          filterSources: {
+            tenant: {
+              endpoint: "/v1/parameter/custom-tenant",
+              label_key: "name",
+              value_key: "name",
+              params: { audience: "device-filter" },
+            },
+          },
+        }),
+      },
+      ui_schema_version: 1,
+      requires: ["core-field.device.v1"],
+    };
+    override = (url) =>
+      url.pathname === "/v1/parameter/custom-tenant"
+        ? { status: 200, body: [{ name: "TenantA" }] }
+        : undefined;
+
+    await renderForm(form);
+
+    await waitFor(() =>
+      expect(
+        requests.some(
+          (url) => url.pathname === "/v1/parameter/custom-tenant"
+        )
+      ).toBe(true)
+    );
+    const request = requests.find(
+      (url) => url.pathname === "/v1/parameter/custom-tenant"
+    );
+    expect(request && param(request, "audience")).toEqual(["device-filter"]);
+    expect(
+      requests.some((url) => url.pathname === "/v1/parameter/tenant")
+    ).toBe(false);
+  });
+
   it("keeps a scope pending while one requested filter is still loading, then loads devices", async () => {
     holdIf = (url) => url.pathname === "/v1/parameter/tenant";
     await renderForm(
@@ -400,6 +484,7 @@ describe("device filter scopes", () => {
               params: { role: "UFM" },
             },
             filters: ["site", "tenant"],
+            filterSources: sourcesFor(["site", "tenant"]),
             siteRequired: true,
             filterScope: "fabric",
           },

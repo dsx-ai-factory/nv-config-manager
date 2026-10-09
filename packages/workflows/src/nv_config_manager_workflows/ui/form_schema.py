@@ -47,6 +47,9 @@ _KEYWORD_TYPES: dict[str, tuple[str, ...]] = {
     "maximum": ("integer", "number"),
 }
 
+SUPPORTED_SERVER_OWNED_FIELDS = frozenset({"user", "user_domain"})
+"""Input fields the v1 HTTP boundary knows how to derive from authentication."""
+
 
 class FormJsonSchema(GenerateJsonSchema):
     """Generate a model's JSON Schema for a form.
@@ -103,6 +106,35 @@ def omitted_properties(model: type[BaseModel]) -> set[str]:
     }
 
 
+def injectable_server_owned_fields(model: type[BaseModel]) -> frozenset[str]:
+    """Return identity fields the HTTP boundary can safely inject.
+
+    Discovery deliberately does not validate the form-marker contract. An
+    invalid third-party form must not suppress its otherwise valid execution
+    endpoint; form construction reports that error separately.
+    """
+    return frozenset(
+        name
+        for name, info in model.model_fields.items()
+        if name in SUPPORTED_SERVER_OWNED_FIELDS
+        and any(isinstance(marker, ServerOwned) for marker in info.metadata)
+    )
+
+
+def _validate_server_owned_fields(model: type[BaseModel]) -> None:
+    """Reject a ``ServerOwned`` marker the v1 HTTP boundary cannot fill."""
+    marked = frozenset(
+        name for name in model.model_fields if isinstance(field_marker(model, name), ServerOwned)
+    )
+    unsupported = marked - SUPPORTED_SERVER_OWNED_FIELDS
+    if unsupported:
+        names = ", ".join(repr(name) for name in sorted(unsupported))
+        raise WorkflowFormContractError(
+            f"{model.__qualname__} marks unsupported ServerOwned field(s) {names}; "
+            "workflow-form v1 supports only 'user' and 'user_domain'"
+        )
+
+
 def project_form_schema(model: type[BaseModel]) -> dict[str, Any]:
     """Return the form projection of ``model``'s JSON Schema.
 
@@ -139,6 +171,7 @@ def project_form_schema(model: type[BaseModel]) -> dict[str, Any]:
                     "model's JSON Schema"
                 )
             _apply_form_schema(where, marker, info, properties[prop_name], definitions)
+    _validate_server_owned_fields(model)
     if "required" in schema and not schema["required"]:
         del schema["required"]
     _prune_definitions(schema)
@@ -281,7 +314,9 @@ def _prune_definitions(schema: dict[str, Any]) -> None:
 
 __all__ = [
     "FormJsonSchema",
+    "SUPPORTED_SERVER_OWNED_FIELDS",
     "field_marker",
+    "injectable_server_owned_fields",
     "json_type",
     "omitted_properties",
     "project_form_schema",

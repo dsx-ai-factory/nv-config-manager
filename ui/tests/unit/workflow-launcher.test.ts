@@ -31,6 +31,7 @@ import {
   buildWorkflowLauncherItems,
   getWorkflowExecutePermission,
   groupWorkflowLauncherItems,
+  WORKFLOW_FORM_API_UPGRADE_REQUIRED,
   type WorkflowLauncherItem,
   type WorkflowLauncherOverrides,
 } from "@/lib/workflow-launcher";
@@ -87,7 +88,11 @@ const ALPHABETICAL_LAUNCHER = [...LEGACY_LAUNCHER].sort(
     launcherCollator.compare(a.name, b.name)
 );
 
-/** `/v1/workflow/metadata` from the real registry, kept current by the API compat test. */
+/**
+ * Add the new API's explicit form availability to the additive compatibility baseline.
+ * The baseline intentionally omits newly added defaults, so it is not a full current
+ * response; its explicit `false` values are retained by property order.
+ */
 const SERVER_METADATA_BASELINE = fileURLToPath(
   new URL(
     "../../../src/tests/temporal/api/fixtures/workflow_metadata_baseline.json",
@@ -97,7 +102,11 @@ const SERVER_METADATA_BASELINE = fileURLToPath(
 
 const serverCatalog = (): WorkflowCatalogEntry[] =>
   normalizeWorkflowCatalog(
-    JSON.parse(readFileSync(SERVER_METADATA_BASELINE, "utf8")) as WorkflowCatalogResponseWire
+    {
+      workflows: (
+        JSON.parse(readFileSync(SERVER_METADATA_BASELINE, "utf8")) as WorkflowCatalogResponseWire
+      ).workflows.map((workflow) => ({ has_form: true, ...workflow })),
+    }
   );
 
 const overrides = siteConfig.workflowOverrides;
@@ -120,6 +129,7 @@ const catalogEntry = (
     input_class: `${name}Input`,
     read_roles: ["all"],
     execute_roles: ["all"],
+    has_form: true,
     ...extra,
   });
 
@@ -236,6 +246,19 @@ describe("buildWorkflowLauncherItems rules", () => {
     });
 
     expect(buildWorkflowLauncherItems([formLessBuiltIn, formLessPlugin], {})).toEqual([]);
+  });
+
+  it("keeps workflows from an older API disabled instead of creating broken links", () => {
+    const oldApiEntry = catalogEntry("DeployWorkflow", "Configuration Deploy", {
+      has_form: null,
+    });
+    const [item] = buildWorkflowLauncherItems([oldApiEntry], {});
+
+    expect(item.metadata).toBe(oldApiEntry);
+    expect(getWorkflowExecutePermission(item.metadata, new Set(), false)).toEqual({
+      allowed: false,
+      reason: WORKFLOW_FORM_API_UPGRADE_REQUIRED,
+    });
   });
 
   it("prefers the catalog display name and falls back to the override title", () => {

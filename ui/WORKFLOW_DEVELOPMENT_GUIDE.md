@@ -44,6 +44,15 @@ The unit test in `tests/unit/workflow-form.test.ts` also verifies that the UI's
 workflow form JSON Schema and capability manifest are byte-for-byte identical
 to the canonical copies in `packages/workflows`.
 
+The workflow API must include a boolean `has_form` for every entry returned by
+`GET /v1/workflow/metadata`. The UI deliberately does not infer generic-form
+support from `input_class`: a missing, `null`, or invalid `has_form` identifies
+an older API, disables launcher links, and asks the operator to upgrade the API.
+This prevents a newer UI from linking to `/form` endpoints an older API does not
+provide. `false` means the form is disabled and `/form` returns 404. `true`
+means the form contract is enabled; `/form` can still return 503 with a
+third-party validation diagnostic.
+
 ## Generated API artifacts
 
 When the HTTP response model changes, update the source model and run

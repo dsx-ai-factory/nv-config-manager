@@ -36,11 +36,13 @@ from nv_config_manager_workflows.ui.form import (
 )
 from nv_config_manager_workflows.ui.form_schema import FormJsonSchema, project_form_schema
 from nv_config_manager_workflows.ui.markers import FormExcluded, FormSchema, ServerOwned
-from nv_config_manager_workflows.ui.options import (
+from nv_config_manager_workflows.ui.option_sources import (
     Dependency,
-    OptionPresentation,
     OptionResponse,
     OptionSource,
+)
+from nv_config_manager_workflows.ui.options import (
+    OptionPresentation,
     api_options,
     device_field,
     location_field,

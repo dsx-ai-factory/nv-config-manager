@@ -52,6 +52,36 @@
             "tenant",
             "status"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
           "siteRequired": true,
           "queryParam": "device-id",
           "filterScope": "implicit:device_id"
@@ -100,6 +130,36 @@
             "tenant",
             "status"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
           "siteRequired": true,
           "queryParam": "device-id",
           "filterScope": "implicit:device_id"
@@ -145,6 +205,36 @@
             "tenant",
             "status"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
           "siteRequired": true,
           "queryParam": "device-id",
           "filterScope": "implicit:device_id"
@@ -199,6 +289,36 @@
             "tenant",
             "status"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
           "siteRequired": true,
           "queryParam": "device-id",
           "filterScope": "implicit:device_id"
@@ -249,6 +369,36 @@
             "tenant",
             "status"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
           "siteRequired": true,
           "queryParam": "device-id",
           "filterScope": "implicit:device_id"
@@ -298,6 +448,20 @@
           "filters": [
             "site"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
           "siteRequired": true,
           "queryParam": "device-id",
           "filterScope": "implicit:device_id",
@@ -399,6 +563,20 @@
           "filters": [
             "site"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
           "siteRequired": false,
           "queryParam": "device-id",
           "filterScope": "implicit:device_ids"
@@ -1072,6 +1250,20 @@
           "filters": [
             "site"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
           "siteRequired": true,
           "filterScope": "fabric-devices"
         },
@@ -1091,6 +1283,20 @@
           "filters": [
             "site"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
           "siteRequired": true,
           "filterScope": "fabric-devices"
         },
@@ -1148,6 +1354,20 @@
           "filters": [
             "site"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
           "siteRequired": true,
           "filterScope": "fabric-devices",
           "queryParam": "ufm_device_id",
@@ -1171,6 +1391,20 @@
           "filters": [
             "site"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
           "siteRequired": true,
           "filterScope": "fabric-devices",
           "queryParam": "device-id"
@@ -1216,6 +1450,36 @@
             "tenant",
             "status"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
           "siteRequired": true,
           "queryParam": "device-id",
           "filterScope": "implicit:device_id"
@@ -1262,6 +1526,36 @@
             "tenant",
             "status"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
           "siteRequired": true,
           "queryParam": "device-id",
           "filterScope": "implicit:device_id"
@@ -1442,12 +1736,14 @@
             ],
             "deviceFilters": [
               "device_id"
-            ]
+            ],
+            "requireComplete": true
           },
           {
             "fields": [
               "remote_mac_address"
-            ]
+            ],
+            "requireComplete": true
           }
         ]
       },
@@ -1465,7 +1761,21 @@
           "filters": [
             "site"
           ],
-          "siteRequired": false,
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
+          "siteRequired": true,
           "queryParam": "device-id",
           "filterScope": "implicit:device_id"
         },
@@ -1523,6 +1833,36 @@
             "tenant",
             "status"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
           "siteRequired": true,
           "queryParam": "device-id",
           "filterScope": "implicit:device_id"
@@ -2356,6 +2696,20 @@
           "filters": [
             "site"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
           "siteRequired": true,
           "siteField": "site",
           "queryParam": "device-id",
@@ -2418,6 +2772,36 @@
             "tenant",
             "status"
           ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
           "siteRequired": true,
           "queryParam": "device-id",
           "filterScope": "implicit:device_id"

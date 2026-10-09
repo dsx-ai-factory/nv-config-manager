@@ -65,12 +65,13 @@ class PortLLDPInfoInput(BaseModel):
                 {
                     "fields": ["device_id", "interface"],
                     "deviceFilters": ["device_id"],
+                    "requireComplete": True,
                 },
-                {"fields": ["remote_mac_address"]},
+                {"fields": ["remote_mac_address"], "requireComplete": True},
             ]
         },
         "device_id": {
-            **device_field(MANAGED_DEVICE_SOURCE, filters=("site",), site_required=False),
+            **device_field(MANAGED_DEVICE_SOURCE, filters=("site",), site_required=True),
             "ui:title": "Device",
             "ui:help": "Select a device and interface, or enter a remote MAC address.",
         },

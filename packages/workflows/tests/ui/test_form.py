@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Registration checks of ``rjsf_ui_schema`` declarations and the v1 ``/form`` envelope."""
+"""Form-catalog checks of declarations and the v1 ``/form`` envelope."""
 
 import subprocess
 import sys
@@ -25,12 +25,14 @@ from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
 from nv_config_manager_workflows.ui import (
+    UI_SCHEMA_VERSION,
     Dependency,
     OptionSource,
     ServerOwned,
     WorkflowFormContractError,
     api_options,
     build_form,
+    capability_manifest,
     device_field,
     location_field,
     supported_capabilities,
@@ -110,6 +112,21 @@ def test_a_full_declaration_builds_the_v1_envelope() -> None:
             "params": {"managed_only": True},
         },
         "filters": ["site", "tenant"],
+        "filterSources": {
+            "site": {
+                "endpoint": "/v1/parameter/location",
+                "label_key": "name",
+                "value_key": "id",
+                "type_key": "location_type",
+                "params": {"location_type": ["Site", "Module"]},
+            },
+            "tenant": {
+                "endpoint": "/v1/parameter/tenant",
+                "label_key": "name",
+                "value_key": "name",
+                "params": {"managed_only": True},
+            },
+        },
         "siteRequired": True,
         "siteField": "site",
         "queryParam": "device-id",
@@ -254,6 +271,60 @@ def test_repeated_parameters_of_one_owner_are_allowed() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("filters", "filter_sources", "message"),
+    [
+        (("site",), {}, "filterSources keys must exactly match filters"),
+        (
+            ("site",),
+            {
+                "site": OptionSource(
+                    "/v1/parameter/location",
+                    "name",
+                    "id",
+                    params={"location_type": ["Site", "Module"]},
+                ).to_wire()
+            },
+            "Site filter source needs type_key",
+        ),
+        (
+            ("tenant",),
+            {"tenant": OptionSource("/v1/{tenant_name}/tenant", "name", "name").to_wire()},
+            "filter source endpoint must not depend on form properties",
+        ),
+        (
+            ("tenant",),
+            {
+                "tenant": OptionSource(
+                    "/v1/parameter/tenant",
+                    "name",
+                    "name",
+                    depends_on={"tenant": Dependency("tenant_name")},
+                ).to_wire()
+            },
+            "source keys \\['depends_on'\\] are not allowed",
+        ),
+    ],
+)
+def test_invalid_device_filter_sources_are_rejected(
+    filters: tuple[Any, ...], filter_sources: dict[str, Any], message: str
+) -> None:
+    field = device_field(DEVICES, filters=filters)
+    field["ui:options"]["filterSources"] = filter_sources
+
+    with pytest.raises(WorkflowFormContractError, match=message):
+        _build({"device_id": field})
+
+
+def test_device_fields_in_one_scope_must_share_filter_sources() -> None:
+    first = device_field(DEVICES, filters=("tenant",), filter_scope="shared")
+    second = device_field(DEVICES, filters=("tenant",), filter_scope="shared", query_param=None)
+    second["ui:options"]["filterSources"]["tenant"]["endpoint"] = "/v1/other/tenant"
+
+    with pytest.raises(WorkflowFormContractError, match="differ in .*filterSources"):
+        _build({"device_id": first, "devices": second})
+
+
 _SHARED = device_field(DEVICES, filters=("tenant",), filter_scope="shared", query_param=None)
 
 
@@ -290,6 +361,17 @@ _SHARED = device_field(DEVICES, filters=("tenant",), filter_scope="shared", quer
                 }
             },
             "deviceFilters entry 'site' must be a device field",
+        ),
+        (
+            {
+                "ui:globalOptions": {
+                    "exclusiveGroups": [
+                        {"fields": ["site"], "requireComplete": True},
+                        {"fields": ["overlay"]},
+                    ]
+                }
+            },
+            "requireComplete must be enabled on every group or none",
         ),
         (
             {
@@ -594,6 +676,11 @@ def test_importing_a_workflow_module_reads_no_contract_resource() -> None:
 
 def test_the_wire_schema_is_a_valid_draft_2020_12_schema() -> None:
     Draft202012Validator.check_schema(wire_schema())
+
+
+def test_the_v1_contract_artifacts_match_the_backend_version() -> None:
+    assert UI_SCHEMA_VERSION == wire_schema()["properties"]["ui_schema_version"]["const"]
+    assert UI_SCHEMA_VERSION == capability_manifest()["ui_schema_version"]
 
 
 @pytest.mark.skipif(not _REPO_UI_LIB.is_dir(), reason="the repository ui/ directory is absent")

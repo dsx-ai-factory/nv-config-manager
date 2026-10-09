@@ -28,6 +28,7 @@ from nv_config_manager_workflows.registration.contract import (
     workflow_class_name,
     workflow_cli_name,
     workflow_declared_name,
+    workflow_form_enabled,
     workflow_group,
     workflow_has_complete_metadata,
     workflow_mcp_enabled,
@@ -59,7 +60,6 @@ from nv_config_manager_workflows.registration.manifest import RegistryManifest, 
 from nv_config_manager_workflows.registration.registry import (
     PluginInfo,
     SchedulerRegistration,
-    WorkflowFormDiagnostic,
     WorkflowRegistry,
 )
 from nv_config_manager_workflows.registration.scheduler import WorkflowScheduler
@@ -81,7 +81,6 @@ __all__ = [
     "RegistryManifest",
     "SchedulerRegistration",
     "WorkflowConflictError",
-    "WorkflowFormDiagnostic",
     "WorkflowPluginDescriptor",
     "WorkflowPluginDiscoveryError",
     "WorkflowPluginDuplicateError",
@@ -107,6 +106,7 @@ __all__ = [
     "workflow_class_name",
     "workflow_cli_name",
     "workflow_declared_name",
+    "workflow_form_enabled",
     "workflow_has_complete_metadata",
     "workflow_mcp_enabled",
     "workflow_mcp_tool_name",

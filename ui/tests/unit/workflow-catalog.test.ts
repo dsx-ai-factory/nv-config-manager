@@ -19,7 +19,6 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_WORKFLOW_GROUP,
   buildWorkflowCatalogUrl,
-  inferHasForm,
   normalizeWorkflowCatalog,
   normalizeWorkflowCatalogEntry,
   sortWorkflowCatalog,
@@ -51,14 +50,14 @@ const entry = (
   normalizeWorkflowCatalogEntry(wire({ name, display_name, order }));
 
 describe("normalizeWorkflowCatalogEntry", () => {
-  it("defaults every optional field when the server omits them (this release)", () => {
+  it("fails closed when the server omits form availability", () => {
     const normalized = normalizeWorkflowCatalogEntry(wire());
 
     expect(normalized).toEqual({
       ...wire(),
       plugin: null,
       tags: [],
-      has_form: true,
+      has_form: null,
       enabled: true,
       order: undefined,
       group: DEFAULT_WORKFLOW_GROUP,
@@ -80,7 +79,7 @@ describe("normalizeWorkflowCatalogEntry", () => {
     expect(normalized).toMatchObject({
       plugin: null,
       tags: [],
-      has_form: true,
+      has_form: null,
       enabled: true,
       order: undefined,
       group: DEFAULT_WORKFLOW_GROUP,
@@ -113,6 +112,7 @@ describe("normalizeWorkflowCatalogEntry", () => {
     const normalized = normalizeWorkflowCatalogEntry({
       ...wire(),
       tags: ["ok", 3, null],
+      has_form: "yes",
       enabled: "no",
       order: Number.NaN,
       group: "",
@@ -120,6 +120,7 @@ describe("normalizeWorkflowCatalogEntry", () => {
 
     expect(normalized).toMatchObject({
       tags: ["ok"],
+      has_form: null,
       enabled: true,
       order: undefined,
       group: DEFAULT_WORKFLOW_GROUP,
@@ -136,19 +137,12 @@ describe("normalizeWorkflowCatalogEntry", () => {
   });
 });
 
-describe("has_form inference", () => {
-  it("infers from input_class, treating the server's Unknown marker as no form", () => {
-    expect(inferHasForm("BackupInput")).toBe(true);
-    expect(inferHasForm("Unknown")).toBe(false);
-    expect(inferHasForm("")).toBe(false);
-    expect(inferHasForm(undefined)).toBe(false);
-    expect(inferHasForm(null)).toBe(false);
-  });
-
-  it("is used only when has_form is absent", () => {
-    expect(normalizeWorkflowCatalogEntry(wire({ input_class: "Unknown" })).has_form).toBe(
-      false
+describe("has_form availability", () => {
+  it("does not infer a generic form from input_class", () => {
+    expect(normalizeWorkflowCatalogEntry(wire({ input_class: "BackupInput" })).has_form).toBe(
+      null
     );
+    expect(normalizeWorkflowCatalogEntry(wire({ input_class: "Unknown" })).has_form).toBe(null);
     expect(
       normalizeWorkflowCatalogEntry(wire({ input_class: "Unknown", has_form: true }))
         .has_form
@@ -166,8 +160,15 @@ describe("normalizeWorkflowCatalog", () => {
     expect(normalizeWorkflowCatalog(null)).toEqual([]);
   });
 
-  it("normalises the MSW /metadata mock, which carries no optional fields", () => {
+  it("normalises the MSW /metadata mock and preserves declared form availability", () => {
     const catalog = normalizeWorkflowCatalog(mswWorkflowMetadata);
+    const workflowsWithoutForms = new Set([
+      "HelloWorld",
+      "HelloWorldApproval",
+      "NVLinkSwitchFirmwareUpgradeWorkflow",
+      "RedfishProvisioningWorkflow",
+      "SpXOverlayAssignmentWorkflow",
+    ]);
 
     expect(catalog).toHaveLength(mswWorkflowMetadata.workflows.length);
     expect(catalog.map((workflow) => workflow.name)).toEqual(
@@ -177,7 +178,7 @@ describe("normalizeWorkflowCatalog", () => {
       catalog.every(
         (workflow) =>
           workflow.enabled &&
-          workflow.has_form &&
+          workflow.has_form === !workflowsWithoutForms.has(workflow.name) &&
           workflow.group === DEFAULT_WORKFLOW_GROUP &&
           workflow.order === undefined
       )

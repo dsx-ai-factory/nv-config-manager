@@ -1507,6 +1507,13 @@ export async function mockWorkflowMetadataEndpoint(
   page: Page,
   extraWorkflows: Record<string, unknown>[] = []
 ) {
+  const workflowsWithoutForms = new Set([
+    "HelloWorld",
+    "HelloWorldApproval",
+    "NVLinkSwitchFirmwareUpgradeWorkflow",
+    "RedfishProvisioningWorkflow",
+    "SpXOverlayAssignmentWorkflow",
+  ]);
   const workflowTypes = [
     "BackupWorkflow",
     "SiteBackupWorkflow",
@@ -1604,6 +1611,7 @@ export async function mockWorkflowMetadataEndpoint(
         namespace: "ngc",
         cli_name: workflowType.toLowerCase(),
         input_class: `${workflowType}Input`,
+        has_form: !workflowsWithoutForms.has(workflowType),
         read_roles: ["all"],
         execute_roles: getWorkflowExecuteRoles(workflowType),
       })),
@@ -1796,12 +1804,20 @@ export const SERVER_WORKFLOW_FORMS: Readonly<Record<string, unknown>> = readApiF
 );
 
 /**
- * The real `GET /v1/workflow/metadata` response the API tests keep as a baseline. Its
- * built-in workflows need their own role or `executor` to run.
+ * The current `GET /v1/workflow/metadata` response derived from the additive API
+ * compatibility baseline. That baseline intentionally omits newly added default fields,
+ * so add the new API's explicit `has_form: true`; explicit `false` values win.
  */
-export const SERVER_WORKFLOW_METADATA: {
+type ServerWorkflowMetadata = {
   workflows: Array<Record<string, unknown> & { name: string; execute_roles: string[] }>;
-} = readApiFixture("workflow_metadata_baseline.json");
+};
+
+export const SERVER_WORKFLOW_METADATA: ServerWorkflowMetadata = (() => {
+  const baseline = readApiFixture<ServerWorkflowMetadata>("workflow_metadata_baseline.json");
+  return {
+    workflows: baseline.workflows.map((workflow) => ({ has_form: true, ...workflow })),
+  };
+})();
 
 /** Serve {@link SERVER_WORKFLOW_METADATA} as the catalog and a `/whoami` user with `roles`. */
 export async function mockServerCatalogAndUser(page: Page, roles: string[]) {

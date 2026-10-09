@@ -126,6 +126,14 @@ const getWorkflowEndpoint = (workflowType: string) => {
 const getWorkflowExecuteRoles = (workflowType: string) =>
   workflowType === "MultiDeployWorkflow" ? ["nvcm-admin"] : ["all"];
 
+const workflowsWithoutForms = new Set([
+  "HelloWorld",
+  "HelloWorldApproval",
+  "NVLinkSwitchFirmwareUpgradeWorkflow",
+  "RedfishProvisioningWorkflow",
+  "SpXOverlayAssignmentWorkflow",
+]);
+
 export const workflowMetadata = {
   workflows: workflowTypes.map((workflowType) => ({
     name: workflowType,
@@ -135,6 +143,7 @@ export const workflowMetadata = {
     namespace: "ngc",
     cli_name: workflowType.toLowerCase(),
     input_class: `${workflowType}Input`,
+    has_form: !workflowsWithoutForms.has(workflowType),
     read_roles: ["all"],
     execute_roles: getWorkflowExecuteRoles(workflowType),
   })),

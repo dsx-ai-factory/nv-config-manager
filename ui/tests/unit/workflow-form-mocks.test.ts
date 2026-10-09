@@ -17,11 +17,6 @@
 import { setupServer } from "msw/node";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import {
-  SITE_FILTER_SOURCE,
-  STATUS_FILTER_SOURCE,
-  TENANT_FILTER_SOURCE,
-} from "@/components/forms/workflow-rjsf/fields/device-field";
 import { mockApiURL } from "@/config/mockApiUrl";
 import { fetcher } from "@/lib/fetcher";
 import {
@@ -72,13 +67,26 @@ const FILLED = {
 };
 
 const sources: Array<[string, OptionSource]> = [
-  ["device Site filter", SITE_FILTER_SOURCE],
-  ["device Tenant filter", TENANT_FILTER_SOURCE],
-  ["device Status filter", STATUS_FILTER_SOURCE],
   ...Object.entries(WORKFLOW_FORM_FIXTURES).flatMap(([name, form]) =>
     Object.entries(form.ui_schema).flatMap(([property, ui]) => {
-      const source = (ui as { "ui:options"?: { source?: OptionSource } })["ui:options"]?.source;
-      return source ? [[`${name}.${property}`, source] as [string, OptionSource]] : [];
+      const options = (ui as {
+        "ui:options"?: {
+          source?: OptionSource;
+          filterSources?: Record<string, OptionSource>;
+        };
+      })["ui:options"];
+      return [
+        ...(options?.source
+          ? [[`${name}.${property}`, options.source] as [string, OptionSource]]
+          : []),
+        ...Object.entries(options?.filterSources ?? {}).map(
+          ([filter, source]) =>
+            [`${name}.${property}.${filter} filter`, source] as [
+              string,
+              OptionSource,
+            ]
+        ),
+      ];
     })
   ),
 ];

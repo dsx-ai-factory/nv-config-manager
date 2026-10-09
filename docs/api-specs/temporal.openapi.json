@@ -2268,6 +2268,7 @@
             "type": "object"
           },
           "ui_schema_version": {
+            "const": 1,
             "title": "Ui Schema Version",
             "type": "integer"
           }
@@ -2356,6 +2357,18 @@
               }
             ],
             "title": "Group"
+          },
+          "has_form": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the browser-form contract is enabled. When true, the form endpoint may still return HTTP 503 if a third-party declaration failed validation.",
+            "title": "Has Form"
           },
           "input_class": {
             "title": "Input Class",
@@ -5648,7 +5661,7 @@
             "description": "Successful Response"
           },
           "404": {
-            "description": "No API workflow has this class name."
+            "description": "No browser form is available for this workflow."
           },
           "422": {
             "content": {

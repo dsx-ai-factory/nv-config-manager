@@ -29,10 +29,12 @@ UNSET: Any = object()
 
 @dataclass(frozen=True)
 class ServerOwned:
-    """The HTTP API replaces this field with a server-derived value.
+    """The HTTP API replaces this identity field with a server-derived value.
 
-    The form never shows or sends it. Other trusted callers, such as schedulers
-    and parent workflows, may still set it when constructing Temporal input directly.
+    Workflow-form v1 supports fields named ``user`` and ``user_domain``, which
+    are derived from the authenticated request. The form never shows or sends
+    them. Other trusted callers, such as schedulers and parent workflows, may
+    still set them when constructing Temporal input directly.
 
     The field must have a Pydantic default because the request body is validated
     before the HTTP endpoint replaces it.
@@ -82,6 +84,6 @@ class FormSchema:
 
 
 FORM_MARKERS = (ServerOwned, FormExcluded, FormSchema)
-"""Every marker type; registration rejects one anywhere but a top-level field."""
+"""Every marker type; form construction rejects one outside a top-level field."""
 
 __all__ = ["FORM_MARKERS", "UNSET", "FormExcluded", "FormSchema", "ServerOwned"]

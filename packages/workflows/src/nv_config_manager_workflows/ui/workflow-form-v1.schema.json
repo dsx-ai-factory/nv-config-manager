@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:nvidia:nv-config-manager:workflow-form:v1",
   "title": "NVIDIA Config Manager workflow form v1",
-  "description": "The version 1 response of GET /v1/workflow/{name}/form. schema is the form projection of the workflow input model's JSON Schema, ui_schema is the supported subset of an RJSF uiSchema, and requires lists the capabilities a UI must support before it renders the form. Model-aware references are checked when the workflow registry builds.",
+  "description": "The version 1 response of GET /v1/workflow/{name}/form. schema is the form projection of the workflow input model's JSON Schema, ui_schema is the supported subset of an RJSF uiSchema, and requires lists the capabilities a UI must support before it renders the form. Model-aware references are checked when the workflow form catalog builds.",
   "type": "object",
   "properties": {
     "schema": {
@@ -72,6 +72,10 @@
           "items": { "$ref": "#/$defs/propertyName" },
           "minItems": 1,
           "uniqueItems": true
+        },
+        "requireComplete": {
+          "description": "Require one complete input mode and every field in the active mode before submission. When used, every group in the set must enable it.",
+          "const": true
         }
       },
       "anyOf": [{ "required": ["fields"] }, { "required": ["deviceFilters"] }],
@@ -235,6 +239,58 @@
       "required": ["source"],
       "additionalProperties": false
     },
+    "deviceFilterSources": {
+      "description": "Option sources for the enabled semantic device filters. Keys must exactly match the device field's filters; model-aware registration enforces that relationship.",
+      "type": "object",
+      "properties": {
+        "site": {
+          "description": "API source that supplies selectable Site and Module locations, including their location type.",
+          "allOf": [
+            { "$ref": "#/$defs/optionSource" },
+            { "required": ["type_key"] },
+            {
+              "not": {
+                "anyOf": [
+                  { "required": ["depends_on"] },
+                  { "required": ["response"] }
+                ]
+              }
+            }
+          ]
+        },
+        "tenant": {
+          "description": "API source that supplies selectable tenants.",
+          "allOf": [
+            { "$ref": "#/$defs/optionSource" },
+            {
+              "not": {
+                "anyOf": [
+                  { "required": ["type_key"] },
+                  { "required": ["depends_on"] },
+                  { "required": ["response"] }
+                ]
+              }
+            }
+          ]
+        },
+        "status": {
+          "description": "API source that supplies selectable device statuses.",
+          "allOf": [
+            { "$ref": "#/$defs/optionSource" },
+            {
+              "not": {
+                "anyOf": [
+                  { "required": ["type_key"] },
+                  { "required": ["depends_on"] },
+                  { "required": ["response"] }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "deviceFieldOptions": {
       "description": "Rendering, filtering, and data-source options for the device core field.",
       "type": "object",
@@ -253,6 +309,10 @@
           "type": "array",
           "items": { "enum": ["site", "tenant", "status"] },
           "uniqueItems": true
+        },
+        "filterSources": {
+          "description": "Backend-owned API sources keyed by each enabled semantic filter.",
+          "$ref": "#/$defs/deviceFilterSources"
         },
         "siteRequired": {
           "description": "Whether a Site must be selected before devices can be loaded.",
@@ -275,7 +335,7 @@
           "$ref": "#/$defs/queryAliases"
         }
       },
-      "required": ["source", "filters", "siteRequired", "filterScope"],
+      "required": ["source", "filters", "filterSources", "siteRequired", "filterScope"],
       "additionalProperties": false
     },
     "standardFieldOptions": {

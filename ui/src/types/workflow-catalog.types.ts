@@ -61,7 +61,11 @@ export interface WorkflowCatalogResponseWire {
 export type WorkflowCatalogEntry = WorkflowMetadata & {
   plugin: string | null;
   tags: string[];
-  has_form: boolean;
+  /**
+   * Browser-form availability advertised by the workflow API. `null` means the field
+   * was absent or invalid, as on an older API; callers must not infer `/form` support.
+   */
+  has_form: boolean | null;
   enabled: boolean;
   /** Explicit sort position; `undefined` means "no explicit order". */
   order: number | undefined;

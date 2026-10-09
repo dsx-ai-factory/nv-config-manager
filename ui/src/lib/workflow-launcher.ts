@@ -24,6 +24,9 @@ import type { WorkflowCatalogEntry } from "@/types/workflow-catalog.types";
 
 export type WorkflowLauncherOverrides = Readonly<Record<string, WorkflowLauncherOverride>>;
 
+export const WORKFLOW_FORM_API_UPGRADE_REQUIRED =
+  "Upgrade the Config Manager workflow API to a version that supports browser workflow forms.";
+
 const canExecuteWorkflow = (
   metadata: WorkflowMetadata | undefined,
   userRoles: ReadonlySet<string>
@@ -40,7 +43,7 @@ const canExecuteWorkflow = (
 };
 
 const getDisabledWorkflowReason = (
-  metadata: WorkflowMetadata | undefined,
+  metadata: WorkflowCatalogEntry | undefined,
   isUnauthorized: boolean
 ): string => {
   if (isUnauthorized) {
@@ -49,6 +52,10 @@ const getDisabledWorkflowReason = (
 
   if (!metadata) {
     return "Workflow metadata is unavailable.";
+  }
+
+  if (metadata.has_form === null) {
+    return WORKFLOW_FORM_API_UPGRADE_REQUIRED;
   }
 
   const executeRoles = metadata.execute_roles;
@@ -76,11 +83,11 @@ export type WorkflowExecutePermission =
  * @param isUnauthorized `/whoami` failed.
  */
 export const getWorkflowExecutePermission = (
-  metadata: WorkflowMetadata | undefined,
+  metadata: WorkflowCatalogEntry | undefined,
   userRoles: ReadonlySet<string>,
   isUnauthorized: boolean
 ): WorkflowExecutePermission =>
-  !isUnauthorized && canExecuteWorkflow(metadata, userRoles)
+  !isUnauthorized && metadata?.has_form !== null && canExecuteWorkflow(metadata, userRoles)
     ? { allowed: true }
     : { allowed: false, reason: getDisabledWorkflowReason(metadata, isUnauthorized) };
 

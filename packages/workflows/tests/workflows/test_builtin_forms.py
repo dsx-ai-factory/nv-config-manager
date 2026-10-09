@@ -24,6 +24,7 @@ import pytest
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
 from nv_config_manager_workflows.registration.builtin import BUILTIN_PLUGIN_NAME, builtin_plugin
+from nv_config_manager_workflows.registration.form_catalog import WorkflowFormCatalog
 from nv_config_manager_workflows.registration.registry import WorkflowRegistry
 from nv_config_manager_workflows.ui import QUERY_ALIASES, QUERY_SEPARATORS, wire_schema
 from nv_config_manager_workflows.workflows.backup import BackupInput, BackupWorkflow, TriggerEnum
@@ -43,23 +44,37 @@ def registry() -> WorkflowRegistry:
     return WorkflowRegistry.build({BUILTIN_PLUGIN_NAME: builtin_plugin()})
 
 
-def test_every_builtin_api_workflow_has_a_valid_form(registry: WorkflowRegistry) -> None:
-    validator = Draft202012Validator(wire_schema())
+@pytest.fixture(scope="module")
+def form_catalog(registry: WorkflowRegistry) -> WorkflowFormCatalog:
+    return WorkflowFormCatalog.build(registry)
 
-    assert registry.form_diagnostics == {}
-    assert set(registry.forms) == set(registry.api_workflows)
-    for workflow, envelope in registry.forms.items():
+
+def test_every_form_enabled_builtin_api_workflow_has_a_valid_form(
+    registry: WorkflowRegistry, form_catalog: WorkflowFormCatalog
+) -> None:
+    validator = Draft202012Validator(wire_schema())
+    form_enabled = {
+        workflow
+        for workflow in registry.api_workflows
+        if workflow.get_workflow_form_enabled()
+    }
+
+    assert form_catalog.diagnostics == {}
+    assert set(form_catalog.forms) == form_enabled
+    for workflow, envelope in form_catalog.forms.items():
         errors = [error.message for error in validator.iter_errors(envelope)]
         assert errors == [], workflow.__name__
 
 
-def test_every_shipped_query_alias_reaches_a_core_field(registry: WorkflowRegistry) -> None:
+def test_every_shipped_query_alias_reaches_a_core_field(
+    form_catalog: WorkflowFormCatalog,
+) -> None:
     """Each alias names a core field of a built-in form, which serves it as ``queryAliases``."""
     served = {
         (f"{model.__module__}.{model.__qualname__}", name): tuple(
             entry["ui:options"].get("queryAliases", ())
         )
-        for workflow, envelope in registry.forms.items()
+        for workflow, envelope in form_catalog.forms.items()
         if (model := workflow.get_workflow_input_class()) is not None
         for name, entry in envelope["ui_schema"].items()
         if not name.startswith("ui:") and "ui:field" in entry
@@ -68,12 +83,14 @@ def test_every_shipped_query_alias_reaches_a_core_field(registry: WorkflowRegist
     assert {key: served.get(key) for key in QUERY_ALIASES} == dict(QUERY_ALIASES)
 
 
-def test_every_shipped_query_separator_reaches_a_core_field(registry: WorkflowRegistry) -> None:
+def test_every_shipped_query_separator_reaches_a_core_field(
+    form_catalog: WorkflowFormCatalog,
+) -> None:
     served = {
         (f"{model.__module__}.{model.__qualname__}", name): entry["ui:options"].get(
             "querySeparator"
         )
-        for workflow, envelope in registry.forms.items()
+        for workflow, envelope in form_catalog.forms.items()
         if (model := workflow.get_workflow_input_class()) is not None
         for name, entry in envelope["ui_schema"].items()
         if not name.startswith("ui:") and "ui:field" in entry
@@ -83,9 +100,9 @@ def test_every_shipped_query_separator_reaches_a_core_field(registry: WorkflowRe
 
 
 def test_backup_sends_a_hidden_api_trigger_and_picks_a_filtered_device(
-    registry: WorkflowRegistry,
+    form_catalog: WorkflowFormCatalog,
 ) -> None:
-    form = registry.forms[BackupWorkflow]
+    form = form_catalog.forms[BackupWorkflow]
 
     assert list(form["schema"]["properties"]) == ["device_id", "trigger"]
     assert form["schema"]["required"] == ["device_id", "trigger"]
@@ -102,9 +119,9 @@ def test_backup_sends_a_hidden_api_trigger_and_picks_a_filtered_device(
 
 
 def test_spx_tenant_change_drives_the_device_from_its_site_field(
-    registry: WorkflowRegistry,
+    form_catalog: WorkflowFormCatalog,
 ) -> None:
-    form = registry.forms[SpXOverlayTenantChangeWorkflow]
+    form = form_catalog.forms[SpXOverlayTenantChangeWorkflow]
     ui_schema = form["ui_schema"]
 
     assert "namespace_tag" not in form["schema"]["properties"]
@@ -141,11 +158,11 @@ def test_spx_tenant_change_drives_the_device_from_its_site_field(
     ],
 )
 def test_fabric_forms_share_one_site_filter_across_a_scalar_and_a_list_device(
-    registry: WorkflowRegistry,
+    form_catalog: WorkflowFormCatalog,
     workflow: type[Any],
     query_params: dict[str, str | None],
 ) -> None:
-    form = registry.forms[workflow]
+    form = form_catalog.forms[workflow]
     properties = form["schema"]["properties"]
 
     assert properties["ufm_device_id"]["type"] == "string"
@@ -161,16 +178,20 @@ def test_fabric_forms_share_one_site_filter_across_a_scalar_and_a_list_device(
     assert sources["ufm_device_id"]["params"] != sources["switch_device_ids"]["params"]
 
 
-def test_lldp_loads_devices_without_requiring_a_site(registry: WorkflowRegistry) -> None:
-    form = registry.forms[PortLLDPInfoWorkflow]
+def test_lldp_requires_one_complete_lookup_mode(form_catalog: WorkflowFormCatalog) -> None:
+    form = form_catalog.forms[PortLLDPInfoWorkflow]
     options = form["ui_schema"]["device_id"]["ui:options"]
 
     assert options["filters"] == ["site"]
-    assert options["siteRequired"] is False
+    assert options["siteRequired"] is True
     assert "required" not in form["schema"]
     assert form["ui_schema"]["ui:globalOptions"]["exclusiveGroups"] == [
-        {"fields": ["device_id", "interface"], "deviceFilters": ["device_id"]},
-        {"fields": ["remote_mac_address"]},
+        {
+            "fields": ["device_id", "interface"],
+            "deviceFilters": ["device_id"],
+            "requireComplete": True,
+        },
+        {"fields": ["remote_mac_address"], "requireComplete": True},
     ]
     assert form["requires"] == [
         "core-field.device.v1",
@@ -178,8 +199,10 @@ def test_lldp_loads_devices_without_requiring_a_site(registry: WorkflowRegistry)
     ]
 
 
-def test_ib_pkey_creation_sends_only_host_and_pkey(registry: WorkflowRegistry) -> None:
-    form = registry.forms[IBPKeyCreationWorkflow]
+def test_ib_pkey_creation_sends_only_host_and_pkey(
+    form_catalog: WorkflowFormCatalog,
+) -> None:
+    form = form_catalog.forms[IBPKeyCreationWorkflow]
 
     assert list(form["schema"]["properties"]) == ["host", "pkey"]
     assert "pattern" not in form["schema"]["properties"]["pkey"]

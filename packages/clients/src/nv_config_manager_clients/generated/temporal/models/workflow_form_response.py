@@ -31,7 +31,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
@@ -47,6 +47,13 @@ class WorkflowFormResponse(BaseModel):
     ui_schema_version: StrictInt
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["requires", "schema", "ui_schema", "ui_schema_version"]
+
+    @field_validator('ui_schema_version')
+    def ui_schema_version_validate_enum(cls, value):
+        """Validates the enum"""
+        if value not in set([1]):
+            raise ValueError("must be one of enum values (1)")
+        return value
 
     model_config = ConfigDict(
         validate_by_name=True,

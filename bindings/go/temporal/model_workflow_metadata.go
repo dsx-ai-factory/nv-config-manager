@@ -27,10 +27,12 @@ type WorkflowMetadata struct {
 	Endpoint     string         `json:"endpoint"`
 	ExecuteRoles []string       `json:"execute_roles"`
 	Group        NullableString `json:"group,omitempty"`
-	InputClass   string         `json:"input_class"`
-	Name         string         `json:"name"`
-	Namespace    NullableString `json:"namespace"`
-	ReadRoles    []string       `json:"read_roles"`
+	// Whether the browser-form contract is enabled. When true, the form endpoint may still return HTTP 503 if a third-party declaration failed validation.
+	HasForm    NullableBool   `json:"has_form,omitempty"`
+	InputClass string         `json:"input_class"`
+	Name       string         `json:"name"`
+	Namespace  NullableString `json:"namespace"`
+	ReadRoles  []string       `json:"read_roles"`
 }
 
 type _WorkflowMetadata WorkflowMetadata
@@ -226,6 +228,51 @@ func (o *WorkflowMetadata) UnsetGroup() {
 	o.Group.Unset()
 }
 
+// GetHasForm returns the HasForm field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *WorkflowMetadata) GetHasForm() bool {
+	if o == nil || IsNil(o.HasForm.Get()) {
+		var ret bool
+		return ret
+	}
+	return *o.HasForm.Get()
+}
+
+// GetHasFormOk returns a tuple with the HasForm field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *WorkflowMetadata) GetHasFormOk() (*bool, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.HasForm.Get(), o.HasForm.IsSet()
+}
+
+// HasHasForm returns a boolean if a field has been set.
+func (o *WorkflowMetadata) HasHasForm() bool {
+	if o != nil && o.HasForm.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetHasForm gets a reference to the given NullableBool and assigns it to the HasForm field.
+func (o *WorkflowMetadata) SetHasForm(v bool) {
+	o.HasForm.Set(&v)
+}
+
+// SetHasFormNil sets the value for HasForm to be an explicit nil
+func (o *WorkflowMetadata) SetHasFormNil() {
+	o.HasForm.Set(nil)
+}
+
+// UnsetHasForm ensures that no value is present for HasForm, not even an explicit nil
+func (o *WorkflowMetadata) UnsetHasForm() {
+	o.HasForm.Unset()
+}
+
 // GetInputClass returns the InputClass field value
 func (o *WorkflowMetadata) GetInputClass() string {
 	if o == nil {
@@ -341,6 +388,9 @@ func (o WorkflowMetadata) ToMap() (map[string]interface{}, error) {
 	toSerialize["execute_roles"] = o.ExecuteRoles
 	if o.Group.IsSet() {
 		toSerialize["group"] = o.Group.Get()
+	}
+	if o.HasForm.IsSet() {
+		toSerialize["has_form"] = o.HasForm.Get()
 	}
 	toSerialize["input_class"] = o.InputClass
 	toSerialize["name"] = o.Name

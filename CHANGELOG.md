@@ -22,19 +22,28 @@ version before the selected release candidate is promoted.
 - Form declarations can preserve mutually exclusive input modes and numeric
   cross-field checks with `exclusiveGroups` and `fieldComparisons`; shipped
   multi-select links may retain a server-owned legacy query separator.
-- Form declarations are validated when the workflow registry is built. An
-  invalid built-in form fails startup. An invalid third-party plugin form keeps
-  the workflow and its API endpoint available: `/form` returns HTTP 503 with
-  error code `workflow_form_unavailable` and the plugin's diagnostic, and the
-  launcher shows that diagnostic.
+- The workflow API validates form declarations in a form catalog separate from
+  the execution registry. An invalid built-in form fails API startup and CI form
+  validation without preventing Temporal workers, schedulers, MCP, or the CLI
+  from starting. An invalid third-party plugin form keeps the workflow and its
+  execution endpoint available: `/form` returns HTTP 503 with error code
+  `workflow_form_unavailable`, and the launcher shows the plugin diagnostic.
 
 ### Changed
 
 - Workflow launcher forms are rendered with RJSF from the `/form` envelope.
   The UI shows a "needs a newer UI" state for a form version or capability it
-  does not support, instead of rendering a partial form. Workflow input request
-  schemas are unchanged: form declarations do not affect API request bodies,
-  MCP tool schemas, generated clients, or input validation.
+  does not support, instead of rendering a partial form. Existing workflow
+  request schema shapes and Pydantic validation rules are unchanged: form
+  declarations do not change API request models, MCP tool schemas, or the
+  corresponding generated-client models.
+- The workflow HTTP API now treats fields marked `ServerOwned` as authoritative
+  request identity: it replaces submitted `user` and `user_domain` values with
+  values derived from the authenticated request. The Port LLDP Info endpoint
+  also rejects incomplete or mixed lookup methods, and the SpX Overlay Creation
+  endpoint rejects a route-distinguisher range unless `rd_min < rd_max`. These
+  checks run after request-model validation and before a workflow starts; they
+  do not change the request schema or Temporal replay deserialization.
 
 ### Fixed
 

@@ -31,7 +31,10 @@ import { Button } from "@/components/ui/button";
 import useWorkflowCatalog from "@/hooks/useWorkflowCatalog";
 import useWorkflowForm from "@/hooks/useWorkflowForm";
 import useWhoami from "@/hooks/useWhoami";
-import { getWorkflowExecutePermission } from "@/lib/workflow-launcher";
+import {
+  getWorkflowExecutePermission,
+  WORKFLOW_FORM_API_UPGRADE_REQUIRED,
+} from "@/lib/workflow-launcher";
 
 interface NewWorkflowPageProps {
   readonly params: Promise<{ name: string }>;
@@ -75,17 +78,34 @@ const CatalogUnavailable = ({ error }: { error: Error }) => (
   </PageCard>
 );
 
+const WorkflowApiUpgradeRequired = () => (
+  <PageCard title="Workflow API upgrade required">
+    <Alert variant="destructive">
+      <AlertTitle>Browser workflow forms are unavailable</AlertTitle>
+      <AlertDescription>
+        <p>{WORKFLOW_FORM_API_UPGRADE_REQUIRED}</p>
+        <p>You can still start the workflow through the API or CLI.</p>
+      </AlertDescription>
+    </Alert>
+    <ReturnToWorkflows />
+  </PageCard>
+);
+
 export default function NewWorkflowPage({ params }: NewWorkflowPageProps) {
   const name = decodeSegment(React.use(params).name);
   const searchParams = useSearchParams();
   const { catalog, error: catalogError, isLoaded: catalogLoaded } = useWorkflowCatalog();
-  const { result, reload } = useWorkflowForm(name);
+  const entry = catalog.find((candidate) => candidate.name === name);
+  // Do not probe a generic-form endpoint until metadata from a compatible API explicitly
+  // advertises it. Older APIs omit `has_form` and may not have the endpoint at all.
+  const { result, reload } = useWorkflowForm(name, entry?.has_form === true);
   const { isLoaded: whoamiLoaded, isUnauthorized, userRoles } = useWhoami();
   const reasonId = React.useId();
 
-  const entry = catalog.find((candidate) => candidate.name === name);
-
-  if (catalogLoaded && !entry) return <WorkflowNotFound name={name} />;
+  if (catalogLoaded && (!entry || entry.has_form === false)) {
+    return <WorkflowNotFound name={name} />;
+  }
+  if (catalogLoaded && entry?.has_form === null) return <WorkflowApiUpgradeRequired />;
   if (!catalogLoaded && catalogError) return <CatalogUnavailable error={catalogError} />;
   if (!entry || !result || !whoamiLoaded) return <WorkflowFormSkeleton />;
   if (result.kind === "not_found") return <WorkflowNotFound name={name} />;
