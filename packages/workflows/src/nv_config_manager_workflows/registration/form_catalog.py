@@ -19,12 +19,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Self, cast
 
+from nv_config_manager_workflows.form_declarations import FormOptionProvider
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
 from nv_config_manager_workflows.registration.builtin import BUILTIN_PLUGIN_NAME
 from nv_config_manager_workflows.registration.contract import workflow_form_enabled
 from nv_config_manager_workflows.registration.registry import WorkflowRegistry
 from nv_config_manager_workflows.ui import (
-    FormOptionProvider,
     FormOptionSource,
     OptionSource,
     WorkflowFormContractError,

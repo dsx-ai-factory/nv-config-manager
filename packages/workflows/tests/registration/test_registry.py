@@ -31,7 +31,10 @@ from nv_config_manager_workflows.registration.descriptor import (
     UNKNOWN_PLUGIN_VERSION,
     WorkflowPluginDescriptor,
 )
-from nv_config_manager_workflows.registration.errors import WorkflowConflictError
+from nv_config_manager_workflows.registration.errors import (
+    WorkflowConflictError,
+    WorkflowRegistrationError,
+)
 from nv_config_manager_workflows.registration.form_catalog import (
     FormOptionProviderBinding,
     WorkflowFormCatalog,
@@ -483,6 +486,19 @@ class TestForms:
         assert report.workflow_count == 1
         assert report.form_count == 0
         assert report.provider_count == 0
+
+    def test_form_validation_rejects_a_form_without_an_api_endpoint(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(AlphaWorkflow, "workflow_api_enabled", False)
+        monkeypatch.setattr(AlphaWorkflow, "workflow_mcp_enabled", False)
+        plugins = installed(plugin("alpha-plugin", workflows=(AlphaWorkflow,)))
+
+        with pytest.raises(
+            WorkflowRegistrationError,
+            match="enables a form but does not enable API",
+        ):
+            validate_plugin_forms("alpha-plugin", plugins=plugins)
 
     def test_every_api_workflow_gets_a_form_and_an_owner(self) -> None:
         registry = WorkflowRegistry.build(

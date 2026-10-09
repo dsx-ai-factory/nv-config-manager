@@ -834,11 +834,25 @@ class TestDeclaredMetadata:
     def test_an_mcp_workflow_must_also_enable_the_api(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        monkeypatch.setattr(AlphaWorkflow, "workflow_form_enabled", False)
         monkeypatch.setattr(AlphaWorkflow, "workflow_api_enabled", False)
 
         with pytest.raises(
             WorkflowRegistrationError,
             match="enables MCP but does not enable API",
+        ):
+            validate_plugins(installed(alpha_plugin()))
+
+    def test_a_form_workflow_must_also_enable_the_api(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(AlphaWorkflow, "workflow_form_enabled", True)
+        monkeypatch.setattr(AlphaWorkflow, "workflow_mcp_enabled", False)
+        monkeypatch.setattr(AlphaWorkflow, "workflow_api_enabled", False)
+
+        with pytest.raises(
+            WorkflowRegistrationError,
+            match="enables a form but does not enable API",
         ):
             validate_plugins(installed(alpha_plugin()))
 

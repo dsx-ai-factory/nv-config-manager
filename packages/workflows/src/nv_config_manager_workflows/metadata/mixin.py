@@ -21,8 +21,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from nv_config_manager_workflows.form_declarations import FormOptionProvider
 from nv_config_manager_workflows.metadata.lock import WorkflowLockSpec
-from nv_config_manager_workflows.ui.form_options import FormOptionProvider
 
 type RequiredActivity = Callable[..., Any] | str
 

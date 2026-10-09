@@ -110,6 +110,8 @@ export interface PickerProps {
   multiple: boolean;
   disabled: boolean;
   busy: boolean;
+  /** The form value failed RJSF validation (separate from an option-load error). */
+  invalid?: boolean;
   error?: string;
   placeholder?: string;
   onChange: (keys: string[]) => void;
@@ -126,6 +128,7 @@ export const Picker = ({
   multiple,
   disabled,
   busy,
+  invalid,
   error,
   placeholder,
   onChange,
@@ -159,7 +162,7 @@ export const Picker = ({
           disabled={disabled}
           describedBy={describedBy}
           required={required}
-          invalid={Boolean(error)}
+          invalid={Boolean(invalid || error)}
         />
         {busy ? <LoadingSpinner /> : null}
       </div>

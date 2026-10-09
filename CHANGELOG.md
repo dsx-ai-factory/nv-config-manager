@@ -47,8 +47,10 @@ version before the selected release candidate is promoted.
   browser form links and shows an API-upgrade message without probing form
   endpoints; API and CLI workflow execution remain available.
 - The workflow HTTP API now treats fields marked `ServerOwned` as authoritative
-  request identity: it replaces submitted `user` and `user_domain` values with
-  values derived from the authenticated request. The Port LLDP Info endpoint
+  request identity: it replaces submitted `user` values with values derived
+  from the authenticated request. Built-in backup inputs keep `user_domain`
+  `FormExcluded`: the API preserves a non-empty caller value and derives the
+  legacy fallback only when the value is absent. The Port LLDP Info endpoint
   also rejects incomplete or mixed lookup methods, and the SpX Overlay Creation
   endpoint rejects a route-distinguisher range unless `rd_min < rd_max`. These
   checks run after request-model validation and before a workflow starts; they

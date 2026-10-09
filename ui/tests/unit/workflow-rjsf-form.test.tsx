@@ -36,10 +36,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FormUnavailable } from "@/components/forms/workflow/form-load-error";
 import type { ShellFormContext } from "@/components/forms/workflow-rjsf/context";
+import { validateVariantRowsValues } from "@/components/forms/workflow-rjsf/fields/variant-rows-field";
 import { RJSF_DEFAULT_STATE_BEHAVIOR } from "@/components/forms/workflow-rjsf/state";
 import type {
   DeviceFilter,
   DeviceOptions,
+  VariantRowsFieldOptions,
 } from "@/components/forms/workflow-rjsf/ui-schema";
 import { WorkflowRjsfForm } from "@/components/forms/workflow-rjsf/workflow-rjsf-form";
 import { WORKFLOW_FORM_FIXTURES } from "@/mocks/data/workflowForms";
@@ -826,6 +828,7 @@ describe("submission errors", () => {
     fireEvent.click(submitButton());
     expect(await screen.findByText("Device is offline")).toBeTruthy();
     const devicePicker = labelledControl("Device");
+    expect(devicePicker.getAttribute("aria-invalid")).toBe("true");
     expect(devicePicker.getAttribute("aria-describedby")).toContain(
       `${devicePicker.id}__error`
     );
@@ -839,6 +842,7 @@ describe("submission errors", () => {
     await waitFor(() =>
       expect(screen.queryByText("Device is offline")).toBeNull()
     );
+    expect(devicePicker.getAttribute("aria-invalid")).toBeNull();
     expect(document.getElementById(`${devicePicker.id}__error`)).toBeNull();
   });
 
@@ -872,6 +876,68 @@ describe("submission errors", () => {
     );
     await waitFor(() =>
       expect(screen.queryByText("Site is required")).toBeNull()
+    );
+  });
+});
+
+describe("variant rows", () => {
+  const config: VariantRowsFieldOptions = {
+    ownedProperties: ["interfaces"],
+    modes: [
+      {
+        id: "interfaces",
+        label: "By Interfaces",
+        columns: [
+          {
+            arrayProperty: "interfaces",
+            itemProperty: "device",
+            label: "Device",
+            kind: "text",
+            required: true,
+          },
+          {
+            arrayProperty: "interfaces",
+            itemProperty: "interface",
+            label: "Interface",
+            kind: "text",
+            required: true,
+          },
+        ],
+      },
+    ],
+    minimumRows: 1,
+  };
+
+  it("retains rendered row numbers when blank rows are skipped during validation", () => {
+    expect(
+      validateVariantRowsValues(config, {
+        interfaces: [
+          { device: "", interface: "" },
+          { device: "leaf-1", interface: "" },
+        ],
+      })
+    ).toEqual(["Interface is required in row 2."]);
+  });
+
+  it("associates field validation errors with the variant-row group", async () => {
+    await renderForm(WORKFLOW_FORM_FIXTURES.IBPKeyMemberAddWorkflow);
+    const group = screen.getByRole("group", { name: "Interfaces" });
+    const device = screen.getByRole("textbox", { name: "Device 1" });
+    expect(device.hasAttribute("aria-invalid")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add Members" }));
+
+    await waitFor(() =>
+      expect(device.getAttribute("aria-invalid")).toBe("true")
+    );
+    expect(group.getAttribute("aria-describedby")).toContain(
+      `${group.id}__error`
+    );
+    expect(device.getAttribute("aria-describedby")).toContain(
+      `${group.id}__error`
+    );
+    expect(document.getElementById(`${group.id}__error`)?.textContent).toContain(
+      "At least 1 row is required."
     );
   });
 });
@@ -920,7 +986,38 @@ describe("form-only minItems on an optional list", () => {
     expect(
       await screen.findByText("At least 1 Device Status is required")
     ).toBeTruthy();
+    const picker = labelledControl("Device Status");
+    expect(picker.getAttribute("aria-invalid")).toBe("true");
+    expect(picker.getAttribute("aria-describedby")).toContain(
+      `${picker.id}__error`
+    );
     expect(posts).toEqual([]);
+  });
+
+  it("associates grouped checkboxes with their label and validation error", async () => {
+    const groupedStatusForm = structuredClone(statusForm);
+    groupedStatusForm.ui_schema.status["ui:options"] = {
+      ...groupedStatusForm.ui_schema.status["ui:options"],
+      presentation: "grouped-checkboxes",
+    };
+    await renderForm(groupedStatusForm);
+
+    const active = await screen.findByRole("checkbox", { name: "Active" });
+    fireEvent.click(active);
+    await waitFor(() => expect(formData().status).toEqual([]));
+    fireEvent.click(submitButton());
+
+    expect(
+      await screen.findByText("At least 1 Device Status is required")
+    ).toBeTruthy();
+    const group = screen.getByRole("group", { name: "Device Status" });
+    expect(group.getAttribute("aria-describedby")).toContain(
+      `${group.id}__error`
+    );
+    expect(active.getAttribute("aria-invalid")).toBe("true");
+    expect(active.getAttribute("aria-describedby")).toContain(
+      `${group.id}__error`
+    );
   });
 });
 

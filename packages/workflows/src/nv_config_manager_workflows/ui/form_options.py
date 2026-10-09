@@ -24,19 +24,8 @@ from dataclasses import KW_ONLY, dataclass, field
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from nv_config_manager_workflows.form_declarations import FormOptionProvider
 from nv_config_manager_workflows.ui.option_sources import Dependency, OptionParamValue
-
-
-@dataclass(frozen=True, slots=True)
-class FormOptionProvider:
-    """An API-only option resolver and its validated query model.
-
-    Both values use ``"module.path:attribute"`` references so Temporal workers
-    can import the workflow class without importing API-only provider code.
-    """
-
-    resolver: str
-    query_model: str
 
 
 @dataclass(frozen=True, slots=True)
