@@ -11,6 +11,7 @@ API version: 0.1.0
 package render
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,11 +21,10 @@ var _ MappedNullable = &ConsumerResetResponse{}
 
 // ConsumerResetResponse Consumer reset response model.
 type ConsumerResetResponse struct {
-	ConsumerName         string `json:"consumer_name"`
-	Message              string `json:"message"`
-	Status               string `json:"status"`
-	Stream               string `json:"stream"`
-	AdditionalProperties map[string]interface{}
+	ConsumerName string `json:"consumer_name"`
+	Message      string `json:"message"`
+	Status       string `json:"status"`
+	Stream       string `json:"stream"`
 }
 
 type _ConsumerResetResponse ConsumerResetResponse
@@ -160,11 +160,6 @@ func (o ConsumerResetResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize["message"] = o.Message
 	toSerialize["status"] = o.Status
 	toSerialize["stream"] = o.Stream
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -195,23 +190,15 @@ func (o *ConsumerResetResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varConsumerResetResponse := _ConsumerResetResponse{}
 
-	err = json.Unmarshal(data, &varConsumerResetResponse)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varConsumerResetResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ConsumerResetResponse(varConsumerResetResponse)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "consumer_name")
-		delete(additionalProperties, "message")
-		delete(additionalProperties, "status")
-		delete(additionalProperties, "stream")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

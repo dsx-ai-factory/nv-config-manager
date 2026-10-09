@@ -11,6 +11,7 @@ API version: 0.1.0
 package render
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,9 +21,8 @@ var _ MappedNullable = &FailedDevice{}
 
 // FailedDevice A device that failed to queue for rendering.
 type FailedDevice struct {
-	DeviceUuid           string `json:"device_uuid"`
-	Error                string `json:"error"`
-	AdditionalProperties map[string]interface{}
+	DeviceUuid string `json:"device_uuid"`
+	Error      string `json:"error"`
 }
 
 type _FailedDevice FailedDevice
@@ -106,11 +106,6 @@ func (o FailedDevice) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["device_uuid"] = o.DeviceUuid
 	toSerialize["error"] = o.Error
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -139,21 +134,15 @@ func (o *FailedDevice) UnmarshalJSON(data []byte) (err error) {
 
 	varFailedDevice := _FailedDevice{}
 
-	err = json.Unmarshal(data, &varFailedDevice)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varFailedDevice)
 
 	if err != nil {
 		return err
 	}
 
 	*o = FailedDevice(varFailedDevice)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "device_uuid")
-		delete(additionalProperties, "error")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

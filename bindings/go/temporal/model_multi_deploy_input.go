@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -33,8 +34,7 @@ type MultiDeployInput struct {
 	// Device statuses used to filter the selected network devices.
 	Status []string `json:"status,omitempty"`
 	// Tenant used to filter the selected network devices.
-	Tenant               NullableString `json:"tenant,omitempty"`
-	AdditionalProperties map[string]interface{}
+	Tenant NullableString `json:"tenant,omitempty"`
 }
 
 type _MultiDeployInput MultiDeployInput
@@ -352,11 +352,6 @@ func (o MultiDeployInput) ToMap() (map[string]interface{}, error) {
 	if o.Tenant.IsSet() {
 		toSerialize["tenant"] = o.Tenant.Get()
 	}
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -384,26 +379,15 @@ func (o *MultiDeployInput) UnmarshalJSON(data []byte) (err error) {
 
 	varMultiDeployInput := _MultiDeployInput{}
 
-	err = json.Unmarshal(data, &varMultiDeployInput)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varMultiDeployInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = MultiDeployInput(varMultiDeployInput)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "commit_confirm")
-		delete(additionalProperties, "location")
-		delete(additionalProperties, "location_type")
-		delete(additionalProperties, "max_batch_size")
-		delete(additionalProperties, "role")
-		delete(additionalProperties, "status")
-		delete(additionalProperties, "tenant")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

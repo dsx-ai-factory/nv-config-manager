@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,8 +22,7 @@ var _ MappedNullable = &InfinibandGetUnhealthyPortsInput{}
 // InfinibandGetUnhealthyPortsInput Unhealthy Ports Validation Workflow Input Definition.
 type InfinibandGetUnhealthyPortsInput struct {
 	// Identifier of the UFM device to inspect.
-	DeviceId             string `json:"device_id"`
-	AdditionalProperties map[string]interface{}
+	DeviceId string `json:"device_id"`
 }
 
 type _InfinibandGetUnhealthyPortsInput InfinibandGetUnhealthyPortsInput
@@ -80,11 +80,6 @@ func (o InfinibandGetUnhealthyPortsInput) MarshalJSON() ([]byte, error) {
 func (o InfinibandGetUnhealthyPortsInput) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["device_id"] = o.DeviceId
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -112,20 +107,15 @@ func (o *InfinibandGetUnhealthyPortsInput) UnmarshalJSON(data []byte) (err error
 
 	varInfinibandGetUnhealthyPortsInput := _InfinibandGetUnhealthyPortsInput{}
 
-	err = json.Unmarshal(data, &varInfinibandGetUnhealthyPortsInput)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varInfinibandGetUnhealthyPortsInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = InfinibandGetUnhealthyPortsInput(varInfinibandGetUnhealthyPortsInput)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "device_id")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

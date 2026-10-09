@@ -19,11 +19,8 @@ var _ MappedNullable = &RenderRequest{}
 
 // RenderRequest Request body for a render operation.
 type RenderRequest struct {
-	CommitMessage        NullableString `json:"commit_message,omitempty"`
-	AdditionalProperties map[string]interface{}
+	CommitMessage NullableString `json:"commit_message,omitempty"`
 }
-
-type _RenderRequest RenderRequest
 
 // NewRenderRequest instantiates a new RenderRequest object
 // This constructor will assign default values to properties that have it defined,
@@ -100,33 +97,7 @@ func (o RenderRequest) ToMap() (map[string]interface{}, error) {
 	if o.CommitMessage.IsSet() {
 		toSerialize["commit_message"] = o.CommitMessage.Get()
 	}
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
-}
-
-func (o *RenderRequest) UnmarshalJSON(data []byte) (err error) {
-	varRenderRequest := _RenderRequest{}
-
-	err = json.Unmarshal(data, &varRenderRequest)
-
-	if err != nil {
-		return err
-	}
-
-	*o = RenderRequest(varRenderRequest)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "commit_message")
-		o.AdditionalProperties = additionalProperties
-	}
-
-	return err
 }
 
 type NullableRenderRequest struct {

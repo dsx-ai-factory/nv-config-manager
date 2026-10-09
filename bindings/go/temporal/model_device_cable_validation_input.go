@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -27,8 +28,7 @@ type DeviceCableValidationInput struct {
 	// Identifier of the network device to validate.
 	DeviceId string `json:"device_id"`
 	// Whether interfaces without discovered neighbors should be ignored.
-	IgnoreNoNeighbor     *bool `json:"ignore_no_neighbor,omitempty"`
-	AdditionalProperties map[string]interface{}
+	IgnoreNoNeighbor *bool `json:"ignore_no_neighbor,omitempty"`
 }
 
 type _DeviceCableValidationInput DeviceCableValidationInput
@@ -214,11 +214,6 @@ func (o DeviceCableValidationInput) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.IgnoreNoNeighbor) {
 		toSerialize["ignore_no_neighbor"] = o.IgnoreNoNeighbor
 	}
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -246,23 +241,15 @@ func (o *DeviceCableValidationInput) UnmarshalJSON(data []byte) (err error) {
 
 	varDeviceCableValidationInput := _DeviceCableValidationInput{}
 
-	err = json.Unmarshal(data, &varDeviceCableValidationInput)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varDeviceCableValidationInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = DeviceCableValidationInput(varDeviceCableValidationInput)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "defer_cable_status_updates")
-		delete(additionalProperties, "device")
-		delete(additionalProperties, "device_id")
-		delete(additionalProperties, "ignore_no_neighbor")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -33,8 +34,7 @@ type SpXOverlayCreationInput struct {
 	// DCIM location type for the site identifier.
 	SiteType NullableString `json:"site_type,omitempty"`
 	// Tenant that will own the SpX overlay.
-	Tenant               string `json:"tenant"`
-	AdditionalProperties map[string]interface{}
+	Tenant string `json:"tenant"`
 }
 
 type _SpXOverlayCreationInput SpXOverlayCreationInput
@@ -312,11 +312,6 @@ func (o SpXOverlayCreationInput) ToMap() (map[string]interface{}, error) {
 		toSerialize["site_type"] = o.SiteType.Get()
 	}
 	toSerialize["tenant"] = o.Tenant
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -346,26 +341,15 @@ func (o *SpXOverlayCreationInput) UnmarshalJSON(data []byte) (err error) {
 
 	varSpXOverlayCreationInput := _SpXOverlayCreationInput{}
 
-	err = json.Unmarshal(data, &varSpXOverlayCreationInput)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varSpXOverlayCreationInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = SpXOverlayCreationInput(varSpXOverlayCreationInput)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "namespace_tag")
-		delete(additionalProperties, "overlay_id")
-		delete(additionalProperties, "rd_max")
-		delete(additionalProperties, "rd_min")
-		delete(additionalProperties, "site")
-		delete(additionalProperties, "site_type")
-		delete(additionalProperties, "tenant")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

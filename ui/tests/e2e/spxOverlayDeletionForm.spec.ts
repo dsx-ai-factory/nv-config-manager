@@ -160,19 +160,19 @@ test.describe("New SpX Overlay Deletion Workflow - URL Parameters", () => {
     // Verify all fields are pre-populated
     await expect(
       page.getByRole("combobox", {
-        name: `${SITES_LIST.pdx01}. Open options`,
+        name: `Site: ${SITES_LIST.pdx01}. Open options`,
         exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
     await expect(
       page.getByRole("combobox", {
-        name: `${VPC_DATA.overlay_id}. Open options`,
+        name: `Overlay ID: ${VPC_DATA.overlay_id}. Open options`,
         exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
     await expect(
       page.getByRole("combobox", {
-        name: `${VPC_DATA.namespace_tag}. Open options`,
+        name: `Namespace Tag: ${VPC_DATA.namespace_tag}. Open options`,
         exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
@@ -216,7 +216,7 @@ test.describe("New SpX Overlay Deletion Workflow - URL Parameters", () => {
     // Verify initial values are pre-populated
     await expect(
       page.getByRole("combobox", {
-        name: `${SITES_LIST.pdx01}. Open options`,
+        name: `Site: ${SITES_LIST.pdx01}. Open options`,
         exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
@@ -330,13 +330,13 @@ test.describe("New SpX Overlay Deletion Workflow - Standard Tests", () => {
     // Verify all form elements are disabled during submission
     await expect(
       page.getByRole("combobox", {
-        name: `${SITES_LIST.pdx01}. Open options`,
+        name: `Site: ${SITES_LIST.pdx01}. Open options`,
         exact: true,
       })
     ).toBeDisabled();
     await expect(
       page.getByRole("combobox", {
-        name: `${SPX_OVERLAY_LIST.submission}. Open options`,
+        name: `Overlay ID: ${SPX_OVERLAY_LIST.submission}. Open options`,
         exact: true,
       })
     ).toBeDisabled();
@@ -398,7 +398,7 @@ test.describe("New SpX Overlay Deletion Workflow - URL Parameters 2", () => {
     // Verify all fields are pre-populated
     await expect(
       page.getByRole("combobox", {
-        name: `${SITES_LIST.pdx01}. Open options`,
+        name: `Site: ${SITES_LIST.pdx01}. Open options`,
         exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });

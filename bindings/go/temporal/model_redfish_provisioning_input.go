@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -35,8 +36,7 @@ type RedfishProvisioningInput struct {
 	// Site containing the BMC network to provision.
 	Site string `json:"site"`
 	// DCIM location type for the site identifier.
-	SiteType             NullableString `json:"site_type,omitempty"`
-	AdditionalProperties map[string]interface{}
+	SiteType NullableString `json:"site_type,omitempty"`
 }
 
 type _RedfishProvisioningInput RedfishProvisioningInput
@@ -336,11 +336,6 @@ func (o RedfishProvisioningInput) ToMap() (map[string]interface{}, error) {
 	if o.SiteType.IsSet() {
 		toSerialize["site_type"] = o.SiteType.Get()
 	}
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -371,27 +366,15 @@ func (o *RedfishProvisioningInput) UnmarshalJSON(data []byte) (err error) {
 
 	varRedfishProvisioningInput := _RedfishProvisioningInput{}
 
-	err = json.Unmarshal(data, &varRedfishProvisioningInput)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varRedfishProvisioningInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = RedfishProvisioningInput(varRedfishProvisioningInput)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "bmc_switch_roles")
-		delete(additionalProperties, "dpu_manufacturers")
-		delete(additionalProperties, "http_timeout_s")
-		delete(additionalProperties, "ip_range_end")
-		delete(additionalProperties, "ip_range_start")
-		delete(additionalProperties, "port")
-		delete(additionalProperties, "site")
-		delete(additionalProperties, "site_type")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

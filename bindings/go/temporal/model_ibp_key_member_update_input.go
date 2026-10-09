@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -33,8 +34,7 @@ type IBPKeyMemberUpdateInput struct {
 	// Default partition membership type for updated members.
 	MembershipType *string `json:"membership_type,omitempty"`
 	// Partition key whose membership will be replaced.
-	Pkey                 string `json:"pkey"`
-	AdditionalProperties map[string]interface{}
+	Pkey string `json:"pkey"`
 }
 
 type _IBPKeyMemberUpdateInput IBPKeyMemberUpdateInput
@@ -306,11 +306,6 @@ func (o IBPKeyMemberUpdateInput) ToMap() (map[string]interface{}, error) {
 		toSerialize["membership_type"] = o.MembershipType
 	}
 	toSerialize["pkey"] = o.Pkey
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -339,26 +334,15 @@ func (o *IBPKeyMemberUpdateInput) UnmarshalJSON(data []byte) (err error) {
 
 	varIBPKeyMemberUpdateInput := _IBPKeyMemberUpdateInput{}
 
-	err = json.Unmarshal(data, &varIBPKeyMemberUpdateInput)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varIBPKeyMemberUpdateInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = IBPKeyMemberUpdateInput(varIBPKeyMemberUpdateInput)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "guid_memberships")
-		delete(additionalProperties, "guids")
-		delete(additionalProperties, "host")
-		delete(additionalProperties, "interfaces")
-		delete(additionalProperties, "ip_over_ib")
-		delete(additionalProperties, "membership_type")
-		delete(additionalProperties, "pkey")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

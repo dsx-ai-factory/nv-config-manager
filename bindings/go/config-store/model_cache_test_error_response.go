@@ -11,6 +11,7 @@ API version: 0.1.0
 package configstore
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -23,8 +24,7 @@ type CacheTestErrorResponse struct {
 	// DCIM provider device identifier
 	DeviceUuid string `json:"device_uuid"`
 	// Error message
-	Error                string `json:"error"`
-	AdditionalProperties map[string]interface{}
+	Error string `json:"error"`
 }
 
 type _CacheTestErrorResponse CacheTestErrorResponse
@@ -108,11 +108,6 @@ func (o CacheTestErrorResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["device_uuid"] = o.DeviceUuid
 	toSerialize["error"] = o.Error
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -141,21 +136,15 @@ func (o *CacheTestErrorResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varCacheTestErrorResponse := _CacheTestErrorResponse{}
 
-	err = json.Unmarshal(data, &varCacheTestErrorResponse)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varCacheTestErrorResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = CacheTestErrorResponse(varCacheTestErrorResponse)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "device_uuid")
-		delete(additionalProperties, "error")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

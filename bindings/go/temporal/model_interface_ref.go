@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,10 +21,9 @@ var _ MappedNullable = &InterfaceRef{}
 
 // InterfaceRef A device/interface name pair used to look up an interface in the DCIM.  “membership“ is an optional per-port override (\"full\"/\"limited\"); when unset the caller's workflow-level default is applied.
 type InterfaceRef struct {
-	Device               string         `json:"device"`
-	Interface            string         `json:"interface"`
-	Membership           NullableString `json:"membership,omitempty"`
-	AdditionalProperties map[string]interface{}
+	Device     string         `json:"device"`
+	Interface  string         `json:"interface"`
+	Membership NullableString `json:"membership,omitempty"`
 }
 
 type _InterfaceRef InterfaceRef
@@ -155,11 +155,6 @@ func (o InterfaceRef) ToMap() (map[string]interface{}, error) {
 	if o.Membership.IsSet() {
 		toSerialize["membership"] = o.Membership.Get()
 	}
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -188,22 +183,15 @@ func (o *InterfaceRef) UnmarshalJSON(data []byte) (err error) {
 
 	varInterfaceRef := _InterfaceRef{}
 
-	err = json.Unmarshal(data, &varInterfaceRef)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varInterfaceRef)
 
 	if err != nil {
 		return err
 	}
 
 	*o = InterfaceRef(varInterfaceRef)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "device")
-		delete(additionalProperties, "interface")
-		delete(additionalProperties, "membership")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

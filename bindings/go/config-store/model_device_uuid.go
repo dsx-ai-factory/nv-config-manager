@@ -11,6 +11,7 @@ API version: 0.1.0
 package configstore
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,8 +22,7 @@ var _ MappedNullable = &DeviceUUID{}
 // DeviceUUID Provider-owned device identifier entry.  The class and response field names are retained for API compatibility.
 type DeviceUUID struct {
 	// DCIM provider device identifier
-	Uuid                 string `json:"uuid"`
-	AdditionalProperties map[string]interface{}
+	Uuid string `json:"uuid"`
 }
 
 type _DeviceUUID DeviceUUID
@@ -80,11 +80,6 @@ func (o DeviceUUID) MarshalJSON() ([]byte, error) {
 func (o DeviceUUID) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["uuid"] = o.Uuid
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -112,20 +107,15 @@ func (o *DeviceUUID) UnmarshalJSON(data []byte) (err error) {
 
 	varDeviceUUID := _DeviceUUID{}
 
-	err = json.Unmarshal(data, &varDeviceUUID)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varDeviceUUID)
 
 	if err != nil {
 		return err
 	}
 
 	*o = DeviceUUID(varDeviceUUID)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "uuid")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

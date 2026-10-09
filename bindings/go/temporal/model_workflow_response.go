@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,9 +22,8 @@ var _ MappedNullable = &WorkflowResponse{}
 // WorkflowResponse Workflow Response Model.
 type WorkflowResponse struct {
 	// Calculate URL to Temporal UI Workflow View.
-	Href                 string `json:"href"`
-	Id                   string `json:"id"`
-	AdditionalProperties map[string]interface{}
+	Href string `json:"href"`
+	Id   string `json:"id"`
 }
 
 type _WorkflowResponse WorkflowResponse
@@ -107,11 +107,6 @@ func (o WorkflowResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["href"] = o.Href
 	toSerialize["id"] = o.Id
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -140,21 +135,15 @@ func (o *WorkflowResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varWorkflowResponse := _WorkflowResponse{}
 
-	err = json.Unmarshal(data, &varWorkflowResponse)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varWorkflowResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = WorkflowResponse(varWorkflowResponse)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "href")
-		delete(additionalProperties, "id")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

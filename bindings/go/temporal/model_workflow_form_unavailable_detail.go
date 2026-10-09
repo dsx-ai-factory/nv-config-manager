@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,11 +21,10 @@ var _ MappedNullable = &WorkflowFormUnavailableDetail{}
 
 // WorkflowFormUnavailableDetail Sanitized diagnostic for an unavailable third-party workflow form.
 type WorkflowFormUnavailableDetail struct {
-	Code                 string `json:"code"`
-	Message              string `json:"message"`
-	Plugin               string `json:"plugin"`
-	Workflow             string `json:"workflow"`
-	AdditionalProperties map[string]interface{}
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	Plugin   string `json:"plugin"`
+	Workflow string `json:"workflow"`
 }
 
 type _WorkflowFormUnavailableDetail WorkflowFormUnavailableDetail
@@ -160,11 +160,6 @@ func (o WorkflowFormUnavailableDetail) ToMap() (map[string]interface{}, error) {
 	toSerialize["message"] = o.Message
 	toSerialize["plugin"] = o.Plugin
 	toSerialize["workflow"] = o.Workflow
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -195,23 +190,15 @@ func (o *WorkflowFormUnavailableDetail) UnmarshalJSON(data []byte) (err error) {
 
 	varWorkflowFormUnavailableDetail := _WorkflowFormUnavailableDetail{}
 
-	err = json.Unmarshal(data, &varWorkflowFormUnavailableDetail)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varWorkflowFormUnavailableDetail)
 
 	if err != nil {
 		return err
 	}
 
 	*o = WorkflowFormUnavailableDetail(varWorkflowFormUnavailableDetail)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "code")
-		delete(additionalProperties, "message")
-		delete(additionalProperties, "plugin")
-		delete(additionalProperties, "workflow")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

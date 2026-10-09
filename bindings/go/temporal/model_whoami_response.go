@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,9 +21,8 @@ var _ MappedNullable = &WhoamiResponse{}
 
 // WhoamiResponse Response shape for “GET /whoami“.
 type WhoamiResponse struct {
-	Roles                []string `json:"roles"`
-	User                 string   `json:"user"`
-	AdditionalProperties map[string]interface{}
+	Roles []string `json:"roles"`
+	User  string   `json:"user"`
 }
 
 type _WhoamiResponse WhoamiResponse
@@ -106,11 +106,6 @@ func (o WhoamiResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["roles"] = o.Roles
 	toSerialize["user"] = o.User
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -139,21 +134,15 @@ func (o *WhoamiResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varWhoamiResponse := _WhoamiResponse{}
 
-	err = json.Unmarshal(data, &varWhoamiResponse)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varWhoamiResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = WhoamiResponse(varWhoamiResponse)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "roles")
-		delete(additionalProperties, "user")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

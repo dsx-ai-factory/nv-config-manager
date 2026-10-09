@@ -20,11 +20,8 @@ var _ MappedNullable = &RenderResponse{}
 // RenderResponse Response from a single device render operation.
 type RenderResponse struct {
 	// Files that changed during the render
-	UpdatedFiles         []FileCommit `json:"updated_files,omitempty"`
-	AdditionalProperties map[string]interface{}
+	UpdatedFiles []FileCommit `json:"updated_files,omitempty"`
 }
-
-type _RenderResponse RenderResponse
 
 // NewRenderResponse instantiates a new RenderResponse object
 // This constructor will assign default values to properties that have it defined,
@@ -89,33 +86,7 @@ func (o RenderResponse) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.UpdatedFiles) {
 		toSerialize["updated_files"] = o.UpdatedFiles
 	}
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
-}
-
-func (o *RenderResponse) UnmarshalJSON(data []byte) (err error) {
-	varRenderResponse := _RenderResponse{}
-
-	err = json.Unmarshal(data, &varRenderResponse)
-
-	if err != nil {
-		return err
-	}
-
-	*o = RenderResponse(varRenderResponse)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "updated_files")
-		o.AdditionalProperties = additionalProperties
-	}
-
-	return err
 }
 
 type NullableRenderResponse struct {

@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,9 +21,8 @@ var _ MappedNullable = &HistoryEntry{}
 
 // HistoryEntry State Transition History Entry.
 type HistoryEntry struct {
-	State                StateEnum `json:"state"`
-	Time                 string    `json:"time"`
-	AdditionalProperties map[string]interface{}
+	State StateEnum `json:"state"`
+	Time  string    `json:"time"`
 }
 
 type _HistoryEntry HistoryEntry
@@ -106,11 +106,6 @@ func (o HistoryEntry) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["state"] = o.State
 	toSerialize["time"] = o.Time
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -139,21 +134,15 @@ func (o *HistoryEntry) UnmarshalJSON(data []byte) (err error) {
 
 	varHistoryEntry := _HistoryEntry{}
 
-	err = json.Unmarshal(data, &varHistoryEntry)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varHistoryEntry)
 
 	if err != nil {
 		return err
 	}
 
 	*o = HistoryEntry(varHistoryEntry)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "state")
-		delete(additionalProperties, "time")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

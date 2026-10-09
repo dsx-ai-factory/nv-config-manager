@@ -108,7 +108,14 @@ export default function NewWorkflowPage({ params }: NewWorkflowPageProps) {
     formId,
     entry?.has_form === true && entry.form_id !== null
   );
-  const { isLoaded: whoamiLoaded, isUnauthorized, userRoles } = useWhoami();
+  const {
+    isLoaded: whoamiLoaded,
+    isRetrying: whoamiRetrying,
+    isUnauthorized,
+    reload: reloadWhoami,
+    status: whoamiStatus,
+    userRoles,
+  } = useWhoami();
   const reasonId = React.useId();
 
   if (catalogLoaded && (legacyCatalog || entry?.has_form === null))
@@ -130,13 +137,36 @@ export default function NewWorkflowPage({ params }: NewWorkflowPageProps) {
     );
   }
 
-  const permission = getWorkflowExecutePermission(
-    entry,
-    userRoles,
-    isUnauthorized
-  );
+  // Role information improves the form UX, but workflow submission remains the
+  // authorization boundary. Keep the form available when only this advisory probe fails.
+  const whoamiUnavailable = whoamiStatus === "unavailable";
+  const permission = whoamiUnavailable
+    ? { allowed: true as const }
+    : getWorkflowExecutePermission(entry, userRoles, isUnauthorized);
   return (
     <>
+      {whoamiUnavailable ? (
+        <div className="flex justify-center px-6 pt-6">
+          <Alert className="w-full max-w-3xl" variant="destructive">
+            <AlertTitle>Permissions could not be verified</AlertTitle>
+            <AlertDescription>
+              <p>
+                The workflow form remains available. The server will verify
+                your permission when you submit it.
+              </p>
+              <Button
+                className="mt-3"
+                disabled={whoamiRetrying}
+                onClick={() => void reloadWhoami()}
+                type="button"
+                variant="outline"
+              >
+                {whoamiRetrying ? "Retrying..." : "Retry permission check"}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        </div>
+      ) : null}
       {permission.allowed ? null : (
         <div className="flex justify-center px-6 pt-6">
           <Alert className="w-full max-w-3xl">

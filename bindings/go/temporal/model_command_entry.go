@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,9 +21,8 @@ var _ MappedNullable = &CommandEntry{}
 
 // CommandEntry A single command in the diagnostics catalog.
 type CommandEntry struct {
-	Description          string `json:"description"`
-	Name                 string `json:"name"`
-	AdditionalProperties map[string]interface{}
+	Description string `json:"description"`
+	Name        string `json:"name"`
 }
 
 type _CommandEntry CommandEntry
@@ -106,11 +106,6 @@ func (o CommandEntry) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["description"] = o.Description
 	toSerialize["name"] = o.Name
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -139,21 +134,15 @@ func (o *CommandEntry) UnmarshalJSON(data []byte) (err error) {
 
 	varCommandEntry := _CommandEntry{}
 
-	err = json.Unmarshal(data, &varCommandEntry)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varCommandEntry)
 
 	if err != nil {
 		return err
 	}
 
 	*o = CommandEntry(varCommandEntry)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "description")
-		delete(additionalProperties, "name")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }
