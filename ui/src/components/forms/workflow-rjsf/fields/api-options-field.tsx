@@ -70,6 +70,7 @@ interface SourceFieldProps {
   presentation?: "select" | "grouped-checkboxes";
   selectAll?: boolean;
   showDescriptions?: boolean;
+  disableWhenNoMatches?: boolean;
   metaText?: { key: "matching_device_count"; label: string };
   prune?: boolean;
 }
@@ -209,6 +210,7 @@ export const SourceOptionsField = ({
   presentation = "select",
   selectAll = false,
   showDescriptions = false,
+  disableWhenNoMatches = false,
   metaText,
   prune = false,
 }: SourceFieldProps) => {
@@ -330,7 +332,8 @@ export const SourceOptionsField = ({
       ? ""
       : keyOf(value, type, typed);
   const waiting = loaded.missingDependencies.length > 0;
-  const hasNoMatchingDevices = loaded.meta?.matching_device_count === 0;
+  const hasNoMatchingDevices =
+    disableWhenNoMatches && loaded.meta?.matching_device_count === 0;
   const pickerDisabled =
     Boolean(disabled || readonly) ||
     ownPending ||
@@ -429,6 +432,7 @@ export const ApiOptionsField = (props: FieldProps) => {
       presentation={options.presentation}
       selectAll={options.selectAll}
       showDescriptions={options.showDescriptions}
+      disableWhenNoMatches={options.disableWhenNoMatches}
       metaText={options.metaText}
       prune
     />

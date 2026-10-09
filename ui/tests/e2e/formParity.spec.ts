@@ -36,7 +36,11 @@ import {
   TYPED_LOCATIONS_LIST_API_RESPONSE,
 } from "@/mocks/data";
 
-import { mockServerCatalogAndUser, mockTypedLocationsEndpoint } from "./shared/apiMocks";
+import {
+  DIAGNOSTICS_COMMANDS,
+  mockServerCatalogAndUser,
+  mockTypedLocationsEndpoint,
+} from "./shared/apiMocks";
 import {
   UPDATE_PARITY,
   capturePayload,
@@ -174,6 +178,88 @@ const PARITY_WORKFLOWS: ParityWorkflow[] = [
         steps: async (form) => {
           await expect(form.page.getByLabel("UFM Host")).toHaveValue("ufm.example.com");
           await expect(form.page.getByLabel("PKey (optional)")).toHaveValue("0x0100");
+        },
+      },
+    ],
+  },
+  {
+    workflow: "DiagnosticsWorkflow",
+    inputModel: "DiagnosticsWorkflowInput",
+    endpoint: "/v1/workflow/ngc/diagnostics",
+    scenarios: [
+      {
+        name: "devices, command, and ticket",
+        steps: async (form) => {
+          await form.select(
+            "Devices",
+            PDX01_DEVICE.name,
+            PDX01_TENANT_A_PROVISIONED.name
+          );
+          await form.page.getByLabel(DIAGNOSTICS_COMMANDS[0].name).click();
+          // The legacy form exposed Jira as a select; the generic declaration owns
+          // the same value as a hidden default.
+          if (
+            await form.page
+              .getByText("Ticketing Platform", { exact: true })
+              .isVisible()
+              .catch(() => false)
+          ) {
+            await form.select("Ticketing Platform", "Jira");
+          }
+          await form.fill(
+            "Issue Key (optional — leave blank for ticketless mode)",
+            "NETSUPPORT-1234"
+          );
+          await form.setChecked("Include tech support bundle", true);
+        },
+      },
+    ],
+  },
+  {
+    workflow: "IBPKeyMemberAddWorkflow",
+    inputModel: "IBPKeyMemberAddInput",
+    endpoint: "/v1/workflow/ngc/ib_pkey_member_add",
+    scenarios: [
+      {
+        name: "GUID members",
+        steps: async ({ page }) => {
+          await page.getByLabel("UFM Host").fill("ufm-1.lab");
+          await page.getByLabel("PKey").fill("0x8001");
+          await page.getByLabel("By GUIDs").click();
+          await page.getByLabel("GUID 1").fill("0x0011223344556677");
+          await page.getByLabel("Membership Type for row 1").click();
+          await page.getByRole("option", { name: "limited" }).click();
+        },
+      },
+    ],
+  },
+  {
+    workflow: "IBPKeyMemberDeleteWorkflow",
+    inputModel: "IBPKeyMemberDeleteInput",
+    endpoint: "/v1/workflow/ngc/ib_pkey_member_delete",
+    scenarios: [
+      {
+        name: "interface member",
+        steps: async ({ page }) => {
+          await page.getByLabel("UFM Host").fill("ufm-1.lab");
+          await page.getByLabel("PKey").fill("0x8001");
+          await page.getByPlaceholder("device (e.g. hca01)").fill("hca01");
+          await page.getByPlaceholder("interface (e.g. mlx5_0)").fill("mlx5_0");
+        },
+      },
+    ],
+  },
+  {
+    workflow: "SitePasswordRotationWorkflow",
+    inputModel: "SitePasswordRotationInput",
+    endpoint: "/v1/workflow/ngc/site_password_rotation",
+    scenarios: [
+      {
+        name: "location, tenant, and secret",
+        steps: async (form) => {
+          await form.select("Location", SITES_LIST.rno1);
+          await form.select("Tenant", TENANT_LIST.tenant_a);
+          await form.select("Secret to Rotate", "admin");
         },
       },
     ],

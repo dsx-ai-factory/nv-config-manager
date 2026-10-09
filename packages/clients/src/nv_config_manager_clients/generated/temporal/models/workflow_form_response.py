@@ -32,22 +32,21 @@ import re  # noqa: F401
 import json
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
 
 class WorkflowFormResponse(BaseModel):
     """
-    Version 1 input form of an API workflow, rendered with RJSF.  ``schema`` is the form projection of the input model's JSON Schema, ``ui_schema`` a validated subset of an RJSF ``uiSchema``, ``requires`` the capabilities the UI must support before rendering, and ``ui_component`` a first-party named form or ``null``.
+    Version 1 input form of an API workflow, rendered with RJSF.  ``schema`` is the form projection of the input model's JSON Schema, ``ui_schema`` a validated subset of an RJSF ``uiSchema``, ``requires`` the capabilities the UI must support before rendering.
     """ # noqa: E501
     requires: List[StrictStr]
     var_schema: Dict[str, Any] = Field(alias="schema")
-    ui_component: Optional[StrictStr]
     ui_schema: Dict[str, Any]
     ui_schema_version: StrictInt
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["requires", "schema", "ui_component", "ui_schema", "ui_schema_version"]
+    __properties: ClassVar[List[str]] = ["requires", "schema", "ui_schema", "ui_schema_version"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -95,11 +94,6 @@ class WorkflowFormResponse(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
-        # set to None if ui_component (nullable) is None
-        # and model_fields_set contains the field
-        if self.ui_component is None and "ui_component" in self.model_fields_set:
-            _dict['ui_component'] = None
-
         return _dict
 
     @classmethod
@@ -114,7 +108,6 @@ class WorkflowFormResponse(BaseModel):
         _obj = cls.model_validate({
             "requires": obj.get("requires"),
             "schema": obj.get("schema"),
-            "ui_component": obj.get("ui_component"),
             "ui_schema": obj.get("ui_schema"),
             "ui_schema_version": obj.get("ui_schema_version")
         })

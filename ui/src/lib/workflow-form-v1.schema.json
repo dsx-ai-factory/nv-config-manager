@@ -16,13 +16,10 @@
       "type": "array",
       "items": { "$ref": "#/$defs/nonBlankString" },
       "uniqueItems": true
-    },
-    "ui_component": {
-      "description": "Name of a first-party form component, or null for the schema-driven form.",
-      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/nonBlankString" }]
     }
   },
-  "required": ["schema", "ui_schema", "ui_schema_version", "requires", "ui_component"],
+  "required": ["schema", "ui_schema", "ui_schema_version", "requires"],
+  "additionalProperties": false,
   "$defs": {
     "nonBlankString": {
       "type": "string",
@@ -90,6 +87,7 @@
         "presentation": { "enum": ["select", "grouped-checkboxes"] },
         "selectAll": { "const": true },
         "showDescriptions": { "const": true },
+        "disableWhenNoMatches": { "const": true },
         "metaText": {
           "type": "object",
           "properties": {

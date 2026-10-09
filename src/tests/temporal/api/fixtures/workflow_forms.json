@@ -65,8 +65,7 @@
     "ui_schema_version": 1,
     "requires": [
       "core-field.device.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "ConfigDiffWorkflow": {
     "schema": {
@@ -111,8 +110,7 @@
     "ui_schema_version": 1,
     "requires": [
       "core-field.device.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "ConnectedHostMetadataWorkflow": {
     "schema": {
@@ -157,8 +155,7 @@
     "ui_schema_version": 1,
     "requires": [
       "core-field.device.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "DeployWorkflow": {
     "schema": {
@@ -217,8 +214,7 @@
     "requires": [
       "core-field.device.v1",
       "theme.hide-schema-descriptions.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "DeviceCableValidationWorkflow": {
     "schema": {
@@ -263,8 +259,7 @@
     "ui_schema_version": 1,
     "requires": [
       "core-field.device.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "DevicePasswordRotationWorkflow": {
     "schema": {
@@ -329,8 +324,7 @@
     "requires": [
       "core-field.api-options.v1",
       "core-field.device.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "DiagnosticsWorkflow": {
     "schema": {
@@ -449,8 +443,7 @@
       "core-field.api-options.v1",
       "core-field.device.v1",
       "theme.hide-schema-descriptions.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "IBPKeyCreationWorkflow": {
     "schema": {
@@ -493,8 +486,7 @@
     "ui_schema_version": 1,
     "requires": [
       "theme.hide-schema-descriptions.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "IBPKeyMemberAddWorkflow": {
     "schema": {
@@ -688,8 +680,7 @@
     "requires": [
       "core-field.variant-rows.v1",
       "theme.hide-schema-descriptions.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "IBPKeyMemberDeleteWorkflow": {
     "schema": {
@@ -836,8 +827,7 @@
     "requires": [
       "core-field.variant-rows.v1",
       "theme.hide-schema-descriptions.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "IBPKeyMemberUpdateWorkflow": {
     "schema": {
@@ -1032,8 +1022,7 @@
     "requires": [
       "core-field.variant-rows.v1",
       "theme.hide-schema-descriptions.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "IBPortGuidDiscoveryWorkflow": {
     "schema": {
@@ -1115,8 +1104,7 @@
     "ui_schema_version": 1,
     "requires": [
       "core-field.device.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "InfinibandCableValidationWorkflow": {
     "schema": {
@@ -1193,8 +1181,7 @@
     "ui_schema_version": 1,
     "requires": [
       "core-field.device.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "InfinibandGetUnhealthyPortsWorkflow": {
     "schema": {
@@ -1239,8 +1226,7 @@
     "ui_schema_version": 1,
     "requires": [
       "core-field.device.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "InfinibandMlnxOSUpgradeWorkflow": {
     "schema": {
@@ -1286,8 +1272,7 @@
     "ui_schema_version": 1,
     "requires": [
       "core-field.device.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "MultiDeployWorkflow": {
     "schema": {
@@ -1422,8 +1407,7 @@
     "requires": [
       "core-field.api-options.v1",
       "core-field.location.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "PortLLDPInfoWorkflow": {
     "schema": {
@@ -1481,8 +1465,7 @@
     "ui_schema_version": 1,
     "requires": [
       "core-field.device.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "ReprovisionWorkflow": {
     "schema": {
@@ -1532,8 +1515,7 @@
     "ui_schema_version": 1,
     "requires": [
       "core-field.device.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "SiteBackupWorkflow": {
     "schema": {
@@ -1669,8 +1651,7 @@
     "requires": [
       "core-field.api-options.v1",
       "core-field.location.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "SiteCableValidationWorkflow": {
     "schema": {
@@ -1799,8 +1780,7 @@
       "core-field.api-options.v1",
       "core-field.location.v1",
       "theme.hide-schema-descriptions.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "SitePasswordRotationWorkflow": {
     "schema": {
@@ -1976,7 +1956,8 @@
           "metaText": {
             "key": "matching_device_count",
             "label": "Matching devices"
-          }
+          },
+          "disableWhenNoMatches": true
         },
         "ui:title": "Secret to Rotate"
       }
@@ -1987,8 +1968,7 @@
       "core-field.api-options.v1",
       "core-field.location.v1",
       "theme.hide-schema-descriptions.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "SpXOverlayCreationWorkflow": {
     "schema": {
@@ -2111,8 +2091,7 @@
     "requires": [
       "core-field.api-options.v1",
       "core-field.location.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "SpXOverlayDeletionWorkflow": {
     "schema": {
@@ -2230,8 +2209,7 @@
       "core-field.api-options.v1",
       "core-field.location.v1",
       "theme.hide-schema-descriptions.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "SpXOverlayTenantChangeWorkflow": {
     "schema": {
@@ -2373,8 +2351,7 @@
       "core-field.api-options.v1",
       "core-field.device.v1",
       "core-field.location.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "SwitchOSUpgradeWorkflow": {
     "schema": {
@@ -2419,8 +2396,7 @@
     "ui_schema_version": 1,
     "requires": [
       "core-field.device.v1"
-    ],
-    "ui_component": null
+    ]
   },
   "ValidateHardwareWorkflow": {
     "schema": {
@@ -2545,7 +2521,6 @@
     "requires": [
       "core-field.api-options.v1",
       "core-field.location.v1"
-    ],
-    "ui_component": null
+    ]
   }
 }

@@ -1,0 +1,23 @@
+{
+  "workflow": "IBPKeyMemberAddWorkflow",
+  "input_model": "IBPKeyMemberAddInput",
+  "scenarios": [
+    {
+      "name": "GUID members",
+      "legacy_url": "/workflows/ibpkeymemberaddworkflow/form",
+      "new_url": "/workflows/new/IBPKeyMemberAddWorkflow",
+      "legacy_payload": {
+        "host": "ufm-1.lab",
+        "pkey": "0x8001",
+        "guids": ["0x0011223344556677"],
+        "guid_memberships": ["limited"]
+      },
+      "generic_payload": {
+        "host": "ufm-1.lab",
+        "pkey": "0x8001",
+        "guids": ["0x0011223344556677"],
+        "guid_memberships": ["limited"]
+      }
+    }
+  ]
+}

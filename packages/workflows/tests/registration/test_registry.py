@@ -445,30 +445,6 @@ class TestForms:
             registry.form_diagnostics[BetaWorkflow].message
         )
 
-    def test_a_third_party_ui_component_is_a_form_error(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(BetaWorkflow, "workflow_ui_component", "beta-editor", raising=False)
-
-        registry = WorkflowRegistry.build(
-            installed(plugin("beta-plugin", workflows=(BetaWorkflow,)))
-        )
-
-        assert "only available to the built-in plugin" in (
-            registry.form_diagnostics[BetaWorkflow].message
-        )
-
-    def test_the_builtin_plugin_may_name_a_ui_component(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(BetaWorkflow, "workflow_ui_component", "beta-editor", raising=False)
-
-        registry = WorkflowRegistry.build(
-            installed(plugin(BUILTIN_PLUGIN_NAME, workflows=(BetaWorkflow,)))
-        )
-
-        assert registry.forms[BetaWorkflow]["ui_component"] == "beta-editor"
-
     def test_an_invalid_builtin_form_fails_the_build(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(BetaWorkflow, "workflow_input_class", InvalidFormInput)
 

@@ -63,7 +63,7 @@ _EXCLUSIONS: dict[str, str] = json.loads(
 )
 _UPDATE_SNAPSHOTS = os.environ.get("NVCM_UPDATE_SNAPSHOTS") == "1"
 _MAX_DIFF_LINES = 60
-_FORM_KEYS = ["schema", "ui_schema", "ui_schema_version", "requires", "ui_component"]
+_FORM_KEYS = ["schema", "ui_schema", "ui_schema_version", "requires"]
 
 
 class _BrokenFormInput(BaseModel):

@@ -91,19 +91,6 @@ def test_workflow_lock_is_absent_by_default() -> None:
     assert WorkflowMetadataMixin.get_workflow_lock() is None
 
 
-def test_ui_component_is_absent_by_default() -> None:
-    assert WorkflowMetadataMixin.workflow_ui_component is None
-    assert WorkflowMetadataMixin.get_workflow_ui_component() is None
-    assert DeviceBackupWorkflow.get_workflow_ui_component() is None
-
-
-def test_ui_component_accessor_reads_subclass_declaration() -> None:
-    class TenantDeployWorkflow(WorkflowMetadataMixin):
-        workflow_ui_component = "tenant-deploy"
-
-    assert TenantDeployWorkflow.get_workflow_ui_component() == "tenant-deploy"
-
-
 def test_missing_name_is_reported_by_the_accessor() -> None:
     with pytest.raises(ValueError, match="missing workflow_name"):
         WorkflowMetadataMixin.get_workflow_name()

@@ -524,20 +524,6 @@ test.describe("legacy form URLs", () => {
     }
   });
 
-  test("unmigrated legacy forms remain on their bespoke pages", async ({ page }) => {
-    await Promise.all(
-      Object.entries(WORKFLOW_ROUTES)
-        .filter(([, route]) => !route.migrated)
-        .map(async ([name, { legacySlug }]) => {
-          const response = await page.request.get(`/workflows/${legacySlug}/form`, {
-            maxRedirects: 0,
-          });
-
-          expect(response.status(), name).toBe(200);
-        })
-    );
-  });
-
   test("a user without the execute role sees each migrated form disabled", async ({
     page,
   }) => {

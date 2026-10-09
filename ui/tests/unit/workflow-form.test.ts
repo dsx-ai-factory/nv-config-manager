@@ -54,7 +54,6 @@ const validForm = () => ({
   },
   ui_schema_version: 1,
   requires: ["core-field.location.v1", "theme.hide-schema-descriptions.v1"],
-  ui_component: null,
 });
 
 const CANONICAL_UI_DIR = new URL(
@@ -64,7 +63,7 @@ const CANONICAL_UI_DIR = new URL(
 const read = (url: URL) => readFileSync(fileURLToPath(url), "utf8");
 
 describe("v1 contract artifacts", () => {
-  it.each(["workflow-form-v1.schema.json", "workflow-form-capabilities-v1.json"])(
+  it.each(["workflow-form-v1.schema.json", "workflow-form-v1.capabilities.json"])(
     "keeps the UI copy of %s byte-identical to the canonical file",
     (file) => {
       expect(read(new URL(`../../src/lib/${file}`, import.meta.url))).toBe(
@@ -74,7 +73,7 @@ describe("v1 contract artifacts", () => {
   );
 
   it("supports every capability in the manifest", () => {
-    const manifest = JSON.parse(read(new URL("workflow-form-capabilities-v1.json", CANONICAL_UI_DIR)));
+    const manifest = JSON.parse(read(new URL("workflow-form-v1.capabilities.json", CANONICAL_UI_DIR)));
     expect([...SUPPORTED_CAPABILITIES].sort()).toEqual([...manifest.capabilities].sort());
   });
 });
@@ -118,7 +117,7 @@ describe("parseWorkflowFormResponse", () => {
     ["an unknown ui_schema key", (form: ReturnType<typeof validForm>) => ({ ...form, ui_schema: { ...form.ui_schema, "ui:groups": [] } })],
     ["an unknown widget", (form: ReturnType<typeof validForm>) => ({ ...form, ui_schema: { ...form.ui_schema, site_type: { "ui:widget": "slider" } } })],
     ["a location without a source", (form: ReturnType<typeof validForm>) => ({ ...form, ui_schema: { ...form.ui_schema, site: { "ui:field": "location", "ui:options": {} } } })],
-    ["an empty ui_component", (form: ReturnType<typeof validForm>) => ({ ...form, ui_component: "" })],
+    ["an unknown envelope key", (form: ReturnType<typeof validForm>) => ({ ...form, ui_component: null })],
   ])("rejects %s as malformed with issues", (_label, mutate) => {
     const result = parseWorkflowFormResponse(mutate(validForm()));
     expect(result).toMatchObject({ ok: false, kind: "malformed" });

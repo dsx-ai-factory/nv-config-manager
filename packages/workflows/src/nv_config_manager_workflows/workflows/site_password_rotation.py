@@ -144,6 +144,7 @@ class SitePasswordRotationInput(BaseModel):
                 ),
                 show_descriptions=True,
                 meta_text={"key": "matching_device_count", "label": "Matching devices"},
+                disable_when_no_matches=True,
             ),
             "ui:title": "Secret to Rotate",
         },

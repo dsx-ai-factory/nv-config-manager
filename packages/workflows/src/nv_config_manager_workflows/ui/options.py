@@ -122,12 +122,15 @@ def api_options(
     select_all: bool = False,
     show_descriptions: bool = False,
     meta_text: Mapping[str, str] | None = None,
+    disable_when_no_matches: bool = False,
 ) -> dict[str, Any]:
     """Return an ``apiOptions`` field loaded from ``source``.
 
     The optional display settings apply to the standard ``options-v1``
     response. They deliberately describe presentation only; request execution,
     caching, dependency handling, and rendering remain generic client behavior.
+    ``disable_when_no_matches`` disables the picker when response metadata reports
+    ``matching_device_count`` as zero.
     """
     options: dict[str, Any] = {"source": _wire(source)}
     if presentation is not None:
@@ -138,6 +141,8 @@ def api_options(
         options["showDescriptions"] = True
     if meta_text:
         options["metaText"] = _wire(meta_text)
+    if disable_when_no_matches:
+        options["disableWhenNoMatches"] = True
     return {"ui:field": "apiOptions", "ui:options": options}
 
 
