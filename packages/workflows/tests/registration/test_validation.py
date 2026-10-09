@@ -724,6 +724,15 @@ class TestDeclaredMetadata:
             validate_plugins(installed(alpha_plugin()))
 
     @pytest.mark.parametrize("declared", [1, "true", None])
+    def test_form_opt_in_must_be_a_bool(
+        self, monkeypatch: pytest.MonkeyPatch, declared: Any
+    ) -> None:
+        monkeypatch.setattr(AlphaWorkflow, "workflow_form_enabled", declared)
+
+        with pytest.raises(WorkflowRegistrationError, match="workflow_form_enabled"):
+            validate_plugins(installed(alpha_plugin()))
+
+    @pytest.mark.parametrize("declared", [1, "true", None])
     def test_mcp_opt_in_must_be_a_bool(
         self, monkeypatch: pytest.MonkeyPatch, declared: Any
     ) -> None:

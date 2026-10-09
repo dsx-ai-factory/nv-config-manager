@@ -29,10 +29,13 @@ from nv_config_manager_workflows.registration.descriptor import (
     WorkflowPluginDescriptor,
 )
 from nv_config_manager_workflows.registration.errors import WorkflowConflictError
+from nv_config_manager_workflows.registration.form_catalog import (
+    WorkflowFormCatalog,
+    WorkflowFormDiagnostic,
+)
 from nv_config_manager_workflows.registration.registry import (
     PluginInfo,
     SchedulerRegistration,
-    WorkflowFormDiagnostic,
     WorkflowRegistry,
 )
 from nv_config_manager_workflows.stage import StageMixin
@@ -398,10 +401,11 @@ class TestForms:
                 plugin("beta-plugin", workflows=(BetaWorkflow,)),
             )
         )
+        catalog = WorkflowFormCatalog.build(registry)
 
-        assert set(registry.forms) == {AlphaWorkflow, BetaWorkflow}
-        assert registry.forms[AlphaWorkflow]["schema"]["required"] == ["device"]
-        assert registry.form_diagnostics == {}
+        assert set(catalog.forms) == {AlphaWorkflow, BetaWorkflow}
+        assert catalog.forms[AlphaWorkflow]["schema"]["required"] == ["device"]
+        assert catalog.diagnostics == {}
         assert registry.owner(BetaWorkflow) == "beta-plugin"
         assert registry.owner(InternalWorkflow) == "alpha-plugin"
 
@@ -424,11 +428,12 @@ class TestForms:
                 plugin("beta-plugin", workflows=(BetaWorkflow,)),
             )
         )
+        catalog = WorkflowFormCatalog.build(registry)
 
         assert BetaWorkflow in registry.api_workflows
-        assert BetaWorkflow not in registry.forms
-        assert AlphaWorkflow in registry.forms
-        diagnostic = registry.form_diagnostics[BetaWorkflow]
+        assert BetaWorkflow not in catalog.forms
+        assert AlphaWorkflow in catalog.forms
+        diagnostic = catalog.diagnostics[BetaWorkflow]
         assert diagnostic == WorkflowFormDiagnostic(
             plugin="beta-plugin", workflow="BetaWorkflow", message=diagnostic.message
         )
@@ -449,10 +454,11 @@ class TestForms:
         registry = WorkflowRegistry.build(
             installed(plugin("beta-plugin", workflows=(BetaWorkflow,)))
         )
+        catalog = WorkflowFormCatalog.build(registry)
 
         assert BetaWorkflow in registry.api_workflows
         assert "invalid form declaration (TypeError: unhashable type: 'list')" in (
-            registry.form_diagnostics[BetaWorkflow].message
+            catalog.diagnostics[BetaWorkflow].message
         )
 
     def test_a_third_party_pydantic_schema_error_is_isolated(
@@ -463,30 +469,35 @@ class TestForms:
         registry = WorkflowRegistry.build(
             installed(plugin("beta-plugin", workflows=(BetaWorkflow,)))
         )
+        catalog = WorkflowFormCatalog.build(registry)
 
         assert BetaWorkflow in registry.api_workflows
-        assert BetaWorkflow not in registry.forms
+        assert BetaWorkflow not in catalog.forms
         assert "invalid form declaration (PydanticInvalidForJsonSchema:" in (
-            registry.form_diagnostics[BetaWorkflow].message
+            catalog.diagnostics[BetaWorkflow].message
         )
 
-    def test_an_invalid_builtin_form_fails_the_build(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_an_invalid_builtin_form_fails_the_form_catalog_build(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(BetaWorkflow, "workflow_input_class", InvalidFormInput)
+        registry = WorkflowRegistry.build(
+            installed(plugin(BUILTIN_PLUGIN_NAME, workflows=(BetaWorkflow,)))
+        )
 
         with pytest.raises(WorkflowFormContractError, match="FormSchema default"):
-            WorkflowRegistry.build(
-                installed(plugin(BUILTIN_PLUGIN_NAME, workflows=(BetaWorkflow,)))
-            )
+            WorkflowFormCatalog.build(registry)
 
-    def test_a_builtin_pydantic_schema_error_fails_the_build(
+    def test_a_builtin_pydantic_schema_error_fails_the_form_catalog_build(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(BetaWorkflow, "workflow_input_class", InvalidJsonSchemaInput)
+        registry = WorkflowRegistry.build(
+            installed(plugin(BUILTIN_PLUGIN_NAME, workflows=(BetaWorkflow,)))
+        )
 
         with pytest.raises(WorkflowFormContractError, match="PydanticInvalidForJsonSchema"):
-            WorkflowRegistry.build(
-                installed(plugin(BUILTIN_PLUGIN_NAME, workflows=(BetaWorkflow,)))
-            )
+            WorkflowFormCatalog.build(registry)
 
     def test_ordinary_registration_errors_stay_fatal_for_third_parties(
         self, monkeypatch: pytest.MonkeyPatch

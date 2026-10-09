@@ -33,6 +33,7 @@ class WorkflowMetadataMixin:
     workflow_input_class: type[BaseModel] | None = None
     workflow_api_enabled: bool = False
     workflow_api_endpoint: str | None = None
+    workflow_form_enabled: bool = True
     workflow_namespace: str | None = None
     workflow_mcp_enabled: bool = False
     workflow_group: str | None = None
@@ -72,6 +73,11 @@ class WorkflowMetadataMixin:
     def get_workflow_api_endpoint(cls) -> str | None:
         """Get the workflow API endpoint."""
         return cls.workflow_api_endpoint
+
+    @classmethod
+    def get_workflow_form_enabled(cls) -> bool:
+        """Return whether the workflow is offered through the browser form contract."""
+        return cls.workflow_form_enabled
 
     @classmethod
     def get_workflow_namespace(cls) -> str | None:

@@ -154,6 +154,7 @@ def _require_valid_metadata(workflows: list[_OwnedWorkflow]) -> None:
         )
         _require_input_class(owned.item, label)
         _require_bool_api_flag(owned.item, label)
+        _require_bool_form_flag(owned.item, label)
         _require_bool_mcp_flag(owned.item, label)
         _require_text(getattr(owned.item, "workflow_group", None), "workflow_group", label)
         _require_activity_names_wellformed(owned.item, label)
@@ -322,6 +323,15 @@ def _require_bool_api_flag(workflow: type[WorkflowMetadataMixin], label: str) ->
     if not isinstance(api_enabled, bool):
         raise WorkflowRegistrationError(
             f"{label} declares workflow_api_enabled {api_enabled!r}, which is not a bool"
+        )
+
+
+def _require_bool_form_flag(workflow: type[WorkflowMetadataMixin], label: str) -> None:
+    """Reject a browser-form opt-in that is not a bool."""
+    form_enabled = getattr(workflow, "workflow_form_enabled", True)
+    if not isinstance(form_enabled, bool):
+        raise WorkflowRegistrationError(
+            f"{label} declares workflow_form_enabled {form_enabled!r}, which is not a bool"
         )
 
 

@@ -24,22 +24,12 @@ import type {
 /** Section for catalog entries that do not declare a `group`. */
 export const DEFAULT_WORKFLOW_GROUP = "Other";
 
-/** `input_class` value the server reports for a workflow without an input model. */
-export const UNKNOWN_INPUT_CLASS = "Unknown";
-
 /** Build the catalog URL from the runtime workflow API URL. */
 export const buildWorkflowCatalogUrl = (apiURL: string): string =>
   sanitizeUrl(`${apiURL}/v1/workflow/metadata`);
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
-
-/**
- * Backward-compatible `has_form` inference for servers that do not send it: a workflow
- * has a form when it reports an input class other than the server's `"Unknown"` marker.
- */
-export const inferHasForm = (inputClass: string | null | undefined): boolean =>
-  isNonEmptyString(inputClass) && inputClass !== UNKNOWN_INPUT_CLASS;
 
 /**
  * Apply documented defaults to one catalog entry. Absent and `null` optional fields are
@@ -57,8 +47,9 @@ export const normalizeWorkflowCatalogEntry = (
     tags: Array.isArray(tags)
       ? tags.filter((tag): tag is string => typeof tag === "string")
       : [],
-    has_form:
-      typeof has_form === "boolean" ? has_form : inferHasForm(metadata.input_class),
+    // Missing means an older API, not that the new `/form` endpoint exists. Keep that
+    // state so the launcher can fail closed with an upgrade message.
+    has_form: typeof has_form === "boolean" ? has_form : null,
     enabled: typeof enabled === "boolean" ? enabled : true,
     order: typeof order === "number" && Number.isFinite(order) ? order : undefined,
     group: isNonEmptyString(group) ? group : DEFAULT_WORKFLOW_GROUP,

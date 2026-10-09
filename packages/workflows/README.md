@@ -374,11 +374,14 @@ response is a version 1 envelope:
 - `requires` lists the capabilities the UI must support to render the form.
 
 A model without `rjsf_ui_schema` gets RJSF's default controls for its projected
-schema. The form declaration is UI-only: Pydantic ignores the `ClassVar` and the
-markers, so the model's `model_json_schema()`, its validation, the API request
-body, the MCP tool schema, the generated clients, and Temporal replay of
-existing histories are unchanged. Pydantic remains the validator of every
-submission; the form's checks only report problems before submitting.
+schema. Pydantic ignores the `ClassVar` and marker metadata, so they do not
+change the model's `model_json_schema()`, its Pydantic validation rules, the API
+request body shape, the MCP tool schema, the corresponding generated-client
+model, or Temporal replay deserialization of existing histories. The HTTP API
+still uses `ServerOwned` to replace authoritative identity fields and may run
+the workflow's `canonicalize_input` checks after Pydantic validation and before
+starting a workflow, as described below. The form's own checks only report
+problems before submitting.
 
 #### Declaring a form
 
@@ -452,7 +455,7 @@ and the fixture plugin's `FixtureInput` in
 
 #### Supported keys
 
-Registration rejects every other key, widget, and field.
+Form-catalog construction rejects every other key, widget, and field.
 
 | Where | Key | Value |
 | --- | --- | --- |
@@ -488,8 +491,8 @@ depends_on={}, clear_on_change=False, response=None)`:
   is filled from that sibling property. It is a required dependency: options
   wait until the property has a value.
 - Each returned row supplies its label under `label_key` and its submitted
-  value under `value_key`. `type_key` is used only by a location field with a
-  `type_field`.
+  value under `value_key`. `type_key` supplies the selected location type for
+  a location field with a `type_field` and for the device field's Site filter.
 - `params` are static query parameters: strings, finite numbers, booleans, or
   lists of them, which become repeated parameters.
 - `depends_on` maps a query parameter to a `Dependency(field, *, required=True)`
@@ -507,8 +510,8 @@ a field that depends on itself.
 
 `OptionSource` and the helpers do not validate when they are constructed, so a
 malformed source never fails the import of the module that declares it.
-Registration checks the emitted wire form instead and reports any problem as a
-form error (see below).
+Form-catalog construction checks the emitted wire form instead and reports any
+problem as a form error (see below).
 
 The endpoint must already be served by the workflow API. A workflow plugin may
 point a form at an existing parameter endpoint, but `WorkflowPluginDescriptor`
@@ -534,12 +537,15 @@ Declare that sibling `{"ui:widget": "hidden"}`. `source` must then set
 `device_field(source, *, filters=(), site_required=True, site_field=None,
 filter_scope=None, query_param="device-id")` renders a device select, with
 filter controls, for a string or string-array property. `source` cannot set
-`type_key` or `depends_on`. The UI requests `source.endpoint` with
-`source.params`, plus `site` and `site_type` once a site is known and repeated
-`tenant` and `status` values from the filters.
+`type_key` or `depends_on`. The helper emits `filterSources`, a mapping from
+each enabled filter to the backend-owned `OptionSource` that supplies its
+choices. The UI requests `source.endpoint` with `source.params`, plus `site`
+and `site_type` once a site is known and repeated `tenant` and `status` values
+from the filters.
 
 - `filters` picks the Site, Tenant, and Status filter controls from `"site"`,
-  `"tenant"`, and `"status"`. The UI loads their options from fixed endpoints.
+  `"tenant"`, and `"status"`. Their `filterSources` keys exactly match the
+  enabled controls; callers do not declare these sources separately.
 - `site_required` holds the device options until a site is chosen.
 - `site_field` names a location field in the same form that declares a
   `type_field`. Site then comes from that field instead of a Site filter
@@ -568,8 +574,8 @@ Every owned property must be a projected top-level array, belong to exactly one
 mode, and be controlled only through the one anchor property carrying
 `variant_rows`. List the other owned properties in `ui:order` and mark them
 hidden. Switching modes clears the inactive arrays; `clear_inactive=False` is
-not supported. Registration checks that the column bindings match the
-projected array and item schemas. See `IBPKeyMemberAddInput` in
+not supported. Form-catalog construction checks that the column bindings match
+the projected array and item schemas. See `IBPKeyMemberAddInput` in
 `workflows/ib_pkey_member_add.py` for an object-array and scalar-array example.
 
 #### Form-wide interactions and validation
@@ -580,7 +586,9 @@ listed in `deviceFilters` when its non-model Site, Tenant, or Status controls
 activate the same mode. A populated mode disables the other modes, and changing
 modes clears their projected values and device filters. Every field and device
 filter may belong to only one group, and a `deviceFilters` entry must also be in
-that group's `fields`. For example:
+that group's `fields`. Set `requireComplete: True` on every group when the form
+must select one mode and every field in the active mode is required. A required
+Site on a listed device field is also checked. For example:
 
 ```python
 "ui:globalOptions": {
@@ -588,8 +596,9 @@ that group's `fields`. For example:
         {
             "fields": ["device_id", "interface"],
             "deviceFilters": ["device_id"],
+            "requireComplete": True,
         },
-        {"fields": ["remote_mac_address"]},
+        {"fields": ["remote_mac_address"], "requireComplete": True},
     ]
 }
 ```
@@ -614,15 +623,29 @@ cross-field rule without changing replay deserialization, implement the same
 check in the workflow class's `canonicalize_input` method and raise a
 non-retryable `ApplicationError`. Do not add a Pydantic model validator solely
 for a launcher interaction; existing Temporal histories deserialize that model.
+The workflow HTTP endpoint runs this hook after Pydantic request validation and
+returns HTTP 422 in the OpenAPI `HTTPValidationError` envelope if it raises
+`ApplicationError`; callers that start a Temporal workflow directly do not pass
+through this HTTP-boundary hook.
+
+The built-in Port LLDP Info endpoint uses the hook to trim its interface or MAC
+lookup value and require exactly one complete lookup method: `device_id` with
+`interface`, or `remote_mac_address` by itself. The built-in SpX Overlay
+Creation endpoint uses it to require `rd_min < rd_max`. These are stricter HTTP
+submission rules even though the Pydantic request schemas themselves are
+unchanged.
 
 #### Field markers
 
-Markers are plain objects in a field's `Annotated` metadata. They change only
-the `/form` projection:
+Markers are plain objects in a field's `Annotated` metadata. They do not change
+the Pydantic request schema or its validation. All three shape the `/form`
+projection; `ServerOwned` also declares that the HTTP boundary, rather than the
+submitted body, owns the marked identity value:
 
-- `ServerOwned()`: the HTTP API replaces any submitted value with a
-  server-derived value, for example the authenticated requesting `user`. It is
-  left out of the form schema and its `required` list. Trusted callers that
+- `ServerOwned()`: on a field named `user` or `user_domain`, the HTTP API
+  replaces any submitted value with identity derived from the authenticated
+  request. Other field names are rejected in workflow-form v1. It is left out
+  of the form schema and its `required` list. Trusted callers that
   construct Temporal input directly, such as schedulers and parent workflows,
   may still provide it.
 - `FormExcluded()`: the form neither shows nor submits the field, so the model
@@ -639,9 +662,9 @@ the `/form` projection:
 `ServerOwned` and `FormExcluded` fields must have a Pydantic default or
 `default_factory`, because the request body is validated before the server
 fills it. A field carries at most one marker. Markers belong only in a top-level
-field's own metadata or in a top-level `Annotated` alias. Registration rejects
-a marker in a list item, a union member, or a nested model's field. Marked
-fields cannot appear in `rjsf_ui_schema`.
+field's own metadata or in a top-level `Annotated` alias. Form-catalog
+construction rejects a marker in a list item, a union member, or a nested
+model's field. Marked fields cannot appear in `rjsf_ui_schema`.
 
 Keep input models compatible: an input model is the API request body and the
 Temporal payload of existing workflow histories. Express form-only rules with
@@ -659,12 +682,12 @@ the form. Each URL parameter has exactly one owner:
 | `device` field | Its `query_param`; none when `query_param=None`. |
 | Device filter scope | `site` (only without `site_field`), `tenant`, and `status`, for the filters it uses. |
 
-Registration rejects a form in which two owners claim the same parameter, such
-as two device fields with the default `query_param`, or a standard field named
-`status` beside a device field with a Status filter. `ServerOwned`,
-`FormExcluded`, and hidden properties cannot be pre-filled. A core field applies
-its URL value only when the value matches a loaded option. Submit stays disabled
-until every pre-filled core field has resolved.
+Form-catalog construction rejects a form in which two owners claim the same
+parameter, such as two device fields with the default `query_param`, or a
+standard field named `status` beside a device field with a Status filter.
+`ServerOwned`, `FormExcluded`, and hidden properties cannot be pre-filled. A
+core field applies its URL value only when the value matches a loaded option.
+Submit stays disabled until every pre-filled core field has resolved.
 
 A few built-in forms also accept URL spellings that shipped before this
 contract, such as `?device=` for device password rotation. The server adds them
@@ -674,10 +697,18 @@ multiple values in one comma-separated parameter. Authors cannot declare these
 compatibility options. New forms use property names, repeated parameters, and
 `query_param`.
 
-#### Registration errors and plugin isolation
+#### Form-catalog errors and plugin isolation
 
-`WorkflowRegistry.build()` builds and validates the `/form` envelope of every
-API-enabled workflow. Invalid declarations raise
+The workflow API builds a `WorkflowFormCatalog` from its `WorkflowRegistry` and
+validates the `/form` envelope of every API-enabled workflow. Temporal workers,
+schedulers, MCP, and the CLI build only the execution registry and do not build
+or validate browser forms. A workflow that remains executable through the API
+or CLI but must not have a browser form declares
+`workflow_form_enabled = False` on its workflow class. The metadata catalog then
+reports `has_form: false`, and `GET /v1/workflow/{name}/form` returns HTTP 404.
+`has_form: true` means the form contract is enabled and discoverable; its form
+endpoint can still return HTTP 503 when a third-party declaration is invalid.
+Invalid declarations on form-enabled workflows raise
 `WorkflowFormContractError` with a message that names the model and the problem.
 For example, the error can report an unknown key, widget, or `ui:field`, a
 property that is not in the form schema, an incompatible property type, a
@@ -688,9 +719,10 @@ JSON Schema error is reported the same way. The result
 depends on the workflow's owning plugin, which is the first plugin in registry
 order to contribute the class, with the built-in plugin first:
 
-- **Built-in plugin:** the error stops startup of every process that builds the
-  registry.
-- **Third-party plugin:** the registry records a diagnostic containing the
+- **Built-in plugin:** the error stops workflow API startup and fails the
+  built-in form validation in CI. It does not stop Temporal workers, schedulers,
+  MCP, or the CLI.
+- **Third-party plugin:** the form catalog records a diagnostic containing the
   plugin, workflow, and sanitized message. The workflow, its execution
   endpoint, the CLI, and MCP are unaffected. Only its form is unavailable:
   `GET /v1/workflow/{name}/form` returns HTTP 503 with
@@ -704,9 +736,11 @@ diagnostics before release:
 
 ```python
 from nv_config_manager_workflows.registration import WorkflowRegistry
+from nv_config_manager_workflows.registration.form_catalog import WorkflowFormCatalog
 
 registry = WorkflowRegistry.build()
-print(registry.form_diagnostics)
+form_catalog = WorkflowFormCatalog.build(registry)
+print(form_catalog.diagnostics)
 ```
 
 #### Capabilities and versioning

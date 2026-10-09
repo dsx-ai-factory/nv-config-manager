@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from pytest_mock import MockerFixture
 from temporalio import workflow
 
-from nv_config_manager.temporal.api import dynamic_endpoints, workflow_v1
+from nv_config_manager.temporal.api import workflow_catalog, workflow_v1
 from nv_config_manager.temporal.api.dynamic_endpoints import register_dynamic_endpoints
 from nv_config_manager.temporal.api.workflow_catalog import WORKFLOW_REGISTRY
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
@@ -137,7 +137,7 @@ async def test_metadata_includes_plugin_api_workflows_once_and_types_include_all
         "read_roles": {"reader", workflow_name},
         "execute_roles": {"executor", workflow_name},
     }
-    mocker.patch.object(dynamic_endpoints, "RBACConfig", return_value=rbac)
+    mocker.patch.object(workflow_catalog, "RBACConfig", return_value=rbac)
 
     workflow_types = await workflow_v1.get_workflow_types()
     metadata = await workflow_v1.get_workflow_metadata()
@@ -152,4 +152,5 @@ async def test_metadata_includes_plugin_api_workflows_once_and_types_include_all
     assert visible.endpoint == "/plugin/visible"
     assert visible.read_roles == [_VisiblePluginWorkflow.__name__, "reader"]
     assert visible.execute_roles == [_VisiblePluginWorkflow.__name__, "executor"]
+    assert visible.has_form is True
     rbac.get_workflow_roles.assert_any_call(_VisiblePluginWorkflow.__name__)

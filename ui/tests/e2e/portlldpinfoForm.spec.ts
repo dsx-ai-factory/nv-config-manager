@@ -19,9 +19,9 @@
  * The Port LLDP Info form on its class-name route (the legacy
  * `/workflows/portlldpinfoworkflow/form` redirects there).
  *
- * The device's Site filter is optional, so without a Site the picker lists every
- * managed device. Device/interface and MAC remain mutually exclusive: using either
- * mode disables the other, while the API boundary rejects incomplete direct requests.
+ * Device lookup requires Site, device, and interface. Device lookup and MAC lookup
+ * remain mutually exclusive: using either mode disables the other, and incomplete
+ * modes are blocked before submission while the API boundary remains authoritative.
  */
 import { expect, type Page } from "@playwright/test";
 
@@ -45,6 +45,7 @@ import {
   picker,
   SELECT_DEVICE,
   SELECT_SITE,
+  SITE_FIRST,
   selected,
   submit,
 } from "./shared/workflowFormTests";
@@ -73,11 +74,11 @@ test.describe("Port LLDP Info Form", () => {
     });
   });
 
-  test("renders an optional device with an optional Site, Interface, and MAC address", async ({
+  test("requires Site before choosing a device", async ({
     page,
   }) => {
     await expect(page.locator("form label")).toHaveText([
-      "Site",
+      "Site *",
       "Device",
       "Interface",
       "MAC Address",
@@ -90,12 +91,16 @@ test.describe("Port LLDP Info Form", () => {
     await expect(
       page.getByText("Use this instead of the device and interface fields.")
     ).toBeVisible();
-    // No Site needed to list devices.
-    await expect(picker(page, SELECT_DEVICE)).toBeEnabled({
+    await expect(picker(page, SITE_FIRST)).toBeDisabled({
       timeout: TEST_TIMEOUT,
     });
     await expect(interfaceInput(page)).toBeEnabled();
     await expect(macInput(page)).toBeEnabled();
+    await choose(page, SELECT_SITE, SITE);
+    await expect(picker(page, SELECT_DEVICE)).toBeEnabled({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(macInput(page)).toBeDisabled();
   });
 
   test("submits a device and interface; the interface is trimmed", async ({
@@ -114,18 +119,6 @@ test.describe("Port LLDP Info Form", () => {
     await expectWorkflowDetails(page);
   });
 
-  test("submits a device picked without a Site", async ({ page }) => {
-    await choose(page, SELECT_DEVICE, DEVICE.name);
-    await interfaceInput(page).fill(INTERFACE);
-
-    const post = nextPost(page, ENDPOINT);
-    await submit(page);
-    expect((await post).postDataJSON()).toEqual({
-      device_id: DEVICE.id,
-      interface: INTERFACE,
-    });
-  });
-
   test("submits a MAC address alone", async ({ page }) => {
     await macInput(page).fill(MAC);
     const post = nextPost(page, ENDPOINT);
@@ -139,7 +132,7 @@ test.describe("Port LLDP Info Form", () => {
   }) => {
     await macInput(page).fill(MAC);
     await expect(picker(page, SELECT_SITE)).toBeDisabled();
-    await expect(picker(page, SELECT_DEVICE)).toBeDisabled();
+    await expect(picker(page, SITE_FIRST)).toBeDisabled();
     await expect(interfaceInput(page)).toBeDisabled();
 
     await macInput(page).fill("");
@@ -170,25 +163,28 @@ test.describe("Port LLDP Info Form", () => {
     await expect(selected(page, OTHER.name)).toBeVisible();
   });
 
-  test("an empty or incomplete submission gets the API boundary's 422 inline", async ({
+  test("blocks empty and incomplete modes before calling the API", async ({
     page,
   }) => {
-    const message = "provide device_id and interface, or remote_mac_address";
-    await page.route(`**${ENDPOINT}`, (route) =>
-      route.fulfill({
-        status: 422,
-        json: { detail: message },
-      })
-    );
-    const post = nextPost(page, ENDPOINT);
+    const posts: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST" && request.url().endsWith(ENDPOINT)) {
+        posts.push(request.url());
+      }
+    });
+
     await submit(page);
-    expect((await post).postDataJSON()).toEqual({});
-    await expect(formErrors(page)).toContainText(message);
+    await expect(formErrors(page)).toContainText(
+      "Provide Site, Device, Interface or MAC Address"
+    );
+    expect(posts).toEqual([]);
     await noFailureToast(page);
 
-    // Any change clears the form-level server error.
-    await macInput(page).fill(MAC);
-    await expect(formErrors(page)).toHaveCount(0);
+    await interfaceInput(page).fill(INTERFACE);
+    await submit(page);
+    await expect(page.getByText("Device is required")).toBeVisible();
+    await expect(page.getByText("Site is required for Device")).toBeVisible();
+    expect(posts).toEqual([]);
   });
 
   test("shows a forbidden device in the failure toast", async ({ page }) => {
@@ -247,11 +243,11 @@ test.describe("Port LLDP Info Form - URL prefill", () => {
     page,
   }) => {
     await page.goto(`${PATH}?site=NOPE&device-id=${DEVICE.id}`);
-    // The unknown Site leaves the device unfiltered, where the device exists.
+    // A required unknown Site is dropped, so the device picker stays unavailable.
     await expect(picker(page, SELECT_SITE)).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
-    await expect(selected(page, DEVICE.name)).toBeVisible({
+    await expect(picker(page, SITE_FIRST)).toBeDisabled({
       timeout: TEST_TIMEOUT,
     });
 

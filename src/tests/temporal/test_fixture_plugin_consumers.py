@@ -32,6 +32,7 @@ from nv_config_manager_workflows.registration import (
 )
 from nv_config_manager_workflows.registration.contract import activity_name
 from nv_config_manager_workflows.registration.descriptor import UNKNOWN_PLUGIN_VERSION
+from nv_config_manager_workflows.registration.form_catalog import WorkflowFormCatalog
 
 FIXTURE_PLUGIN = "nvcm-fixture"
 FIXTURE_WORKFLOWS = (FixtureEchoWorkflow, FixtureApiOnlyWorkflow)
@@ -95,9 +96,10 @@ def test_mcp_exposes_only_the_mcp_enabled_plugin_workflow(registry: WorkflowRegi
 
 def test_the_plugin_form_is_validated_as_a_third_party_form(registry: WorkflowRegistry) -> None:
     assert [registry.owner(workflow) for workflow in FIXTURE_WORKFLOWS] == [FIXTURE_PLUGIN] * 2
-    assert not set(FIXTURE_WORKFLOWS) & set(registry.form_diagnostics)
+    form_catalog = WorkflowFormCatalog.build(registry)
+    assert not set(FIXTURE_WORKFLOWS) & set(form_catalog.diagnostics)
 
-    form = registry.forms[FixtureEchoWorkflow]
+    form = form_catalog.forms[FixtureEchoWorkflow]
 
     assert form["requires"] == ["core-field.api-options.v1"]
     assert form["ui_schema"]["message"]["ui:field"] == "apiOptions"

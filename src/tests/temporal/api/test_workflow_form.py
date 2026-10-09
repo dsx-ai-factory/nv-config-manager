@@ -34,7 +34,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pytest_mock import MockerFixture
 from temporalio import workflow as temporal_workflow
 from temporalio.service import RPCError, RPCStatusCode
@@ -44,6 +44,7 @@ from nv_config_manager.temporal.api.dynamic_endpoints import register_dynamic_en
 from nv_config_manager.temporal.api.main import app
 from nv_config_manager.temporal.api.workflow_catalog import (
     WORKFLOW_API_CATALOG,
+    WORKFLOW_FORM_CATALOG,
     WORKFLOW_REGISTRY,
     WORKFLOW_TYPE_CATALOG,
 )
@@ -53,6 +54,7 @@ from nv_config_manager_workflows.registration import (
     WorkflowPluginDescriptor,
     WorkflowRegistry,
 )
+from nv_config_manager_workflows.registration.form_catalog import WorkflowFormCatalog
 from nv_config_manager_workflows.stage import StageMixin
 from nv_config_manager_workflows.ui import OptionSource, WorkflowFormContractError, api_options
 from nv_config_manager_workflows.workflows.backup import BackupWorkflow
@@ -105,7 +107,7 @@ def client() -> TestClient:
 def forms(client: TestClient) -> dict[str, Any]:
     """Return the form of every API-enabled workflow, keyed by class name."""
     forms: dict[str, Any] = {}
-    for name in sorted(w.__name__ for w in WORKFLOW_API_CATALOG):
+    for name in sorted(w.__name__ for w in WORKFLOW_FORM_CATALOG.forms):
         rsp = client.get(f"/v1/workflow/{name}/form")
         assert rsp.status_code == 200, (name, rsp.text)
         forms[name] = rsp.json()
@@ -119,6 +121,11 @@ def third_party_registry() -> WorkflowRegistry:
             "acme": WorkflowPluginDescriptor(name="acme", workflows=(_ThirdPartyWorkflow,)),
         }
     )
+
+
+@pytest.fixture
+def third_party_form_catalog(third_party_registry: WorkflowRegistry) -> WorkflowFormCatalog:
+    return WorkflowFormCatalog.build(third_party_registry)
 
 
 def _render(data: Any) -> str:
@@ -191,7 +198,7 @@ def test_form_of_an_api_workflow(client: TestClient) -> None:
     assert rsp.status_code == 200
     body = rsp.json()
     assert list(body) == _FORM_KEYS
-    assert body == WORKFLOW_REGISTRY.forms[BackupWorkflow]
+    assert body == WORKFLOW_FORM_CATALOG.forms[BackupWorkflow]
     assert body["ui_schema_version"] == 1
     assert body["requires"] == ["core-field.device.v1"]
     assert "user" not in body["schema"]["properties"]
@@ -217,16 +224,39 @@ def test_api_disabled_workflow_has_no_form(client: TestClient, name: str) -> Non
     assert rsp.json() == {"detail": f"Workflow '{name}' not found"}
 
 
+@pytest.mark.parametrize("name", sorted(_EXCLUSIONS))
+def test_form_disabled_workflow_has_no_form(client: TestClient, name: str) -> None:
+    """Form policy does not disable the workflow's existing execution endpoint."""
+    workflow = next(workflow for workflow in WORKFLOW_API_CATALOG if workflow.__name__ == name)
+    assert workflow not in WORKFLOW_FORM_CATALOG.forms
+
+    rsp = client.get(f"/v1/workflow/{name}/form")
+
+    assert rsp.status_code == 404
+    assert rsp.json() == {"detail": f"Workflow '{name}' not found"}
+    execution = client.post(
+        f"/v1/workflow{workflow.get_workflow_api_endpoint()}", json=[]
+    )
+    assert execution.status_code == 422
+
+
 def test_an_invalid_third_party_form_is_unavailable(
-    client: TestClient, mocker: MockerFixture, third_party_registry: WorkflowRegistry
+    client: TestClient,
+    mocker: MockerFixture,
+    third_party_registry: WorkflowRegistry,
+    third_party_form_catalog: WorkflowFormCatalog,
 ) -> None:
-    mocker.patch.object(workflow_v1, "WORKFLOW_REGISTRY", third_party_registry)
     mocker.patch.object(
         workflow_v1, "WORKFLOW_API_CATALOG", tuple(third_party_registry.api_workflows)
     )
+    mocker.patch.object(workflow_v1, "WORKFLOW_FORM_CATALOG", third_party_form_catalog)
 
+    metadata = client.get("/v1/workflow/metadata")
     rsp = client.get("/v1/workflow/_ThirdPartyWorkflow/form")
 
+    assert metadata.status_code == 200
+    [entry] = metadata.json()["workflows"]
+    assert entry["has_form"] is True
     assert rsp.status_code == 503
     detail = rsp.json()["detail"]
     assert {key: detail[key] for key in ("code", "plugin", "workflow")} == {
@@ -245,21 +275,23 @@ def test_a_malformed_option_source_fails_only_its_form(
     registry = WorkflowRegistry.build(
         {"acme": WorkflowPluginDescriptor(name="acme", workflows=(_ThirdPartyWorkflow,))}
     )
-    mocker.patch.object(workflow_v1, "WORKFLOW_REGISTRY", registry)
+    form_catalog = WorkflowFormCatalog.build(registry)
     mocker.patch.object(workflow_v1, "WORKFLOW_API_CATALOG", tuple(registry.api_workflows))
+    mocker.patch.object(workflow_v1, "WORKFLOW_FORM_CATALOG", form_catalog)
 
     rsp = client.get("/v1/workflow/_ThirdPartyWorkflow/form")
 
     assert rsp.status_code == 503
     assert "endpoint must start with a single '/'" in rsp.json()["detail"]["message"]
+    builtin_registry = WorkflowRegistry.build(
+        {
+            BUILTIN_PLUGIN_NAME: WorkflowPluginDescriptor(
+                name=BUILTIN_PLUGIN_NAME, workflows=(_ThirdPartyWorkflow,)
+            )
+        }
+    )
     with pytest.raises(WorkflowFormContractError, match="must start with a single '/'"):
-        WorkflowRegistry.build(
-            {
-                BUILTIN_PLUGIN_NAME: WorkflowPluginDescriptor(
-                    name=BUILTIN_PLUGIN_NAME, workflows=(_ThirdPartyWorkflow,)
-                )
-            }
-        )
+        WorkflowFormCatalog.build(builtin_registry)
 
 
 def test_an_invalid_third_party_form_keeps_its_execution_endpoint(
@@ -273,7 +305,7 @@ def test_an_invalid_third_party_form_keeps_its_execution_endpoint(
 
 
 def test_every_form_has_the_v1_envelope_shape(forms: dict[str, Any]) -> None:
-    assert len(forms) == len(WORKFLOW_API_CATALOG)
+    assert len(forms) == len(WORKFLOW_FORM_CATALOG.forms)
     for name, form in forms.items():
         assert list(form) == _FORM_KEYS, name
         assert form["ui_schema_version"] == 1, name
@@ -297,16 +329,22 @@ def test_builtin_form_catalog_matches_the_exclusion_policy() -> None:
         for workflow in WORKFLOW_REGISTRY.api_workflows
         if WORKFLOW_REGISTRY.owner(workflow) == BUILTIN_PLUGIN_NAME
     }
+    available = {
+        workflow.__name__
+        for workflow in WORKFLOW_FORM_CATALOG.forms
+        if WORKFLOW_REGISTRY.owner(workflow) == BUILTIN_PLUGIN_NAME
+    }
     diagnostics = [
         workflow.__name__
-        for workflow in WORKFLOW_REGISTRY.form_diagnostics
+        for workflow in WORKFLOW_FORM_CATALOG.diagnostics
         if WORKFLOW_REGISTRY.owner(workflow) == BUILTIN_PLUGIN_NAME
     ]
 
     assert diagnostics == []
     assert set(_EXCLUSIONS) - builtin == set(), "stale exclusions"
     assert all(reason.strip() for reason in _EXCLUSIONS.values())
-    assert set(json.loads(_SNAPSHOT.read_text())) == builtin - set(_EXCLUSIONS)
+    assert builtin - available == set(_EXCLUSIONS)
+    assert set(json.loads(_SNAPSHOT.read_text())) == available
 
 
 def test_forms_match_snapshot(forms: dict[str, Any]) -> None:
@@ -390,3 +428,11 @@ def test_form_operation_is_published_under_its_operation_id() -> None:
     response_schema = spec["components"]["schemas"]["WorkflowFormResponse"]
     assert list(response_schema["properties"]) == _FORM_KEYS
     assert response_schema["required"] == _FORM_KEYS
+    assert response_schema["properties"]["ui_schema_version"]["const"] == 1
+
+
+def test_form_response_rejects_an_unsupported_schema_version() -> None:
+    with pytest.raises(ValidationError, match="Input should be 1"):
+        workflow_v1.WorkflowFormResponse.model_validate(
+            {"schema": {}, "ui_schema": {}, "ui_schema_version": 2, "requires": []}
+        )

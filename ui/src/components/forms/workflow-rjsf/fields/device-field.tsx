@@ -37,7 +37,6 @@ import { getUiOptions, type FieldProps } from "@rjsf/utils";
 
 import useOptionSource from "@/hooks/useOptionSource";
 import type { ExtraParams, OptionSourceItem } from "@/lib/option-source";
-import type { OptionSource } from "@/types/workflow-catalog.types";
 
 import { contextOf, type ShellFormContext } from "../context";
 import {
@@ -57,26 +56,6 @@ import {
   useSignatureChange,
 } from "./shared";
 
-export const SITE_FILTER_SOURCE: OptionSource = {
-  endpoint: "/v1/parameter/location",
-  label_key: "name",
-  value_key: "id",
-  type_key: "location_type",
-  params: { location_type: ["Site", "Module"] },
-};
-export const TENANT_FILTER_SOURCE: OptionSource = {
-  endpoint: "/v1/parameter/tenant",
-  label_key: "name",
-  value_key: "name",
-  params: { managed_only: true },
-};
-export const STATUS_FILTER_SOURCE: OptionSource = {
-  endpoint: "/v1/parameter/status",
-  label_key: "name",
-  value_key: "name",
-  params: { content_type: "dcim.device" },
-};
-
 const NO_VALUES = {};
 
 const siteKey = (item: OptionSourceItem): string =>
@@ -88,6 +67,7 @@ const siteKey = (item: OptionSourceItem): string =>
 interface ScopeControlsProps {
   scope: string;
   filters: readonly DeviceFilter[];
+  filterSources: DeviceOptions["filterSources"];
   /** Whether this scope renders its own Site control (no `siteField`). */
   ownSite: boolean;
   siteRequired: boolean;
@@ -103,6 +83,7 @@ interface ScopeControlsProps {
 const ScopeControls = ({
   scope,
   filters,
+  filterSources,
   ownSite,
   siteRequired,
   context,
@@ -117,15 +98,15 @@ const ScopeControls = ({
   const showStatus = filters.includes("status");
 
   const sites = useOptionSource(
-    ownSite ? SITE_FILTER_SOURCE : undefined,
+    ownSite ? filterSources.site : undefined,
     NO_VALUES
   );
   const tenants = useOptionSource(
-    showTenant ? TENANT_FILTER_SOURCE : undefined,
+    showTenant ? filterSources.tenant : undefined,
     NO_VALUES
   );
   const statuses = useOptionSource(
-    showStatus ? STATUS_FILTER_SOURCE : undefined,
+    showStatus ? filterSources.status : undefined,
     NO_VALUES
   );
 
@@ -282,7 +263,14 @@ export const DeviceField = (props: FieldProps) => {
   const context = contextOf(registry.formContext);
   const { formData, pending, layout, query, setFields, settle } = context;
   const options = getUiOptions(uiSchema) as unknown as DeviceOptions;
-  const { source, filters, siteRequired, siteField, filterScope } = options;
+  const {
+    source,
+    filters,
+    filterSources,
+    siteRequired,
+    siteField,
+    filterScope,
+  } = options;
   const owner: Owner = `field:${name}`;
   const multiple = schema.type === "array";
   const label = fieldLabel(props);
@@ -390,6 +378,7 @@ export const DeviceField = (props: FieldProps) => {
         <ScopeControls
           scope={filterScope}
           filters={scopePrefillFilters(options)}
+          filterSources={filterSources}
           ownSite={usesSite && siteField === undefined}
           siteRequired={siteRequired}
           context={context}

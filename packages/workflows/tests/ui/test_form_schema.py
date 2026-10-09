@@ -129,6 +129,14 @@ def test_a_top_level_annotated_alias_marker_is_accepted() -> None:
     assert "user" not in project_form_schema(Aliased)["properties"]
 
 
+def test_server_owned_rejects_fields_the_http_boundary_cannot_fill() -> None:
+    class Model(BaseModel):
+        owner: Annotated[str, ServerOwned()] = ""
+
+    with pytest.raises(WorkflowFormContractError, match="supports only 'user' and 'user_domain'"):
+        project_form_schema(Model)
+
+
 def _nested_list() -> type[BaseModel]:
     class Model(BaseModel):
         users: list[Annotated[str, ServerOwned()]] = []

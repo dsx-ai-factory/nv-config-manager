@@ -45,18 +45,11 @@ from nv_config_manager_workflows.ui import (
     location_field,
 )
 from nv_config_manager_workflows.ui.markers import FORM_MARKERS
+from nv_config_manager_workflows.ui.option_sources import SITE_FILTER_SOURCE
 from nv_config_manager_workflows.workflow_references import (
     DEVICE_REFERENCE,
     DeviceReferences,
     LocationReference,
-)
-
-_LOCATION_SOURCE = OptionSource(
-    "/v1/parameter/location",
-    "name",
-    "id",
-    type_key="location_type",
-    params={"location_type": ["Site", "Module"]},
 )
 
 
@@ -88,7 +81,7 @@ def _declared_input() -> type[BaseModel]:
 
         rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
             "ui:order": ["site", "devices", "*"],
-            "site": location_field(_LOCATION_SOURCE, type_field="site_type"),
+            "site": location_field(SITE_FILTER_SOURCE, type_field="site_type"),
             "site_type": {"ui:widget": "hidden"},
             "devices": device_field(
                 OptionSource("/v1/parameter/device", "name", "id"),

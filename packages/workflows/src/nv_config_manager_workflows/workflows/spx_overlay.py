@@ -47,9 +47,9 @@ from nv_config_manager_workflows.workflow_references import (
     LocationReference,
 )
 from nv_config_manager_workflows.workflows._form_sources import (
-    LOCATION_SOURCE,
     MANAGED_DEVICE_SOURCE,
     NAMESPACE_TAG_SOURCE,
+    SITE_FILTER_SOURCE,
 )
 
 with workflow.unsafe.imports_passed_through():
@@ -161,7 +161,7 @@ class SpXOverlayCreationInput(BaseModel):
                 }
             ]
         },
-        "site": ui.location_field(LOCATION_SOURCE, type_field="site_type"),
+        "site": ui.location_field(SITE_FILTER_SOURCE, type_field="site_type"),
         "site_type": {"ui:widget": "hidden"},
         "tenant": ui.api_options(ui.OptionSource("/v1/parameter/tenant", "name", "name")),
         "namespace_tag": {**ui.api_options(NAMESPACE_TAG_SOURCE), "ui:title": "Namespace Tag"},
@@ -347,7 +347,7 @@ class SpXOverlayDeletionInput(BaseModel):
 
     rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
         "ui:globalOptions": {"hideSchemaDescriptions": True},
-        "site": ui.location_field(LOCATION_SOURCE, type_field="site_type"),
+        "site": ui.location_field(SITE_FILTER_SOURCE, type_field="site_type"),
         "site_type": {"ui:widget": "hidden"},
         "overlay_id": ui.api_options(SPX_OVERLAY_SOURCE),
         "namespace_tag": {**ui.api_options(NAMESPACE_TAG_SOURCE), "ui:title": "Namespace Tag"},
@@ -575,6 +575,7 @@ class SpXOverlayAssignmentWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
     workflow_input_class = SpXOverlayAssignmentInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_assignment"
+    workflow_form_enabled = False
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_network_device,
@@ -905,7 +906,7 @@ class SpXOverlayTenantChangeInput(BaseModel):
     rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
         "ui:order": ["site", "overlay_id", "device_id", "port_names", "*"],
         "site": {
-            **ui.location_field(LOCATION_SOURCE, type_field="site_type"),
+            **ui.location_field(SITE_FILTER_SOURCE, type_field="site_type"),
             "ui:title": "Site",
         },
         "site_type": {"ui:widget": "hidden"},

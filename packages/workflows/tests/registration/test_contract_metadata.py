@@ -32,6 +32,7 @@ from nv_config_manager_workflows.registration.contract import (
     workflow_class_name,
     workflow_cli_name,
     workflow_declared_name,
+    workflow_form_enabled,
     workflow_group,
     workflow_has_complete_metadata,
     workflow_mcp_enabled,
@@ -160,6 +161,13 @@ class TestApiExposure:
     def test_api_exposure_is_opt_in(self) -> None:
         assert not workflow_api_enabled(BareWorkflow)
         assert workflow_api_enabled(FullyDeclaredWorkflow)
+
+    def test_form_exposure_defaults_on_and_can_be_disabled(self) -> None:
+        class FormlessWorkflow(WorkflowMetadataMixin):
+            workflow_form_enabled = False
+
+        assert workflow_form_enabled(BareWorkflow)
+        assert not workflow_form_enabled(FormlessWorkflow)
 
 
 class TestCliName:

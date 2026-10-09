@@ -24,6 +24,7 @@ import {
   fetchWorkflowForm,
   parseWorkflowFormResponse,
   SUPPORTED_CAPABILITIES,
+  SUPPORTED_UI_SCHEMA_VERSION,
 } from "@/lib/workflow-form";
 import { WORKFLOW_FORM_FIXTURES } from "@/mocks/data/workflowForms";
 
@@ -75,6 +76,18 @@ describe("v1 contract artifacts", () => {
   it("supports every capability in the manifest", () => {
     const manifest = JSON.parse(read(new URL("workflow-form-v1.capabilities.json", CANONICAL_UI_DIR)));
     expect([...SUPPORTED_CAPABILITIES].sort()).toEqual([...manifest.capabilities].sort());
+  });
+
+  it("keeps the supported version aligned with the manifest and wire schema", () => {
+    const manifest = JSON.parse(
+      read(new URL("../../src/lib/workflow-form-v1.capabilities.json", import.meta.url))
+    ) as { ui_schema_version: number };
+    const schema = JSON.parse(
+      read(new URL("../../src/lib/workflow-form-v1.schema.json", import.meta.url))
+    ) as { properties: { ui_schema_version: { const: number } } };
+
+    expect(manifest.ui_schema_version).toBe(SUPPORTED_UI_SCHEMA_VERSION);
+    expect(schema.properties.ui_schema_version.const).toBe(SUPPORTED_UI_SCHEMA_VERSION);
   });
 });
 

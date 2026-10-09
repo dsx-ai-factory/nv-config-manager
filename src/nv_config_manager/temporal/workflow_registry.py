@@ -51,8 +51,8 @@ def log_workflow_registry(registry: WorkflowRegistry) -> None:
     """Log one record per plugin and one manifest summary.
 
     Records carry only plugin names, versions, contribution counts, scheduler
-    identities, the manifest fingerprint, and sanitized form diagnostics: never
-    descriptor metadata, entry-point values, or configuration. The ``service`` field set by
+    identities, and the manifest fingerprint: never descriptor metadata,
+    entry-point values, or configuration. The ``service`` field set by
     ``configure_logging()`` identifies the emitting process.
     """
     manifest = registry_manifest(registry)
@@ -77,18 +77,6 @@ def log_workflow_registry(registry: WorkflowRegistry) -> None:
                     if registration.plugin == plugin.name
                 ],
                 "registry_fingerprint": manifest.fingerprint,
-            },
-        )
-    for diagnostic in registry.form_diagnostics.values():
-        logger.warning(
-            "Workflow form unavailable for %s from plugin %s: %s",
-            escape_log_newlines(diagnostic.workflow),
-            escape_log_newlines(diagnostic.plugin),
-            escape_log_newlines(diagnostic.message),
-            extra={
-                "event_type": "workflow_form_unavailable",
-                "plugin": escape_log_newlines(diagnostic.plugin),
-                "workflow": escape_log_newlines(diagnostic.workflow),
             },
         )
     logger.info(

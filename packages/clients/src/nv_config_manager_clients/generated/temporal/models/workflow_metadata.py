@@ -31,7 +31,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -47,12 +47,13 @@ class WorkflowMetadata(BaseModel):
     endpoint: StrictStr
     execute_roles: List[StrictStr]
     group: Optional[StrictStr] = None
+    has_form: Optional[StrictBool] = None
     input_class: StrictStr
     name: StrictStr
     namespace: Optional[StrictStr]
     read_roles: List[StrictStr]
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["cli_name", "description", "display_name", "endpoint", "execute_roles", "group", "input_class", "name", "namespace", "read_roles"]
+    __properties: ClassVar[List[str]] = ["cli_name", "description", "display_name", "endpoint", "execute_roles", "group", "has_form", "input_class", "name", "namespace", "read_roles"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -105,6 +106,11 @@ class WorkflowMetadata(BaseModel):
         if self.group is None and "group" in self.model_fields_set:
             _dict['group'] = None
 
+        # set to None if has_form (nullable) is None
+        # and model_fields_set contains the field
+        if self.has_form is None and "has_form" in self.model_fields_set:
+            _dict['has_form'] = None
+
         # set to None if namespace (nullable) is None
         # and model_fields_set contains the field
         if self.namespace is None and "namespace" in self.model_fields_set:
@@ -128,6 +134,7 @@ class WorkflowMetadata(BaseModel):
             "endpoint": obj.get("endpoint"),
             "execute_roles": obj.get("execute_roles"),
             "group": obj.get("group"),
+            "has_form": obj.get("has_form"),
             "input_class": obj.get("input_class"),
             "name": obj.get("name"),
             "namespace": obj.get("namespace"),

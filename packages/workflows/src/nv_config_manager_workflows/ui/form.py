@@ -38,7 +38,7 @@ from nv_config_manager_workflows.ui.form_schema import (
     omitted_properties,
     project_form_schema,
 )
-from nv_config_manager_workflows.ui.options import (
+from nv_config_manager_workflows.ui.option_sources import (
     check_endpoint,
     check_params,
     require_text,
@@ -769,6 +769,34 @@ class _FormChecker:
             )
         if not isinstance(options.get("siteRequired"), bool):
             raise self.fail(f"{name!r} device siteRequired must be a boolean")
+        filter_sources = options.get("filterSources")
+        if not isinstance(filter_sources, dict):
+            raise self.fail(f"{name!r} device filterSources must be a mapping")
+        enabled_filters = set(cast(list[str], filters))
+        if set(filter_sources) != enabled_filters:
+            raise self.fail(
+                f"{name!r} device filterSources keys must exactly match filters; "
+                f"expected {sorted(enabled_filters)}, got {sorted(filter_sources)}"
+            )
+        dependencies: list[str] = []
+        for filter_name in cast(list[str], filters):
+            filter_source = filter_sources[filter_name]
+            source_dependencies = self.check_source(
+                f"{name} filterSources[{filter_name!r}]",
+                filter_source,
+                type_key=filter_name == "site",
+                depends_on=False,
+                enriched=False,
+            )
+            if source_dependencies:
+                raise self.fail(
+                    f"{name!r} device {filter_name!r} filter source endpoint must not "
+                    "depend on form properties"
+                )
+            if filter_name == "site" and (
+                not isinstance(filter_source, dict) or "type_key" not in filter_source
+            ):
+                raise self.fail(f"{name!r} device Site filter source needs type_key")
         if "queryParam" in options:
             require_text(options["queryParam"], f"{self.name} {name!r} queryParam")
         scope = options.get("filterScope")
@@ -788,7 +816,7 @@ class _FormChecker:
                 )
         site_field = options.get("siteField")
         if site_field is None:
-            return []
+            return dependencies
         if "site" not in filters:
             raise self.fail(f"{name!r} sets siteField, so its filters must include 'site'")
         site_entry = self.fields.get(
@@ -803,7 +831,8 @@ class _FormChecker:
                 f"{name!r} siteField {site_field!r} must name a location field that declares "
                 "a typeField"
             )
-        return [site_field]
+        dependencies.append(site_field)
+        return dependencies
 
     def check_source(
         self,
@@ -898,13 +927,14 @@ class _FormChecker:
             signature = (
                 options.get("siteField"),
                 tuple(sorted(options["filters"])),
+                json.dumps(options["filterSources"], sort_keys=True, separators=(",", ":")),
                 options["siteRequired"],
             )
             scope = options["filterScope"]
             if scope in seen and seen[scope][1] != signature:
                 raise self.fail(
                     f"device fields {seen[scope][0]!r} and {name!r} share filterScope {scope!r} "
-                    "but differ in siteField, filters, or siteRequired"
+                    "but differ in siteField, filters, filterSources, or siteRequired"
                 )
             seen.setdefault(scope, (name, signature))
 
@@ -917,6 +947,7 @@ class _FormChecker:
             raise self.fail("ui:globalOptions.exclusiveGroups must contain at least two groups")
         used_fields: set[str] = set()
         used_device_filters: set[str] = set()
+        complete_groups = 0
         for index, group in enumerate(groups):
             where = f"ui:globalOptions.exclusiveGroups[{index}]"
             if (
@@ -926,10 +957,15 @@ class _FormChecker:
                 <= {
                     "fields",
                     "deviceFilters",
+                    "requireComplete",
                 }
             ):
                 raise self.fail(f"{where} must contain fields and/or deviceFilters")
             group_mapping = cast(dict[str, object], group)
+            if group_mapping.get("requireComplete") is True:
+                complete_groups += 1
+            elif "requireComplete" in group_mapping:
+                raise self.fail(f"{where}.requireComplete must be true")
             fields = group_mapping.get("fields", [])
             device_filters = group_mapping.get("deviceFilters", [])
             if (
@@ -965,6 +1001,10 @@ class _FormChecker:
                         f"exclusive group device filter {name!r} belongs to more than one group"
                     )
                 used_device_filters.add(name)
+        if complete_groups not in {0, len(groups)}:
+            raise self.fail(
+                "exclusiveGroups requireComplete must be enabled on every group or none"
+            )
 
     def check_field_comparisons(self) -> None:
         """Validate declarative comparisons between projected numeric fields."""

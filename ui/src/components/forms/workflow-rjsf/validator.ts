@@ -31,6 +31,7 @@ import type { FormLayout } from "./context";
 import { editsWholeValue } from "./server-errors";
 import type { FormData } from "./state";
 import {
+  deviceOptionsOf,
   labelOf,
   fieldComparisonsOf,
   own,
@@ -39,6 +40,17 @@ import {
   resolveRef,
   variantRowsDeclarations,
 } from "./ui-schema";
+
+type ValidationFilters = Readonly<
+  Record<
+    string,
+    {
+      site?: unknown;
+      tenant?: readonly string[];
+      status?: readonly string[];
+    }
+  >
+>;
 
 /** Formats Pydantic v2 emits that `ajv-formats` does not define. */
 const PYDANTIC_ANNOTATION_FORMATS = [
@@ -99,6 +111,96 @@ const labelAt = (
 
 const capitalize = (message: string): string =>
   message ? message[0].toUpperCase() + message.slice(1) : message;
+
+const hasValue = (value: unknown): boolean =>
+  value !== undefined &&
+  value !== null &&
+  (typeof value !== "string" || value.trim() !== "") &&
+  (!Array.isArray(value) || value.length > 0);
+
+const scopeHasValue = (
+  scope: ValidationFilters[string] | undefined
+): boolean =>
+  scope?.site !== undefined ||
+  Boolean(scope?.tenant?.length) ||
+  Boolean(scope?.status?.length);
+
+const joinModes = (modes: readonly string[]): string => {
+  if (modes.length <= 1) return modes[0] ?? "an input mode";
+  if (modes.length === 2) return `${modes[0]} or ${modes[1]}`;
+  return `${modes.slice(0, -1).join(", ")}, or ${modes.at(-1)}`;
+};
+
+const completeModeLabel = (
+  schema: unknown,
+  uiSchema: unknown,
+  group: NonNullable<FormLayout["exclusiveGroups"]>[number]
+): string => {
+  const labels = group.fields.map((field) => labelOf(schema, uiSchema, field));
+  for (const deviceField of group.deviceFields) {
+    const options = deviceOptionsOf(uiSchema, deviceField);
+    if (!options.siteRequired) continue;
+    if (options.siteField) {
+      labels.unshift(labelOf(schema, uiSchema, options.siteField));
+    } else {
+      labels.unshift("Site");
+    }
+  }
+  return [...new Set(labels)].join(", ");
+};
+
+/** Validate an opt-in set of mutually exclusive, complete input modes. */
+const validateCompleteExclusiveGroups = (
+  schema: unknown,
+  uiSchema: unknown,
+  formData: FormData,
+  errors: Parameters<CustomValidator>[1],
+  layout: FormLayout | undefined,
+  filters: ValidationFilters
+): void => {
+  const groups = (layout?.exclusiveGroups ?? []).filter(
+    (group) => group.requireComplete
+  );
+  if (groups.length === 0) return;
+
+  const active = groups.filter(
+    (group) =>
+      group.fields.some((field) => hasValue(formData[field])) ||
+      group.filterScopes.some((scope) => scopeHasValue(filters[scope]))
+  );
+  if (active.length === 0) {
+    errors.addError(
+      `Provide ${joinModes(
+        groups.map((group) => completeModeLabel(schema, uiSchema, group))
+      )}`
+    );
+    return;
+  }
+  if (active.length > 1) {
+    errors.addError("Choose only one input mode");
+    return;
+  }
+
+  const [group] = active;
+  for (const field of group.fields) {
+    if (!hasValue(formData[field])) {
+      errors[field]?.addError(`${labelOf(schema, uiSchema, field)} is required`);
+    }
+  }
+  for (const deviceField of group.deviceFields) {
+    const options = deviceOptionsOf(uiSchema, deviceField);
+    if (!options.siteRequired) continue;
+    const hasSite = options.siteField
+      ? hasValue(formData[options.siteField])
+      : filters[options.filterScope]?.site !== undefined;
+    if (!hasSite) {
+      const target = options.siteField ?? deviceField;
+      errors[target]?.addError(
+        `Site is required for ${labelOf(schema, uiSchema, deviceField)}`
+      );
+    }
+  }
+};
 
 /**
  * Readable Ajv messages: a missing value (and an empty required list) is
@@ -180,10 +282,16 @@ export const createTransformErrors =
  * it away, so report it the way Ajv reports an absent value.
  */
 export const createCustomValidate =
-  (schema: unknown, uiSchema: unknown): CustomValidator =>
+  (
+    schema: unknown,
+    uiSchema: unknown,
+    layout?: FormLayout,
+    filters: ValidationFilters = {}
+  ): CustomValidator =>
   (formData, errors) => {
+    const data = (formData ?? {}) as FormData;
     for (const name of requiredOf(schema)) {
-      const value = own(formData, name);
+      const value = own(data, name);
       if (typeof value === "string" && value.trim() === "") {
         errors[name]?.addError(
           `${labelOf(schema, uiSchema, name)} is required`
@@ -196,14 +304,14 @@ export const createCustomValidate =
     )) {
       for (const message of validateVariantRowsValues(
         config,
-        formData as FormData
+        data
       )) {
         errors[anchor]?.addError(message);
       }
     }
     for (const comparison of fieldComparisonsOf(uiSchema)) {
-      const left = own(formData, comparison.left);
-      const right = own(formData, comparison.right);
+      const left = own(data, comparison.left);
+      const right = own(data, comparison.right);
       if (
         comparison.operator === "lessThan" &&
         typeof left === "number" &&
@@ -213,5 +321,13 @@ export const createCustomValidate =
         errors[comparison.left]?.addError(comparison.message);
       }
     }
+    validateCompleteExclusiveGroups(
+      schema,
+      uiSchema,
+      data,
+      errors,
+      layout,
+      filters
+    );
     return errors;
   };

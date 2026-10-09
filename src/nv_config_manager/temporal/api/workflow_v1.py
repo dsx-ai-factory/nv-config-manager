@@ -20,7 +20,7 @@ import asyncio
 import base64
 import re
 from datetime import UTC, datetime
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, Literal, cast
 from uuid import uuid4
 
 import brotli
@@ -41,15 +41,15 @@ from temporalio.service import RPCError, RPCStatusCode
 from nv_config_manager.common.config import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.temporal.api.dynamic_endpoints import (
-    get_registered_workflows_info,
     register_dynamic_endpoints,
     set_start_workflow_function,
 )
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
 from nv_config_manager.temporal.api.workflow_catalog import (
     WORKFLOW_API_CATALOG,
-    WORKFLOW_REGISTRY,
+    WORKFLOW_FORM_CATALOG,
     WORKFLOW_TYPE_CATALOG,
+    build_workflow_metadata,
 )
 from nv_config_manager.temporal.api.workflow_submission import resolve_workflow_references
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
@@ -168,6 +168,13 @@ class WorkflowMetadata(BaseModel):
     read_roles: list[str]
     execute_roles: list[str]
     group: str | None = None
+    has_form: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the browser-form contract is enabled. When true, the form endpoint "
+            "may still return HTTP 503 if a third-party declaration failed validation."
+        ),
+    )
 
 
 class WorkflowMetadataResponse(BaseModel):
@@ -186,7 +193,7 @@ class WorkflowFormResponse(BaseModel):
 
     json_schema: dict[str, Any] = Field(alias="schema")
     ui_schema: dict[str, Any]
-    ui_schema_version: int
+    ui_schema_version: Literal[1]
     requires: list[str]
 
 
@@ -827,22 +834,28 @@ async def get_workflow_metadata() -> WorkflowMetadataResponse:
     """Return registered workflow metadata and RBAC roles."""
     workflow_types = sorted(workflow.__name__ for workflow in WORKFLOW_API_CATALOG)
 
-    workflows_info = get_registered_workflows_info(
-        include_rbac=True,
-        workflows=WORKFLOW_API_CATALOG,
-    )
-    workflows = [
-        WorkflowMetadata.model_validate(workflows_info[name])
-        for name in workflow_types
-        if name in workflows_info
-    ]
+    workflows_info = build_workflow_metadata(WORKFLOW_API_CATALOG)
+    workflows_by_name = {workflow.__name__: workflow for workflow in WORKFLOW_API_CATALOG}
+    workflows = []
+    for name in workflow_types:
+        if name not in workflows_info:
+            continue
+        workflow = workflows_by_name[name]
+        workflows.append(
+            WorkflowMetadata.model_validate(
+                {
+                    **workflows_info[name],
+                    "has_form": workflow.get_workflow_form_enabled(),
+                }
+            )
+        )
     return WorkflowMetadataResponse(workflows=workflows)
 
 
 @router.get(
     "/{name}/form",
     responses={
-        404: {"description": "No API workflow has this class name."},
+        404: {"description": "No browser form is available for this workflow."},
         503: {"description": "The workflow's third-party form failed contract validation."},
     },
 )
@@ -851,7 +864,7 @@ async def get_workflow_form(name: str) -> WorkflowFormResponse:
     workflow = next((w for w in WORKFLOW_API_CATALOG if w.__name__ == name), None)
     if workflow is None:
         raise HTTPException(status_code=404, detail=f"Workflow '{name}' not found")
-    diagnostic = WORKFLOW_REGISTRY.form_diagnostics.get(workflow)
+    diagnostic = WORKFLOW_FORM_CATALOG.diagnostics.get(workflow)
     if diagnostic is not None:
         raise HTTPException(
             status_code=503,
@@ -862,7 +875,10 @@ async def get_workflow_form(name: str) -> WorkflowFormResponse:
                 "message": diagnostic.message,
             },
         )
-    return WorkflowFormResponse.model_validate(WORKFLOW_REGISTRY.forms[workflow])
+    form = WORKFLOW_FORM_CATALOG.forms.get(workflow)
+    if form is None:
+        raise HTTPException(status_code=404, detail=f"Workflow '{name}' not found")
+    return WorkflowFormResponse.model_validate(form)
 
 
 @router.get("/{workflow_id}")

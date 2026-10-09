@@ -83,6 +83,7 @@ export type DeviceFilter = "site" | "tenant" | "status";
 export interface DeviceOptions {
   source: OptionSource;
   filters: DeviceFilter[];
+  filterSources: Partial<Record<DeviceFilter, OptionSource>>;
   siteRequired: boolean;
   siteField?: string;
   filterScope: string;
@@ -93,11 +94,14 @@ export interface DeviceOptions {
 export interface ExclusiveGroupDeclaration {
   fields?: string[];
   deviceFilters?: string[];
+  requireComplete?: true;
 }
 
 export interface ExclusiveGroup {
   fields: string[];
   filterScopes: string[];
+  deviceFields: string[];
+  requireComplete: boolean;
 }
 
 export interface FieldComparison {
@@ -211,6 +215,8 @@ export const exclusiveGroupsOf = (uiSchema: unknown): ExclusiveGroup[] => {
       filterScopes: deviceFilters.map(
         (name) => deviceOptionsOf(uiSchema, name).filterScope
       ),
+      deviceFields: deviceFilters,
+      requireComplete: declaration.requireComplete === true,
     };
   });
 };

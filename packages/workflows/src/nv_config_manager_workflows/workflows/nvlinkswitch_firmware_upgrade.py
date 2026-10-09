@@ -133,6 +133,7 @@ class NVLinkSwitchFirmwareUpgradeWorkflow(
     workflow_input_class = NVLinkSwitchFirmwareUpgradeInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/nvlinkswitch_firmware_upgrade"
+    workflow_form_enabled = False
     workflow_namespace = "ngc"
     workflow_required_activities = (
         check_recorded_config_drift,

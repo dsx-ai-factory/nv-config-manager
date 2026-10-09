@@ -62,11 +62,6 @@ const workflowOverrides: Readonly<Record<string, WorkflowLauncherOverride>> = {
   IBPKeyMemberAddWorkflow: { title: "InfiniBand PKey Member Add" },
   IBPKeyMemberUpdateWorkflow: { title: "InfiniBand PKey Member Update" },
   IBPKeyMemberDeleteWorkflow: { title: "InfiniBand PKey Member Delete" },
-  HelloWorld: { hidden: true },
-  HelloWorldApproval: { hidden: true },
-  NVLinkSwitchFirmwareUpgradeWorkflow: { hidden: true },
-  RedfishProvisioningWorkflow: { hidden: true },
-  SpXOverlayAssignmentWorkflow: { hidden: true },
 };
 
 export type SiteConfig = typeof siteConfig;

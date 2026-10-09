@@ -27,6 +27,7 @@ import { DEVICES_LIST, SITES_LIST, STATUS_LIST, TENANT_LIST } from "@/mocks/data
 
 import {
   SERVER_WORKFLOW_FORMS,
+  SERVER_WORKFLOW_METADATA,
   mockServerCatalogAndUser,
   mockTypedLocationsEndpoint,
 } from "./shared/apiMocks";
@@ -34,6 +35,8 @@ import { test, TEST_TIMEOUT, WORKFLOW_DETAILS_TIMEOUT } from "./shared/utils";
 
 const DEPLOY_TITLE = "New Configuration Deploy Workflow";
 const DEPLOY_ROLES_REASON = "Required execute roles: DeployWorkflow, executor";
+const API_UPGRADE_REQUIRED =
+  "Upgrade the Config Manager workflow API to a version that supports browser workflow forms.";
 // TenantB, Active: matches the Nautobot link's tenant and status filters too.
 const DEVICE = DEVICES_LIST[SITES_LIST.pdx01][0];
 
@@ -235,6 +238,7 @@ test.describe("/workflows/new/<ClassName>", () => {
   test("an unknown workflow, or a form the server does not have, is not found", async ({
     page,
   }) => {
+    const requests = formRequests(page);
     await page.goto("/workflows/new/NoSuchWorkflow");
     await expect(page.getByRole("heading", { name: "Workflow not found" })).toBeVisible();
     await expect(
@@ -245,17 +249,13 @@ test.describe("/workflows/new/<ClassName>", () => {
       "/workflows"
     );
 
-    // The class name is decoded from the path once, and encoded once for the API.
-    const formRequest = page.waitForRequest((request) =>
-      new URL(request.url()).pathname.endsWith("/form")
-    );
+    // The class name is decoded from the path, but unknown catalog entries are rejected
+    // without probing a generic-form endpoint.
     await page.goto("/workflows/new/No%20Such%2FWorkflow");
-    expect(new URL((await formRequest).url()).pathname).toBe(
-      "/v1/workflow/No%20Such%2FWorkflow/form"
-    );
     await expect(
       page.getByText('Workflow "No Such/Workflow" was not found', { exact: false })
     ).toBeVisible();
+    expect(requests).toEqual([]);
 
     // In the catalog, but /form answers 404 (e.g. disabled for the API since).
     await page.route("**/v1/workflow/DeployWorkflow/form", (route) =>
@@ -264,6 +264,44 @@ test.describe("/workflows/new/<ClassName>", () => {
     await page.goto("/workflows/new/DeployWorkflow");
     await expect(page.getByRole("heading", { name: "Workflow not found" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Submit" })).toHaveCount(0);
+    expect(requests).toEqual(["/v1/workflow/DeployWorkflow/form"]);
+  });
+
+  test("a workflow disabled for browser forms cannot be opened directly", async ({ page }) => {
+    const requests = formRequests(page);
+
+    await page.goto("/workflows/new/SpXOverlayAssignmentWorkflow");
+
+    await expect(page.getByRole("heading", { name: "Workflow not found" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Submit" })).toHaveCount(0);
+    expect(requests).toEqual([]);
+  });
+
+  test("an older API that omits has_form asks for an upgrade without probing /form", async ({
+    page,
+  }) => {
+    const requests = formRequests(page);
+    await page.route("**/v1/workflow/metadata", (route) =>
+      route.fulfill({
+        status: 200,
+        json: {
+          workflows: SERVER_WORKFLOW_METADATA.workflows.map(
+            ({ has_form: _hasForm, ...workflow }) => workflow
+          ),
+        },
+      })
+    );
+
+    await page.goto("/workflows/new/DeployWorkflow");
+
+    await expect(
+      page.getByRole("heading", { name: "Workflow API upgrade required" })
+    ).toBeVisible();
+    const alert = page.getByRole("alert").filter({ hasText: "Browser workflow forms" });
+    await expect(alert).toContainText(API_UPGRADE_REQUIRED);
+    await expect(alert).toContainText("You can still start the workflow through the API or CLI.");
+    await expect(page.getByRole("button", { name: "Submit" })).toHaveCount(0);
+    expect(requests).toEqual([]);
   });
 
   test("a form with an unsupported ui_schema_version is not rendered", async ({ page }) => {
