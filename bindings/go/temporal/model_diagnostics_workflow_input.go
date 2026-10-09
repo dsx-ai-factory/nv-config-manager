@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -31,8 +32,7 @@ type DiagnosticsWorkflowInput struct {
 	// Ticketing platform to update; empty enables ticketless mode.
 	TicketingPlatform *string `json:"ticketing_platform,omitempty"`
 	// Engineer username or email, populated from request authentication when omitted.
-	User                 *string `json:"user,omitempty"`
-	AdditionalProperties map[string]interface{}
+	User *string `json:"user,omitempty"`
 }
 
 type _DiagnosticsWorkflowInput DiagnosticsWorkflowInput
@@ -276,11 +276,6 @@ func (o DiagnosticsWorkflowInput) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.User) {
 		toSerialize["user"] = o.User
 	}
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -309,25 +304,15 @@ func (o *DiagnosticsWorkflowInput) UnmarshalJSON(data []byte) (err error) {
 
 	varDiagnosticsWorkflowInput := _DiagnosticsWorkflowInput{}
 
-	err = json.Unmarshal(data, &varDiagnosticsWorkflowInput)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varDiagnosticsWorkflowInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = DiagnosticsWorkflowInput(varDiagnosticsWorkflowInput)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "commands")
-		delete(additionalProperties, "device_ids")
-		delete(additionalProperties, "include_tech_support")
-		delete(additionalProperties, "issue_key")
-		delete(additionalProperties, "ticketing_platform")
-		delete(additionalProperties, "user")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

@@ -11,6 +11,7 @@ API version: 0.1.0
 package configstore
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -38,8 +39,7 @@ type DeviceMetadata struct {
 	// Device role
 	Role NullableString `json:"role,omitempty"`
 	// Site name
-	Site                 string `json:"site"`
-	AdditionalProperties map[string]interface{}
+	Site string `json:"site"`
 }
 
 type _DeviceMetadata DeviceMetadata
@@ -459,11 +459,6 @@ func (o DeviceMetadata) ToMap() (map[string]interface{}, error) {
 		toSerialize["role"] = o.Role.Get()
 	}
 	toSerialize["site"] = o.Site
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -492,28 +487,15 @@ func (o *DeviceMetadata) UnmarshalJSON(data []byte) (err error) {
 
 	varDeviceMetadata := _DeviceMetadata{}
 
-	err = json.Unmarshal(data, &varDeviceMetadata)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varDeviceMetadata)
 
 	if err != nil {
 		return err
 	}
 
 	*o = DeviceMetadata(varDeviceMetadata)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "device_url")
-		delete(additionalProperties, "last_updated")
-		delete(additionalProperties, "name")
-		delete(additionalProperties, "nautobot_url")
-		delete(additionalProperties, "platform")
-		delete(additionalProperties, "primary_ip4")
-		delete(additionalProperties, "rack")
-		delete(additionalProperties, "role")
-		delete(additionalProperties, "site")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

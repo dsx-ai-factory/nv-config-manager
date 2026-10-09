@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -23,8 +24,7 @@ type DeployInput struct {
 	// Whether to use commit-confirmed mode when the platform supports it.
 	CommitConfirm *bool `json:"commit_confirm,omitempty"`
 	// Identifier of the network device to configure.
-	DeviceId             string `json:"device_id"`
-	AdditionalProperties map[string]interface{}
+	DeviceId string `json:"device_id"`
 }
 
 type _DeployInput DeployInput
@@ -122,11 +122,6 @@ func (o DeployInput) ToMap() (map[string]interface{}, error) {
 		toSerialize["commit_confirm"] = o.CommitConfirm
 	}
 	toSerialize["device_id"] = o.DeviceId
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -154,21 +149,15 @@ func (o *DeployInput) UnmarshalJSON(data []byte) (err error) {
 
 	varDeployInput := _DeployInput{}
 
-	err = json.Unmarshal(data, &varDeployInput)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varDeployInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = DeployInput(varDeployInput)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "commit_confirm")
-		delete(additionalProperties, "device_id")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

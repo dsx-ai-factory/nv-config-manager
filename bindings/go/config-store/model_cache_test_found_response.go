@@ -11,6 +11,7 @@ API version: 0.1.0
 package configstore
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -29,8 +30,7 @@ type CacheTestFoundResponse struct {
 	// Platform name
 	Platform NullableString `json:"platform"`
 	// Site name
-	Site                 string `json:"site"`
-	AdditionalProperties map[string]interface{}
+	Site string `json:"site"`
 }
 
 type _CacheTestFoundResponse CacheTestFoundResponse
@@ -208,11 +208,6 @@ func (o CacheTestFoundResponse) ToMap() (map[string]interface{}, error) {
 	}
 	toSerialize["platform"] = o.Platform.Get()
 	toSerialize["site"] = o.Site
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -243,24 +238,15 @@ func (o *CacheTestFoundResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varCacheTestFoundResponse := _CacheTestFoundResponse{}
 
-	err = json.Unmarshal(data, &varCacheTestFoundResponse)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varCacheTestFoundResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = CacheTestFoundResponse(varCacheTestFoundResponse)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "device_name")
-		delete(additionalProperties, "device_uuid")
-		delete(additionalProperties, "found")
-		delete(additionalProperties, "platform")
-		delete(additionalProperties, "site")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

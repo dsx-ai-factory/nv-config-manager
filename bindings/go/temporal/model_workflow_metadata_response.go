@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,8 +21,7 @@ var _ MappedNullable = &WorkflowMetadataResponse{}
 
 // WorkflowMetadataResponse Workflow metadata response.
 type WorkflowMetadataResponse struct {
-	Workflows            []WorkflowMetadata `json:"workflows"`
-	AdditionalProperties map[string]interface{}
+	Workflows []WorkflowMetadata `json:"workflows"`
 }
 
 type _WorkflowMetadataResponse WorkflowMetadataResponse
@@ -79,11 +79,6 @@ func (o WorkflowMetadataResponse) MarshalJSON() ([]byte, error) {
 func (o WorkflowMetadataResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["workflows"] = o.Workflows
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -111,20 +106,15 @@ func (o *WorkflowMetadataResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varWorkflowMetadataResponse := _WorkflowMetadataResponse{}
 
-	err = json.Unmarshal(data, &varWorkflowMetadataResponse)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varWorkflowMetadataResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = WorkflowMetadataResponse(varWorkflowMetadataResponse)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "workflows")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -27,8 +28,7 @@ type SpXOverlayDeletionInput struct {
 	// Site containing the SpX overlay to delete.
 	Site string `json:"site"`
 	// DCIM location type for the site identifier.
-	SiteType             NullableString `json:"site_type,omitempty"`
-	AdditionalProperties map[string]interface{}
+	SiteType NullableString `json:"site_type,omitempty"`
 }
 
 type _SpXOverlayDeletionInput SpXOverlayDeletionInput
@@ -200,11 +200,6 @@ func (o SpXOverlayDeletionInput) ToMap() (map[string]interface{}, error) {
 	if o.SiteType.IsSet() {
 		toSerialize["site_type"] = o.SiteType.Get()
 	}
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -233,23 +228,15 @@ func (o *SpXOverlayDeletionInput) UnmarshalJSON(data []byte) (err error) {
 
 	varSpXOverlayDeletionInput := _SpXOverlayDeletionInput{}
 
-	err = json.Unmarshal(data, &varSpXOverlayDeletionInput)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varSpXOverlayDeletionInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = SpXOverlayDeletionInput(varSpXOverlayDeletionInput)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "namespace_tag")
-		delete(additionalProperties, "overlay_id")
-		delete(additionalProperties, "site")
-		delete(additionalProperties, "site_type")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

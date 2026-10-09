@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -33,8 +34,7 @@ type IBPKeyCreationInput struct {
 	// Site used for UFM credential lookup; resolved from the host when omitted.
 	Site NullableString `json:"site,omitempty"`
 	// DCIM location type for the site identifier.
-	SiteType             NullableString `json:"site_type,omitempty"`
-	AdditionalProperties map[string]interface{}
+	SiteType NullableString `json:"site_type,omitempty"`
 }
 
 type _IBPKeyCreationInput IBPKeyCreationInput
@@ -356,11 +356,6 @@ func (o IBPKeyCreationInput) ToMap() (map[string]interface{}, error) {
 	if o.SiteType.IsSet() {
 		toSerialize["site_type"] = o.SiteType.Get()
 	}
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -388,26 +383,15 @@ func (o *IBPKeyCreationInput) UnmarshalJSON(data []byte) (err error) {
 
 	varIBPKeyCreationInput := _IBPKeyCreationInput{}
 
-	err = json.Unmarshal(data, &varIBPKeyCreationInput)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varIBPKeyCreationInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = IBPKeyCreationInput(varIBPKeyCreationInput)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "host")
-		delete(additionalProperties, "ip_over_ib")
-		delete(additionalProperties, "pkey")
-		delete(additionalProperties, "pkey_max")
-		delete(additionalProperties, "pkey_min")
-		delete(additionalProperties, "site")
-		delete(additionalProperties, "site_type")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

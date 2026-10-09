@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -23,8 +24,7 @@ type InfinibandCableValidationInput struct {
 	// Identifiers of the InfiniBand switches to validate.
 	SwitchDeviceIds []string `json:"switch_device_ids"`
 	// Identifier of the UFM device used to inspect the InfiniBand fabric.
-	UfmDeviceId          string `json:"ufm_device_id"`
-	AdditionalProperties map[string]interface{}
+	UfmDeviceId string `json:"ufm_device_id"`
 }
 
 type _InfinibandCableValidationInput InfinibandCableValidationInput
@@ -108,11 +108,6 @@ func (o InfinibandCableValidationInput) ToMap() (map[string]interface{}, error) 
 	toSerialize := map[string]interface{}{}
 	toSerialize["switch_device_ids"] = o.SwitchDeviceIds
 	toSerialize["ufm_device_id"] = o.UfmDeviceId
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -141,21 +136,15 @@ func (o *InfinibandCableValidationInput) UnmarshalJSON(data []byte) (err error) 
 
 	varInfinibandCableValidationInput := _InfinibandCableValidationInput{}
 
-	err = json.Unmarshal(data, &varInfinibandCableValidationInput)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varInfinibandCableValidationInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = InfinibandCableValidationInput(varInfinibandCableValidationInput)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "switch_device_ids")
-		delete(additionalProperties, "ufm_device_id")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

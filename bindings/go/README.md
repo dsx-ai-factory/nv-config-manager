@@ -36,7 +36,9 @@ make api-generate
 ```
 
 Generation requires Docker; the command uses a version-and-digest-pinned OpenAPI Generator image.
-Generated object models retain unrecognized JSON properties unless their OpenAPI schema explicitly
-sets `additionalProperties: false`, allowing clients to decode additive response fields safely.
+
+The Temporal `WorkflowFormUiSchema` model exposes `AdditionalProperties` for form entries keyed by
+workflow input field. These dynamic entries are part of that schema; generated models do not enable
+additional properties globally.
 
 Do not edit generated service directories by hand.

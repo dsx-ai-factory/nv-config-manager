@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,8 +22,7 @@ var _ MappedNullable = &InfinibandMlnxOSUpgradeInput{}
 // InfinibandMlnxOSUpgradeInput Infiniband Mellanox OS Upgrade Workflow Input Definition.
 type InfinibandMlnxOSUpgradeInput struct {
 	// Identifier of the InfiniBand switch to upgrade.
-	DeviceId             string `json:"device_id"`
-	AdditionalProperties map[string]interface{}
+	DeviceId string `json:"device_id"`
 }
 
 type _InfinibandMlnxOSUpgradeInput InfinibandMlnxOSUpgradeInput
@@ -80,11 +80,6 @@ func (o InfinibandMlnxOSUpgradeInput) MarshalJSON() ([]byte, error) {
 func (o InfinibandMlnxOSUpgradeInput) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["device_id"] = o.DeviceId
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -112,20 +107,15 @@ func (o *InfinibandMlnxOSUpgradeInput) UnmarshalJSON(data []byte) (err error) {
 
 	varInfinibandMlnxOSUpgradeInput := _InfinibandMlnxOSUpgradeInput{}
 
-	err = json.Unmarshal(data, &varInfinibandMlnxOSUpgradeInput)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varInfinibandMlnxOSUpgradeInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = InfinibandMlnxOSUpgradeInput(varInfinibandMlnxOSUpgradeInput)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "device_id")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

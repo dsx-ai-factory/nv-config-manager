@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,10 +21,9 @@ var _ MappedNullable = &Device{}
 
 // Device Device data for dropdown population.
 type Device struct {
-	Id                   string         `json:"id"`
-	Name                 string         `json:"name"`
-	Platform             NullableString `json:"platform,omitempty"`
-	AdditionalProperties map[string]interface{}
+	Id       string         `json:"id"`
+	Name     string         `json:"name"`
+	Platform NullableString `json:"platform,omitempty"`
 }
 
 type _Device Device
@@ -155,11 +155,6 @@ func (o Device) ToMap() (map[string]interface{}, error) {
 	if o.Platform.IsSet() {
 		toSerialize["platform"] = o.Platform.Get()
 	}
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -188,22 +183,15 @@ func (o *Device) UnmarshalJSON(data []byte) (err error) {
 
 	varDevice := _Device{}
 
-	err = json.Unmarshal(data, &varDevice)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varDevice)
 
 	if err != nil {
 		return err
 	}
 
 	*o = Device(varDevice)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "id")
-		delete(additionalProperties, "name")
-		delete(additionalProperties, "platform")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

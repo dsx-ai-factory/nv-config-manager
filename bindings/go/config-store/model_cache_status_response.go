@@ -11,6 +11,7 @@ API version: 0.1.0
 package configstore
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -31,8 +32,7 @@ type CacheStatusResponse struct {
 	// Legacy alias for dcim_connected
 	NautobotConnected NullableBool `json:"nautobot_connected,omitempty"`
 	// Whether Redis is connected
-	RedisConnected       NullableBool `json:"redis_connected,omitempty"`
-	AdditionalProperties map[string]interface{}
+	RedisConnected NullableBool `json:"redis_connected,omitempty"`
 }
 
 type _CacheStatusResponse CacheStatusResponse
@@ -330,11 +330,6 @@ func (o CacheStatusResponse) ToMap() (map[string]interface{}, error) {
 	if o.RedisConnected.IsSet() {
 		toSerialize["redis_connected"] = o.RedisConnected.Get()
 	}
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -362,25 +357,15 @@ func (o *CacheStatusResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varCacheStatusResponse := _CacheStatusResponse{}
 
-	err = json.Unmarshal(data, &varCacheStatusResponse)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varCacheStatusResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = CacheStatusResponse(varCacheStatusResponse)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "cache_ttl")
-		delete(additionalProperties, "dcim_connected")
-		delete(additionalProperties, "enabled")
-		delete(additionalProperties, "message")
-		delete(additionalProperties, "nautobot_connected")
-		delete(additionalProperties, "redis_connected")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

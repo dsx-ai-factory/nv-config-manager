@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -26,18 +27,17 @@ type Stage struct {
 	DependsOn         []string `json:"depends_on"`
 	Description       string   `json:"description"`
 	// Calculate the time spent executing the stage.
-	ExecutionTime        NullableFloat32 `json:"execution_time"`
-	Input                interface{}     `json:"input,omitempty"`
-	Name                 string          `json:"name"`
-	Output               interface{}     `json:"output,omitempty"`
-	Rejecters            []Review        `json:"rejecters,omitempty"`
-	RequiresApproval     bool            `json:"requires_approval"`
-	RetryCount           *int32          `json:"retry_count,omitempty"`
-	Retryable            bool            `json:"retryable"`
-	State                StateEnum       `json:"state"`
-	StateHistory         []HistoryEntry  `json:"state_history,omitempty"`
-	Traceback            NullableString  `json:"traceback"`
-	AdditionalProperties map[string]interface{}
+	ExecutionTime    NullableFloat32 `json:"execution_time"`
+	Input            interface{}     `json:"input,omitempty"`
+	Name             string          `json:"name"`
+	Output           interface{}     `json:"output,omitempty"`
+	Rejecters        []Review        `json:"rejecters,omitempty"`
+	RequiresApproval bool            `json:"requires_approval"`
+	RetryCount       *int32          `json:"retry_count,omitempty"`
+	Retryable        bool            `json:"retryable"`
+	State            StateEnum       `json:"state"`
+	StateHistory     []HistoryEntry  `json:"state_history,omitempty"`
+	Traceback        NullableString  `json:"traceback"`
 }
 
 type _Stage Stage
@@ -577,11 +577,6 @@ func (o Stage) ToMap() (map[string]interface{}, error) {
 		toSerialize["state_history"] = o.StateHistory
 	}
 	toSerialize["traceback"] = o.Traceback.Get()
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -616,35 +611,15 @@ func (o *Stage) UnmarshalJSON(data []byte) (err error) {
 
 	varStage := _Stage{}
 
-	err = json.Unmarshal(data, &varStage)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varStage)
 
 	if err != nil {
 		return err
 	}
 
 	*o = Stage(varStage)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "approval_threshold")
-		delete(additionalProperties, "approvers")
-		delete(additionalProperties, "child_workflows")
-		delete(additionalProperties, "depends_on")
-		delete(additionalProperties, "description")
-		delete(additionalProperties, "execution_time")
-		delete(additionalProperties, "input")
-		delete(additionalProperties, "name")
-		delete(additionalProperties, "output")
-		delete(additionalProperties, "rejecters")
-		delete(additionalProperties, "requires_approval")
-		delete(additionalProperties, "retry_count")
-		delete(additionalProperties, "retryable")
-		delete(additionalProperties, "state")
-		delete(additionalProperties, "state_history")
-		delete(additionalProperties, "traceback")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

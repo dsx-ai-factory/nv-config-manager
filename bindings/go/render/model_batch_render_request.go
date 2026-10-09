@@ -11,6 +11,7 @@ API version: 0.1.0
 package render
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,10 +21,9 @@ var _ MappedNullable = &BatchRenderRequest{}
 
 // BatchRenderRequest Request body for a batch render operation.
 type BatchRenderRequest struct {
-	CommitMessage        NullableString `json:"commit_message,omitempty"`
-	DeviceUuids          []string       `json:"device_uuids"`
-	MaxConcurrency       *int32         `json:"max_concurrency,omitempty"`
-	AdditionalProperties map[string]interface{}
+	CommitMessage  NullableString `json:"commit_message,omitempty"`
+	DeviceUuids    []string       `json:"device_uuids"`
+	MaxConcurrency *int32         `json:"max_concurrency,omitempty"`
 }
 
 type _BatchRenderRequest BatchRenderRequest
@@ -169,11 +169,6 @@ func (o BatchRenderRequest) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.MaxConcurrency) {
 		toSerialize["max_concurrency"] = o.MaxConcurrency
 	}
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -201,22 +196,15 @@ func (o *BatchRenderRequest) UnmarshalJSON(data []byte) (err error) {
 
 	varBatchRenderRequest := _BatchRenderRequest{}
 
-	err = json.Unmarshal(data, &varBatchRenderRequest)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varBatchRenderRequest)
 
 	if err != nil {
 		return err
 	}
 
 	*o = BatchRenderRequest(varBatchRenderRequest)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "commit_message")
-		delete(additionalProperties, "device_uuids")
-		delete(additionalProperties, "max_concurrency")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

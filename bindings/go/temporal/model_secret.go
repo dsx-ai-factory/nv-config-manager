@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,9 +21,8 @@ var _ MappedNullable = &Secret{}
 
 // Secret Secret data for dropdown population.
 type Secret struct {
-	Description          NullableString `json:"description,omitempty"`
-	Name                 string         `json:"name"`
-	AdditionalProperties map[string]interface{}
+	Description NullableString `json:"description,omitempty"`
+	Name        string         `json:"name"`
 }
 
 type _Secret Secret
@@ -128,11 +128,6 @@ func (o Secret) ToMap() (map[string]interface{}, error) {
 		toSerialize["description"] = o.Description.Get()
 	}
 	toSerialize["name"] = o.Name
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -160,21 +155,15 @@ func (o *Secret) UnmarshalJSON(data []byte) (err error) {
 
 	varSecret := _Secret{}
 
-	err = json.Unmarshal(data, &varSecret)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varSecret)
 
 	if err != nil {
 		return err
 	}
 
 	*o = Secret(varSecret)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "description")
-		delete(additionalProperties, "name")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

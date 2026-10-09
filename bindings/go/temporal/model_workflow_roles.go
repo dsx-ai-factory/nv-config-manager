@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,9 +21,8 @@ var _ MappedNullable = &WorkflowRoles{}
 
 // WorkflowRoles Roles for a workflow.
 type WorkflowRoles struct {
-	ExecuteRoles         []string `json:"execute_roles"`
-	ReadRoles            []string `json:"read_roles"`
-	AdditionalProperties map[string]interface{}
+	ExecuteRoles []string `json:"execute_roles"`
+	ReadRoles    []string `json:"read_roles"`
 }
 
 type _WorkflowRoles WorkflowRoles
@@ -106,11 +106,6 @@ func (o WorkflowRoles) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["execute_roles"] = o.ExecuteRoles
 	toSerialize["read_roles"] = o.ReadRoles
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -139,21 +134,15 @@ func (o *WorkflowRoles) UnmarshalJSON(data []byte) (err error) {
 
 	varWorkflowRoles := _WorkflowRoles{}
 
-	err = json.Unmarshal(data, &varWorkflowRoles)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varWorkflowRoles)
 
 	if err != nil {
 		return err
 	}
 
 	*o = WorkflowRoles(varWorkflowRoles)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "execute_roles")
-		delete(additionalProperties, "read_roles")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

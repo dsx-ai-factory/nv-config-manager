@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -24,16 +25,15 @@ type WorkflowSummaryResponse struct {
 	CloseTime   NullableTime `json:"close_time"`
 	FailedStage bool         `json:"failed_stage"`
 	// Calculate URL to Temporal UI Workflow View.
-	Href                 string                           `json:"href"`
-	Id                   string                           `json:"id"`
-	PendingApproval      bool                             `json:"pending_approval"`
-	SearchAttributes     map[string]SearchAttributesValue `json:"search_attributes"`
-	StartTime            time.Time                        `json:"start_time"`
-	StartedBy            string                           `json:"started_by"`
-	Status               string                           `json:"status"`
-	WorkflowInput        interface{}                      `json:"workflow_input"`
-	WorkflowType         string                           `json:"workflow_type"`
-	AdditionalProperties map[string]interface{}
+	Href             string                           `json:"href"`
+	Id               string                           `json:"id"`
+	PendingApproval  bool                             `json:"pending_approval"`
+	SearchAttributes map[string]SearchAttributesValue `json:"search_attributes"`
+	StartTime        time.Time                        `json:"start_time"`
+	StartedBy        string                           `json:"started_by"`
+	Status           string                           `json:"status"`
+	WorkflowInput    interface{}                      `json:"workflow_input"`
+	WorkflowType     string                           `json:"workflow_type"`
 }
 
 type _WorkflowSummaryResponse WorkflowSummaryResponse
@@ -357,11 +357,6 @@ func (o WorkflowSummaryResponse) ToMap() (map[string]interface{}, error) {
 		toSerialize["workflow_input"] = o.WorkflowInput
 	}
 	toSerialize["workflow_type"] = o.WorkflowType
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -399,30 +394,15 @@ func (o *WorkflowSummaryResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varWorkflowSummaryResponse := _WorkflowSummaryResponse{}
 
-	err = json.Unmarshal(data, &varWorkflowSummaryResponse)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varWorkflowSummaryResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = WorkflowSummaryResponse(varWorkflowSummaryResponse)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "close_time")
-		delete(additionalProperties, "failed_stage")
-		delete(additionalProperties, "href")
-		delete(additionalProperties, "id")
-		delete(additionalProperties, "pending_approval")
-		delete(additionalProperties, "search_attributes")
-		delete(additionalProperties, "start_time")
-		delete(additionalProperties, "started_by")
-		delete(additionalProperties, "status")
-		delete(additionalProperties, "workflow_input")
-		delete(additionalProperties, "workflow_type")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

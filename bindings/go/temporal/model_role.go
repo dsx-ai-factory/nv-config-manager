@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,9 +21,8 @@ var _ MappedNullable = &Role{}
 
 // Role Role data for dropdown population.
 type Role struct {
-	Id                   string `json:"id"`
-	Name                 string `json:"name"`
-	AdditionalProperties map[string]interface{}
+	Id   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type _Role Role
@@ -106,11 +106,6 @@ func (o Role) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["id"] = o.Id
 	toSerialize["name"] = o.Name
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -139,21 +134,15 @@ func (o *Role) UnmarshalJSON(data []byte) (err error) {
 
 	varRole := _Role{}
 
-	err = json.Unmarshal(data, &varRole)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varRole)
 
 	if err != nil {
 		return err
 	}
 
 	*o = Role(varRole)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "id")
-		delete(additionalProperties, "name")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

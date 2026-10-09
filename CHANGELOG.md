@@ -56,10 +56,6 @@ version before the selected release candidate is promoted.
 
 ### Fixed
 
-- Generated Go clients now accept and preserve unrecognized object properties,
-  matching OpenAPI's default `additionalProperties` behavior and the generated
-  Python clients. This keeps future additive response fields from breaking
-  newly generated Go clients.
 - Render consumers on bundled NATS now re-create their stream when it is
   missing, instead of retrying `stream not found` until restarted. A NATS pod
   rescheduled after nats-box started came back without JetStream state, and

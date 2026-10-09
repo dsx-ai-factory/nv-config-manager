@@ -11,6 +11,7 @@ API version: 0.1.0
 package dhcp
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,9 +21,8 @@ var _ MappedNullable = &LeasePageResponse{}
 
 // LeasePageResponse Bounded page of normalized leases.
 type LeasePageResponse struct {
-	Leases               []LeaseRecord  `json:"leases"`
-	NextCursor           NullableString `json:"next_cursor,omitempty"`
-	AdditionalProperties map[string]interface{}
+	Leases     []LeaseRecord  `json:"leases"`
+	NextCursor NullableString `json:"next_cursor,omitempty"`
 }
 
 type _LeasePageResponse LeasePageResponse
@@ -128,11 +128,6 @@ func (o LeasePageResponse) ToMap() (map[string]interface{}, error) {
 	if o.NextCursor.IsSet() {
 		toSerialize["next_cursor"] = o.NextCursor.Get()
 	}
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -160,21 +155,15 @@ func (o *LeasePageResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varLeasePageResponse := _LeasePageResponse{}
 
-	err = json.Unmarshal(data, &varLeasePageResponse)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varLeasePageResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = LeasePageResponse(varLeasePageResponse)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "leases")
-		delete(additionalProperties, "next_cursor")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

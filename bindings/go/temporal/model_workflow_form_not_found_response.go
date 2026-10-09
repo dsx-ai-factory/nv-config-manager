@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,8 +21,7 @@ var _ MappedNullable = &WorkflowFormNotFoundResponse{}
 
 // WorkflowFormNotFoundResponse Response returned when no workflow form owns the requested ID.
 type WorkflowFormNotFoundResponse struct {
-	Detail               string `json:"detail"`
-	AdditionalProperties map[string]interface{}
+	Detail string `json:"detail"`
 }
 
 type _WorkflowFormNotFoundResponse WorkflowFormNotFoundResponse
@@ -79,11 +79,6 @@ func (o WorkflowFormNotFoundResponse) MarshalJSON() ([]byte, error) {
 func (o WorkflowFormNotFoundResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["detail"] = o.Detail
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -111,20 +106,15 @@ func (o *WorkflowFormNotFoundResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varWorkflowFormNotFoundResponse := _WorkflowFormNotFoundResponse{}
 
-	err = json.Unmarshal(data, &varWorkflowFormNotFoundResponse)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varWorkflowFormNotFoundResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = WorkflowFormNotFoundResponse(varWorkflowFormNotFoundResponse)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "detail")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

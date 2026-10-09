@@ -24,11 +24,8 @@ type PortLLDPInfoInput struct {
 	// Name of the local interface.
 	Interface NullableString `json:"interface,omitempty"`
 	// MAC address of the remote device to locate.
-	RemoteMacAddress     NullableString `json:"remote_mac_address,omitempty"`
-	AdditionalProperties map[string]interface{}
+	RemoteMacAddress NullableString `json:"remote_mac_address,omitempty"`
 }
-
-type _PortLLDPInfoInput PortLLDPInfoInput
 
 // NewPortLLDPInfoInput instantiates a new PortLLDPInfoInput object
 // This constructor will assign default values to properties that have it defined,
@@ -201,35 +198,7 @@ func (o PortLLDPInfoInput) ToMap() (map[string]interface{}, error) {
 	if o.RemoteMacAddress.IsSet() {
 		toSerialize["remote_mac_address"] = o.RemoteMacAddress.Get()
 	}
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
-}
-
-func (o *PortLLDPInfoInput) UnmarshalJSON(data []byte) (err error) {
-	varPortLLDPInfoInput := _PortLLDPInfoInput{}
-
-	err = json.Unmarshal(data, &varPortLLDPInfoInput)
-
-	if err != nil {
-		return err
-	}
-
-	*o = PortLLDPInfoInput(varPortLLDPInfoInput)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "device_id")
-		delete(additionalProperties, "interface")
-		delete(additionalProperties, "remote_mac_address")
-		o.AdditionalProperties = additionalProperties
-	}
-
-	return err
 }
 
 type NullablePortLLDPInfoInput struct {

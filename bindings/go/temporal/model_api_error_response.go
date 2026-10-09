@@ -11,6 +11,7 @@ API version: 0.1.0
 package temporal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,8 +21,7 @@ var _ MappedNullable = &ApiErrorResponse{}
 
 // ApiErrorResponse A sanitized API error response.
 type ApiErrorResponse struct {
-	Detail               string `json:"detail"`
-	AdditionalProperties map[string]interface{}
+	Detail string `json:"detail"`
 }
 
 type _ApiErrorResponse ApiErrorResponse
@@ -79,11 +79,6 @@ func (o ApiErrorResponse) MarshalJSON() ([]byte, error) {
 func (o ApiErrorResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["detail"] = o.Detail
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -111,20 +106,15 @@ func (o *ApiErrorResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varApiErrorResponse := _ApiErrorResponse{}
 
-	err = json.Unmarshal(data, &varApiErrorResponse)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varApiErrorResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ApiErrorResponse(varApiErrorResponse)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "detail")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

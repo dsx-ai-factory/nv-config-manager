@@ -11,6 +11,7 @@ API version: 0.1.0
 package ztp
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -20,8 +21,7 @@ var _ MappedNullable = &ChecksumResponse{}
 
 // ChecksumResponse Response containing a file checksum.
 type ChecksumResponse struct {
-	Checksum             string `json:"checksum"`
-	AdditionalProperties map[string]interface{}
+	Checksum string `json:"checksum"`
 }
 
 type _ChecksumResponse ChecksumResponse
@@ -79,11 +79,6 @@ func (o ChecksumResponse) MarshalJSON() ([]byte, error) {
 func (o ChecksumResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["checksum"] = o.Checksum
-
-	for key, value := range o.AdditionalProperties {
-		toSerialize[key] = value
-	}
-
 	return toSerialize, nil
 }
 
@@ -111,20 +106,15 @@ func (o *ChecksumResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varChecksumResponse := _ChecksumResponse{}
 
-	err = json.Unmarshal(data, &varChecksumResponse)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varChecksumResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ChecksumResponse(varChecksumResponse)
-
-	additionalProperties := make(map[string]interface{})
-
-	if err = json.Unmarshal(data, &additionalProperties); err == nil {
-		delete(additionalProperties, "checksum")
-		o.AdditionalProperties = additionalProperties
-	}
 
 	return err
 }

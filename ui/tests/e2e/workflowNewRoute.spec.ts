@@ -20,7 +20,12 @@
  * output: the `/metadata` baseline and `/form` snapshot the API tests keep, with the
  * parameter endpoints mocked as the server answers them.
  */
-import { expect, type Page, type Request } from "@playwright/test";
+import {
+  expect,
+  type Page,
+  type Request,
+  type Route,
+} from "@playwright/test";
 
 import legacyWorkflowRedirects from "@/config/legacy-workflow-redirects.json";
 import workflowFormIds from "@/config/workflow-form-ids.json";
@@ -521,7 +526,7 @@ test.describe("/workflows/new/<form_id>", () => {
     );
   });
 
-  test("a failed /whoami disables the form as Unauthorized", async ({
+  test("an authorization failure from /whoami disables the form", async ({
     page,
   }) => {
     await page.route("**/whoami", (route) =>
@@ -535,6 +540,31 @@ test.describe("/workflows/new/<form_id>", () => {
         .filter({ hasText: "You cannot start this workflow" })
     ).toContainText("Unauthorized");
     await expect(page.getByRole("button", { name: "Submit" })).toBeDisabled();
+  });
+
+  test("a transient /whoami failure leaves the form enabled and can be retried", async ({
+    page,
+  }) => {
+    const failWhoami = (route: Route) =>
+      route.fulfill({ status: 503, json: { error: "Unavailable" } });
+    await page.route("**/whoami", failWhoami);
+    await page.goto("/workflows/new/deploy");
+
+    const warning = page
+      .getByRole("alert")
+      .filter({ hasText: "Permissions could not be verified" });
+    await expect(warning).toContainText(
+      "The server will verify your permission when you submit it."
+    );
+    await expect(page.getByRole("button", { name: "Submit" })).toBeEnabled();
+    await expect(picker(page, "Select a Site...")).toBeEnabled();
+    await expect(page.locator("fieldset[disabled]")).toHaveCount(0);
+
+    // Fall back to the successful /whoami handler installed by beforeEach.
+    await page.unroute("**/whoami", failWhoami);
+    await page.getByRole("button", { name: "Retry permission check" }).click();
+    await expect(warning).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Submit" })).toBeEnabled();
   });
 });
 

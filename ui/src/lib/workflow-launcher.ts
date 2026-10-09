@@ -85,7 +85,7 @@ export type WorkflowExecutePermission =
  *
  * @param metadata Catalog entry; `undefined` when the catalog has none.
  * @param userRoles Roles from `/whoami`.
- * @param isUnauthorized `/whoami` failed.
+ * @param isUnauthorized `/whoami` reported an authentication or authorization failure.
  */
 export const getWorkflowExecutePermission = (
   metadata: WorkflowCatalogEntry | undefined,

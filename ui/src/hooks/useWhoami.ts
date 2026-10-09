@@ -18,6 +18,7 @@ import { useMemo } from "react";
 import useSWRImmutable from "swr/immutable";
 
 import { useRuntimeConfig } from "@/config/runtime";
+import { APIError, TokenError } from "@/lib/errors";
 import { fetcher } from "@/lib/fetcher";
 import { sanitizeUrl } from "@/lib/utils";
 
@@ -26,30 +27,54 @@ export interface WhoamiResponse {
   roles: string[];
 }
 
+export type WhoamiStatus =
+  | "loading"
+  | "loaded"
+  | "unauthorized"
+  | "unavailable";
+
 interface UseWhoamiReturn {
   userInfo: WhoamiResponse | undefined;
+  status: WhoamiStatus;
   isUnauthorized: boolean;
   userRoles: ReadonlySet<string>;
   isLoaded: boolean;
+  isRetrying: boolean;
+  reload: () => Promise<WhoamiResponse | undefined>;
 }
+
+const isAuthorizationError = (error: Error | undefined): boolean =>
+  error instanceof TokenError ||
+  (error instanceof APIError && (error.status === 401 || error.status === 403));
 
 const useWhoami = (): UseWhoamiReturn => {
   const { config } = useRuntimeConfig();
   const apiURL = config?.workflowApiUrl;
-  const { data, error } = useSWRImmutable<WhoamiResponse>(
-    apiURL ? sanitizeUrl(`${apiURL}/whoami`) : null,
-    fetcher
-  );
+  const { data, error, isValidating, mutate } = useSWRImmutable<
+    WhoamiResponse,
+    Error
+  >(apiURL ? sanitizeUrl(`${apiURL}/whoami`) : null, fetcher);
 
-  const isUnauthorized = Boolean(error);
-  const roles = isUnauthorized ? undefined : data?.roles;
+  const status: WhoamiStatus =
+    data !== undefined
+      ? "loaded"
+      : isAuthorizationError(error)
+        ? "unauthorized"
+        : error
+          ? "unavailable"
+          : "loading";
+  const isUnauthorized = status === "unauthorized";
+  const roles = data?.roles;
   const userRoles = useMemo(() => new Set(roles ?? []), [roles]);
 
   return {
     userInfo: data,
+    status,
     isUnauthorized,
     userRoles,
-    isLoaded: data !== undefined || isUnauthorized,
+    isLoaded: status !== "loading",
+    isRetrying: status === "unavailable" && isValidating,
+    reload: () => mutate(),
   };
 };
 
