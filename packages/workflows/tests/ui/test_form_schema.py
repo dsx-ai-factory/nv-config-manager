@@ -19,7 +19,7 @@ from enum import StrEnum
 from typing import Annotated, Any
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, AliasPath, BaseModel, Field
 
 from nv_config_manager_workflows.ui import (
     FormExcluded,
@@ -242,3 +242,22 @@ def test_markers_apply_to_a_field_under_its_validation_alias() -> None:
 
     assert list(properties) == ["how_many"]
     assert properties["how_many"]["minimum"] == 1
+
+
+@pytest.mark.parametrize("marker", [ServerOwned(), FormExcluded()], ids=["server", "excluded"])
+@pytest.mark.parametrize(
+    "validation_alias",
+    [AliasChoices("owner", "user"), AliasPath("identity", "user")],
+    ids=["choices", "path"],
+)
+def test_omitted_fields_reject_structured_validation_aliases(
+    marker: object, validation_alias: AliasChoices | AliasPath
+) -> None:
+    class Model(BaseModel):
+        user: Annotated[str, marker] = Field(default="", validation_alias=validation_alias)
+
+    with pytest.raises(
+        WorkflowFormContractError,
+        match="ServerOwned and FormExcluded support only string validation aliases",
+    ):
+        project_form_schema(Model)
