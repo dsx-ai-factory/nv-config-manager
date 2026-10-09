@@ -23,7 +23,8 @@ curl() {
         */repository/tags/*) printf '{"protected":%s,"commit":{"id":"%s"}}' "$MOCK_PROTECTED" "$MOCK_SHA" ;;
         */bridges*) printf '[{"name":"deploy-%s-to-%s","downstream_pipeline":{"id":200},"pipeline":{"id":100,"ref":"%s","sha":"%s"},"user":{"id":%s},"status":"success"}]' "$MOCK_KIND" "$MOCK_TARGET" "$MOCK_REF" "$NVCM_PROMOTE_SOURCE_SHA" "$MOCK_USER" ;;
         */jobs\?*page=1)
-            if [[ "$MOCK_PAGE" == 2 ]]; then echo '[{"id":5,"name":"other","status":"success"}]'; else
+            if [[ -n "${MOCK_JOBS_FILE:-}" ]]; then cat "$MOCK_JOBS_FILE"
+            elif [[ "$MOCK_PAGE" == 2 ]]; then echo '[{"id":5,"name":"other","status":"success"}]'; else
                 printf '[{"id":10,"name":"%s","status":"%s"},{"id":11,"name":"%s","status":"success"}]' "$MOCK_MANIFEST" "$MOCK_STATUS" "$MOCK_CHART"
             fi ;;
         */jobs\?*page=2)
@@ -55,6 +56,11 @@ for env in test test01 kiwi-qa demo01; do
 done
 export MOCK_PAGE=2
 bash "$validator" > /dev/null
+jq -n '[{id:5,name:"other",status:"success",description:("x" * 1048576)}]' > "$test_dir/large-jobs.json"
+export MOCK_JOBS_FILE="$test_dir/large-jobs.json"
+bash "$validator" > /dev/null
+[[ "$(sed -n 's/^CHART_BUILD_JOB_ID=//p' promote.env)" == 11 ]]
+unset MOCK_JOBS_FILE
 reject() { if bash "$validator" > /dev/null 2>&1; then echo "Expected rejection: $1" >&2; exit 1; fi; }
 export NVCM_PROMOTE_ENV=prod; reject production; export NVCM_PROMOTE_ENV=test MOCK_TARGET=test
 export MOCK_SOURCE=trigger; reject trigger; export MOCK_SOURCE=push
@@ -93,4 +99,4 @@ export MOCK_DIGEST=false
 if bash "$repo_root/.gitlab/ci/scripts/record_main_image_digests.sh" > /dev/null 2>&1; then
     echo 'Recorder accepted an invalid registry digest' >&2; exit 1
 fi
-printf 'Main and RC promotion checks passed (four targets, pagination, provenance and digest rejection cases).\n'
+printf 'Main and RC promotion checks passed (four targets, large job pages, pagination, provenance and digest rejection cases).\n'
