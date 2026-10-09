@@ -331,3 +331,26 @@ main promotion. Demo retains its setup readiness gate for RCs too.
 The tag's commit must contain this pipeline configuration; older tags do not
 acquire buttons retroactively. Chart and digest artifacts expire after one week.
 Stable release tags and other prerelease names do not expose these RC buttons.
+
+### Promotion operator retries
+
+The child preparation job must run as the operator who started its parent
+button. Another operator retrying only that child job is rejected. To take over,
+start the target's parent promotion button yourself so GitLab records matching
+operator provenance. Demo's readiness flag gates rollback/reset jobs as well as
+main and RC promotion buttons.
+
+### Upstream release-tag trust
+
+GitLab's protected tag pattern does not establish who created a mirrored tag.
+Before using RC promotion, configure an active GitHub tag ruleset covering
+`*.*.*` and `bindings/go/v*.*.*` that restricts creation, updates, and deletion
+to repository admins or a narrowly controlled release identity. This policy
+must be enforced by GitHub; a check in the tagged commit's own workflow cannot
+protect against arbitrary tagged CI configuration.
+
+The RC workflow's admin/source checks cover workflow-driven tags only. It uses
+a repository write deploy key stored as `RELEASE_TAG_SSH_KEY` in the main-only
+`release-tagging` environment. Allow deploy keys in the tag ruleset bypass;
+this applies to every write deploy key on the repository. Keep other deploy
+keys read-only and do not give `GITHUB_TOKEN` a repository-wide tag bypass.
