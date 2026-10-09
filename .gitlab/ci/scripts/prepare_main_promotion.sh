@@ -64,7 +64,7 @@ page=1
 while :; do
     batch="$(get "${api}/pipelines/${NVCM_PROMOTE_SOURCE_PIPELINE_ID}/jobs?per_page=100&page=${page}")"
     [[ "$(jq length <<< "$batch")" != 0 ]] || break
-    jobs="$(jq -cn --argjson a "$jobs" --argjson b "$batch" '$a + $b')"
+    jobs="$(printf '%s\n' "$jobs" "$batch" | jq -cs 'add')"
     page=$((page + 1))
 done
 build_job() {
