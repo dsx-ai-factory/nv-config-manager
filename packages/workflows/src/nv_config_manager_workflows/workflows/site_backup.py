@@ -47,7 +47,13 @@ from nv_config_manager_workflows.stage import (
     StateEnum,
     stage_executor,
 )
-from nv_config_manager_workflows.ui import FormSchema, ServerOwned, api_options, location_field
+from nv_config_manager_workflows.ui import (
+    FormExcluded,
+    FormSchema,
+    ServerOwned,
+    api_options,
+    location_field,
+)
 from nv_config_manager_workflows.workflow_references import LocationReference
 from nv_config_manager_workflows.workflows._form_sources import (
     MANAGED_ROLE_SOURCE,
@@ -154,7 +160,7 @@ class SiteBackupInput(BaseModel):
         default=None,
         description="User that requested the site backup.",
     )
-    user_domain: Annotated[str | None, ServerOwned()] = Field(
+    user_domain: Annotated[str | None, FormExcluded()] = Field(
         default=None,
         description="Domain of the user requesting the site backup.",
     )

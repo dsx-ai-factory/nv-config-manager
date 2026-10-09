@@ -790,15 +790,16 @@ the Pydantic request schema or its validation. All three shape the `/form`
 projection; `ServerOwned` also declares that the HTTP boundary, rather than the
 submitted body, owns the marked identity value:
 
-- `ServerOwned()`: on a field named `user` or `user_domain`, the HTTP API
-  replaces any submitted value with identity derived from the authenticated
-  request. Other field names are rejected in workflow-form v1. It is left out
-  of the form schema and its `required` list. Trusted callers that
+- `ServerOwned()`: on a field named `user`, the HTTP API replaces any submitted
+  value with identity derived from the authenticated request. Other field names
+  are rejected in workflow-form v1. It is left out of the form schema and its
+  `required` list. Trusted callers that
   construct Temporal input directly, such as schedulers and parent workflows,
   may still provide it.
 - `FormExcluded()`: the form neither shows nor submits the field, so the model
-  default applies. Use it for values that schedulers or parent workflows send,
-  and for fields resolved server-side.
+  default applies. Direct HTTP and Temporal callers may still provide it. Use it
+  for values that schedulers or parent workflows send, and for fields resolved
+  outside the form.
 - `FormSchema(*, default=..., min_items=, max_items=, min_length=, max_length=,
   minimum=, maximum=, pattern=)`: adds form-only JSON Schema keywords (`default`,
   `minItems`, `maxItems`, `minLength`, `maxLength`, `minimum`, `maximum`, and

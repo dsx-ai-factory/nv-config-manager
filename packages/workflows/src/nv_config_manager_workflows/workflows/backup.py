@@ -111,7 +111,7 @@ class BackupInput(StageWorkflowInput):
     user: Annotated[str | None, ServerOwned()] = Field(
         default=None, description="User that requested the backup."
     )
-    user_domain: Annotated[str | None, ServerOwned()] = Field(
+    user_domain: Annotated[str | None, FormExcluded()] = Field(
         default=None, description="Domain of the user requesting the backup."
     )
     workflow_id: Annotated[str | None, FormExcluded()] = Field(

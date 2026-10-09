@@ -180,8 +180,9 @@ def test_a_top_level_annotated_alias_marker_is_accepted() -> None:
 def test_server_owned_rejects_fields_the_http_boundary_cannot_fill() -> None:
     class Model(BaseModel):
         owner: Annotated[str, ServerOwned()] = ""
+        user_domain: Annotated[str, ServerOwned()] = ""
 
-    with pytest.raises(WorkflowFormContractError, match="supports only 'user' and 'user_domain'"):
+    with pytest.raises(WorkflowFormContractError, match="supports only 'user'"):
         project_form_schema(Model)
 
 
