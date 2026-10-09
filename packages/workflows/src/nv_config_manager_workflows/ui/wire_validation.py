@@ -18,15 +18,16 @@ from collections.abc import Mapping
 from functools import cache
 from typing import Any
 
-from jsonschema import Draft202012Validator
-from jsonschema.exceptions import ValidationError
+from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
+from jsonschema.exceptions import ValidationError  # type: ignore[import-untyped]
+from jsonschema.protocols import Validator  # type: ignore[import-untyped]
 
 from nv_config_manager_workflows.ui.errors import WorkflowFormContractError
 from nv_config_manager_workflows.ui.form import wire_schema
 
 
 @cache
-def _wire_validator() -> Draft202012Validator:
+def _wire_validator() -> Validator:
     """Compile the packaged contract once per process."""
     schema = wire_schema()
     Draft202012Validator.check_schema(schema)
