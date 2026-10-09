@@ -150,13 +150,18 @@ spec:
           name: http-lb
         resources:
           {{- toYaml .Values.networkZtp.resources.http | nindent 10 }}
-        {{- if or $ztpConfigVolume $ztpFileStorage .Values.dcim.providerPackages.enabled }}
+        {{- if or $ztpConfigVolume $ztpFileStorage $ztpSpiffeJwt .Values.dcim.providerPackages.enabled }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
         {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if $ztpFileStorage }}
         - name: os-images
           mountPath: {{ .Values.networkZtp.storage.file.mountPath | default "/mnt/images" }}
+          readOnly: true
+        {{- end }}
+        {{- if $ztpSpiffeJwt }}
+        - name: spiffe-jwt-svid
+          mountPath: /var/run/secrets/spiffe
           readOnly: true
         {{- end }}
         {{- end }}
