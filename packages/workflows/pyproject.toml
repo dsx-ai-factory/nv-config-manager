@@ -31,6 +31,7 @@ dependencies = [
 
 [project.scripts]
 nv-config-manager-workflows-manifest = "nv_config_manager_workflows.registration.manifest:main"
+nv-config-manager-workflows-validate-plugin = "nv_config_manager_workflows.registration.form_validation:main"
 
 [project.entry-points."nv_config_manager.workflows"]
 builtin = "nv_config_manager_workflows.registration:builtin_plugin"

@@ -34,6 +34,13 @@ from nv_config_manager_workflows.ui.form import (
     supported_capabilities,
     wire_schema,
 )
+from nv_config_manager_workflows.ui.form_options import (
+    FormOptionProvider,
+    FormOptionSource,
+    OptionItem,
+    OptionSourceMeta,
+    OptionSourceResponse,
+)
 from nv_config_manager_workflows.ui.form_schema import FormJsonSchema, project_form_schema
 from nv_config_manager_workflows.ui.markers import FormExcluded, FormSchema, ServerOwned
 from nv_config_manager_workflows.ui.option_sources import (
@@ -58,10 +65,15 @@ __all__ = [
     "Dependency",
     "FormExcluded",
     "FormJsonSchema",
+    "FormOptionProvider",
+    "FormOptionSource",
     "FormSchema",
     "OptionPresentation",
+    "OptionItem",
     "OptionResponse",
     "OptionSource",
+    "OptionSourceMeta",
+    "OptionSourceResponse",
     "ServerOwned",
     "WorkflowFormContractError",
     "api_options",

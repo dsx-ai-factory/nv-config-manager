@@ -16,7 +16,7 @@
  */
 
 /**
- * Option loading of the SpX Overlay Tenant Change selectors on the class-name route:
+ * Option loading of the SpX Overlay Tenant Change selectors on the form ID route:
  * the location type of a linked Site reaches the overlay request (a Site and a Module
  * may share an ID), and the overlay list is the Site's Spectrum-X overlays. Submission
  * scenarios live in `spxOverlayTenantChangePorts.spec.ts`.

@@ -110,6 +110,8 @@ class SwitchOSUpgradeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Ar
     workflow_input_class = SwitchOSUpgradeInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/switch_os_upgrade"
+    workflow_form_enabled = True
+    workflow_form_id = "switch-os-upgrade"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         check_recorded_config_drift,

@@ -36,8 +36,9 @@ from nv_config_manager_workflows.stage import (
 )
 from nv_config_manager_workflows.ui import (
     Dependency,
+    FormOptionProvider,
+    FormOptionSource,
     FormSchema,
-    OptionSource,
     ServerOwned,
     api_options,
     device_field,
@@ -142,12 +143,9 @@ class DiagnosticsWorkflowInput(BaseModel):
         },
         "commands": {
             **api_options(
-                OptionSource(
-                    "/v1/parameter/diagnostics/command-options",
-                    "label",
-                    "value",
+                FormOptionSource(
+                    "diagnostic-commands",
                     depends_on={"device_id": Dependency("device_ids")},
-                    response="options-v1",
                 ),
                 presentation="grouped-checkboxes",
                 select_all=True,
@@ -374,8 +372,22 @@ class DiagnosticsWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
         "Run diagnostic commands against network devices and attach results to a ticketing issue"
     )
     workflow_input_class = DiagnosticsWorkflowInput
+    workflow_form_option_providers = {
+        "diagnostic-commands": FormOptionProvider(
+            resolver=(
+                "nv_config_manager_workflows.form_option_providers.diagnostics:"
+                "resolve_diagnostics_command_options"
+            ),
+            query_model=(
+                "nv_config_manager_workflows.form_option_providers.diagnostics:"
+                "DiagnosticsCommandOptionsQuery"
+            ),
+        )
+    }
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/diagnostics"
+    workflow_form_enabled = True
+    workflow_form_id = "diagnostics"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         validate_ticket,

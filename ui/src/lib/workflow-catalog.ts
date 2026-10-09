@@ -31,6 +31,9 @@ export const buildWorkflowCatalogUrl = (apiURL: string): string =>
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
 
+const isWorkflowFormId = (value: unknown): value is string =>
+  typeof value === "string" && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value);
+
 /**
  * Apply documented defaults to one catalog entry. Absent and `null` optional fields are
  * treated alike; values of the wrong type fall back to the default rather than leaking
@@ -39,19 +42,35 @@ const isNonEmptyString = (value: unknown): value is string =>
 export const normalizeWorkflowCatalogEntry = (
   entry: WorkflowCatalogEntryWire
 ): WorkflowCatalogEntry => {
-  const { plugin, tags, has_form, enabled, order, group, ...metadata } = entry;
+  const {
+    name,
+    display_name,
+    description,
+    endpoint,
+    namespace,
+    cli_name,
+    input_class,
+    read_roles,
+    execute_roles,
+    form_id,
+    has_form,
+    group,
+  } = entry;
 
   return {
-    ...metadata,
-    plugin: isNonEmptyString(plugin) ? plugin : null,
-    tags: Array.isArray(tags)
-      ? tags.filter((tag): tag is string => typeof tag === "string")
-      : [],
+    name,
+    display_name,
+    description,
+    endpoint,
+    namespace,
+    cli_name,
+    input_class,
+    read_roles,
+    execute_roles,
+    form_id: isWorkflowFormId(form_id) ? form_id : null,
     // Missing means an older API, not that the new `/form` endpoint exists. Keep that
     // state so the launcher can fail closed with an upgrade message.
     has_form: typeof has_form === "boolean" ? has_form : null,
-    enabled: typeof enabled === "boolean" ? enabled : true,
-    order: typeof order === "number" && Number.isFinite(order) ? order : undefined,
     group: isNonEmptyString(group) ? group : DEFAULT_WORKFLOW_GROUP,
   };
 };
@@ -64,34 +83,15 @@ export const normalizeWorkflowCatalog = (
     ? response.workflows.map(normalizeWorkflowCatalogEntry)
     : [];
 
-const displayNameCollator = new Intl.Collator("en", { numeric: true });
-
-/** The fields that decide display order; launcher items carry them too. */
-export type WorkflowSortKey = Pick<WorkflowCatalogEntry, "name" | "display_name" | "order">;
-
 /**
- * Total order for catalog entries: explicit `order` first (ascending), then
- * `display_name`, then `name` as a final tie-break so the result never depends on
- * server ordering.
+ * Whether a non-empty catalog came from an API that predates workflow forms.
+ *
+ * Old APIs omit both fields from every entry. Requiring both normalized fields to be
+ * absent avoids treating one malformed or third-party entry as a system-wide version
+ * mismatch.
  */
-export const compareWorkflowCatalogEntries = (
-  a: WorkflowSortKey,
-  b: WorkflowSortKey
-): number => {
-  if (a.order !== b.order) {
-    if (a.order === undefined) return 1;
-    if (b.order === undefined) return -1;
-    return a.order - b.order;
-  }
-
-  const byDisplayName = displayNameCollator.compare(a.display_name, b.display_name);
-  if (byDisplayName !== 0) return byDisplayName;
-
-  if (a.name < b.name) return -1;
-  if (a.name > b.name) return 1;
-  return 0;
-};
-
-/** Sorted copy of the catalog; the input is not mutated. */
-export const sortWorkflowCatalog = <T extends WorkflowSortKey>(entries: readonly T[]): T[] =>
-  [...entries].sort(compareWorkflowCatalogEntries);
+export const isLegacyWorkflowCatalog = (
+  catalog: readonly WorkflowCatalogEntry[]
+): boolean =>
+  catalog.length > 0 &&
+  catalog.every((entry) => entry.has_form === null && entry.form_id === null);

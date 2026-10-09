@@ -5,7 +5,7 @@
     {
       "name": "manual site and device",
       "legacy_url": "/workflows/switchosupgradeworkflow/form",
-      "new_url": "/workflows/new/SwitchOSUpgradeWorkflow",
+      "new_url": "/workflows/new/switch-os-upgrade",
       "legacy_payload": {
         "device_id": "e9243d67-dad0-4f4b-9f6d-9cc977ff0023"
       },
@@ -16,7 +16,7 @@
     {
       "name": "manual fill narrowed by tenant",
       "legacy_url": "/workflows/switchosupgradeworkflow/form",
-      "new_url": "/workflows/new/SwitchOSUpgradeWorkflow",
+      "new_url": "/workflows/new/switch-os-upgrade",
       "legacy_payload": {
         "device_id": "e9243d67-dad0-4f4b-9f6d-9cc977ff0023"
       },
@@ -27,7 +27,7 @@
     {
       "name": "Nautobot device link",
       "legacy_url": "/workflows/switchosupgradeworkflow/form?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&tenant=TenantB",
-      "new_url": "/workflows/new/SwitchOSUpgradeWorkflow?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&tenant=TenantB",
+      "new_url": "/workflows/new/switch-os-upgrade?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&tenant=TenantB",
       "legacy_payload": {
         "device_id": "e9243d67-dad0-4f4b-9f6d-9cc977ff0023"
       },

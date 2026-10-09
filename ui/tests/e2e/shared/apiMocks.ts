@@ -17,6 +17,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Page } from "@playwright/test";
+import workflowFormIds from "@/config/workflow-form-ids.json";
 import { validateSiteBackupPayload } from "@/mocks/handlers/siteBackupHandlers";
 import { createGenericWorkflow } from "@/mocks/data/workflows/genericWorkflow";
 import {
@@ -40,7 +41,10 @@ import {
 /** A JSON fixture the workflow API tests keep in `src/tests/temporal/api/fixtures/`. */
 function readApiFixture<T>(file: string): T {
   return JSON.parse(
-    readFileSync(join(__dirname, "../../../../src/tests/temporal/api/fixtures", file), "utf8")
+    readFileSync(
+      join(__dirname, "../../../../src/tests/temporal/api/fixtures", file),
+      "utf8"
+    )
   );
 }
 
@@ -49,18 +53,18 @@ const CONFIG_SYNC_TIMESTAMP_METRIC =
 
 // Mock the runtime config endpoint
 export async function mockRuntimeConfigEndpoint(page: Page) {
-  await page.route('**/api/config', async (route) => {
+  await page.route("**/api/config", async (route) => {
     await route.fulfill({
       status: 200,
       json: {
-        workflowApiUrl: 'http://localhost:9000',
-        configStoreApiUrl: 'http://localhost:9001',
-        dcimUrl: 'https://nautobot.example.com',
-        dcimProvider: 'nautobot',
-        dcimDisplayName: 'Nautobot',
-        renderServiceUrl: 'http://localhost:9002',
-        ztpUrl: 'http://localhost:9003',
-        dhcpUrl: 'http://localhost:9004',
+        workflowApiUrl: "http://localhost:9000",
+        configStoreApiUrl: "http://localhost:9001",
+        dcimUrl: "https://nautobot.example.com",
+        dcimProvider: "nautobot",
+        dcimDisplayName: "Nautobot",
+        renderServiceUrl: "http://localhost:9002",
+        ztpUrl: "http://localhost:9003",
+        dhcpUrl: "http://localhost:9004",
       },
     });
   });
@@ -187,7 +191,9 @@ export async function mockDhcpEndpoints(page: Page) {
     const normalizedMacSearch = /^[0-9a-f]{12}$/.test(compactSearch)
       ? compactSearch
       : null;
-    const activeLeases = leases.filter((lease) => lease.ip_address !== clearedLease);
+    const activeLeases = leases.filter(
+      (lease) => lease.ip_address !== clearedLease
+    );
     const filteredLeases = search
       ? activeLeases.filter((lease) =>
           [
@@ -201,9 +207,10 @@ export async function mockDhcpEndpoints(page: Page) {
             return (
               normalizedValue.includes(search) ||
               (normalizedMacSearch !== null &&
-                normalizedValue.replaceAll(/[:.-]/g, "") === normalizedMacSearch)
+                normalizedValue.replaceAll(/[:.-]/g, "") ===
+                  normalizedMacSearch)
             );
-          }),
+          })
         )
       : activeLeases;
     await route.fulfill({
@@ -300,7 +307,10 @@ export async function mockDhcpEndpoints(page: Page) {
   await page.route("**/lease/*", async (route) => {
     const request = route.request();
     if (request.method() !== "DELETE") {
-      await route.fulfill({ status: 400, json: { detail: "Invalid lease request" } });
+      await route.fulfill({
+        status: 400,
+        json: { detail: "Invalid lease request" },
+      });
       return;
     }
     clearedLease = decodeURIComponent(
@@ -311,12 +321,12 @@ export async function mockDhcpEndpoints(page: Page) {
 }
 
 export async function mockWhoamiEndpoint(page: Page) {
-  await page.route('**/whoami', async (route) => {
+  await page.route("**/whoami", async (route) => {
     await route.fulfill({
       status: 200,
       json: {
-        user: 'joliao@nvidia.com',
-        roles: ['all', 'nvcm-network'],
+        user: "joliao@nvidia.com",
+        roles: ["all", "nvcm-network"],
       },
     });
   });
@@ -332,79 +342,89 @@ export async function mockOverlaysEndpoint(page: Page) {
 }
 
 export async function mockDevicePasswordRotationEndpoint(page: Page) {
-  await page.route(`**/v1/workflow/ngc/device_password_rotation`, async (route) => {
-    const request = route.request();
-    const body = JSON.parse((await request.postData()) || "{}");
+  await page.route(
+    `**/v1/workflow/ngc/device_password_rotation`,
+    async (route) => {
+      const request = route.request();
+      const body = JSON.parse((await request.postData()) || "{}");
 
-    if (!body.device_id || !body.selected_secret) {
-      await route.fulfill({
-        status: 400,
-        json: { error: "Missing required fields: device_id and selected_secret" },
-      });
-      return;
-    }
+      if (!body.device_id || !body.selected_secret) {
+        await route.fulfill({
+          status: 400,
+          json: {
+            error: "Missing required fields: device_id and selected_secret",
+          },
+        });
+        return;
+      }
 
-    // Check if device is forbidden
-    if (Object.values(FORBIDDEN_DEVICE_IDS).includes(body.device_id)) {
+      // Check if device is forbidden
+      if (Object.values(FORBIDDEN_DEVICE_IDS).includes(body.device_id)) {
+        await route.fulfill({
+          status: 403,
+          json: {
+            error:
+              "Forbidden: You do not have permission to rotate passwords on this device",
+          },
+        });
+        return;
+      }
+
+      // Simulate processing delay (reduced for faster tests)
+      await delay(100);
+
+      // Return success response
       await route.fulfill({
-        status: 403,
+        status: 201,
         json: {
-          error: "Forbidden: You do not have permission to rotate passwords on this device",
+          id: `device-password-rotation-${Date.now()}`,
+          href: `https://url-to-temporal.com/namespaces/default/workflows/device-password-rotation-${Date.now()}`,
         },
       });
-      return;
     }
-
-    // Simulate processing delay (reduced for faster tests)
-    await delay(100);
-
-    // Return success response
-    await route.fulfill({
-      status: 201,
-      json: {
-        id: `device-password-rotation-${Date.now()}`,
-        href: `https://url-to-temporal.com/namespaces/default/workflows/device-password-rotation-${Date.now()}`,
-      },
-    });
-  });
+  );
 }
 
 export async function mockSitePasswordRotationEndpoint(page: Page) {
-  await page.route(`**/v1/workflow/ngc/site_password_rotation`, async (route) => {
-    const request = route.request();
-    const body = JSON.parse((await request.postData()) || "{}");
+  await page.route(
+    `**/v1/workflow/ngc/site_password_rotation`,
+    async (route) => {
+      const request = route.request();
+      const body = JSON.parse((await request.postData()) || "{}");
 
-    if (!body.location || !body.selected_secret) {
-      await route.fulfill({
-        status: 400,
-        json: { error: "Missing required fields" },
-      });
-      return;
-    }
+      if (!body.location || !body.selected_secret) {
+        await route.fulfill({
+          status: 400,
+          json: { error: "Missing required fields" },
+        });
+        return;
+      }
 
-    // Check if site is forbidden
-    if (body.location === FORBIDDEN_SITE_ID) {
+      // Check if site is forbidden
+      if (body.location === FORBIDDEN_SITE_ID) {
+        await route.fulfill({
+          status: 403,
+          json: {
+            error:
+              "Forbidden: You do not have permission to rotate passwords on this site",
+          },
+        });
+        return;
+      }
+
+      // Simulate processing delay (reduced for faster tests)
+      await delay(100);
+
+      // Return success response
       await route.fulfill({
-        status: 403,
+        status: 201,
         json: {
-          error: "Forbidden: You do not have permission to rotate passwords on this site",
+          id: `site-password-rotation-${Date.now()}`,
+          href: `https://url-to-temporal.com/namespaces/default/workflows/site-password-rotation-${Date.now()}`,
         },
       });
-      return;
     }
-
-    // Simulate processing delay (reduced for faster tests)
-    await delay(100);
-
-    // Return success response
-    await route.fulfill({
-      status: 201,
-      json: {
-        id: `site-password-rotation-${Date.now()}`,
-        href: `https://url-to-temporal.com/namespaces/default/workflows/site-password-rotation-${Date.now()}`,
-      },
-    });
-  });
+  );
 }
 
 export async function mockCumulusHardwareValidationEndpoint(page: Page) {
@@ -800,11 +820,18 @@ export async function mockDeviceListWorkflowEndpoints(page: Page) {
   ]) {
     await page.route(`**/v1/workflow/ngc/${endpoint}`, async (route) => {
       const body = JSON.parse(route.request().postData() || "{}");
-      const ids = [body.device_id, body.ufm_device_id, ...(body.device_ids ?? []), ...(body.switch_device_ids ?? [])];
+      const ids = [
+        body.device_id,
+        body.ufm_device_id,
+        ...(body.device_ids ?? []),
+        ...(body.switch_device_ids ?? []),
+      ];
       if (ids.some((id) => forbidden.includes(id))) {
         await route.fulfill({
           status: 403,
-          json: { error: "Forbidden: You do not have permission to run this workflow" },
+          json: {
+            error: "Forbidden: You do not have permission to run this workflow",
+          },
         });
         return;
       }
@@ -1064,7 +1091,8 @@ function validateIbPkeyMembershipBody(body: {
     return {
       status: 400,
       json: {
-        error: "Each interfaces entry must include non-empty 'device' and 'interface'",
+        error:
+          "Each interfaces entry must include non-empty 'device' and 'interface'",
       },
     };
   }
@@ -1080,7 +1108,7 @@ function validateIbPkeyMembershipBody(body: {
 async function registerIbPkeyMembershipRoute(
   page: Page,
   endpoint: string,
-  workflowKind: string,
+  workflowKind: string
 ) {
   await page.route(`**${endpoint}`, async (route) => {
     const body = JSON.parse((await route.request().postData()) || "{}");
@@ -1106,7 +1134,7 @@ export async function mockIbPkeyMemberAddEndpoint(page: Page) {
   await registerIbPkeyMembershipRoute(
     page,
     "/v1/workflow/ngc/ib_pkey_member_add",
-    "ib-pkey-member-add",
+    "ib-pkey-member-add"
   );
 }
 
@@ -1114,7 +1142,7 @@ export async function mockIbPkeyMemberDeleteEndpoint(page: Page) {
   await registerIbPkeyMembershipRoute(
     page,
     "/v1/workflow/ngc/ib_pkey_member_delete",
-    "ib-pkey-member-delete",
+    "ib-pkey-member-delete"
   );
 }
 
@@ -1122,7 +1150,7 @@ export async function mockIbPkeyMemberUpdateEndpoint(page: Page) {
   await registerIbPkeyMembershipRoute(
     page,
     "/v1/workflow/ngc/ib_pkey_member_update",
-    "ib-pkey-member-update",
+    "ib-pkey-member-update"
   );
 }
 
@@ -1256,11 +1284,14 @@ export async function mockSitesEndpoint(page: Page) {
  */
 export async function mockTypedLocationsEndpoint(page: Page) {
   await page.route(`**/v1/parameter/location*`, async (route) => {
-    const types = new URL(route.request().url()).searchParams.getAll("location_type");
+    const types = new URL(route.request().url()).searchParams.getAll(
+      "location_type"
+    );
     await route.fulfill({
       status: 200,
       json: TYPED_LOCATIONS_LIST_API_RESPONSE.filter(
-        (location) => types.length === 0 || types.includes(location.location_type)
+        (location) =>
+          types.length === 0 || types.includes(location.location_type)
       ),
     });
   });
@@ -1398,67 +1429,84 @@ export async function mockPasswordUsersEndpoint(page: Page) {
   });
 }
 
-/** Password users returned by the generic Site Password Rotation option source. */
+/** Password users returned by the Site Password Rotation option provider. */
 export const PASSWORD_USER_OPTIONS = [
   { label: "admin", value: "admin", description: "admin (admin-password)" },
-  { label: "cumulus", value: "cumulus", description: "cumulus (cumulus-password)" },
+  {
+    label: "cumulus",
+    value: "cumulus",
+    description: "cumulus (cumulus-password)",
+  },
 ];
 
 export async function mockPasswordUserOptionsEndpoint(page: Page) {
-  await page.route(/\/v1\/parameter\/password-users(\?.*)?$/, async (route) => {
-    const search = new URL(route.request().url()).searchParams;
-    const location = search.get("location") ?? "";
-    const roles = search.getAll("role");
-    const statuses = search.getAll("status");
-    const tenant = search.get("tenant");
-    const devices = DEVICES_LIST[location as keyof typeof DEVICES_LIST] ?? [];
-    const matching = devices.filter((device) => {
-      const row = device as { role?: string; status?: string; tenant?: string };
-      return (
-        (roles.length === 0 || roles.includes(row.role ?? "")) &&
-        (statuses.length === 0 || statuses.includes(row.status ?? "")) &&
-        (!tenant || row.tenant === tenant)
-      );
-    });
+  await page.route(
+    /\/v1\/workflow\/site-password-rotation\/form-options\/password-users(\?.*)?$/,
+    async (route) => {
+      const search = new URL(route.request().url()).searchParams;
+      const location = search.get("location") ?? "";
+      const roles = search.getAll("role");
+      const statuses = search.getAll("status");
+      const tenant = search.get("tenant");
+      const devices = DEVICES_LIST[location as keyof typeof DEVICES_LIST] ?? [];
+      const matching = devices.filter((device) => {
+        const row = device as {
+          role?: string;
+          status?: string;
+          tenant?: string;
+        };
+        return (
+          (roles.length === 0 || roles.includes(row.role ?? "")) &&
+          (statuses.length === 0 || statuses.includes(row.status ?? "")) &&
+          (!tenant || row.tenant === tenant)
+        );
+      });
 
-    await route.fulfill({
-      status: 200,
-      json: {
-        items: matching.length > 0 ? PASSWORD_USER_OPTIONS : [],
-        meta: { matching_device_count: matching.length, warnings: [] },
-      },
-    });
-  });
+      await route.fulfill({
+        status: 200,
+        json: {
+          items: matching.length > 0 ? PASSWORD_USER_OPTIONS : [],
+          meta: { matching_device_count: matching.length, warnings: [] },
+        },
+      });
+    }
+  );
 }
 
-/** Diagnostics command catalog rows used by the generic options endpoint. */
+/** Diagnostics command catalog rows used by the workflow-scoped options endpoint. */
 export const DIAGNOSTICS_COMMANDS = [
   { name: "show interface", description: "Collect interface state" },
   { name: "show lldp neighbor", description: "Collect LLDP neighbors" },
   { name: "show version", description: "Collect software versions" },
 ];
 
-/** Generic options-v1 envelope for the selected diagnostics devices. */
+/** Options-v1 envelope for the selected diagnostics devices. */
 export async function mockDiagnosticsCommandOptionsEndpoint(page: Page) {
-  await page.route(/\/v1\/parameter\/diagnostics\/command-options(\?.*)?$/, (route) => {
-    const deviceIds = new URL(route.request().url()).searchParams.getAll("device_id");
-    const group = deviceIds.length > 1 ? "Runs on all selected devices" : undefined;
-    return route.fulfill({
-      status: 200,
-      json: {
-        items:
-          deviceIds.length > 0
-            ? DIAGNOSTICS_COMMANDS.map(({ name, description }) => ({
-                label: name,
-                value: name,
-                description,
-                group,
-              }))
-            : [],
-        meta: { warnings: [] },
-      },
-    });
-  });
+  await page.route(
+    /\/v1\/workflow\/diagnostics\/form-options\/diagnostic-commands(\?.*)?$/,
+    (route) => {
+      const deviceIds = new URL(route.request().url()).searchParams.getAll(
+        "device_id"
+      );
+      const group =
+        deviceIds.length > 1 ? "Runs on all selected devices" : undefined;
+      return route.fulfill({
+        status: 200,
+        json: {
+          items:
+            deviceIds.length > 0
+              ? DIAGNOSTICS_COMMANDS.map(({ name, description }) => ({
+                  label: name,
+                  value: name,
+                  description,
+                  group,
+                }))
+              : [],
+          meta: { warnings: [] },
+        },
+      });
+    }
+  );
 }
 
 // Workflow listing endpoints
@@ -1606,12 +1654,16 @@ export async function mockWorkflowMetadataEndpoint(
       ...workflowTypes.map((workflowType) => ({
         name: workflowType,
         display_name: workflowDisplayNames[workflowType] ?? workflowType,
-        description: `${workflowDisplayNames[workflowType] ?? workflowType} workflow`,
+        description: `${
+          workflowDisplayNames[workflowType] ?? workflowType
+        } workflow`,
         endpoint: getWorkflowEndpoint(workflowType),
         namespace: "ngc",
         cli_name: workflowType.toLowerCase(),
         input_class: `${workflowType}Input`,
         has_form: !workflowsWithoutForms.has(workflowType),
+        form_id:
+          workflowFormIds[workflowType as keyof typeof workflowFormIds] ?? null,
         read_roles: ["all"],
         execute_roles: getWorkflowExecuteRoles(workflowType),
       })),
@@ -1631,7 +1683,10 @@ export async function mockWorkflowsListEndpoint(page: Page) {
   await page.route(/.*\/v1\/workflow\/?(\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
     // Skip if this is a specific workflow ID request
-    if (!url.pathname.endsWith("/v1/workflow") && !url.pathname.endsWith("/v1/workflow/")) {
+    if (
+      !url.pathname.endsWith("/v1/workflow") &&
+      !url.pathname.endsWith("/v1/workflow/")
+    ) {
       return route.fallback();
     }
 
@@ -1672,25 +1727,25 @@ export async function mockWorkflowsListEndpoint(page: Page) {
       const status = url.searchParams.get("status");
       const pendingApproval =
         url.searchParams.get("pending_approval")?.toLowerCase() === "true";
-      const failedStage = Boolean((workflow as { failed_stage?: boolean }).failed_stage);
+      const failedStage = Boolean(
+        (workflow as { failed_stage?: boolean }).failed_stage
+      );
       const displayStatus = failedStage
         ? "FAILED"
         : workflow.pending_approval
-          ? "PENDING_APPROVAL"
-          : workflow.status;
+        ? "PENDING_APPROVAL"
+        : workflow.status;
 
       if (pendingApproval && !workflow.pending_approval) {
         return false;
       }
-      if (
-        status &&
-        workflow.status !== status &&
-        displayStatus !== status
-      ) {
+      if (status && workflow.status !== status && displayStatus !== status) {
         return false;
       }
 
-      const startTimeFilter = Date.parse(url.searchParams.get("start_time") ?? "");
+      const startTimeFilter = Date.parse(
+        url.searchParams.get("start_time") ?? ""
+      );
       const endTimeFilter = Date.parse(url.searchParams.get("end_time") ?? "");
       if (!Number.isNaN(startTimeFilter) || !Number.isNaN(endTimeFilter)) {
         const workflowStartTime = Date.parse(workflow.start_time);
@@ -1699,7 +1754,10 @@ export async function mockWorkflowsListEndpoint(page: Page) {
         if (Number.isNaN(workflowStartTime)) {
           return false;
         }
-        if (!Number.isNaN(startTimeFilter) && workflowStartTime < startTimeFilter) {
+        if (
+          !Number.isNaN(startTimeFilter) &&
+          workflowStartTime < startTimeFilter
+        ) {
           return false;
         }
         if (!Number.isNaN(endTimeFilter) && Number.isNaN(workflowCloseTime)) {
@@ -1792,16 +1850,15 @@ export async function mockWorkflowDetailsEndpoint(page: Page) {
 }
 
 /**
- * The real `GET /v1/workflow/{name}/form` response of every built-in API workflow, as the
+ * The real `GET /v1/workflow/{form_id}/form` response of every built-in API workflow, as the
  * API tests snapshot it (`src/tests/temporal/api/test_workflow_form.py`; regenerate with
  * `NVCM_UPDATE_SNAPSHOTS=1`), so UI tests run against actual server output. The
  * dev-server MSW mocks keep verbatim copies of a few entries
  * (`src/mocks/data/workflowForms.json`, checked by `tests/unit/workflow-form-mocks.test.ts`):
  * the browser bundle is built from `ui/` alone and cannot import this file.
  */
-export const SERVER_WORKFLOW_FORMS: Readonly<Record<string, unknown>> = readApiFixture(
-  "workflow_forms.json"
-);
+export const SERVER_WORKFLOW_FORMS: Readonly<Record<string, unknown>> =
+  readApiFixture("workflow_forms.json");
 
 /**
  * The current `GET /v1/workflow/metadata` response derived from the additive API
@@ -1809,13 +1866,22 @@ export const SERVER_WORKFLOW_FORMS: Readonly<Record<string, unknown>> = readApiF
  * so add the new API's explicit `has_form: true`; explicit `false` values win.
  */
 type ServerWorkflowMetadata = {
-  workflows: Array<Record<string, unknown> & { name: string; execute_roles: string[] }>;
+  workflows: Array<
+    Record<string, unknown> & { name: string; execute_roles: string[] }
+  >;
 };
 
 export const SERVER_WORKFLOW_METADATA: ServerWorkflowMetadata = (() => {
-  const baseline = readApiFixture<ServerWorkflowMetadata>("workflow_metadata_baseline.json");
+  const baseline = readApiFixture<ServerWorkflowMetadata>(
+    "workflow_metadata_baseline.json"
+  );
   return {
-    workflows: baseline.workflows.map((workflow) => ({ has_form: true, ...workflow })),
+    workflows: baseline.workflows.map((workflow) => ({
+      has_form: true,
+      form_id:
+        workflowFormIds[workflow.name as keyof typeof workflowFormIds] ?? null,
+      ...workflow,
+    })),
   };
 })();
 
@@ -1825,12 +1891,15 @@ export async function mockServerCatalogAndUser(page: Page, roles: string[]) {
     route.fulfill({ status: 200, json: SERVER_WORKFLOW_METADATA })
   );
   await page.route("**/whoami", (route) =>
-    route.fulfill({ status: 200, json: { user: "operator@example.com", roles } })
+    route.fulfill({
+      status: 200,
+      json: { user: "operator@example.com", roles },
+    })
   );
 }
 
 /**
- * Mock `GET /v1/workflow/{name}/form` from {@link SERVER_WORKFLOW_FORMS}. Other names
+ * Mock `GET /v1/workflow/{form_id}/form` from {@link SERVER_WORKFLOW_FORMS}. Other IDs
  * answer 404, like unknown or API-disabled workflows on the real server.
  */
 export async function mockWorkflowFormEndpoint(page: Page) {
@@ -1840,20 +1909,25 @@ export async function mockWorkflowFormEndpoint(page: Page) {
     }
     const url = new URL(route.request().url());
     const segment = url.pathname.split("/").at(-2) ?? "";
-    let name = segment;
+    let formId = segment;
     try {
-      name = decodeURIComponent(segment);
+      formId = decodeURIComponent(segment);
     } catch {
       // Leave malformed escapes as-is; no fixture will match them.
     }
 
-    const form = Object.prototype.hasOwnProperty.call(SERVER_WORKFLOW_FORMS, name)
-      ? SERVER_WORKFLOW_FORMS[name]
-      : undefined;
+    const workflowClass = Object.entries(workflowFormIds).find(
+      ([, id]) => id === formId
+    )?.[0];
+    const form =
+      workflowClass &&
+      Object.prototype.hasOwnProperty.call(SERVER_WORKFLOW_FORMS, workflowClass)
+        ? SERVER_WORKFLOW_FORMS[workflowClass]
+        : undefined;
     if (!form) {
       await route.fulfill({
         status: 404,
-        json: { detail: `Workflow '${name}' not found` },
+        json: { detail: `Workflow '${formId}' not found` },
       });
       return;
     }
@@ -1916,20 +1990,22 @@ const CONFIG_STORE_DEVICES = [
 ];
 
 export async function mockConfigStoreSearchEndpoint(page: Page) {
-  await page.route('**/v1/admin/devices/search*', async (route) => {
+  await page.route("**/v1/admin/devices/search*", async (route) => {
     const url = new URL(route.request().url());
-    const query = url.searchParams.get('q') || '';
-    const includeInactive = url.searchParams.get('include_inactive') === 'true';
-    
+    const query = url.searchParams.get("q") || "";
+    const includeInactive = url.searchParams.get("include_inactive") === "true";
+
     let results = CONFIG_STORE_DEVICES;
 
     if (!includeInactive) {
-      results = results.filter(d => d.active);
+      results = results.filter((d) => d.active);
     }
-    
+
     if (query) {
       const lowerQuery = query.toLowerCase();
-      results = results.filter(d => d.name.toLowerCase().includes(lowerQuery));
+      results = results.filter((d) =>
+        d.name.toLowerCase().includes(lowerQuery)
+      );
     }
 
     await delay(100);
@@ -1943,13 +2019,13 @@ export async function mockConfigStoreSearchEndpoint(page: Page) {
 
 export async function mockConfigStoreDeleteEndpoint(page: Page) {
   await page.route(/\/v1\/admin\/devices\/[^/]+$/, async (route) => {
-    if (route.request().method() !== 'DELETE') {
+    if (route.request().method() !== "DELETE") {
       return route.fallback();
     }
 
     const url = route.request().url();
     const uuidMatch = url.match(/\/v1\/admin\/devices\/([^?]+)/);
-    const deviceUuid = uuidMatch?.[1] || '';
+    const deviceUuid = uuidMatch?.[1] || "";
 
     await delay(100);
 
@@ -2033,7 +2109,8 @@ export async function mockConfigStoreConfigFileEndpoint(page: Page) {
       filename: "running-config.txt",
       file_type: "intended",
       version: 3,
-      content: "! Sample running config\nhostname spine-001\ninterface eth0\n  ip address 10.0.0.1/24\n",
+      content:
+        "! Sample running config\nhostname spine-001\ninterface eth0\n  ip address 10.0.0.1/24\n",
       content_hash: "abc123",
       author: "admin",
       commit_message: "Updated hostname",

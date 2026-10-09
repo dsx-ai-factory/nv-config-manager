@@ -18,6 +18,7 @@ import { setupServer } from "msw/node";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { mockApiURL } from "@/config/mockApiUrl";
+import workflowFormIds from "@/config/workflow-form-ids.json";
 import { fetcher } from "@/lib/fetcher";
 import {
   buildOptionSourceRequest,
@@ -29,11 +30,24 @@ import { WORKFLOW_FORM_FIXTURES } from "@/mocks/data/workflowForms";
 import { handlers } from "@/mocks/handlers";
 import type { OptionSource } from "@/types/workflow-catalog.types";
 
-import { SERVER_WORKFLOW_FORMS } from "./server-snapshot";
+import {
+  SERVER_WORKFLOW_FORM_IDS,
+  SERVER_WORKFLOW_FORMS,
+} from "./server-snapshot";
 
 describe("MSW /form fixtures", () => {
   it("are a verbatim copy of the server snapshot", () => {
     expect(WORKFLOW_FORM_FIXTURES).toEqual(SERVER_WORKFLOW_FORMS);
+  });
+
+  it("uses exactly the backend's frozen form IDs", () => {
+    expect(workflowFormIds).toEqual(SERVER_WORKFLOW_FORM_IDS);
+    expect(Object.keys(workflowFormIds).sort()).toEqual(
+      Object.keys(SERVER_WORKFLOW_FORMS).sort()
+    );
+    expect(new Set(Object.values(workflowFormIds)).size).toBe(
+      Object.keys(workflowFormIds).length
+    );
   });
 });
 
@@ -43,16 +57,21 @@ const server = setupServer(...handlers);
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterAll(() => server.close());
 
-describe("MSW GET /v1/workflow/:name/form", () => {
-  it.each(Object.keys(WORKFLOW_FORM_FIXTURES))("serves the %s fixture", async (name) => {
-    expect(await fetchWorkflowForm(mockApiURL, name)).toEqual({
-      kind: "ok",
-      form: WORKFLOW_FORM_FIXTURES[name],
-    });
-  });
+describe("MSW GET /v1/workflow/:formId/form", () => {
+  it.each(Object.entries(workflowFormIds))(
+    "serves the %s fixture at %s",
+    async (name, formId) => {
+      expect(await fetchWorkflowForm(mockApiURL, formId)).toEqual({
+        kind: "ok",
+        form: WORKFLOW_FORM_FIXTURES[name],
+      });
+    }
+  );
 
   it("answers 404 for an unknown workflow, not the /v1/workflow/:id handler", async () => {
-    expect((await fetchWorkflowForm(mockApiURL, "NoSuchWorkflow")).kind).toBe("not_found");
+    expect((await fetchWorkflowForm(mockApiURL, "NoSuchWorkflow")).kind).toBe(
+      "not_found"
+    );
   });
 });
 
@@ -69,12 +88,14 @@ const FILLED = {
 const sources: Array<[string, OptionSource]> = [
   ...Object.entries(WORKFLOW_FORM_FIXTURES).flatMap(([name, form]) =>
     Object.entries(form.ui_schema).flatMap(([property, ui]) => {
-      const options = (ui as {
-        "ui:options"?: {
-          source?: OptionSource;
-          filterSources?: Record<string, OptionSource>;
-        };
-      })["ui:options"];
+      const options = (
+        ui as {
+          "ui:options"?: {
+            source?: OptionSource;
+            filterSources?: Record<string, OptionSource>;
+          };
+        }
+      )["ui:options"];
       return [
         ...(options?.source
           ? [[`${name}.${property}`, options.source] as [string, OptionSource]]
@@ -83,7 +104,7 @@ const sources: Array<[string, OptionSource]> = [
           ([filter, source]) =>
             [`${name}.${property}.${filter} filter`, source] as [
               string,
-              OptionSource,
+              OptionSource
             ]
         ),
       ];
@@ -100,7 +121,12 @@ describe("MSW parameter endpoints referenced by the /form samples", () => {
     const mapping =
       source.response === "options-v1"
         ? mapOptionEnvelope(response)
-        : mapOptionRows(response, source.label_key, source.value_key, source.type_key);
+        : mapOptionRows(
+            response,
+            source.label_key,
+            source.value_key,
+            source.type_key
+          );
 
     expect(mapping?.options.length).toBeGreaterThan(0);
   });

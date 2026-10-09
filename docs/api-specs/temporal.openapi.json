@@ -1,6 +1,20 @@
 {
   "components": {
     "schemas": {
+      "ApiErrorResponse": {
+        "description": "A sanitized API error response.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ApiErrorResponse",
+        "type": "object"
+      },
       "BackupInput": {
         "description": "Backup Workflow Input Definiton.",
         "properties": {
@@ -2247,6 +2261,20 @@
         "title": "WorkflowDetailResponse",
         "type": "object"
       },
+      "WorkflowFormNotFoundResponse": {
+        "description": "Response returned when no workflow form owns the requested ID.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "WorkflowFormNotFoundResponse",
+        "type": "object"
+      },
       "WorkflowFormResponse": {
         "description": "Version 1 input form of an API workflow, rendered with RJSF.\n\n``schema`` is the form projection of the input model's JSON Schema,\n``ui_schema`` a validated subset of an RJSF ``uiSchema``, ``requires`` the\ncapabilities the UI must support before rendering.",
         "properties": {
@@ -2280,6 +2308,49 @@
           "requires"
         ],
         "title": "WorkflowFormResponse",
+        "type": "object"
+      },
+      "WorkflowFormUnavailableDetail": {
+        "description": "Sanitized diagnostic for an unavailable third-party workflow form.",
+        "properties": {
+          "code": {
+            "const": "workflow_form_unavailable",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "plugin": {
+            "title": "Plugin",
+            "type": "string"
+          },
+          "workflow": {
+            "title": "Workflow",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "plugin",
+          "workflow",
+          "message"
+        ],
+        "title": "WorkflowFormUnavailableDetail",
+        "type": "object"
+      },
+      "WorkflowFormUnavailableResponse": {
+        "description": "Response returned when a third-party form fails contract validation.",
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/WorkflowFormUnavailableDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "WorkflowFormUnavailableResponse",
         "type": "object"
       },
       "WorkflowListResponse": {
@@ -2346,6 +2417,19 @@
             },
             "title": "Execute Roles",
             "type": "array"
+          },
+          "form_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stable lowercase kebab-case identifier used by this workflow's browser-form endpoints.",
+            "title": "Form Id"
           },
           "group": {
             "anyOf": [
@@ -3161,59 +3245,6 @@
         ]
       }
     },
-    "/v1/parameter/diagnostics/command-options": {
-      "get": {
-        "description": "Return grouped command options for the selected devices.",
-        "operationId": "get_diagnostics_command_options_v1_parameter_diagnostics_command_options_get",
-        "parameters": [
-          {
-            "description": "Selected managed device IDs",
-            "in": "query",
-            "name": "device_id",
-            "required": true,
-            "schema": {
-              "description": "Selected managed device IDs",
-              "items": {
-                "type": "string"
-              },
-              "title": "Device Id",
-              "type": "array"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OptionSourceResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "summary": "Get Diagnostics Command Options",
-        "tags": [
-          "parameters"
-        ]
-      }
-    },
     "/v1/parameter/diagnostics/commands": {
       "get": {
         "description": "Return the diagnostics command catalog for the requested platform(s).\n\nPass one or more ``?platform=<slug>`` query params (e.g. ``cumulus-linux``).\nWhen no platform is given, commands from all platforms are returned.\nCommands that appear on multiple platforms are deduplicated by name.",
@@ -3509,140 +3540,6 @@
           }
         ],
         "summary": "Get Overlays",
-        "tags": [
-          "parameters"
-        ]
-      }
-    },
-    "/v1/parameter/password-users": {
-      "get": {
-        "description": "Return password users from the first device matching the supplied filters.",
-        "operationId": "get_password_user_options_v1_parameter_password_users_get",
-        "parameters": [
-          {
-            "description": "Location containing the target devices",
-            "in": "query",
-            "name": "location",
-            "required": true,
-            "schema": {
-              "description": "Location containing the target devices",
-              "title": "Location",
-              "type": "string"
-            }
-          },
-          {
-            "description": "DCIM location type for the location identifier",
-            "in": "query",
-            "name": "location_type",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "$ref": "#/components/schemas/DCIMLocationType"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "DCIM location type for the location identifier",
-              "title": "Location Type"
-            }
-          },
-          {
-            "in": "query",
-            "name": "role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Role"
-            }
-          },
-          {
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Status"
-            }
-          },
-          {
-            "in": "query",
-            "name": "tenant",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Tenant"
-            }
-          },
-          {
-            "description": "Limit to NVIDIA Config Manager-managed devices",
-            "in": "query",
-            "name": "managed_only",
-            "required": false,
-            "schema": {
-              "default": true,
-              "description": "Limit to NVIDIA Config Manager-managed devices",
-              "title": "Managed Only",
-              "type": "boolean"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OptionSourceResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "summary": "Get Password User Options",
         "tags": [
           "parameters"
         ]
@@ -4114,6 +4011,89 @@
           }
         ],
         "summary": "Get Workflows",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/diagnostics/form-options/diagnostic-commands": {
+      "get": {
+        "description": "Return diagnostic-commands form options for DiagnosticsWorkflow.",
+        "operationId": "get_workflow_form_options_diagnostics__diagnostic_commands",
+        "parameters": [
+          {
+            "description": "Selected managed device IDs",
+            "in": "query",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "description": "Selected managed device IDs",
+              "items": {
+                "type": "string"
+              },
+              "title": "Device Id",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptionSourceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "The option provider failed or returned invalid data."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "The option provider timed out."
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get diagnostic-commands options for DiagnosticsWorkflow",
         "tags": [
           "workflow"
         ]
@@ -5603,6 +5583,170 @@
         ]
       }
     },
+    "/v1/workflow/site-password-rotation/form-options/password-users": {
+      "get": {
+        "description": "Return password-users form options for SitePasswordRotationWorkflow.",
+        "operationId": "get_workflow_form_options_site_password_rotation__password_users",
+        "parameters": [
+          {
+            "description": "Location containing the target devices",
+            "in": "query",
+            "name": "location",
+            "required": true,
+            "schema": {
+              "description": "Location containing the target devices",
+              "title": "Location",
+              "type": "string"
+            }
+          },
+          {
+            "description": "DCIM location type for the location identifier",
+            "in": "query",
+            "name": "location_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "DCIM location type for the location identifier",
+              "title": "Location Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tenant",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant"
+            }
+          },
+          {
+            "description": "Limit to NVIDIA Config Manager-managed devices",
+            "in": "query",
+            "name": "managed_only",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Limit to NVIDIA Config Manager-managed devices",
+              "title": "Managed Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptionSourceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "The option provider failed or returned invalid data."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "The option provider timed out."
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get password-users options for SitePasswordRotationWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
     "/v1/workflow/types": {
       "get": {
         "description": "Return registered workflow type names.",
@@ -5634,17 +5778,20 @@
         ]
       }
     },
-    "/v1/workflow/{name}/form": {
+    "/v1/workflow/{form_id}/form": {
       "get": {
-        "description": "Return the v1 input form of an API workflow, looked up by its class name.",
-        "operationId": "get_workflow_form_v1_workflow__name__form_get",
+        "description": "Return the v1 input form of an API workflow, looked up by its stable form ID.",
+        "operationId": "get_workflow_form",
         "parameters": [
           {
+            "description": "Stable lowercase kebab-case workflow form identifier.",
             "in": "path",
-            "name": "name",
+            "name": "form_id",
             "required": true,
             "schema": {
-              "title": "Name",
+              "description": "Stable lowercase kebab-case workflow form identifier.",
+              "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+              "title": "Form Id",
               "type": "string"
             }
           }
@@ -5661,6 +5808,13 @@
             "description": "Successful Response"
           },
           "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowFormNotFoundResponse"
+                }
+              }
+            },
             "description": "No browser form is available for this workflow."
           },
           "422": {
@@ -5674,6 +5828,13 @@
             "description": "Validation Error"
           },
           "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowFormUnavailableResponse"
+                }
+              }
+            },
             "description": "The workflow's third-party form failed contract validation."
           }
         },

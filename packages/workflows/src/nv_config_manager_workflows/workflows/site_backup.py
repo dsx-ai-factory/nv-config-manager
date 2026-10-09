@@ -182,6 +182,8 @@ class SiteBackupWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin):
     workflow_input_class = SiteBackupInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/site_backup"
+    workflow_form_enabled = True
+    workflow_form_id = "site-backup"
     workflow_namespace = "ngc"
     workflow_required_activities = (get_network_devices, get_ui_base_url)
     workflow_mcp_enabled = True

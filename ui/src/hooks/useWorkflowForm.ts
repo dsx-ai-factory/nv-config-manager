@@ -30,13 +30,18 @@ export interface UseWorkflowFormReturn {
   reload: () => Promise<WorkflowFormResult | undefined>;
 }
 
-const useWorkflowForm = (name: string, enabled = true): UseWorkflowFormReturn => {
+const useWorkflowForm = (
+  formId: string,
+  enabled = true
+): UseWorkflowFormReturn => {
   const { config } = useRuntimeConfig();
   const apiURL = config?.workflowApiUrl;
   const { data, isLoading, mutate } = useSWRImmutable(
-    enabled && apiURL && name ? ([WORKFLOW_FORM_SWR_KEY, apiURL, name] as const) : null,
-    ([, url, workflowName]: readonly [string, string, string]) =>
-      fetchWorkflowForm(url, workflowName)
+    enabled && apiURL && formId
+      ? ([WORKFLOW_FORM_SWR_KEY, apiURL, formId] as const)
+      : null,
+    ([, url, workflowFormId]: readonly [string, string, string]) =>
+      fetchWorkflowForm(url, workflowFormId)
   );
 
   return { result: data, isLoading, reload: () => mutate() };

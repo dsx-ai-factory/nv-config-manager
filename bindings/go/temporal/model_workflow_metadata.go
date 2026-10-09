@@ -21,12 +21,14 @@ var _ MappedNullable = &WorkflowMetadata{}
 
 // WorkflowMetadata Workflow metadata.
 type WorkflowMetadata struct {
-	CliName      string         `json:"cli_name"`
-	Description  string         `json:"description"`
-	DisplayName  string         `json:"display_name"`
-	Endpoint     string         `json:"endpoint"`
-	ExecuteRoles []string       `json:"execute_roles"`
-	Group        NullableString `json:"group,omitempty"`
+	CliName      string   `json:"cli_name"`
+	Description  string   `json:"description"`
+	DisplayName  string   `json:"display_name"`
+	Endpoint     string   `json:"endpoint"`
+	ExecuteRoles []string `json:"execute_roles"`
+	// Stable lowercase kebab-case identifier used by this workflow's browser-form endpoints.
+	FormId NullableString `json:"form_id,omitempty" validate:"regexp=^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"`
+	Group  NullableString `json:"group,omitempty"`
 	// Whether the browser-form contract is enabled. When true, the form endpoint may still return HTTP 503 if a third-party declaration failed validation.
 	HasForm    NullableBool   `json:"has_form,omitempty"`
 	InputClass string         `json:"input_class"`
@@ -181,6 +183,51 @@ func (o *WorkflowMetadata) GetExecuteRolesOk() ([]string, bool) {
 // SetExecuteRoles sets field value
 func (o *WorkflowMetadata) SetExecuteRoles(v []string) {
 	o.ExecuteRoles = v
+}
+
+// GetFormId returns the FormId field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *WorkflowMetadata) GetFormId() string {
+	if o == nil || IsNil(o.FormId.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.FormId.Get()
+}
+
+// GetFormIdOk returns a tuple with the FormId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *WorkflowMetadata) GetFormIdOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.FormId.Get(), o.FormId.IsSet()
+}
+
+// HasFormId returns a boolean if a field has been set.
+func (o *WorkflowMetadata) HasFormId() bool {
+	if o != nil && o.FormId.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetFormId gets a reference to the given NullableString and assigns it to the FormId field.
+func (o *WorkflowMetadata) SetFormId(v string) {
+	o.FormId.Set(&v)
+}
+
+// SetFormIdNil sets the value for FormId to be an explicit nil
+func (o *WorkflowMetadata) SetFormIdNil() {
+	o.FormId.Set(nil)
+}
+
+// UnsetFormId ensures that no value is present for FormId, not even an explicit nil
+func (o *WorkflowMetadata) UnsetFormId() {
+	o.FormId.Unset()
 }
 
 // GetGroup returns the Group field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -386,6 +433,9 @@ func (o WorkflowMetadata) ToMap() (map[string]interface{}, error) {
 	toSerialize["display_name"] = o.DisplayName
 	toSerialize["endpoint"] = o.Endpoint
 	toSerialize["execute_roles"] = o.ExecuteRoles
+	if o.FormId.IsSet() {
+		toSerialize["form_id"] = o.FormId.Get()
+	}
 	if o.Group.IsSet() {
 		toSerialize["group"] = o.Group.Get()
 	}

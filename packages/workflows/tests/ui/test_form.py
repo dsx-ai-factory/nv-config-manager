@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 from nv_config_manager_workflows.ui import (
     UI_SCHEMA_VERSION,
     Dependency,
+    FormOptionSource,
     OptionSource,
     ServerOwned,
     WorkflowFormContractError,
@@ -165,6 +166,50 @@ def test_api_options_can_disable_the_picker_when_no_matches_are_returned() -> No
     envelope = _build({"overlay": field})
 
     assert envelope["ui_schema"]["overlay"]["ui:options"]["disableWhenNoMatches"] is True
+    Draft202012Validator(wire_schema()).validate(envelope)
+
+
+def test_a_symbolic_option_source_requires_workflow_provider_context() -> None:
+    source = FormOptionSource("fabric-profiles")
+
+    with pytest.raises(WorkflowFormContractError, match="unresolved FormOptionSource"):
+        _build({"overlay": api_options(source)})
+
+
+def test_a_symbolic_option_source_is_compiled_before_form_validation() -> None:
+    source = FormOptionSource(
+        "fabric-profiles",
+        params={"kind": "production"},
+        depends_on={"site": Dependency("site")},
+        clear_on_change=True,
+    )
+
+    envelope = _build(
+        {"overlay": api_options(source)},
+        compile_option_source=lambda value: OptionSource(
+            f"/v1/workflow/Example/form-options/{value.name}",
+            "label",
+            "value",
+            params=value.params,
+            depends_on=value.depends_on,
+            clear_on_change=value.clear_on_change,
+            response="options-v1",
+        ),
+    )
+
+    assert envelope["ui_schema"]["overlay"]["ui:options"]["source"] == {
+        "endpoint": "/v1/workflow/Example/form-options/fabric-profiles",
+        "label_key": "label",
+        "value_key": "value",
+        "params": {"kind": "production"},
+        "depends_on": {"site": {"field": "site"}},
+        "clear_on_change": True,
+        "response": "options-v1",
+    }
+    assert envelope["requires"] == [
+        "core-field.api-options.enriched.v1",
+        "core-field.api-options.v1",
+    ]
     Draft202012Validator(wire_schema()).validate(envelope)
 
 

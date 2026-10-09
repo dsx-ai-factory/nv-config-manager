@@ -215,6 +215,8 @@ class IBPKeyMemberAddWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageMixi
     workflow_input_class = IBPKeyMemberAddInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/ib_pkey_member_add"
+    workflow_form_enabled = True
+    workflow_form_id = "ib-pkey-member-add"
     workflow_namespace = "ngc"
     workflow_lock = WorkflowLockSpec(key_fields=["host", "pkey"])
     workflow_required_activities = (

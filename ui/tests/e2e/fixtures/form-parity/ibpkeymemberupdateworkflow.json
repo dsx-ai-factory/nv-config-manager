@@ -5,7 +5,7 @@
     {
       "name": "interfaces",
       "legacy_url": "/workflows/ibpkeymemberupdateworkflow/form",
-      "new_url": "/workflows/new/IBPKeyMemberUpdateWorkflow",
+      "new_url": "/workflows/new/ib-pkey-member-update",
       "legacy_payload": {
         "host": "ufm-1.lab",
         "pkey": "0x8001",
@@ -32,7 +32,7 @@
     {
       "name": "GUIDs",
       "legacy_url": "/workflows/ibpkeymemberupdateworkflow/form",
-      "new_url": "/workflows/new/IBPKeyMemberUpdateWorkflow",
+      "new_url": "/workflows/new/ib-pkey-member-update",
       "legacy_payload": {
         "host": "ufm-1.lab",
         "pkey": "0x8001",
@@ -61,7 +61,7 @@
     {
       "name": "prefill host and pkey from URL",
       "legacy_url": "/workflows/ibpkeymemberupdateworkflow/form?host=ufm-1.lab&pkey=0x8001",
-      "new_url": "/workflows/new/IBPKeyMemberUpdateWorkflow?host=ufm-1.lab&pkey=0x8001",
+      "new_url": "/workflows/new/ib-pkey-member-update?host=ufm-1.lab&pkey=0x8001",
       "legacy_payload": {
         "host": "ufm-1.lab",
         "pkey": "0x8001",

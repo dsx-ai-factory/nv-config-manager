@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from aioresponses import aioresponses
 from fastapi.testclient import TestClient
 
-from nv_config_manager.dcim import DCIMDeviceSelection, DCIMLocationReference
+from nv_config_manager.dcim import DCIMLocationReference
 from nv_config_manager.temporal.api.main import app
 
 V2_SITES = {
@@ -318,34 +318,6 @@ def test_device_managed_only_omitted_by_default():
 
         sent = next(iter(m.requests.values()))[0]
         assert "managed_only" not in sent.kwargs["json"]["variables"]
-
-
-def test_diagnostic_command_options_warns_for_unsupported_platforms() -> None:
-    """Custom DCIM platforms explain why diagnostic options are unavailable."""
-    dcim_client = MagicMock()
-    dcim_client.__aenter__ = AsyncMock(return_value=dcim_client)
-    dcim_client.__aexit__ = AsyncMock(return_value=None)
-    dcim_client.list_devices = AsyncMock(
-        return_value=[DCIMDeviceSelection(id="device-1", name="sonic-switch", platform="sonic")]
-    )
-
-    with patch(
-        "nv_config_manager.temporal.api.parameter_v1.create_dcim_client",
-        return_value=dcim_client,
-    ):
-        response = TestClient(app).get(
-            "/v1/parameter/diagnostics/command-options?device_id=device-1"
-        )
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "items": [],
-        "meta": {
-            "warnings": [
-                "Diagnostic command options are unavailable for unsupported platforms: sonic."
-            ]
-        },
-    }
 
 
 def test_device_graphql_error_returns_400():

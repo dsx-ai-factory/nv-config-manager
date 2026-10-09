@@ -20,11 +20,11 @@ import asyncio
 import base64
 import re
 from datetime import UTC, datetime
-from typing import Any, ClassVar, Literal, cast
+from typing import Annotated, Any, ClassVar, Literal, cast
 from uuid import uuid4
 
 import brotli
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Path, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, computed_field
 from temporalio.client import (
@@ -45,9 +45,13 @@ from nv_config_manager.temporal.api.dynamic_endpoints import (
     set_start_workflow_function,
 )
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
+from nv_config_manager.temporal.api.workflow_authorization import (
+    require_workflow_execute_access,
+)
 from nv_config_manager.temporal.api.workflow_catalog import (
     WORKFLOW_API_CATALOG,
     WORKFLOW_FORM_CATALOG,
+    WORKFLOW_FORM_OPTION_ROUTER,
     WORKFLOW_TYPE_CATALOG,
     build_workflow_metadata,
 )
@@ -76,6 +80,7 @@ from nv_config_manager.temporal.common.search_attributes import (
 )
 from nv_config_manager.temporal.converter import get_data_converter
 from nv_config_manager.temporal.telemetry import get_runtime
+from nv_config_manager_workflows.registration.form_catalog import WORKFLOW_FORM_ID_PATTERN
 from nv_config_manager_workflows.tech_support import tech_support_key
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_API)
@@ -168,6 +173,13 @@ class WorkflowMetadata(BaseModel):
     read_roles: list[str]
     execute_roles: list[str]
     group: str | None = None
+    form_id: str | None = Field(
+        default=None,
+        pattern=WORKFLOW_FORM_ID_PATTERN,
+        description=(
+            "Stable lowercase kebab-case identifier used by this workflow's browser-form endpoints."
+        ),
+    )
     has_form: bool | None = Field(
         default=None,
         description=(
@@ -195,6 +207,27 @@ class WorkflowFormResponse(BaseModel):
     ui_schema: dict[str, Any]
     ui_schema_version: Literal[1]
     requires: list[str]
+
+
+class WorkflowFormNotFoundResponse(BaseModel):
+    """Response returned when no workflow form owns the requested ID."""
+
+    detail: str
+
+
+class WorkflowFormUnavailableDetail(BaseModel):
+    """Sanitized diagnostic for an unavailable third-party workflow form."""
+
+    code: Literal["workflow_form_unavailable"]
+    plugin: str
+    workflow: str
+    message: str
+
+
+class WorkflowFormUnavailableResponse(BaseModel):
+    """Response returned when a third-party form fails contract validation."""
+
+    detail: WorkflowFormUnavailableDetail
 
 
 class WorkflowResponse(BaseModel):
@@ -547,40 +580,18 @@ async def start_workflow(
     """Start a workflow with the given input."""
 
     request.state.audit_workflow_type = workflow_class.__name__
-    user, roles = get_user_info(request)
-
-    # Check if the user is authorized to execute the workflow
-    rbac_config = RBACConfig()
-    workflow_roles = rbac_config.get_workflow_roles(workflow_class.__name__)
-
-    if workflow_roles:
-        # Use the roles from the config
-        execute_roles = workflow_roles["execute_roles"]
-        read_roles = workflow_roles["read_roles"]
-
-        # Check if the user is authorized
-        if not (execute_roles.intersection(roles) or "all" in execute_roles):
-            logger.error(
-                "User %s with roles %s is not authorized to execute workflow %s",
-                user,
-                roles,
-                workflow_class.__name__,
-            )
-            raise HTTPException(status_code=403, detail="Not authorized to execute this workflow")
-    else:
-        # No RBAC config for this workflow, deny access
-        logger.error(
-            "No RBAC configuration found for workflow %s",
-            workflow_class.__name__,
-        )
-        raise HTTPException(status_code=403, detail="No RBAC configuration found for this workflow")
+    access = require_workflow_execute_access(
+        request,
+        workflow_class.__name__,
+        rbac_config=RBACConfig(),
+    )
 
     # Prepare search attributes
     if search_attributes is None:
         search_attributes = {}
-    search_attributes[USER_SEARCH_ATTRIBUTE] = [user]
-    search_attributes[READ_ROLES_SEARCH_ATTRIBUTE] = sorted(read_roles)
-    search_attributes[EXECUTE_ROLES_SEARCH_ATTRIBUTE] = sorted(execute_roles)
+    search_attributes[USER_SEARCH_ATTRIBUTE] = [access.user]
+    search_attributes[READ_ROLES_SEARCH_ATTRIBUTE] = sorted(access.read_roles)
+    search_attributes[EXECUTE_ROLES_SEARCH_ATTRIBUTE] = sorted(access.execute_roles)
     search_attributes.setdefault(PENDING_APPROVAL_SEARCH_ATTRIBUTE, [False])
     search_attributes.setdefault(FAILED_STAGE_SEARCH_ATTRIBUTE, [False])
 
@@ -845,7 +856,11 @@ async def get_workflow_metadata() -> WorkflowMetadataResponse:
             WorkflowMetadata.model_validate(
                 {
                     **workflows_info[name],
-                    "has_form": workflow.get_workflow_form_enabled(),
+                    "form_id": WORKFLOW_FORM_CATALOG.form_ids.get(workflow),
+                    "has_form": (
+                        workflow.get_workflow_form_enabled()
+                        and workflow in WORKFLOW_FORM_CATALOG.form_ids
+                    ),
                 }
             )
         )
@@ -853,17 +868,39 @@ async def get_workflow_metadata() -> WorkflowMetadataResponse:
 
 
 @router.get(
-    "/{name}/form",
+    "/{form_id}/form",
+    operation_id="get_workflow_form",
     responses={
-        404: {"description": "No browser form is available for this workflow."},
-        503: {"description": "The workflow's third-party form failed contract validation."},
+        404: {
+            "model": WorkflowFormNotFoundResponse,
+            "description": "No browser form is available for this workflow.",
+        },
+        503: {
+            "model": WorkflowFormUnavailableResponse,
+            "description": "The workflow's third-party form failed contract validation.",
+        },
     },
 )
-async def get_workflow_form(name: str) -> WorkflowFormResponse:
-    """Return the v1 input form of an API workflow, looked up by its class name."""
-    workflow = next((w for w in WORKFLOW_API_CATALOG if w.__name__ == name), None)
+async def get_workflow_form(
+    form_id: Annotated[
+        str,
+        Path(
+            pattern=WORKFLOW_FORM_ID_PATTERN,
+            description="Stable lowercase kebab-case workflow form identifier.",
+        ),
+    ],
+) -> WorkflowFormResponse:
+    """Return the v1 input form of an API workflow, looked up by its stable form ID."""
+    workflow = next(
+        (
+            w
+            for w, workflow_form_id in WORKFLOW_FORM_CATALOG.form_ids.items()
+            if workflow_form_id == form_id
+        ),
+        None,
+    )
     if workflow is None:
-        raise HTTPException(status_code=404, detail=f"Workflow '{name}' not found")
+        raise HTTPException(status_code=404, detail=f"Workflow '{form_id}' not found")
     diagnostic = WORKFLOW_FORM_CATALOG.diagnostics.get(workflow)
     if diagnostic is not None:
         raise HTTPException(
@@ -877,7 +914,7 @@ async def get_workflow_form(name: str) -> WorkflowFormResponse:
         )
     form = WORKFLOW_FORM_CATALOG.forms.get(workflow)
     if form is None:
-        raise HTTPException(status_code=404, detail=f"Workflow '{name}' not found")
+        raise HTTPException(status_code=404, detail=f"Workflow '{form_id}' not found")
     return WorkflowFormResponse.model_validate(form)
 
 
@@ -982,6 +1019,11 @@ async def terminate(workflow_id: str, request: Request) -> WorkflowResponse:
 
 # Set the start_workflow function to avoid circular imports
 set_start_workflow_function(start_workflow)
+
+# Publish provider routes before the parent application includes this router or
+# generates OpenAPI. The surface builder has already withdrawn any third-party
+# form whose complete route set could not be built.
+router.include_router(WORKFLOW_FORM_OPTION_ROUTER)
 
 # Register dynamic endpoints
 register_dynamic_endpoints(router)

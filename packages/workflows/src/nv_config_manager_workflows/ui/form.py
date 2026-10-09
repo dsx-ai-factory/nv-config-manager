@@ -25,7 +25,7 @@ import copy
 import json
 import pkgutil
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import cache
 from typing import Any, cast
@@ -33,16 +33,21 @@ from typing import Any, cast
 from pydantic import BaseModel, PydanticUserError
 
 from nv_config_manager_workflows.ui.errors import WorkflowFormContractError
+from nv_config_manager_workflows.ui.form_options import FormOptionSource
 from nv_config_manager_workflows.ui.form_schema import (
     json_type,
     omitted_properties,
     project_form_schema,
 )
 from nv_config_manager_workflows.ui.option_sources import (
+    OptionSource,
     check_endpoint,
     check_params,
     require_text,
 )
+
+type FormOptionSourceCompiler = Callable[[FormOptionSource], OptionSource]
+"""Resolve one symbolic provider source in its owning workflow's context."""
 
 UI_SCHEMA_VERSION = 1
 """Version of the form contract served as ``ui_schema_version``."""
@@ -199,7 +204,11 @@ def _vocabulary() -> _Vocabulary:
     )
 
 
-def declared_ui_schema(model: type[BaseModel]) -> dict[str, Any]:
+def declared_ui_schema(
+    model: type[BaseModel],
+    *,
+    compile_option_source: FormOptionSourceCompiler | None = None,
+) -> dict[str, Any]:
     """Return a JSON-only deep copy of the model's ``rjsf_ui_schema``; ``{}`` when absent."""
     declared = getattr(model, RJSF_UI_SCHEMA_ATTRIBUTE, None)
     if declared is None:
@@ -209,10 +218,21 @@ def declared_ui_schema(model: type[BaseModel]) -> dict[str, Any]:
             f"{model.__qualname__}.{RJSF_UI_SCHEMA_ATTRIBUTE} must be a mapping; got "
             f"{type(declared).__name__}"
         )
-    return cast(dict[str, Any], _plain(declared, f"{model.__qualname__}.rjsf_ui_schema"))
+    return cast(
+        dict[str, Any],
+        _plain(
+            declared,
+            f"{model.__qualname__}.rjsf_ui_schema",
+            compile_option_source=compile_option_source,
+        ),
+    )
 
 
-def build_form(model: type[BaseModel] | None) -> dict[str, Any]:
+def build_form(
+    model: type[BaseModel] | None,
+    *,
+    compile_option_source: FormOptionSourceCompiler | None = None,
+) -> dict[str, Any]:
     """Return the validated v1 ``/form`` envelope for a workflow input model.
 
     Raises:
@@ -224,7 +244,7 @@ def build_form(model: type[BaseModel] | None) -> dict[str, Any]:
     else:
         try:
             schema = project_form_schema(model)
-            ui_schema = declared_ui_schema(model)
+            ui_schema = declared_ui_schema(model, compile_option_source=compile_option_source)
             _FormChecker(model, schema, ui_schema).check()
         except WorkflowFormContractError:
             raise
@@ -1096,14 +1116,39 @@ class _FormChecker:
                 )
 
 
-def _plain(value: Any, where: str) -> Any:
+def _plain(
+    value: Any,
+    where: str,
+    *,
+    compile_option_source: FormOptionSourceCompiler | None = None,
+) -> Any:
     """Return a deep JSON copy of a declaration; reject non-JSON values."""
+    if isinstance(value, FormOptionSource):
+        if compile_option_source is None:
+            raise WorkflowFormContractError(
+                f"{where} holds unresolved FormOptionSource {value.name!r}; symbolic option "
+                "sources require workflow provider context"
+            )
+        compiled = compile_option_source(value)
+        if not isinstance(compiled, OptionSource):
+            raise WorkflowFormContractError(
+                f"{where} option-source compiler returned {type(compiled).__name__}, expected "
+                "OptionSource"
+            )
+        return _plain(compiled.to_wire(), where, compile_option_source=compile_option_source)
     if isinstance(value, Mapping):
         if not all(isinstance(key, str) for key in value):
             raise WorkflowFormContractError(f"{where} has a non-string key")
-        return {key: _plain(item, f"{where}.{key}") for key, item in value.items()}
+        return {
+            key: _plain(
+                item,
+                f"{where}.{key}",
+                compile_option_source=compile_option_source,
+            )
+            for key, item in value.items()
+        }
     if isinstance(value, list | tuple):
-        return [_plain(item, where) for item in value]
+        return [_plain(item, where, compile_option_source=compile_option_source) for item in value]
     if value is None or isinstance(value, str | int | float | bool):
         return copy.copy(value)
     raise WorkflowFormContractError(f"{where} holds a non-JSON value {value!r}")
@@ -1114,6 +1159,7 @@ __all__ = [
     "EXCLUSIVE_GROUPS_CAPABILITY",
     "FIELD_COMPARISON_CAPABILITY",
     "FIELD_CAPABILITIES",
+    "FormOptionSourceCompiler",
     "HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY",
     "IMPLICIT_SCOPE_PREFIX",
     "QUERY_ALIASES",

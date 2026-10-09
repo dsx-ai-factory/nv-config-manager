@@ -14,6 +14,8 @@
 # limitations under the License.
 """A plugin discovered through its entry point appears consistently in every registry consumer."""
 
+import sys
+
 import click
 import pytest
 from fastapi import APIRouter
@@ -33,6 +35,7 @@ from nv_config_manager_workflows.registration import (
 from nv_config_manager_workflows.registration.contract import activity_name
 from nv_config_manager_workflows.registration.descriptor import UNKNOWN_PLUGIN_VERSION
 from nv_config_manager_workflows.registration.form_catalog import WorkflowFormCatalog
+from nv_config_manager_workflows.registration.form_validation import validate_plugin_forms
 
 FIXTURE_PLUGIN = "nvcm-fixture"
 FIXTURE_WORKFLOWS = (FixtureEchoWorkflow, FixtureApiOnlyWorkflow)
@@ -55,6 +58,17 @@ def test_worker_registers_the_plugin_workflows_and_activity(
     assert [workflows.count(workflow) for workflow in FIXTURE_WORKFLOWS] == [1, 1]
     activity_names = [activity_name(activity) for activity in registry.all_activities]
     assert activity_names.count("nvcm_fixture_echo") == 1
+
+
+def test_execution_and_candidate_form_catalogs_do_not_import_provider_code(
+    fixture_plugin_installed: None,
+) -> None:
+    sys.modules.pop("nvcm_fixture_plugin.form_options", None)
+
+    registry = build_workflow_registry()
+    WorkflowFormCatalog.build(registry)
+
+    assert "nvcm_fixture_plugin.form_options" not in sys.modules
 
 
 def test_api_routes_include_the_plugin_workflows_once(registry: WorkflowRegistry) -> None:
@@ -101,10 +115,48 @@ def test_the_plugin_form_is_validated_as_a_third_party_form(registry: WorkflowRe
 
     form = form_catalog.forms[FixtureEchoWorkflow]
 
-    assert form["requires"] == ["core-field.api-options.v1"]
+    assert form["requires"] == [
+        "core-field.api-options.enriched.v1",
+        "core-field.api-options.v1",
+    ]
     assert form["ui_schema"]["message"]["ui:field"] == "apiOptions"
+    assert form["ui_schema"]["message"]["ui:options"]["source"] == {
+        "endpoint": "/v1/workflow/fixture-echo/form-options/fixture-messages",
+        "label_key": "label",
+        "value_key": "value",
+        "params": {"prefix": "fixture"},
+        "response": "options-v1",
+    }
     assert form["schema"]["properties"]["message"]["maxLength"] == 100
     assert "maxLength" not in FixtureInput.model_json_schema()["properties"]["message"]
+    assert [
+        (provider.workflow, provider.source, provider.endpoint)
+        for provider in form_catalog.providers
+        if provider.plugin == FIXTURE_PLUGIN
+    ] == [
+        (
+            FixtureEchoWorkflow,
+            "fixture-messages",
+            "/v1/workflow/fixture-echo/form-options/fixture-messages",
+        ),
+        (
+            FixtureApiOnlyWorkflow,
+            "fixture-messages",
+            "/v1/workflow/fixture-api-only/form-options/fixture-messages",
+        ),
+    ]
+
+
+def test_plugin_forms_and_provider_targets_validate_offline(
+    fixture_plugin_installed: None,
+) -> None:
+    report = validate_plugin_forms(FIXTURE_PLUGIN)
+
+    assert report.plugin == FIXTURE_PLUGIN
+    assert report.workflow_count == 2
+    assert report.form_count == 2
+    assert report.provider_count == 2
+    assert report.warnings == ()
 
 
 def test_scheduler_registration_keeps_plugin_provenance(registry: WorkflowRegistry) -> None:

@@ -16,7 +16,7 @@
  */
 
 /**
- * The Switch OS Upgrade form on its class-name route (the legacy
+ * The Switch OS Upgrade form on its form ID route (the legacy
  * `/workflows/switchosupgradeworkflow/form` redirects there). The shared suite replaces
  * the legacy page's tests; the payload is unchanged (`{device_id}`).
  */

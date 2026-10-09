@@ -33,6 +33,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import cast
 
 from fastapi import FastAPI
 
@@ -90,7 +91,7 @@ def setup_mock_config() -> str:
 def get_app(module_path: str, app_name: str) -> FastAPI:
     """Import and return a FastAPI app from a module."""
     module = importlib.import_module(module_path)
-    return getattr(module, app_name)
+    return cast(FastAPI, getattr(module, app_name))
 
 
 def generate_openapi_spec(app: FastAPI, title: str | None = None) -> dict:
@@ -101,6 +102,7 @@ def generate_openapi_spec(app: FastAPI, title: str | None = None) -> dict:
 
     spec = app.openapi()
     validate_unique_operation_tags(spec)
+    validate_unique_operation_ids(spec)
     validate_bearer_auth(spec)
     return spec
 
@@ -121,6 +123,32 @@ def validate_unique_operation_tags(spec: dict) -> None:
     if duplicate_operations:
         details = "\n  ".join(duplicate_operations)
         raise ValueError(f"OpenAPI operations contain duplicate tags:\n  {details}")
+
+
+def validate_unique_operation_ids(spec: dict) -> None:
+    """Reject missing or duplicate operation IDs before client generation."""
+    http_methods = {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
+    owners: dict[str, str] = {}
+    problems: list[str] = []
+
+    for path, path_item in spec.get("paths", {}).items():
+        for method, operation in path_item.items():
+            if method not in http_methods:
+                continue
+            owner = f"{method.upper()} {path}"
+            operation_id = operation.get("operationId")
+            if not isinstance(operation_id, str) or not operation_id:
+                problems.append(f"{owner}: missing operationId")
+                continue
+            previous = owners.setdefault(operation_id, owner)
+            if previous != owner:
+                problems.append(
+                    f"{owner}: operationId {operation_id!r} is already used by {previous}"
+                )
+
+    if problems:
+        details = "\n  ".join(problems)
+        raise ValueError(f"OpenAPI operations must have unique operation IDs:\n  {details}")
 
 
 def validate_bearer_auth(spec: dict) -> None:

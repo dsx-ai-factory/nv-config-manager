@@ -71,8 +71,20 @@ worker construction.
 Complete metadata is optional for workflows that are not exposed through the
 API. API-enabled workflows define `workflow_name`,
 `workflow_description`, a Pydantic `workflow_input_class`, and
-`workflow_api_endpoint`. They may also define `workflow_group` to organize the
-workflow in UI catalogs; workflows without one use the default group.
+`workflow_api_endpoint`. The endpoint is the workflow execution path, such as
+`/ngc/site_password_rotation`. They may also define `workflow_group` to
+organize the workflow in UI catalogs; workflows without one use the default
+group.
+
+Browser forms are opt-in. API-enabled workflows with browser forms set
+`workflow_form_enabled = True` and define an explicit `workflow_form_id`. The
+ID is a globally unique lowercase kebab-case identifier such as
+`site-password-rotation`, and is the stable public path segment in form and
+form-option URLs. It is deliberately separate from
+`workflow_api_endpoint`: the former identifies the browser-form contract,
+while the latter remains the workflow execution endpoint. Do not derive the
+form ID from the Python class name or execution endpoint; refactors to either
+must not silently rename a public form route.
 
 The package exposes its 33 built-in workflows and built-in activities through the
 `nv_config_manager.workflows` entry point declared in `pyproject.toml`.
@@ -359,8 +371,8 @@ the same `RegistryManifest` in-process, call `registry_manifest(registry)` from
 
 The UI launcher renders an API-enabled workflow's start form with
 [RJSF](https://rjsf-team.github.io/react-jsonschema-form/) from
-`GET /v1/workflow/{name}/form`, where `{name}` is the workflow class name. The
-response is a version 1 envelope:
+`GET /v1/workflow/{form_id}/form`, where `{form_id}` is the workflow's explicit
+`workflow_form_id`. The response is a version 1 envelope:
 
 ```json
 {"schema": {}, "ui_schema": {}, "ui_schema_version": 1, "requires": []}
@@ -500,7 +512,7 @@ depends_on={}, clear_on_change=False, response=None)`:
   that property is empty. An optional one (`required=False`) is left out of the
   request instead.
 - `clear_on_change=True` clears the selection when a dependency changes.
-- `response="options-v1"` selects the standard enriched envelope. Its `options`
+- `response="options-v1"` selects the standard enriched envelope. Its `items`
   rows use `label` and `value`, may include `description` and `group`, and its
   `meta` object supplies values referenced by `meta_text` and
   `disable_when_no_matches`.
@@ -513,11 +525,147 @@ malformed source never fails the import of the module that declares it.
 Form-catalog construction checks the emitted wire form instead and reports any
 problem as a form error (see below).
 
-The endpoint must already be served by the workflow API. A workflow plugin may
-point a form at an existing parameter endpoint, but `WorkflowPluginDescriptor`
-does not register FastAPI routes. A plugin that needs a new option source must
-arrange for that API route to be installed with the service; the form contract
-does not proxy arbitrary upstream APIs or add a universal options endpoint.
+An `OptionSource` endpoint must already be served by the workflow API. Plugins
+can use one for an existing platform resource. When a plugin owns the option
+lookup, prefer a generated form option provider instead of installing a
+FastAPI router.
+
+##### Plugin-provided options
+
+A plugin can declare an API-only async resolver without adding another entry
+point or importing FastAPI. Define a flat Pydantic query model and return the
+standard enriched response:
+
+```python
+# example_plugin/form_option_providers.py
+from pydantic import BaseModel, ConfigDict
+
+from nv_config_manager_workflows.ui import OptionItem, OptionSourceResponse
+
+
+class ProfileQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    site: str
+
+
+async def list_profiles(query: ProfileQuery) -> OptionSourceResponse:
+    profiles = await load_profiles(query.site)
+    return OptionSourceResponse(
+        items=[
+            OptionItem(
+                label=profile.display_name,
+                value=profile.name,
+                description=profile.description,
+            )
+            for profile in profiles
+        ]
+    )
+```
+
+Reference the provider by a stable slug from the input form and declare its
+import strings on the workflow:
+
+```python
+from collections.abc import Mapping
+from typing import ClassVar
+
+from pydantic import BaseModel
+
+from nv_config_manager_workflows.ui import (
+    Dependency,
+    FormOptionProvider,
+    FormOptionSource,
+    api_options,
+)
+
+
+class ExampleInput(BaseModel):
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "profile": api_options(
+            FormOptionSource(
+                "fabric-profiles",
+                depends_on={"site": Dependency("site")},
+            )
+        )
+    }
+
+    site: str
+    profile: str
+
+
+class ExampleWorkflow(...):
+    workflow_form_enabled = True
+    workflow_form_id = "example-workflow"
+    workflow_input_class = ExampleInput
+    workflow_form_option_providers = {
+        "fabric-profiles": FormOptionProvider(
+            resolver="example_plugin.form_option_providers:list_profiles",
+            query_model="example_plugin.form_option_providers:ProfileQuery",
+        )
+    }
+```
+
+Use the same `nv_config_manager.workflows` entry point shown in
+[Registering a workflow plugin](#registering-a-workflow-plugin); provider
+modules do not need a separate entry point. The API validates and loads only
+providers referenced by a form, then generates this typed route at startup.
+Form IDs and option-provider source names such as `fabric-profiles` use
+lowercase kebab-case:
+
+```http
+GET /v1/workflow/example-workflow/form-options/fabric-profiles?site=site-a
+```
+
+```json
+{
+  "items": [
+    {
+      "label": "Production",
+      "value": "production",
+      "description": "Production fabric settings",
+      "group": null
+    }
+  ],
+  "meta": {
+    "matching_device_count": null,
+    "warnings": []
+  }
+}
+```
+
+The generated route uses the existing browser `OptionSource` protocol, so it
+does not require a new UI capability. It is read-only, inherits the workflow's
+execute-role authorization, and is subject to platform-owned timeouts,
+concurrency and result-size limits. Provider code is trusted server-side code:
+it runs in the API process with that process's permissions and is not a plugin
+sandbox. Do not put secrets, nested objects, or large values in a GET query.
+Query models support flat scalars, enums/literals, optional scalars, and
+repeated scalars; nested models, mappings, aliases, headers, request bodies,
+and FastAPI dependencies are rejected.
+
+Built-in generated routes appear in the checked-in OpenAPI specification and
+generated clients. Routes contributed by installed third-party plugins appear
+in that deployment's runtime `/openapi.json`, because the project cannot know
+which plugins another installation will have. Workflow form IDs and provider
+slugs use lowercase kebab-case. Both form part of the
+public URL. Workflow form IDs are globally unique; provider slugs are unique
+within their workflow. Treat both as stable API identifiers. Adding an optional
+query field is compatible; renaming or changing a field, or adding a required
+field, requires a new provider slug such as `fabric-profiles-v2` while the old
+version remains available for the compatibility window.
+
+Validate an installed plugin before deployment:
+
+```bash
+nv-config-manager-workflows-validate-plugin example-plugin
+```
+
+The command builds that plugin's registry and form catalog, imports every
+referenced query model and resolver, and validates their signatures and query
+contracts. It does not invoke resolvers or require running services. Invalid
+forms or providers produce a nonzero exit status; unused provider declarations
+are warnings because they are never imported by the API.
 
 #### Core fields
 
@@ -672,8 +820,9 @@ Temporal payload of existing workflow histories. Express form-only rules with
 
 #### URL prefill
 
-A launcher URL such as `/workflows/new/BackupWorkflow?device-id=42` pre-fills
-the form. Each URL parameter has exactly one owner:
+A launcher URL such as
+`/workflows/new/site-password-rotation?location=RNO1` pre-fills the form. Each
+URL parameter has exactly one owner:
 
 | Owner | Parameters |
 | --- | --- |
@@ -702,10 +851,10 @@ compatibility options. New forms use property names, repeated parameters, and
 The workflow API builds a `WorkflowFormCatalog` from its `WorkflowRegistry` and
 validates the `/form` envelope of every API-enabled workflow. Temporal workers,
 schedulers, MCP, and the CLI build only the execution registry and do not build
-or validate browser forms. A workflow that remains executable through the API
-or CLI but must not have a browser form declares
-`workflow_form_enabled = False` on its workflow class. The metadata catalog then
-reports `has_form: false`, and `GET /v1/workflow/{name}/form` returns HTTP 404.
+or validate browser forms. Workflows remain executable through the API or CLI
+without a browser form by default. A workflow opts in by declaring
+`workflow_form_enabled = True` and a `workflow_form_id` on its class. The
+metadata catalog reports `has_form: false` for workflows that do not opt in.
 `has_form: true` means the form contract is enabled and discoverable; its form
 endpoint can still return HTTP 503 when a third-party declaration is invalid.
 Invalid declarations on form-enabled workflows raise
@@ -725,7 +874,7 @@ order to contribute the class, with the built-in plugin first:
 - **Third-party plugin:** the form catalog records a diagnostic containing the
   plugin, workflow, and sanitized message. The workflow, its execution
   endpoint, the CLI, and MCP are unaffected. Only its form is unavailable:
-  `GET /v1/workflow/{name}/form` returns HTTP 503 with
+  `GET /v1/workflow/{form_id}/form` returns HTTP 503 with
   `{"detail": {"code": "workflow_form_unavailable", "plugin": "...", "workflow": "...", "message": "..."}}`,
   and the launcher shows the diagnostic with **Return to Workflows** and no
   **Try again** action.

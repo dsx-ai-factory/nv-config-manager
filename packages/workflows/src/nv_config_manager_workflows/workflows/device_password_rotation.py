@@ -118,6 +118,8 @@ class DevicePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
     workflow_input_class = DevicePasswordRotationInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/device_password_rotation"
+    workflow_form_enabled = True
+    workflow_form_id = "device-password-rotation"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_network_device,

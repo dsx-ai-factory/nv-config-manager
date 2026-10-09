@@ -5,7 +5,7 @@
     {
       "name": "manual fill",
       "legacy_url": "/workflows/spxoverlaytenantchangeworkflow/form",
-      "new_url": "/workflows/new/SpXOverlayTenantChangeWorkflow",
+      "new_url": "/workflows/new/spx-overlay-tenant-change",
       "legacy_payload": {
         "site": "PDX01",
         "site_type": "Site",
@@ -30,7 +30,7 @@
     {
       "name": "removal without an overlay",
       "legacy_url": "/workflows/spxoverlaytenantchangeworkflow/form",
-      "new_url": "/workflows/new/SpXOverlayTenantChangeWorkflow",
+      "new_url": "/workflows/new/spx-overlay-tenant-change",
       "legacy_payload": {
         "site": "PDX01",
         "site_type": "Site",

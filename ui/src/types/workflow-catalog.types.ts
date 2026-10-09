@@ -17,7 +17,7 @@
 
 /**
  * Types for the registry-backed workflow catalog (`GET /v1/workflow/metadata`) and the
- * per-workflow form contract (`GET /v1/workflow/{name}/form`, wire contract v1).
+ * per-workflow form contract (`GET /v1/workflow/{form_id}/form`, wire contract v1).
  *
  * Kept apart from `data-table.types.ts` so catalog and form concerns do not keep
  * expanding the execution-table model.
@@ -29,7 +29,10 @@ import type { WorkflowMetadata } from "@/types/data-table.types";
 // ---------------------------------------------------------------------------
 
 export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+export type JsonValue =
+  | JsonPrimitive
+  | JsonValue[]
+  | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
 // ---------------------------------------------------------------------------
@@ -41,16 +44,15 @@ export type JsonObject = { [key: string]: JsonValue };
  * a server serialises an unset optional.
  */
 export interface WorkflowCatalogOptionalFields {
-  plugin?: string | null;
-  tags?: string[] | null;
+  /** Stable URL identity for browser form endpoints; absent on older servers. */
+  form_id?: string | null;
   has_form?: boolean | null;
-  enabled?: boolean | null;
-  order?: number | null;
   group?: string | null;
 }
 
 /** A catalog entry as received from the server. */
-export type WorkflowCatalogEntryWire = WorkflowMetadata & WorkflowCatalogOptionalFields;
+export type WorkflowCatalogEntryWire = WorkflowMetadata &
+  WorkflowCatalogOptionalFields;
 
 /** The `/v1/workflow/metadata` response as received from the server. */
 export interface WorkflowCatalogResponseWire {
@@ -59,21 +61,18 @@ export interface WorkflowCatalogResponseWire {
 
 /** A catalog entry after boundary normalisation; every optional field has its default. */
 export type WorkflowCatalogEntry = WorkflowMetadata & {
-  plugin: string | null;
-  tags: string[];
+  /** Stable URL identity; `null` means the server cannot support browser form links. */
+  form_id: string | null;
   /**
    * Browser-form availability advertised by the workflow API. `null` means the field
    * was absent or invalid, as on an older API; callers must not infer `/form` support.
    */
   has_form: boolean | null;
-  enabled: boolean;
-  /** Explicit sort position; `undefined` means "no explicit order". */
-  order: number | undefined;
   group: string;
 };
 
 // ---------------------------------------------------------------------------
-// Workflow form v1 (`GET /v1/workflow/{name}/form`)
+// Workflow form v1 (`GET /v1/workflow/{form_id}/form`)
 //
 // The wire shape is defined by `lib/workflow-form-v1.schema.json` (a byte copy of the
 // canonical file in `packages/workflows`); the loader validates every response with

@@ -16,7 +16,7 @@
  */
 
 /**
- * The IB PKey Creation form, rendered by the RJSF form on its class-name route because
+ * The IB PKey Creation form, rendered by the RJSF form on its form ID route because
  * the legacy `/workflows/ibpkeycreationworkflow/form` redirects there. Its wording
  * comes from the server's `ui_schema` (titles, placeholders, `ui:help`, submit text,
  * hidden schema descriptions).
@@ -30,7 +30,7 @@ import { mockServerCatalogAndUser } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT, WORKFLOW_DETAILS_TIMEOUT } from "./shared/utils";
 
 const FORM_TITLE = "New InfiniBand PKey Creation Workflow";
-const FORM_PATH = "/workflows/new/IBPKeyCreationWorkflow";
+const FORM_PATH = "/workflows/new/ib-pkey-creation";
 const ENDPOINT = "/v1/workflow/ngc/ib_pkey_creation";
 const SUBMIT = "Create PKey";
 const PKEY_HELP =

@@ -5,7 +5,7 @@
     {
       "name": "devices, command, and ticket",
       "legacy_url": "/workflows/diagnosticsworkflow/form",
-      "new_url": "/workflows/new/DiagnosticsWorkflow",
+      "new_url": "/workflows/new/diagnostics",
       "legacy_payload": {
         "device_ids": [
           "e9243d67-dad0-4f4b-9f6d-9cc977ff0023",

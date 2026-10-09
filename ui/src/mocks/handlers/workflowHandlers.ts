@@ -21,6 +21,7 @@ import { ALL_WORKFLOW_DATA, workflowsMockData } from "@/mocks/data";
 import { FORBIDDEN_WORKFLOW_ID } from "@/mocks/data/formData";
 import { createGenericWorkflow } from "@/mocks/data/workflows/genericWorkflow";
 import { getWorkflowFormFixture } from "@/mocks/data/workflowForms";
+import workflowFormIds from "@/config/workflow-form-ids.json";
 
 export const workflowTypes = [
   "BackupWorkflow",
@@ -138,12 +139,16 @@ export const workflowMetadata = {
   workflows: workflowTypes.map((workflowType) => ({
     name: workflowType,
     display_name: workflowDisplayNames[workflowType] ?? workflowType,
-    description: `${workflowDisplayNames[workflowType] ?? workflowType} workflow`,
+    description: `${
+      workflowDisplayNames[workflowType] ?? workflowType
+    } workflow`,
     endpoint: getWorkflowEndpoint(workflowType),
     namespace: "ngc",
     cli_name: workflowType.toLowerCase(),
     input_class: `${workflowType}Input`,
     has_form: !workflowsWithoutForms.has(workflowType),
+    form_id:
+      workflowFormIds[workflowType as keyof typeof workflowFormIds] ?? null,
     read_roles: ["all"],
     execute_roles: getWorkflowExecuteRoles(workflowType),
   })),
@@ -208,14 +213,15 @@ type WorkflowFilters = {
   endTime: number;
 };
 
-const getWorkflowFilters = (searchParams: URLSearchParams): WorkflowFilters => ({
+const getWorkflowFilters = (
+  searchParams: URLSearchParams
+): WorkflowFilters => ({
   workflowType: searchParams.get("workflow_type"),
   workflowId: searchParams.get("workflow_id"),
   status: searchParams.get("status"),
   pendingApproval:
     searchParams.get("pending_approval")?.toLowerCase() === "true",
-  hideCompleted:
-    searchParams.get("hide_completed")?.toLowerCase() === "true",
+  hideCompleted: searchParams.get("hide_completed")?.toLowerCase() === "true",
   startTime: Date.parse(searchParams.get("start_time") ?? ""),
   endTime: Date.parse(searchParams.get("end_time") ?? ""),
 });
@@ -357,16 +363,16 @@ export const workflowFetchingHandlers = [
     );
   }),
   http.get(
-    sanitizeUrl(`${apiURL}/v1/workflow/:name/form`),
+    sanitizeUrl(`${apiURL}/v1/workflow/:formId/form`),
     async ({ params }) => {
-      const name = String(params.name);
-      const form = getWorkflowFormFixture(name);
+      const formId = String(params.formId);
+      const form = getWorkflowFormFixture(formId);
 
       await delay(300);
 
       if (!form) {
         return HttpResponse.json(
-          { detail: `Workflow '${name}' not found` },
+          { detail: `Workflow '${formId}' not found` },
           { status: 404 }
         );
       }

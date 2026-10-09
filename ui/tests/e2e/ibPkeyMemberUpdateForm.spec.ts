@@ -16,7 +16,7 @@
  */
 
 /**
- * The IB PKey Member Update generic form on its class-name route. The Python form
+ * The IB PKey Member Update generic form on its form ID route. The Python form
  * declaration supplies its mutually exclusive interface/GUID row variants.
  */
 import { expect } from "@playwright/test";
@@ -24,7 +24,7 @@ import { mockServerCatalogAndUser } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT, WORKFLOW_DETAILS_TIMEOUT } from "./shared/utils";
 
 const FORM_TITLE = "New InfiniBand PKey Member Update Workflow";
-const FORM_PATH = "/workflows/new/IBPKeyMemberUpdateWorkflow";
+const FORM_PATH = "/workflows/new/ib-pkey-member-update";
 const ENDPOINT = "/v1/workflow/ngc/ib_pkey_member_update";
 
 test.describe("IB PKey Member Update Form", () => {

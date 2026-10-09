@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for ``GET /v1/workflow/{name}/form``.
+"""Tests for ``GET /v1/workflow/{form_id}/form``.
 
 ``fixtures/workflow_forms.json`` records the v1 form envelope of every built-in API
 workflow except those in ``fixtures/workflow_form_exclusions.json``, keyed by workflow
@@ -54,7 +54,10 @@ from nv_config_manager_workflows.registration import (
     WorkflowPluginDescriptor,
     WorkflowRegistry,
 )
-from nv_config_manager_workflows.registration.form_catalog import WorkflowFormCatalog
+from nv_config_manager_workflows.registration.form_catalog import (
+    WORKFLOW_FORM_ID_PATTERN,
+    WorkflowFormCatalog,
+)
 from nv_config_manager_workflows.stage import StageMixin
 from nv_config_manager_workflows.ui import OptionSource, WorkflowFormContractError, api_options
 from nv_config_manager_workflows.workflows.backup import BackupWorkflow
@@ -93,6 +96,8 @@ class _ThirdPartyWorkflow(WorkflowMetadataMixin, StageMixin):
     workflow_input_class = _BrokenFormInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/acme/third_party"
+    workflow_form_enabled = True
+    workflow_form_id = "third-party"
 
     @temporal_workflow.run
     async def run(self, workflow_input: BaseModel) -> None: ...
@@ -107,8 +112,10 @@ def client() -> TestClient:
 def forms(client: TestClient) -> dict[str, Any]:
     """Return the form of every API-enabled workflow, keyed by class name."""
     forms: dict[str, Any] = {}
-    for name in sorted(w.__name__ for w in WORKFLOW_FORM_CATALOG.forms):
-        rsp = client.get(f"/v1/workflow/{name}/form")
+    for workflow in sorted(WORKFLOW_FORM_CATALOG.forms, key=lambda item: item.__name__):
+        name = workflow.__name__
+        form_id = WORKFLOW_FORM_CATALOG.form_ids[workflow]
+        rsp = client.get(f"/v1/workflow/{form_id}/form")
         assert rsp.status_code == 200, (name, rsp.text)
         forms[name] = rsp.json()
     return forms
@@ -193,7 +200,7 @@ def missing_executions(mocker: MockerFixture) -> None:
 
 
 def test_form_of_an_api_workflow(client: TestClient) -> None:
-    rsp = client.get("/v1/workflow/BackupWorkflow/form")
+    rsp = client.get("/v1/workflow/backup/form")
 
     assert rsp.status_code == 200
     body = rsp.json()
@@ -204,7 +211,19 @@ def test_form_of_an_api_workflow(client: TestClient) -> None:
     assert "user" not in body["schema"]["properties"]
 
 
-@pytest.mark.parametrize("name", ["NoSuchWorkflow", "backupworkflow", "metadata"])
+def test_form_openapi_uses_stable_identifiers(client: TestClient) -> None:
+    openapi = client.app.openapi()
+
+    operation = openapi["paths"]["/v1/workflow/{form_id}/form"]["get"]
+    assert operation["operationId"] == "get_workflow_form"
+    form_id_schema = openapi["components"]["schemas"]["WorkflowMetadata"]["properties"]["form_id"]
+    assert {candidate.get("pattern") for candidate in form_id_schema["anyOf"]} == {
+        WORKFLOW_FORM_ID_PATTERN,
+        None,
+    }
+
+
+@pytest.mark.parametrize("name", ["no-such-workflow", "backupworkflow", "metadata"])
 def test_unknown_workflow_has_no_form(client: TestClient, name: str) -> None:
     rsp = client.get(f"/v1/workflow/{name}/form")
 
@@ -212,16 +231,29 @@ def test_unknown_workflow_has_no_form(client: TestClient, name: str) -> None:
     assert rsp.json() == {"detail": f"Workflow '{name}' not found"}
 
 
-@pytest.mark.parametrize("name", ["TenantDeployWorkflow", "BatchDeployWorkflow"])
-def test_api_disabled_workflow_has_no_form(client: TestClient, name: str) -> None:
+def test_malformed_workflow_form_id_is_rejected(client: TestClient) -> None:
+    rsp = client.get("/v1/workflow/NoSuchWorkflow/form")
+
+    assert rsp.status_code == 422
+    assert rsp.json()["detail"][0]["loc"] == ["path", "form_id"]
+
+
+@pytest.mark.parametrize(
+    ("name", "form_id"),
+    [
+        ("TenantDeployWorkflow", "tenant-deploy"),
+        ("BatchDeployWorkflow", "batch-deploy"),
+    ],
+)
+def test_api_disabled_workflow_has_no_form(client: TestClient, name: str, form_id: str) -> None:
     """A registered but API-disabled workflow is indistinguishable from an unknown name."""
     assert name in {workflow.__name__ for workflow in WORKFLOW_TYPE_CATALOG}
     assert name not in {workflow.__name__ for workflow in WORKFLOW_API_CATALOG}
 
-    rsp = client.get(f"/v1/workflow/{name}/form")
+    rsp = client.get(f"/v1/workflow/{form_id}/form")
 
     assert rsp.status_code == 404
-    assert rsp.json() == {"detail": f"Workflow '{name}' not found"}
+    assert rsp.json() == {"detail": f"Workflow '{form_id}' not found"}
 
 
 @pytest.mark.parametrize("name", sorted(_EXCLUSIONS))
@@ -230,13 +262,12 @@ def test_form_disabled_workflow_has_no_form(client: TestClient, name: str) -> No
     workflow = next(workflow for workflow in WORKFLOW_API_CATALOG if workflow.__name__ == name)
     assert workflow not in WORKFLOW_FORM_CATALOG.forms
 
-    rsp = client.get(f"/v1/workflow/{name}/form")
+    form_id = "form-disabled"
+    rsp = client.get(f"/v1/workflow/{form_id}/form")
 
     assert rsp.status_code == 404
-    assert rsp.json() == {"detail": f"Workflow '{name}' not found"}
-    execution = client.post(
-        f"/v1/workflow{workflow.get_workflow_api_endpoint()}", json=[]
-    )
+    assert rsp.json() == {"detail": f"Workflow '{form_id}' not found"}
+    execution = client.post(f"/v1/workflow{workflow.get_workflow_api_endpoint()}", json=[])
     assert execution.status_code == 422
 
 
@@ -252,10 +283,11 @@ def test_an_invalid_third_party_form_is_unavailable(
     mocker.patch.object(workflow_v1, "WORKFLOW_FORM_CATALOG", third_party_form_catalog)
 
     metadata = client.get("/v1/workflow/metadata")
-    rsp = client.get("/v1/workflow/_ThirdPartyWorkflow/form")
+    rsp = client.get("/v1/workflow/third-party/form")
 
     assert metadata.status_code == 200
     [entry] = metadata.json()["workflows"]
+    assert entry["form_id"] == "third-party"
     assert entry["has_form"] is True
     assert rsp.status_code == 503
     detail = rsp.json()["detail"]
@@ -265,6 +297,26 @@ def test_an_invalid_third_party_form_is_unavailable(
         "workflow": "_ThirdPartyWorkflow",
     }
     assert "ui:widget 'radio' is not one of" in detail["message"]
+
+
+def test_metadata_marks_a_form_without_a_valid_form_id_unavailable(
+    client: TestClient,
+    mocker: MockerFixture,
+) -> None:
+    mocker.patch.object(_ThirdPartyWorkflow, "workflow_form_id", None)
+    registry = WorkflowRegistry.build(
+        {"acme": WorkflowPluginDescriptor(name="acme", workflows=(_ThirdPartyWorkflow,))}
+    )
+    form_catalog = WorkflowFormCatalog.build(registry)
+    mocker.patch.object(workflow_v1, "WORKFLOW_API_CATALOG", tuple(registry.api_workflows))
+    mocker.patch.object(workflow_v1, "WORKFLOW_FORM_CATALOG", form_catalog)
+
+    response = client.get("/v1/workflow/metadata")
+
+    assert response.status_code == 200
+    [entry] = response.json()["workflows"]
+    assert entry["form_id"] is None
+    assert entry["has_form"] is False
 
 
 def test_a_malformed_option_source_fails_only_its_form(
@@ -279,7 +331,7 @@ def test_a_malformed_option_source_fails_only_its_form(
     mocker.patch.object(workflow_v1, "WORKFLOW_API_CATALOG", tuple(registry.api_workflows))
     mocker.patch.object(workflow_v1, "WORKFLOW_FORM_CATALOG", form_catalog)
 
-    rsp = client.get("/v1/workflow/_ThirdPartyWorkflow/form")
+    rsp = client.get("/v1/workflow/third-party/form")
 
     assert rsp.status_code == 503
     assert "endpoint must start with a single '/'" in rsp.json()["detail"]["message"]
@@ -418,10 +470,16 @@ def test_dynamic_workflow_routes_still_validate_their_input(client: TestClient) 
 
 def test_form_operation_is_published_under_its_operation_id() -> None:
     spec = app.openapi()
-    path_item = spec["paths"]["/v1/workflow/{name}/form"]
+    path_item = spec["paths"]["/v1/workflow/{form_id}/form"]
 
     assert list(path_item) == ["get"]
-    assert path_item["get"]["operationId"] == "get_workflow_form_v1_workflow__name__form_get"
+    assert path_item["get"]["operationId"] == "get_workflow_form"
+    [form_id_parameter] = path_item["get"]["parameters"]
+    assert form_id_parameter["name"] == "form_id"
+    assert form_id_parameter["description"] == (
+        "Stable lowercase kebab-case workflow form identifier."
+    )
+    assert form_id_parameter["schema"]["pattern"] == "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
     assert path_item["get"]["responses"]["200"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/WorkflowFormResponse"
     }
@@ -429,6 +487,12 @@ def test_form_operation_is_published_under_its_operation_id() -> None:
     assert list(response_schema["properties"]) == _FORM_KEYS
     assert response_schema["required"] == _FORM_KEYS
     assert response_schema["properties"]["ui_schema_version"]["const"] == 1
+    assert path_item["get"]["responses"]["404"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/WorkflowFormNotFoundResponse"
+    }
+    assert path_item["get"]["responses"]["503"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/WorkflowFormUnavailableResponse"
+    }
 
 
 def test_form_response_rejects_an_unsupported_schema_version() -> None:

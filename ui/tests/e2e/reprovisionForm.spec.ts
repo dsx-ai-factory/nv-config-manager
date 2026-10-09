@@ -16,7 +16,7 @@
  */
 
 /**
- * The Reprovision form on its class-name route (the legacy
+ * The Reprovision form on its form ID route (the legacy
  * `/workflows/reprovisionworkflow/form` redirects there). Its device source loads
  * Cumulus Linux and NV-OS devices only.
  */

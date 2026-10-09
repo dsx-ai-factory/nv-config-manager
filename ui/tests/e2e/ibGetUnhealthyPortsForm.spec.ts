@@ -16,7 +16,7 @@
  */
 
 /**
- * The InfiniBand Get Unhealthy Ports form on its class-name route (the legacy
+ * The InfiniBand Get Unhealthy Ports form on its form ID route (the legacy
  * `/workflows/infinibandgetunhealthyportsworkflow/form` redirects there). Its device
  * source loads UFM devices only. The legacy page's "API validation details" toast is
  * now an inline form-level error (string 422 detail), covered by the shared suite.

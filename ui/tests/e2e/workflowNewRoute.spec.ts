@@ -16,14 +16,20 @@
  */
 
 /**
- * The class-name form route `/workflows/new/<ClassName>` against real server
+ * The form ID form route `/workflows/new/<form_id>` against real server
  * output: the `/metadata` baseline and `/form` snapshot the API tests keep, with the
  * parameter endpoints mocked as the server answers them.
  */
 import { expect, type Page, type Request } from "@playwright/test";
 
 import legacyWorkflowRedirects from "@/config/legacy-workflow-redirects.json";
-import { DEVICES_LIST, SITES_LIST, STATUS_LIST, TENANT_LIST } from "@/mocks/data";
+import workflowFormIds from "@/config/workflow-form-ids.json";
+import {
+  DEVICES_LIST,
+  SITES_LIST,
+  STATUS_LIST,
+  TENANT_LIST,
+} from "@/mocks/data";
 
 import {
   SERVER_WORKFLOW_FORMS,
@@ -36,23 +42,29 @@ import { test, TEST_TIMEOUT, WORKFLOW_DETAILS_TIMEOUT } from "./shared/utils";
 const DEPLOY_TITLE = "New Configuration Deploy Workflow";
 const DEPLOY_ROLES_REASON = "Required execute roles: DeployWorkflow, executor";
 const API_UPGRADE_REQUIRED =
-  "Upgrade the Config Manager workflow API to a version that supports browser workflow forms.";
+  "Upgrade the Config Manager workflow API before deploying this UI version. Browser workflow forms require the backend form metadata and endpoints.";
 // TenantB, Active: matches the Nautobot link's tenant and status filters too.
 const DEVICE = DEVICES_LIST[SITES_LIST.pdx01][0];
+const formIdOf = (name: keyof typeof workflowFormIds) => workflowFormIds[name];
 
 /** SelectBox trigger: its accessible name is the selection, or the placeholder. */
-const picker = (page: Page, name: string) => page.getByRole("button", { name, exact: true });
+const picker = (page: Page, name: string) =>
+  page.getByRole("button", { name, exact: true });
 
 const choose = async (page: Page, trigger: string, option: string) => {
   await picker(page, trigger).click();
-  await page.getByRole("dialog").getByRole("option", { name: option, exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("option", { name: option, exact: true })
+    .click();
 };
 
 const isDeviceOptionsRequest = (request: Request) =>
   new URL(request.url()).pathname === "/v1/parameter/device";
 
 const isDeploySubmit = (request: Request) =>
-  request.method() === "POST" && new URL(request.url()).pathname === "/v1/workflow/ngc/deploy";
+  request.method() === "POST" &&
+  new URL(request.url()).pathname === "/v1/workflow/ngc/deploy";
 
 /** Query of an option request as sorted `[name, value]` pairs (repeats kept). */
 const queryOf = (request: Request) =>
@@ -69,7 +81,7 @@ const formRequests = (page: Page) => {
   return paths;
 };
 
-test.describe("/workflows/new/<ClassName>", () => {
+test.describe("/workflows/new/<form_id>", () => {
   test.beforeEach(async ({ page }) => {
     await mockServerCatalogAndUser(page, ["reader", "executor"]);
     await mockTypedLocationsEndpoint(page);
@@ -83,14 +95,23 @@ test.describe("/workflows/new/<ClassName>", () => {
       if (isDeviceOptionsRequest(request)) deviceRequests.push(request);
     });
 
-    await page.goto("/workflows/new/DeployWorkflow");
+    await page.goto("/workflows/new/deploy");
 
-    await expect(page.getByRole("heading", { name: DEPLOY_TITLE })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: DEPLOY_TITLE })
+    ).toBeVisible();
     // Required fields carry a visible " *" (hidden from their accessible names).
-    for (const label of ["Site *", "Tenant (optional)", "Status (optional)", "Device *"]) {
+    for (const label of [
+      "Site *",
+      "Tenant (optional)",
+      "Status (optional)",
+      "Device *",
+    ]) {
       await expect(page.getByText(label, { exact: true })).toBeVisible();
     }
-    await expect(page.getByRole("checkbox", { name: "Use commit-confirm" })).toBeChecked();
+    await expect(
+      page.getByRole("checkbox", { name: "Use commit-confirm" })
+    ).toBeChecked();
     await expect(picker(page, "Select a Site...")).toBeEnabled();
     await expect(picker(page, "Select Tenant (optional)...")).toBeEnabled();
     await expect(picker(page, "Select Status (optional)...")).toBeEnabled();
@@ -118,7 +139,9 @@ test.describe("/workflows/new/<ClassName>", () => {
     });
 
     // Like the legacy forms: on to the new run.
-    await expect(page.getByRole("heading", { name: "Workflow Details" })).toBeVisible({
+    await expect(
+      page.getByRole("heading", { name: "Workflow Details" })
+    ).toBeVisible({
       timeout: WORKFLOW_DETAILS_TIMEOUT,
     });
     expect(new URL(page.url()).pathname).toBe(`/workflows/${DEVICE.id}`);
@@ -132,15 +155,21 @@ test.describe("/workflows/new/<ClassName>", () => {
       if (isDeviceOptionsRequest(request)) deviceRequests.push(request);
     });
     await page.goto(
-      `/workflows/new/DeployWorkflow?site=${SITES_LIST.pdx01}&device-id=${DEVICE.id}` +
+      `/workflows/new/deploy?site=${SITES_LIST.pdx01}&device-id=${DEVICE.id}` +
         `&tenant=${TENANT_LIST.ngc}&status=${STATUS_LIST.active}`
     );
 
-    await expect(picker(page, `${SITES_LIST.pdx01}. Open options`)).toBeVisible({
-      timeout: TEST_TIMEOUT,
-    });
-    await expect(picker(page, `${TENANT_LIST.ngc}. Open options`)).toBeVisible();
-    await expect(picker(page, `${STATUS_LIST.active}. Open options`)).toBeVisible();
+    await expect(picker(page, `${SITES_LIST.pdx01}. Open options`)).toBeVisible(
+      {
+        timeout: TEST_TIMEOUT,
+      }
+    );
+    await expect(
+      picker(page, `${TENANT_LIST.ngc}. Open options`)
+    ).toBeVisible();
+    await expect(
+      picker(page, `${STATUS_LIST.active}. Open options`)
+    ).toBeVisible();
     await expect(picker(page, `${DEVICE.name}. Open options`)).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
@@ -160,7 +189,9 @@ test.describe("/workflows/new/<ClassName>", () => {
       device_id: DEVICE.id,
       commit_confirm: true,
     });
-    await expect(page.getByRole("heading", { name: "Workflow Details" })).toBeVisible({
+    await expect(
+      page.getByRole("heading", { name: "Workflow Details" })
+    ).toBeVisible({
       timeout: WORKFLOW_DETAILS_TIMEOUT,
     });
   });
@@ -189,7 +220,9 @@ test.describe("/workflows/new/<ClassName>", () => {
       },
     ];
     for (const { name, title, labels, submit } of forms) {
-      await page.goto(`/workflows/new/${name}`);
+      await page.goto(
+        `/workflows/new/${formIdOf(name as keyof typeof workflowFormIds)}`
+      );
       await expect(page.getByRole("heading", { name: title })).toBeVisible();
       for (const label of labels) {
         await expect(page.getByText(label, { exact: true })).toBeVisible();
@@ -199,13 +232,16 @@ test.describe("/workflows/new/<ClassName>", () => {
     }
 
     // Schema defaults from the snapshot, shown against the loaded options.
-    await page.goto("/workflows/new/SiteCableValidationWorkflow");
+    await page.goto("/workflows/new/site-cable-validation");
     await expect(
-      picker(page, `${STATUS_LIST.active}, ${STATUS_LIST.provisioned}. Open options`)
+      picker(
+        page,
+        `${STATUS_LIST.active}, ${STATUS_LIST.provisioned}. Open options`
+      )
     ).toBeVisible();
 
     // Overlays follow the chosen site and its location type.
-    await page.goto("/workflows/new/SpXOverlayDeletionWorkflow");
+    await page.goto("/workflows/new/spx-overlay-deletion");
     await expect(picker(page, "Select a Overlay ID...")).toBeDisabled();
     await expect(picker(page, "spectrumx. Open options")).toBeVisible();
     const overlaysRequest = page.waitForRequest(
@@ -220,19 +256,27 @@ test.describe("/workflows/new/<ClassName>", () => {
     await expect(picker(page, "Select a Overlay ID...")).toBeEnabled();
   });
 
-  test("IBPKeyMemberUpdateWorkflow renders its generic row variants", async ({ page }) => {
-    await page.goto("/workflows/new/IBPKeyMemberUpdateWorkflow");
+  test("IBPKeyMemberUpdateWorkflow renders its generic row variants", async ({
+    page,
+  }) => {
+    await page.goto("/workflows/new/ib-pkey-member-update");
 
     await expect(
-      page.getByRole("heading", { name: "New InfiniBand PKey Member Update Workflow" })
+      page.getByRole("heading", {
+        name: "New InfiniBand PKey Member Update Workflow",
+      })
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Replace Members" })).toBeVisible();
     await expect(
-      page.getByText("Any current members not present here will be removed.", { exact: false })
+      page.getByRole("button", { name: "Replace Members" })
     ).toBeVisible();
-    await expect(page.getByText("This workflow cannot be started from this form")).toHaveCount(
-      0
-    );
+    await expect(
+      page.getByText("Any current members not present here will be removed.", {
+        exact: false,
+      })
+    ).toBeVisible();
+    await expect(
+      page.getByText("This workflow cannot be started from this form")
+    ).toHaveCount(0);
   });
 
   test("an unknown workflow, or a form the server does not have, is not found", async ({
@@ -240,44 +284,58 @@ test.describe("/workflows/new/<ClassName>", () => {
   }) => {
     const requests = formRequests(page);
     await page.goto("/workflows/new/NoSuchWorkflow");
-    await expect(page.getByRole("heading", { name: "Workflow not found" })).toBeVisible();
     await expect(
-      page.getByText('Workflow "NoSuchWorkflow" was not found or is not available through the API.')
+      page.getByRole("heading", { name: "Workflow not found" })
     ).toBeVisible();
-    await expect(page.getByRole("link", { name: "Return to Workflows" })).toHaveAttribute(
-      "href",
-      "/workflows"
-    );
+    await expect(
+      page.getByText(
+        'Workflow "NoSuchWorkflow" was not found or is not available through the API.'
+      )
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Return to Workflows" })
+    ).toHaveAttribute("href", "/workflows");
 
-    // The class name is decoded from the path, but unknown catalog entries are rejected
+    // The form ID is decoded from the path, but unknown catalog entries are rejected
     // without probing a generic-form endpoint.
     await page.goto("/workflows/new/No%20Such%2FWorkflow");
     await expect(
-      page.getByText('Workflow "No Such/Workflow" was not found', { exact: false })
+      page.getByText('Workflow "No Such/Workflow" was not found', {
+        exact: false,
+      })
     ).toBeVisible();
     expect(requests).toEqual([]);
 
     // In the catalog, but /form answers 404 (e.g. disabled for the API since).
-    await page.route("**/v1/workflow/DeployWorkflow/form", (route) =>
-      route.fulfill({ status: 404, json: { detail: "Workflow 'DeployWorkflow' not found" } })
+    await page.route("**/v1/workflow/deploy/form", (route) =>
+      route.fulfill({
+        status: 404,
+        json: { detail: "Workflow 'DeployWorkflow' not found" },
+      })
     );
-    await page.goto("/workflows/new/DeployWorkflow");
-    await expect(page.getByRole("heading", { name: "Workflow not found" })).toBeVisible();
+    await page.goto("/workflows/new/deploy");
+    await expect(
+      page.getByRole("heading", { name: "Workflow not found" })
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: "Submit" })).toHaveCount(0);
-    expect(requests).toEqual(["/v1/workflow/DeployWorkflow/form"]);
+    expect(requests).toEqual(["/v1/workflow/deploy/form"]);
   });
 
-  test("a workflow disabled for browser forms cannot be opened directly", async ({ page }) => {
+  test("a workflow disabled for browser forms cannot be opened directly", async ({
+    page,
+  }) => {
     const requests = formRequests(page);
 
-    await page.goto("/workflows/new/SpXOverlayAssignmentWorkflow");
+    await page.goto("/workflows/new/spx-overlay-assignment");
 
-    await expect(page.getByRole("heading", { name: "Workflow not found" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Workflow not found" })
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: "Submit" })).toHaveCount(0);
     expect(requests).toEqual([]);
   });
 
-  test("an older API that omits has_form asks for an upgrade without probing /form", async ({
+  test("an older API that omits form metadata asks for an upgrade without probing /form", async ({
     page,
   }) => {
     const requests = formRequests(page);
@@ -286,26 +344,36 @@ test.describe("/workflows/new/<ClassName>", () => {
         status: 200,
         json: {
           workflows: SERVER_WORKFLOW_METADATA.workflows.map(
-            ({ has_form: _hasForm, ...workflow }) => workflow
+            ({
+              form_id: _formId,
+              has_form: _hasForm,
+              ...workflow
+            }) => workflow
           ),
         },
       })
     );
 
-    await page.goto("/workflows/new/DeployWorkflow");
+    await page.goto("/workflows/new/deploy");
 
     await expect(
       page.getByRole("heading", { name: "Workflow API upgrade required" })
     ).toBeVisible();
-    const alert = page.getByRole("alert").filter({ hasText: "Browser workflow forms" });
+    const alert = page
+      .getByRole("alert")
+      .filter({ hasText: "Browser workflow forms" });
     await expect(alert).toContainText(API_UPGRADE_REQUIRED);
-    await expect(alert).toContainText("You can still start the workflow through the API or CLI.");
+    await expect(alert).toContainText(
+      "You can still start the workflow through the API or CLI."
+    );
     await expect(page.getByRole("button", { name: "Submit" })).toHaveCount(0);
     expect(requests).toEqual([]);
   });
 
-  test("a form with an unsupported ui_schema_version is not rendered", async ({ page }) => {
-    await page.route("**/v1/workflow/DeployWorkflow/form", (route) =>
+  test("a form with an unsupported ui_schema_version is not rendered", async ({
+    page,
+  }) => {
+    await page.route("**/v1/workflow/deploy/form", (route) =>
       route.fulfill({
         status: 200,
         json: {
@@ -314,42 +382,61 @@ test.describe("/workflows/new/<ClassName>", () => {
         },
       })
     );
-    await page.goto("/workflows/new/DeployWorkflow");
+    await page.goto("/workflows/new/deploy");
 
-    await expect(page.getByRole("heading", { name: DEPLOY_TITLE })).toBeVisible();
-    const alert = page.getByRole("alert").filter({ hasText: "This form needs a newer UI" });
+    await expect(
+      page.getByRole("heading", { name: DEPLOY_TITLE })
+    ).toBeVisible();
+    const alert = page
+      .getByRole("alert")
+      .filter({ hasText: "This form needs a newer UI" });
     await expect(alert).toContainText(
       "This form uses UI schema version 2, but this UI supports version 1. Upgrade the " +
         "Config Manager UI to run this workflow from the browser."
     );
-    await expect(alert).toContainText("You can still start it through the API or CLI.");
+    await expect(alert).toContainText(
+      "You can still start it through the API or CLI."
+    );
     await expect(page.getByRole("button", { name: "Submit" })).toHaveCount(0);
   });
 
-  test("a form requiring a capability this UI lacks is not rendered", async ({ page }) => {
-    const deploy = SERVER_WORKFLOW_FORMS.DeployWorkflow as { requires: string[] };
-    await page.route("**/v1/workflow/DeployWorkflow/form", (route) =>
+  test("a form requiring a capability this UI lacks is not rendered", async ({
+    page,
+  }) => {
+    const deploy = SERVER_WORKFLOW_FORMS.DeployWorkflow as {
+      requires: string[];
+    };
+    await page.route("**/v1/workflow/deploy/form", (route) =>
       route.fulfill({
         status: 200,
-        json: { ...deploy, requires: [...deploy.requires, "core-field.rack-picker.v1"] },
+        json: {
+          ...deploy,
+          requires: [...deploy.requires, "core-field.rack-picker.v1"],
+        },
       })
     );
-    await page.goto("/workflows/new/DeployWorkflow");
+    await page.goto("/workflows/new/deploy");
 
-    const alert = page.getByRole("alert").filter({ hasText: "This form needs a newer UI" });
+    const alert = page
+      .getByRole("alert")
+      .filter({ hasText: "This form needs a newer UI" });
     await expect(alert).toContainText(
       "This form needs a capability this UI does not support (core-field.rack-picker.v1)."
     );
     await expect(page.getByRole("button", { name: "Submit" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Return to Workflows" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(
+      0
+    );
+    await expect(
+      page.getByRole("link", { name: "Return to Workflows" })
+    ).toBeVisible();
   });
 
   test("an unavailable plugin form (503) shows its diagnostic, without Try again", async ({
     page,
   }) => {
     const diagnostic = "device_id: ui:field 'rack' is not a core field";
-    await page.route("**/v1/workflow/DeployWorkflow/form", (route) =>
+    await page.route("**/v1/workflow/deploy/form", (route) =>
       route.fulfill({
         status: 503,
         json: {
@@ -362,28 +449,40 @@ test.describe("/workflows/new/<ClassName>", () => {
         },
       })
     );
-    await page.goto("/workflows/new/DeployWorkflow");
+    await page.goto("/workflows/new/deploy");
 
-    const alert = page.getByRole("alert").filter({ hasText: "This form is unavailable" });
-    await expect(alert).toContainText('The form of this workflow from plugin "acme-workflows"');
-    await expect(alert).toContainText("You can still start the workflow through the API or CLI.");
+    const alert = page
+      .getByRole("alert")
+      .filter({ hasText: "This form is unavailable" });
+    await expect(alert).toContainText(
+      'The form of this workflow from plugin "acme-workflows"'
+    );
+    await expect(alert).toContainText(
+      "You can still start the workflow through the API or CLI."
+    );
     await expect(alert).toContainText(diagnostic);
-    await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Return to Workflows" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(
+      0
+    );
+    await expect(
+      page.getByRole("link", { name: "Return to Workflows" })
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: "Submit" })).toHaveCount(0);
   });
 
   test("a failed form request can be retried", async ({ page }) => {
     let failures = 1;
-    await page.route("**/v1/workflow/DeployWorkflow/form", (route) =>
+    await page.route("**/v1/workflow/deploy/form", (route) =>
       failures-- > 0
         ? route.fulfill({ status: 500, json: { detail: "boom" } })
         : route.fallback()
     );
-    await page.goto("/workflows/new/DeployWorkflow");
+    await page.goto("/workflows/new/deploy");
 
     await expect(
-      page.getByText("The workflow API returned HTTP 500 while loading the form.")
+      page.getByText(
+        "The workflow API returned HTTP 500 while loading the form."
+      )
     ).toBeVisible();
     await page.getByRole("button", { name: "Try again" }).click();
     await expect(page.getByRole("button", { name: "Submit" })).toBeVisible();
@@ -393,18 +492,24 @@ test.describe("/workflows/new/<ClassName>", () => {
     page,
   }) => {
     await mockServerCatalogAndUser(page, ["reader"]);
-    await page.goto("/workflows/new/DeployWorkflow");
+    await page.goto("/workflows/new/deploy");
 
-    await expect(page.getByRole("heading", { name: DEPLOY_TITLE })).toBeVisible();
     await expect(
-      page.getByRole("alert").filter({ hasText: "You cannot start this workflow" })
+      page.getByRole("heading", { name: DEPLOY_TITLE })
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole("alert")
+        .filter({ hasText: "You cannot start this workflow" })
     ).toContainText(DEPLOY_ROLES_REASON);
-    await expect(page.locator("fieldset[disabled]")).toHaveAccessibleDescription(
-      DEPLOY_ROLES_REASON
-    );
+    await expect(
+      page.locator("fieldset[disabled]")
+    ).toHaveAccessibleDescription(DEPLOY_ROLES_REASON);
     await expect(page.getByRole("button", { name: "Submit" })).toBeDisabled();
     await expect(picker(page, "Select a Site...")).toBeDisabled();
-    await expect(page.getByRole("checkbox", { name: "Use commit-confirm" })).toBeDisabled();
+    await expect(
+      page.getByRole("checkbox", { name: "Use commit-confirm" })
+    ).toBeDisabled();
 
     // Same text as the launcher's tooltip for the same entry.
     await page.getByRole("button", { name: "New workflow" }).click();
@@ -412,17 +517,23 @@ test.describe("/workflows/new/<ClassName>", () => {
       .getByRole("dialog")
       .getByRole("button", { name: "Configuration Deploy", exact: true });
     await launcherEntry.hover();
-    await expect(launcherEntry).toHaveAccessibleDescription(DEPLOY_ROLES_REASON);
+    await expect(launcherEntry).toHaveAccessibleDescription(
+      DEPLOY_ROLES_REASON
+    );
   });
 
-  test("a failed /whoami disables the form as Unauthorized", async ({ page }) => {
+  test("a failed /whoami disables the form as Unauthorized", async ({
+    page,
+  }) => {
     await page.route("**/whoami", (route) =>
       route.fulfill({ status: 403, json: { error: "Forbidden" } })
     );
-    await page.goto("/workflows/new/DeployWorkflow");
+    await page.goto("/workflows/new/deploy");
 
     await expect(
-      page.getByRole("alert").filter({ hasText: "You cannot start this workflow" })
+      page
+        .getByRole("alert")
+        .filter({ hasText: "You cannot start this workflow" })
     ).toContainText("Unauthorized");
     await expect(page.getByRole("button", { name: "Submit" })).toBeDisabled();
   });
@@ -436,13 +547,14 @@ const COHORT_1_REDIRECTS: {
   name: string;
   case: string;
   legacyUrl: string;
-  /** Checks the form on the class-name route shows the query's values. */
+  /** Checks the form on the form ID route shows the query's values. */
   prefilled: (page: Page) => Promise<void>;
 }[] = [
   {
     name: "IBPKeyCreationWorkflow",
     case: "host and pkey",
-    legacyUrl: "/workflows/ibpkeycreationworkflow/form?host=ufm.example.com&pkey=0x0100",
+    legacyUrl:
+      "/workflows/ibpkeycreationworkflow/form?host=ufm.example.com&pkey=0x0100",
     prefilled: async (page) => {
       await expect(page.getByLabel("UFM Host")).toHaveValue("ufm.example.com");
       await expect(page.getByLabel("PKey (optional)")).toHaveValue("0x0100");
@@ -451,7 +563,8 @@ const COHORT_1_REDIRECTS: {
   {
     name: "IBPKeyMemberUpdateWorkflow",
     case: "host and pkey",
-    legacyUrl: "/workflows/ibpkeymemberupdateworkflow/form?host=ufm-1.lab&pkey=0x8001",
+    legacyUrl:
+      "/workflows/ibpkeymemberupdateworkflow/form?host=ufm-1.lab&pkey=0x8001",
     prefilled: async (page) => {
       await expect(page.getByLabel("UFM Host")).toHaveValue("ufm-1.lab");
       await expect(page.getByLabel("PKey")).toHaveValue("0x8001");
@@ -464,7 +577,9 @@ const COHORT_1_REDIRECTS: {
       `/workflows/spxoverlaydeletionworkflow/form?site=${SITES_LIST.pdx01}` +
       "&overlay_id=test-overlay-1&namespace=tenant-a",
     prefilled: async (page) => {
-      await expect(picker(page, `${SITES_LIST.pdx01}. Open options`)).toBeVisible();
+      await expect(
+        picker(page, `${SITES_LIST.pdx01}. Open options`)
+      ).toBeVisible();
       await expect(picker(page, "test-overlay-1. Open options")).toBeVisible();
       await expect(picker(page, "tenant-a. Open options")).toBeVisible();
     },
@@ -476,7 +591,9 @@ const COHORT_1_REDIRECTS: {
     case: "Nautobot link",
     legacyUrl: `/workflows/deployworkflow/form?site=${SITES_LIST.pdx01}&device-id=${DEVICE.id}`,
     prefilled: async (page) => {
-      await expect(picker(page, `${SITES_LIST.pdx01}. Open options`)).toBeVisible();
+      await expect(
+        picker(page, `${SITES_LIST.pdx01}. Open options`)
+      ).toBeVisible();
       await expect(picker(page, `${DEVICE.name}. Open options`)).toBeVisible();
     },
   },
@@ -486,7 +603,9 @@ const COHORT_1_REDIRECTS: {
     case: "repeated device-id",
     legacyUrl:
       `/workflows/deployworkflow/form?site=${SITES_LIST.pdx01}` +
-      `&device-id=${DEVICE.id}&device-id=${DEVICES_LIST[SITES_LIST.pdx01][1].id}`,
+      `&device-id=${DEVICE.id}&device-id=${
+        DEVICES_LIST[SITES_LIST.pdx01][1].id
+      }`,
     prefilled: async (page) => {
       await expect(picker(page, `${DEVICE.name}. Open options`)).toBeVisible();
     },
@@ -500,8 +619,12 @@ const COHORT_1_REDIRECTS: {
       `/workflows/sitecablevalidationworkflow/form?site=${SITES_LIST.pdx01}` +
       `&device-id=${DEVICE.id}&tenant=${TENANT_LIST.ngc}`,
     prefilled: async (page) => {
-      await expect(picker(page, `${SITES_LIST.pdx01}. Open options`)).toBeVisible();
-      await expect(picker(page, `${TENANT_LIST.ngc}. Open options`)).toBeVisible();
+      await expect(
+        picker(page, `${SITES_LIST.pdx01}. Open options`)
+      ).toBeVisible();
+      await expect(
+        picker(page, `${TENANT_LIST.ngc}. Open options`)
+      ).toBeVisible();
     },
   },
   {
@@ -523,41 +646,52 @@ test.describe("legacy form URLs", () => {
     await mockTypedLocationsEndpoint(page);
   });
 
-  for (const { name, case: title, legacyUrl, prefilled } of COHORT_1_REDIRECTS) {
+  for (const {
+    name,
+    case: title,
+    legacyUrl,
+    prefilled,
+  } of COHORT_1_REDIRECTS) {
     test(`${name} legacy URL (${title}) redirects with its query and prefills the form`, async ({
       page,
     }) => {
       const legacy = new URL(legacyUrl, "http://ui.test");
       const forms = formRequests(page);
 
-      // The server answers 307 with the class-name route and the same query string.
+      // The server answers 307 with the form ID route and the same query string.
       const response = await page.request.get(legacyUrl, { maxRedirects: 0 });
       expect(response.status()).toBe(307);
       const location = new URL(response.headers()["location"], legacy);
-      expect(location.pathname).toBe(`/workflows/new/${name}`);
+      const formId = formIdOf(name as keyof typeof workflowFormIds);
+      expect(location.pathname).toBe(`/workflows/new/${formId}`);
       expect(location.search).toBe(legacy.search);
 
       // A browser following it lands on the generic route with the values filled in.
       const landed = await page.goto(legacyUrl);
-      expect((await landed?.request().redirectedFrom()?.response())?.status()).toBe(307);
+      expect(
+        (await landed?.request().redirectedFrom()?.response())?.status()
+      ).toBe(307);
       const url = new URL(page.url());
-      expect(url.pathname).toBe(`/workflows/new/${name}`);
+      expect(url.pathname).toBe(`/workflows/new/${formId}`);
       expect(url.search).toBe(legacy.search);
       await prefilled(page);
-      expect(forms).toEqual([`/v1/workflow/${name}/form`]);
+      expect(forms).toEqual([`/v1/workflow/${formId}/form`]);
     });
   }
 
-  test("each legacy form URL redirects to its class-name route", async ({ page }) => {
+  test("each legacy form URL redirects to its form ID route", async ({
+    page,
+  }) => {
     for (const [name, legacySlug] of Object.entries(legacyWorkflowRedirects)) {
       const response = await page.request.get(`/workflows/${legacySlug}/form`, {
         maxRedirects: 0,
       });
 
       expect(response.status(), name).toBe(307);
-      expect(new URL(response.headers()["location"], "http://ui.test").pathname, name).toBe(
-        `/workflows/new/${name}`
-      );
+      expect(
+        new URL(response.headers()["location"], "http://ui.test").pathname,
+        name
+      ).toBe(`/workflows/new/${formIdOf(name as keyof typeof workflowFormIds)}`);
     }
   });
 
@@ -566,11 +700,17 @@ test.describe("legacy form URLs", () => {
   }) => {
     await mockServerCatalogAndUser(page, ["reader"]);
     for (const name of new Set(COHORT_1_REDIRECTS.map((entry) => entry.name))) {
-      await page.goto(`/workflows/new/${name}`);
+      await page.goto(
+        `/workflows/new/${formIdOf(name as keyof typeof workflowFormIds)}`
+      );
       await expect(
-        page.getByRole("alert").filter({ hasText: "You cannot start this workflow" })
+        page
+          .getByRole("alert")
+          .filter({ hasText: "You cannot start this workflow" })
       ).toContainText(`Required execute roles: ${name}, executor`);
-      await expect(page.locator('fieldset[disabled] button[type="submit"]')).toBeDisabled();
+      await expect(
+        page.locator('fieldset[disabled] button[type="submit"]')
+      ).toBeDisabled();
     }
   });
 });

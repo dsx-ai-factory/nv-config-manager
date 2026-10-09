@@ -17,7 +17,7 @@
 
 /**
  * Golden payload parity between the retired form pages and
- * `/workflows/new/<ClassName>`. Each workflow keeps
+ * `/workflows/new/<form_id>`. Each workflow keeps
  * `tests/e2e/fixtures/form-parity/<slug>.json`:
  *
  * ```json
@@ -35,12 +35,16 @@ import { join } from "node:path";
 
 import { expect, type Locator, type Page } from "@playwright/test";
 
+import workflowFormIds from "@/config/workflow-form-ids.json";
 import type { JsonObject } from "@/types/workflow-catalog.types";
 
 const UI_ROOT = join(__dirname, "../../..");
 const FIXTURE_DIR = join(UI_ROOT, "tests/e2e/fixtures/form-parity");
 const LEGACY_WORKFLOW_REDIRECTS: Record<string, string> = JSON.parse(
-  readFileSync(join(UI_ROOT, "src/config/legacy-workflow-redirects.json"), "utf8")
+  readFileSync(
+    join(UI_ROOT, "src/config/legacy-workflow-redirects.json"),
+    "utf8"
+  )
 );
 
 /** Write captured payloads into the fixtures instead of asserting them. */
@@ -96,15 +100,23 @@ const legacySlugOf = (workflow: string) => {
   return legacySlug;
 };
 
-export const scenarioUrls = (workflow: string, scenario: ParityScenario) => ({
-  legacy_url: `/workflows/${legacySlugOf(workflow)}/form${scenario.query ?? ""}`,
-  new_url: `/workflows/new/${encodeURIComponent(workflow)}${scenario.query ?? ""}`,
-});
+export const scenarioUrls = (workflow: string, scenario: ParityScenario) => {
+  const formId = (workflowFormIds as Record<string, string>)[workflow];
+  if (!formId) throw new Error(`${workflow} is not in workflow-form-ids.json`);
+  return {
+    legacy_url: `/workflows/${legacySlugOf(workflow)}/form${
+      scenario.query ?? ""
+    }`,
+    new_url: `/workflows/new/${formId}${scenario.query ?? ""}`,
+  };
+};
 
 const fixturePath = (workflow: string) =>
   join(FIXTURE_DIR, `${legacySlugOf(workflow)}.json`);
 
-export const readParityFixture = (workflow: string): ParityFixture | undefined => {
+export const readParityFixture = (
+  workflow: string
+): ParityFixture | undefined => {
   const path = fixturePath(workflow);
   return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : undefined;
 };
@@ -132,13 +144,18 @@ const recordPayload = (
       .filter((entry): entry is FixtureScenario => entry !== undefined),
   };
   mkdirSync(FIXTURE_DIR, { recursive: true });
-  writeFileSync(fixturePath(definition.workflow), `${JSON.stringify(fixture, null, 2)}\n`);
+  writeFileSync(
+    fixturePath(definition.workflow),
+    `${JSON.stringify(fixture, null, 2)}\n`
+  );
 };
 
-const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegExp = (text: string) =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** A field label's text: `label`, with or without the required marker. */
-const labelText = (label: string) => new RegExp(`^${escapeRegExp(label)}( \\*)?$`);
+const labelText = (label: string) =>
+  new RegExp(`^${escapeRegExp(label)}( \\*)?$`);
 
 /** A select's trigger: the first button in the field its label heads. */
 const selectTrigger = (page: Page, label: string): Locator =>
@@ -186,7 +203,9 @@ export const formDriver = (page: Page): FormDriver => ({
     await page.getByLabel(labelText(label)).fill(value);
   },
   async setChecked(label, checked) {
-    await page.getByRole("checkbox", { name: label, exact: true }).setChecked(checked);
+    await page
+      .getByRole("checkbox", { name: label, exact: true })
+      .setChecked(checked);
   },
 });
 
@@ -208,7 +227,8 @@ export const capturePayload = async (
 
   const submitted = page.waitForRequest(
     (request) =>
-      request.method() === "POST" && new URL(request.url()).pathname === definition.endpoint
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === definition.endpoint
   );
   await page.locator('form button[type="submit"]').click();
   return (await submitted).postDataJSON() as JsonObject;
@@ -228,12 +248,16 @@ export const checkPayload = (
     (entry) => entry.name === scenario.name
   );
   const hint = "re-capture with UPDATE_PARITY=1";
-  expect(stored, `no fixture entry for "${scenario.name}"; ${hint}`).toBeDefined();
+  expect(
+    stored,
+    `no fixture entry for "${scenario.name}"; ${hint}`
+  ).toBeDefined();
   expect(
     { legacy_url: stored!.legacy_url, new_url: stored!.new_url },
     `scenario URLs changed; ${hint}`
   ).toEqual(scenarioUrls(definition.workflow, scenario));
-  expect(payload, `generic payload differs from the fixture; ${hint} if intended`).toEqual(
-    stored!.generic_payload
-  );
+  expect(
+    payload,
+    `generic payload differs from the fixture; ${hint} if intended`
+  ).toEqual(stored!.generic_payload);
 };

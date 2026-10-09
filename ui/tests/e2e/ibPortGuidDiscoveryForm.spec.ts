@@ -16,7 +16,7 @@
  */
 
 /**
- * The InfiniBand Port GUID Discovery form on its class-name route (the legacy
+ * The InfiniBand Port GUID Discovery form on its form ID route (the legacy
  * `/workflows/ibportguiddiscoveryworkflow/form` redirects there): a UFM device and the
  * switches to update, sharing one Site filter (the "fabric-devices" scope), and a
  * dry-run checkbox on by default. Like the legacy page, only `?site=` prefills.

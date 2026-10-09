@@ -83,6 +83,8 @@ class InfinibandGetUnhealthyPortsWorkflow(WorkflowMetadataMixin, StageMixin):
     workflow_input_class = InfinibandGetUnhealthyPortsInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/infiniband_get_unhealthy_ports"
+    workflow_form_enabled = True
+    workflow_form_id = "infiniband-get-unhealthy-ports"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
     workflow_required_activities = (get_network_device, get_ib_ports)

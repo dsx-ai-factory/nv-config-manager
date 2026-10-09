@@ -61,10 +61,12 @@ const matchingDeviceCount = (request: Request): number => {
   }).length;
 };
 
-/** Direct option sources used by the schema-driven workflow forms. */
+/** Workflow-scoped option providers used by the schema-driven workflow forms. */
 export const workflowFormOptionHandlers = [
   http.get(
-    sanitizeUrl(`${apiURL}/v1/parameter/diagnostics/command-options`),
+    sanitizeUrl(
+      `${apiURL}/v1/workflow/diagnostics/form-options/diagnostic-commands`
+    ),
     async ({ request }) => {
       const selectedDeviceIds = new URL(request.url).searchParams.getAll("device_id");
       const group = selectedDeviceIds.length > 1 ? "Runs on all selected devices" : undefined;
@@ -81,7 +83,9 @@ export const workflowFormOptionHandlers = [
     }
   ),
   http.get(
-    sanitizeUrl(`${apiURL}/v1/parameter/password-users`),
+    sanitizeUrl(
+      `${apiURL}/v1/workflow/site-password-rotation/form-options/password-users`
+    ),
     async ({ request }) => {
       const count = matchingDeviceCount(request);
       return HttpResponse.json(

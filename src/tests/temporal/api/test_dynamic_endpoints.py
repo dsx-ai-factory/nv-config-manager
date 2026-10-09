@@ -147,7 +147,7 @@ async def test_endpoint_replaces_submitted_identity_with_authenticated_identity(
 
 @pytest.mark.asyncio
 async def test_endpoint_preserves_unmarked_identity_fields(mocker):
-    """A field name alone does not opt a workflow into HTTP identity injection."""
+    """Non-empty unmarked identity fields remain caller controlled for compatibility."""
     captured: dict[str, BaseModel] = {}
 
     async def _fake_start(request, workflow_class, body):
@@ -171,6 +171,31 @@ async def test_endpoint_preserves_unmarked_identity_fields(mocker):
     submitted = cast(_CallerOwnedInput, captured["body"])
     assert submitted.user == "caller@example.net"
     assert submitted.user_domain == "example.net"
+
+
+@pytest.mark.parametrize("value", [None, ""])
+@pytest.mark.asyncio
+async def test_endpoint_populates_falsey_unmarked_legacy_identity_fields(mocker, value):
+    """Legacy models retain the falsey identity fallback used before form metadata."""
+    captured: dict[str, BaseModel] = {}
+
+    async def _fake_start(request, workflow_class, body):
+        captured["body"] = body
+        return "wid-1"
+
+    mocker.patch.object(dynamic_endpoints, "start_workflow", new=_fake_start)
+    endpoint = create_workflow_endpoint(_AttributedWorkflow, _CallerOwnedInput, "/attributed")
+    request = MagicMock()
+    request.state.user = "trusted@example.com"
+
+    await endpoint(
+        _CallerOwnedInput(host="device-1", user=value, user_domain=value),
+        request,
+    )
+
+    submitted = cast(_CallerOwnedInput, captured["body"])
+    assert submitted.user == "trusted@example.com"
+    assert submitted.user_domain == "example.com"
 
 
 def test_invalid_server_owned_form_marker_does_not_remove_execution_endpoint() -> None:

@@ -5,7 +5,7 @@
     {
       "name": "manual site and device",
       "legacy_url": "/workflows/infinibandmlnxosupgradeworkflow/form",
-      "new_url": "/workflows/new/InfinibandMlnxOSUpgradeWorkflow",
+      "new_url": "/workflows/new/infiniband-mlnx-os-upgrade",
       "legacy_payload": {
         "device_id": "67a4c2d6-0b61-4c90-a7b8-3042d9c26815"
       },
@@ -16,7 +16,7 @@
     {
       "name": "manual fill narrowed by tenant",
       "legacy_url": "/workflows/infinibandmlnxosupgradeworkflow/form",
-      "new_url": "/workflows/new/InfinibandMlnxOSUpgradeWorkflow",
+      "new_url": "/workflows/new/infiniband-mlnx-os-upgrade",
       "legacy_payload": {
         "device_id": "67a4c2d6-0b61-4c90-a7b8-3042d9c26815"
       },
@@ -27,7 +27,7 @@
     {
       "name": "Nautobot device link",
       "legacy_url": "/workflows/infinibandmlnxosupgradeworkflow/form?site=PDX01&device-id=67a4c2d6-0b61-4c90-a7b8-3042d9c26815&tenant=TenantB",
-      "new_url": "/workflows/new/InfinibandMlnxOSUpgradeWorkflow?site=PDX01&device-id=67a4c2d6-0b61-4c90-a7b8-3042d9c26815&tenant=TenantB",
+      "new_url": "/workflows/new/infiniband-mlnx-os-upgrade?site=PDX01&device-id=67a4c2d6-0b61-4c90-a7b8-3042d9c26815&tenant=TenantB",
       "legacy_payload": {
         "device_id": "67a4c2d6-0b61-4c90-a7b8-3042d9c26815"
       },

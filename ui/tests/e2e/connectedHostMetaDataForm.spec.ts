@@ -16,7 +16,7 @@
  */
 
 /**
- * The Connected Host Metadata form on its class-name route (the legacy
+ * The Connected Host Metadata form on its form ID route (the legacy
  * `/workflows/connectedhostmetadataworkflow/form` redirects there). The shared suite
  * replaces the legacy page's tests; the payload is unchanged (`{device_id}`).
  */

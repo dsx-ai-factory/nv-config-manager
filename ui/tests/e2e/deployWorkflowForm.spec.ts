@@ -16,7 +16,7 @@
  */
 
 /**
- * The Configuration Deploy form on its class-name route, rendered by the RJSF form
+ * The Configuration Deploy form on its form ID route, rendered by the RJSF form
  * because the legacy `/workflows/deployworkflow/form` redirects there. Ported
  * from the legacy page's spec and its shared `runWorkflowFormTests` suite. Its wording
  * comes from the server's
@@ -38,7 +38,7 @@ import {
 import { mockServerCatalogAndUser } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT, WORKFLOW_DETAILS_TIMEOUT } from "./shared/utils";
 
-const FORM_PATH = "/workflows/new/DeployWorkflow";
+const FORM_PATH = "/workflows/new/deploy";
 const FORM_TITLE = "New Configuration Deploy Workflow";
 const ENDPOINT = "/v1/workflow/ngc/deploy";
 

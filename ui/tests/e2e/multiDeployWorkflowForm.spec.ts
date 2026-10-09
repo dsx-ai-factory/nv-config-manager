@@ -16,7 +16,7 @@
  */
 
 /**
- * The Multi-Configuration Deploy form on its class-name route (the legacy
+ * The Multi-Configuration Deploy form on its form ID route (the legacy
  * `/workflows/multideployworkflow/form` redirects there).
  *
  * Differences from the legacy page, by design: unset optional inputs are omitted

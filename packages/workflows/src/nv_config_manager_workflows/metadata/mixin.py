@@ -15,12 +15,14 @@
 """Metadata contract shared by every registered workflow."""
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from types import MappingProxyType
 from typing import Any
 
 from pydantic import BaseModel
 
 from nv_config_manager_workflows.metadata.lock import WorkflowLockSpec
+from nv_config_manager_workflows.ui.form_options import FormOptionProvider
 
 type RequiredActivity = Callable[..., Any] | str
 
@@ -33,7 +35,9 @@ class WorkflowMetadataMixin:
     workflow_input_class: type[BaseModel] | None = None
     workflow_api_enabled: bool = False
     workflow_api_endpoint: str | None = None
-    workflow_form_enabled: bool = True
+    workflow_form_id: str | None = None
+    workflow_form_enabled: bool = False
+    workflow_form_option_providers: Mapping[str, FormOptionProvider] = MappingProxyType({})
     workflow_namespace: str | None = None
     workflow_mcp_enabled: bool = False
     workflow_group: str | None = None
@@ -75,9 +79,19 @@ class WorkflowMetadataMixin:
         return cls.workflow_api_endpoint
 
     @classmethod
+    def get_workflow_form_id(cls) -> str | None:
+        """Get the stable lowercase kebab-case identifier used by browser-form endpoints."""
+        return cls.workflow_form_id
+
+    @classmethod
     def get_workflow_form_enabled(cls) -> bool:
         """Return whether the workflow is offered through the browser form contract."""
         return cls.workflow_form_enabled
+
+    @classmethod
+    def get_workflow_form_option_providers(cls) -> Mapping[str, FormOptionProvider]:
+        """Return inert option-provider declarations owned by this workflow."""
+        return cls.workflow_form_option_providers
 
     @classmethod
     def get_workflow_namespace(cls) -> str | None:

@@ -30,7 +30,7 @@ const readApiFixture = <T>(file: string): T =>
     )
   ) as T;
 
-/** `GET /v1/workflow/{name}/form` of every built-in API workflow with a form. */
+/** `GET /v1/workflow/{form_id}/form` of every built-in API workflow with a form. */
 export const SERVER_WORKFLOW_FORMS: Readonly<Record<string, WorkflowFormResponse>> =
   readApiFixture("workflow_forms.json");
 
@@ -38,3 +38,14 @@ export const SERVER_WORKFLOW_FORMS: Readonly<Record<string, WorkflowFormResponse
 export const SERVER_FORM_EXCLUSIONS: Readonly<Record<string, string>> = readApiFixture(
   "workflow_form_exclusions.json"
 );
+
+/** Frozen stable form IDs asserted by the backend's built-in form tests. */
+export const SERVER_WORKFLOW_FORM_IDS: Readonly<Record<string, string>> = JSON.parse(
+  readFileSync(
+    new URL(
+      "../../../packages/workflows/tests/fixtures/builtin_form_ids.json",
+      import.meta.url
+    ),
+    "utf8"
+  )
+) as Record<string, string>;

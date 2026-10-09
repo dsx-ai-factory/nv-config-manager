@@ -109,6 +109,8 @@ class ReprovisionWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
     workflow_input_class = ReprovisionInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/reprovision"
+    workflow_form_enabled = True
+    workflow_form_id = "reprovision"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         execute_ztp,

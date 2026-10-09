@@ -291,6 +291,8 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
     workflow_input_class = IBPKeyMemberUpdateInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/ib_pkey_member_update"
+    workflow_form_enabled = True
+    workflow_form_id = "ib-pkey-member-update"
     workflow_namespace = "ngc"
     workflow_lock = WorkflowLockSpec(key_fields=["host", "pkey"])
     workflow_required_activities = (

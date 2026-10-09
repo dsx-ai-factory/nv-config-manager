@@ -10,8 +10,9 @@ version before the selected release candidate is promoted.
 
 ### Added
 
-- Added `GET /v1/workflow/{name}/form`, which returns a version 1 form envelope
-  for an API workflow: a form projection of its input schema (`schema`), a
+- Added `GET /v1/workflow/{form_id}/form`, keyed by each form-enabled workflow's
+  explicit, stable `workflow_form_id`, which returns a version 1 form envelope:
+  a form projection of its input schema (`schema`), a
   validated RJSF `ui_schema`, `ui_schema_version`, the UI capabilities the form
   `requires`.
 - Workflow plugins can declare launcher forms on their input models with an
@@ -37,6 +38,10 @@ version before the selected release candidate is promoted.
   request schema shapes and Pydantic validation rules are unchanged: form
   declarations do not change API request models, MCP tool schemas, or the
   corresponding generated-client models.
+- Deploy the workflow API before the UI when upgrading to the schema-driven
+  browser forms. A new UI paired with an older API intentionally disables
+  browser form links and shows an API-upgrade message without probing form
+  endpoints; API and CLI workflow execution remain available.
 - The workflow HTTP API now treats fields marked `ServerOwned` as authoritative
   request identity: it replaces submitted `user` and `user_domain` values with
   values derived from the authenticated request. The Port LLDP Info endpoint

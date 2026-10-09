@@ -211,6 +211,8 @@ class SpXOverlayCreationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin
     workflow_input_class = SpXOverlayCreationInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_creation"
+    workflow_form_enabled = True
+    workflow_form_id = "spx-overlay-creation"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_vrfs_by_overlay_id,
@@ -386,6 +388,8 @@ class SpXOverlayDeletionWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin
     workflow_input_class = SpXOverlayDeletionInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_deletion"
+    workflow_form_enabled = True
+    workflow_form_id = "spx-overlay-deletion"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_vrfs_by_overlay_id,
@@ -980,6 +984,8 @@ class SpXOverlayTenantChangeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
     workflow_input_class = SpXOverlayTenantChangeInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_tenant_change"
+    workflow_form_enabled = True
+    workflow_form_id = "spx-overlay-tenant-change"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_network_device,

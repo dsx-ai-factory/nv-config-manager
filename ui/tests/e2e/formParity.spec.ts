@@ -16,7 +16,7 @@
  */
 
 /**
- * Scenarios on `/workflows/new/<ClassName>`, with POST bodies compared to the retired
+ * Scenarios on `/workflows/new/<form_id>`, with POST bodies compared to the retired
  * form pages' goldens in `fixtures/form-parity/` (see `shared/formParity.ts`). The
  * generic route gets the real `/metadata` and `/form` snapshots and typed locations.
  *

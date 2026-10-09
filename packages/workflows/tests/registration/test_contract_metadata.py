@@ -162,12 +162,12 @@ class TestApiExposure:
         assert not workflow_api_enabled(BareWorkflow)
         assert workflow_api_enabled(FullyDeclaredWorkflow)
 
-    def test_form_exposure_defaults_on_and_can_be_disabled(self) -> None:
-        class FormlessWorkflow(WorkflowMetadataMixin):
-            workflow_form_enabled = False
+    def test_form_exposure_is_opt_in(self) -> None:
+        class FormWorkflow(WorkflowMetadataMixin):
+            workflow_form_enabled = True
 
-        assert workflow_form_enabled(BareWorkflow)
-        assert not workflow_form_enabled(FormlessWorkflow)
+        assert not workflow_form_enabled(BareWorkflow)
+        assert workflow_form_enabled(FormWorkflow)
 
 
 class TestCliName:

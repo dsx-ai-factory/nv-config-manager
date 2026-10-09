@@ -16,7 +16,7 @@
  */
 
 /**
- * The Site Cable Validation form on its class-name route, rendered by the RJSF form
+ * The Site Cable Validation form on its form ID route, rendered by the RJSF form
  * because the legacy `/workflows/sitecablevalidationworkflow/form` redirects
  * there.
  *
@@ -37,7 +37,7 @@ import {
 import { mockServerCatalogAndUser } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT } from "./shared/utils";
 
-const FORM_PATH = "/workflows/new/SiteCableValidationWorkflow";
+const FORM_PATH = "/workflows/new/site-cable-validation";
 
 const statusSelectButton = (page: Page) =>
   page

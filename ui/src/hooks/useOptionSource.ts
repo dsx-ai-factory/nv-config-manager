@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 import { useMemo } from "react";
-import useSWRImmutable from "swr/immutable";
+import useSWR from "swr";
 
 import { useRuntimeConfig } from "@/config/runtime";
 import { fetcher } from "@/lib/fetcher";
@@ -50,9 +50,10 @@ const NO_EXTRA: ExtraParams = {};
  * The SWR key is the canonical request URL (endpoint with path values + sorted static,
  * dependency, and extra parameters), so a dependency change switches keys and a late
  * response for earlier values is cached under its own key and never shown. Each URL is
- * fetched once per page (no revalidation on focus, reconnect, or remount) so option
- * lists do not change while the user is filling in the form. Values are never cleared
- * here: core fields apply `clear_on_change` by comparing `dependencySignature`.
+ * stable while the form remains mounted: focus and reconnect events do not revalidate
+ * them. A remount revalidates cached options, so returning to a form does not retain a
+ * stale list for the rest of the browser session. Values are never cleared here: core
+ * fields apply `clear_on_change` by comparing `dependencySignature`.
  */
 const useOptionSource = (
   source: OptionSource | undefined,
@@ -69,7 +70,11 @@ const useOptionSource = (
   const missingSignature =
     request?.kind === "waiting" ? JSON.stringify(request.missingDependencies) : "";
 
-  const { data, error } = useSWRImmutable<unknown, Error>(url, fetcher);
+  const { data, error } = useSWR<unknown, Error>(url, fetcher, {
+    revalidateOnFocus: false,
+    revalidateIfStale: true,
+    revalidateOnReconnect: false,
+  });
 
   const labelKey = source?.label_key;
   const valueKey = source?.value_key;

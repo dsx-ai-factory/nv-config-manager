@@ -5,7 +5,7 @@
     {
       "name": "manual fill",
       "legacy_url": "/workflows/cumulushardwarevalidationworkflow/form",
-      "new_url": "/workflows/new/ValidateHardwareWorkflow",
+      "new_url": "/workflows/new/cumulus-hardware-validation",
       "legacy_payload": {
         "site": "PDX01",
         "site_type": "Site",
@@ -40,7 +40,7 @@
     {
       "name": "module site, defaults otherwise",
       "legacy_url": "/workflows/cumulushardwarevalidationworkflow/form",
-      "new_url": "/workflows/new/ValidateHardwareWorkflow",
+      "new_url": "/workflows/new/cumulus-hardware-validation",
       "legacy_payload": {
         "site": "PDX01-POD1",
         "site_type": "Module",
@@ -64,7 +64,7 @@
     {
       "name": "prefill from URL",
       "legacy_url": "/workflows/cumulushardwarevalidationworkflow/form?site=PDX01&role=cin-leaf&status=Active&tenant=TenantA",
-      "new_url": "/workflows/new/ValidateHardwareWorkflow?site=PDX01&role=cin-leaf&status=Active&tenant=TenantA",
+      "new_url": "/workflows/new/cumulus-hardware-validation?site=PDX01&role=cin-leaf&status=Active&tenant=TenantA",
       "legacy_payload": {
         "site": "PDX01",
         "site_type": "Site",
