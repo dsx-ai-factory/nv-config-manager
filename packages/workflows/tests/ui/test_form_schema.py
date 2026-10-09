@@ -241,7 +241,6 @@ def test_two_markers_on_one_field_are_rejected() -> None:
         (str, FormSchema(min_items=1), "minItems"),
         (list[str], FormSchema(min_length=1), "minLength"),
         (bool, FormSchema(minimum=0), "minimum"),
-        (str, FormSchema(pattern="("), "not a valid regular expression"),
         (int, FormSchema(default="many"), "not valid for the field"),
         (Color, FormSchema(default="green"), "not valid for the field"),
         (str | None, FormSchema(default=None), "default must not be None"),
@@ -255,6 +254,15 @@ def test_form_schema_keywords_must_fit_the_property(
 
     with pytest.raises(WorkflowFormContractError, match=message):
         project_form_schema(Model)
+
+
+def test_form_schema_preserves_ecmascript_patterns_without_python_compilation() -> None:
+    pattern = r"^(?<guid>[0-9a-f]+)$"
+
+    class Model(BaseModel):
+        value: Annotated[str, FormSchema(pattern=pattern)]
+
+    assert project_form_schema(Model)["properties"]["value"]["pattern"] == pattern
 
 
 @pytest.mark.parametrize("keyword", ["minimum", "maximum"])

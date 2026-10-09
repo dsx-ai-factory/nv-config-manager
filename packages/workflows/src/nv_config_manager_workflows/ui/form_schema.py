@@ -21,7 +21,6 @@ Pydantic stays the authoritative validator of every submission.
 
 import copy
 import math
-import re
 from typing import Annotated, Any, TypeAliasType, get_args, get_origin
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -291,13 +290,6 @@ def _apply_form_schema(
         if keyword == "pattern":
             if not isinstance(value, str):
                 raise WorkflowFormContractError(f"{where} FormSchema pattern must be a string")
-            try:
-                re.compile(value)
-            except re.error as error:
-                raise WorkflowFormContractError(
-                    f"{where} FormSchema pattern {value!r} is not a valid regular expression: "
-                    f"{error}"
-                ) from error
         elif keyword in {"minimum", "maximum"}:
             if (
                 isinstance(value, bool)

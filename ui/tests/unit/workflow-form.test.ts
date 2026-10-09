@@ -100,6 +100,54 @@ describe("parseWorkflowFormResponse", () => {
     expect(parseWorkflowFormResponse(structuredClone(form)).ok).toBe(true);
   });
 
+  it("rejects an invalid JSON Schema pattern before rendering", () => {
+    const form = validForm();
+    const result = parseWorkflowFormResponse({
+      ...form,
+      schema: {
+        ...form.schema,
+        properties: {
+          ...form.schema.properties,
+          site: { ...form.schema.properties.site, pattern: "(?P<site>.+)" },
+        },
+      },
+    });
+
+    expect(result).toMatchObject({ ok: false, kind: "malformed" });
+    expect(!result.ok && result.kind === "malformed" && result.issues.join(" ")).toMatch(
+      /schema:.*regular expression/i
+    );
+  });
+
+  it("rejects an invalid variantRows pattern before rendering", () => {
+    const form = structuredClone(WORKFLOW_FORM_FIXTURES.IBPKeyMemberAddWorkflow);
+    const options = form.ui_schema.interfaces["ui:options"];
+    options.modes[1].columns[0].pattern = "(?P<guid>[0-9a-f]+)";
+
+    const result = parseWorkflowFormResponse(form);
+
+    expect(result).toMatchObject({ ok: false, kind: "malformed" });
+    expect(!result.ok && result.kind === "malformed" && result.issues).toContain(
+      "ui_schema.interfaces.ui:options.modes[1].columns[0].pattern: invalid ECMAScript regular expression"
+    );
+  });
+
+  it("accepts ECMAScript named groups without applying Python regex rules", () => {
+    const form = validForm();
+    expect(
+      parseWorkflowFormResponse({
+        ...form,
+        schema: {
+          ...form.schema,
+          properties: {
+            ...form.schema.properties,
+            site: { ...form.schema.properties.site, pattern: "^(?<site>.+)$" },
+          },
+        },
+      }).ok
+    ).toBe(true);
+  });
+
   it("reports an unsupported version before validating the envelope", () => {
     expect(parseWorkflowFormResponse({ ui_schema_version: 2, ui_schema: "nonsense" })).toEqual({
       ok: false,

@@ -912,6 +912,19 @@ describe("variant rows", () => {
     ).toEqual(["Interface is required in row 2."]);
   });
 
+  it("reports an invalid variant-row pattern instead of throwing", () => {
+    const invalid = structuredClone(config);
+    invalid.modes[0].columns[0].pattern = "(?P<device>.+)";
+    const data = {
+      interfaces: [{ device: "leaf-1", interface: "mlx5_0" }],
+    };
+
+    expect(() => validateVariantRowsValues(invalid, data)).not.toThrow();
+    expect(validateVariantRowsValues(invalid, data)).toContain(
+      "Device has an invalid validation pattern."
+    );
+  });
+
   it("associates field validation errors with the variant-row group", async () => {
     await renderForm(WORKFLOW_FORM_FIXTURES.IBPKeyMemberAddWorkflow);
     const group = screen.getByRole("group", { name: "Interfaces" });

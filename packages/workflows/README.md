@@ -716,7 +716,8 @@ A column names its top-level `arrayProperty`, a `label`, and a `kind` of `text`
 or `select`; an object-array column also names its string `itemProperty`, while
 a scalar-array column omits it. Text columns may declare `placeholder` and
 `pattern`; select columns declare static `choices`; either kind may be
-`required`.
+`required`. Patterns use JSON Schema's ECMAScript Unicode syntax and the UI
+compiles them before rendering the form.
 
 Every owned property must be a projected top-level array, belong to exactly one
 mode, and be controlled only through the one anchor property carrying
@@ -804,9 +805,11 @@ submitted body, owns the marked identity value:
   minimum=, maximum=, pattern=)`: adds form-only JSON Schema keywords (`default`,
   `minItems`, `maxItems`, `minLength`, `maxLength`, `minimum`, `maximum`, and
   `pattern`) to the property. Each keyword must fit the property's JSON type,
-  and `default` must validate against the field's type and must not be `None`. Use it to tighten or
-  seed the form without changing what the API accepts. For example, `BackupInput`
-  keeps `trigger` required and gives the form a hidden default of `API`.
+  `pattern` uses JSON Schema's ECMAScript Unicode syntax, and `default` must
+  validate against the field's type and must not be `None`. Use it to tighten
+  or seed the form without changing what the API accepts. For example,
+  `BackupInput` keeps `trigger` required and gives the form a hidden default of
+  `API`.
 
 `ServerOwned` and `FormExcluded` fields must have a Pydantic default or
 `default_factory`, because the request body is validated before the server
