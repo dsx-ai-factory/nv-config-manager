@@ -110,7 +110,7 @@ def client() -> TestClient:
 
 @pytest.fixture
 def forms(client: TestClient) -> dict[str, Any]:
-    """Return the form of every API-enabled workflow, keyed by class name."""
+    """Return every form-enabled API workflow's form, keyed by class name."""
     forms: dict[str, Any] = {}
     for workflow in sorted(WORKFLOW_FORM_CATALOG.forms, key=lambda item: item.__name__):
         name = workflow.__name__

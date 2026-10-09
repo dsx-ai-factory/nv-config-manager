@@ -32,7 +32,9 @@ version before the selected release candidate is promoted.
   validation without preventing Temporal workers, schedulers, MCP, or the CLI
   from starting. An invalid third-party plugin form keeps the workflow and its
   execution endpoint available: `/form` returns HTTP 503 with error code
-  `workflow_form_unavailable`, and the launcher shows the plugin diagnostic.
+  `workflow_form_unavailable`, and the launcher shows a generic unavailable
+  message. The sanitized validation detail remains available in API startup
+  logs, the form catalog, and the plugin-validation CLI.
 
 ### Changed
 
@@ -50,11 +52,15 @@ version before the selected release candidate is promoted.
   request identity: it replaces submitted `user` values with values derived
   from the authenticated request. Built-in backup inputs keep `user_domain`
   `FormExcluded`: the API preserves a non-empty caller value and derives the
-  legacy fallback only when the value is absent. The Port LLDP Info endpoint
-  also rejects incomplete or mixed lookup methods, and the SpX Overlay Creation
-  endpoint rejects a route-distinguisher range unless `rd_min < rd_max`. These
-  checks run after request-model validation and before a workflow starts; they
-  do not change the request schema or Temporal replay deserialization.
+  legacy fallback when the value is missing, null, or empty. The Port LLDP Info
+  endpoint also rejects incomplete or mixed lookup methods, and the SpX Overlay
+  Creation endpoint rejects a route-distinguisher range unless
+  `rd_min < rd_max`. These checks run after request-model validation and before
+  a workflow starts; they do not change the request schema or Temporal replay
+  deserialization.
+- Canonicalization failures from workflow HTTP endpoints now return HTTP 422
+  responses using the documented FastAPI `HTTPValidationError` envelope. The
+  `detail` value is a validation-error list rather than the previous string.
 
 ### Fixed
 

@@ -16,11 +16,6 @@
  */
 
 /**
- * Workflow form URLs and redirects from previously shipped per-workflow form URLs.
- * Plain ESM so `next.config.mjs` can import it at build time.
- */
-
-/**
  * Form-ID route that serves every browser-launchable workflow.
  * @param {string} formId Stable workflow form ID.
  * @returns {string}

@@ -137,7 +137,6 @@ const patchForRows = (
 const rowHasValue = (row: Readonly<Row>): boolean =>
   Object.values(row).some((value) => value.trim() !== "");
 
-/** Client-side messages for the active generic row mode. */
 export const validateVariantRowsValues = (
   config: VariantRowsFieldOptions,
   data: Readonly<FormData>
@@ -228,7 +227,6 @@ const RowInput = ({
     />
   );
 
-/** Mutually exclusive repeatable rows configured entirely by the Python declaration. */
 export const VariantRowsField = (props: FieldProps) => {
   const {
     name,

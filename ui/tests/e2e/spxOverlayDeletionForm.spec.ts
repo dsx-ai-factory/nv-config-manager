@@ -16,9 +16,7 @@
  */
 
 /**
- * The SpX Overlay Deletion form on its form ID route, rendered by the RJSF form
- * because the legacy `/workflows/spxoverlaydeletionworkflow/form` redirects
- * there. Its wording comes from the server's `ui_schema`.
+ * Form wording comes from the server's `ui_schema`.
  */
 import { expect, type Request } from "@playwright/test";
 import { SITES_LIST, FORBIDDEN_SITE_ID, SPX_OVERLAY_LIST } from "@/mocks/data";
@@ -371,7 +369,6 @@ test.describe("New SpX Overlay Deletion Workflow - Standard Tests", () => {
       hasText: "Forbidden: You do not have permission to run this workflow",
     });
 
-    // The generic toast title: per-workflow error titles are gone (plan section 17).
     await expect(errorTitle).toHaveText("Workflow Failed", {
       timeout: TEST_TIMEOUT,
     });

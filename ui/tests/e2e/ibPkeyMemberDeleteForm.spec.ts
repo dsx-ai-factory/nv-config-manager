@@ -15,9 +15,7 @@
  * limitations under the License.
  */
 /**
- * The IB PKey Member Delete generic form on its form ID route (the legacy route
- * redirects there). Its Python-declared row variants intentionally have no membership
- * column.
+ * Its Python-declared row variants intentionally have no membership column.
  */
 import { expect } from "@playwright/test";
 import { mockServerCatalogAndUser } from "./shared/apiMocks";

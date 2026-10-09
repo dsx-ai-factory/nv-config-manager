@@ -15,11 +15,6 @@
  * limitations under the License.
  */
 
-/**
- * The InfiniBand MLNX-OS Upgrade form on its form ID route (the legacy
- * `/workflows/infinibandmlnxosupgradeworkflow/form` redirects there). Its device source
- * loads MLNX-OS devices only.
- */
 import { runWorkflowFormTests } from "./shared/workflowFormTests";
 
 const isMlnx = (device: { platform: string }) => device.platform === "MLNX-OS";

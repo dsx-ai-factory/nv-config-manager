@@ -16,10 +16,6 @@
  */
 
 /**
- * The Site Cable Validation form on its form ID route, rendered by the RJSF form
- * because the legacy `/workflows/sitecablevalidationworkflow/form` redirects
- * there.
- *
  * The legacy page always sent `device_type_ids: []` and `raise_for_invalid: false`. The
  * RJSF form does not submit model inputs it does not project, and the server fills in
  * the same defaults (see `fixtures/form-parity/sitecablevalidationworkflow.json`), so
@@ -89,7 +85,6 @@ test.describe("Site Cable Validation Form", () => {
       "Device Status",
       "Tenant",
     ]);
-    // Like the legacy page: no help text (schema descriptions) under the fields.
     await expect(page.locator("form p")).toHaveCount(0);
     for (const placeholder of [
       "Select a Site...",
@@ -105,7 +100,6 @@ test.describe("Site Cable Validation Form", () => {
         name: `${STATUS_LIST.active}, ${STATUS_LIST.provisioned}. Open options`,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
-    // Same endpoints and query parameters as the legacy page's useEnvData.
     await expect
       .poll(() =>
         [
@@ -418,8 +412,6 @@ test.describe("Site Cable Validation Form", () => {
   });
 
   test("requires at least one Device Status", async ({ page }) => {
-    // Like the legacy page, a cleared Device Status blocks the submission: the form
-    // projection adds `minItems: 1` (the model itself accepts an empty list).
     const posts: string[] = [];
     page.on("request", (request) => {
       if (
@@ -449,7 +441,6 @@ test.describe("Site Cable Validation Form", () => {
     ).toBeVisible();
     expect(posts).toEqual([]);
 
-    // Live validation after the failed submit: one status clears the message.
     await page
       .getByRole("combobox", { name: "Select Device Status..." })
       .click();
@@ -483,7 +474,6 @@ test.describe("Site Cable Validation Form", () => {
     ).toBeVisible({ timeout: TEST_TIMEOUT });
 
     await page.getByRole("button", { name: "Submit" }).click();
-    // A list item's error shows on the list's picker, with the item number.
     await expect(
       page.getByText("Item 1: Value error, unknown role")
     ).toBeVisible();

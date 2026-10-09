@@ -23,19 +23,14 @@ from typing import Any, Literal
 from nv_config_manager_workflows.ui.errors import WorkflowFormContractError
 
 type ScalarValue = str | int | float | bool
-"""A JSON scalar other than ``null``: a static query-parameter value."""
 
 type OptionParamValue = ScalarValue | Sequence[ScalarValue]
-"""A static query-parameter value; a sequence becomes a repeated parameter."""
 
 type DeviceFilter = Literal["site", "tenant", "status"]
-"""A device filter the device core field can render."""
 
 type OptionResponse = Literal["options-v1"]
-"""A standard enriched option response envelope."""
 
 PLACEHOLDER_SEGMENT = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
-"""A whole ``{property}`` endpoint path segment."""
 
 _ENDPOINT_FORBIDDEN = frozenset("?#\\")
 
@@ -115,24 +110,20 @@ SITE_FILTER_SOURCE = OptionSource(
     type_key="location_type",
     params={"location_type": ["Site", "Module"]},
 )
-"""Locations available to the device field's Site filter."""
 
 TENANT_FILTER_SOURCE = OptionSource(
     "/v1/parameter/tenant", "name", "name", params={"managed_only": True}
 )
-"""Tenants available to the device field's Tenant filter."""
 
 STATUS_FILTER_SOURCE = OptionSource(
     "/v1/parameter/status", "name", "name", params={"content_type": "dcim.device"}
 )
-"""Statuses available to the device field's Status filter."""
 
 DEVICE_FILTER_SOURCES: Mapping[DeviceFilter, OptionSource] = {
     "site": SITE_FILTER_SOURCE,
     "tenant": TENANT_FILTER_SOURCE,
     "status": STATUS_FILTER_SOURCE,
 }
-"""Canonical option sources keyed by the semantic device filter they supply."""
 
 
 def wire_value(value: Any) -> Any:

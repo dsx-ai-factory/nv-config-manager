@@ -28,12 +28,10 @@ from nv_config_manager_workflows.ui.option_sources import (
 MANAGED_DEVICE_SOURCE = OptionSource(
     "/v1/parameter/device", "name", "id", params={"managed_only": True}
 )
-"""Managed network devices: labelled by name, valued by id."""
 
 MANAGED_ROLE_SOURCE = OptionSource(
     "/v1/parameter/role", "name", "name", params={"managed_only": True}
 )
-"""Roles assigned to managed devices, by name."""
 
 NAMESPACE_TAG_SOURCE = OptionSource(
     "/v1/parameter/namespace-tag",

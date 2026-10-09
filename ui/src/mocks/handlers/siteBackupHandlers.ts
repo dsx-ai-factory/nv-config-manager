@@ -32,7 +32,6 @@ export function validateSiteBackupPayload(
   if (typeof payload.site !== "string" || !payload.site.trim()) {
     return { error: "Missing required field: site" };
   }
-  // Like `SiteBackupInput`: roles, status, and backup_enabled_only have defaults.
   if (payload.roles !== undefined && !Array.isArray(payload.roles)) {
     return { error: "Invalid field: roles" };
   }

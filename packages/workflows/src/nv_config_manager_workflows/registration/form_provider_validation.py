@@ -63,7 +63,6 @@ def resolve_form_option_provider(
 
 
 def _load_reference(reference: str, where: str) -> object:
-    """Load an already syntax-checked ``module:attribute`` reference."""
     module_name, attribute_path = reference.split(":", maxsplit=1)
     try:
         value: object = import_module(module_name)
@@ -137,7 +136,6 @@ def _is_query_annotation(annotation: object, *, repeated: bool = False) -> bool:
 
 
 def _is_scalar_value(value: object) -> bool:
-    """Return whether a literal or enum value is URL-query safe."""
     return isinstance(value, (str, int, float, bool)) and not isinstance(value, bytes)
 
 

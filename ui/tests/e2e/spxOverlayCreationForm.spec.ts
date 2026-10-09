@@ -16,9 +16,6 @@
  */
 
 /**
- * The SpX Overlay Creation form on its form ID route (the legacy
- * `/workflows/spxoverlaycreationworkflow/form` redirects there).
- *
  * Differences from the legacy page, by design: the Site's location type is submitted
  * as `site_type`; a cleared RD bound is omitted (the server default applies) instead of
  * "Expected number, received nan"; RD bounds outside 0-65535 report Ajv's messages

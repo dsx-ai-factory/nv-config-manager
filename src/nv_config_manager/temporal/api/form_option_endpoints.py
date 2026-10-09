@@ -228,7 +228,6 @@ def create_form_option_endpoint(
 
 
 def _relative_provider_path(binding: FormOptionProviderBinding) -> str:
-    """Return the path relative to the API's ``/v1/workflow`` router."""
     if not binding.endpoint.startswith(f"{_PUBLIC_WORKFLOW_PREFIX}/"):
         raise WorkflowFormContractError(
             f"form option provider endpoint {binding.endpoint!r} is outside "

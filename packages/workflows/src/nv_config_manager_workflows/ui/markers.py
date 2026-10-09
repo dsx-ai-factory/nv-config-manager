@@ -24,7 +24,6 @@ from dataclasses import dataclass
 from typing import Any
 
 UNSET: Any = object()
-"""Sentinel for a :class:`FormSchema` keyword that is not set."""
 
 
 @dataclass(frozen=True)
@@ -35,9 +34,9 @@ class ServerOwned:
     from the authenticated request. The form never shows or sends it. Built-in
     backup inputs mark ``user_domain`` as :class:`FormExcluded` instead: the
     HTTP API preserves a non-empty caller value and derives a legacy fallback
-    only when the value is absent. Other trusted callers, such as schedulers
-    and parent workflows, may still set these fields when constructing Temporal
-    input directly.
+    when the value is missing, null, or empty. Other trusted callers, such as
+    schedulers and parent workflows, may still set these fields when constructing
+    Temporal input directly.
 
     The field must have a Pydantic default because the request body is validated
     before the HTTP endpoint replaces it.

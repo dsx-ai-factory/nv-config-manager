@@ -20,7 +20,8 @@
  *
  * - FastAPI body validation: `detail: [{loc, msg, ...}]`. The leading `body` segment is
  *   removed and each message is placed on that field; extra entry keys are ignored.
- * - `canonicalize_input` failures: `detail: "<message>"`, a form-level error.
+ * - `canonicalize_input` failures use the same list shape with `loc: ["body"]`, so
+ *   they become form-level errors. String details remain supported for older APIs.
  *
  * Unknown or excluded locations, and hidden standard fields, become form-level
  * (root `__errors`). A location's hidden type sibling reports on the location field.
@@ -63,7 +64,7 @@ const addError = (root: ErrorNode, path: readonly (string | number)[], message: 
   (node.__errors ??= []).push(message);
 };
 
-/** `null` when `detail` has neither 422 shape; the caller then shows a toast. */
+/** `null` when `detail` has no supported 422 shape; the caller then shows a toast. */
 export const mapServerErrors = (
   schema: unknown,
   uiSchema: unknown,

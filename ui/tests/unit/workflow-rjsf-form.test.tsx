@@ -90,10 +90,6 @@ const context = () => lastProps().formContext as ShellFormContext;
 const formData = () => lastProps().formData as Record<string, unknown>;
 const pending = () => [...context().pending].sort();
 
-// ---------------------------------------------------------------------------
-// Fake workflow API
-// ---------------------------------------------------------------------------
-
 const DEVICES: Record<string, Array<{ id: string; name: string }>> = {
   "": [{ id: "d9", name: "unfiltered-9" }],
   PDX01: [
@@ -259,14 +255,11 @@ const device = (
   },
 });
 
-// ---------------------------------------------------------------------------
-
 describe("initial state and RJSF agreement", () => {
   it("renders with schema defaults and passes the shared default-state behavior", async () => {
     await renderForm(WORKFLOW_FORM_FIXTURES.DeployWorkflow);
 
     expect(rendered.props[0].formData).toEqual({ commit_confirm: true });
-    // RJSF's mount-time defaults add nothing the shell did not already have.
     expect(formData()).toEqual({ commit_confirm: true });
     for (const props of rendered.props) {
       expect(props.experimental_defaultFormStateBehavior).toBe(
@@ -846,7 +839,7 @@ describe("submission errors", () => {
     expect(document.getElementById(`${devicePicker.id}__error`)).toBeNull();
   });
 
-  it("shows a string 422 detail as a form-level error", async () => {
+  it("supports a legacy string 422 detail as a form-level error", async () => {
     override = (url, init) =>
       init?.method === "post"
         ? { status: 422, body: { detail: "Cannot canonicalize input" } }
@@ -1022,19 +1015,24 @@ describe("form-only minItems on an optional list", () => {
 });
 
 describe("launcher load errors", () => {
-  it("shows an unavailable plugin form's diagnostic with Return to Workflows and no Try again", () => {
+  it("shows an unavailable plugin form's generic diagnostic with Return to Workflows and no Try again", () => {
     render(
       <FormUnavailable
         title="New Acme Workflow"
         error={{
           kind: "unavailable",
           message: "The form failed validation.",
-          diagnostic: "ui_schema.x: bad",
+          diagnostic:
+            "This workflow form is unavailable because its plugin failed form validation.",
         }}
         onRetry={() => {}}
       />
     );
-    expect(screen.getByText("ui_schema.x: bad")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "This workflow form is unavailable because its plugin failed form validation."
+      )
+    ).toBeTruthy();
     expect(screen.getByText("Return to Workflows")).toBeTruthy();
     expect(screen.queryByText("Try again")).toBeNull();
   });

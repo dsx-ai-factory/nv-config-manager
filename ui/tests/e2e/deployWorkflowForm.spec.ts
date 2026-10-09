@@ -16,16 +16,13 @@
  */
 
 /**
- * The Configuration Deploy form on its form ID route, rendered by the RJSF form
- * because the legacy `/workflows/deployworkflow/form` redirects there. Ported
- * from the legacy page's spec and its shared `runWorkflowFormTests` suite. Its wording
- * comes from the server's
+ * Form wording comes from the server's
  * `ui_schema` (`ui:title`, `ui:help`, `ui:globalOptions.hideSchemaDescriptions`).
  *
  * Differences from the legacy page, by design: Site is a device filter rather than a
  * model property, so an empty submission reports only "Device is required" (the device
  * picker says "Select a Site first"); a failed submission shows the generic
- * "Workflow Failed" toast with the server's message (plan section 17); required labels
+ * "Workflow Failed" toast with the server's message; required labels
  * carry a visible " *".
  */
 import { expect, type Page } from "@playwright/test";
@@ -91,9 +88,7 @@ test.describe(`${FORM_TITLE} Form`, () => {
     await expect(
       page.getByRole("checkbox", { name: "Use commit-confirm" })
     ).toBeChecked();
-    // Like the legacy page: only the commit-confirm help, no schema descriptions.
     await expect(page.locator("form p")).toHaveText([COMMIT_CONFIRM_HELP]);
-    // Until a site is chosen the device picker has no options (now also disabled).
     await expect(picker(page, SITE_FIRST)).toBeDisabled();
   });
 
@@ -282,7 +277,6 @@ test.describe(`${FORM_TITLE} - Error Scenarios`, () => {
     await expect(errorTitle).toHaveText("Workflow Failed", {
       timeout: TEST_TIMEOUT,
     });
-    // The generic toast: the server's message, without the legacy page's prefix.
     await expect(errorMessage).toHaveText(
       "Forbidden: You do not have permission to run this workflow",
       { timeout: TEST_TIMEOUT }
@@ -323,12 +317,10 @@ test.describe(`${FORM_TITLE} - Error Scenarios`, () => {
         .getByRole("alert")
         .filter({ hasText: "The workflow input is invalid" })
     ).toContainText("user: Field required");
-    // No toast for a mapped validation error.
     await expect(
       page.locator("div.text-sm.font-semibold", { hasText: "Workflow Failed" })
     ).toHaveCount(0);
 
-    // Changing the device clears its server error.
     await selected(page, first.name).click();
     await page
       .getByRole("dialog")
@@ -407,7 +399,6 @@ test.describe("Deploy Config Form - Additional Tests", () => {
     const request = await requestPromise;
     const requestData = JSON.parse((await request.postData()) || "{}");
 
-    // The manually changed values, not the URL parameter values.
     expect(requestData).toEqual({
       device_id: DEVICES_LIST[newSiteName][0].id,
       commit_confirm: true,

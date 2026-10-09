@@ -16,14 +16,12 @@
  */
 
 /**
- * The IB PKey Creation form, rendered by the RJSF form on its form ID route because
- * the legacy `/workflows/ibpkeycreationworkflow/form` redirects there. Its wording
- * comes from the server's `ui_schema` (titles, placeholders, `ui:help`, submit text,
- * hidden schema descriptions).
+ * Form wording comes from the server's `ui_schema` (titles, placeholders, `ui:help`,
+ * submit text, hidden schema descriptions).
  *
- * The legacy page's value-dependent PKey hint is replaced by static `ui:help` (plan
- * section 17): the help never changes with the value, and PKey format errors come
- * from the server (its canonicalization 422 shows inline as a form-level error).
+ * The legacy page's value-dependent PKey hint is replaced by static `ui:help`: the
+ * help never changes with the value, and PKey format errors come from the server (its
+ * canonicalization 422 shows inline as a form-level error).
  */
 import { expect } from "@playwright/test";
 import { mockServerCatalogAndUser } from "./shared/apiMocks";
@@ -62,7 +60,6 @@ test.describe("IB PKey Creation Form", () => {
       "placeholder",
       "0x8001 (leave blank to auto-assign)",
     );
-    // No schema descriptions, only the static PKey help.
     await expect(page.locator("form p")).toHaveText([PKEY_HELP]);
     await expect(page.getByRole("button", { name: SUBMIT })).toBeEnabled();
   });
@@ -76,13 +73,11 @@ test.describe("IB PKey Creation Form", () => {
     await expect(page.getByText("UFM Host is required", { exact: true })).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
-    // Whitespace only is still missing.
     await page.getByLabel("UFM Host").fill("   ");
     await page.getByRole("button", { name: SUBMIT }).click();
     await expect(page.getByText("UFM Host is required", { exact: true })).toBeVisible();
     expect(posts).toEqual([]);
 
-    // Validation is live after the failed submit.
     await page.getByLabel("UFM Host").fill("ufm-1.lab");
     await expect(page.getByText("UFM Host is required", { exact: true })).toHaveCount(0);
   });
@@ -134,17 +129,20 @@ test.describe("IB PKey Creation Form", () => {
   test("shows the static PKey help for any value and the server's canonicalization error inline", async ({
     page,
   }) => {
-    // `canonicalize_input` failures answer 422 with a string detail.
     const DETAIL = "Invalid PKey 'not-a-pkey': expected 0x followed by 1-4 hex digits";
     await page.route(`**${ENDPOINT}`, (route) =>
-      route.fulfill({ status: 422, json: { detail: DETAIL } }),
+      route.fulfill({
+        status: 422,
+        json: {
+          detail: [{ type: "value_error", loc: ["body"], msg: DETAIL }],
+        },
+      }),
     );
 
     await expect(page.getByText(PKEY_HELP)).toBeVisible({ timeout: TEST_TIMEOUT });
     await page.getByLabel("UFM Host").fill("ufm-1.lab");
     await page.getByLabel("PKey (optional)").fill("0x8001");
     await expect(page.getByText(PKEY_HELP)).toBeVisible();
-    // No client-side pattern: the server decides.
     await page.getByLabel("PKey (optional)").fill("not-a-pkey");
     await expect(page.getByText(PKEY_HELP)).toBeVisible();
 
@@ -160,7 +158,6 @@ test.describe("IB PKey Creation Form", () => {
     ).toHaveCount(0);
     await expect(page.getByRole("button", { name: SUBMIT })).toBeEnabled();
 
-    // Correcting the input clears the form-level server error.
     await page.getByLabel("PKey (optional)").fill("0x8001");
     await expect(page.getByText(DETAIL)).toHaveCount(0);
   });

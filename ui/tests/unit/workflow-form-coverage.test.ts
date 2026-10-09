@@ -14,11 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/**
- * Coverage policy (plan section 20): every workflow with a `/form` has captured
- * parity scenarios. `formParity.spec.ts` checks these fixtures against its live
- * scenario definitions and executes every definition on the form ID route.
- */
 import { readFileSync, readdirSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";

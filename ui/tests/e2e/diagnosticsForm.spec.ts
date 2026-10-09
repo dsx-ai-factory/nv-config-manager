@@ -16,10 +16,7 @@
  */
 
 /**
- * The Device Diagnostics generic form on its form ID route (the legacy
- * `/workflows/diagnosticsworkflow/form` redirects there). Devices are picked with an
- * optional Site filter; the workflow-scoped option provider returns the selected
- * platforms' command catalog.
+ * The workflow-scoped option provider returns the selected platforms' command catalog.
  */
 import { expect, type Page } from "@playwright/test";
 

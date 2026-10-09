@@ -280,7 +280,6 @@ export const getWorkflowTypeFilterOptions = (
 export const getWorkflowColumns = (
   workflowCatalog: readonly WorkflowCatalogEntry[]
 ): ColumnDef<WorkflowColumns>[] => {
-  // Index catalog metadata once for workflow display names.
   const workflowMetadataByName = new Map(
     workflowCatalog.map((entry) => [entry.name, entry])
   );

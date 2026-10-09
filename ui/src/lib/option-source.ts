@@ -90,10 +90,6 @@ export const normalizeDependencyValue = (value: unknown): string[] => {
   return [];
 };
 
-// ---------------------------------------------------------------------------
-// Endpoints
-// ---------------------------------------------------------------------------
-
 const PLACEHOLDER = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 const PLACEHOLDER_SEGMENT = /^\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 const UNSAFE_ENDPOINT_CHARACTERS = /[\s\\?#\u0000-\u001f\u007f]/;
@@ -154,10 +150,6 @@ export const resolveOptionSourceEndpoint = (
   }
   return resolved;
 };
-
-// ---------------------------------------------------------------------------
-// Dependency resolution
-// ---------------------------------------------------------------------------
 
 interface ResolvedDependencies {
   /** Placeholder name → normalized field values (`[]` when empty). */
@@ -314,10 +306,6 @@ export const buildOptionSourceRequest = (
   return { kind: "ready", url: url.toString() };
 };
 
-// ---------------------------------------------------------------------------
-// Rows
-// ---------------------------------------------------------------------------
-
 export interface OptionRowsMapping {
   options: OptionSourceItem[];
   meta?: OptionSourceMeta;
@@ -441,10 +429,6 @@ export const mapOptionEnvelope = (response: unknown): OptionRowsMapping | null =
   }
   return { options, meta, skippedRows, duplicateRows };
 };
-
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
 
 interface OptionSourceStateBase {
   options: OptionSourceItem[];

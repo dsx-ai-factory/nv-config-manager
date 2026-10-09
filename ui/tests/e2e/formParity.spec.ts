@@ -15,14 +15,6 @@
  * limitations under the License.
  */
 
-/**
- * Scenarios on `/workflows/new/<form_id>`, with POST bodies compared to the retired
- * form pages' goldens in `fixtures/form-parity/` (see `shared/formParity.ts`). The
- * generic route gets the real `/metadata` and `/form` snapshots and typed locations.
- *
- * Capture generic goldens with
- * `UPDATE_PARITY=1 npx playwright test formParity.spec.ts`.
- */
 import { expect, type Page } from "@playwright/test";
 
 import {
@@ -440,7 +432,6 @@ const PARITY_WORKFLOWS: ParityWorkflow[] = [
     ],
   },
   {
-    // A generic variantRows form: both routes render the same Python declaration.
     workflow: "IBPKeyMemberUpdateWorkflow",
     inputModel: "IBPKeyMemberUpdateInput",
     endpoint: "/v1/workflow/ngc/ib_pkey_member_update",

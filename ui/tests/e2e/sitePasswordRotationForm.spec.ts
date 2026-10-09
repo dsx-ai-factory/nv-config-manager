@@ -15,10 +15,8 @@
  * limitations under the License.
  */
 /**
- * The Site Password Rotation generic form on its form ID route (the legacy
- * `/workflows/sitepasswordrotationworkflow/form` redirects there). Its secret picker
- * is populated by a workflow-scoped option provider from the selected location and
- * filters.
+ * Its secret picker is populated by a workflow-scoped option provider from the selected
+ * location and filters.
  */
 import { expect } from "@playwright/test";
 import { ROLES_LIST, SITES_LIST, STATUS_LIST, TENANT_LIST } from "@/mocks/data";

@@ -47,16 +47,12 @@ from nv_config_manager_workflows.ui.option_sources import (
 )
 
 type FormOptionSourceCompiler = Callable[[FormOptionSource], OptionSource]
-"""Resolve one symbolic provider source in its owning workflow's context."""
 
 UI_SCHEMA_VERSION = 1
-"""Version of the form contract served as ``ui_schema_version``."""
 
 RJSF_UI_SCHEMA_ATTRIBUTE = "rjsf_ui_schema"
-"""Input-model class variable holding the form's RJSF ``uiSchema``."""
 
 IMPLICIT_SCOPE_PREFIX = "implicit:"
-"""Prefix of the private filter scope every unscoped device field receives."""
 
 QUERY_ALIASES: Mapping[tuple[str, str], tuple[str, ...]] = {
     (
@@ -109,7 +105,6 @@ QUERY_SEPARATORS: Mapping[tuple[str, str], str] = {
 
 
 def _load_json(resource: str) -> dict[str, Any]:
-    """Return a JSON document packaged beside this module."""
     data = pkgutil.get_data(__package__ or __name__, resource)
     if data is None:  # pragma: no cover - the resource ships with the package
         raise RuntimeError(f"Packaged form contract resource {resource!r} is missing")
@@ -143,22 +138,16 @@ FIELD_CAPABILITIES = {
     "location": "core-field.location.v1",
     "variantRows": "core-field.variant-rows.v1",
 }
-"""The capability each core field requires."""
 
 ENRICHED_API_OPTIONS_CAPABILITY = "core-field.api-options.enriched.v1"
-"""Capability required by the standard enriched option response and presentation."""
 
 HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY = "theme.hide-schema-descriptions.v1"
-"""Capability required by ``ui:globalOptions.hideSchemaDescriptions``."""
 
 EXCLUSIVE_GROUPS_CAPABILITY = "interaction.exclusive-groups.v1"
-"""Capability required by ``ui:globalOptions.exclusiveGroups``."""
 
 QUERY_SEPARATOR_CAPABILITY = "prefill.query-separator.v1"
-"""Capability required by a server-owned ``querySeparator`` compatibility option."""
 
 FIELD_COMPARISON_CAPABILITY = "validation.field-comparison.v1"
-"""Capability required by ``ui:globalOptions.fieldComparisons``."""
 
 _TEXT_KEYS = ("ui:title", "ui:help", "ui:description", "ui:placeholder")
 
@@ -313,7 +302,6 @@ class _FormChecker:
         self.composite_owners: dict[str, str] = {}
 
     def fail(self, message: str) -> WorkflowFormContractError:
-        """Return an error naming the model."""
         return WorkflowFormContractError(f"{self.name}.{RJSF_UI_SCHEMA_ATTRIBUTE}: {message}")
 
     def check(self) -> None:
@@ -361,7 +349,6 @@ class _FormChecker:
         return name
 
     def check_root(self, key: str, value: Any) -> None:
-        """Check a root ``ui:*`` key."""
         root_keys = self.vocabulary.root_keys
         if key not in root_keys:
             raise self.fail(f"unsupported root key {key!r}; supported: {sorted(root_keys)}")
@@ -911,7 +898,6 @@ class _FormChecker:
         return deps
 
     def is_string_or_strings(self, prop: dict[str, Any]) -> bool:
-        """Return whether a property is a string or an array of strings."""
         resolved = self.resolve_schema(prop)
         kind = json_type(resolved, self.definitions)
         if kind == "array":

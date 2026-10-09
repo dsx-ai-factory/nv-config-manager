@@ -16,10 +16,8 @@
  */
 
 /**
- * The Device Password Rotation form on its form ID route (the legacy
- * `/workflows/devicepasswordrotationworkflow/form` redirects there): a device with a
- * Site filter, and the device's password users (`/v1/parameter/device/{device_id}/
- * password_users`), cleared when the device changes.
+ * The device's password users (`/v1/parameter/device/{device_id}/password_users`) are
+ * cleared when the device changes.
  *
  * Differences from the legacy page, by design: Submit is enabled before the form is
  * complete and a submission reports the missing inputs ("<label> is required"); links

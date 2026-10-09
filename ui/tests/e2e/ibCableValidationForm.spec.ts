@@ -16,10 +16,6 @@
  */
 
 /**
- * The InfiniBand Cable Validation form on its form ID route (the legacy
- * `/workflows/infinibandcablevalidationworkflow/form` redirects there): a UFM device
- * and a list of MLNX-OS switches sharing one Site filter (the "fabric-devices" scope).
- *
  * Differences from the legacy page, by design: Submit is enabled before the form is
  * complete and reports "<label> is required"; the UFM device may be linked with
  * `?ufm_device_id=` besides the legacy `?device=`; a failed submission shows the
