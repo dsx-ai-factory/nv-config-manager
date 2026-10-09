@@ -12,13 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Build and validate the v1 ``/form`` envelope of a workflow input model.
+"""Build and perform model-aware validation of a v1 workflow form.
 
 An input model declares its form as ``rjsf_ui_schema: ClassVar[Mapping[str,
 object]]``, a supported subset of an RJSF ``uiSchema``. :func:`build_form`
-checks that declaration against the model and the v1 wire contract
-(``workflow-form-v1.schema.json``), fills in server-owned options, derives the
-capabilities the form requires, and returns the envelope the endpoint serves.
+checks semantic relationships against the model, fills in server-owned options,
+and derives the capabilities the form requires. The form catalog validates the
+completed envelope against ``workflow-form-v1.schema.json`` before serving it.
 """
 
 import copy
@@ -222,10 +222,10 @@ def build_form(
     *,
     compile_option_source: FormOptionSourceCompiler | None = None,
 ) -> dict[str, Any]:
-    """Return the validated v1 ``/form`` envelope for a workflow input model.
+    """Return a model-aware checked v1 form envelope for a workflow input model.
 
     Raises:
-        WorkflowFormContractError: The declaration breaks the v1 form contract.
+        WorkflowFormContractError: The declaration has an invalid model relationship.
     """
     if model is None:
         schema: dict[str, Any] = {}

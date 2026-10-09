@@ -72,9 +72,9 @@ _FORM_KEYS = ["schema", "ui_schema", "ui_schema_version", "requires"]
 
 
 class _BrokenFormInput(BaseModel):
-    """A third-party input whose form names a widget the contract does not know."""
+    """A plugin input accepted by semantic checks but rejected by the wire schema."""
 
-    rjsf_ui_schema: ClassVar[dict[str, Any]] = {"target": {"ui:widget": "radio"}}
+    rjsf_ui_schema: ClassVar[dict[str, Any]] = {"target": {"ui:widget": None}}
 
     target: str
 
@@ -302,7 +302,7 @@ def test_an_invalid_third_party_form_is_unavailable(
         "workflow": "_ThirdPartyWorkflow",
     }
     assert detail["message"] == workflow_v1._WORKFLOW_FORM_UNAVAILABLE_MESSAGE
-    assert "ui:widget 'radio' is not one of" not in rsp.text
+    assert "ui_schema.target.ui:widget" not in rsp.text
 
 
 def test_metadata_marks_a_form_without_a_valid_form_id_unavailable(
