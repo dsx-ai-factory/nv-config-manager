@@ -2706,6 +2706,7 @@ version = "1.0.0"
 source = { editable = "packages/workflows" }
 dependencies = [
     { name = "aiohttp" },
+    { name = "jsonschema" },
     { name = "junos-eznc" },
     { name = "nats-py" },
     { name = "netaddr" },
@@ -2731,7 +2732,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "aioresponses" },
-    { name = "jsonschema" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "responses" },
@@ -2741,6 +2741,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.1" },
+    { name = "jsonschema", specifier = ">=4.23.0" },
     { name = "junos-eznc", specifier = ">=2.8.2" },
     { name = "nats-py", specifier = ">=2.9.0" },
     { name = "netaddr", specifier = ">=1.3.0" },
@@ -2765,7 +2766,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "aioresponses", specifier = ">=0.7.9" },
-    { name = "jsonschema", specifier = ">=4.23.0" },
     { name = "pytest", specifier = ">=8.3.3" },
     { name = "pytest-asyncio", specifier = ">=0.23.7" },
     { name = "responses", specifier = ">=0.25.3" },

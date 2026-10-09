@@ -71,6 +71,14 @@ class InvalidFormInput(BaseModel):
     count: Annotated[int, FormSchema(default="many")] = 1
 
 
+class WireInvalidFormInput(BaseModel):
+    """Passes semantic checks but violates the canonical envelope schema."""
+
+    rjsf_ui_schema: ClassVar[dict[str, Any]] = {"device": {"ui:widget": None}}
+
+    device: str
+
+
 class OpaqueValue:
     """A valid Pydantic value with no JSON Schema representation."""
 
@@ -671,6 +679,26 @@ class TestForms:
         assert "FormSchema default 'many' is not valid for the field" in diagnostic.message
         assert "\n" not in diagnostic.message
 
+    def test_a_wire_invalid_third_party_form_is_isolated_and_fails_offline_validation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(BetaWorkflow, "workflow_input_class", WireInvalidFormInput)
+        plugins = installed(plugin("beta-plugin", workflows=(BetaWorkflow,)))
+        registry = WorkflowRegistry.build(plugins)
+
+        catalog = WorkflowFormCatalog.build(registry)
+
+        assert BetaWorkflow in registry.api_workflows
+        assert BetaWorkflow not in catalog.forms
+        assert "form envelope $.ui_schema.device.ui:widget" in (
+            catalog.diagnostics[BetaWorkflow].message
+        )
+        with pytest.raises(
+            WorkflowFormContractError,
+            match=r"workflow plugin 'beta-plugin' has unavailable forms:.*ui_schema.device.ui:widget",
+        ):
+            validate_plugin_forms("beta-plugin", plugins=plugins)
+
     @pytest.mark.parametrize(
         "ui_schema", [{"device": {"ui:widget": ["hidden"]}}, {"ui:order": [["device"]]}]
     )
@@ -749,6 +777,19 @@ class TestForms:
         )
 
         with pytest.raises(WorkflowFormContractError, match="FormSchema default"):
+            WorkflowFormCatalog.build(registry)
+
+    def test_a_wire_invalid_builtin_form_fails_the_form_catalog_build(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(BetaWorkflow, "workflow_input_class", WireInvalidFormInput)
+        registry = WorkflowRegistry.build(
+            installed(plugin(BUILTIN_PLUGIN_NAME, workflows=(BetaWorkflow,)))
+        )
+
+        with pytest.raises(
+            WorkflowFormContractError, match=r"form envelope \$.ui_schema.device.ui:widget"
+        ):
             WorkflowFormCatalog.build(registry)
 
     def test_a_builtin_pydantic_schema_error_fails_the_form_catalog_build(
