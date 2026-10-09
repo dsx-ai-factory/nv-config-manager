@@ -17,7 +17,11 @@
  */
 
 import * as React from "react";
-import { getUiOptions, type FieldProps } from "@rjsf/utils";
+import {
+  ariaDescribedByIds,
+  getUiOptions,
+  type FieldProps,
+} from "@rjsf/utils";
 import { Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -33,6 +37,7 @@ import type {
   VariantRowsFieldOptions,
   VariantRowsMode,
 } from "../ui-schema";
+import { fieldLabel } from "./shared";
 
 type Row = Record<string, string>;
 
@@ -138,13 +143,15 @@ export const validateVariantRowsValues = (
   data: Readonly<FormData>
 ): string[] => {
   const mode = activeMode(config, data);
-  const rows = rowsFromData(mode, data, 0).filter(rowHasValue);
+  const rows = rowsFromData(mode, data, 0)
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => rowHasValue(row));
   const messages: string[] = [];
   const minimumRows = config.minimumRows ?? 1;
   if (rows.length < minimumRows) {
     messages.push(`At least ${minimumRows} row${minimumRows === 1 ? " is" : "s are"} required.`);
   }
-  rows.forEach((row, index) => {
+  rows.forEach(({ row, index }) => {
     mode.columns.forEach((column) => {
       const value = row[columnId(column)]?.trim() ?? "";
       if (column.required && value === "") {
@@ -180,17 +187,25 @@ const RowInput = ({
   value,
   rowNumber,
   disabled,
+  invalid,
+  describedBy,
   onChange,
 }: {
   column: VariantRowsColumn;
   value: string;
   rowNumber: number;
   disabled: boolean;
+  invalid: boolean;
+  describedBy: string;
   onChange(value: string): void;
 }) =>
   column.kind === "select" ? (
     <Select value={value || undefined} disabled={disabled} onValueChange={onChange}>
-      <SelectTrigger aria-label={`${column.label} for row ${rowNumber}`}>
+      <SelectTrigger
+        aria-label={`${column.label} for row ${rowNumber}`}
+        aria-describedby={describedBy}
+        aria-invalid={invalid || undefined}
+      >
         <SelectValue placeholder={column.placeholder ?? `Select ${column.label}...`} />
       </SelectTrigger>
       <SelectContent>
@@ -206,21 +221,27 @@ const RowInput = ({
       value={value}
       placeholder={column.placeholder}
       aria-label={`${column.label} ${rowNumber}`}
+      aria-describedby={describedBy}
+      aria-invalid={invalid || undefined}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
     />
   );
 
 /** Mutually exclusive repeatable rows configured entirely by the Python declaration. */
-export const VariantRowsField = ({
-  name,
-  uiSchema,
-  registry,
-  disabled,
-  readonly,
-}: FieldProps) => {
+export const VariantRowsField = (props: FieldProps) => {
+  const {
+    name,
+    uiSchema,
+    registry,
+    disabled,
+    readonly,
+    fieldPathId,
+    rawErrors,
+  } = props;
   const context = contextOf(registry.formContext);
   const config = getUiOptions(uiSchema) as unknown as VariantRowsFieldOptions;
+  const label = fieldLabel(props);
   const owner: Owner = `field:${name}`;
   const minimumRows = config.minimumRows ?? 1;
   const [modeId, setModeId] = React.useState(
@@ -235,6 +256,8 @@ export const VariantRowsField = ({
     )
   );
   const isDisabled = Boolean(disabled || readonly);
+  const invalid = Boolean(rawErrors?.length);
+  const id = fieldPathId.$id;
   const initialized = React.useRef(false);
   const mode = config.modes.find((candidate) => candidate.id === modeId) ?? config.modes[0];
   const rows = rowsByMode[mode.id] ?? rowsFromData(mode, context.formData, minimumRows);
@@ -266,7 +289,13 @@ export const VariantRowsField = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div
+      id={id}
+      role="group"
+      aria-label={label}
+      aria-describedby={ariaDescribedByIds(id)}
+      className="space-y-6"
+    >
       <div className="space-y-3">
         <Label>Input method</Label>
         <RadioGroup
@@ -295,6 +324,8 @@ export const VariantRowsField = ({
                   value={row[columnId(column)] ?? ""}
                   rowNumber={index + 1}
                   disabled={isDisabled}
+                  invalid={invalid}
+                  describedBy={ariaDescribedByIds(id)}
                   onChange={(value) =>
                     changeRows(
                       rows.map((item, rowIndex) =>

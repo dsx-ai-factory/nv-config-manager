@@ -31,7 +31,12 @@
  *   settles the owner.
  */
 import * as React from "react";
-import { getUiOptions, type FieldProps } from "@rjsf/utils";
+import {
+  ariaDescribedByIds,
+  descriptionId,
+  getUiOptions,
+  type FieldProps,
+} from "@rjsf/utils";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -91,6 +96,7 @@ interface GroupedOptionsProps {
   loaded: OptionSourceState;
   selected: string[];
   disabled: boolean;
+  invalid: boolean;
   selectAll: boolean;
   showDescriptions: boolean;
   metaText?: { key: "matching_device_count"; label: string };
@@ -105,6 +111,7 @@ const GroupedOptions = ({
   loaded,
   selected,
   disabled,
+  invalid,
   selectAll,
   showDescriptions,
   metaText,
@@ -121,11 +128,19 @@ const GroupedOptions = ({
   const count = metaText ? loaded.meta?.[metaText.key] : undefined;
   const waiting = loaded.missingDependencies.length > 0;
   const busy = isLoading(loaded);
+  const labelId = `${id}__label`;
+  const describedBy = ariaDescribedByIds(id);
 
   return (
-    <div className="space-y-3" id={id}>
+    <div
+      className="space-y-3"
+      id={id}
+      role="group"
+      aria-labelledby={labelId}
+      aria-describedby={describedBy}
+    >
       <div className="flex items-center justify-between gap-4">
-        <Label>
+        <Label id={labelId}>
           {label}
           {required ? <span aria-hidden="true"> *</span> : null}
         </Label>
@@ -185,6 +200,8 @@ const GroupedOptions = ({
                     id={optionId}
                     checked={selected.includes(key)}
                     disabled={disabled}
+                    aria-describedby={describedBy}
+                    aria-invalid={invalid || undefined}
                     onCheckedChange={(checked) =>
                       onChange(
                         checked === true
@@ -209,7 +226,12 @@ const GroupedOptions = ({
       )}
 
       {description ? (
-        <p className="text-sm text-muted-foreground">{description}</p>
+        <p
+          id={descriptionId(id)}
+          className="text-sm text-muted-foreground"
+        >
+          {description}
+        </p>
       ) : null}
       {typeof count === "number" ? (
         <p className="text-sm text-muted-foreground">
@@ -238,8 +260,16 @@ export const SourceOptionsField = ({
   metaText,
   prune = false,
 }: SourceFieldProps) => {
-  const { name, schema, disabled, readonly, registry, required, fieldPathId } =
-    field;
+  const {
+    name,
+    schema,
+    disabled,
+    readonly,
+    registry,
+    required,
+    rawErrors,
+    fieldPathId,
+  } = field;
   const context = contextOf(registry.formContext);
   const { formData, pending, layout, setFields, settle, query } = context;
   const owner: Owner = `field:${name}`;
@@ -432,6 +462,7 @@ export const SourceOptionsField = ({
       loaded={loaded}
       selected={Array.isArray(selected) ? selected : selected ? [selected] : []}
       disabled={pickerDisabled}
+      invalid={Boolean(rawErrors?.length)}
       selectAll={selectAll}
       showDescriptions={showDescriptions}
       metaText={metaText}
@@ -465,6 +496,7 @@ export const SourceOptionsField = ({
         multiple={multiple}
         disabled={pickerDisabled}
         busy={loaded.status === "loading" || ownPending}
+        invalid={Boolean(rawErrors?.length)}
         error={
           loaded.status === "error"
             ? `Could not load ${label} options.`

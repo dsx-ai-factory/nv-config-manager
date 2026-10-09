@@ -258,6 +258,7 @@ export const DeviceField = (props: FieldProps) => {
     readonly,
     registry,
     required,
+    rawErrors,
     fieldPathId,
   } = props;
   const context = contextOf(registry.formContext);
@@ -405,6 +406,7 @@ export const DeviceField = (props: FieldProps) => {
           isLoading(devices)
         }
         busy={devices.status === "loading" || ownPending}
+        invalid={Boolean(rawErrors?.length)}
         error={
           devices.status === "error"
             ? `Could not load ${label} options.`

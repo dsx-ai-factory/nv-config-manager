@@ -31,10 +31,13 @@ UNSET: Any = object()
 class ServerOwned:
     """The HTTP API replaces this identity field with a server-derived value.
 
-    Workflow-form v1 supports fields named ``user`` and ``user_domain``, which
-    are derived from the authenticated request. The form never shows or sends
-    them. Other trusted callers, such as schedulers and parent workflows, may
-    still set them when constructing Temporal input directly.
+    Workflow-form v1 supports only the field named ``user``, which is derived
+    from the authenticated request. The form never shows or sends it. Built-in
+    backup inputs mark ``user_domain`` as :class:`FormExcluded` instead: the
+    HTTP API preserves a non-empty caller value and derives a legacy fallback
+    only when the value is absent. Other trusted callers, such as schedulers
+    and parent workflows, may still set these fields when constructing Temporal
+    input directly.
 
     The field must have a Pydantic default because the request body is validated
     before the HTTP endpoint replaces it.
