@@ -151,6 +151,64 @@ def test_api_options_can_disable_the_picker_when_no_matches_are_returned() -> No
     Draft202012Validator(wire_schema()).validate(envelope)
 
 
+def test_api_options_accepts_a_referenced_array_of_strings() -> None:
+    type StringList = list[str]
+
+    class ReferencedInput(BaseModel):
+        rjsf_ui_schema: ClassVar[Mapping[str, object]] = {"values": api_options(TENANTS)}
+
+        values: StringList
+
+    envelope = build_form(ReferencedInput)
+
+    assert envelope["schema"]["properties"]["values"]["$ref"] == "#/$defs/StringList"
+
+
+def test_exclusive_groups_resolve_device_filter_owners_and_require_capability() -> None:
+    envelope = _build(
+        {
+            "ui:globalOptions": {
+                "exclusiveGroups": [
+                    {"fields": ["device_id"], "deviceFilters": ["device_id"]},
+                    {"fields": ["overlay"]},
+                ]
+            },
+            "device_id": device_field(DEVICES, filters=("status",)),
+        }
+    )
+
+    assert envelope["requires"] == [
+        "core-field.device.v1",
+        "interaction.exclusive-groups.v1",
+    ]
+    assert envelope["ui_schema"]["device_id"]["ui:options"]["filterScope"] == ("implicit:device_id")
+    Draft202012Validator(wire_schema()).validate(envelope)
+
+
+def test_numeric_field_comparison_requires_capability() -> None:
+    class NumericInput(BaseModel):
+        rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+            "ui:globalOptions": {
+                "fieldComparisons": [
+                    {
+                        "left": "minimum",
+                        "operator": "lessThan",
+                        "right": "maximum",
+                        "message": "Minimum must be less than maximum",
+                    }
+                ]
+            }
+        }
+
+        minimum: int
+        maximum: int
+
+    envelope = build_form(NumericInput)
+
+    assert envelope["requires"] == ["validation.field-comparison.v1"]
+    Draft202012Validator(wire_schema()).validate(envelope)
+
+
 def test_a_workflow_without_input_has_an_empty_form() -> None:
     assert build_form(None) == {
         "schema": {},
@@ -168,6 +226,22 @@ def test_the_server_adds_shipped_query_aliases(monkeypatch: pytest.MonkeyPatch) 
     envelope = build_form(model)
 
     assert envelope["ui_schema"]["overlay"]["ui:options"]["queryAliases"] == ["overlay_id"]
+
+
+def test_the_server_adds_a_shipped_multi_value_query_separator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _model({"devices": api_options(TENANTS)})
+    key = (f"{model.__module__}.{model.__qualname__}", "devices")
+    monkeypatch.setitem(form_module.QUERY_SEPARATORS, key, ",")
+
+    envelope = build_form(model)
+
+    assert envelope["ui_schema"]["devices"]["ui:options"]["querySeparator"] == ","
+    assert envelope["requires"] == [
+        "core-field.api-options.v1",
+        "prefill.query-separator.v1",
+    ]
 
 
 def test_repeated_parameters_of_one_owner_are_allowed() -> None:
@@ -206,6 +280,32 @@ _SHARED = device_field(DEVICES, filters=("tenant",), filter_scope="shared", quer
         ({"ui:order": ["user", "*"]}, "ServerOwned or FormExcluded"),
         ({"ui:submitButtonOptions": {"label": "Go"}}, "ui:submitButtonOptions must be a mapping"),
         ({"ui:globalOptions": {"hideSchemaDescriptions": 1}}, "must be a boolean"),
+        (
+            {
+                "ui:globalOptions": {
+                    "exclusiveGroups": [
+                        {"fields": ["site"], "deviceFilters": ["site"]},
+                        {"fields": ["overlay"]},
+                    ]
+                }
+            },
+            "deviceFilters entry 'site' must be a device field",
+        ),
+        (
+            {
+                "ui:globalOptions": {
+                    "fieldComparisons": [
+                        {
+                            "left": "count",
+                            "operator": "lessThan",
+                            "right": "site",
+                            "message": "Count must be less than Site",
+                        }
+                    ]
+                }
+            },
+            "right 'site' must be numeric",
+        ),
         (
             {
                 "overlay": {
@@ -290,6 +390,18 @@ _SHARED = device_field(DEVICES, filters=("tenant",), filter_scope="shared", quer
                 "overlay": {
                     **api_options(TENANTS),
                     "ui:options": {"source": TENANTS.to_wire(), "queryAliases": ["o"]},
+                }
+            },
+            "added by the server",
+        ),
+        (
+            {
+                "devices": {
+                    **api_options(TENANTS),
+                    "ui:options": {
+                        "source": TENANTS.to_wire(),
+                        "querySeparator": ",",
+                    },
                 }
             },
             "added by the server",
@@ -452,7 +564,10 @@ def test_hidden_properties_and_marked_fields_cannot_be_prefilled() -> None:
 def test_derivable_capabilities_are_supported_by_the_manifest() -> None:
     derivable = {
         *form_module.FIELD_CAPABILITIES.values(),
+        form_module.EXCLUSIVE_GROUPS_CAPABILITY,
+        form_module.FIELD_COMPARISON_CAPABILITY,
         form_module.HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY,
+        form_module.QUERY_SEPARATOR_CAPABILITY,
     }
 
     assert derivable <= supported_capabilities()

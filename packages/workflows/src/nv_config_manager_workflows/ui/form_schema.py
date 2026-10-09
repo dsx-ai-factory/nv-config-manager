@@ -19,6 +19,7 @@ the API request body, MCP tool schemas, and generated clients are unchanged, and
 Pydantic stays the authoritative validator of every submission.
 """
 
+import math
 import re
 from typing import Annotated, Any, TypeAliasType, get_args, get_origin
 
@@ -191,15 +192,21 @@ def _apply_form_schema(
                     f"{error}"
                 ) from error
         elif keyword in {"minimum", "maximum"}:
-            if isinstance(value, bool) or not isinstance(value, int | float):
-                raise WorkflowFormContractError(f"{where} FormSchema {keyword} must be a number")
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int | float)
+                or (isinstance(value, float) and not math.isfinite(value))
+            ):
+                raise WorkflowFormContractError(
+                    f"{where} FormSchema {keyword} must be a finite number"
+                )
         elif isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise WorkflowFormContractError(
                 f"{where} FormSchema {keyword} must be a non-negative integer"
             )
         prop[keyword] = value
     if marker.default is not UNSET:
-        adapter: TypeAdapter[Any] = TypeAdapter(Annotated[info.annotation, *info.metadata])
+        adapter: TypeAdapter[Any] = TypeAdapter(info.rebuild_annotation())
         try:
             value = adapter.validate_python(marker.default)
         except ValidationError as error:

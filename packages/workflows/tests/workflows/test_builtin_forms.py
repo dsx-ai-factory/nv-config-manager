@@ -25,7 +25,7 @@ from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
 from nv_config_manager_workflows.registration.builtin import BUILTIN_PLUGIN_NAME, builtin_plugin
 from nv_config_manager_workflows.registration.registry import WorkflowRegistry
-from nv_config_manager_workflows.ui import QUERY_ALIASES, wire_schema
+from nv_config_manager_workflows.ui import QUERY_ALIASES, QUERY_SEPARATORS, wire_schema
 from nv_config_manager_workflows.workflows.backup import BackupInput, BackupWorkflow, TriggerEnum
 from nv_config_manager_workflows.workflows.ib_pkey_creation import IBPKeyCreationWorkflow
 from nv_config_manager_workflows.workflows.ib_port_guid_discovery import (
@@ -68,6 +68,20 @@ def test_every_shipped_query_alias_reaches_a_core_field(registry: WorkflowRegist
     assert {key: served.get(key) for key in QUERY_ALIASES} == dict(QUERY_ALIASES)
 
 
+def test_every_shipped_query_separator_reaches_a_core_field(registry: WorkflowRegistry) -> None:
+    served = {
+        (f"{model.__module__}.{model.__qualname__}", name): entry["ui:options"].get(
+            "querySeparator"
+        )
+        for workflow, envelope in registry.forms.items()
+        if (model := workflow.get_workflow_input_class()) is not None
+        for name, entry in envelope["ui_schema"].items()
+        if not name.startswith("ui:") and "ui:field" in entry
+    }
+
+    assert {key: served.get(key) for key in QUERY_SEPARATORS} == dict(QUERY_SEPARATORS)
+
+
 def test_backup_sends_a_hidden_api_trigger_and_picks_a_filtered_device(
     registry: WorkflowRegistry,
 ) -> None:
@@ -107,10 +121,12 @@ def test_spx_tenant_change_drives_the_device_from_its_site_field(
     assert ui_schema["port_names"]["ui:options"]["source"]["endpoint"] == (
         "/v1/parameter/device/{device_id}/interfaces"
     )
+    assert ui_schema["port_names"]["ui:options"]["querySeparator"] == ","
     assert form["requires"] == [
         "core-field.api-options.v1",
         "core-field.device.v1",
         "core-field.location.v1",
+        "prefill.query-separator.v1",
     ]
 
 
@@ -152,6 +168,14 @@ def test_lldp_loads_devices_without_requiring_a_site(registry: WorkflowRegistry)
     assert options["filters"] == ["site"]
     assert options["siteRequired"] is False
     assert "required" not in form["schema"]
+    assert form["ui_schema"]["ui:globalOptions"]["exclusiveGroups"] == [
+        {"fields": ["device_id", "interface"], "deviceFilters": ["device_id"]},
+        {"fields": ["remote_mac_address"]},
+    ]
+    assert form["requires"] == [
+        "core-field.device.v1",
+        "interaction.exclusive-groups.v1",
+    ]
 
 
 def test_ib_pkey_creation_sends_only_host_and_pkey(registry: WorkflowRegistry) -> None:

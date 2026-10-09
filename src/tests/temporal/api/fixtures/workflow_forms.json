@@ -1433,6 +1433,24 @@
       "type": "object"
     },
     "ui_schema": {
+      "ui:globalOptions": {
+        "exclusiveGroups": [
+          {
+            "fields": [
+              "device_id",
+              "interface"
+            ],
+            "deviceFilters": [
+              "device_id"
+            ]
+          },
+          {
+            "fields": [
+              "remote_mac_address"
+            ]
+          }
+        ]
+      },
       "device_id": {
         "ui:field": "device",
         "ui:options": {
@@ -1464,7 +1482,8 @@
     },
     "ui_schema_version": 1,
     "requires": [
-      "core-field.device.v1"
+      "core-field.device.v1",
+      "interaction.exclusive-groups.v1"
     ]
   },
   "ReprovisionWorkflow": {
@@ -2031,6 +2050,16 @@
       "type": "object"
     },
     "ui_schema": {
+      "ui:globalOptions": {
+        "fieldComparisons": [
+          {
+            "left": "rd_min",
+            "operator": "lessThan",
+            "right": "rd_max",
+            "message": "RD Min must be less than RD Max"
+          }
+        ]
+      },
       "site": {
         "ui:field": "location",
         "ui:options": {
@@ -2090,7 +2119,8 @@
     "ui_schema_version": 1,
     "requires": [
       "core-field.api-options.v1",
-      "core-field.location.v1"
+      "core-field.location.v1",
+      "validation.field-comparison.v1"
     ]
   },
   "SpXOverlayDeletionWorkflow": {
@@ -2341,7 +2371,8 @@
             "label_key": "name",
             "value_key": "name",
             "clear_on_change": true
-          }
+          },
+          "querySeparator": ","
         },
         "ui:title": "Ports"
       }
@@ -2350,7 +2381,8 @@
     "requires": [
       "core-field.api-options.v1",
       "core-field.device.v1",
-      "core-field.location.v1"
+      "core-field.location.v1",
+      "prefill.query-separator.v1"
     ]
   },
   "SwitchOSUpgradeWorkflow": {

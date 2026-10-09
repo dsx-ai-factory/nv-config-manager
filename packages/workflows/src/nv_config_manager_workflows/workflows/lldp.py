@@ -60,6 +60,15 @@ class PortLLDPInfoInput(BaseModel):
     """Input for Port LLDP Info Workflow."""
 
     rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:globalOptions": {
+            "exclusiveGroups": [
+                {
+                    "fields": ["device_id", "interface"],
+                    "deviceFilters": ["device_id"],
+                },
+                {"fields": ["remote_mac_address"]},
+            ]
+        },
         "device_id": {
             **device_field(MANAGED_DEVICE_SOURCE, filters=("site",), site_required=False),
             "ui:title": "Device",
@@ -99,6 +108,23 @@ class PortLLDPInfoWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
         get_switch_port_by_remote_mac_address,
         load_neighbor_data_by_switch_port,
     )
+
+    @classmethod
+    async def canonicalize_input(cls, body: BaseModel) -> BaseModel:
+        """Reject incomplete or mixed lookup methods at the API boundary."""
+        if isinstance(body, PortLLDPInfoInput):
+            has_device = bool(body.device_id)
+            has_interface = bool(body.interface)
+            has_mac = bool(body.remote_mac_address)
+            if not (
+                (has_device and has_interface and not has_mac)
+                or (has_mac and not has_device and not has_interface)
+            ):
+                raise ApplicationError(
+                    "provide device_id and interface, or remote_mac_address",
+                    non_retryable=True,
+                )
+        return body
 
     def __init__(self) -> None:
         """Initialize workflow."""

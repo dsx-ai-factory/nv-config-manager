@@ -23,6 +23,7 @@ from unittest.mock import patch
 
 import pytest
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 
 from nv_config_manager_workflows.activities.dcim import (
@@ -44,6 +45,34 @@ from nv_config_manager_workflows.workflows.spx_overlay import (
     SpXOverlayDeletionWorkflow,
     SpXOverlayDeletionWorkflowOutput,
 )
+
+
+@pytest.mark.parametrize(("rd_min", "rd_max"), [(60000, 60000), (65000, 60000)])
+@pytest.mark.asyncio
+async def test_creation_api_rejects_an_empty_or_inverted_rd_range(rd_min: int, rd_max: int) -> None:
+    body = SpXOverlayCreationInput(
+        site="site-1",
+        overlay_id="overlay-1",
+        tenant="tenant-1",
+        rd_min=rd_min,
+        rd_max=rd_max,
+    )
+
+    with pytest.raises(ApplicationError, match="rd_min must be less than rd_max"):
+        await SpXOverlayCreationWorkflow.canonicalize_input(body)
+
+
+@pytest.mark.asyncio
+async def test_creation_api_accepts_an_increasing_rd_range() -> None:
+    body = SpXOverlayCreationInput(
+        site="site-1",
+        overlay_id="overlay-1",
+        tenant="tenant-1",
+        rd_min=60000,
+        rd_max=65000,
+    )
+
+    assert await SpXOverlayCreationWorkflow.canonicalize_input(body) is body
 
 
 def make_test_vrf(namespace: str, with_interfaces: bool = False) -> Any:

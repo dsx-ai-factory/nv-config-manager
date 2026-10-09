@@ -42,7 +42,7 @@ _PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 _REPO_ROOT = _PACKAGE_ROOT.parent.parent
 _UI_ROOT = _REPO_ROOT / "ui"
 _FIXTURE_DIR = _UI_ROOT / "tests" / "e2e" / "fixtures" / "form-parity"
-_WORKFLOW_ROUTES = _UI_ROOT / "src" / "config" / "workflow-routes.json"
+_LEGACY_WORKFLOW_REDIRECTS = _UI_ROOT / "src" / "config" / "legacy-workflow-redirects.json"
 _WORKFLOW_FORMS = (
     _REPO_ROOT / "src" / "tests" / "temporal" / "api" / "fixtures" / "workflow_forms.json"
 )
@@ -95,15 +95,17 @@ def input_models() -> dict[str, type[BaseModel] | None]:
     return _input_models()
 
 
-def test_every_migrated_workflow_has_parity_scenarios() -> None:
-    routes = json.loads(_WORKFLOW_ROUTES.read_text())
+def test_every_redirected_workflow_has_parity_scenarios() -> None:
+    redirects = json.loads(_LEGACY_WORKFLOW_REDIRECTS.read_text())
     fixtures = _fixtures()
     covered = {fixture["workflow"] for fixture in fixtures.values() if fixture["scenarios"]}
-    migrated = {name for name, route in routes.items() if route["migrated"]}
+    redirected = set(redirects)
 
-    assert migrated <= covered, f"migrated without parity scenarios: {sorted(migrated - covered)}"
+    assert redirected <= covered, (
+        f"redirected without parity scenarios: {sorted(redirected - covered)}"
+    )
     for slug, fixture in fixtures.items():
-        assert routes[fixture["workflow"]]["legacySlug"] == slug
+        assert redirects[fixture["workflow"]] == slug
 
 
 def test_expected_differences_name_captured_scenarios() -> None:

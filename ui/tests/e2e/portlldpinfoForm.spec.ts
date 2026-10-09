@@ -19,14 +19,18 @@
  * The Port LLDP Info form on its class-name route (the legacy
  * `/workflows/portlldpinfoworkflow/form` redirects there).
  *
- * Differences from the legacy page, by design: Interface is free text; the device's
- * Site filter is optional (without a Site the picker lists every managed device); the
- * legacy device/MAC mode switching (disabling and clearing one side) and its client
- * cross-field checks are gone: the model validator decides, and its 422 shows inline.
+ * The device's Site filter is optional, so without a Site the picker lists every
+ * managed device. Device/interface and MAC remain mutually exclusive: using either
+ * mode disables the other, while the API boundary rejects incomplete direct requests.
  */
 import { expect, type Page } from "@playwright/test";
 
-import { DEVICES_LIST, FORBIDDEN_DEVICE_IDS, FORBIDDEN_SITE_ID, SITES_LIST } from "@/mocks/data";
+import {
+  DEVICES_LIST,
+  FORBIDDEN_DEVICE_IDS,
+  FORBIDDEN_SITE_ID,
+  SITES_LIST,
+} from "@/mocks/data";
 
 import { mockServerCatalogAndUser } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT } from "./shared/utils";
@@ -64,29 +68,49 @@ test.beforeEach(async ({ page }) => {
 test.describe("Port LLDP Info Form", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(PATH);
-    await expect(page.getByRole("heading", { name: TITLE })).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expect(page.getByRole("heading", { name: TITLE })).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
   });
 
   test("renders an optional device with an optional Site, Interface, and MAC address", async ({
     page,
   }) => {
-    await expect(page.locator("form label")).toHaveText(["Site", "Device", "Interface", "MAC Address"]);
-    await expect(page.getByText("Select a device and interface, or enter a remote MAC address.")).toBeVisible();
-    await expect(page.getByText("Use this instead of the device and interface fields.")).toBeVisible();
+    await expect(page.locator("form label")).toHaveText([
+      "Site",
+      "Device",
+      "Interface",
+      "MAC Address",
+    ]);
+    await expect(
+      page.getByText(
+        "Select a device and interface, or enter a remote MAC address."
+      )
+    ).toBeVisible();
+    await expect(
+      page.getByText("Use this instead of the device and interface fields.")
+    ).toBeVisible();
     // No Site needed to list devices.
-    await expect(picker(page, SELECT_DEVICE)).toBeEnabled({ timeout: TEST_TIMEOUT });
+    await expect(picker(page, SELECT_DEVICE)).toBeEnabled({
+      timeout: TEST_TIMEOUT,
+    });
     await expect(interfaceInput(page)).toBeEnabled();
     await expect(macInput(page)).toBeEnabled();
   });
 
-  test("submits a device and interface; the interface is trimmed", async ({ page }) => {
+  test("submits a device and interface; the interface is trimmed", async ({
+    page,
+  }) => {
     await choose(page, SELECT_SITE, SITE);
     await choose(page, SELECT_DEVICE, DEVICE.name);
     await interfaceInput(page).fill(`  ${INTERFACE} `);
 
     const post = nextPost(page, ENDPOINT);
     await submit(page);
-    expect((await post).postDataJSON()).toEqual({ device_id: DEVICE.id, interface: INTERFACE });
+    expect((await post).postDataJSON()).toEqual({
+      device_id: DEVICE.id,
+      interface: INTERFACE,
+    });
     await expectWorkflowDetails(page);
   });
 
@@ -96,7 +120,10 @@ test.describe("Port LLDP Info Form", () => {
 
     const post = nextPost(page, ENDPOINT);
     await submit(page);
-    expect((await post).postDataJSON()).toEqual({ device_id: DEVICE.id, interface: INTERFACE });
+    expect((await post).postDataJSON()).toEqual({
+      device_id: DEVICE.id,
+      interface: INTERFACE,
+    });
   });
 
   test("submits a MAC address alone", async ({ page }) => {
@@ -107,22 +134,53 @@ test.describe("Port LLDP Info Form", () => {
     await expectWorkflowDetails(page);
   });
 
+  test("keeps device/interface and MAC entry mutually exclusive", async ({
+    page,
+  }) => {
+    await macInput(page).fill(MAC);
+    await expect(picker(page, SELECT_SITE)).toBeDisabled();
+    await expect(picker(page, SELECT_DEVICE)).toBeDisabled();
+    await expect(interfaceInput(page)).toBeDisabled();
+
+    await macInput(page).fill("");
+    await expect(picker(page, SELECT_SITE)).toBeEnabled();
+    await expect(interfaceInput(page)).toBeEnabled();
+
+    await interfaceInput(page).fill(INTERFACE);
+    await expect(macInput(page)).toBeDisabled();
+    await interfaceInput(page).fill("");
+    await expect(macInput(page)).toBeEnabled();
+
+    await choose(page, SELECT_SITE, SITE);
+    await expect(macInput(page)).toBeDisabled();
+  });
+
   test("a Site change clears the device", async ({ page }) => {
     await choose(page, SELECT_SITE, SITE);
     await choose(page, SELECT_DEVICE, DEVICE.name);
     await selected(page, SITE).click();
-    await page.getByRole("dialog").getByRole("option", { name: SITES_LIST.rno1, exact: true }).click();
-    await expect(picker(page, SELECT_DEVICE)).toBeVisible({ timeout: TEST_TIMEOUT });
+    await page
+      .getByRole("dialog")
+      .getByRole("option", { name: SITES_LIST.rno1, exact: true })
+      .click();
+    await expect(picker(page, SELECT_DEVICE)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
     await choose(page, SELECT_DEVICE, OTHER.name);
     await expect(selected(page, OTHER.name)).toBeVisible();
   });
 
-  test("an empty or incomplete submission gets the model validator's 422 inline", async ({ page }) => {
-    const message = "Value error, provide device_id and interface, or remote_mac_address";
+  test("an empty or incomplete submission gets the API boundary's 422 inline", async ({
+    page,
+  }) => {
+    const message =
+      "Value error, provide device_id and interface, or remote_mac_address";
     await page.route(`**${ENDPOINT}`, (route) =>
       route.fulfill({
         status: 422,
-        json: { detail: [{ type: "value_error", loc: ["body"], msg: message }] },
+        json: {
+          detail: [{ type: "value_error", loc: ["body"], msg: message }],
+        },
       })
     );
     const post = nextPost(page, ENDPOINT);
@@ -144,30 +202,45 @@ test.describe("Port LLDP Info Form", () => {
     await choose(page, SELECT_DEVICE, forbidden.name);
     await interfaceInput(page).fill(INTERFACE);
     await submit(page);
-    await expectFailureToast(page, "Forbidden: You do not have permission to run this workflow");
+    await expectFailureToast(
+      page,
+      "Forbidden: You do not have permission to run this workflow"
+    );
   });
 });
 
 test.describe("Port LLDP Info Form - URL prefill", () => {
-  test("a legacy link prefills Site, Device, and Interface", async ({ page }) => {
+  test("a legacy link prefills Site, Device, and Interface", async ({
+    page,
+  }) => {
     const query = `?site=${SITE}&device-id=${DEVICE.id}&interface=${INTERFACE}`;
     await page.goto(`/workflows/portlldpinfoworkflow/form${query}`);
     // The redirect keeps the query (re-encoding "/" as %2F).
-    await expect(page).toHaveURL((url) => url.pathname === PATH && url.searchParams.get("interface") === INTERFACE);
+    await expect(page).toHaveURL(
+      (url) =>
+        url.pathname === PATH && url.searchParams.get("interface") === INTERFACE
+    );
 
     await expect(selected(page, SITE)).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(selected(page, DEVICE.name)).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expect(selected(page, DEVICE.name)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
     await expect(interfaceInput(page)).toHaveValue(INTERFACE);
 
     const post = nextPost(page, ENDPOINT);
     await submit(page);
-    expect((await post).postDataJSON()).toEqual({ device_id: DEVICE.id, interface: INTERFACE });
+    expect((await post).postDataJSON()).toEqual({
+      device_id: DEVICE.id,
+      interface: INTERFACE,
+    });
     await expectWorkflowDetails(page);
   });
 
   test("prefills a MAC address", async ({ page }) => {
     await page.goto(`${PATH}?remote_mac_address=${MAC}`);
     await expect(macInput(page)).toHaveValue(MAC);
+    await expect(interfaceInput(page)).toBeDisabled();
+    await expect(picker(page, SELECT_SITE)).toBeDisabled();
     const post = nextPost(page, ENDPOINT);
     await submit(page);
     expect((await post).postDataJSON()).toEqual({ remote_mac_address: MAC });
@@ -178,12 +251,20 @@ test.describe("Port LLDP Info Form - URL prefill", () => {
   }) => {
     await page.goto(`${PATH}?site=NOPE&device-id=${DEVICE.id}`);
     // The unknown Site leaves the device unfiltered, where the device exists.
-    await expect(picker(page, SELECT_SITE)).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(selected(page, DEVICE.name)).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expect(picker(page, SELECT_SITE)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(selected(page, DEVICE.name)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
 
     await page.goto(`${PATH}?site=${SITES_LIST.rno1}&device-id=${DEVICE.id}`);
-    await expect(selected(page, SITES_LIST.rno1)).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(picker(page, SELECT_DEVICE)).toBeEnabled({ timeout: TEST_TIMEOUT });
+    await expect(selected(page, SITES_LIST.rno1)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(picker(page, SELECT_DEVICE)).toBeEnabled({
+      timeout: TEST_TIMEOUT,
+    });
     await expect(page.getByRole("button", { name: "Submit" })).toBeEnabled();
   });
 });

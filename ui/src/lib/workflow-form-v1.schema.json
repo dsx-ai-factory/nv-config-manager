@@ -55,6 +55,52 @@
       "minItems": 1,
       "uniqueItems": true
     },
+    "exclusiveGroup": {
+      "description": "One input mode in a mutually exclusive interaction. fields are projected properties; deviceFilters includes the non-model filters rendered by named device fields.",
+      "type": "object",
+      "properties": {
+        "fields": {
+          "description": "Projected properties belonging to this input mode.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/propertyName" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "deviceFilters": {
+          "description": "Device fields whose non-model filter controls also activate this input mode.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/propertyName" },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "anyOf": [{ "required": ["fields"] }, { "required": ["deviceFilters"] }],
+      "additionalProperties": false
+    },
+    "fieldComparison": {
+      "description": "Client-side comparison between two projected numeric fields.",
+      "type": "object",
+      "properties": {
+        "left": {
+          "description": "Projected numeric field that receives the validation error.",
+          "$ref": "#/$defs/propertyName"
+        },
+        "operator": {
+          "description": "Comparison the left value must satisfy against the right value.",
+          "const": "lessThan"
+        },
+        "right": {
+          "description": "Projected numeric field compared against the left value.",
+          "$ref": "#/$defs/propertyName"
+        },
+        "message": {
+          "description": "Validation message displayed when the comparison fails.",
+          "$ref": "#/$defs/nonBlankString"
+        }
+      },
+      "required": ["left", "operator", "right", "message"],
+      "additionalProperties": false
+    },
     "dependency": {
       "description": "A sibling form property whose value supplies one option query parameter. A required dependency holds the request while empty; an optional one is omitted while empty.",
       "type": "object",
@@ -157,6 +203,10 @@
         "queryAliases": {
           "description": "Legacy URL query parameters accepted for this field.",
           "$ref": "#/$defs/queryAliases"
+        },
+        "querySeparator": {
+          "description": "Legacy delimiter accepted inside each query parameter for this multi-select field.",
+          "const": ","
         }
       },
       "required": ["source"],
@@ -459,6 +509,18 @@
             "hideSchemaDescriptions": {
               "description": "Hide descriptions inherited from the projected input schema.",
               "type": "boolean"
+            },
+            "exclusiveGroups": {
+              "description": "Mutually exclusive input modes. A value in one mode disables and clears the others.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/exclusiveGroup" },
+              "minItems": 2
+            },
+            "fieldComparisons": {
+              "description": "Client-side comparisons between projected numeric fields.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/fieldComparison" },
+              "minItems": 1
             }
           },
           "additionalProperties": false

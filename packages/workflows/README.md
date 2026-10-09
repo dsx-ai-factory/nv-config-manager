@@ -401,6 +401,7 @@ from nv_config_manager_workflows.ui import (
     api_options,
     device_field,
     location_field,
+    variant_rows,
 )
 
 SITES = OptionSource(
@@ -457,10 +458,10 @@ Registration rejects every other key, widget, and field.
 | --- | --- | --- |
 | root | `ui:order` | Property names, each at most once; must list every property unless it contains `"*"` |
 | root | `ui:submitButtonOptions` | `{"submitText": "<label>"}` |
-| root | `ui:globalOptions` | `{"hideSchemaDescriptions": true}` hides the schema `description` help under every field |
+| root | `ui:globalOptions` | Form-wide `hideSchemaDescriptions`, `exclusiveGroups`, and `fieldComparisons` behavior described below |
 | property | `ui:title`, `ui:help`, `ui:description`, `ui:placeholder` | Non-blank text |
 | property | `ui:widget` | `text`, `textarea`, `checkbox`, `select`, or `hidden` |
-| property | `ui:field` | `apiOptions`, `device`, or `location`; set by the helpers |
+| property | `ui:field` | `apiOptions`, `device`, `location`, or `variantRows`; set by the helpers |
 | property | `ui:readonly` | Boolean |
 | property | `ui:options` | `{"rows": <positive int>}` for a standard field; core-field options come from the helpers |
 
@@ -479,7 +480,7 @@ property is still submitted. To leave a field out of the form, mark it
 
 A core field loads its options from the workflow API through an
 `OptionSource(endpoint, label_key, value_key, *, type_key=None, params={},
-depends_on={}, clear_on_change=False)`:
+depends_on={}, clear_on_change=False, response=None)`:
 
 - `endpoint` is a path relative to the workflow API origin, such as
   `/v1/parameter/device`. It cannot contain `?`, `#`, `\`, or whitespace. A
@@ -496,6 +497,10 @@ depends_on={}, clear_on_change=False)`:
   that property is empty. An optional one (`required=False`) is left out of the
   request instead.
 - `clear_on_change=True` clears the selection when a dependency changes.
+- `response="options-v1"` selects the standard enriched envelope. Its `options`
+  rows use `label` and `value`, may include `description` and `group`, and its
+  `meta` object supplies values referenced by `meta_text` and
+  `disable_when_no_matches`.
 
 Dependencies must name projected properties and cannot form a cycle, including
 a field that depends on itself.
@@ -504,6 +509,12 @@ a field that depends on itself.
 malformed source never fails the import of the module that declares it.
 Registration checks the emitted wire form instead and reports any problem as a
 form error (see below).
+
+The endpoint must already be served by the workflow API. A workflow plugin may
+point a form at an existing parameter endpoint, but `WorkflowPluginDescriptor`
+does not register FastAPI routes. A plugin that needs a new option source must
+arrange for that API route to be installed with the service; the form contract
+does not proxy arbitrary upstream APIs or add a universal options endpoint.
 
 #### Core fields
 
@@ -541,6 +552,68 @@ filter controls, for a string or string-array property. `source` cannot set
 - `query_param` names the URL parameter that pre-fills the selection. `None`
   turns off URL prefill for that field. Two device fields in one form need
   different values because each URL parameter has one owner.
+
+`variant_rows(*, owned_properties, modes, minimum_rows=1,
+clear_inactive=True, warning=None)` renders one of several mutually exclusive
+repeatable-row layouts. It is intended for a single logical input that the API
+already represents as multiple top-level arrays, such as PKey members entered
+by interface or by GUID. Each mode declares an `id`, `label`, and `columns`.
+A column names its top-level `arrayProperty`, a `label`, and a `kind` of `text`
+or `select`; an object-array column also names its string `itemProperty`, while
+a scalar-array column omits it. Text columns may declare `placeholder` and
+`pattern`; select columns declare static `choices`; either kind may be
+`required`.
+
+Every owned property must be a projected top-level array, belong to exactly one
+mode, and be controlled only through the one anchor property carrying
+`variant_rows`. List the other owned properties in `ui:order` and mark them
+hidden. Switching modes clears the inactive arrays; `clear_inactive=False` is
+not supported. Registration checks that the column bindings match the
+projected array and item schemas. See `IBPKeyMemberAddInput` in
+`workflows/ib_pkey_member_add.py` for an object-array and scalar-array example.
+
+#### Form-wide interactions and validation
+
+`ui:globalOptions.exclusiveGroups` declares two or more mutually exclusive
+input modes. Each group lists projected `fields`; a `device` field may also be
+listed in `deviceFilters` when its non-model Site, Tenant, or Status controls
+activate the same mode. A populated mode disables the other modes, and changing
+modes clears their projected values and device filters. Every field and device
+filter may belong to only one group, and a `deviceFilters` entry must also be in
+that group's `fields`. For example:
+
+```python
+"ui:globalOptions": {
+    "exclusiveGroups": [
+        {
+            "fields": ["device_id", "interface"],
+            "deviceFilters": ["device_id"],
+        },
+        {"fields": ["remote_mac_address"]},
+    ]
+}
+```
+
+`ui:globalOptions.fieldComparisons` adds client-side comparisons between two
+projected numeric fields. Version 1 supports `operator: "lessThan"`; the error
+is attached to `left` with the declared `message`:
+
+```python
+"ui:globalOptions": {
+    "fieldComparisons": [{
+        "left": "rd_min",
+        "operator": "lessThan",
+        "right": "rd_max",
+        "message": "RD Min must be less than RD Max",
+    }]
+}
+```
+
+Form validation is not an API security boundary. When the API must enforce a
+cross-field rule without changing replay deserialization, implement the same
+check in the workflow class's `canonicalize_input` method and raise a
+non-retryable `ApplicationError`. Do not add a Pydantic model validator solely
+for a launcher interaction; existing Temporal histories deserialize that model.
 
 #### Field markers
 
@@ -593,7 +666,10 @@ until every pre-filled core field has resolved.
 A few built-in forms also accept URL spellings that shipped before this
 contract, such as `?device=` for device password rotation. The server adds them
 as `queryAliases` from a central map in `nv_config_manager_workflows.ui.form`.
-Authors cannot declare aliases. New forms use property names and `query_param`.
+It also adds a `querySeparator` for a shipped multi-select link that encoded
+multiple values in one comma-separated parameter. Authors cannot declare these
+compatibility options. New forms use property names, repeated parameters, and
+`query_param`.
 
 #### Registration errors and plugin isolation
 
@@ -636,8 +712,17 @@ The backend derives `requires` from the declaration:
 
 - `core-field.api-options.v1`, `core-field.device.v1`, and
   `core-field.location.v1` for each core field type the form uses
+- `core-field.api-options.enriched.v1` when an `apiOptions` source sets
+  `response="options-v1"`
+- `core-field.variant-rows.v1` when the form uses `variant_rows`
+- `interaction.exclusive-groups.v1` for
+  `ui:globalOptions.exclusiveGroups`
+- `prefill.query-separator.v1` for a server-owned legacy multi-value URL
+  delimiter
 - `theme.hide-schema-descriptions.v1` when `ui:globalOptions.hideSchemaDescriptions`
   is `true`
+- `validation.field-comparison.v1` for
+  `ui:globalOptions.fieldComparisons`
 
 `ui_schema_version` is `1`. The UI checks the version first and then checks every
 `requires` entry against its capability manifest. If it does not support either

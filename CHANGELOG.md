@@ -16,9 +16,12 @@ version before the selected release candidate is promoted.
   `requires`.
 - Workflow plugins can declare launcher forms on their input models with an
   `rjsf_ui_schema` class variable, the `api_options`, `device_field`, and
-  `location_field` core-field helpers, and the `ServerOwned`, `FormExcluded`,
-  and `FormSchema` field markers from `nv_config_manager_workflows.ui`. See the
-  workflows package README.
+  `location_field` core-field helpers, the `variant_rows` composite row helper,
+  and the `ServerOwned`, `FormExcluded`, and `FormSchema` field markers from
+  `nv_config_manager_workflows.ui`. See the workflows package README.
+- Form declarations can preserve mutually exclusive input modes and numeric
+  cross-field checks with `exclusiveGroups` and `fieldComparisons`; shipped
+  multi-select links may retain a server-owned legacy query separator.
 - Form declarations are validated when the workflow registry is built. An
   invalid built-in form fails startup. An invalid third-party plugin form keeps
   the workflow and its API endpoint available: `/form` returns HTTP 503 with

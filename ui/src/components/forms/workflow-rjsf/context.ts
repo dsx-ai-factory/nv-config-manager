@@ -36,6 +36,7 @@ import {
   coreFieldOf,
   deviceOptionsOf,
   effectiveOrder,
+  exclusiveGroupsOf,
   locationOptionsOf,
   propertiesOf,
   variantRowsFieldOptionsOf,
@@ -60,6 +61,8 @@ export interface FormLayout {
   typeFields: Readonly<Record<string, string>>;
   /** Scope id → the device property, first in effective order, that renders its filters. */
   scopeHosts: Readonly<Record<string, string>>;
+  /** Mutually exclusive projected fields and resolved device-filter scopes. */
+  exclusiveGroups: ReturnType<typeof exclusiveGroupsOf>;
 }
 
 /** What the shell hands RJSF as `formContext`. */
@@ -75,7 +78,8 @@ export const buildLayout = (schema: unknown, uiSchema: unknown): FormLayout => {
     const coreField = coreFieldOf(uiSchema, name);
     if (coreField) owners[name] = `field:${name}`;
     if (coreField === "variantRows") {
-      for (const owned of variantRowsFieldOptionsOf(uiSchema, name).ownedProperties) {
+      for (const owned of variantRowsFieldOptionsOf(uiSchema, name)
+        .ownedProperties) {
         owners[owned] = `field:${name}`;
       }
     }
@@ -92,7 +96,12 @@ export const buildLayout = (schema: unknown, uiSchema: unknown): FormLayout => {
     const { filterScope } = deviceOptionsOf(uiSchema, name);
     if (!(filterScope in scopeHosts)) scopeHosts[filterScope] = name;
   }
-  return { owners, typeFields, scopeHosts };
+  return {
+    owners,
+    typeFields,
+    scopeHosts,
+    exclusiveGroups: exclusiveGroupsOf(uiSchema),
+  };
 };
 
 /**
@@ -129,24 +138,42 @@ export const useShellState = (
   uiSchema: unknown,
   query: QuerySnapshot
 ): ShellController => {
-  const [state, dispatch] = React.useReducer(shellReducer, undefined, () =>
-    createInitialState(schema, uiSchema, query)
+  const layout = React.useMemo(
+    () => buildLayout(schema, uiSchema),
+    [schema, uiSchema]
   );
-  const layout = React.useMemo(() => buildLayout(schema, uiSchema), [schema, uiSchema]);
+  const [state, dispatch] = React.useReducer(shellReducer, undefined, () =>
+    createInitialState(schema, uiSchema, query, layout.exclusiveGroups)
+  );
 
   const setFields = React.useCallback(
     (owner: Owner, patch: FormData, source: Source) => {
       checkFieldPatch(layout, schema, owner, patch);
-      dispatch({ type: "field-patch", owner, patch, source });
+      dispatch({
+        type: "field-patch",
+        owner,
+        patch,
+        source,
+        exclusiveGroups: layout.exclusiveGroups,
+      });
     },
     [layout, schema]
   );
   const setFilters = React.useCallback(
     (scope: string, patch: Partial<ScopeFilters>, source: Source) =>
-      dispatch({ type: "filter-patch", scope, patch, source }),
+      dispatch({
+        type: "filter-patch",
+        scope,
+        patch,
+        source,
+        exclusiveGroups: layout.exclusiveGroups,
+      }),
+    [layout.exclusiveGroups]
+  );
+  const settle = React.useCallback(
+    (owner: Owner) => dispatch({ type: "settle", owner }),
     []
   );
-  const settle = React.useCallback((owner: Owner) => dispatch({ type: "settle", owner }), []);
 
   const context = React.useMemo<ShellFormContext>(
     () => ({
@@ -159,7 +186,16 @@ export const useShellState = (
       settle,
       layout,
     }),
-    [state.formData, query, state.pending, state.filters, setFields, setFilters, settle, layout]
+    [
+      state.formData,
+      query,
+      state.pending,
+      state.filters,
+      setFields,
+      setFilters,
+      settle,
+      layout,
+    ]
   );
   return { state, dispatch, context };
 };

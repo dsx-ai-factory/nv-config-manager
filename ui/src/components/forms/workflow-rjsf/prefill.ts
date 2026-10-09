@@ -49,23 +49,49 @@ export interface SearchParamsLike {
 }
 
 /** Every non-empty value of every parameter, in URL order. Taken once, at mount. */
-export const snapshotQuery = (params: SearchParamsLike | null | undefined): QuerySnapshot => {
+export const snapshotQuery = (
+  params: SearchParamsLike | null | undefined
+): QuerySnapshot => {
   const snapshot: Record<string, string[]> = {};
   params?.forEach((value, name) => {
     if (value === "") return;
-    if (!Object.prototype.hasOwnProperty.call(snapshot, name)) snapshot[name] = [];
+    if (!Object.prototype.hasOwnProperty.call(snapshot, name))
+      snapshot[name] = [];
     snapshot[name].push(value);
   });
   return snapshot;
 };
 
 /** Values of the first parameter in `names` (precedence order) that has any. */
-export const queryValues = (query: QuerySnapshot, names: readonly string[]): string[] => {
+export const queryValues = (
+  query: QuerySnapshot,
+  names: readonly string[]
+): string[] => {
   for (const name of names) {
-    const values = Object.prototype.hasOwnProperty.call(query, name) ? query[name] : undefined;
+    const values = Object.prototype.hasOwnProperty.call(query, name)
+      ? query[name]
+      : undefined;
     if (values && values.length > 0) return [...values];
   }
   return [];
+};
+
+/** Split one field's legacy multi-value query encoding when its declaration requests it. */
+export const optionQueryValues = (
+  query: QuerySnapshot,
+  names: readonly string[],
+  multiple: boolean,
+  separator?: string
+): string[] => {
+  const values = queryValues(query, names);
+  return multiple && separator
+    ? values.flatMap((value) =>
+        value
+          .split(separator)
+          .map((item) => item.trim())
+          .filter(Boolean)
+      )
+    : values;
 };
 
 /** URL parameters a core field's own prefill reads, in precedence order. */
@@ -74,7 +100,9 @@ export const corePrefillParams = (
   name: string,
   options: Readonly<Record<string, unknown>>
 ): string[] => {
-  const aliases = Array.isArray(options.queryAliases) ? (options.queryAliases as string[]) : [];
+  const aliases = Array.isArray(options.queryAliases)
+    ? (options.queryAliases as string[])
+    : [];
   if (core !== "device") return [name, ...aliases];
   const { queryParam } = options as unknown as DeviceOptions;
   return queryParam ? [queryParam, ...aliases] : [];
@@ -82,15 +110,20 @@ export const corePrefillParams = (
 
 const fieldPrefillParams = (uiSchema: unknown, name: string): string[] => {
   const core = coreFieldOf(uiSchema, name);
-  return core ? corePrefillParams(core, name, fieldOptions(uiSchema, name)) : [];
+  return core
+    ? corePrefillParams(core, name, fieldOptions(uiSchema, name))
+    : [];
 };
 
 /** Scope filters a device field's scope prefills; Site only when it is the scope's own. */
 export const scopePrefillFilters = (options: DeviceOptions): DeviceFilter[] =>
-  options.filters.filter((filter) => filter !== "site" || options.siteField === undefined);
+  options.filters.filter(
+    (filter) => filter !== "site" || options.siteField === undefined
+  );
 
 const coerce = (raw: string, type: unknown): unknown => {
-  if (type === "boolean") return raw === "true" ? true : raw === "false" ? false : undefined;
+  if (type === "boolean")
+    return raw === "true" ? true : raw === "false" ? false : undefined;
   if (type === "integer" || type === "number") {
     const value = Number(raw);
     if (raw.trim() === "" || !Number.isFinite(value)) return undefined;
@@ -142,7 +175,11 @@ export const initialPending = (
     }
     if (core !== "device") continue;
     const options = deviceOptionsOf(uiSchema, name);
-    if (scopePrefillFilters(options).some((filter) => queryValues(query, [filter]).length > 0)) {
+    if (
+      scopePrefillFilters(options).some(
+        (filter) => queryValues(query, [filter]).length > 0
+      )
+    ) {
       pending.add(`scope:${options.filterScope}`);
     }
   }

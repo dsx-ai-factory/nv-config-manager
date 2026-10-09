@@ -32,6 +32,7 @@ import { editsWholeValue } from "./server-errors";
 import type { FormData } from "./state";
 import {
   labelOf,
+  fieldComparisonsOf,
   own,
   propertiesOf,
   requiredOf,
@@ -81,7 +82,11 @@ const pathOf = (property: string | undefined): string[] =>
   (property ?? "").replace(/^\./, "").split(".").filter(Boolean);
 
 /** Label of the property at `path`: `ui:title`/title at the top, schema title below. */
-const labelAt = (schema: unknown, uiSchema: unknown, path: readonly string[]): string => {
+const labelAt = (
+  schema: unknown,
+  uiSchema: unknown,
+  path: readonly string[]
+): string => {
   if (path.length <= 1) return labelOf(schema, uiSchema, path[0] ?? "");
   let node = resolveRef(schema, propertiesOf(schema)[path[0]]);
   for (const segment of path.slice(1)) {
@@ -111,7 +116,9 @@ export const createTransformErrors =
         const path = pathOf(error.property);
         const [top, index, ...rest] = path;
         const owner = layout?.owners[top];
-        const target = owner?.startsWith("field:") ? owner.slice("field:".length) : top;
+        const target = owner?.startsWith("field:")
+          ? owner.slice("field:".length)
+          : top;
         if (target !== top) {
           const emptyRequiredList =
             error.name === "minItems" &&
@@ -126,7 +133,9 @@ export const createTransformErrors =
           return {
             ...error,
             property: `.${target}`,
-            message: location ? `${labelAt(schema, uiSchema, path)}${location}: ${message}` : message,
+            message: location
+              ? `${labelAt(schema, uiSchema, path)}${location}: ${message}`
+              : message,
           };
         }
         if (
@@ -138,7 +147,9 @@ export const createTransformErrors =
           return {
             ...error,
             property: `.${top}`,
-            message: `Item ${Number(index) + 1}: ${error.message ?? "is invalid"}`,
+            message: `Item ${Number(index) + 1}: ${
+              error.message ?? "is invalid"
+            }`,
           };
         }
         const emptyRequiredList =
@@ -147,13 +158,18 @@ export const createTransformErrors =
           path.length === 1 &&
           requiredOf(schema).includes(top);
         if (error.name === "required" || emptyRequiredList) {
-          return { ...error, message: `${labelAt(schema, uiSchema, path)} is required` };
+          return {
+            ...error,
+            message: `${labelAt(schema, uiSchema, path)} is required`,
+          };
         }
         if (error.name === "minItems" && path.length === 1) {
           const limit = Number(error.params?.limit);
           return {
             ...error,
-            message: `At least ${limit} ${labelAt(schema, uiSchema, path)} ${limit === 1 ? "is" : "are"} required`,
+            message: `At least ${limit} ${labelAt(schema, uiSchema, path)} ${
+              limit === 1 ? "is" : "are"
+            } required`,
           };
         }
         return { ...error, message: capitalize(error.message ?? "Is invalid") };
@@ -169,12 +185,32 @@ export const createCustomValidate =
     for (const name of requiredOf(schema)) {
       const value = own(formData, name);
       if (typeof value === "string" && value.trim() === "") {
-        errors[name]?.addError(`${labelOf(schema, uiSchema, name)} is required`);
+        errors[name]?.addError(
+          `${labelOf(schema, uiSchema, name)} is required`
+        );
       }
     }
-    for (const { anchor, config } of variantRowsDeclarations(schema, uiSchema)) {
-      for (const message of validateVariantRowsValues(config, formData as FormData)) {
+    for (const { anchor, config } of variantRowsDeclarations(
+      schema,
+      uiSchema
+    )) {
+      for (const message of validateVariantRowsValues(
+        config,
+        formData as FormData
+      )) {
         errors[anchor]?.addError(message);
+      }
+    }
+    for (const comparison of fieldComparisonsOf(uiSchema)) {
+      const left = own(formData, comparison.left);
+      const right = own(formData, comparison.right);
+      if (
+        comparison.operator === "lessThan" &&
+        typeof left === "number" &&
+        typeof right === "number" &&
+        left >= right
+      ) {
+        errors[comparison.left]?.addError(comparison.message);
       }
     }
     return errors;

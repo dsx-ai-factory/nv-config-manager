@@ -40,7 +40,11 @@ import type { ExtraParams, OptionSourceItem } from "@/lib/option-source";
 import type { OptionSource } from "@/types/workflow-catalog.types";
 
 import { contextOf, type ShellFormContext } from "../context";
-import { corePrefillParams, queryValues, scopePrefillFilters } from "../prefill";
+import {
+  corePrefillParams,
+  queryValues,
+  scopePrefillFilters,
+} from "../prefill";
 import { EMPTY_SCOPE, type Owner, type ScopeFilters } from "../state";
 import type { DeviceFilter, DeviceOptions } from "../ui-schema";
 import {
@@ -76,7 +80,10 @@ export const STATUS_FILTER_SOURCE: OptionSource = {
 const NO_VALUES = {};
 
 const siteKey = (item: OptionSourceItem): string =>
-  JSON.stringify([String(item.value), item.type == null ? null : String(item.type)]);
+  JSON.stringify([
+    String(item.value),
+    item.type == null ? null : String(item.type),
+  ]);
 
 interface ScopeControlsProps {
   scope: string;
@@ -109,14 +116,24 @@ const ScopeControls = ({
   const showTenant = filters.includes("tenant");
   const showStatus = filters.includes("status");
 
-  const sites = useOptionSource(ownSite ? SITE_FILTER_SOURCE : undefined, NO_VALUES);
-  const tenants = useOptionSource(showTenant ? TENANT_FILTER_SOURCE : undefined, NO_VALUES);
-  const statuses = useOptionSource(showStatus ? STATUS_FILTER_SOURCE : undefined, NO_VALUES);
+  const sites = useOptionSource(
+    ownSite ? SITE_FILTER_SOURCE : undefined,
+    NO_VALUES
+  );
+  const tenants = useOptionSource(
+    showTenant ? TENANT_FILTER_SOURCE : undefined,
+    NO_VALUES
+  );
+  const statuses = useOptionSource(
+    showStatus ? STATUS_FILTER_SOURCE : undefined,
+    NO_VALUES
+  );
 
   React.useEffect(() => {
     if (!scopePending) return;
     const raw = (filter: DeviceFilter) => queryValues(query, [filter]);
-    const requested = (filter: DeviceFilter, shown: boolean) => shown && raw(filter).length > 0;
+    const requested = (filter: DeviceFilter, shown: boolean) =>
+      shown && raw(filter).length > 0;
     const wantSite = requested("site", ownSite);
     const wantTenant = requested("tenant", showTenant);
     const wantStatus = requested("status", showStatus);
@@ -130,19 +147,38 @@ const ScopeControls = ({
     const patch: Partial<ScopeFilters> = {};
     if (wantSite) {
       const [site] = matchOptions(raw("site"), sites.options, false);
-      if (site) patch.site = { id: String(site.value), type: site.type == null ? "" : String(site.type) };
+      if (site)
+        patch.site = {
+          id: String(site.value),
+          type: site.type == null ? "" : String(site.type),
+        };
     }
     if (wantTenant) {
       const matched = matchOptions(raw("tenant"), tenants.options, true);
-      if (matched.length > 0) patch.tenant = matched.map((item) => String(item.value));
+      if (matched.length > 0)
+        patch.tenant = matched.map((item) => String(item.value));
     }
     if (wantStatus) {
       const matched = matchOptions(raw("status"), statuses.options, true);
-      if (matched.length > 0) patch.status = matched.map((item) => String(item.value));
+      if (matched.length > 0)
+        patch.status = matched.map((item) => String(item.value));
     }
     if (Object.keys(patch).length > 0) setFilters(scope, patch, "prefill");
     else settle(owner);
-  }, [scopePending, query, ownSite, showTenant, showStatus, sites, tenants, statuses, scope, owner, setFilters, settle]);
+  }, [
+    scopePending,
+    query,
+    ownSite,
+    showTenant,
+    showStatus,
+    sites,
+    tenants,
+    statuses,
+    scope,
+    owner,
+    setFilters,
+    settle,
+  ]);
 
   const locked = disabled || scopePending;
   return (
@@ -152,19 +188,35 @@ const ScopeControls = ({
           id={`${idPrefix}__site`}
           label="Site"
           required={siteRequired}
-          options={sites.options.map((item) => ({ key: item.label, value: siteKey(item) }))}
-          value={current.site ? JSON.stringify([current.site.id, current.site.type || null]) : ""}
+          options={sites.options.map((item) => ({
+            key: item.label,
+            value: siteKey(item),
+          }))}
+          value={
+            current.site
+              ? JSON.stringify([current.site.id, current.site.type || null])
+              : ""
+          }
           multiple={false}
           disabled={locked || isLoading(sites)}
           busy={sites.status === "loading"}
-          error={sites.status === "error" ? "Could not load Site options." : undefined}
+          error={
+            sites.status === "error"
+              ? "Could not load Site options."
+              : undefined
+          }
           onChange={([key]) => {
-            const item = sites.options.find((option) => siteKey(option) === key);
+            const item = sites.options.find(
+              (option) => siteKey(option) === key
+            );
             setFilters(
               scope,
               {
                 site: item
-                  ? { id: String(item.value), type: item.type == null ? "" : String(item.type) }
+                  ? {
+                      id: String(item.value),
+                      type: item.type == null ? "" : String(item.type),
+                    }
                   : undefined,
               },
               "user"
@@ -176,12 +228,19 @@ const ScopeControls = ({
         <Picker
           id={`${idPrefix}__tenant`}
           label="Tenant (optional)"
-          options={tenants.options.map((item) => ({ key: item.label, value: String(item.value) }))}
+          options={tenants.options.map((item) => ({
+            key: item.label,
+            value: String(item.value),
+          }))}
           value={[...current.tenant]}
           multiple
           disabled={locked || isLoading(tenants)}
           busy={tenants.status === "loading"}
-          error={tenants.status === "error" ? "Could not load Tenant options." : undefined}
+          error={
+            tenants.status === "error"
+              ? "Could not load Tenant options."
+              : undefined
+          }
           onChange={(keys) => setFilters(scope, { tenant: keys }, "user")}
         />
       ) : null}
@@ -189,12 +248,19 @@ const ScopeControls = ({
         <Picker
           id={`${idPrefix}__status`}
           label="Status (optional)"
-          options={statuses.options.map((item) => ({ key: item.label, value: String(item.value) }))}
+          options={statuses.options.map((item) => ({
+            key: item.label,
+            value: String(item.value),
+          }))}
           value={[...current.status]}
           multiple
           disabled={locked || isLoading(statuses)}
           busy={statuses.status === "loading"}
-          error={statuses.status === "error" ? "Could not load Status options." : undefined}
+          error={
+            statuses.status === "error"
+              ? "Could not load Status options."
+              : undefined
+          }
           onChange={(keys) => setFilters(scope, { status: keys }, "user")}
         />
       ) : null}
@@ -203,7 +269,16 @@ const ScopeControls = ({
 };
 
 export const DeviceField = (props: FieldProps) => {
-  const { name, schema, uiSchema, disabled, readonly, registry, required, fieldPathId } = props;
+  const {
+    name,
+    schema,
+    uiSchema,
+    disabled,
+    readonly,
+    registry,
+    required,
+    fieldPathId,
+  } = props;
   const context = contextOf(registry.formContext);
   const { formData, pending, layout, query, setFields, settle } = context;
   const options = getUiOptions(uiSchema) as unknown as DeviceOptions;
@@ -212,7 +287,12 @@ export const DeviceField = (props: FieldProps) => {
   const multiple = schema.type === "array";
   const label = fieldLabel(props);
   const prefillParams = React.useMemo(
-    () => corePrefillParams("device", name, options as unknown as Record<string, unknown>),
+    () =>
+      corePrefillParams(
+        "device",
+        name,
+        options as unknown as Record<string, unknown>
+      ),
     // `options` is rebuilt every render; its inputs are the field's ui_schema and name.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [uiSchema, name]
@@ -226,7 +306,10 @@ export const DeviceField = (props: FieldProps) => {
     const typeField = layout.typeFields[siteField];
     const type = typeField !== undefined ? formData[typeField] : undefined;
     if (typeof id === "string" && id !== "") {
-      site = { id, type: typeof type === "string" && type !== "" ? type : undefined };
+      site = {
+        id,
+        type: typeof type === "string" && type !== "" ? type : undefined,
+      };
     }
   } else if (usesSite && scope.site) {
     site = { id: scope.site.id, type: scope.site.type || undefined };
@@ -244,19 +327,29 @@ export const DeviceField = (props: FieldProps) => {
     return params;
   }, [site?.id, site?.type, tenant, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const devices = useOptionSource(siteMissing ? undefined : source, formData, extra);
+  const devices = useOptionSource(
+    siteMissing ? undefined : source,
+    formData,
+    extra
+  );
 
   const ownPending = pending.has(owner);
-  const siteOwner = siteField !== undefined ? layout.owners[siteField] : undefined;
+  const siteOwner =
+    siteField !== undefined ? layout.owners[siteField] : undefined;
   const dependencyPending =
-    pending.has(`scope:${filterScope}`) || (siteOwner !== undefined && pending.has(siteOwner));
+    pending.has(`scope:${filterScope}`) ||
+    (siteOwner !== undefined && pending.has(siteOwner));
 
   React.useEffect(() => {
     if (!ownPending || dependencyPending) return;
     if (!siteMissing && isLoading(devices)) return;
     const matched =
       !siteMissing && devices.status === "success"
-        ? matchOptions(queryValues(query, prefillParams), devices.options, multiple)
+        ? matchOptions(
+            queryValues(query, prefillParams),
+            devices.options,
+            multiple
+          )
         : [];
     if (matched.length === 0) {
       settle(owner);
@@ -264,7 +357,19 @@ export const DeviceField = (props: FieldProps) => {
     }
     const values = matched.map((item) => String(item.value));
     setFields(owner, { [name]: multiple ? values : values[0] }, "prefill");
-  }, [ownPending, dependencyPending, siteMissing, devices, query, prefillParams, multiple, owner, name, setFields, settle]);
+  }, [
+    ownPending,
+    dependencyPending,
+    siteMissing,
+    devices,
+    query,
+    prefillParams,
+    multiple,
+    owner,
+    name,
+    setFields,
+    settle,
+  ]);
 
   const value = formData[name];
   useSignatureChange(JSON.stringify([site ?? null, tenant, status]), () => {
@@ -276,8 +381,8 @@ export const DeviceField = (props: FieldProps) => {
   const selected = multiple
     ? (Array.isArray(value) ? value : []).map(String)
     : isEmptyValue(value)
-      ? ""
-      : String(value);
+    ? ""
+    : String(value);
 
   return (
     <div className="space-y-6">
@@ -297,15 +402,34 @@ export const DeviceField = (props: FieldProps) => {
         label={label}
         required={required}
         description={fieldDescription(props)}
-        options={devices.options.map((item) => ({ key: item.label, value: String(item.value) }))}
+        options={devices.options.map((item) => ({
+          key: item.label,
+          value: String(item.value),
+        }))}
         value={selected}
         multiple={multiple}
-        disabled={locked || ownPending || dependencyPending || siteMissing || isLoading(devices)}
+        disabled={
+          locked ||
+          ownPending ||
+          dependencyPending ||
+          siteMissing ||
+          isLoading(devices)
+        }
         busy={devices.status === "loading" || ownPending}
-        error={devices.status === "error" ? `Could not load ${label} options.` : undefined}
+        error={
+          devices.status === "error"
+            ? `Could not load ${label} options.`
+            : undefined
+        }
         placeholder={siteMissing ? "Select a Site first" : undefined}
         onChange={(keys) =>
-          setFields(owner, { [name]: multiple ? (keys.length > 0 ? keys : undefined) : keys[0] }, "user")
+          setFields(
+            owner,
+            {
+              [name]: multiple ? (keys.length > 0 ? keys : undefined) : keys[0],
+            },
+            "user"
+          )
         }
       />
     </div>

@@ -47,7 +47,7 @@ import {
 import type { OptionSource } from "@/types/workflow-catalog.types";
 
 import { contextOf } from "../context";
-import { corePrefillParams, queryValues } from "../prefill";
+import { corePrefillParams, optionQueryValues } from "../prefill";
 import type { FormData, Owner } from "../state";
 import type { ApiOptionsOptions } from "../ui-schema";
 import {
@@ -67,6 +67,8 @@ interface SourceFieldProps {
   typeField?: string;
   /** Whole URL parameters the field's prefill reads, in precedence order. */
   prefillParams: string[];
+  /** Legacy delimiter accepted inside each query parameter for a multi-select. */
+  querySeparator?: string;
   presentation?: "select" | "grouped-checkboxes";
   selectAll?: boolean;
   showDescriptions?: boolean;
@@ -77,7 +79,9 @@ interface SourceFieldProps {
 
 /** A location's Site and Module may share an id, so its option key carries the type. */
 const keyOf = (value: unknown, type: unknown, typed: boolean): string =>
-  typed ? JSON.stringify([String(value), type == null ? null : String(type)]) : String(value);
+  typed
+    ? JSON.stringify([String(value), type == null ? null : String(type)])
+    : String(value);
 
 interface GroupedOptionsProps {
   id: string;
@@ -111,7 +115,9 @@ const GroupedOptions = ({
     const group = item.group ?? "";
     groups.set(group, [...(groups.get(group) ?? []), item]);
   }
-  const allKeys = [...new Set(loaded.options.map((item) => String(item.value)))];
+  const allKeys = [
+    ...new Set(loaded.options.map((item) => String(item.value))),
+  ];
   const count = metaText ? loaded.meta?.[metaText.key] : undefined;
   const waiting = loaded.missingDependencies.length > 0;
   const busy = isLoading(loaded);
@@ -152,15 +158,24 @@ const GroupedOptions = ({
           <LoadingSpinner /> Loading {label}...
         </div>
       ) : waiting ? (
-        <p className="text-sm text-muted-foreground">Select the required fields to load {label}.</p>
+        <p className="text-sm text-muted-foreground">
+          Select the required fields to load {label}.
+        </p>
       ) : loaded.status === "error" ? (
-        <p className="text-sm text-destructive">Could not load {label} options.</p>
+        <p className="text-sm text-destructive">
+          Could not load {label} options.
+        </p>
       ) : loaded.status === "empty" ? (
         <p className="text-sm text-muted-foreground">No {label} found.</p>
       ) : (
         [...groups.entries()].map(([group, items], groupIndex) => (
-          <fieldset key={group || "ungrouped"} className="space-y-2 rounded-md border p-3">
-            {group ? <legend className="px-1 text-sm font-semibold">{group}</legend> : null}
+          <fieldset
+            key={group || "ungrouped"}
+            className="space-y-2 rounded-md border p-3"
+          >
+            {group ? (
+              <legend className="px-1 text-sm font-semibold">{group}</legend>
+            ) : null}
             {items.map((item, itemIndex) => {
               const key = String(item.value);
               const optionId = `${id}-${groupIndex}-${itemIndex}`;
@@ -181,7 +196,9 @@ const GroupedOptions = ({
                   <div className="space-y-1">
                     <Label htmlFor={optionId}>{item.label}</Label>
                     {showDescriptions && item.description ? (
-                      <p className="text-sm text-muted-foreground">{item.description}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {item.description}
+                      </p>
                     ) : null}
                   </div>
                 </div>
@@ -191,12 +208,18 @@ const GroupedOptions = ({
         ))
       )}
 
-      {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+      {description ? (
+        <p className="text-sm text-muted-foreground">{description}</p>
+      ) : null}
       {typeof count === "number" ? (
-        <p className="text-sm text-muted-foreground">{metaText?.label}: {count}</p>
+        <p className="text-sm text-muted-foreground">
+          {metaText?.label}: {count}
+        </p>
       ) : null}
       {(loaded.meta?.warnings ?? []).map((warning) => (
-        <p key={warning} className="text-sm text-amber-700 dark:text-amber-300">{warning}</p>
+        <p key={warning} className="text-sm text-amber-700 dark:text-amber-300">
+          {warning}
+        </p>
       ))}
     </div>
   );
@@ -207,6 +230,7 @@ export const SourceOptionsField = ({
   source,
   typeField,
   prefillParams,
+  querySeparator,
   presentation = "select",
   selectAll = false,
   showDescriptions = false,
@@ -214,7 +238,8 @@ export const SourceOptionsField = ({
   metaText,
   prune = false,
 }: SourceFieldProps) => {
-  const { name, schema, disabled, readonly, registry, required, fieldPathId } = field;
+  const { name, schema, disabled, readonly, registry, required, fieldPathId } =
+    field;
   const context = contextOf(registry.formContext);
   const { formData, pending, layout, setFields, settle, query } = context;
   const owner: Owner = `field:${name}`;
@@ -226,7 +251,11 @@ export const SourceOptionsField = ({
   const ownPending = pending.has(owner);
   const dependencyPending = dependencyFields(source).some((dependency) => {
     const dependencyOwner = layout.owners[dependency];
-    return dependencyOwner !== undefined && dependencyOwner !== owner && pending.has(dependencyOwner);
+    return (
+      dependencyOwner !== undefined &&
+      dependencyOwner !== owner &&
+      pending.has(dependencyOwner)
+    );
   });
 
   const patchFor = React.useCallback(
@@ -235,10 +264,14 @@ export const SourceOptionsField = ({
       // (e.g. "at least one Device Status"), and the payload omits an empty optional
       // list whose default is empty.
       if (multiple) {
-        return { [name]: [...new Set(selected.map((item) => String(item.value)))] };
+        return {
+          [name]: [...new Set(selected.map((item) => String(item.value)))],
+        };
       }
       const [item] = selected;
-      const patch: FormData = { [name]: item === undefined ? undefined : String(item.value) };
+      const patch: FormData = {
+        [name]: item === undefined ? undefined : String(item.value),
+      };
       if (typeField !== undefined) {
         patch[typeField] = item?.type == null ? undefined : String(item.type);
       }
@@ -251,11 +284,27 @@ export const SourceOptionsField = ({
     if (!ownPending || dependencyPending || isLoading(loaded)) return;
     const matched =
       loaded.status === "success"
-        ? matchOptions(queryValues(query, prefillParams), loaded.options, multiple)
+        ? matchOptions(
+            optionQueryValues(query, prefillParams, multiple, querySeparator),
+            loaded.options,
+            multiple
+          )
         : [];
     if (matched.length > 0) setFields(owner, patchFor(matched), "prefill");
     else settle(owner);
-  }, [ownPending, dependencyPending, loaded, query, prefillParams, multiple, owner, patchFor, setFields, settle]);
+  }, [
+    ownPending,
+    dependencyPending,
+    loaded,
+    query,
+    prefillParams,
+    querySeparator,
+    multiple,
+    owner,
+    patchFor,
+    setFields,
+    settle,
+  ]);
 
   const value = formData[name];
   const type = typeField !== undefined ? formData[typeField] : undefined;
@@ -300,8 +349,8 @@ export const SourceOptionsField = ({
     const current = multiple
       ? (Array.isArray(value) ? value : []).map(String)
       : isEmptyValue(value)
-        ? []
-        : [keyOf(value, type, typed)];
+      ? []
+      : [keyOf(value, type, typed)];
     const available = new Set(
       loaded.options.map((item) => keyOf(item.value, item.type, typed))
     );
@@ -327,10 +376,12 @@ export const SourceOptionsField = ({
 
   const items = loaded.options;
   const selected = multiple
-    ? (Array.isArray(value) ? value : []).map((item) => keyOf(item, undefined, false))
+    ? (Array.isArray(value) ? value : []).map((item) =>
+        keyOf(item, undefined, false)
+      )
     : isEmptyValue(value)
-      ? ""
-      : keyOf(value, type, typed);
+    ? ""
+    : keyOf(value, type, typed);
   const waiting = loaded.missingDependencies.length > 0;
   const hasNoMatchingDevices =
     disableWhenNoMatches && loaded.meta?.matching_device_count === 0;
@@ -345,19 +396,26 @@ export const SourceOptionsField = ({
   const feedback = (
     <>
       {presentation !== "grouped-checkboxes" && waiting ? (
-        <p className="text-sm text-muted-foreground">Select the required fields to load {label}.</p>
+        <p className="text-sm text-muted-foreground">
+          Select the required fields to load {label}.
+        </p>
       ) : null}
       {presentation !== "grouped-checkboxes" && loaded.status === "empty" ? (
         <p className="text-sm text-muted-foreground">No {label} found.</p>
       ) : null}
-      {presentation !== "grouped-checkboxes" && metaText && typeof loaded.meta?.[metaText.key] === "number" ? (
+      {presentation !== "grouped-checkboxes" &&
+      metaText &&
+      typeof loaded.meta?.[metaText.key] === "number" ? (
         <p className="text-sm text-muted-foreground">
           {metaText.label}: {loaded.meta[metaText.key]}
         </p>
       ) : null}
       {presentation !== "grouped-checkboxes"
         ? (loaded.meta?.warnings ?? []).map((warning) => (
-            <p key={warning} className="text-sm text-amber-700 dark:text-amber-300">
+            <p
+              key={warning}
+              className="text-sm text-amber-700 dark:text-amber-300"
+            >
               {warning}
             </p>
           ))
@@ -380,7 +438,11 @@ export const SourceOptionsField = ({
       onChange={(keys) =>
         setFields(
           owner,
-          patchFor(items.filter((item) => keys.includes(keyOf(item.value, item.type, typed)))),
+          patchFor(
+            items.filter((item) =>
+              keys.includes(keyOf(item.value, item.type, typed))
+            )
+          ),
           "user"
         )
       }
@@ -395,18 +457,30 @@ export const SourceOptionsField = ({
         options={items.map((item) => ({
           key: item.label,
           value: keyOf(item.value, item.type, typed),
-          ...(showDescriptions && item.description ? { description: item.description } : {}),
+          ...(showDescriptions && item.description
+            ? { description: item.description }
+            : {}),
         }))}
         value={selected}
         multiple={multiple}
         disabled={pickerDisabled}
         busy={loaded.status === "loading" || ownPending}
-        error={loaded.status === "error" ? `Could not load ${label} options.` : undefined}
-        placeholder={getUiOptions(field.uiSchema).placeholder as string | undefined}
+        error={
+          loaded.status === "error"
+            ? `Could not load ${label} options.`
+            : undefined
+        }
+        placeholder={
+          getUiOptions(field.uiSchema).placeholder as string | undefined
+        }
         onChange={(keys) =>
           setFields(
             owner,
-            patchFor(items.filter((item) => keys.includes(keyOf(item.value, item.type, typed)))),
+            patchFor(
+              items.filter((item) =>
+                keys.includes(keyOf(item.value, item.type, typed))
+              )
+            ),
             "user"
           )
         }
@@ -419,7 +493,12 @@ export const SourceOptionsField = ({
 export const ApiOptionsField = (props: FieldProps) => {
   const options = getUiOptions(props.uiSchema) as unknown as ApiOptionsOptions;
   const prefillParams = React.useMemo(
-    () => corePrefillParams("apiOptions", props.name, options as unknown as Record<string, unknown>),
+    () =>
+      corePrefillParams(
+        "apiOptions",
+        props.name,
+        options as unknown as Record<string, unknown>
+      ),
     // `options` is rebuilt every render; its inputs are the field's ui_schema and name.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [props.uiSchema, props.name]
@@ -429,6 +508,7 @@ export const ApiOptionsField = (props: FieldProps) => {
       field={props}
       source={options.source as OptionSource}
       prefillParams={prefillParams}
+      querySeparator={options.querySeparator}
       presentation={options.presentation}
       selectAll={options.selectAll}
       showDescriptions={options.showDescriptions}

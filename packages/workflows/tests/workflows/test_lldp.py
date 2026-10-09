@@ -22,6 +22,7 @@ import pytest
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from temporalio import activity
 from temporalio.client import WorkflowHandle
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 
 from nv_config_manager_workflows.activities.dcim import (
@@ -43,6 +44,46 @@ MOCK_NEIGHBOR_DATA = InterfaceNeighborData(
     device_serial="mock_serial",
     link_up=True,
 )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"device_id": "device-1"},
+        {"interface": "swp1"},
+        {"device_id": "device-1", "remote_mac_address": "00:11:22:33:44:55"},
+        {
+            "device_id": "device-1",
+            "interface": "swp1",
+            "remote_mac_address": "00:11:22:33:44:55",
+        },
+    ],
+)
+@pytest.mark.asyncio
+async def test_api_rejects_incomplete_or_mixed_lookup_methods(
+    payload: dict[str, str],
+) -> None:
+    body = PortLLDPInfoInput.model_validate(payload)
+
+    with pytest.raises(
+        ApplicationError, match="provide device_id and interface, or remote_mac_address"
+    ):
+        await PortLLDPInfoWorkflow.canonicalize_input(body)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"device_id": "device-1", "interface": "swp1"},
+        {"remote_mac_address": "00:11:22:33:44:55"},
+    ],
+)
+@pytest.mark.asyncio
+async def test_api_accepts_one_complete_lookup_method(payload: dict[str, str]) -> None:
+    body = PortLLDPInfoInput.model_validate(payload)
+
+    assert await PortLLDPInfoWorkflow.canonicalize_input(body) is body
 
 
 @activity.defn(name="get_network_device")
