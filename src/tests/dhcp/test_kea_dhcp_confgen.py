@@ -15,6 +15,7 @@
 import ipaddress
 import json
 import os
+from collections.abc import Callable
 from copy import deepcopy
 from unittest.mock import patch
 
@@ -182,6 +183,56 @@ async def test_expected_config():
         assert _normalize_config_for_comparison(config) == _normalize_config_for_comparison(
             expected_config_with_leasedb
         )
+
+
+@pytest.mark.parametrize(
+    ("ini", "is_aggregate"),
+    [
+        pytest.param(
+            "[aggregate]\nis_aggregate_environment = true\n",
+            True,
+            id="aggregate",
+        ),
+        pytest.param(
+            "[aggregate]\nis_aggregate_environment = false\n",
+            False,
+            id="cell",
+        ),
+        pytest.param("", False, id="missing-section"),
+        pytest.param("[aggregate]\n", False, id="missing-option"),
+        pytest.param(
+            "[aggregate]\nis_aggregate_environment = true\n[general]\naggregate = false\n",
+            True,
+            id="aggregate-overrides-legacy-cell",
+        ),
+        pytest.param(
+            "[aggregate]\nis_aggregate_environment = false\n[general]\naggregate = true\n",
+            False,
+            id="cell-overrides-legacy-aggregate",
+        ),
+        pytest.param("[general]\naggregate = true\n", False, id="legacy-only"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_generate_config_uses_aggregate_environment(
+    custom_ini: Callable[[str], None], ini: str, is_aggregate: bool
+) -> None:
+    """Use the shared environment flag for DHCP contexts and reservations."""
+    custom_ini(ini)
+    client = MockNautobotClient("https://nautobot.example.com/", "dummy")
+    with (
+        patch.object(client, "get_dhcp_contexts", wraps=client.get_dhcp_contexts) as contexts,
+        patch.object(
+            client, "get_dhcp_auto_subnets", wraps=client.get_dhcp_auto_subnets
+        ) as subnets,
+    ):
+        config = await generate_config(client, MockRedisClient(), version=4)
+
+    contexts.assert_awaited_once_with(is_aggregate_managed=is_aggregate)
+    subnets.assert_awaited_once_with(family=4, is_aggregate_managed=is_aggregate)
+    reservations = {entry["ip-address"] for entry in config["Dhcp4"]["reservations"]}
+    assert ("10.91.50.200" in reservations) == is_aggregate
+    assert ("10.217.188.227" in reservations) == (not is_aggregate)
 
 
 @pytest.mark.asyncio

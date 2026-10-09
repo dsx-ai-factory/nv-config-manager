@@ -27,6 +27,7 @@ import netaddr
 from jinja2 import BaseLoader, TemplateSyntaxError, UndefinedError
 from jinja2.sandbox import SandboxedEnvironment, SecurityError
 
+from nv_config_manager.common.config.environment import is_aggregate_environment
 from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMClient
@@ -737,7 +738,7 @@ async def generate_config(
     """
     _start = _time.monotonic()
     config = load_config()
-    is_aggregate = config.getboolean("general", "aggregate", fallback=False)
+    is_aggregate = is_aggregate_environment(config)
 
     # Get hooks path from existing Kea config (architecture-specific path set at build time)
     hooks_path = _extract_hooks_path(kea_config or {}, version)
