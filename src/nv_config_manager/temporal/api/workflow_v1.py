@@ -88,6 +88,9 @@ logger = get_logger(__name__, category=LogCategory.TEMPORAL_API)
 router = APIRouter(prefix="/workflow", tags=["workflow"])
 
 _VISIBILITY_SAFE_VALUE = re.compile(r"^[\w.@:/ -]+$")
+_WORKFLOW_FORM_UNAVAILABLE_MESSAGE = (
+    "This workflow form is unavailable because its plugin failed form validation."
+)
 _WORKFLOW_LIST_QUERY_CONCURRENCY = 25
 _WORKFLOW_LIST_QUERY_TIMEOUT_SECONDS = 2
 _WORKFLOW_STAGE_QUERY_CACHE_NAMES = ("pending_approval", "compressed_stages")
@@ -923,7 +926,7 @@ async def get_workflow_form(
                 "code": "workflow_form_unavailable",
                 "plugin": diagnostic.plugin,
                 "workflow": diagnostic.workflow,
-                "message": diagnostic.message,
+                "message": _WORKFLOW_FORM_UNAVAILABLE_MESSAGE,
             },
         )
     form = WORKFLOW_FORM_CATALOG.forms.get(workflow)
