@@ -15,6 +15,10 @@ version before the selected release candidate is promoted.
   a form projection of its input schema (`schema`), a
   validated RJSF `ui_schema`, `ui_schema_version`, the UI capabilities the form
   `requires`.
+- Added the opt-in `GET /v1/workflow/metadata?include=form` representation with
+  each workflow's launcher `group`, stable `form_id`, and `has_form` status. The
+  request without `include=form` retains its previous response shape for
+  compatibility with existing generated clients.
 - Workflow plugins can declare launcher forms on their input models with an
   `rjsf_ui_schema` class variable, the `api_options`, `device_field`, and
   `location_field` core-field helpers, the `variant_rows` composite row helper,
@@ -52,6 +56,10 @@ version before the selected release candidate is promoted.
 
 ### Fixed
 
+- Generated Go clients now accept and preserve unrecognized object properties,
+  matching OpenAPI's default `additionalProperties` behavior and the generated
+  Python clients. This keeps future additive response fields from breaking
+  newly generated Go clients.
 - Render consumers on bundled NATS now re-create their stream when it is
   missing, instead of retrying `stream not found` until restarted. A NATS pod
   rescheduled after nats-box started came back without JetStream state, and

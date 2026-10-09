@@ -24,7 +24,7 @@ from typing import Annotated, Any, ClassVar, Literal, cast
 from uuid import uuid4
 
 import brotli
-from fastapi import APIRouter, HTTPException, Path, Request
+from fastapi import APIRouter, HTTPException, Path, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, computed_field
 from temporalio.client import (
@@ -172,19 +172,24 @@ class WorkflowMetadata(BaseModel):
     input_class: str
     read_roles: list[str]
     execute_roles: list[str]
-    group: str | None = None
+    group: str | None = Field(
+        default=None,
+        description="Launcher group returned by the form metadata expansion.",
+    )
     form_id: str | None = Field(
         default=None,
         pattern=WORKFLOW_FORM_ID_PATTERN,
         description=(
-            "Stable lowercase kebab-case identifier used by this workflow's browser-form endpoints."
+            "Stable lowercase kebab-case identifier used by this workflow's browser-form endpoints. "
+            "Returned by the form metadata expansion."
         ),
     )
     has_form: bool | None = Field(
         default=None,
         description=(
             "Whether the browser-form contract is enabled. When true, the form endpoint "
-            "may still return HTTP 503 if a third-party declaration failed validation."
+            "may still return HTTP 503 if a third-party declaration failed validation. "
+            "Returned by the form metadata expansion."
         ),
     )
 
@@ -840,8 +845,17 @@ async def get_workflow_types() -> list[str]:
     return sorted(workflow.__name__ for workflow in WORKFLOW_TYPE_CATALOG)
 
 
-@router.get("/metadata")
-async def get_workflow_metadata() -> WorkflowMetadataResponse:
+@router.get("/metadata", response_model_exclude_unset=True)
+async def get_workflow_metadata(
+    include: Annotated[
+        Literal["form"] | None,
+        Query(
+            description=(
+                "Optional metadata expansion. Use 'form' to include group, form_id, and has_form."
+            )
+        ),
+    ] = None,
+) -> WorkflowMetadataResponse:
     """Return registered workflow metadata and RBAC roles."""
     workflow_types = sorted(workflow.__name__ for workflow in WORKFLOW_API_CATALOG)
 
@@ -852,18 +866,18 @@ async def get_workflow_metadata() -> WorkflowMetadataResponse:
         if name not in workflows_info:
             continue
         workflow = workflows_by_name[name]
-        workflows.append(
-            WorkflowMetadata.model_validate(
-                {
-                    **workflows_info[name],
-                    "form_id": WORKFLOW_FORM_CATALOG.form_ids.get(workflow),
-                    "has_form": (
-                        workflow.get_workflow_form_enabled()
-                        and workflow in WORKFLOW_FORM_CATALOG.form_ids
-                    ),
-                }
+        metadata = dict(workflows_info[name])
+        group = metadata.pop("group", None)
+        if include == "form":
+            metadata.update(
+                group=group,
+                form_id=WORKFLOW_FORM_CATALOG.form_ids.get(workflow),
+                has_form=(
+                    workflow.get_workflow_form_enabled()
+                    and workflow in WORKFLOW_FORM_CATALOG.form_ids
+                ),
             )
-        )
+        workflows.append(WorkflowMetadata.model_validate(metadata))
     return WorkflowMetadataResponse(workflows=workflows)
 
 

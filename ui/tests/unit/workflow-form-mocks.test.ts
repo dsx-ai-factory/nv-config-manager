@@ -25,9 +25,10 @@ import {
   mapOptionEnvelope,
   mapOptionRows,
 } from "@/lib/option-source";
+import { buildWorkflowCatalogUrl } from "@/lib/workflow-catalog";
 import { fetchWorkflowForm } from "@/lib/workflow-form";
 import { WORKFLOW_FORM_FIXTURES } from "@/mocks/data/workflowForms";
-import { handlers } from "@/mocks/handlers";
+import { handlers, workflowMetadata } from "@/mocks/handlers";
 import type { OptionSource } from "@/types/workflow-catalog.types";
 
 import {
@@ -56,6 +57,14 @@ const server = setupServer(...handlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterAll(() => server.close());
+
+describe("MSW GET /v1/workflow/metadata?include=form", () => {
+  it("intercepts the form metadata opt-in request", async () => {
+    expect(await fetcher(buildWorkflowCatalogUrl(mockApiURL))).toEqual(
+      workflowMetadata
+    );
+  });
+});
 
 describe("MSW GET /v1/workflow/:formId/form", () => {
   it.each(Object.entries(workflowFormIds))(

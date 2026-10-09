@@ -11,7 +11,6 @@ API version: 0.1.0
 package dhcp
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,9 +20,10 @@ var _ MappedNullable = &PoolPageResponse{}
 
 // PoolPageResponse Bounded page of configured pools.
 type PoolPageResponse struct {
-	NextCursor NullableString `json:"next_cursor,omitempty"`
-	Pools      []PoolRecord   `json:"pools"`
-	TotalCount int32          `json:"total_count"`
+	NextCursor           NullableString `json:"next_cursor,omitempty"`
+	Pools                []PoolRecord   `json:"pools"`
+	TotalCount           int32          `json:"total_count"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _PoolPageResponse PoolPageResponse
@@ -155,6 +155,11 @@ func (o PoolPageResponse) ToMap() (map[string]interface{}, error) {
 	}
 	toSerialize["pools"] = o.Pools
 	toSerialize["total_count"] = o.TotalCount
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -183,15 +188,22 @@ func (o *PoolPageResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varPoolPageResponse := _PoolPageResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varPoolPageResponse)
+	err = json.Unmarshal(data, &varPoolPageResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = PoolPageResponse(varPoolPageResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "next_cursor")
+		delete(additionalProperties, "pools")
+		delete(additionalProperties, "total_count")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

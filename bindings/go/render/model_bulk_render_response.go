@@ -11,7 +11,6 @@ API version: 0.1.0
 package render
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -28,7 +27,8 @@ type BulkRenderResponse struct {
 	Message        string        `json:"message"`
 	QueuedCount    int32         `json:"queued_count"`
 	// Total number of devices targeted
-	TotalDevices *int32 `json:"total_devices,omitempty"`
+	TotalDevices         *int32 `json:"total_devices,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _BulkRenderResponse BulkRenderResponse
@@ -236,6 +236,11 @@ func (o BulkRenderResponse) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.TotalDevices) {
 		toSerialize["total_devices"] = o.TotalDevices
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -264,15 +269,24 @@ func (o *BulkRenderResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varBulkRenderResponse := _BulkRenderResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varBulkRenderResponse)
+	err = json.Unmarshal(data, &varBulkRenderResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = BulkRenderResponse(varBulkRenderResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "failed_devices")
+		delete(additionalProperties, "max_concurrency")
+		delete(additionalProperties, "message")
+		delete(additionalProperties, "queued_count")
+		delete(additionalProperties, "total_devices")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

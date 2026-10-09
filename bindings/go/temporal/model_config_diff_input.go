@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -24,7 +23,8 @@ type ConfigDiffInput struct {
 	// Preloaded network device data, if available.
 	Device NullableNetworkDeviceData `json:"device,omitempty"`
 	// Identifier of the network device to compare.
-	DeviceId string `json:"device_id"`
+	DeviceId             string `json:"device_id"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _ConfigDiffInput ConfigDiffInput
@@ -130,6 +130,11 @@ func (o ConfigDiffInput) ToMap() (map[string]interface{}, error) {
 		toSerialize["device"] = o.Device.Get()
 	}
 	toSerialize["device_id"] = o.DeviceId
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -157,15 +162,21 @@ func (o *ConfigDiffInput) UnmarshalJSON(data []byte) (err error) {
 
 	varConfigDiffInput := _ConfigDiffInput{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varConfigDiffInput)
+	err = json.Unmarshal(data, &varConfigDiffInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ConfigDiffInput(varConfigDiffInput)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "device")
+		delete(additionalProperties, "device_id")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

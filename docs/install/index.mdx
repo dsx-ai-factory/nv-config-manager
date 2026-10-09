@@ -359,9 +359,10 @@ You do not need to redeploy from scratch when you change data, add images, updat
 
 When upgrading to a release with schema-driven browser workflow forms, roll out
 the workflow API backend before the Config Manager UI. Wait until
-`GET /v1/workflow/metadata` returns `has_form` and `form_id` for workflow entries,
-then deploy the new UI. For rollback, reverse that order: roll back the UI before
-the workflow API.
+`GET /v1/workflow/metadata?include=form` returns `has_form` and `form_id` for
+workflow entries, then deploy the new UI. The request without `include=form`
+keeps the legacy metadata response shape for existing API clients. For rollback,
+reverse the order: roll back the UI before the workflow API.
 
 This ordering is required because the new UI reads form definitions from backend
 endpoints that older APIs do not provide. If a new UI reaches an older API, it

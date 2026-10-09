@@ -11,7 +11,6 @@ API version: 0.1.0
 package render
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,7 +20,8 @@ var _ MappedNullable = &ConsumerListResponse{}
 
 // ConsumerListResponse Consumer list response model.
 type ConsumerListResponse struct {
-	Consumers []ConsumerInfo `json:"consumers"`
+	Consumers            []ConsumerInfo `json:"consumers"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _ConsumerListResponse ConsumerListResponse
@@ -79,6 +79,11 @@ func (o ConsumerListResponse) MarshalJSON() ([]byte, error) {
 func (o ConsumerListResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["consumers"] = o.Consumers
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -106,15 +111,20 @@ func (o *ConsumerListResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varConsumerListResponse := _ConsumerListResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varConsumerListResponse)
+	err = json.Unmarshal(data, &varConsumerListResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ConsumerListResponse(varConsumerListResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "consumers")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

@@ -19,12 +19,15 @@ var _ MappedNullable = &ReservationRecord{}
 
 // ReservationRecord Configured address reservation.
 type ReservationRecord struct {
-	Hostname       *string        `json:"hostname,omitempty"`
-	Identifier     NullableString `json:"identifier,omitempty"`
-	IdentifierType NullableString `json:"identifier_type,omitempty"`
-	IpAddress      NullableString `json:"ip_address,omitempty"`
-	Subnet         NullableString `json:"subnet,omitempty"`
+	Hostname             *string        `json:"hostname,omitempty"`
+	Identifier           NullableString `json:"identifier,omitempty"`
+	IdentifierType       NullableString `json:"identifier_type,omitempty"`
+	IpAddress            NullableString `json:"ip_address,omitempty"`
+	Subnet               NullableString `json:"subnet,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
+
+type _ReservationRecord ReservationRecord
 
 // NewReservationRecord instantiates a new ReservationRecord object
 // This constructor will assign default values to properties that have it defined,
@@ -285,7 +288,37 @@ func (o ReservationRecord) ToMap() (map[string]interface{}, error) {
 	if o.Subnet.IsSet() {
 		toSerialize["subnet"] = o.Subnet.Get()
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
+}
+
+func (o *ReservationRecord) UnmarshalJSON(data []byte) (err error) {
+	varReservationRecord := _ReservationRecord{}
+
+	err = json.Unmarshal(data, &varReservationRecord)
+
+	if err != nil {
+		return err
+	}
+
+	*o = ReservationRecord(varReservationRecord)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "hostname")
+		delete(additionalProperties, "identifier")
+		delete(additionalProperties, "identifier_type")
+		delete(additionalProperties, "ip_address")
+		delete(additionalProperties, "subnet")
+		o.AdditionalProperties = additionalProperties
+	}
+
+	return err
 }
 
 type NullableReservationRecord struct {

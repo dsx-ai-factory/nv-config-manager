@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,10 +20,11 @@ var _ MappedNullable = &WorkflowListResponse{}
 
 // WorkflowListResponse Workflow List Response Model.
 type WorkflowListResponse struct {
-	NextPageToken NullableString            `json:"next_page_token"`
-	PageCount     int32                     `json:"page_count"`
-	TotalCount    int32                     `json:"total_count"`
-	Workflows     []WorkflowSummaryResponse `json:"workflows"`
+	NextPageToken        NullableString            `json:"next_page_token"`
+	PageCount            int32                     `json:"page_count"`
+	TotalCount           int32                     `json:"total_count"`
+	Workflows            []WorkflowSummaryResponse `json:"workflows"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _WorkflowListResponse WorkflowListResponse
@@ -162,6 +162,11 @@ func (o WorkflowListResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize["page_count"] = o.PageCount
 	toSerialize["total_count"] = o.TotalCount
 	toSerialize["workflows"] = o.Workflows
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -192,15 +197,23 @@ func (o *WorkflowListResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varWorkflowListResponse := _WorkflowListResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varWorkflowListResponse)
+	err = json.Unmarshal(data, &varWorkflowListResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = WorkflowListResponse(varWorkflowListResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "next_page_token")
+		delete(additionalProperties, "page_count")
+		delete(additionalProperties, "total_count")
+		delete(additionalProperties, "workflows")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

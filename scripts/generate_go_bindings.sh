@@ -75,7 +75,7 @@ for service in "${services[@]}"; do
         --git-host github.com \
         --git-user-id nvidia \
         --git-repo-id "$repo_id" \
-        --additional-properties "packageName=${package_name},packageVersion=0.0.0,goVersion=${GO_VERSION},withGoMod=false,hideGenerationTimestamp=true" \
+        --additional-properties "packageName=${package_name},packageVersion=0.0.0,goVersion=${GO_VERSION},withGoMod=false,hideGenerationTimestamp=true,disallowAdditionalPropertiesIfNotPresent=false" \
         --global-property apiDocs=false,apiTests=false,modelDocs=false,modelTests=false
 
     # Retain only the generated Go client. Markdown, copied specs, push helpers, and generator

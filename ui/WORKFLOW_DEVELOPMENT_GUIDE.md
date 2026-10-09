@@ -47,13 +47,14 @@ to the canonical copies in `packages/workflows`.
 
 The workflow API must include a boolean `has_form` and, for form-enabled
 workflows, an explicit lowercase kebab-case `form_id` in every entry returned
-by `GET /v1/workflow/metadata`. The UI deliberately does not infer either value
-from `input_class` or the workflow class name. A missing, `null`, or invalid
-`has_form`, or a missing `form_id` when `has_form` is true, disables launcher
-links and asks the operator to upgrade the API. This prevents a newer UI from
-constructing `/form` URLs an older API does not provide. `false` means the form
-is disabled and `/form` returns 404. `true` means the form contract is enabled;
-`/form` can still return 503 with a third-party validation diagnostic.
+by `GET /v1/workflow/metadata?include=form`. The request without `include=form`
+retains the legacy response shape. The UI deliberately does not infer either
+value from `input_class` or the workflow class name. A missing, `null`, or
+invalid `has_form`, or a missing `form_id` when `has_form` is true, disables
+launcher links and asks the operator to upgrade the API. This prevents a newer
+UI from constructing `/form` URLs an older API does not provide. `false` means
+the form is disabled and `/form` returns 404. `true` means the form contract is
+enabled; `/form` can still return 503 with a third-party validation diagnostic.
 
 ## Generated API artifacts
 

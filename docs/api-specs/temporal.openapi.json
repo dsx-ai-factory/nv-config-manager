@@ -2428,7 +2428,7 @@
                 "type": "null"
               }
             ],
-            "description": "Stable lowercase kebab-case identifier used by this workflow's browser-form endpoints.",
+            "description": "Stable lowercase kebab-case identifier used by this workflow's browser-form endpoints. Returned by the form metadata expansion.",
             "title": "Form Id"
           },
           "group": {
@@ -2440,6 +2440,7 @@
                 "type": "null"
               }
             ],
+            "description": "Launcher group returned by the form metadata expansion.",
             "title": "Group"
           },
           "has_form": {
@@ -2451,7 +2452,7 @@
                 "type": "null"
               }
             ],
-            "description": "Whether the browser-form contract is enabled. When true, the form endpoint may still return HTTP 503 if a third-party declaration failed validation.",
+            "description": "Whether the browser-form contract is enabled. When true, the form endpoint may still return HTTP 503 if a third-party declaration failed validation. Returned by the form metadata expansion.",
             "title": "Has Form"
           },
           "input_class": {
@@ -4197,6 +4198,27 @@
       "get": {
         "description": "Return registered workflow metadata and RBAC roles.",
         "operationId": "get_workflow_metadata_v1_workflow_metadata_get",
+        "parameters": [
+          {
+            "description": "Optional metadata expansion. Use 'form' to include group, form_id, and has_form.",
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "const": "form",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional metadata expansion. Use 'form' to include group, form_id, and has_form.",
+              "title": "Include"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -4207,6 +4229,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [

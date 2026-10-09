@@ -11,7 +11,6 @@ API version: 0.1.0
 package configstore
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -22,7 +21,8 @@ var _ MappedNullable = &BatchConfigRequest{}
 // BatchConfigRequest Batch config creation request.
 type BatchConfigRequest struct {
 	// List of files to create/update
-	Files []BatchConfigItem `json:"files"`
+	Files                []BatchConfigItem `json:"files"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _BatchConfigRequest BatchConfigRequest
@@ -80,6 +80,11 @@ func (o BatchConfigRequest) MarshalJSON() ([]byte, error) {
 func (o BatchConfigRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["files"] = o.Files
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -107,15 +112,20 @@ func (o *BatchConfigRequest) UnmarshalJSON(data []byte) (err error) {
 
 	varBatchConfigRequest := _BatchConfigRequest{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varBatchConfigRequest)
+	err = json.Unmarshal(data, &varBatchConfigRequest)
 
 	if err != nil {
 		return err
 	}
 
 	*o = BatchConfigRequest(varBatchConfigRequest)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "files")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

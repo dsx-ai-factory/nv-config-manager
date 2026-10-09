@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,7 +20,8 @@ var _ MappedNullable = &WorkflowFormUnavailableResponse{}
 
 // WorkflowFormUnavailableResponse Response returned when a third-party form fails contract validation.
 type WorkflowFormUnavailableResponse struct {
-	Detail WorkflowFormUnavailableDetail `json:"detail"`
+	Detail               WorkflowFormUnavailableDetail `json:"detail"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _WorkflowFormUnavailableResponse WorkflowFormUnavailableResponse
@@ -79,6 +79,11 @@ func (o WorkflowFormUnavailableResponse) MarshalJSON() ([]byte, error) {
 func (o WorkflowFormUnavailableResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["detail"] = o.Detail
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -106,15 +111,20 @@ func (o *WorkflowFormUnavailableResponse) UnmarshalJSON(data []byte) (err error)
 
 	varWorkflowFormUnavailableResponse := _WorkflowFormUnavailableResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varWorkflowFormUnavailableResponse)
+	err = json.Unmarshal(data, &varWorkflowFormUnavailableResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = WorkflowFormUnavailableResponse(varWorkflowFormUnavailableResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "detail")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

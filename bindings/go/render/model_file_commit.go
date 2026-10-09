@@ -11,7 +11,6 @@ API version: 0.1.0
 package render
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,8 +20,9 @@ var _ MappedNullable = &FileCommit{}
 
 // FileCommit A rendered file and the config store commit it produced.
 type FileCommit struct {
-	Commit   string `json:"commit"`
-	Filename string `json:"filename"`
+	Commit               string `json:"commit"`
+	Filename             string `json:"filename"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _FileCommit FileCommit
@@ -106,6 +106,11 @@ func (o FileCommit) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["commit"] = o.Commit
 	toSerialize["filename"] = o.Filename
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -134,15 +139,21 @@ func (o *FileCommit) UnmarshalJSON(data []byte) (err error) {
 
 	varFileCommit := _FileCommit{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varFileCommit)
+	err = json.Unmarshal(data, &varFileCommit)
 
 	if err != nil {
 		return err
 	}
 
 	*o = FileCommit(varFileCommit)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "commit")
+		delete(additionalProperties, "filename")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

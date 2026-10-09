@@ -16,8 +16,9 @@
  */
 
 /**
- * Types for the registry-backed workflow catalog (`GET /v1/workflow/metadata`) and the
- * per-workflow form contract (`GET /v1/workflow/{form_id}/form`, wire contract v1).
+ * Types for the registry-backed workflow catalog
+ * (`GET /v1/workflow/metadata?include=form`) and the per-workflow form contract
+ * (`GET /v1/workflow/{form_id}/form`, wire contract v1).
  *
  * Kept apart from `data-table.types.ts` so catalog and form concerns do not keep
  * expanding the execution-table model.
@@ -36,7 +37,7 @@ export type JsonValue =
 export type JsonObject = { [key: string]: JsonValue };
 
 // ---------------------------------------------------------------------------
-// Workflow catalog (`/v1/workflow/metadata`)
+// Workflow catalog (`/v1/workflow/metadata?include=form`)
 // ---------------------------------------------------------------------------
 
 /**
@@ -54,7 +55,7 @@ export interface WorkflowCatalogOptionalFields {
 export type WorkflowCatalogEntryWire = WorkflowMetadata &
   WorkflowCatalogOptionalFields;
 
-/** The `/v1/workflow/metadata` response as received from the server. */
+/** The `/v1/workflow/metadata?include=form` response as received from the server. */
 export interface WorkflowCatalogResponseWire {
   workflows: WorkflowCatalogEntryWire[];
 }

@@ -148,7 +148,7 @@ async def test_metadata_includes_plugin_api_workflows_once_and_types_include_all
     mocker.patch.object(workflow_catalog, "RBACConfig", return_value=rbac)
 
     workflow_types = await workflow_v1.get_workflow_types()
-    metadata = await workflow_v1.get_workflow_metadata()
+    metadata = await workflow_v1.get_workflow_metadata(include="form")
     metadata_names = [item.name for item in metadata.workflows]
 
     assert workflow_types.count(_VisiblePluginWorkflow.__name__) == 1

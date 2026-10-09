@@ -11,7 +11,6 @@ API version: 0.1.0
 package configstore
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -33,7 +32,8 @@ type BatchConfigItem struct {
 	// Config file type (intended or backup)
 	FileType *FileType `json:"file_type,omitempty"`
 	// File name
-	Filename string `json:"filename"`
+	Filename             string `json:"filename"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _BatchConfigItem BatchConfigItem
@@ -257,6 +257,11 @@ func (o BatchConfigItem) ToMap() (map[string]interface{}, error) {
 		toSerialize["file_type"] = o.FileType
 	}
 	toSerialize["filename"] = o.Filename
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -287,15 +292,25 @@ func (o *BatchConfigItem) UnmarshalJSON(data []byte) (err error) {
 
 	varBatchConfigItem := _BatchConfigItem{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varBatchConfigItem)
+	err = json.Unmarshal(data, &varBatchConfigItem)
 
 	if err != nil {
 		return err
 	}
 
 	*o = BatchConfigItem(varBatchConfigItem)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "author")
+		delete(additionalProperties, "commit_message")
+		delete(additionalProperties, "content")
+		delete(additionalProperties, "created_at")
+		delete(additionalProperties, "file_type")
+		delete(additionalProperties, "filename")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

@@ -11,7 +11,6 @@ API version: 0.1.0
 package dhcp
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,8 +20,9 @@ var _ MappedNullable = &PoolRecord{}
 
 // PoolRecord Configured address pool.
 type PoolRecord struct {
-	Pool   string `json:"pool"`
-	Subnet string `json:"subnet"`
+	Pool                 string `json:"pool"`
+	Subnet               string `json:"subnet"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _PoolRecord PoolRecord
@@ -106,6 +106,11 @@ func (o PoolRecord) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["pool"] = o.Pool
 	toSerialize["subnet"] = o.Subnet
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -134,15 +139,21 @@ func (o *PoolRecord) UnmarshalJSON(data []byte) (err error) {
 
 	varPoolRecord := _PoolRecord{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varPoolRecord)
+	err = json.Unmarshal(data, &varPoolRecord)
 
 	if err != nil {
 		return err
 	}
 
 	*o = PoolRecord(varPoolRecord)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "pool")
+		delete(additionalProperties, "subnet")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

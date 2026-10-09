@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,8 +20,9 @@ var _ MappedNullable = &OptionSourceResponse{}
 
 // OptionSourceResponse Normalized response for a Python-declared direct option source.
 type OptionSourceResponse struct {
-	Items []OptionItem      `json:"items"`
-	Meta  *OptionSourceMeta `json:"meta,omitempty"`
+	Items                []OptionItem      `json:"items"`
+	Meta                 *OptionSourceMeta `json:"meta,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _OptionSourceResponse OptionSourceResponse
@@ -116,6 +116,11 @@ func (o OptionSourceResponse) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Meta) {
 		toSerialize["meta"] = o.Meta
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -143,15 +148,21 @@ func (o *OptionSourceResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varOptionSourceResponse := _OptionSourceResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varOptionSourceResponse)
+	err = json.Unmarshal(data, &varOptionSourceResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = OptionSourceResponse(varOptionSourceResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "items")
+		delete(additionalProperties, "meta")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

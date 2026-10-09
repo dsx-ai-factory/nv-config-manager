@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -28,7 +27,8 @@ type IBPKeyMemberDeleteInput struct {
 	// DCIM interfaces to resolve to InfiniBand port GUIDs.
 	Interfaces []InterfaceRef `json:"interfaces,omitempty"`
 	// Partition key whose members will be removed.
-	Pkey string `json:"pkey"`
+	Pkey                 string `json:"pkey"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _IBPKeyMemberDeleteInput IBPKeyMemberDeleteInput
@@ -184,6 +184,11 @@ func (o IBPKeyMemberDeleteInput) ToMap() (map[string]interface{}, error) {
 		toSerialize["interfaces"] = o.Interfaces
 	}
 	toSerialize["pkey"] = o.Pkey
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -212,15 +217,23 @@ func (o *IBPKeyMemberDeleteInput) UnmarshalJSON(data []byte) (err error) {
 
 	varIBPKeyMemberDeleteInput := _IBPKeyMemberDeleteInput{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varIBPKeyMemberDeleteInput)
+	err = json.Unmarshal(data, &varIBPKeyMemberDeleteInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = IBPKeyMemberDeleteInput(varIBPKeyMemberDeleteInput)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "guids")
+		delete(additionalProperties, "host")
+		delete(additionalProperties, "interfaces")
+		delete(additionalProperties, "pkey")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

@@ -339,7 +339,7 @@ test.describe("/workflows/new/<form_id>", () => {
     page,
   }) => {
     const requests = formRequests(page);
-    await page.route("**/v1/workflow/metadata", (route) =>
+    await page.route("**/v1/workflow/metadata?include=form", (route) =>
       route.fulfill({
         status: 200,
         json: {

@@ -193,12 +193,12 @@ describe("isLegacyWorkflowCatalog", () => {
 });
 
 describe("buildWorkflowCatalogUrl", () => {
-  it("joins the API URL with the metadata path like the existing callers", () => {
+  it("opts the generic form UI into form catalog metadata", () => {
     expect(buildWorkflowCatalogUrl("http://localhost:9000")).toBe(
-      "http://localhost:9000/v1/workflow/metadata"
+      "http://localhost:9000/v1/workflow/metadata?include=form"
     );
     expect(buildWorkflowCatalogUrl("http://localhost:9000/")).toBe(
-      "http://localhost:9000/v1/workflow/metadata"
+      "http://localhost:9000/v1/workflow/metadata?include=form"
     );
   });
 });

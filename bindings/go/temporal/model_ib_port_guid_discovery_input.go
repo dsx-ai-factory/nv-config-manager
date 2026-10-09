@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -26,7 +25,8 @@ type IBPortGuidDiscoveryInput struct {
 	// Identifiers of the InfiniBand switches whose interfaces will be synchronized.
 	SwitchDeviceIds []string `json:"switch_device_ids"`
 	// Identifier of the UFM device used to discover port GUIDs.
-	UfmDeviceId string `json:"ufm_device_id"`
+	UfmDeviceId          string `json:"ufm_device_id"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _IBPortGuidDiscoveryInput IBPortGuidDiscoveryInput
@@ -150,6 +150,11 @@ func (o IBPortGuidDiscoveryInput) ToMap() (map[string]interface{}, error) {
 	}
 	toSerialize["switch_device_ids"] = o.SwitchDeviceIds
 	toSerialize["ufm_device_id"] = o.UfmDeviceId
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -178,15 +183,22 @@ func (o *IBPortGuidDiscoveryInput) UnmarshalJSON(data []byte) (err error) {
 
 	varIBPortGuidDiscoveryInput := _IBPortGuidDiscoveryInput{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varIBPortGuidDiscoveryInput)
+	err = json.Unmarshal(data, &varIBPortGuidDiscoveryInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = IBPortGuidDiscoveryInput(varIBPortGuidDiscoveryInput)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "dry_run")
+		delete(additionalProperties, "switch_device_ids")
+		delete(additionalProperties, "ufm_device_id")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -32,7 +31,8 @@ type SitePasswordRotationInput struct {
 	// Device statuses used to filter the selected network devices.
 	Status []string `json:"status,omitempty"`
 	// Tenant used to filter the selected network devices.
-	Tenant NullableString `json:"tenant,omitempty"`
+	Tenant               NullableString `json:"tenant,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _SitePasswordRotationInput SitePasswordRotationInput
@@ -284,6 +284,11 @@ func (o SitePasswordRotationInput) ToMap() (map[string]interface{}, error) {
 	if o.Tenant.IsSet() {
 		toSerialize["tenant"] = o.Tenant.Get()
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -312,15 +317,25 @@ func (o *SitePasswordRotationInput) UnmarshalJSON(data []byte) (err error) {
 
 	varSitePasswordRotationInput := _SitePasswordRotationInput{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varSitePasswordRotationInput)
+	err = json.Unmarshal(data, &varSitePasswordRotationInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = SitePasswordRotationInput(varSitePasswordRotationInput)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "location")
+		delete(additionalProperties, "location_type")
+		delete(additionalProperties, "roles")
+		delete(additionalProperties, "selected_secret")
+		delete(additionalProperties, "status")
+		delete(additionalProperties, "tenant")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

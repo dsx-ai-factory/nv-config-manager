@@ -282,11 +282,16 @@ def test_an_invalid_third_party_form_is_unavailable(
     )
     mocker.patch.object(workflow_v1, "WORKFLOW_FORM_CATALOG", third_party_form_catalog)
 
-    metadata = client.get("/v1/workflow/metadata")
+    default_metadata = client.get("/v1/workflow/metadata")
+    metadata = client.get("/v1/workflow/metadata", params={"include": "form"})
     rsp = client.get("/v1/workflow/third-party/form")
 
+    assert default_metadata.status_code == 200
     assert metadata.status_code == 200
+    [default_entry] = default_metadata.json()["workflows"]
     [entry] = metadata.json()["workflows"]
+    assert default_entry["namespace"] is None
+    assert set(entry) == {*default_entry, "group", "form_id", "has_form"}
     assert entry["form_id"] == "third-party"
     assert entry["has_form"] is True
     assert rsp.status_code == 503
@@ -311,7 +316,7 @@ def test_metadata_marks_a_form_without_a_valid_form_id_unavailable(
     mocker.patch.object(workflow_v1, "WORKFLOW_API_CATALOG", tuple(registry.api_workflows))
     mocker.patch.object(workflow_v1, "WORKFLOW_FORM_CATALOG", form_catalog)
 
-    response = client.get("/v1/workflow/metadata")
+    response = client.get("/v1/workflow/metadata", params={"include": "form"})
 
     assert response.status_code == 200
     [entry] = response.json()["workflows"]

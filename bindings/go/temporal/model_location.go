@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,9 +20,10 @@ var _ MappedNullable = &Location{}
 
 // Location Site data for dropdown population.
 type Location struct {
-	Id           string         `json:"id"`
-	LocationType NullableString `json:"location_type,omitempty"`
-	Name         string         `json:"name"`
+	Id                   string         `json:"id"`
+	LocationType         NullableString `json:"location_type,omitempty"`
+	Name                 string         `json:"name"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _Location Location
@@ -155,6 +155,11 @@ func (o Location) ToMap() (map[string]interface{}, error) {
 		toSerialize["location_type"] = o.LocationType.Get()
 	}
 	toSerialize["name"] = o.Name
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -183,15 +188,22 @@ func (o *Location) UnmarshalJSON(data []byte) (err error) {
 
 	varLocation := _Location{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varLocation)
+	err = json.Unmarshal(data, &varLocation)
 
 	if err != nil {
 		return err
 	}
 
 	*o = Location(varLocation)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "id")
+		delete(additionalProperties, "location_type")
+		delete(additionalProperties, "name")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

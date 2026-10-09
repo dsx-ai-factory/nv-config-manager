@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -36,7 +35,8 @@ type BackupInput struct {
 	// Domain of the user requesting the backup.
 	UserDomain NullableString `json:"user_domain,omitempty"`
 	// Identifier of the parent workflow, if any.
-	WorkflowId NullableString `json:"workflow_id,omitempty"`
+	WorkflowId           NullableString `json:"workflow_id,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _BackupInput BackupInput
@@ -392,6 +392,11 @@ func (o BackupInput) ToMap() (map[string]interface{}, error) {
 	if o.WorkflowId.IsSet() {
 		toSerialize["workflow_id"] = o.WorkflowId.Get()
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -420,15 +425,27 @@ func (o *BackupInput) UnmarshalJSON(data []byte) (err error) {
 
 	varBackupInput := _BackupInput{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varBackupInput)
+	err = json.Unmarshal(data, &varBackupInput)
 
 	if err != nil {
 		return err
 	}
 
 	*o = BackupInput(varBackupInput)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "device_id")
+		delete(additionalProperties, "intended_config_commit_id")
+		delete(additionalProperties, "suppress_drift_notification")
+		delete(additionalProperties, "terminate_on_failure")
+		delete(additionalProperties, "trigger")
+		delete(additionalProperties, "user")
+		delete(additionalProperties, "user_domain")
+		delete(additionalProperties, "workflow_id")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

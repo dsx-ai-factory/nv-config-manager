@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,10 +20,11 @@ var _ MappedNullable = &WorkflowFormResponse{}
 
 // WorkflowFormResponse Version 1 input form of an API workflow, rendered with RJSF.  “schema“ is the form projection of the input model's JSON Schema, “ui_schema“ a validated subset of an RJSF “uiSchema“, “requires“ the capabilities the UI must support before rendering.
 type WorkflowFormResponse struct {
-	Requires        []string               `json:"requires"`
-	Schema          map[string]interface{} `json:"schema"`
-	UiSchema        map[string]interface{} `json:"ui_schema"`
-	UiSchemaVersion int32                  `json:"ui_schema_version"`
+	Requires             []string               `json:"requires"`
+	Schema               map[string]interface{} `json:"schema"`
+	UiSchema             map[string]interface{} `json:"ui_schema"`
+	UiSchemaVersion      int32                  `json:"ui_schema_version"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _WorkflowFormResponse WorkflowFormResponse
@@ -160,6 +160,11 @@ func (o WorkflowFormResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize["schema"] = o.Schema
 	toSerialize["ui_schema"] = o.UiSchema
 	toSerialize["ui_schema_version"] = o.UiSchemaVersion
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -190,15 +195,23 @@ func (o *WorkflowFormResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varWorkflowFormResponse := _WorkflowFormResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varWorkflowFormResponse)
+	err = json.Unmarshal(data, &varWorkflowFormResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = WorkflowFormResponse(varWorkflowFormResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "requires")
+		delete(additionalProperties, "schema")
+		delete(additionalProperties, "ui_schema")
+		delete(additionalProperties, "ui_schema_version")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

@@ -11,7 +11,6 @@ API version: 0.1.0
 package configstore
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -43,7 +42,8 @@ type ConfigResponse struct {
 	// Config file ID
 	Id string `json:"id"`
 	// Version number
-	Version int32 `json:"version"`
+	Version              int32 `json:"version"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _ConfigResponse ConfigResponse
@@ -383,6 +383,11 @@ func (o ConfigResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize["filename"] = o.Filename
 	toSerialize["id"] = o.Id
 	toSerialize["version"] = o.Version
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -419,15 +424,30 @@ func (o *ConfigResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varConfigResponse := _ConfigResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varConfigResponse)
+	err = json.Unmarshal(data, &varConfigResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ConfigResponse(varConfigResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "author")
+		delete(additionalProperties, "commit_message")
+		delete(additionalProperties, "content")
+		delete(additionalProperties, "content_hash")
+		delete(additionalProperties, "created_at")
+		delete(additionalProperties, "device")
+		delete(additionalProperties, "device_uuid")
+		delete(additionalProperties, "file_type")
+		delete(additionalProperties, "filename")
+		delete(additionalProperties, "id")
+		delete(additionalProperties, "version")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

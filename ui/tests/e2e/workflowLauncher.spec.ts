@@ -204,8 +204,8 @@ test.describe("New workflow launcher", () => {
   test("keeps the built-in list, disabled, when the catalog cannot load", async ({
     page,
   }) => {
-    await page.unroute("**/v1/workflow/metadata");
-    await page.route("**/v1/workflow/metadata", (route) =>
+    await page.unroute("**/v1/workflow/metadata?include=form");
+    await page.route("**/v1/workflow/metadata?include=form", (route) =>
       route.fulfill({ status: 500, json: { detail: "unavailable" } })
     );
 
@@ -232,7 +232,7 @@ test.describe("New workflow launcher", () => {
   test("disables links with an API upgrade message when metadata omits has_form", async ({
     page,
   }) => {
-    await page.route("**/v1/workflow/metadata", (route) =>
+    await page.route("**/v1/workflow/metadata?include=form", (route) =>
       route.fulfill({
         status: 200,
         json: {

@@ -11,7 +11,6 @@ API version: 0.1.0
 package configstore
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -34,7 +33,8 @@ type DeviceLatestConfig struct {
 	// Site name
 	Site string `json:"site"`
 	// DCIM provider device identifier
-	Uuid string `json:"uuid"`
+	Uuid                 string `json:"uuid"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _DeviceLatestConfig DeviceLatestConfig
@@ -262,6 +262,11 @@ func (o DeviceLatestConfig) ToMap() (map[string]interface{}, error) {
 	toSerialize["name"] = o.Name
 	toSerialize["site"] = o.Site
 	toSerialize["uuid"] = o.Uuid
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -294,15 +299,26 @@ func (o *DeviceLatestConfig) UnmarshalJSON(data []byte) (err error) {
 
 	varDeviceLatestConfig := _DeviceLatestConfig{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varDeviceLatestConfig)
+	err = json.Unmarshal(data, &varDeviceLatestConfig)
 
 	if err != nil {
 		return err
 	}
 
 	*o = DeviceLatestConfig(varDeviceLatestConfig)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "active")
+		delete(additionalProperties, "latest_author")
+		delete(additionalProperties, "latest_message")
+		delete(additionalProperties, "latest_update")
+		delete(additionalProperties, "name")
+		delete(additionalProperties, "site")
+		delete(additionalProperties, "uuid")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

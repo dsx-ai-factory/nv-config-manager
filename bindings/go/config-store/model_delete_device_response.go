@@ -11,7 +11,6 @@ API version: 0.1.0
 package configstore
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -26,7 +25,8 @@ type DeleteDeviceResponse struct {
 	// DCIM provider device identifier
 	DeviceUuid string `json:"device_uuid"`
 	// Human-readable result message
-	Message string `json:"message"`
+	Message              string `json:"message"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _DeleteDeviceResponse DeleteDeviceResponse
@@ -136,6 +136,11 @@ func (o DeleteDeviceResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize["deleted_versions"] = o.DeletedVersions
 	toSerialize["device_uuid"] = o.DeviceUuid
 	toSerialize["message"] = o.Message
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -165,15 +170,22 @@ func (o *DeleteDeviceResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varDeleteDeviceResponse := _DeleteDeviceResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varDeleteDeviceResponse)
+	err = json.Unmarshal(data, &varDeleteDeviceResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = DeleteDeviceResponse(varDeleteDeviceResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "deleted_versions")
+		delete(additionalProperties, "device_uuid")
+		delete(additionalProperties, "message")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

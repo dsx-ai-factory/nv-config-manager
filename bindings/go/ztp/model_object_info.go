@@ -11,7 +11,6 @@ API version: 0.1.0
 package ztp
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -31,7 +30,8 @@ type ObjectInfo struct {
 	// Object size in bytes
 	Size int32 `json:"size"`
 	// Object tags
-	Tags map[string]string `json:"tags,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _ObjectInfo ObjectInfo
@@ -261,6 +261,11 @@ func (o ObjectInfo) ToMap() (map[string]interface{}, error) {
 	if o.Tags != nil {
 		toSerialize["tags"] = o.Tags
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -290,15 +295,25 @@ func (o *ObjectInfo) UnmarshalJSON(data []byte) (err error) {
 
 	varObjectInfo := _ObjectInfo{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varObjectInfo)
+	err = json.Unmarshal(data, &varObjectInfo)
 
 	if err != nil {
 		return err
 	}
 
 	*o = ObjectInfo(varObjectInfo)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "etag")
+		delete(additionalProperties, "key")
+		delete(additionalProperties, "last_modified")
+		delete(additionalProperties, "metadata")
+		delete(additionalProperties, "size")
+		delete(additionalProperties, "tags")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

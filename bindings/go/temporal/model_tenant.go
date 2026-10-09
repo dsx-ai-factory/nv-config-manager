@@ -11,7 +11,6 @@ API version: 0.1.0
 package temporal
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -21,8 +20,9 @@ var _ MappedNullable = &Tenant{}
 
 // Tenant Tenant data for dropdown population.
 type Tenant struct {
-	Id   string `json:"id"`
-	Name string `json:"name"`
+	Id                   string `json:"id"`
+	Name                 string `json:"name"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _Tenant Tenant
@@ -106,6 +106,11 @@ func (o Tenant) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["id"] = o.Id
 	toSerialize["name"] = o.Name
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -134,15 +139,21 @@ func (o *Tenant) UnmarshalJSON(data []byte) (err error) {
 
 	varTenant := _Tenant{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varTenant)
+	err = json.Unmarshal(data, &varTenant)
 
 	if err != nil {
 		return err
 	}
 
 	*o = Tenant(varTenant)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "id")
+		delete(additionalProperties, "name")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

@@ -24,9 +24,9 @@ import type {
 /** Section for catalog entries that do not declare a `group`. */
 export const DEFAULT_WORKFLOW_GROUP = "Other";
 
-/** Build the catalog URL from the runtime workflow API URL. */
+/** Build the form-capable catalog URL from the runtime workflow API URL. */
 export const buildWorkflowCatalogUrl = (apiURL: string): string =>
-  sanitizeUrl(`${apiURL}/v1/workflow/metadata`);
+  sanitizeUrl(`${apiURL}/v1/workflow/metadata?include=form`);
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
