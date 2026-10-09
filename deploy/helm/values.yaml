@@ -990,6 +990,18 @@ gateway:
       endpoint: ""
       samplingRate: 0.1
 # =============================================================================
+# Inbound Service Authentication
+# =============================================================================
+auth:
+  # Trust X-Auth-Request-* identity headers on inbound requests.
+  # null (default): trusted only when neither SPIFFE nor OIDC is enabled.
+  # With either enabled, callers present a SPIFFE JWT-SVID or the bearer token
+  # oauth2-proxy forwards, and any in-cluster caller could forge the headers.
+  # Set true or false to override. Also governs the ssl-client-cert header.
+  # Listeners exposed without the gateway (ZTP http-lb, DHCP healthcheck) never
+  # trust these headers, whatever this is set to.
+  acceptRequestHeaders: null
+# =============================================================================
 # OIDC Configuration
 # =============================================================================
 oidc:

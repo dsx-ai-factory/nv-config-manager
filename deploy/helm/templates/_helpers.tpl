@@ -488,6 +488,8 @@ Usage: {{ include "nv-config-manager.authSidecar.inboundPort" . }}
 SPIFFE client sidecar -- spiffe-helper only (no envoy).
 Used by caller pods (consumers, workers, refresh jobs) that need to present
 JWT-SVIDs when calling API services but don't receive inbound requests.
+Pass "native" true to render it as a native sidecar (an initContainer with
+restartPolicy: Always) so Jobs can still complete.
 Usage: {{- include "nv-config-manager.spiffeClientSidecar" (dict "root" .) | nindent 8 }}
 */}}
 {{- define "nv-config-manager.spiffeClientSidecar" -}}
@@ -496,6 +498,9 @@ Usage: {{- include "nv-config-manager.spiffeClientSidecar" (dict "root" .) | nin
 - name: spiffe-helper
   image: {{ (index $spiffe "helper" | default dict).image.repository | default "ghcr.io/spiffe/spiffe-helper" }}:{{ (index $spiffe "helper" | default dict).image.tag | default "0.8.0" }}
   imagePullPolicy: {{ (index $spiffe "helper" | default dict).image.pullPolicy | default "IfNotPresent" }}
+  {{- if .native }}
+  restartPolicy: Always
+  {{- end }}
   args:
     - -config
     - /etc/spiffe-helper/helper.conf
@@ -586,6 +591,23 @@ false
 {{- end -}}
 
 {{/*
+Return "true" or "false" for [auth] accept_request_headers.
+An explicit auth.acceptRequestHeaders wins; otherwise headers are trusted only
+when neither SPIFFE nor OIDC provides a verifiable credential.
+Usage: accept_request_headers = {{ include "nv-config-manager.acceptRequestHeaders" . }}
+*/}}
+{{- define "nv-config-manager.acceptRequestHeaders" -}}
+{{- $configured := (.Values.auth | default dict).acceptRequestHeaders -}}
+{{- if kindIs "bool" $configured -}}
+{{ $configured }}
+{{- else if or (include "nv-config-manager.spiffe.enabled" .) .Values.oidc.enabled -}}
+false
+{{- else -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
 Auth INI sections for nv-config-manager.ini (replaces env-var–based auth config).
 Generates [auth], [auth.jwt.*], and [auth.spiffe] sections.
 Usage: {{ include "nv-config-manager.authIniSections" . }}
@@ -596,7 +618,7 @@ Usage: {{ include "nv-config-manager.authIniSections" . }}
 # -----------------------------------------------------------------
 [auth]
 required = {{ include "nv-config-manager.authRequired" . }}
-accept_request_headers = true
+accept_request_headers = {{ include "nv-config-manager.acceptRequestHeaders" . }}
 {{- if .Values.oidc.enabled }}
 cookie_name = {{ .Values.oidc.cookieName | default "NVConfigManagerAccessToken" }}
 {{- end }}
@@ -829,6 +851,54 @@ Usage: {{ include "nv-config-manager.waitForRedis" . | nindent 6 }}
     limits:
       cpu: 50m
       memory: 32Mi
+{{- end -}}
+
+{{/*
+Wait-for-SPIFFE-JWT init container
+Blocks until spiffe-helper has written the JWT-SVID. Must follow a native
+spiffeClientSidecar; without a token, internal clients fall back to
+X-Auth-Request-* headers, which services with allowed_groups reject.
+Usage: {{- include "nv-config-manager.waitForSpiffeJwt" . | nindent 6 }}
+*/}}
+{{- define "nv-config-manager.waitForSpiffeJwt" -}}
+{{- $spiffe := .Values.spiffe | default dict }}
+{{- if and (index $spiffe "enabled") (eq (index $spiffe "authMode" | default "jwt") "jwt") }}
+- name: wait-for-spiffe-jwt
+  image: "{{ .Values.global.images.busybox.repository }}:{{ .Values.global.images.busybox.tag }}"
+  imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
+  command:
+    - sh
+    - -c
+    - |
+      echo "Waiting for JWT-SVID at /var/run/secrets/spiffe/jwt-svid..."
+      for i in $(seq 1 90); do
+        if [ -s /var/run/secrets/spiffe/jwt-svid ]; then
+          echo "JWT-SVID is ready!"
+          exit 0
+        fi
+        sleep 2
+      done
+      echo "Timed out waiting for JWT-SVID" >&2
+      exit 1
+  securityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: true
+    runAsUser: 65534
+    capabilities:
+      drop:
+        - ALL
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 50m
+      memory: 32Mi
+  volumeMounts:
+    - name: spiffe-jwt-svid
+      mountPath: /var/run/secrets/spiffe
+      readOnly: true
+{{- end }}
 {{- end -}}
 
 {{/*
