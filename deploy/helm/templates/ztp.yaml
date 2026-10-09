@@ -58,8 +58,7 @@ spec:
       {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
       {{- end }}
       containers:
-      # HTTP API container for user access (via envoy/gateway with SSO/mTLS headers)
-      # ACCEPT_REQUEST_HEADERS=true allows SSO/mTLS header-based authorization
+      # HTTP API container for user access through the gateway
       # Mounts os-images read-write so uploads can write files and update manifest.json
       - name: http-api
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -76,8 +75,6 @@ spec:
         {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
-        - name: ACCEPT_REQUEST_HEADERS
-          value: "true"
         {{- include "nv-config-manager.networkZtpStorageEnv" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-ztp") | nindent 8 }}
@@ -127,7 +124,6 @@ spec:
           failureThreshold: 3
 
       # HTTP API container for device access via LoadBalancer (IP-based authorization)
-      # No ACCEPT_REQUEST_HEADERS - uses client IP validation against Nautobot device addresses
       {{- if or .Values.networkZtp.ingress.nlb .Values.networkZtp.ingress.cilium .Values.networkZtp.ingress.metallb }}
       - name: http-lb
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -207,13 +203,18 @@ spec:
           name: sftp-metrics
         resources:
           {{- toYaml .Values.networkZtp.resources.sftp | nindent 10 }}
-        {{- if or $ztpConfigVolume $ztpFileStorage .Values.dcim.providerPackages.enabled }}
+        {{- if or $ztpConfigVolume $ztpFileStorage $ztpSpiffeJwt .Values.dcim.providerPackages.enabled }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
         {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if $ztpFileStorage }}
         - name: os-images
           mountPath: {{ .Values.networkZtp.storage.file.mountPath | default "/mnt/images" }}
+          readOnly: true
+        {{- end }}
+        {{- if $ztpSpiffeJwt }}
+        - name: spiffe-jwt-svid
+          mountPath: /var/run/secrets/spiffe
           readOnly: true
         {{- end }}
         {{- end }}

@@ -162,8 +162,6 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathDhcp" . | quote }}
         - name: NV_CONFIG_MANAGER_SERVICE
           value: "dhcp"
-        - name: ACCEPT_REQUEST_HEADERS
-          value: "true"
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
