@@ -301,7 +301,8 @@ def test_an_invalid_third_party_form_is_unavailable(
         "plugin": "acme",
         "workflow": "_ThirdPartyWorkflow",
     }
-    assert "ui:widget 'radio' is not one of" in detail["message"]
+    assert detail["message"] == workflow_v1._WORKFLOW_FORM_UNAVAILABLE_MESSAGE
+    assert "ui:widget 'radio' is not one of" not in rsp.text
 
 
 def test_metadata_marks_a_form_without_a_valid_form_id_unavailable(
@@ -339,7 +340,8 @@ def test_a_malformed_option_source_fails_only_its_form(
     rsp = client.get("/v1/workflow/third-party/form")
 
     assert rsp.status_code == 503
-    assert "endpoint must start with a single '/'" in rsp.json()["detail"]["message"]
+    assert rsp.json()["detail"]["message"] == workflow_v1._WORKFLOW_FORM_UNAVAILABLE_MESSAGE
+    assert "endpoint must start with a single '/'" not in rsp.text
     builtin_registry = WorkflowRegistry.build(
         {
             BUILTIN_PLUGIN_NAME: WorkflowPluginDescriptor(
