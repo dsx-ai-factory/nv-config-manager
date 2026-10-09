@@ -16,12 +16,6 @@
  */
 
 /**
- * The SpX Overlay Tenant Change form on its form ID route (the legacy
- * `/workflows/spxoverlaytenantchangeworkflow/form` redirects there): a typed Site
- * location, an optional overlay of that Site, a device that takes its Site from the
- * location field (`siteField`, so no second Site control), and the device's ports
- * (`/v1/parameter/device/{device_id}/interfaces`), cleared when the device changes.
- *
  * Both repeated and legacy comma-separated `?port_names=` links are accepted. Submit
  * is enabled while the form is incomplete and reports "<label> is required"; a ports
  * load failure shows under the Ports picker.

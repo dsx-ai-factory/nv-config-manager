@@ -136,7 +136,7 @@ const RjsfForm = ({ entry, form, searchParams }: WorkflowRjsfFormProps) => {
     const payload = buildPayload(schema, uiSchema, state.formData);
     setSubmitting(true);
     try {
-      await startWorkflow(submitPath, payload); // navigates to the new run
+      await startWorkflow(submitPath, payload);
       dispatch({ type: "server-errors", errors: undefined });
     } catch (error) {
       const mapped =

@@ -34,7 +34,7 @@ The dynamic API generator:
 
 All workflows use the metadata system, including:
 
-- **BackupWorkflow**: `/ngc/backup` - "Backup network device configuration to Config Store"
+- **BackupWorkflow**: `/ngc/backup` - "Backup network device configuration to the Config Store and NVIDIA Config Manager plugin"
 - **DeployWorkflow**: `/ngc/deploy` - "Deploy intended configuration to network device with approval workflow"
 - **VpcCreationWorkflow**: `/ngc/vpc_creation` - "Create VPC with route distinguisher assignment and VRF provisioning"
 - **VpcDeletionWorkflow**: `/ngc/vpc_deletion` - "Delete VPC and associated VRFs with validation checks"
@@ -61,11 +61,16 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
     """Network device configuration backup workflow."""
 
     # Workflow metadata
-    workflow_name = "Backup"
-    workflow_description = "Backup network device configuration to Config Store"
+    workflow_name = "Configuration Backup"
+    workflow_group = "Configuration"
+    workflow_description = (
+        "Backup network device configuration to the Config Store and NVIDIA Config Manager plugin"
+    )
     workflow_input_class = BackupInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/backup"
+    workflow_form_enabled = True
+    workflow_form_id = "backup"
     workflow_namespace = "ngc"
 
     @workflow.run
@@ -336,8 +341,8 @@ Returns metadata for each API-enabled workflow and the RBAC roles needed by the 
   "workflows": [
     {
       "name": "BackupWorkflow",
-      "display_name": "Backup",
-      "description": "Backup network device configuration to Config Store",
+      "display_name": "Configuration Backup",
+      "description": "Backup network device configuration to the Config Store and NVIDIA Config Manager plugin",
       "endpoint": "/ngc/backup",
       "namespace": "ngc",
       "cli_name": "backup",
@@ -348,6 +353,9 @@ Returns metadata for each API-enabled workflow and the RBAC roles needed by the 
   ]
 }
 ```
+
+The `read_roles` and `execute_roles` values depend on the deployment's RBAC
+configuration; the example above shows the default open configuration.
 
 Request form-discovery metadata explicitly when building a workflow launcher:
 
@@ -367,7 +375,9 @@ earlier versions of the API can continue decoding the response.
 def test_workflow_metadata():
     """Test that workflow has complete metadata."""
     assert BackupWorkflow.has_complete_metadata()
-    assert BackupWorkflow.get_workflow_description() == "Backup network device configuration to Config Store"
+    assert BackupWorkflow.get_workflow_description() == (
+        "Backup network device configuration to the Config Store and NVIDIA Config Manager plugin"
+    )
     assert BackupWorkflow.get_workflow_api_endpoint() == "/ngc/backup"
     assert BackupWorkflow.get_workflow_input_class() == BackupInput
 

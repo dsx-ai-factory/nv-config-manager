@@ -16,10 +16,6 @@
  */
 
 /**
- * The Site Configuration Backup form on its form ID route (the legacy
- * `/workflows/sitebackupworkflow/form` redirects there): a typed Site location, Roles,
- * Device Status, and Tenant pickers, and the backup-enabled checkbox.
- *
  * Differences from the legacy page, by design: the Site's location type is submitted
  * as `site_type`; empty Roles are omitted (the server default is `[]`); `?role=` is an
  * alias of `?roles=`.

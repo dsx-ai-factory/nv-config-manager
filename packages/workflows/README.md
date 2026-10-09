@@ -369,7 +369,7 @@ the same `RegistryManifest` in-process, call `registry_manifest(registry)` from
 
 ### Workflow forms
 
-The UI launcher renders an API-enabled workflow's start form with
+The UI launcher renders a form-enabled API workflow's start form with
 [RJSF](https://rjsf-team.github.io/react-jsonschema-form/) from
 `GET /v1/workflow/{form_id}/form`, where `{form_id}` is the workflow's explicit
 `workflow_form_id`. The response is a version 1 envelope:
@@ -850,10 +850,10 @@ compatibility options. New forms use property names, repeated parameters, and
 #### Form-catalog errors and plugin isolation
 
 The workflow API builds a `WorkflowFormCatalog` from its `WorkflowRegistry` and
-validates the `/form` envelope of every API-enabled workflow. Temporal workers,
-schedulers, MCP, and the CLI build only the execution registry and do not build
-or validate browser forms. Workflows remain executable through the API or CLI
-without a browser form by default. A workflow opts in by declaring
+validates the `/form` envelope of every form-enabled API workflow. Temporal
+workers, schedulers, MCP, and the CLI build only the execution registry and do
+not build or validate browser forms. Workflows remain executable through the
+API or CLI without a browser form by default. A workflow opts in by declaring
 `workflow_form_enabled = True` and a `workflow_form_id` on its class. The
 metadata catalog reports `has_form: false` for workflows that do not opt in.
 `has_form: true` means the form contract is enabled and discoverable; its form
@@ -876,9 +876,12 @@ order to contribute the class, with the built-in plugin first:
   plugin, workflow, and sanitized message. The workflow, its execution
   endpoint, the CLI, and MCP are unaffected. Only its form is unavailable:
   `GET /v1/workflow/{form_id}/form` returns HTTP 503 with
-  `{"detail": {"code": "workflow_form_unavailable", "plugin": "...", "workflow": "...", "message": "..."}}`,
-  and the launcher shows the diagnostic with **Return to Workflows** and no
-  **Try again** action.
+  `workflow_form_unavailable`, the plugin and workflow identifiers, and the
+  generic message "This workflow form is unavailable because its plugin failed
+  form validation." The launcher shows that generic message with **Return to
+  Workflows** and no **Try again** action. The detailed sanitized validation
+  message remains in the form catalog, is written to the API startup log, and
+  is reported by the plugin-validation CLI.
 
 Other registration errors, such as invalid metadata, duplicate endpoints, or
 missing activities, remain fatal for every plugin. Inspect a plugin's form

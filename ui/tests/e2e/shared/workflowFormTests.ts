@@ -208,7 +208,6 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
       });
       await expect(page.getByText("Site is required")).toHaveCount(0);
 
-      // After the failed submit, validation is live.
       await choose(page, SELECT_SITE, site);
       await expect(
         page.getByText("Device is required", { exact: true })
@@ -252,7 +251,6 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
       await choose(page, SELECT_DEVICE, otherDevice.name);
       await expect(selected(page, otherDevice.name)).toBeVisible();
 
-      // The Site picker's clear button comes first.
       await page
         .getByRole("button", { name: "Clear selection" })
         .first()
@@ -407,7 +405,6 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
       await expect(formErrors(page)).toContainText("user: Field required");
       await noFailureToast(page);
 
-      // Changing the device clears its server error.
       await selected(page, device.name).click();
       await page
         .getByRole("dialog")
@@ -419,10 +416,16 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
       await expect(page.getByRole("button", { name: "Submit" })).toBeEnabled();
     });
 
-    test("shows a string 422 detail as a form-level error", async ({
+    test("shows a canonicalization 422 detail as a form-level error", async ({
       page,
     }) => {
-      await reply422(page, endpoint, "Device is not reachable from this site");
+      await reply422(page, endpoint, [
+        {
+          type: "value_error",
+          loc: ["body"],
+          msg: "Device is not reachable from this site",
+        },
+      ]);
       await choose(page, SELECT_SITE, site);
       await choose(page, SELECT_DEVICE, device.name);
       await submit(page);

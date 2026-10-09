@@ -16,7 +16,6 @@
  * limitations under the License.
  */
 
-/** Pieces the three core fields share: option matching and the labelled picker. */
 import * as React from "react";
 import {
   ariaDescribedByIds,

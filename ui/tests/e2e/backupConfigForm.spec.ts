@@ -16,10 +16,7 @@
  */
 
 /**
- * The Configuration Backup form on its form ID route (the legacy
- * `/workflows/backupworkflow/form` redirects there).
- *
- * Replaces the legacy page's "Additional Tests" (plan section 2): the legacy page posted
+ * Replaces the legacy page's "Additional Tests": the legacy page posted
  * `intended_config_commit_id: ""`, `user: ""`, `user_domain`, and `workflow_id: ""`; the
  * RJSF form posts only projected inputs, the device plus the hidden `trigger` whose
  * form-only default is "API" (the model requires it), and the server fills the rest.

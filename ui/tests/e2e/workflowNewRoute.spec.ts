@@ -15,11 +15,6 @@
  * limitations under the License.
  */
 
-/**
- * The form ID form route `/workflows/new/<form_id>` against real server
- * output: the `/metadata` baseline and `/form` snapshot the API tests keep, with the
- * parameter endpoints mocked as the server answers them.
- */
 import {
   expect,
   type Page,
@@ -124,7 +119,6 @@ test.describe("/workflows/new/<form_id>", () => {
     await expect(picker(page, "Select Tenant (optional)...")).toBeEnabled();
     await expect(picker(page, "Select Status (optional)...")).toBeEnabled();
 
-    // No device list until a site is chosen.
     await expect(picker(page, "Select a Site first")).toBeDisabled();
     expect(deviceRequests).toEqual([]);
 
@@ -146,7 +140,6 @@ test.describe("/workflows/new/<form_id>", () => {
       commit_confirm: true,
     });
 
-    // Like the legacy forms: on to the new run.
     await expect(
       page.getByRole("heading", { name: "Workflow Details" })
     ).toBeVisible({
@@ -239,7 +232,6 @@ test.describe("/workflows/new/<form_id>", () => {
       await expect(page.getByText(/^Could not load .* options/)).toHaveCount(0);
     }
 
-    // Schema defaults from the snapshot, shown against the loaded options.
     await page.goto("/workflows/new/site-cable-validation");
     await expect(
       picker(
@@ -248,7 +240,6 @@ test.describe("/workflows/new/<form_id>", () => {
       )
     ).toBeVisible();
 
-    // Overlays follow the chosen site and its location type.
     await page.goto("/workflows/new/spx-overlay-deletion");
     await expect(picker(page, "Select a Overlay ID...")).toBeDisabled();
     await expect(picker(page, "spectrumx. Open options")).toBeVisible();
@@ -436,10 +427,11 @@ test.describe("/workflows/new/<form_id>", () => {
     ).toBeVisible();
   });
 
-  test("an unavailable plugin form (503) shows its diagnostic, without Try again", async ({
+  test("an unavailable plugin form (503) shows its generic diagnostic, without Try again", async ({
     page,
   }) => {
-    const diagnostic = "device_id: ui:field 'rack' is not a core field";
+    const diagnostic =
+      "This workflow form is unavailable because its plugin failed form validation.";
     await page.route("**/v1/workflow/deploy/form", (route) =>
       route.fulfill({
         status: 503,
@@ -515,7 +507,6 @@ test.describe("/workflows/new/<form_id>", () => {
       page.getByRole("checkbox", { name: "Use commit-confirm" })
     ).toBeDisabled();
 
-    // Same text as the launcher's tooltip for the same entry.
     await page.getByRole("button", { name: "New workflow" }).click();
     const launcherEntry = page
       .getByRole("dialog")
@@ -687,7 +678,6 @@ test.describe("legacy form URLs", () => {
       const legacy = new URL(legacyUrl, "http://ui.test");
       const forms = formRequests(page);
 
-      // The server answers 307 with the form ID route and the same query string.
       const response = await page.request.get(legacyUrl, { maxRedirects: 0 });
       expect(response.status()).toBe(307);
       const location = new URL(response.headers()["location"], legacy);
@@ -695,7 +685,6 @@ test.describe("legacy form URLs", () => {
       expect(location.pathname).toBe(`/workflows/new/${formId}`);
       expect(location.search).toBe(legacy.search);
 
-      // A browser following it lands on the generic route with the values filled in.
       const landed = await page.goto(legacyUrl);
       expect(
         (await landed?.request().redirectedFrom()?.response())?.status()

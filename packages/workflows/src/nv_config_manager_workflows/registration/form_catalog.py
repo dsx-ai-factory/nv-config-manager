@@ -125,7 +125,6 @@ class WorkflowFormCatalog:
                 )
                 workflow_providers: list[FormOptionProviderBinding] = []
                 for source, source_uses in uses.items():
-                    # Resolution above establishes both the mapping and type.
                     declaration = declarations[source]
                     workflow_providers.append(
                         FormOptionProviderBinding(
@@ -231,7 +230,6 @@ def _resolve_provider_declaration(
 
 
 def _provider_endpoint(workflow_form_id: str, source: str) -> str:
-    """Return the stable public endpoint compiled into the browser form."""
     return f"/v1/workflow/{workflow_form_id}/form-options/{source}"
 
 
@@ -253,7 +251,6 @@ def _resolve_workflow_form_ids(
             form_id_error = _workflow_form_id_error(workflow, form_id)
             if form_id_error is not None:
                 raise WorkflowFormContractError(form_id_error)
-            # The type guard above establishes this for the type checker and reader.
             assert isinstance(form_id, str)
             candidates.setdefault(form_id, []).append(workflow)
         except Exception as error:  # noqa: BLE001 - isolate untrusted plugin accessors

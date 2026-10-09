@@ -182,7 +182,9 @@ describe("fetchWorkflowForm", () => {
     expect((await fetchWorkflowForm(API_URL, "BackupWorkflow")).kind).toBe(kind);
   });
 
-  it("maps a plugin form diagnostic (503 workflow_form_unavailable) to unavailable", async () => {
+  it("maps a generic plugin form diagnostic (503 workflow_form_unavailable) to unavailable", async () => {
+    const diagnostic =
+      "This workflow form is unavailable because its plugin failed form validation.";
     stubFetch(async () =>
       jsonResponse(
         {
@@ -190,7 +192,7 @@ describe("fetchWorkflowForm", () => {
             code: "workflow_form_unavailable",
             plugin: "acme",
             workflow: "AcmeWorkflow",
-            message: "ui_schema.device: unknown ui:field 'gizmo'",
+            message: diagnostic,
           },
         },
         503
@@ -201,7 +203,7 @@ describe("fetchWorkflowForm", () => {
 
     expect(result).toMatchObject({
       kind: "unavailable",
-      diagnostic: "ui_schema.device: unknown ui:field 'gizmo'",
+      diagnostic,
     });
     expect(result.kind === "unavailable" && result.message).toMatch(/plugin "acme"/);
   });

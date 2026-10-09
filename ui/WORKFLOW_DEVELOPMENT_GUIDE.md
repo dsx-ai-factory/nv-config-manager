@@ -1,6 +1,6 @@
 # Workflow Form Development
 
-The workflow launcher uses one generic RJSF renderer. API-enabled workflows
+The workflow launcher uses one generic RJSF renderer. Form-enabled API workflows
 declare their form in Python on the workflow input model; do not add a
 workflow-specific page or React form component.
 
@@ -45,7 +45,7 @@ The unit test in `tests/unit/workflow-form.test.ts` also verifies that the UI's
 workflow form JSON Schema and capability manifest are byte-for-byte identical
 to the canonical copies in `packages/workflows`.
 
-The workflow API must include a boolean `has_form` and, for form-enabled
+The workflow API must include a boolean `has_form` and, for form-enabled API
 workflows, an explicit lowercase kebab-case `form_id` in every entry returned
 by `GET /v1/workflow/metadata?include=form`. The request without `include=form`
 retains the legacy response shape. The UI deliberately does not infer either

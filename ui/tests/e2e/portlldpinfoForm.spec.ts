@@ -16,9 +16,6 @@
  */
 
 /**
- * The Port LLDP Info form on its form ID route (the legacy
- * `/workflows/portlldpinfoworkflow/form` redirects there).
- *
  * Device lookup requires Site, device, and interface. Device lookup and MAC lookup
  * remain mutually exclusive: using either mode disables the other, and incomplete
  * modes are blocked before submission while the API boundary remains authoritative.
@@ -208,7 +205,6 @@ test.describe("Port LLDP Info Form - URL prefill", () => {
   }) => {
     const query = `?site=${SITE}&device-id=${DEVICE.id}&interface=${INTERFACE}`;
     await page.goto(`/workflows/portlldpinfoworkflow/form${query}`);
-    // The redirect keeps the query (re-encoding "/" as %2F).
     await expect(page).toHaveURL(
       (url) =>
         url.pathname === PATH && url.searchParams.get("interface") === INTERFACE
@@ -243,7 +239,6 @@ test.describe("Port LLDP Info Form - URL prefill", () => {
     page,
   }) => {
     await page.goto(`${PATH}?site=NOPE&device-id=${DEVICE.id}`);
-    // A required unknown Site is dropped, so the device picker stays unavailable.
     await expect(picker(page, SELECT_SITE)).toBeVisible({
       timeout: TEST_TIMEOUT,
     });

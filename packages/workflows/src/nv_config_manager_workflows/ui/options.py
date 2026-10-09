@@ -31,7 +31,6 @@ from nv_config_manager_workflows.ui.option_sources import (
 )
 
 type OptionPresentation = Literal["select", "grouped-checkboxes"]
-"""A presentation supported by the generic API-options field."""
 
 
 def api_options(

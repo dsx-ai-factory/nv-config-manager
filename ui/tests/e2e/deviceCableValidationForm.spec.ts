@@ -15,11 +15,6 @@
  * limitations under the License.
  */
 
-/**
- * The Device Cable Validation form on its form ID route (the legacy
- * `/workflows/devicecablevalidationworkflow/form` redirects there). The shared suite
- * replaces the legacy page's tests; the payload is unchanged (`{device_id}`).
- */
 import { FORBIDDEN_DEVICE_IDS } from "@/mocks/data";
 
 import { runWorkflowFormTests } from "./shared/workflowFormTests";

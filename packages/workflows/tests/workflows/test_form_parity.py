@@ -15,7 +15,7 @@
 """Golden payload parity between legacy form pages and the generic form.
 
 ``ui/tests/e2e/fixtures/form-parity/<slug>.json`` holds, per scenario, the POST
-body the legacy page sent and the one ``/workflows/new/<ClassName>`` sends
+body the legacy page sent and the one ``/workflows/new/<form_id>`` sends
 (``ui/tests/e2e/formParity.spec.ts`` captures them). Byte equality is not
 required: key order and omitted defaults differ legitimately. Both must validate
 against the workflow's input model and be equal afterwards, and the generic
@@ -61,7 +61,7 @@ EXPECTED_DIFFERENCES: dict[tuple[str, str], str] = {
         "manual site and device",
     ): (
         "the legacy Backup form sent user_domain 'nvidia.com'; the field is now FormExcluded, "
-        "so the generic form omits it and the API retains its legacy absent-value fallback; "
+        "so the generic form omits it and the API retains its legacy missing-value fallback; "
         "the blank workflow_id and "
         "intended_config_commit_id it also sent are FormExcluded"
     ),

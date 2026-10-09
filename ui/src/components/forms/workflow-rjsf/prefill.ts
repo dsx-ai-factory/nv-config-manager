@@ -21,14 +21,6 @@
  * initial form data and are never pending; core fields and device filter scopes read
  * their own raw values from the snapshot later and start pending only when one of
  * their parameters is present.
- *
- * | Owner                    | Parameters                                          |
- * | ------------------------ | --------------------------------------------------- |
- * | standard projected field | its property name (not hidden, no `ui:field`)        |
- * | `field:<apiOptions>`     | property name + `queryAliases`                      |
- * | `field:<location>`       | property name + `queryAliases`                      |
- * | `field:<device>`         | `queryParam` + `queryAliases` (none without one)    |
- * | `scope:<scope id>`       | `site` (own Site filter), `tenant`, `status`        |
  */
 import type { FormData, Owner, QuerySnapshot } from "./state";
 import {

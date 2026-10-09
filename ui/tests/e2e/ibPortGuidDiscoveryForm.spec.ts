@@ -16,10 +16,7 @@
  */
 
 /**
- * The InfiniBand Port GUID Discovery form on its form ID route (the legacy
- * `/workflows/ibportguiddiscoveryworkflow/form` redirects there): a UFM device and the
- * switches to update, sharing one Site filter (the "fabric-devices" scope), and a
- * dry-run checkbox on by default. Like the legacy page, only `?site=` prefills.
+ * Like the legacy page, only `?site=` prefills.
  */
 import { expect } from "@playwright/test";
 
@@ -105,7 +102,7 @@ test("?site= prefills the shared Site filter", async ({ page }) => {
   await expect(picker(page, SELECT_SWITCHES)).toBeEnabled();
 });
 
-test("shows a forbidden UFM device in the failure toast and a string 422 form-level", async ({
+test("shows a forbidden UFM device in the failure toast and a canonicalization error form-level", async ({
   page,
 }) => {
   const forbiddenUfm = DEVICES_LIST[FORBIDDEN_SITE_ID].find((d) => d.platform === "UFM")!;
@@ -118,7 +115,18 @@ test("shows a forbidden UFM device in the failure toast and a string 422 form-le
   await expectFailureToast(page, "Forbidden: You do not have permission to run this workflow");
 
   await page.route(`**${ENDPOINT}`, (route) =>
-    route.fulfill({ status: 422, json: { detail: "UFM device is not reachable" } })
+    route.fulfill({
+      status: 422,
+      json: {
+        detail: [
+          {
+            type: "value_error",
+            loc: ["body"],
+            msg: "UFM device is not reachable",
+          },
+        ],
+      },
+    })
   );
   await submit(page);
   await expect(formErrors(page)).toContainText("UFM device is not reachable");

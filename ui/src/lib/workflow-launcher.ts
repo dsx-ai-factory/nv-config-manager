@@ -131,8 +131,9 @@ const getOverride = (
     : undefined;
 
 /**
- * Launcher entries in display order: every catalog workflow with a form plus every
- * overridden built-in, minus the ones an override hides.
+ * Launcher entries in display order: catalog workflows unless they explicitly disable
+ * forms, plus overridden built-ins, minus the ones an override hides. Legacy or malformed
+ * catalog entries remain visible but disabled so their compatibility error is actionable.
  */
 export const buildWorkflowLauncherItems = (
   catalog: readonly WorkflowCatalogEntry[],

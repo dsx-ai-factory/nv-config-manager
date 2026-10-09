@@ -16,10 +16,6 @@
  */
 
 /**
- * The Cumulus Hardware Validation form (`ValidateHardwareWorkflow`) on its class-name
- * route (the legacy `/workflows/cumulushardwarevalidationworkflow/form` redirects
- * there).
- *
  * Differences from the legacy page, by design: it no longer posts
  * `device_type_ids: []` and `raise_for_invalid: false` (not form inputs; the model
  * defaults are the same values); the Site's location type is submitted as `site_type`;

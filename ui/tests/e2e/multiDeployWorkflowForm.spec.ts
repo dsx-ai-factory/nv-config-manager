@@ -16,9 +16,6 @@
  */
 
 /**
- * The Multi-Configuration Deploy form on its form ID route (the legacy
- * `/workflows/multideployworkflow/form` redirects there).
- *
  * Differences from the legacy page, by design: unset optional inputs are omitted
  * rather than posted as `null`; the Location's type is submitted as `location_type`;
  * the batch-size range (1-100, a form-only constraint) reports Ajv's messages
@@ -153,7 +150,6 @@ test.describe("Multi-Configuration Deploy Form", () => {
     await expect(formErrors(page)).toContainText("Value error, no devices match");
     await noFailureToast(page);
 
-    // Correcting the field clears its error.
     await batchSize(page).fill("5");
     await expect(page.getByText("Value error, too many devices")).toHaveCount(0);
 

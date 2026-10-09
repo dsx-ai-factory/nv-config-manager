@@ -144,7 +144,6 @@ SPX_OVERLAY_SOURCE = ui.OptionSource(
     },
     clear_on_change=True,
 )
-"""SpX overlays at the form's ``site``; cleared when the site changes."""
 
 
 class SpXOverlayCreationInput(BaseModel):

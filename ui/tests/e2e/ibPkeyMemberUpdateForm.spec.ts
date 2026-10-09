@@ -16,8 +16,7 @@
  */
 
 /**
- * The IB PKey Member Update generic form on its form ID route. The Python form
- * declaration supplies its mutually exclusive interface/GUID row variants.
+ * The Python form declaration supplies mutually exclusive interface/GUID row variants.
  */
 import { expect } from "@playwright/test";
 import { mockServerCatalogAndUser } from "./shared/apiMocks";

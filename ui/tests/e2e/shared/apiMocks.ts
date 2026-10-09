@@ -358,7 +358,6 @@ export async function mockDevicePasswordRotationEndpoint(page: Page) {
         return;
       }
 
-      // Check if device is forbidden
       if (Object.values(FORBIDDEN_DEVICE_IDS).includes(body.device_id)) {
         await route.fulfill({
           status: 403,
@@ -370,10 +369,8 @@ export async function mockDevicePasswordRotationEndpoint(page: Page) {
         return;
       }
 
-      // Simulate processing delay (reduced for faster tests)
       await delay(100);
 
-      // Return success response
       await route.fulfill({
         status: 201,
         json: {
@@ -400,7 +397,6 @@ export async function mockSitePasswordRotationEndpoint(page: Page) {
         return;
       }
 
-      // Check if site is forbidden
       if (body.location === FORBIDDEN_SITE_ID) {
         await route.fulfill({
           status: 403,
@@ -412,10 +408,8 @@ export async function mockSitePasswordRotationEndpoint(page: Page) {
         return;
       }
 
-      // Simulate processing delay (reduced for faster tests)
       await delay(100);
 
-      // Return success response
       await route.fulfill({
         status: 201,
         json: {
@@ -1850,10 +1844,10 @@ export async function mockWorkflowDetailsEndpoint(page: Page) {
 }
 
 /**
- * The real `GET /v1/workflow/{form_id}/form` response of every built-in API workflow, as the
- * API tests snapshot it (`src/tests/temporal/api/test_workflow_form.py`; regenerate with
- * `NVCM_UPDATE_SNAPSHOTS=1`), so UI tests run against actual server output. The
- * dev-server MSW mocks keep verbatim copies of a few entries
+ * The real `GET /v1/workflow/{form_id}/form` response for every built-in API workflow with
+ * a form, as the API tests snapshot it (`src/tests/temporal/api/test_workflow_form.py`;
+ * regenerate with `NVCM_UPDATE_SNAPSHOTS=1`), so UI tests run against actual server output.
+ * The dev-server MSW mocks keep verbatim copies of a few entries
  * (`src/mocks/data/workflowForms.json`, checked by `tests/unit/workflow-form-mocks.test.ts`):
  * the browser bundle is built from `ui/` alone and cannot import this file.
  */

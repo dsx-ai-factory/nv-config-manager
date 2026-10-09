@@ -120,10 +120,6 @@ export const parseWorkflowFormResponse = (
   return { ok: true, form: payload as unknown as WorkflowFormResponse };
 };
 
-// ---------------------------------------------------------------------------
-// Fetching
-// ---------------------------------------------------------------------------
-
 export type WorkflowFormResult =
   | { kind: "ok"; form: WorkflowFormResponse }
   | { kind: "not_found"; message: string }
