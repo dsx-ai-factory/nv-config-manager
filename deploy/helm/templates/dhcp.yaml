@@ -120,6 +120,9 @@ spec:
         env:
         - name: NV_CONFIG_MANAGER_INI
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathDhcp" . | quote }}
+        # Reachable through the NLB without the gateway, which strips spoofed headers.
+        - name: NV_CONFIG_MANAGER_REJECT_IDENTITY_HEADERS
+          value: "true"
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
         ports:

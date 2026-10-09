@@ -135,6 +135,9 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        # Device-facing listener with no gateway in front to strip spoofed headers.
+        - name: NV_CONFIG_MANAGER_REJECT_IDENTITY_HEADERS
+          value: "true"
         {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
