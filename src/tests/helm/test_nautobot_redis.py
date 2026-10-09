@@ -120,7 +120,7 @@ def test_cache_db_must_be_a_non_negative_integer(
 
 def test_external_nautobot_skips_cache_db_check() -> None:
     result = _helm_template(
-        "externalServices.redis.db=2",
+        "externalServices.redis.db=1",
         "externalServices.nautobot.local=false",
         "externalServices.nautobot.server=https://nautobot.example",
     )
