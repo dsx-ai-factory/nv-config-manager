@@ -19,12 +19,9 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import legacyWorkflowRedirects from "@/config/legacy-workflow-redirects.json";
 import { siteConfig } from "@/config/site";
-import {
-  WORKFLOW_ROUTES,
-  workflowHref,
-  type WorkflowRoutes,
-} from "@/config/workflow-routes";
+import { workflowFormPath } from "@/config/workflow-redirects.mjs";
 import {
   DEFAULT_WORKFLOW_GROUP,
   normalizeWorkflowCatalog,
@@ -80,7 +77,7 @@ const LEGACY_SITE_WORKFLOWS = [
 const LEGACY_LAUNCHER = LEGACY_SITE_WORKFLOWS.map(({ title, workflowName }) => ({
   name: workflowName,
   display_name: title,
-  href: workflowHref(workflowName),
+  href: workflowFormPath(workflowName),
 }));
 
 const launcherCollator = new Intl.Collator("en", { numeric: true });
@@ -194,18 +191,15 @@ describe("buildWorkflowLauncherItems with the shipped overrides", () => {
       .filter(([, override]) => !override.hidden)
       .map(([name]) => name);
 
-    expect([...listed].sort()).toEqual(Object.keys(WORKFLOW_ROUTES).sort());
+    expect([...listed].sort()).toEqual(Object.keys(legacyWorkflowRedirects).sort());
   });
 });
 
 describe("buildWorkflowLauncherItems rules", () => {
   const builtIn = catalogEntry("DeployWorkflow", "Configuration Deploy");
-  const routes: WorkflowRoutes = {
-    DeployWorkflow: { legacySlug: "deployworkflow", migrated: false },
-  };
 
   it("lists a catalog workflow that has no override", () => {
-    expect(visible(buildWorkflowLauncherItems([PLUGIN], {}, routes))).toEqual([
+    expect(visible(buildWorkflowLauncherItems([PLUGIN], {}))).toEqual([
       {
         name: "AcmeFabricAuditWorkflow",
         display_name: "Acme Fabric Audit",
@@ -217,8 +211,7 @@ describe("buildWorkflowLauncherItems rules", () => {
   it("drops workflows an override hides", () => {
     const items = buildWorkflowLauncherItems(
       [builtIn, PLUGIN],
-      { AcmeFabricAuditWorkflow: { hidden: true } },
-      routes
+      { AcmeFabricAuditWorkflow: { hidden: true } }
     );
 
     expect(items.map((item) => item.name)).toEqual(["DeployWorkflow"]);
@@ -230,8 +223,19 @@ describe("buildWorkflowLauncherItems rules", () => {
     });
 
     expect(
-      buildWorkflowLauncherItems([disabled], { DeployWorkflow: { title: "Deploy" } }, routes)
+      buildWorkflowLauncherItems([disabled], { DeployWorkflow: { title: "Deploy" } })
     ).toEqual([]);
+  });
+
+  it("drops form-less workflows", () => {
+    const formLessBuiltIn = catalogEntry("DeployWorkflow", "Configuration Deploy", {
+      has_form: false,
+    });
+    const formLessPlugin = catalogEntry("NoFormWorkflow", "No Form", {
+      has_form: false,
+    });
+
+    expect(buildWorkflowLauncherItems([formLessBuiltIn, formLessPlugin], {})).toEqual([]);
   });
 
   it("prefers the catalog display name and falls back to the override title", () => {
@@ -240,13 +244,13 @@ describe("buildWorkflowLauncherItems rules", () => {
       DeployWorkflow: { title: "Configuration Deploy" },
     };
 
-    expect(buildWorkflowLauncherItems([renamed], override, routes)[0].display_name).toBe(
+    expect(buildWorkflowLauncherItems([renamed], override)[0].display_name).toBe(
       "Deploy Configuration"
     );
-    expect(buildWorkflowLauncherItems([], override, routes)[0].display_name).toBe(
+    expect(buildWorkflowLauncherItems([], override)[0].display_name).toBe(
       "Configuration Deploy"
     );
-    expect(buildWorkflowLauncherItems([], { DeployWorkflow: {} }, routes)[0].display_name).toBe(
+    expect(buildWorkflowLauncherItems([], { DeployWorkflow: {} })[0].display_name).toBe(
       "DeployWorkflow"
     );
   });
@@ -256,7 +260,7 @@ describe("buildWorkflowLauncherItems rules", () => {
       group: "Catalog",
     });
 
-    expect(buildWorkflowLauncherItems([fromCatalog], {}, routes)[0]).toMatchObject({
+    expect(buildWorkflowLauncherItems([fromCatalog], {})[0]).toMatchObject({
       group: "Catalog",
     });
   });
@@ -270,7 +274,7 @@ describe("buildWorkflowLauncherItems rules", () => {
       catalogEntry("EarlyWorkflow", "Zulu", { order: 5 }),
     ];
 
-    expect(buildWorkflowLauncherItems(catalog, {}, routes).map((item) => item.name)).toEqual([
+    expect(buildWorkflowLauncherItems(catalog, {}).map((item) => item.name)).toEqual([
       "AlphaWorkflow",
       "ZetaWorkflow",
       "BetaWorkflow",
@@ -288,16 +292,9 @@ describe("buildWorkflowLauncherItems rules", () => {
     expect(names.slice(1)).toEqual(ALPHABETICAL_LAUNCHER.map((item) => item.name));
   });
 
-  it("links migrated built-ins to the class-name route", () => {
-    const migrated: WorkflowRoutes = {
-      DeployWorkflow: { legacySlug: "deployworkflow", migrated: true },
-    };
-
-    expect(buildWorkflowLauncherItems([builtIn], {}, migrated)[0].href).toBe(
+  it("links workflows to the class-name route", () => {
+    expect(buildWorkflowLauncherItems([builtIn], {})[0].href).toBe(
       "/workflows/new/DeployWorkflow"
-    );
-    expect(buildWorkflowLauncherItems([builtIn], {}, routes)[0].href).toBe(
-      "/workflows/deployworkflow/form"
     );
   });
 });

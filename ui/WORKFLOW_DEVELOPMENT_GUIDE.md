@@ -22,8 +22,8 @@ and plugin behavior are documented in
    that is not already exercised by the shared renderer.
 
 The launcher route is `/workflows/new/<WorkflowClassName>`. The entries in
-`src/config/workflow-routes.json` preserve redirects from previously shipped
-legacy form URLs; they are compatibility data, not form implementations.
+`src/config/legacy-workflow-redirects.json` preserve redirects from previously
+shipped form URLs; they are compatibility data, not form implementations.
 
 ## UI mocks and tests
 

@@ -14,32 +14,57 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
-import { buildWorkflowRedirects } from "@/config/workflow-redirects.mjs";
-import { WORKFLOW_ROUTES, workflowHref, type WorkflowRoutes } from "@/config/workflow-routes";
+import legacyWorkflowRedirects from "@/config/legacy-workflow-redirects.json";
+import {
+  buildWorkflowRedirects,
+  workflowFormPath,
+} from "@/config/workflow-redirects.mjs";
 
 import nextConfig from "../../next.config.mjs";
 
+const UI_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+const INVENTORY_DIR = join(UI_ROOT, "tests/e2e/fixtures/workflow-form-inventory");
+
+const readInventory = (): Array<{ slug: string; workflow: string }> =>
+  readdirSync(INVENTORY_DIR)
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => JSON.parse(readFileSync(join(INVENTORY_DIR, file), "utf8")));
+
+describe("legacy workflow redirects", () => {
+  it("maps every inventoried legacy form to its previously shipped slug", () => {
+    expect(legacyWorkflowRedirects).toEqual(
+      Object.fromEntries(readInventory().map(({ slug, workflow }) => [workflow, slug]))
+    );
+  });
+
+  it("does not retain implementations behind the redirected URLs", () => {
+    for (const legacySlug of Object.values(legacyWorkflowRedirects)) {
+      expect(
+        existsSync(join(UI_ROOT, "src/app/workflows", legacySlug, "form", "page.tsx")),
+        legacySlug
+      ).toBe(false);
+    }
+  });
+});
+
 describe("buildWorkflowRedirects", () => {
-  it("redirects nothing while no workflow is migrated", () => {
-    expect(
-      buildWorkflowRedirects({
-        DeployWorkflow: { legacySlug: "deployworkflow", migrated: false },
-        BackupWorkflow: { legacySlug: "backupworkflow", migrated: false },
-      })
-    ).toEqual([]);
+  it("redirects nothing when there are no legacy URLs", () => {
     expect(buildWorkflowRedirects({})).toEqual([]);
   });
 
-  it("redirects a migrated workflow's legacy page to its encoded class-name route", () => {
-    const routes: WorkflowRoutes = {
-      DeployWorkflow: { legacySlug: "deployworkflow", migrated: true },
-      BackupWorkflow: { legacySlug: "backupworkflow", migrated: false },
-      "Acme Audit/Workflow": { legacySlug: "acmeauditworkflow", migrated: true },
+  it("redirects legacy URLs to encoded class-name routes", () => {
+    const redirects = {
+      DeployWorkflow: "deployworkflow",
+      "Acme Audit/Workflow": "acmeauditworkflow",
     };
 
-    expect(buildWorkflowRedirects(routes)).toEqual([
+    expect(buildWorkflowRedirects(redirects)).toEqual([
       {
         source: "/workflows/deployworkflow/form",
         destination: "/workflows/new/DeployWorkflow",
@@ -51,31 +76,26 @@ describe("buildWorkflowRedirects", () => {
         permanent: false,
       },
     ]);
-    // The redirect lands where the launcher links.
-    for (const name of ["DeployWorkflow", "Acme Audit/Workflow"]) {
-      expect(buildWorkflowRedirects({ [name]: routes[name] })[0].destination).toBe(
-        workflowHref(name, routes)
+    for (const [name, legacySlug] of Object.entries(redirects)) {
+      expect(buildWorkflowRedirects({ [name]: legacySlug })[0].destination).toBe(
+        workflowFormPath(name)
       );
     }
   });
 });
 
 describe("next.config.mjs redirects()", () => {
-  it("serves the redirects generated from the shipped migration map", async () => {
+  it("serves redirects for every previously shipped form URL", async () => {
     const redirects = await nextConfig.redirects?.();
 
-    expect(redirects).toEqual(buildWorkflowRedirects(WORKFLOW_ROUTES));
+    expect(redirects).toEqual(buildWorkflowRedirects(legacyWorkflowRedirects));
     expect(redirects).toEqual(
-      Object.entries(WORKFLOW_ROUTES)
-        .filter(([, route]) => route.migrated)
-        .map(([name, route]) => ({
-          source: `/workflows/${route.legacySlug}/form`,
-          destination: `/workflows/new/${name}`,
-          permanent: false,
-        }))
+      Object.entries(legacyWorkflowRedirects).map(([name, legacySlug]) => ({
+        source: `/workflows/${legacySlug}/form`,
+        destination: `/workflows/new/${name}`,
+        permanent: false,
+      }))
     );
-    expect(redirects).toHaveLength(
-      Object.values(WORKFLOW_ROUTES).filter((route) => route.migrated).length
-    );
+    expect(redirects).toHaveLength(Object.keys(legacyWorkflowRedirects).length);
   });
 });
