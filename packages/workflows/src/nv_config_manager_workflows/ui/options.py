@@ -187,21 +187,21 @@ def device_field(
 
 def variant_rows(
     *,
-    owns: Sequence[str],
-    variants: Sequence[Mapping[str, Any]],
+    owned_properties: Sequence[str],
+    modes: Sequence[Mapping[str, Any]],
     minimum_rows: int = 1,
     clear_inactive: bool = True,
     warning: str | None = None,
 ) -> dict[str, Any]:
     """Return a generic mutually-exclusive repeatable-row declaration.
 
-    A variant's keyed fields edit one object-array property; unkeyed fields edit
-    parallel scalar-array properties. Registration validates the full shape and
+    A mode's columns with an item property edit one object-array property;
+    columns without one edit parallel scalar-array properties. Registration validates the full shape and
     its bindings against the projected form schema.
     """
     options: dict[str, Any] = {
-        "owns": _wire(owns),
-        "variants": _wire(variants),
+        "ownedProperties": _wire(owned_properties),
+        "modes": _wire(modes),
         "minimumRows": minimum_rows,
         "clearInactive": clear_inactive,
     }

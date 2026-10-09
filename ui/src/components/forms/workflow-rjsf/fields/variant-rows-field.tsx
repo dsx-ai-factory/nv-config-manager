@@ -18,17 +18,17 @@ import { contextOf } from "../context";
 import type { FormData, Owner } from "../state";
 import type {
   VariantRowsColumn,
-  VariantRowsOptions,
-  VariantRowsVariant,
+  VariantRowsFieldOptions,
+  VariantRowsMode,
 } from "../ui-schema";
 
 type Row = Record<string, string>;
 
-const columnId = (field: VariantRowsColumn): string =>
-  JSON.stringify([field.property, field.key ?? null]);
+const columnId = (column: VariantRowsColumn): string =>
+  JSON.stringify([column.arrayProperty, column.itemProperty ?? null]);
 
-const propertiesOfVariant = (variant: VariantRowsVariant): string[] => [
-  ...new Set(variant.fields.map((field) => field.property)),
+const propertiesOfMode = (mode: VariantRowsMode): string[] => [
+  ...new Set(mode.columns.map((column) => column.arrayProperty)),
 ];
 
 const textValue = (value: unknown): string =>
@@ -40,27 +40,27 @@ const arrayValue = (data: Readonly<FormData>, property: string): unknown[] => {
 };
 
 const rowsFromData = (
-  variant: VariantRowsVariant,
+  mode: VariantRowsMode,
   data: Readonly<FormData>,
   minimumRows: number
 ): Row[] => {
   const count = Math.max(
     minimumRows,
     1,
-    ...variant.fields.map((field) => arrayValue(data, field.property).length)
+    ...mode.columns.map((column) => arrayValue(data, column.arrayProperty).length)
   );
   return Array.from({ length: count }, (_, index) =>
     Object.fromEntries(
-      variant.fields.map((field) => {
-        const items = arrayValue(data, field.property);
+      mode.columns.map((column) => {
+        const items = arrayValue(data, column.arrayProperty);
         const item = items[index];
         const value =
-          field.key === undefined || typeof item !== "object" || item === null
-            ? field.key === undefined
+          column.itemProperty === undefined || typeof item !== "object" || item === null
+            ? column.itemProperty === undefined
               ? item
               : undefined
-            : (item as Record<string, unknown>)[field.key];
-        return [columnId(field), textValue(value)];
+            : (item as Record<string, unknown>)[column.itemProperty];
+        return [columnId(column), textValue(value)];
       })
     )
   );
@@ -75,44 +75,44 @@ const hasFilledProperty = (data: Readonly<FormData>, property: string): boolean 
     return textValue(item).trim() !== "";
   });
 
-export const activeVariant = (
-  config: VariantRowsOptions,
+export const activeMode = (
+  config: VariantRowsFieldOptions,
   data: Readonly<FormData>
-): VariantRowsVariant => {
-  const populated = config.variants.find((variant) =>
-    propertiesOfVariant(variant).some((property) => hasFilledProperty(data, property))
+): VariantRowsMode => {
+  const populated = config.modes.find((mode) =>
+    propertiesOfMode(mode).some((property) => hasFilledProperty(data, property))
   );
   if (populated) return populated;
 
-  // A blank row still identifies the mode the user selected. Inactive variants are
-  // removed by patchForRows, so prefer any variant that retains a row before falling
+  // A blank row still identifies the mode the user selected. Inactive modes are
+  // removed by patchForRows, so prefer any mode that retains a row before falling
   // back to the declaration's default.
   return (
-    config.variants.find((variant) =>
-      propertiesOfVariant(variant).some((property) => arrayValue(data, property).length > 0)
-    ) ?? config.variants[0]
+    config.modes.find((mode) =>
+      propertiesOfMode(mode).some((property) => arrayValue(data, property).length > 0)
+    ) ?? config.modes[0]
   );
 };
 
 const patchForRows = (
-  config: VariantRowsOptions,
-  variant: VariantRowsVariant,
+  config: VariantRowsFieldOptions,
+  mode: VariantRowsMode,
   rows: readonly Row[]
 ): FormData => {
   const patch: FormData = config.clearInactive
-    ? Object.fromEntries(config.owns.map((property) => [property, undefined]))
+    ? Object.fromEntries(config.ownedProperties.map((property) => [property, undefined]))
     : {};
-  for (const property of propertiesOfVariant(variant)) {
-    const fields = variant.fields.filter((field) => field.property === property);
-    const keyed = fields.filter((field) => field.key !== undefined);
+  for (const property of propertiesOfMode(mode)) {
+    const columns = mode.columns.filter((column) => column.arrayProperty === property);
+    const keyed = columns.filter((column) => column.itemProperty !== undefined);
     patch[property] =
       keyed.length > 0
         ? rows.map((row) =>
             Object.fromEntries(
-              keyed.map((field) => [field.key as string, row[columnId(field)] ?? ""])
+              keyed.map((column) => [column.itemProperty as string, row[columnId(column)] ?? ""])
             )
           )
-        : rows.map((row) => row[columnId(fields[0])] ?? "");
+        : rows.map((row) => row[columnId(columns[0])] ?? "");
   }
   return patch;
 };
@@ -120,25 +120,25 @@ const patchForRows = (
 const rowHasValue = (row: Readonly<Row>): boolean =>
   Object.values(row).some((value) => value.trim() !== "");
 
-/** Client-side messages for the active generic row variant. */
+/** Client-side messages for the active generic row mode. */
 export const validateVariantRowsValues = (
-  config: VariantRowsOptions,
+  config: VariantRowsFieldOptions,
   data: Readonly<FormData>
 ): string[] => {
-  const variant = activeVariant(config, data);
-  const rows = rowsFromData(variant, data, 0).filter(rowHasValue);
+  const mode = activeMode(config, data);
+  const rows = rowsFromData(mode, data, 0).filter(rowHasValue);
   const messages: string[] = [];
   const minimumRows = config.minimumRows ?? 1;
   if (rows.length < minimumRows) {
     messages.push(`At least ${minimumRows} row${minimumRows === 1 ? " is" : "s are"} required.`);
   }
   rows.forEach((row, index) => {
-    variant.fields.forEach((field) => {
-      const value = row[columnId(field)]?.trim() ?? "";
-      if (field.required && value === "") {
-        messages.push(`${field.label} is required in row ${index + 1}.`);
-      } else if (value !== "" && field.pattern && !new RegExp(field.pattern).test(value)) {
-        messages.push(`${field.label} in row ${index + 1} has an invalid format.`);
+    mode.columns.forEach((column) => {
+      const value = row[columnId(column)]?.trim() ?? "";
+      if (column.required && value === "") {
+        messages.push(`${column.label} is required in row ${index + 1}.`);
+      } else if (value !== "" && column.pattern && !new RegExp(column.pattern).test(value)) {
+        messages.push(`${column.label} in row ${index + 1} has an invalid format.`);
       }
     });
   });
@@ -147,14 +147,14 @@ export const validateVariantRowsValues = (
 
 /** Trim and remove blank rows while retaining aligned parallel-array values. */
 export const normalizeVariantRowsPayload = (
-  config: VariantRowsOptions,
+  config: VariantRowsFieldOptions,
   data: Readonly<FormData>
 ): FormData => {
-  const variant = activeVariant(config, data);
-  const rows = rowsFromData(variant, data, 0)
+  const mode = activeMode(config, data);
+  const rows = rowsFromData(mode, data, 0)
     .map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value.trim()])))
     .filter(rowHasValue);
-  const patch = patchForRows(config, variant, rows);
+  const patch = patchForRows(config, mode, rows);
   const result: FormData = { ...data };
   for (const [property, value] of Object.entries(patch)) {
     if (value === undefined) delete result[property];
@@ -164,27 +164,27 @@ export const normalizeVariantRowsPayload = (
 };
 
 const RowInput = ({
-  field,
+  column,
   value,
   rowNumber,
   disabled,
   onChange,
 }: {
-  field: VariantRowsColumn;
+  column: VariantRowsColumn;
   value: string;
   rowNumber: number;
   disabled: boolean;
   onChange(value: string): void;
 }) =>
-  field.kind === "select" ? (
+  column.kind === "select" ? (
     <Select value={value || undefined} disabled={disabled} onValueChange={onChange}>
-      <SelectTrigger aria-label={`${field.label} for row ${rowNumber}`}>
-        <SelectValue placeholder={field.placeholder ?? `Select ${field.label}...`} />
+      <SelectTrigger aria-label={`${column.label} for row ${rowNumber}`}>
+        <SelectValue placeholder={column.placeholder ?? `Select ${column.label}...`} />
       </SelectTrigger>
       <SelectContent>
-        {(field.options ?? []).map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            {option.label}
+        {(column.choices ?? []).map((choice) => (
+          <SelectItem key={choice.value} value={choice.value}>
+            {choice.label}
           </SelectItem>
         ))}
       </SelectContent>
@@ -192,8 +192,8 @@ const RowInput = ({
   ) : (
     <Input
       value={value}
-      placeholder={field.placeholder}
-      aria-label={`${field.label} ${rowNumber}`}
+      placeholder={column.placeholder}
+      aria-label={`${column.label} ${rowNumber}`}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
     />
@@ -208,49 +208,49 @@ export const VariantRowsField = ({
   readonly,
 }: FieldProps) => {
   const context = contextOf(registry.formContext);
-  const config = getUiOptions(uiSchema) as unknown as VariantRowsOptions;
+  const config = getUiOptions(uiSchema) as unknown as VariantRowsFieldOptions;
   const owner: Owner = `field:${name}`;
   const minimumRows = config.minimumRows ?? 1;
-  const [variantId, setVariantId] = React.useState(
-    () => activeVariant(config, context.formData).id
+  const [modeId, setModeId] = React.useState(
+    () => activeMode(config, context.formData).id
   );
-  const [rowsByVariant, setRowsByVariant] = React.useState<Record<string, Row[]>>(() =>
+  const [rowsByMode, setRowsByMode] = React.useState<Record<string, Row[]>>(() =>
     Object.fromEntries(
-      config.variants.map((variant) => [
-        variant.id,
-        rowsFromData(variant, context.formData, minimumRows),
+      config.modes.map((mode) => [
+        mode.id,
+        rowsFromData(mode, context.formData, minimumRows),
       ])
     )
   );
   const isDisabled = Boolean(disabled || readonly);
   const initialized = React.useRef(false);
-  const variant = config.variants.find((candidate) => candidate.id === variantId) ?? config.variants[0];
-  const rows = rowsByVariant[variant.id] ?? rowsFromData(variant, context.formData, minimumRows);
+  const mode = config.modes.find((candidate) => candidate.id === modeId) ?? config.modes[0];
+  const rows = rowsByMode[mode.id] ?? rowsFromData(mode, context.formData, minimumRows);
 
   const publish = React.useCallback(
-    (nextVariant: VariantRowsVariant, nextRows: readonly Row[]) =>
-      context.setFields(owner, patchForRows(config, nextVariant, nextRows), "user"),
+    (nextMode: VariantRowsMode, nextRows: readonly Row[]) =>
+      context.setFields(owner, patchForRows(config, nextMode, nextRows), "user"),
     [config, context, owner]
   );
 
   React.useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
-    publish(variant, rows);
+    publish(mode, rows);
     if (context.pending.has(owner)) context.settle(owner);
-  }, [context, owner, publish, rows, variant]);
+  }, [context, mode, owner, publish, rows]);
 
   const changeRows = (next: Row[]) => {
-    setRowsByVariant((current) => ({ ...current, [variant.id]: next }));
-    publish(variant, next);
+    setRowsByMode((current) => ({ ...current, [mode.id]: next }));
+    publish(mode, next);
   };
-  const changeVariant = (id: string) => {
-    const nextVariant = config.variants.find((candidate) => candidate.id === id);
-    if (!nextVariant) return;
-    const nextRows = rowsByVariant[id] ?? rowsFromData(nextVariant, context.formData, minimumRows);
-    setVariantId(id);
-    setRowsByVariant((current) => ({ ...current, [id]: nextRows }));
-    publish(nextVariant, nextRows);
+  const changeMode = (id: string) => {
+    const nextMode = config.modes.find((candidate) => candidate.id === id);
+    if (!nextMode) return;
+    const nextRows = rowsByMode[id] ?? rowsFromData(nextMode, context.formData, minimumRows);
+    setModeId(id);
+    setRowsByMode((current) => ({ ...current, [id]: nextRows }));
+    publish(nextMode, nextRows);
   };
 
   return (
@@ -258,12 +258,12 @@ export const VariantRowsField = ({
       <div className="space-y-3">
         <Label>Input method</Label>
         <RadioGroup
-          value={variant.id}
-          onValueChange={changeVariant}
+          value={mode.id}
+          onValueChange={changeMode}
           className="flex flex-row gap-6"
           disabled={isDisabled}
         >
-          {config.variants.map((candidate) => (
+          {config.modes.map((candidate) => (
             <label key={candidate.id} className="flex cursor-pointer items-center gap-2">
               <RadioGroupItem value={candidate.id} />
               <span>{candidate.label}</span>
@@ -273,20 +273,20 @@ export const VariantRowsField = ({
       </div>
 
       <div className="space-y-2">
-        <Label>{variant.label}</Label>
+        <Label>{mode.label}</Label>
         {rows.map((row, index) => (
           <div key={index} className="flex items-start gap-2">
-            {variant.fields.map((field) => (
-              <div key={columnId(field)} className="min-w-0 flex-1">
+            {mode.columns.map((column) => (
+              <div key={columnId(column)} className="min-w-0 flex-1">
                 <RowInput
-                  field={field}
-                  value={row[columnId(field)] ?? ""}
+                  column={column}
+                  value={row[columnId(column)] ?? ""}
                   rowNumber={index + 1}
                   disabled={isDisabled}
                   onChange={(value) =>
                     changeRows(
                       rows.map((item, rowIndex) =>
-                        rowIndex === index ? { ...item, [columnId(field)]: value } : item
+                        rowIndex === index ? { ...item, [columnId(column)]: value } : item
                       )
                     )
                   }
@@ -313,7 +313,7 @@ export const VariantRowsField = ({
           onClick={() =>
             changeRows([
               ...rows,
-              Object.fromEntries(variant.fields.map((field) => [columnId(field), ""])),
+              Object.fromEntries(mode.columns.map((column) => [columnId(column), ""])),
             ])
           }
         >

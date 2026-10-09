@@ -167,13 +167,16 @@ def _vocabulary() -> _Vocabulary:
         widgets=frozenset(field_properties["ui:widget"]["enum"]),
         core_fields=frozenset(field_properties["ui:field"]["enum"]),
         source_keys=frozenset(defs["optionSource"]["properties"]),
-        device_filters=frozenset(defs["deviceOptions"]["properties"]["filters"]["items"]["enum"]),
+        device_filters=frozenset(
+            defs["deviceFieldOptions"]["properties"]["filters"]["items"]["enum"]
+        ),
         author_option_keys={
-            "apiOptions": frozenset(defs["apiOptionsOptions"]["properties"]) - {"queryAliases"},
-            "location": frozenset(defs["locationOptions"]["properties"]) - {"queryAliases"},
-            "device": frozenset(defs["deviceOptions"]["properties"]) - {"queryAliases"},
-            "variantRows": frozenset(defs["variantRowsOptions"]["properties"]),
-            None: frozenset(defs["standardOptions"]["properties"]),
+            "apiOptions": frozenset(defs["apiOptionsFieldOptions"]["properties"])
+            - {"queryAliases"},
+            "location": frozenset(defs["locationFieldOptions"]["properties"]) - {"queryAliases"},
+            "device": frozenset(defs["deviceFieldOptions"]["properties"]) - {"queryAliases"},
+            "variantRows": frozenset(defs["variantRowsFieldOptions"]["properties"]),
+            None: frozenset(defs["standardFieldOptions"]["properties"]),
         },
         property_name=re.compile(defs["propertyName"]["pattern"]),
     )
@@ -236,10 +239,7 @@ def derive_requires(ui_schema: Mapping[str, Any]) -> list[str]:
             continue
         field = entry["ui:field"]
         required.add(FIELD_CAPABILITIES[field])
-        if (
-            field == "apiOptions"
-            and entry["ui:options"]["source"].get("response") == "options-v1"
-        ):
+        if field == "apiOptions" and entry["ui:options"]["source"].get("response") == "options-v1":
             required.add(ENRICHED_API_OPTIONS_CAPABILITY)
     if ui_schema.get("ui:globalOptions", {}).get("hideSchemaDescriptions") is True:
         required.add(HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY)
@@ -489,25 +489,29 @@ class _FormChecker:
 
     def check_variant_rows(self, name: str, options: dict[str, Any]) -> None:
         """Validate a generic mutually-exclusive repeatable-row field."""
-        allowed = {"owns", "variants", "minimumRows", "clearInactive", "warning"}
+        allowed = {"ownedProperties", "modes", "minimumRows", "clearInactive", "warning"}
         if set(options) - allowed:
             raise self.fail(
                 f"{name!r} variantRows options contain unsupported keys "
                 f"{sorted(set(options) - allowed)}"
             )
-        owns_value = options.get("owns")
+        owned_properties_value = options.get("ownedProperties")
         if (
-            not isinstance(owns_value, list)
-            or len(owns_value) < 2
-            or len(set(map(str, owns_value))) != len(owns_value)
+            not isinstance(owned_properties_value, list)
+            or len(owned_properties_value) < 2
+            or len(set(map(str, owned_properties_value))) != len(owned_properties_value)
         ):
-            raise self.fail(f"{name!r} variantRows owns must be at least two unique properties")
-        owns = [
-            self.require_property(value, f"{name!r} variantRows owns", wire_name=True)
-            for value in owns_value
+            raise self.fail(
+                f"{name!r} variantRows ownedProperties must be at least two unique properties"
+            )
+        owned_properties = [
+            self.require_property(value, f"{name!r} variantRows ownedProperties", wire_name=True)
+            for value in owned_properties_value
         ]
-        if name not in owns:
-            raise self.fail(f"{name!r} is the variantRows anchor, so it must own itself")
+        if name not in owned_properties:
+            raise self.fail(
+                f"{name!r} is the variantRows anchor, so ownedProperties must include it"
+            )
         minimum_rows = options.get("minimumRows")
         if isinstance(minimum_rows, bool) or not isinstance(minimum_rows, int) or minimum_rows < 1:
             raise self.fail(f"{name!r} variantRows minimumRows must be a positive integer")
@@ -516,29 +520,29 @@ class _FormChecker:
         if "warning" in options:
             require_text(options["warning"], f"{self.name} {name!r} variantRows warning")
 
-        variants = options.get("variants")
-        if not isinstance(variants, list) or len(variants) < 2:
-            raise self.fail(f"{name!r} variantRows variants must contain at least two variants")
-        variant_ids: set[str] = set()
+        modes = options.get("modes")
+        if not isinstance(modes, list) or len(modes) < 2:
+            raise self.fail(f"{name!r} variantRows modes must contain at least two modes")
+        mode_ids: set[str] = set()
         used_properties: set[str] = set()
-        for index, variant in enumerate(variants):
-            variant_properties = self.check_variant_rows_variant(
-                name, index, variant, set(owns), variant_ids
+        for index, mode in enumerate(modes):
+            mode_properties = self.check_variant_rows_mode(
+                name, index, mode, set(owned_properties), mode_ids
             )
-            overlap = used_properties & variant_properties
+            overlap = used_properties & mode_properties
             if overlap:
                 raise self.fail(
-                    f"{name!r} variantRows properties must belong to only one variant; "
+                    f"{name!r} variantRows properties must belong to only one mode; "
                     f"reused {sorted(overlap)}"
                 )
-            used_properties.update(variant_properties)
-        if used_properties != set(owns):
+            used_properties.update(mode_properties)
+        if used_properties != set(owned_properties):
             raise self.fail(
-                f"{name!r} variantRows fields must use every owned property exactly by variant; "
-                f"owned {sorted(owns)}, used {sorted(used_properties)}"
+                f"{name!r} variantRows columns must use every owned property exactly by mode; "
+                f"owned {sorted(owned_properties)}, used {sorted(used_properties)}"
             )
 
-        for property_name in owns:
+        for property_name in owned_properties:
             previous = self.composite_owners.get(property_name)
             if previous is not None:
                 raise self.fail(
@@ -551,108 +555,113 @@ class _FormChecker:
                 and self.fields.get(property_name, {}).get("ui:widget") != "hidden"
             ):
                 raise self.fail(
-                    f"{name!r} variantRows owns sibling {property_name!r}, which must use "
+                    f"{name!r} variantRows ownedProperties includes sibling "
+                    f"{property_name!r}, which must use "
                     "ui:widget 'hidden' so RJSF does not render it twice"
                 )
         self.dependencies[name] = []
 
-    def check_variant_rows_variant(
+    def check_variant_rows_mode(
         self,
         anchor: str,
         index: int,
-        variant: object,
-        owns: set[str],
-        variant_ids: set[str],
+        mode: object,
+        owned_properties: set[str],
+        mode_ids: set[str],
     ) -> set[str]:
-        """Validate one object-array or parallel-array row variant."""
-        where = f"{anchor!r} variantRows variants[{index}]"
-        if not isinstance(variant, dict) or set(variant) != {"id", "label", "fields"}:
-            raise self.fail(f"{where} must contain exactly id, label, and fields")
-        variant_id = require_text(variant["id"], f"{self.name} {where}.id")
-        if not self.vocabulary.property_name.fullmatch(variant_id):
+        """Validate one object-array or parallel-array row mode."""
+        where = f"{anchor!r} variantRows modes[{index}]"
+        if not isinstance(mode, dict) or set(mode) != {"id", "label", "columns"}:
+            raise self.fail(f"{where} must contain exactly id, label, and columns")
+        mode_id = require_text(mode["id"], f"{self.name} {where}.id")
+        if not self.vocabulary.property_name.fullmatch(mode_id):
             raise self.fail(f"{where}.id must be a plain property-style name")
-        if variant_id in variant_ids:
-            raise self.fail(f"{anchor!r} variantRows variant ids must be unique")
-        variant_ids.add(variant_id)
-        require_text(variant["label"], f"{self.name} {where}.label")
-        fields = variant["fields"]
-        if not isinstance(fields, list) or not fields:
-            raise self.fail(f"{where}.fields must be a non-empty list")
-        keyed = [isinstance(item, dict) and "key" in item for item in fields]
+        if mode_id in mode_ids:
+            raise self.fail(f"{anchor!r} variantRows mode ids must be unique")
+        mode_ids.add(mode_id)
+        require_text(mode["label"], f"{self.name} {where}.label")
+        columns = mode["columns"]
+        if not isinstance(columns, list) or not columns:
+            raise self.fail(f"{where}.columns must be a non-empty list")
+        keyed = [isinstance(item, dict) and "itemProperty" in item for item in columns]
         if any(keyed) and not all(keyed):
-            raise self.fail(f"{where}.fields cannot mix keyed and unkeyed fields")
+            raise self.fail(f"{where}.columns cannot mix columns with and without itemProperty")
 
         used: set[str] = set()
-        keys: set[str] = set()
-        keyed_property: str | None = None
-        for field_index, row_field in enumerate(fields):
-            property_name, key = self.check_variant_rows_field(
-                anchor, index, field_index, row_field, owns
+        item_properties: set[str] = set()
+        object_array_property: str | None = None
+        for column_index, column in enumerate(columns):
+            array_property, item_property = self.check_variant_rows_column(
+                anchor, index, column_index, column, owned_properties
             )
-            if property_name in used and key is None:
-                raise self.fail(f"{where} uses property {property_name!r} more than once")
-            used.add(property_name)
-            if key is not None:
-                if keyed_property is None:
-                    keyed_property = property_name
-                elif keyed_property != property_name:
-                    raise self.fail(f"{where} keyed fields must share one object-array property")
-                if key in keys:
-                    raise self.fail(f"{where} uses object key {key!r} more than once")
-                keys.add(key)
+            if array_property in used and item_property is None:
+                raise self.fail(f"{where} uses arrayProperty {array_property!r} more than once")
+            used.add(array_property)
+            if item_property is not None:
+                if object_array_property is None:
+                    object_array_property = array_property
+                elif object_array_property != array_property:
+                    raise self.fail(
+                        f"{where} columns with itemProperty must share one arrayProperty"
+                    )
+                if item_property in item_properties:
+                    raise self.fail(f"{where} uses itemProperty {item_property!r} more than once")
+                item_properties.add(item_property)
         return used
 
-    def check_variant_rows_field(
+    def check_variant_rows_column(
         self,
         anchor: str,
-        variant_index: int,
-        field_index: int,
-        row_field: object,
-        owns: set[str],
+        mode_index: int,
+        column_index: int,
+        column: object,
+        owned_properties: set[str],
     ) -> tuple[str, str | None]:
-        """Validate one row column and return its top-level property and optional object key."""
-        where = f"{anchor!r} variantRows variants[{variant_index}].fields[{field_index}]"
+        """Validate one row column and return its array and optional item property."""
+        where = f"{anchor!r} variantRows modes[{mode_index}].columns[{column_index}]"
         allowed = {
-            "property",
-            "key",
+            "arrayProperty",
+            "itemProperty",
             "label",
             "kind",
             "placeholder",
             "required",
             "pattern",
-            "options",
+            "choices",
         }
         if (
-            not isinstance(row_field, dict)
-            or set(row_field) - allowed
-            or not {"property", "label", "kind"} <= set(row_field)
+            not isinstance(column, dict)
+            or set(column) - allowed
+            or not {"arrayProperty", "label", "kind"} <= set(column)
         ):
             raise self.fail(
-                f"{where} must contain property, label, and kind and only supported keys"
+                f"{where} must contain arrayProperty, label, and kind and only supported keys"
             )
-        property_name = self.require_property(
-            row_field["property"], f"{where}.property", wire_name=True
+        array_property = self.require_property(
+            column["arrayProperty"], f"{where}.arrayProperty", wire_name=True
         )
-        if property_name not in owns:
-            raise self.fail(f"{where}.property {property_name!r} is not listed in owns")
-        require_text(row_field["label"], f"{self.name} {where}.label")
-        if "placeholder" in row_field:
-            require_text(row_field["placeholder"], f"{self.name} {where}.placeholder")
-        if "required" in row_field and not isinstance(row_field["required"], bool):
+        if array_property not in owned_properties:
+            raise self.fail(
+                f"{where}.arrayProperty {array_property!r} is not listed in ownedProperties"
+            )
+        require_text(column["label"], f"{self.name} {where}.label")
+        if "placeholder" in column:
+            require_text(column["placeholder"], f"{self.name} {where}.placeholder")
+        if "required" in column and not isinstance(column["required"], bool):
             raise self.fail(f"{where}.required must be a boolean")
 
-        kind = row_field["kind"]
+        kind = column["kind"]
         if kind not in {"text", "select"}:
             raise self.fail(f"{where}.kind must be 'text' or 'select'")
-        choices = row_field.get("options")
+        choices = column.get("choices")
         if kind == "select":
             if not isinstance(choices, list) or not choices:
-                raise self.fail(f"{where} select field needs a non-empty options list")
+                raise self.fail(f"{where} select column needs a non-empty choices list")
             values: set[str] = set()
             for option_index, choice in enumerate(choices):
                 if not isinstance(choice, dict) or set(choice) != {"label", "value"}:
                     raise self.fail(
-                        f"{where}.options[{option_index}] must contain exactly label and value"
+                        f"{where}.choices[{option_index}] must contain exactly label and value"
                     )
                 require_text(choice["label"], f"{self.name} {where} option label")
                 value = require_text(choice["value"], f"{self.name} {where} option value")
@@ -660,11 +669,11 @@ class _FormChecker:
                     raise self.fail(f"{where} option values must be unique")
                 values.add(value)
         elif choices is not None:
-            raise self.fail(f"{where} text field cannot declare options")
-        if "pattern" in row_field:
+            raise self.fail(f"{where} text column cannot declare choices")
+        if "pattern" in column:
             if kind != "text":
-                raise self.fail(f"{where}.pattern is available only on text fields")
-            pattern = row_field["pattern"]
+                raise self.fail(f"{where}.pattern is available only on text columns")
+            pattern = column["pattern"]
             if not isinstance(pattern, str):
                 raise self.fail(f"{where}.pattern must be a string")
             try:
@@ -674,27 +683,29 @@ class _FormChecker:
                     f"{where}.pattern is not a valid regular expression: {error}"
                 ) from error
 
-        prop = self.properties[property_name]
+        prop = self.properties[array_property]
         if json_type(prop, self.definitions) != "array":
-            raise self.fail(f"{where}.property {property_name!r} must be an array")
+            raise self.fail(f"{where}.arrayProperty {array_property!r} must be an array")
         item = self.resolve_schema(prop.get("items", {}))
-        key_value = row_field.get("key")
-        if key_value is None:
+        item_property_value = column.get("itemProperty")
+        if item_property_value is None:
             if json_type(item, self.definitions) != "string":
-                raise self.fail(f"{where} unkeyed property must be an array of strings")
-            return property_name, None
-        key = require_text(key_value, f"{self.name} {where}.key")
-        if not self.vocabulary.property_name.fullmatch(key):
-            raise self.fail(f"{where}.key must be a plain property-style name")
+                raise self.fail(f"{where} without itemProperty must name an array of strings")
+            return array_property, None
+        item_property = require_text(item_property_value, f"{self.name} {where}.itemProperty")
+        if not self.vocabulary.property_name.fullmatch(item_property):
+            raise self.fail(f"{where}.itemProperty must be a plain property-style name")
         if json_type(item, self.definitions) != "object":
-            raise self.fail(f"{where} keyed property must be an array of objects")
+            raise self.fail(f"{where} with itemProperty must name an array of objects")
         item_properties = item.get("properties", {})
         if (
-            key not in item_properties
-            or json_type(item_properties[key], self.definitions) != "string"
+            item_property not in item_properties
+            or json_type(item_properties[item_property], self.definitions) != "string"
         ):
-            raise self.fail(f"{where}.key {key!r} must name a string property of each item")
-        return property_name, key
+            raise self.fail(
+                f"{where}.itemProperty {item_property!r} must name a string property of each item"
+            )
+        return array_property, item_property
 
     def resolve_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
         """Return a local schema after following its definition reference."""

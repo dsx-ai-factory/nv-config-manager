@@ -9,8 +9,14 @@
       "description": "Form projection of the input model's Pydantic JSON Schema, passed to RJSF as schema.",
       "type": "object"
     },
-    "ui_schema": { "$ref": "#/$defs/uiSchema" },
-    "ui_schema_version": { "const": 1 },
+    "ui_schema": {
+      "description": "Rendering directives for the projected form schema.",
+      "$ref": "#/$defs/uiSchema"
+    },
+    "ui_schema_version": {
+      "description": "Version of the ui_schema contract used by this response.",
+      "const": 1
+    },
     "requires": {
       "description": "Capabilities this form uses. Deliberately open: an unknown entry makes an older UI show its unsupported state instead of rendering.",
       "type": "array",
@@ -22,14 +28,17 @@
   "additionalProperties": false,
   "$defs": {
     "nonBlankString": {
+      "description": "A string containing at least one non-whitespace character.",
       "type": "string",
       "pattern": "\\S"
     },
     "propertyName": {
+      "description": "A property-style identifier used for schema properties, modes, and item properties.",
       "type": "string",
       "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
     },
     "scalarValue": {
+      "description": "A scalar value allowed in static option-source parameters.",
       "type": ["string", "number", "boolean"]
     },
     "optionParamValue": {
@@ -50,8 +59,14 @@
       "description": "A sibling form property whose value supplies one option query parameter. A required dependency holds the request while empty; an optional one is omitted while empty.",
       "type": "object",
       "properties": {
-        "field": { "$ref": "#/$defs/propertyName" },
-        "required": { "const": false }
+        "field": {
+          "description": "Projected sibling property whose value supplies the dependency.",
+          "$ref": "#/$defs/propertyName"
+        },
+        "required": {
+          "description": "When false, omit an empty dependency instead of holding the request.",
+          "const": false
+        }
       },
       "required": ["field"],
       "additionalProperties": false
@@ -60,67 +75,122 @@
       "description": "Where a core field loads its options. endpoint is a path relative to the workflow API origin; a whole {property} path segment is filled from that sibling property and is a required dependency.",
       "type": "object",
       "properties": {
-        "endpoint": { "type": "string", "pattern": "^/(?!/)[^?#\\\\\\s]*$" },
-        "label_key": { "$ref": "#/$defs/nonBlankString" },
-        "value_key": { "$ref": "#/$defs/nonBlankString" },
-        "type_key": { "$ref": "#/$defs/nonBlankString" },
+        "endpoint": {
+          "description": "API path relative to the workflow API origin; whole {property} segments reference sibling form values.",
+          "type": "string",
+          "pattern": "^/(?!/)[^?#\\\\\\s]*$"
+        },
+        "label_key": {
+          "description": "Response-object property containing each option's display label.",
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "value_key": {
+          "description": "Response-object property containing each option's submitted value.",
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "type_key": {
+          "description": "Optional response-object property containing each option's type or group.",
+          "$ref": "#/$defs/nonBlankString"
+        },
         "params": {
+          "description": "Static query parameters included with every option request.",
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/optionParamValue" }
         },
         "depends_on": {
+          "description": "Query parameter names mapped to sibling form-property dependencies.",
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/dependency" }
         },
-        "clear_on_change": { "const": true },
-        "response": { "const": "options-v1" }
+        "clear_on_change": {
+          "description": "Clear the selected value when a dependency changes.",
+          "const": true
+        },
+        "response": {
+          "description": "Expected enriched option-response envelope.",
+          "const": "options-v1"
+        }
       },
       "required": ["endpoint", "label_key", "value_key"],
       "additionalProperties": false
     },
-    "apiOptionsOptions": {
+    "apiOptionsFieldOptions": {
+      "description": "Rendering and data-source options for the apiOptions core field.",
       "type": "object",
       "properties": {
         "source": {
+          "description": "API source that supplies selectable options.",
           "allOf": [{ "$ref": "#/$defs/optionSource" }, { "not": { "required": ["type_key"] } }]
         },
-        "presentation": { "enum": ["select", "grouped-checkboxes"] },
-        "selectAll": { "const": true },
-        "showDescriptions": { "const": true },
-        "disableWhenNoMatches": { "const": true },
+        "presentation": {
+          "description": "Control used to present the loaded options.",
+          "enum": ["select", "grouped-checkboxes"]
+        },
+        "selectAll": {
+          "description": "Show a Select All control for grouped checkboxes.",
+          "const": true
+        },
+        "showDescriptions": {
+          "description": "Show option descriptions from an enriched response.",
+          "const": true
+        },
+        "disableWhenNoMatches": {
+          "description": "Disable the field when response metadata reports zero matching devices.",
+          "const": true
+        },
         "metaText": {
+          "description": "Response metadata displayed beside the option control.",
           "type": "object",
           "properties": {
-            "key": { "const": "matching_device_count" },
-            "label": { "$ref": "#/$defs/nonBlankString" }
+            "key": {
+              "description": "Enriched-response metadata key to display.",
+              "const": "matching_device_count"
+            },
+            "label": {
+              "description": "Human-readable label shown before the metadata value.",
+              "$ref": "#/$defs/nonBlankString"
+            }
           },
           "required": ["key", "label"],
           "additionalProperties": false
         },
-        "queryAliases": { "$ref": "#/$defs/queryAliases" }
+        "queryAliases": {
+          "description": "Legacy URL query parameters accepted for this field.",
+          "$ref": "#/$defs/queryAliases"
+        }
       },
       "required": ["source"],
       "additionalProperties": false
     },
-    "locationOptions": {
+    "locationFieldOptions": {
+      "description": "Rendering and data-source options for the location core field.",
       "type": "object",
       "properties": {
         "source": {
+          "description": "API source that supplies selectable locations.",
           "allOf": [
             { "$ref": "#/$defs/optionSource" },
             { "not": { "required": ["response"] } }
           ]
         },
-        "typeField": { "$ref": "#/$defs/propertyName" },
-        "queryAliases": { "$ref": "#/$defs/queryAliases" }
+        "typeField": {
+          "description": "Sibling property that receives the selected location's type.",
+          "$ref": "#/$defs/propertyName"
+        },
+        "queryAliases": {
+          "description": "Legacy URL query parameters accepted for this field.",
+          "$ref": "#/$defs/queryAliases"
+        }
       },
       "required": ["source"],
       "additionalProperties": false
     },
-    "deviceOptions": {
+    "deviceFieldOptions": {
+      "description": "Rendering, filtering, and data-source options for the device core field.",
       "type": "object",
       "properties": {
         "source": {
+          "description": "API source that supplies selectable devices.",
           "allOf": [
             { "$ref": "#/$defs/optionSource" },
             { "not": { "required": ["type_key"] } },
@@ -129,100 +199,197 @@
           ]
         },
         "filters": {
+          "description": "Filter controls shown above the device picker.",
           "type": "array",
           "items": { "enum": ["site", "tenant", "status"] },
           "uniqueItems": true
         },
-        "siteRequired": { "type": "boolean" },
-        "siteField": { "$ref": "#/$defs/propertyName" },
-        "filterScope": { "$ref": "#/$defs/nonBlankString" },
-        "queryParam": { "$ref": "#/$defs/nonBlankString" },
-        "queryAliases": { "$ref": "#/$defs/queryAliases" }
+        "siteRequired": {
+          "description": "Whether a Site must be selected before devices can be loaded.",
+          "type": "boolean"
+        },
+        "siteField": {
+          "description": "Sibling location property used instead of an inline Site filter.",
+          "$ref": "#/$defs/propertyName"
+        },
+        "filterScope": {
+          "description": "Identifier used to share one filter state across device fields.",
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "queryParam": {
+          "description": "URL query parameter used to prefill the selected device value.",
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "queryAliases": {
+          "description": "Legacy URL query parameters accepted for this field.",
+          "$ref": "#/$defs/queryAliases"
+        }
       },
       "required": ["source", "filters", "siteRequired", "filterScope"],
       "additionalProperties": false
     },
-    "standardOptions": {
+    "standardFieldOptions": {
+      "description": "Supported ui:options for a standard RJSF field.",
       "type": "object",
       "properties": {
-        "rows": { "type": "integer", "minimum": 1 }
+        "rows": {
+          "description": "Visible row count for a multiline text control.",
+          "type": "integer",
+          "minimum": 1
+        }
       },
       "additionalProperties": false
     },
-    "variantRowsStaticOption": {
+    "variantRowsChoice": {
+      "description": "One static choice shown by a select column.",
       "type": "object",
       "properties": {
-        "label": { "$ref": "#/$defs/nonBlankString" },
-        "value": { "$ref": "#/$defs/nonBlankString" }
+        "label": {
+          "description": "Human-readable choice label.",
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "value": {
+          "description": "String submitted when the choice is selected.",
+          "$ref": "#/$defs/nonBlankString"
+        }
       },
       "required": ["label", "value"],
       "additionalProperties": false
     },
-    "variantRowsField": {
+    "variantRowsColumn": {
+      "description": "One input column repeated in every row of a mode. arrayProperty names the projected top-level array; itemProperty names a string property inside object-array items.",
       "type": "object",
       "properties": {
-        "property": { "$ref": "#/$defs/propertyName" },
-        "key": { "$ref": "#/$defs/propertyName" },
-        "label": { "$ref": "#/$defs/nonBlankString" },
-        "kind": { "enum": ["text", "select"] },
-        "placeholder": { "$ref": "#/$defs/nonBlankString" },
-        "required": { "type": "boolean" },
-        "pattern": { "type": "string" },
-        "options": {
+        "arrayProperty": {
+          "description": "Projected top-level array property populated by this column.",
+          "$ref": "#/$defs/propertyName"
+        },
+        "itemProperty": {
+          "description": "String property populated within each object-array item; omit for scalar arrays.",
+          "$ref": "#/$defs/propertyName"
+        },
+        "label": {
+          "description": "Human-readable column label.",
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "kind": {
+          "description": "Input control rendered for this column.",
+          "enum": ["text", "select"]
+        },
+        "placeholder": {
+          "description": "Hint shown while the column input is empty.",
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "required": {
+          "description": "Whether every nonblank row must contain a value for this column.",
+          "type": "boolean"
+        },
+        "pattern": {
+          "description": "Regular expression used to validate nonempty text values.",
+          "type": "string"
+        },
+        "choices": {
+          "description": "Static choices available to a select column.",
           "type": "array",
-          "items": { "$ref": "#/$defs/variantRowsStaticOption" },
+          "items": { "$ref": "#/$defs/variantRowsChoice" },
           "minItems": 1
         }
       },
-      "required": ["property", "label", "kind"],
+      "required": ["arrayProperty", "label", "kind"],
       "additionalProperties": false
     },
-    "variantRowsVariant": {
+    "variantRowsMode": {
+      "description": "One mutually exclusive row layout, such as interfaces or GUIDs.",
       "type": "object",
       "properties": {
-        "id": { "$ref": "#/$defs/propertyName" },
-        "label": { "$ref": "#/$defs/nonBlankString" },
-        "fields": {
+        "id": {
+          "description": "Stable identifier for this mode.",
+          "$ref": "#/$defs/propertyName"
+        },
+        "label": {
+          "description": "Human-readable mode label.",
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "columns": {
+          "description": "Columns rendered for every row in this mode.",
           "type": "array",
-          "items": { "$ref": "#/$defs/variantRowsField" },
+          "items": { "$ref": "#/$defs/variantRowsColumn" },
           "minItems": 1
         }
       },
-      "required": ["id", "label", "fields"],
+      "required": ["id", "label", "columns"],
       "additionalProperties": false
     },
-    "variantRowsOptions": {
+    "variantRowsFieldOptions": {
+      "description": "Configuration for a composite row editor that exclusively controls several projected array properties.",
       "type": "object",
       "properties": {
-        "owns": {
+        "ownedProperties": {
+          "description": "Projected array properties written exclusively by this composite field, including its anchor.",
           "type": "array",
           "items": { "$ref": "#/$defs/propertyName" },
           "minItems": 2,
           "uniqueItems": true
         },
-        "variants": {
+        "modes": {
+          "description": "Mutually exclusive row layouts offered to the user.",
           "type": "array",
-          "items": { "$ref": "#/$defs/variantRowsVariant" },
+          "items": { "$ref": "#/$defs/variantRowsMode" },
           "minItems": 2
         },
-        "minimumRows": { "type": "integer", "minimum": 1 },
-        "clearInactive": { "const": true },
-        "warning": { "$ref": "#/$defs/nonBlankString" }
+        "minimumRows": {
+          "description": "Minimum number of editable rows kept visible.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "clearInactive": {
+          "description": "Clear properties owned by inactive modes when the active mode changes.",
+          "const": true
+        },
+        "warning": {
+          "description": "Warning displayed below the row editor.",
+          "$ref": "#/$defs/nonBlankString"
+        }
       },
-      "required": ["owns", "variants", "minimumRows", "clearInactive"],
+      "required": ["ownedProperties", "modes", "minimumRows", "clearInactive"],
       "additionalProperties": false
     },
     "fieldUiSchema": {
+      "description": "Supported rendering directives for one projected top-level form property.",
       "type": "object",
       "properties": {
-        "ui:title": { "$ref": "#/$defs/nonBlankString" },
-        "ui:help": { "$ref": "#/$defs/nonBlankString" },
-        "ui:description": { "$ref": "#/$defs/nonBlankString" },
-        "ui:placeholder": { "$ref": "#/$defs/nonBlankString" },
-        "ui:widget": { "enum": ["hidden", "text", "textarea", "checkbox", "select"] },
-        "ui:field": { "enum": ["apiOptions", "device", "location", "variantRows"] },
-        "ui:readonly": { "type": "boolean" },
-        "ui:options": { "type": "object" }
+        "ui:title": {
+          "description": "Label displayed for the field.",
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "ui:help": {
+          "description": "Supporting help text displayed with the field.",
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "ui:description": {
+          "description": "UI-specific description displayed with the field.",
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "ui:placeholder": {
+          "description": "Hint displayed while the field is empty.",
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "ui:widget": {
+          "description": "Standard RJSF widget used to render the field.",
+          "enum": ["hidden", "text", "textarea", "checkbox", "select"]
+        },
+        "ui:field": {
+          "description": "Registered core field used to render and manage the property.",
+          "enum": ["apiOptions", "device", "location", "variantRows"]
+        },
+        "ui:readonly": {
+          "description": "Whether the rendered field is read-only.",
+          "type": "boolean"
+        },
+        "ui:options": {
+          "description": "Field-specific options validated according to ui:field.",
+          "type": "object"
+        }
       },
       "additionalProperties": false,
       "not": { "required": ["ui:widget", "ui:field"] },
@@ -231,21 +398,21 @@
           "if": { "required": ["ui:field"], "properties": { "ui:field": { "const": "apiOptions" } } },
           "then": {
             "required": ["ui:options"],
-            "properties": { "ui:options": { "$ref": "#/$defs/apiOptionsOptions" } }
+            "properties": { "ui:options": { "$ref": "#/$defs/apiOptionsFieldOptions" } }
           }
         },
         {
           "if": { "required": ["ui:field"], "properties": { "ui:field": { "const": "location" } } },
           "then": {
             "required": ["ui:options"],
-            "properties": { "ui:options": { "$ref": "#/$defs/locationOptions" } }
+            "properties": { "ui:options": { "$ref": "#/$defs/locationFieldOptions" } }
           }
         },
         {
           "if": { "required": ["ui:field"], "properties": { "ui:field": { "const": "device" } } },
           "then": {
             "required": ["ui:options"],
-            "properties": { "ui:options": { "$ref": "#/$defs/deviceOptions" } }
+            "properties": { "ui:options": { "$ref": "#/$defs/deviceFieldOptions" } }
           }
         },
         {
@@ -255,12 +422,12 @@
           },
           "then": {
             "required": ["ui:options"],
-            "properties": { "ui:options": { "$ref": "#/$defs/variantRowsOptions" } }
+            "properties": { "ui:options": { "$ref": "#/$defs/variantRowsFieldOptions" } }
           }
         },
         {
           "if": { "not": { "required": ["ui:field"] } },
-          "then": { "properties": { "ui:options": { "$ref": "#/$defs/standardOptions" } } }
+          "then": { "properties": { "ui:options": { "$ref": "#/$defs/standardFieldOptions" } } }
         }
       ]
     },
@@ -269,18 +436,31 @@
       "type": "object",
       "properties": {
         "ui:order": {
+          "description": "Top-level property rendering order; an optional * inserts unlisted properties.",
           "type": "array",
           "items": { "$ref": "#/$defs/nonBlankString" },
           "uniqueItems": true
         },
         "ui:submitButtonOptions": {
+          "description": "Submit-button presentation options.",
           "type": "object",
-          "properties": { "submitText": { "$ref": "#/$defs/nonBlankString" } },
+          "properties": {
+            "submitText": {
+              "description": "Text displayed on the submit button.",
+              "$ref": "#/$defs/nonBlankString"
+            }
+          },
           "additionalProperties": false
         },
         "ui:globalOptions": {
+          "description": "Rendering options applied to the whole form.",
           "type": "object",
-          "properties": { "hideSchemaDescriptions": { "type": "boolean" } },
+          "properties": {
+            "hideSchemaDescriptions": {
+              "description": "Hide descriptions inherited from the projected input schema.",
+              "type": "boolean"
+            }
+          },
           "additionalProperties": false
         }
       },

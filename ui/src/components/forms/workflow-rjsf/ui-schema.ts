@@ -42,26 +42,26 @@ export interface VariantRowsChoice {
 }
 
 export interface VariantRowsColumn {
-  /** Projected array property. Columns with a `key` share object-array rows. */
-  property: string;
-  key?: string;
+  /** Projected array property. Columns with an `itemProperty` share object-array rows. */
+  arrayProperty: string;
+  itemProperty?: string;
   label: string;
   kind: "text" | "select";
   placeholder?: string;
   required?: boolean;
   pattern?: string;
-  options?: VariantRowsChoice[];
+  choices?: VariantRowsChoice[];
 }
 
-export interface VariantRowsVariant {
+export interface VariantRowsMode {
   id: string;
   label: string;
-  fields: VariantRowsColumn[];
+  columns: VariantRowsColumn[];
 }
 
-export interface VariantRowsOptions {
-  owns: string[];
-  variants: VariantRowsVariant[];
+export interface VariantRowsFieldOptions {
+  ownedProperties: string[];
+  modes: VariantRowsMode[];
   minimumRows?: number;
   clearInactive?: true;
   warning?: string;
@@ -145,16 +145,18 @@ export const deviceOptionsOf = (uiSchema: unknown, name: string): DeviceOptions 
 export const locationOptionsOf = (uiSchema: unknown, name: string): LocationOptions =>
   fieldOptions(uiSchema, name) as unknown as LocationOptions;
 
-export const variantRowsOptionsOf = (uiSchema: unknown, name: string): VariantRowsOptions =>
-  fieldOptions(uiSchema, name) as unknown as VariantRowsOptions;
+export const variantRowsFieldOptionsOf = (
+  uiSchema: unknown,
+  name: string
+): VariantRowsFieldOptions => fieldOptions(uiSchema, name) as unknown as VariantRowsFieldOptions;
 
 export const variantRowsDeclarations = (
   schema: unknown,
   uiSchema: unknown
-): Array<{ anchor: string; config: VariantRowsOptions }> =>
+): Array<{ anchor: string; config: VariantRowsFieldOptions }> =>
   Object.keys(propertiesOf(schema)).flatMap((anchor) =>
     coreFieldOf(uiSchema, anchor) === "variantRows"
-      ? [{ anchor, config: variantRowsOptionsOf(uiSchema, anchor) }]
+      ? [{ anchor, config: variantRowsFieldOptionsOf(uiSchema, anchor) }]
       : []
   );
 
