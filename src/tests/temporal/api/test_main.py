@@ -29,9 +29,10 @@ from nv_config_manager.dcim import DCIMSelection, DeviceMetadata
 from nv_config_manager.temporal import runtime as service_runtime
 from nv_config_manager.temporal import workflow_registry
 from nv_config_manager.temporal.api import main as temporal_main
+from nv_config_manager.temporal.api import workflow_catalog
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
 from nv_config_manager.temporal.api.main import app
-from nv_config_manager.temporal.api.workflow_catalog import WORKFLOW_REGISTRY
+from nv_config_manager.temporal.api.workflow_catalog import WORKFLOW_FORM_CATALOG, WORKFLOW_REGISTRY
 from nv_config_manager.temporal.api.workflow_v1 import (
     WorkflowDetailResponse,
     WorkflowSummaryResponse,
@@ -89,10 +90,14 @@ def test_api_startup_configures_only_workflow_ui_runtime() -> None:
 
 def test_api_startup_logs_the_workflow_registry_serving_routes() -> None:
     """API startup logs the same registry snapshot its workflow routes were built from."""
-    with patch.object(workflow_registry, "log_workflow_registry") as log_registry:
+    with (
+        patch.object(workflow_registry, "log_workflow_registry") as log_registry,
+        patch.object(workflow_catalog, "log_workflow_form_diagnostics") as log_forms,
+    ):
         reload(temporal_main)
 
     log_registry.assert_called_once_with(WORKFLOW_REGISTRY)
+    log_forms.assert_called_once_with(WORKFLOW_FORM_CATALOG)
 
 
 def test_openapi_operation_tags_are_unique():
@@ -1636,15 +1641,15 @@ def test_workflow_types():
     assert "TenantDeployWorkflow" in workflow_types
 
 
-@patch("nv_config_manager.temporal.api.dynamic_endpoints.RBACConfig")
-def test_workflow_metadata(mock_dynamic_rbac_config):
-    """Verify workflow metadata includes RBAC roles."""
-    dynamic_rbac = MagicMock()
-    dynamic_rbac.get_workflow_roles.side_effect = lambda workflow_name: {
+@patch("nv_config_manager.temporal.api.workflow_catalog.RBACConfig")
+def test_workflow_metadata(mock_catalog_rbac_config):
+    """Verify default workflow metadata preserves the legacy response shape."""
+    catalog_rbac = MagicMock()
+    catalog_rbac.get_workflow_roles.side_effect = lambda workflow_name: {
         "read_roles": {"reader", workflow_name},
         "execute_roles": {"executor", workflow_name},
     }
-    mock_dynamic_rbac_config.return_value = dynamic_rbac
+    mock_catalog_rbac_config.return_value = catalog_rbac
 
     client = TestClient(app)
     rsp = client.get("/v1/workflow/metadata")
@@ -1656,6 +1661,18 @@ def test_workflow_metadata(mock_dynamic_rbac_config):
     workflows_by_name = {workflow["name"]: workflow for workflow in response["workflows"]}
     assert "HelloWorldRunning" not in workflows_by_name
     assert "TenantDeployWorkflow" not in workflows_by_name
+    legacy_fields = {
+        "name",
+        "display_name",
+        "description",
+        "endpoint",
+        "namespace",
+        "cli_name",
+        "input_class",
+        "read_roles",
+        "execute_roles",
+    }
+    assert all(set(workflow) == legacy_fields for workflow in response["workflows"])
     backup_workflow = workflows_by_name["BackupWorkflow"]
     assert backup_workflow["display_name"] == "Configuration Backup"
     assert backup_workflow["description"]
@@ -1665,6 +1682,46 @@ def test_workflow_metadata(mock_dynamic_rbac_config):
     assert backup_workflow["input_class"] == "BackupInput"
     assert backup_workflow["read_roles"] == ["BackupWorkflow", "reader"]
     assert backup_workflow["execute_roles"] == ["BackupWorkflow", "executor"]
+
+
+@patch("nv_config_manager.temporal.api.workflow_catalog.RBACConfig")
+def test_workflow_metadata_form_expansion(mock_catalog_rbac_config):
+    """The form expansion adds all three form-specific metadata fields."""
+    catalog_rbac = MagicMock()
+    catalog_rbac.get_workflow_roles.side_effect = lambda workflow_name: {
+        "read_roles": {"reader", workflow_name},
+        "execute_roles": {"executor", workflow_name},
+    }
+    mock_catalog_rbac_config.return_value = catalog_rbac
+
+    client = TestClient(app)
+    rsp = client.get("/v1/workflow/metadata", params={"include": "form"})
+
+    assert rsp.status_code == 200
+    workflows_by_name = {workflow["name"]: workflow for workflow in rsp.json()["workflows"]}
+    backup_workflow = workflows_by_name["BackupWorkflow"]
+    assert backup_workflow["group"] == "Configuration"
+    assert backup_workflow["form_id"] == "backup"
+    assert backup_workflow["has_form"] is True
+
+
+def test_workflow_metadata_rejects_unknown_expansion():
+    rsp = TestClient(app).get("/v1/workflow/metadata", params={"include": "unknown"})
+
+    assert rsp.status_code == 422
+    assert rsp.json()["detail"][0]["loc"] == ["query", "include"]
+
+
+def test_workflow_metadata_openapi_documents_form_expansion():
+    operation = app.openapi()["paths"]["/v1/workflow/metadata"]["get"]
+
+    [include] = operation["parameters"]
+    assert include["name"] == "include"
+    assert include["in"] == "query"
+    assert include["required"] is False
+    assert include["description"] == (
+        "Optional metadata expansion. Use 'form' to include group, form_id, and has_form."
+    )
 
 
 def test_dynamic_routes_are_exactly_the_registry_api_workflows():

@@ -1,0 +1,42 @@
+{
+  "workflow": "InfinibandCableValidationWorkflow",
+  "input_model": "InfinibandCableValidationInput",
+  "scenarios": [
+    {
+      "name": "manual fill",
+      "legacy_url": "/workflows/infinibandcablevalidationworkflow/form",
+      "new_url": "/workflows/new/infiniband-cable-validation",
+      "legacy_payload": {
+        "ufm_device_id": "32fdefda-df59-4285-9d6e-a1f220906a8d",
+        "switch_device_ids": [
+          "67a4c2d6-0b61-4c90-a7b8-3042d9c26815",
+          "9d5b1b2f-7c85-4696-8aa5-f56e02397a06"
+        ]
+      },
+      "generic_payload": {
+        "ufm_device_id": "32fdefda-df59-4285-9d6e-a1f220906a8d",
+        "switch_device_ids": [
+          "67a4c2d6-0b61-4c90-a7b8-3042d9c26815",
+          "9d5b1b2f-7c85-4696-8aa5-f56e02397a06"
+        ]
+      }
+    },
+    {
+      "name": "prefill from URL",
+      "legacy_url": "/workflows/infinibandcablevalidationworkflow/form?site=PDX01&device=32fdefda-df59-4285-9d6e-a1f220906a8d&device-id=ecb8db8a-d099-4654-83d9-d8a46c597fe9",
+      "new_url": "/workflows/new/infiniband-cable-validation?site=PDX01&device=32fdefda-df59-4285-9d6e-a1f220906a8d&device-id=ecb8db8a-d099-4654-83d9-d8a46c597fe9",
+      "legacy_payload": {
+        "ufm_device_id": "32fdefda-df59-4285-9d6e-a1f220906a8d",
+        "switch_device_ids": [
+          "ecb8db8a-d099-4654-83d9-d8a46c597fe9"
+        ]
+      },
+      "generic_payload": {
+        "ufm_device_id": "32fdefda-df59-4285-9d6e-a1f220906a8d",
+        "switch_device_ids": [
+          "ecb8db8a-d099-4654-83d9-d8a46c597fe9"
+        ]
+      }
+    }
+  ]
+}

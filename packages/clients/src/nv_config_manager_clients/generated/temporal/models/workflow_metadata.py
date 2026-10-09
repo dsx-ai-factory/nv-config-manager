@@ -31,8 +31,9 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
+from typing_extensions import Annotated
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
@@ -46,12 +47,25 @@ class WorkflowMetadata(BaseModel):
     display_name: StrictStr
     endpoint: StrictStr
     execute_roles: List[StrictStr]
+    form_id: Optional[Annotated[str, Field(strict=True)]] = None
+    group: Optional[StrictStr] = None
+    has_form: Optional[StrictBool] = None
     input_class: StrictStr
     name: StrictStr
     namespace: Optional[StrictStr]
     read_roles: List[StrictStr]
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["cli_name", "description", "display_name", "endpoint", "execute_roles", "input_class", "name", "namespace", "read_roles"]
+    __properties: ClassVar[List[str]] = ["cli_name", "description", "display_name", "endpoint", "execute_roles", "form_id", "group", "has_form", "input_class", "name", "namespace", "read_roles"]
+
+    @field_validator('form_id')
+    def form_id_validate_regular_expression(cls, value):
+        """Validates the regular expression"""
+        if value is None:
+            return value
+
+        if not re.match(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", value):
+            raise ValueError(r"must validate the regular expression /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/")
+        return value
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -99,6 +113,21 @@ class WorkflowMetadata(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if form_id (nullable) is None
+        # and model_fields_set contains the field
+        if self.form_id is None and "form_id" in self.model_fields_set:
+            _dict['form_id'] = None
+
+        # set to None if group (nullable) is None
+        # and model_fields_set contains the field
+        if self.group is None and "group" in self.model_fields_set:
+            _dict['group'] = None
+
+        # set to None if has_form (nullable) is None
+        # and model_fields_set contains the field
+        if self.has_form is None and "has_form" in self.model_fields_set:
+            _dict['has_form'] = None
+
         # set to None if namespace (nullable) is None
         # and model_fields_set contains the field
         if self.namespace is None and "namespace" in self.model_fields_set:
@@ -121,6 +150,9 @@ class WorkflowMetadata(BaseModel):
             "display_name": obj.get("display_name"),
             "endpoint": obj.get("endpoint"),
             "execute_roles": obj.get("execute_roles"),
+            "form_id": obj.get("form_id"),
+            "group": obj.get("group"),
+            "has_form": obj.get("has_form"),
             "input_class": obj.get("input_class"),
             "name": obj.get("name"),
             "namespace": obj.get("namespace"),

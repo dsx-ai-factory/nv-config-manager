@@ -168,6 +168,7 @@ dev = [
     "pytest-timeout>=2.3.1",
     "testcontainers>=3.7.1",
     "aiosqlite>=0.19.0",
+    "jsonschema>=4.23.0",
     "responses>=0.25.3",
     "mock>=5.1.0",
 

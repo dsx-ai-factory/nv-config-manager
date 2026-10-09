@@ -14,492 +14,206 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/**
+ * Differences from the legacy page, by design: it no longer posts
+ * `device_type_ids: []` and `raise_for_invalid: false` (not form inputs; the model
+ * defaults are the same values); the Site's location type is submitted as `site_type`;
+ * empty Roles are omitted (default `[]`); `?role=` is an alias of `?roles=`.
+ */
 import { expect } from "@playwright/test";
+
 import {
-  SITES_LIST,
+  FORBIDDEN_SITE_ID,
   ROLES_LIST,
+  SITES_LIST,
   STATUS_LIST,
   TENANT_LIST,
-  FORBIDDEN_SITE_ID,
 } from "@/mocks/data";
+
+import {
+  mockServerCatalogAndUser,
+  mockTypedLocationsEndpoint,
+} from "./shared/apiMocks";
 import { test, TEST_TIMEOUT } from "./shared/utils";
+import {
+  choose,
+  expectFailureToast,
+  expectWorkflowDetails,
+  formErrors,
+  formPath,
+  nextPost,
+  noFailureToast,
+  recordPosts,
+  SELECT_SITE,
+  selected,
+  submit,
+} from "./shared/workflowFormTests";
+
+const PATH = formPath("ValidateHardwareWorkflow");
+const TITLE = "New Cumulus Hardware Validation Workflow";
+const ENDPOINT = "/v1/workflow/ngc/cumulus_hardware_validation";
+const DEFAULT_STATUSES = `${STATUS_LIST.active}, ${STATUS_LIST.provisioned}`;
+
+test.beforeEach(async ({ page }) => {
+  await mockServerCatalogAndUser(page, ["reader", "executor"]);
+  await mockTypedLocationsEndpoint(page);
+});
 
 test.describe("Cumulus Hardware Validation Form", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/workflows/cumulushardwarevalidationworkflow/form");
-  });
-
-  test("renders form with correct title", async ({ page }) => {
-    const title = await page.getByRole("heading", {
-      name: "New Cumulus Hardware Validation Workflow",
-    });
-    await expect(title).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("displays validation errors for empty submission", async ({ page }) => {
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Check for all required field validations
-    await expect(page.getByText("Site is required")).toBeVisible({
+    await page.goto(PATH);
+    await expect(page.getByRole("heading", { name: TITLE })).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
-    await expect(page.getByText("Roles is required")).not.toBeVisible({
+  });
+
+  test("renders the fields with the default statuses", async ({ page }) => {
+    await expect(page.locator("form label")).toHaveText([
+      "Site *",
+      "Roles",
+      "Device Status",
+      "Tenant",
+    ]);
+    await expect(selected(page, DEFAULT_STATUSES)).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
-    await expect(page.getByText("Device Status is required")).not.toBeVisible();
-    await expect(page.getByText("Tenant is required")).not.toBeVisible();
+  });
+
+  test("reports a missing site only and sends nothing", async ({ page }) => {
+    const posts = recordPosts(page, ENDPOINT);
+    await submit(page);
     await expect(
-      page.getByRole("button", { name: `Remove ${STATUS_LIST.active}` })
+      page.getByText("Site is required", { exact: true })
     ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: `Remove ${STATUS_LIST.provisioned}` })
-    ).toBeVisible();
+    await expect(page.getByText(/is required/)).toHaveCount(1);
+    expect(posts).toEqual([]);
   });
 
-  test("handles URL parameters correctly and submits with those values", async ({
+  test("submits several roles and statuses picked by hand", async ({
     page,
   }) => {
-    // Set up a listener for the request
-    const requestPromise = page.waitForRequest((request) => {
-      return request
-        .url()
-        .includes("/v1/workflow/ngc/cumulus_hardware_validation");
-    });
+    await choose(page, SELECT_SITE, SITES_LIST.pdx01);
+    await page.getByRole("combobox", { name: "Select Roles..." }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("option", { name: ROLES_LIST.leaf, exact: true })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("option", { name: ROLES_LIST.spine, exact: true })
+      .click();
+    await page.keyboard.press("Escape");
+    await selected(page, DEFAULT_STATUSES).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("option", { name: STATUS_LIST.planned, exact: true })
+      .click();
+    await page.keyboard.press("Escape");
+    await choose(page, "Select a Tenant...", TENANT_LIST.tenant_a);
 
-    // Navigate with all URL parameters
-    await page.goto(
-      "/workflows/cumulushardwarevalidationworkflow/form" +
-        `?site=${SITES_LIST.pdx01}` +
-        `&role=${ROLES_LIST.leaf}` +
-        `&status=${STATUS_LIST.active}` +
-        `&tenant=${TENANT_LIST.tenant_a}`
-    );
-
-    // Verify all fields are pre-populated
-    await expect(
-      page.getByRole("button", {
-        name: `${SITES_LIST.pdx01}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(
-      page.getByRole("button", {
-        name: `${ROLES_LIST.leaf}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(
-      page.getByRole("button", {
-        name: `${STATUS_LIST.active}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(
-      page.getByRole("button", {
-        name: `${TENANT_LIST.tenant_a}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-
-    // Submit the form with the URL parameters
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Get the request before navigation completes
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    // Verify the request data matches the URL parameters
-    expect(requestData).toEqual({
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toEqual({
       site: SITES_LIST.pdx01,
-      roles: [ROLES_LIST.leaf],
-      status: [STATUS_LIST.active],
-      tenant: TENANT_LIST.tenant_a,
-      device_type_ids: [],
-      raise_for_invalid: false,
-    });
-
-    // Wait for navigation to confirm submission completed
-    await expect(
-      page.getByRole("heading", { name: "Workflow Details" })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("loads from URL parameters then do manual changes before submission", async ({
-    page,
-  }) => {
-    const requestPromise = page.waitForRequest((request) => {
-      return request
-        .url()
-        .includes("/v1/workflow/ngc/cumulus_hardware_validation");
-    });
-
-    // Navigate with all URL parameters
-    await page.goto(
-      "/workflows/cumulushardwarevalidationworkflow/form" +
-        `?site=${SITES_LIST.pdx01}` +
-        `&role=${ROLES_LIST.leaf}` +
-        `&status=${STATUS_LIST.active}` +
-        `&tenant=${TENANT_LIST.tenant_a}`
-    );
-
-    // Verify all fields are pre-populated
-    await expect(
-      page.getByRole("button", {
-        name: `${SITES_LIST.pdx01}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(
-      page.getByRole("button", {
-        name: `${ROLES_LIST.leaf}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(
-      page.getByRole("button", {
-        name: `${STATUS_LIST.active}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(
-      page.getByRole("button", {
-        name: `${TENANT_LIST.tenant_a}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-
-    // Manually change the site field
-    await page.getByRole("button", { name: SITES_LIST.pdx01 }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.rno1).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    // Manually change the roles field - add another role
-    await page
-      .getByRole("button", { name: `${ROLES_LIST.leaf}. Open options` })
-      .click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.spine).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    // Submit the form
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Get the request before navigation completes
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    // Verify the request data reflects the manual changes
-    expect(requestData).toEqual({
-      site: SITES_LIST.rno1,
-      roles: [ROLES_LIST.leaf, ROLES_LIST.spine],
-      status: [STATUS_LIST.active],
-      tenant: TENANT_LIST.tenant_a,
-      device_type_ids: [],
-      raise_for_invalid: false,
-    });
-
-    // Wait for navigation to confirm submission completed
-    await expect(
-      page.getByRole("heading", { name: "Workflow Details" })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("handles multiple selections for multi-select fields", async ({
-    page,
-  }) => {
-    // Test multiple selections for Roles
-    await page.locator("form").getByRole("button", { name: "Roles" }).click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.leaf).click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.spine).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    await expect(
-      page.getByRole("button", { name: `Remove ${ROLES_LIST.leaf}` })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(
-      page.getByRole("button", { name: `Remove ${ROLES_LIST.spine}` })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-
-    // Test multiple selections for Device Status
-    await page
-      .getByRole("button", {
-        name: `${STATUS_LIST.active}, ${STATUS_LIST.provisioned}. Open options`,
-      })
-      .click();
-    await page.getByRole("dialog").getByText(STATUS_LIST.planned).click();
-    await page.getByRole("dialog").getByText(STATUS_LIST.staged).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    await expect(
-      page.getByRole("button", { name: `Remove ${STATUS_LIST.active}` })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(
-      page.getByRole("button", { name: `Remove ${STATUS_LIST.provisioned}` })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(
-      page.getByRole("button", { name: `Remove ${STATUS_LIST.planned}` })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(
-      page.getByRole("button", { name: `Remove ${STATUS_LIST.staged}` })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("submits correct data to the API", async ({ page }) => {
-    // Set up a listener for the request
-    const requestPromise = page.waitForRequest((request) => {
-      return request
-        .url()
-        .includes("/v1/workflow/ngc/cumulus_hardware_validation");
-    });
-
-    await page.getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    await page.locator("form").getByRole("button", { name: "Roles" }).click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.leaf).click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.spine).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    await page
-      .getByRole("button", {
-        name: `${STATUS_LIST.active}, ${STATUS_LIST.provisioned}. Open options`,
-      })
-      .click();
-    await page.getByRole("dialog").getByText(STATUS_LIST.planned).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    await page.getByRole("button", { name: "Tenant" }).click();
-    await page.getByRole("dialog").getByText(TENANT_LIST.ngc).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Get the request
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    // Verify the request data
-    expect(requestData).toEqual({
-      site: SITES_LIST.pdx01,
+      site_type: "Site",
       roles: [ROLES_LIST.leaf, ROLES_LIST.spine],
       status: [
         STATUS_LIST.active,
         STATUS_LIST.provisioned,
         STATUS_LIST.planned,
       ],
-      tenant: TENANT_LIST.ngc,
-      device_type_ids: [],
-      raise_for_invalid: false,
+      tenant: TENANT_LIST.tenant_a,
     });
-
-    // Wait for navigation to confirm submission completed
-    await expect(
-      page.getByRole("heading", { name: "Workflow Details" })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expectWorkflowDetails(page);
   });
 
-  test("handles forbidden site correctly", async ({ page }) => {
-    await page.getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(FORBIDDEN_SITE_ID).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    await page.locator("form").getByRole("button", { name: "Roles" }).click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.leaf).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    await page.getByRole("button", { name: "Tenant" }).click();
-    await page.getByRole("dialog").getByText(TENANT_LIST.ngc).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Verify error handling for forbidden site
-    const errorTitle = page.locator("div.text-sm.font-semibold", {
-      hasText: "Workflow Failed",
-    });
-    await expect(errorTitle).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("validates individual form fields", async ({ page }) => {
-    // Test Site field validation
-    await page.locator("form").getByRole("button", { name: "Roles" }).click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.leaf).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    await page.getByRole("button", { name: "Tenant" }).click();
-    await page.getByRole("dialog").getByText(TENANT_LIST.ngc).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    // Submit without site - should show site validation error
-    await page.getByRole("button", { name: "Submit" }).click();
-    await expect(page.getByText("Site is required")).toBeVisible({
+  test("omits cleared roles and tenant", async ({ page }) => {
+    await page.goto(
+      `${PATH}?site=${SITES_LIST.pdx01}&roles=${ROLES_LIST.leaf}&tenant=${TENANT_LIST.ngc}`
+    );
+    await expect(selected(page, ROLES_LIST.leaf)).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
+    await page
+      .getByRole("button", { name: `Remove ${ROLES_LIST.leaf}` })
+      .click();
+    // The Tenant picker's clear button comes last.
+    await page.getByRole("button", { name: "Clear selection" }).last().click();
+    await expect(selected(page, TENANT_LIST.ngc)).toHaveCount(0);
+
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toEqual({
+      site: SITES_LIST.pdx01,
+      site_type: "Site",
+      status: [STATUS_LIST.active, STATUS_LIST.provisioned],
+    });
   });
 
-  test("clears multi-select fields correctly", async ({ page }) => {
-    // Select multiple roles
-    await page.locator("form").getByRole("button", { name: "Roles" }).click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.leaf).click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.spine).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    // Verify roles are selected
-    await expect(
-      page.getByRole("button", { name: `Remove ${ROLES_LIST.leaf}` })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: `Remove ${ROLES_LIST.spine}` })
-    ).toBeVisible();
-
-    // Clear one role by clicking on it again
-    await page
-      .getByRole("button", {
-        name: `${ROLES_LIST.leaf}, ${ROLES_LIST.spine}. Open options`,
-      })
-      .click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.leaf).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Cumulus Hardware Validation Workflow",
-      })
-      .click();
-
-    // Verify only spine role remains
-    await expect(
-      page.getByRole("button", { name: `Remove ${ROLES_LIST.spine}` })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: `Remove ${ROLES_LIST.leaf}` })
-    ).not.toBeVisible();
+  test("shows a forbidden site in the failure toast", async ({ page }) => {
+    await choose(page, SELECT_SITE, FORBIDDEN_SITE_ID);
+    await submit(page);
+    await expectFailureToast(
+      page,
+      "Forbidden: You do not have permission to run this workflow"
+    );
   });
 
-  test("handles URL parameters with multiple values for same field", async ({
+  test("shows FastAPI 422 errors on the field and a string detail form-level", async ({
     page,
   }) => {
-    // Set up a listener for the request
-    const requestPromise = page.waitForRequest((request) => {
-      return request
-        .url()
-        .includes("/v1/workflow/ngc/cumulus_hardware_validation");
-    });
-
-    // Navigate with multiple values for roles and status
-    await page.goto(
-      "/workflows/cumulushardwarevalidationworkflow/form" +
-        `?site=${SITES_LIST.pdx01}` +
-        `&role=${ROLES_LIST.leaf}` +
-        `&role=${ROLES_LIST.spine}` +
-        `&status=${STATUS_LIST.active}` +
-        `&status=${STATUS_LIST.planned}` +
-        `&tenant=${TENANT_LIST.tenant_a}`
+    let detail: unknown = [
+      {
+        type: "value_error",
+        loc: ["body", "tenant"],
+        msg: "Value error, unknown tenant",
+      },
+    ];
+    await page.route(`**${ENDPOINT}`, (route) =>
+      route.fulfill({ status: 422, json: { detail } })
     );
+    await choose(page, SELECT_SITE, SITES_LIST.pdx01);
+    await choose(page, "Select a Tenant...", TENANT_LIST.tenant_a);
+    await submit(page);
+    await expect(page.getByText("Value error, unknown tenant")).toBeVisible();
+    await noFailureToast(page);
 
-    // Verify multiple values are pre-populated
-    await expect(
-      page.getByRole("button", { name: `Remove ${ROLES_LIST.leaf}` })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(
-      page.getByRole("button", { name: `Remove ${ROLES_LIST.spine}` })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(
-      page.getByRole("button", { name: `Remove ${STATUS_LIST.active}` })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(
-      page.getByRole("button", { name: `Remove ${STATUS_LIST.planned}` })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-
-    // Submit the form
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Get the request
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    // Verify the request data includes all selected values
-    expect(requestData).toEqual({
-      site: SITES_LIST.pdx01,
-      roles: [ROLES_LIST.leaf, ROLES_LIST.spine],
-      status: [STATUS_LIST.active, STATUS_LIST.planned],
-      tenant: TENANT_LIST.tenant_a,
-      device_type_ids: [],
-      raise_for_invalid: false,
-    });
-
-    // Wait for navigation to confirm submission completed
-    await expect(
-      page.getByRole("heading", { name: "Workflow Details" })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
+    detail = "No Cumulus devices at this site";
+    await submit(page);
+    await expect(formErrors(page)).toContainText(
+      "No Cumulus devices at this site"
+    );
   });
+});
+
+test("Cumulus Hardware Validation Form - a legacy link with repeated ?role= and ?status= prefills them", async ({
+  page,
+}) => {
+  const query =
+    `?site=${SITES_LIST.pdx01}&role=${ROLES_LIST.leaf}&role=${ROLES_LIST.spine}` +
+    `&status=${STATUS_LIST.active}&status=${STATUS_LIST.planned}&tenant=${TENANT_LIST.tenant_a}`;
+  await page.goto(`/workflows/cumulushardwarevalidationworkflow/form${query}`);
+  await expect(page).toHaveURL(`${PATH}${query}`);
+
+  await expect(selected(page, SITES_LIST.pdx01)).toBeVisible({
+    timeout: TEST_TIMEOUT,
+  });
+  await expect(
+    selected(page, `${ROLES_LIST.leaf}, ${ROLES_LIST.spine}`)
+  ).toBeVisible();
+  await expect(
+    selected(page, `${STATUS_LIST.active}, ${STATUS_LIST.planned}`)
+  ).toBeVisible();
+
+  const post = nextPost(page, ENDPOINT);
+  await submit(page);
+  expect((await post).postDataJSON()).toEqual({
+    site: SITES_LIST.pdx01,
+    site_type: "Site",
+    roles: [ROLES_LIST.leaf, ROLES_LIST.spine],
+    status: [STATUS_LIST.active, STATUS_LIST.planned],
+    tenant: TENANT_LIST.tenant_a,
+  });
+  await expectWorkflowDetails(page);
 });

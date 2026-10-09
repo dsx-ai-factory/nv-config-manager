@@ -14,7 +14,9 @@
 # limitations under the License.
 """InfiniBand PKey Member Update (Reconcile) Workflow."""
 
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from temporalio import workflow
@@ -30,6 +32,7 @@ from nv_config_manager_workflows.stage import (
     StateEnum,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import FormExcluded, FormSchema, variant_rows
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.ib_pkey import (
@@ -140,8 +143,90 @@ class IBPKeyMemberUpdateInput(BaseModel):
     Site and Overlay are resolved server-side from ``host`` and ``pkey``.
     """
 
-    host: str = Field(description="Hostname of the UFM server managing the InfiniBand fabric.")
-    pkey: str = Field(description="Partition key whose membership will be replaced.")
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:order": ["host", "pkey", "interfaces", "guids", "guid_memberships"],
+        "ui:submitButtonOptions": {"submitText": "Replace Members"},
+        "ui:globalOptions": {"hideSchemaDescriptions": True},
+        "host": {"ui:title": "UFM Host", "ui:placeholder": "ufm.example.com"},
+        "pkey": {"ui:title": "PKey", "ui:placeholder": "0x8001"},
+        "interfaces": variant_rows(
+            owned_properties=["interfaces", "guids", "guid_memberships"],
+            modes=[
+                {
+                    "id": "interfaces",
+                    "label": "By Interfaces",
+                    "columns": [
+                        {
+                            "arrayProperty": "interfaces",
+                            "itemProperty": "device",
+                            "label": "Device",
+                            "kind": "text",
+                            "placeholder": "device (e.g. hca01)",
+                            "required": True,
+                        },
+                        {
+                            "arrayProperty": "interfaces",
+                            "itemProperty": "interface",
+                            "label": "Interface",
+                            "kind": "text",
+                            "placeholder": "interface (e.g. mlx5_0)",
+                            "required": True,
+                        },
+                        {
+                            "arrayProperty": "interfaces",
+                            "itemProperty": "membership",
+                            "label": "Membership Type",
+                            "kind": "select",
+                            "required": True,
+                            "choices": [
+                                {"label": "full", "value": "full"},
+                                {"label": "limited", "value": "limited"},
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "id": "guids",
+                    "label": "By GUIDs",
+                    "columns": [
+                        {
+                            "arrayProperty": "guids",
+                            "label": "GUID",
+                            "kind": "text",
+                            "placeholder": "0x0011223344556677",
+                            "required": True,
+                            "pattern": r"^0[xX][0-9a-fA-F]{16}$",
+                        },
+                        {
+                            "arrayProperty": "guid_memberships",
+                            "label": "Membership Type",
+                            "kind": "select",
+                            "required": True,
+                            "choices": [
+                                {"label": "full", "value": "full"},
+                                {"label": "limited", "value": "limited"},
+                            ],
+                        },
+                    ],
+                },
+            ],
+            warning=(
+                "This reconciles PKey membership to the list below. Any current members "
+                "not present here will be removed. Removals require approval before they "
+                "execute."
+            ),
+        ),
+        "guids": {"ui:widget": "hidden"},
+        "guid_memberships": {"ui:widget": "hidden"},
+    }
+
+    host: Annotated[str, FormSchema(min_length=1)] = Field(
+        description="Hostname of the UFM server managing the InfiniBand fabric."
+    )
+    pkey: Annotated[
+        str,
+        FormSchema(pattern=r"^\s*0[xX][0-9a-fA-F]{1,4}\s*$"),
+    ] = Field(description="Partition key whose membership will be replaced.")
     interfaces: list[InterfaceRef] = Field(
         default=[], description="DCIM interfaces to resolve to InfiniBand port GUIDs."
     )
@@ -151,10 +236,10 @@ class IBPKeyMemberUpdateInput(BaseModel):
     guid_memberships: list[str] = Field(
         default=[], description="Per-GUID membership types corresponding to the supplied GUIDs."
     )
-    membership_type: str = Field(
+    membership_type: Annotated[str, FormExcluded()] = Field(
         default="full", description="Default partition membership type for updated members."
     )
-    ip_over_ib: bool = Field(
+    ip_over_ib: Annotated[bool, FormExcluded()] = Field(
         default=True,
         description="IP over InfiniBand setting used when the partition does not already exist.",
     )
@@ -201,10 +286,13 @@ class IBPKeyMemberUpdateWorkflow(UFMHostLockMixin, WorkflowMetadataMixin, StageM
     """Declarative reconciliation of IB PKey membership."""
 
     workflow_name = "InfiniBand PKey Member Update"
+    workflow_group = "InfiniBand"
     workflow_description = "Reconcile InfiniBand PKey membership to a desired interface list"
     workflow_input_class = IBPKeyMemberUpdateInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/ib_pkey_member_update"
+    workflow_form_enabled = True
+    workflow_form_id = "ib-pkey-member-update"
     workflow_namespace = "ngc"
     workflow_lock = WorkflowLockSpec(key_fields=["host", "pkey"])
     workflow_required_activities = (

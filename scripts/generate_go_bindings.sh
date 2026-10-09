@@ -44,8 +44,11 @@ for service in "${services[@]}"; do
 
     # OpenAPI Generator drops property descriptions while simplifying nullable
     # OpenAPI 3.1 anyOf schemas. Copy the description to each non-null branch so
-    # generated Go struct fields retain the schema documentation.
-    jq '
+    # generated Go struct fields retain the schema documentation. It also does
+    # not model JSON Schema patternProperties, so allow additional properties in
+    # its private copy of the dynamic workflow UI schema. The published OpenAPI
+    # contract remains strict, while the generated model retains field entries.
+    jq --arg service "$service" '
         walk(
             if type == "object"
                 and (.description? | type == "string")
@@ -61,6 +64,10 @@ for service in "${services[@]}"; do
             else .
             end
         )
+        | if $service == "temporal"
+          then .components.schemas.WorkflowFormUiSchema.additionalProperties = true
+          else .
+          end
     ' "$repo_root/docs/api-specs/${service}.openapi.json" > "$generator_spec"
 
     docker run --rm \

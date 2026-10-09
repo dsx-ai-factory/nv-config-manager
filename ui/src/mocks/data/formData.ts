@@ -37,6 +37,17 @@ export const SITES_LIST_API_RESPONSE = [
     name: FORBIDDEN_SITE_ID,
   },
 ];
+/**
+ * `/v1/parameter/location?location_type=Site&location_type=Module` rows as the server
+ * returns them, with `location_type`. Site IDs match {@link SITES_LIST}, so the device
+ * mocks serve the same devices; the Module has no devices.
+ */
+export const TYPED_LOCATIONS_LIST_API_RESPONSE = [
+  { id: "PDX01", name: "PDX01", location_type: "Site" },
+  { id: "RNO1", name: "RNO1", location_type: "Site" },
+  { id: FORBIDDEN_SITE_ID, name: FORBIDDEN_SITE_ID, location_type: "Site" },
+  { id: "PDX01-POD1", name: "PDX01 Pod 1", location_type: "Module" },
+];
 export const ROLES_LIST = {
   leaf: "cin-leaf",
   spine: "cin-spine",

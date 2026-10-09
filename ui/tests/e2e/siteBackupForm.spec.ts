@@ -14,133 +14,146 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/**
+ * Differences from the legacy page, by design: the Site's location type is submitted
+ * as `site_type`; empty Roles are omitted (the server default is `[]`); `?role=` is an
+ * alias of `?roles=`.
+ */
 import { expect } from "@playwright/test";
-import {
-  SITES_LIST,
-  ROLES_LIST,
-  STATUS_LIST,
-  TENANT_LIST,
-  FORBIDDEN_SITE_ID,
-} from "@/mocks/data";
+
+import { FORBIDDEN_SITE_ID, ROLES_LIST, SITES_LIST, STATUS_LIST, TENANT_LIST } from "@/mocks/data";
+
+import { mockServerCatalogAndUser, mockTypedLocationsEndpoint } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT } from "./shared/utils";
+import {
+  choose,
+  expectFailureToast,
+  expectWorkflowDetails,
+  formErrors,
+  formPath,
+  nextPost,
+  noFailureToast,
+  recordPosts,
+  SELECT_SITE,
+  selected,
+  submit,
+} from "./shared/workflowFormTests";
+
+const PATH = formPath("SiteBackupWorkflow");
+const TITLE = "New Site Configuration Backup Workflow";
+const ENDPOINT = "/v1/workflow/ngc/site_backup";
+const DEFAULT_STATUSES = `${STATUS_LIST.active}, ${STATUS_LIST.provisioned}`;
+
+test.beforeEach(async ({ page }) => {
+  await mockServerCatalogAndUser(page, ["reader", "executor"]);
+  await mockTypedLocationsEndpoint(page);
+});
 
 test.describe("Site Backup Form", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/workflows/sitebackupworkflow/form");
+    await page.goto(PATH);
+    await expect(page.getByRole("heading", { name: TITLE })).toBeVisible({ timeout: TEST_TIMEOUT });
   });
 
-  test("renders form with correct title", async ({ page }) => {
-    const title = await page.getByRole("heading", {
-      name: "New Site Configuration Backup Workflow",
-    });
-    await expect(title).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("displays validation errors for empty submission", async ({ page }) => {
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    await expect(page.getByText("Site is required")).toBeVisible({
-      timeout: TEST_TIMEOUT,
-    });
-    await expect(
-      page.getByRole("button", { name: `Remove ${STATUS_LIST.active}` })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: `Remove ${STATUS_LIST.provisioned}` })
-    ).toBeVisible();
+  test("renders the fields with their defaults", async ({ page }) => {
+    await expect(page.locator("form label")).toHaveText([
+      "Site *",
+      "Roles",
+      "Device Status",
+      "Tenant",
+      "Backup enabled only",
+    ]);
+    await expect(selected(page, DEFAULT_STATUSES)).toBeVisible({ timeout: TEST_TIMEOUT });
     await expect(page.getByLabel("Backup enabled only")).toBeChecked();
   });
 
-  test("handles URL parameters correctly and submits with those values", async ({
-    page,
-  }) => {
-    const requestPromise = page.waitForRequest((request) => {
-      return request.url().includes("/v1/workflow/ngc/site_backup");
-    });
+  test("reports a missing site and sends nothing", async ({ page }) => {
+    const posts = recordPosts(page, ENDPOINT);
+    await submit(page);
+    await expect(page.getByText("Site is required", { exact: true })).toBeVisible();
+    expect(posts).toEqual([]);
+  });
 
-    await page.goto(
-      "/workflows/sitebackupworkflow/form" +
-        `?site=${SITES_LIST.pdx01}` +
-        `&role=${ROLES_LIST.leaf}` +
-        `&status=${STATUS_LIST.active}` +
-        `&tenant=${TENANT_LIST.tenant_a}` +
-        "&backup_enabled_only=false"
-    );
-
-    await expect(
-      page.getByRole("button", {
-        name: `${SITES_LIST.pdx01}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(page.getByLabel("Backup enabled only")).not.toBeChecked();
-
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    expect(requestData).toEqual({
+  test("submits the site, its type, and the defaults", async ({ page }) => {
+    await choose(page, SELECT_SITE, SITES_LIST.pdx01);
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toEqual({
       site: SITES_LIST.pdx01,
-      roles: [ROLES_LIST.leaf],
-      status: [STATUS_LIST.active],
-      tenant: TENANT_LIST.tenant_a,
-      backup_enabled_only: false,
+      site_type: "Site",
+      status: [STATUS_LIST.active, STATUS_LIST.provisioned],
+      backup_enabled_only: true,
     });
-
-    await expect(
-      page.getByRole("heading", { name: "Workflow Details" })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expectWorkflowDetails(page);
   });
 
-  test("submits backup_enabled_only when checkbox is checked", async ({
-    page,
-  }) => {
-    const requestPromise = page.waitForRequest((request) => {
-      return request.url().includes("/v1/workflow/ngc/site_backup");
-    });
-
-    await page.goto(
-      "/workflows/sitebackupworkflow/form?backup_enabled_only=false"
-    );
-
+  test("submits backup_enabled_only false when unchecked", async ({ page }) => {
+    await choose(page, SELECT_SITE, SITES_LIST.pdx01);
+    await page.getByLabel("Backup enabled only").click();
     await expect(page.getByLabel("Backup enabled only")).not.toBeChecked();
 
-    await page.locator("form").getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-    await page
-      .getByRole("heading", { name: "New Site Configuration Backup Workflow" })
-      .click();
-
-    await page.getByLabel("Backup enabled only").click();
-    await expect(page.getByLabel("Backup enabled only")).toBeChecked();
-
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    expect(requestData.site).toBe(SITES_LIST.pdx01);
-    expect(requestData.backup_enabled_only).toBe(true);
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toMatchObject({ backup_enabled_only: false });
   });
 
-  test("shows forbidden error for unauthorized site", async ({ page }) => {
-    await page.locator("form").getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(FORBIDDEN_SITE_ID).click();
-    await page
-      .getByRole("heading", { name: "New Site Configuration Backup Workflow" })
-      .click();
-
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    const errorTitle = page.locator("div.text-sm.font-semibold", {
-      hasText: "Workflow Failed",
-    });
-    const errorMessage = page.locator("div.text-sm.opacity-90", {
-      hasText: "Forbidden: You do not have permission to run this workflow",
-    });
-
-    await expect(errorTitle).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(errorMessage).toBeVisible({ timeout: TEST_TIMEOUT });
+  test("requires at least one Device Status", async ({ page }) => {
+    const posts = recordPosts(page, ENDPOINT);
+    await choose(page, SELECT_SITE, SITES_LIST.pdx01);
+    await page.getByRole("button", { name: `Remove ${STATUS_LIST.active}` }).click();
+    await page.getByRole("button", { name: `Remove ${STATUS_LIST.provisioned}` }).click();
+    await submit(page);
+    await expect(page.getByText("At least 1 Device Status is required")).toBeVisible();
+    expect(posts).toEqual([]);
   });
+
+  test("shows a forbidden site in the failure toast", async ({ page }) => {
+    await choose(page, SELECT_SITE, FORBIDDEN_SITE_ID);
+    await submit(page);
+    await expectFailureToast(page, "Forbidden: You do not have permission to run this workflow");
+  });
+
+  test("shows FastAPI 422 errors on the field and a string detail form-level", async ({ page }) => {
+    let detail: unknown = [
+      { type: "value_error", loc: ["body", "site_type"], msg: "Value error, not a site" },
+    ];
+    await page.route(`**${ENDPOINT}`, (route) => route.fulfill({ status: 422, json: { detail } }));
+    await choose(page, SELECT_SITE, SITES_LIST.pdx01);
+    await submit(page);
+    // The hidden type sibling reports on its location field.
+    await expect(page.getByText("Value error, not a site")).toBeVisible();
+    await expect(formErrors(page)).toHaveCount(0);
+    await noFailureToast(page);
+
+    detail = "Backups are paused for this site";
+    await submit(page);
+    await expect(formErrors(page)).toContainText("Backups are paused for this site");
+  });
+});
+
+test("Site Backup Form - a legacy link with ?role= prefills every field", async ({ page }) => {
+  const query =
+    `?site=${SITES_LIST.pdx01}&role=${ROLES_LIST.leaf}&status=${STATUS_LIST.active}` +
+    `&tenant=${TENANT_LIST.tenant_a}&backup_enabled_only=false`;
+  await page.goto(`/workflows/sitebackupworkflow/form${query}`);
+  await expect(page).toHaveURL(`${PATH}${query}`);
+
+  await expect(selected(page, SITES_LIST.pdx01)).toBeVisible({ timeout: TEST_TIMEOUT });
+  await expect(selected(page, ROLES_LIST.leaf)).toBeVisible();
+  await expect(selected(page, STATUS_LIST.active)).toBeVisible();
+  await expect(selected(page, TENANT_LIST.tenant_a)).toBeVisible();
+  await expect(page.getByLabel("Backup enabled only")).not.toBeChecked();
+
+  const post = nextPost(page, ENDPOINT);
+  await submit(page);
+  expect((await post).postDataJSON()).toEqual({
+    site: SITES_LIST.pdx01,
+    site_type: "Site",
+    roles: [ROLES_LIST.leaf],
+    status: [STATUS_LIST.active],
+    tenant: TENANT_LIST.tenant_a,
+    backup_enabled_only: false,
+  });
+  await expectWorkflowDetails(page);
 });

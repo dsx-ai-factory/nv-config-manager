@@ -15,7 +15,9 @@
 """Site Password Rotation Workflow Definition."""
 
 import asyncio
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
@@ -36,7 +38,21 @@ from nv_config_manager_workflows.stage import (
     StageOutput,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import (
+    Dependency,
+    FormOptionProvider,
+    FormOptionSource,
+    FormSchema,
+    api_options,
+    location_field,
+)
 from nv_config_manager_workflows.workflow_references import LocationReference
+from nv_config_manager_workflows.workflows._form_sources import (
+    MANAGED_ROLE_SOURCE,
+    SITE_FILTER_SOURCE,
+    STATUS_FILTER_SOURCE,
+    TENANT_FILTER_SOURCE,
+)
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_dcim import (
@@ -95,6 +111,43 @@ DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(
 class SitePasswordRotationInput(BaseModel):
     """Site Password Rotation Workflow Input Definition."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:order": [
+            "location",
+            "roles",
+            "status",
+            "tenant",
+            "selected_secret",
+            "location_type",
+        ],
+        "ui:globalOptions": {"hideSchemaDescriptions": True},
+        "location": location_field(SITE_FILTER_SOURCE, type_field="location_type"),
+        "location_type": {"ui:widget": "hidden"},
+        "roles": api_options(MANAGED_ROLE_SOURCE),
+        "status": {**api_options(STATUS_FILTER_SOURCE), "ui:title": "Device Status"},
+        "tenant": api_options(TENANT_FILTER_SOURCE),
+        "selected_secret": {
+            **api_options(
+                FormOptionSource(
+                    "password-users",
+                    params={"managed_only": True},
+                    depends_on={
+                        "location": Dependency("location"),
+                        "location_type": Dependency("location_type", required=False),
+                        "role": Dependency("roles", required=False),
+                        "status": Dependency("status"),
+                        "tenant": Dependency("tenant", required=False),
+                    },
+                    clear_on_change=True,
+                ),
+                show_descriptions=True,
+                meta_text={"key": "matching_device_count", "label": "Matching devices"},
+                disable_when_no_matches=True,
+            ),
+            "ui:title": "Secret to Rotate",
+        },
+    }
+
     location: LocationReference = Field(
         min_length=1,
         description="Location containing the devices to update.",
@@ -102,14 +155,14 @@ class SitePasswordRotationInput(BaseModel):
     location_type: DCIMLocationType | None = Field(
         default=None, description="DCIM location type for the location identifier."
     )
-    selected_secret: str = Field(
+    selected_secret: Annotated[str, FormSchema(min_length=1)] = Field(
         description="Name of the managed secret containing the replacement password."
     )
     roles: list[str] = Field(
         default=[],
         description="Device roles used to filter the selected network devices.",
     )
-    status: list[str] = Field(
+    status: Annotated[list[str], FormSchema(min_items=1)] = Field(
         default=DEFAULT_CONFIG_MANAGER_STATUS,
         description="Device statuses used to filter the selected network devices.",
     )
@@ -134,12 +187,27 @@ class SitePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
 
     # Workflow metadata
     workflow_name = "Site Password Rotation"
+    workflow_group = "Lifecycle & Security"
     workflow_description = (
         "Rotate passwords across all devices in a site with coordinated deployment"
     )
     workflow_input_class = SitePasswordRotationInput
+    workflow_form_option_providers = {
+        "password-users": FormOptionProvider(
+            resolver=(
+                "nv_config_manager_workflows.form_option_providers.password_rotation:"
+                "resolve_password_user_options"
+            ),
+            query_model=(
+                "nv_config_manager_workflows.form_option_providers.password_rotation:"
+                "PasswordUserOptionsQuery"
+            ),
+        )
+    }
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/site_password_rotation"
+    workflow_form_enabled = True
+    workflow_form_id = "site-password-rotation"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_network_devices,

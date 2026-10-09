@@ -15,8 +15,9 @@
 """SpX Overlay Workflows."""
 
 import asyncio
+from collections.abc import Mapping
 from datetime import timedelta
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 from nv_config_manager_dcim import (
     DCIMLocationIdentifier,
@@ -30,6 +31,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError, ChildWorkflowError
 
+from nv_config_manager_workflows import ui
 from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
 from nv_config_manager_workflows.stage import (
@@ -43,6 +45,11 @@ from nv_config_manager_workflows.workflow_references import (
     DEVICE_REFERENCE,
     DeviceReference,
     LocationReference,
+)
+from nv_config_manager_workflows.workflows._form_sources import (
+    MANAGED_DEVICE_SOURCE,
+    NAMESPACE_TAG_SOURCE,
+    SITE_FILTER_SOURCE,
 )
 
 with workflow.unsafe.imports_passed_through():
@@ -126,8 +133,38 @@ DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(
 )
 
 
+SPX_OVERLAY_SOURCE = ui.OptionSource(
+    "/v1/parameter/overlay",
+    "name",
+    "name",
+    params={"isolation_type": "spectrum_x_vrf"},
+    depends_on={
+        "location": ui.Dependency("site"),
+        "location_type": ui.Dependency("site_type", required=False),
+    },
+    clear_on_change=True,
+)
+
+
 class SpXOverlayCreationInput(BaseModel):
     """SpX Overlay Creation Workflow Input Definition."""
+
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:globalOptions": {
+            "fieldComparisons": [
+                {
+                    "left": "rd_min",
+                    "operator": "lessThan",
+                    "right": "rd_max",
+                    "message": "RD Min must be less than RD Max",
+                }
+            ]
+        },
+        "site": ui.location_field(SITE_FILTER_SOURCE, type_field="site_type"),
+        "site_type": {"ui:widget": "hidden"},
+        "tenant": ui.api_options(ui.OptionSource("/v1/parameter/tenant", "name", "name")),
+        "namespace_tag": {**ui.api_options(NAMESPACE_TAG_SOURCE), "ui:title": "Namespace Tag"},
+    }
 
     site: LocationReference = Field(description="Site where the SpX overlay will be created.")
     site_type: DCIMLocationType | None = Field(
@@ -141,12 +178,12 @@ class SpXOverlayCreationInput(BaseModel):
     namespace_tag: str = Field(
         default=NAMESPACE_TAG, description="Tag identifying the namespace used for allocation."
     )
-    rd_min: int = Field(
+    rd_min: Annotated[int, ui.FormSchema(minimum=0, maximum=65535)] = Field(
         default=RD_MIN,
         title="RD Min",
         description="Lower bound of the route-distinguisher allocation range (0–65535). The first available RD in [rd_min, rd_max] is allocated.",
     )
-    rd_max: int = Field(
+    rd_max: Annotated[int, ui.FormSchema(minimum=0, maximum=65535)] = Field(
         default=RD_MAX,
         title="RD Max",
         description="Upper bound of the route-distinguisher allocation range (0–65535). Must be greater than rd_min.",
@@ -166,18 +203,28 @@ class SpXOverlayCreationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin
 
     # Workflow metadata
     workflow_name = "SpX Overlay Creation"
+    workflow_group = "SpX Overlays"
     workflow_description = (
         "Create a SpX Overlay with route distinguisher assignment and VRF/VXLAN provisioning"
     )
     workflow_input_class = SpXOverlayCreationInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_creation"
+    workflow_form_enabled = True
+    workflow_form_id = "spx-overlay-creation"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_vrfs_by_overlay_id,
         get_available_route_distinguishers,
         provision_vrf,
     )
+
+    @classmethod
+    async def canonicalize_input(cls, body: BaseModel) -> BaseModel:
+        """Reject an empty or inverted RD allocation range at the API boundary."""
+        if isinstance(body, SpXOverlayCreationInput) and body.rd_min >= body.rd_max:
+            raise ApplicationError("rd_min must be less than rd_max", non_retryable=True)
+        return body
 
     def __init__(self) -> None:
         """Initialize workflow."""
@@ -299,6 +346,14 @@ class SpXOverlayCreationWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin
 class SpXOverlayDeletionInput(BaseModel):
     """SpX Overlay Deletion Workflow Input Definition."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:globalOptions": {"hideSchemaDescriptions": True},
+        "site": ui.location_field(SITE_FILTER_SOURCE, type_field="site_type"),
+        "site_type": {"ui:widget": "hidden"},
+        "overlay_id": ui.api_options(SPX_OVERLAY_SOURCE),
+        "namespace_tag": {**ui.api_options(NAMESPACE_TAG_SOURCE), "ui:title": "Namespace Tag"},
+    }
+
     site: LocationReference = Field(description="Site containing the SpX overlay to delete.")
     site_type: DCIMLocationType | None = Field(
         default=None, description="DCIM location type for the site identifier."
@@ -325,12 +380,15 @@ class SpXOverlayDeletionWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin
 
     # Workflow metadata
     workflow_name = "SpX Overlay Deletion"
+    workflow_group = "SpX Overlays"
     workflow_description = (
         "Delete a SpX Overlay and its associated VRFs/VXLANs with validation checks"
     )
     workflow_input_class = SpXOverlayDeletionInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_deletion"
+    workflow_form_enabled = True
+    workflow_form_id = "spx-overlay-deletion"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_vrfs_by_overlay_id,
@@ -520,6 +578,7 @@ class SpXOverlayAssignmentWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
     workflow_input_class = SpXOverlayAssignmentInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_assignment"
+    workflow_form_enabled = False
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_network_device,
@@ -847,6 +906,34 @@ class SpXOverlayAssignmentWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixi
 class SpXOverlayTenantChangeInput(BaseModel):
     """SpX Overlay Tenant Change Workflow Input Definition."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:order": ["site", "overlay_id", "device_id", "port_names", "*"],
+        "site": {
+            **ui.location_field(SITE_FILTER_SOURCE, type_field="site_type"),
+            "ui:title": "Site",
+        },
+        "site_type": {"ui:widget": "hidden"},
+        "overlay_id": {
+            **ui.api_options(SPX_OVERLAY_SOURCE),
+            "ui:title": "Overlay ID (optional — leave blank to remove)",
+        },
+        "device_id": {
+            **ui.device_field(MANAGED_DEVICE_SOURCE, filters=("site",), site_field="site"),
+            "ui:title": "Device",
+        },
+        "port_names": {
+            **ui.api_options(
+                ui.OptionSource(
+                    "/v1/parameter/device/{device_id}/interfaces",
+                    "name",
+                    "name",
+                    clear_on_change=True,
+                )
+            ),
+            "ui:title": "Ports",
+        },
+    }
+
     overlay_id: str | None = Field(
         default=None,
         title="Overlay ID",
@@ -866,7 +953,7 @@ class SpXOverlayTenantChangeInput(BaseModel):
     site_type: DCIMLocationType | None = Field(
         default=None, description="DCIM location type for the site identifier."
     )
-    namespace_tag: str = Field(
+    namespace_tag: Annotated[str, ui.FormExcluded()] = Field(
         default=NAMESPACE_TAG, description="Tag identifying the namespace used for allocation."
     )
 
@@ -889,12 +976,15 @@ class SpXOverlayTenantChangeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
     """SpX Overlay tenant change workflow for assigning overlays and deploying tenant config."""
 
     workflow_name = "SpX Overlay Tenant Change"
+    workflow_group = "SpX Overlays"
     workflow_description = (
         "Change or remove a SpX Overlay assignment and deploy tenant configuration"
     )
     workflow_input_class = SpXOverlayTenantChangeInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/spx_overlay_tenant_change"
+    workflow_form_enabled = True
+    workflow_form_id = "spx-overlay-tenant-change"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_network_device,

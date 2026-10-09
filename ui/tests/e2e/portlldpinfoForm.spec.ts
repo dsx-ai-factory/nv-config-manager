@@ -14,747 +14,245 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { expect } from "@playwright/test";
+
+/**
+ * Device lookup requires Site, device, and interface. Device lookup and MAC lookup
+ * remain mutually exclusive: using either mode disables the other, and incomplete
+ * modes are blocked before submission while the API boundary remains authoritative.
+ */
+import { expect, type Page } from "@playwright/test";
+
 import {
-  SITES_LIST,
   DEVICES_LIST,
-  FORBIDDEN_SITE_ID,
   FORBIDDEN_DEVICE_IDS,
+  FORBIDDEN_SITE_ID,
+  SITES_LIST,
 } from "@/mocks/data";
+
+import { mockServerCatalogAndUser } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT } from "./shared/utils";
+import {
+  choose,
+  expectFailureToast,
+  expectWorkflowDetails,
+  formErrors,
+  formPath,
+  nextPost,
+  noFailureToast,
+  picker,
+  SELECT_DEVICE,
+  SELECT_SITE,
+  SITE_FIRST,
+  selected,
+  submit,
+} from "./shared/workflowFormTests";
 
-// Sample MAC address for testing
-const SAMPLE_MAC_ADDRESS = "00:11:22:33:44:55";
-const SAMPLE_INTERFACE = "Ethernet1/1";
+const PATH = formPath("PortLLDPInfoWorkflow");
+const TITLE = "New Port LLDP Info Workflow";
+const ENDPOINT = "/v1/workflow/ngc/port_lldp_info";
+const MAC = "00:11:22:33:44:55";
+const INTERFACE = "Ethernet1/1";
+const SITE = SITES_LIST.pdx01;
+const [DEVICE] = DEVICES_LIST[SITE];
+const OTHER = DEVICES_LIST[SITES_LIST.rno1][0];
 
-test.describe("New Port LLDP Info Workflow", () => {
+const interfaceInput = (page: Page) => page.getByLabel("Interface");
+const macInput = (page: Page) => page.getByLabel("MAC Address");
+
+test.beforeEach(async ({ page }) => {
+  await mockServerCatalogAndUser(page, ["reader", "executor"]);
+});
+
+test.describe("Port LLDP Info Form", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/workflows/portlldpinfoworkflow/form");
-  });
-
-  test("renders form with correct title", async ({ page }) => {
-    const title = await page.getByRole("heading", {
-      name: "New Port LLDP Info Workflow",
+    await page.goto(PATH);
+    await expect(page.getByRole("heading", { name: TITLE })).toBeVisible({
+      timeout: TEST_TIMEOUT,
     });
-    await expect(title).toBeVisible();
   });
 
-  test("displays validation error when no fields are filled", async ({
+  test("requires Site before choosing a device", async ({
     page,
   }) => {
-    await page.getByRole("button", { name: "Submit" }).click();
-
+    await expect(page.locator("form label")).toHaveText([
+      "Site *",
+      "Device",
+      "Interface",
+      "MAC Address",
+    ]);
     await expect(
       page.getByText(
-        "Please provide either all device information or a MAC address"
+        "Select a device and interface, or enter a remote MAC address."
       )
     ).toBeVisible();
+    await expect(
+      page.getByText("Use this instead of the device and interface fields.")
+    ).toBeVisible();
+    await expect(picker(page, SITE_FIRST)).toBeDisabled({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(interfaceInput(page)).toBeEnabled();
+    await expect(macInput(page)).toBeEnabled();
+    await choose(page, SELECT_SITE, SITE);
+    await expect(picker(page, SELECT_DEVICE)).toBeEnabled({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(macInput(page)).toBeDisabled();
   });
 
-  test("displays validation error when form information is incomplete", async ({
+  test("submits a device and interface; the interface is trimmed", async ({
     page,
   }) => {
-    // Fill only site field
-    await page.getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
+    await choose(page, SELECT_SITE, SITE);
+    await choose(page, SELECT_DEVICE, DEVICE.name);
+    await interfaceInput(page).fill(`  ${INTERFACE} `);
 
-    await page.getByRole("button", { name: "Submit" }).click();
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toEqual({
+      device_id: DEVICE.id,
+      interface: INTERFACE,
+    });
+    await expectWorkflowDetails(page);
+  });
 
-    // Check for validation errors
-    await expect(
-      page.getByText("Device is required when providing device information")
-    ).toBeVisible();
-    await expect(
-      page.getByText("Interface is required when providing device information")
-    ).toBeVisible();
+  test("submits a MAC address alone", async ({ page }) => {
+    await macInput(page).fill(MAC);
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toEqual({ remote_mac_address: MAC });
+    await expectWorkflowDetails(page);
+  });
 
-    // Clear and fill only device field
-    await page.reload();
-    await page.getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
+  test("keeps device/interface and MAC entry mutually exclusive", async ({
+    page,
+  }) => {
+    await macInput(page).fill(MAC);
+    await expect(picker(page, SELECT_SITE)).toBeDisabled();
+    await expect(picker(page, SITE_FIRST)).toBeDisabled();
+    await expect(interfaceInput(page)).toBeDisabled();
 
-    await page.getByRole("button", { name: "Device" }).click();
+    await macInput(page).fill("");
+    await expect(picker(page, SELECT_SITE)).toBeEnabled();
+    await expect(interfaceInput(page)).toBeEnabled();
+
+    await interfaceInput(page).fill(INTERFACE);
+    await expect(macInput(page)).toBeDisabled();
+    await interfaceInput(page).fill("");
+    await expect(macInput(page)).toBeEnabled();
+
+    await choose(page, SELECT_SITE, SITE);
+    await expect(macInput(page)).toBeDisabled();
+  });
+
+  test("a Site change clears the device", async ({ page }) => {
+    await choose(page, SELECT_SITE, SITE);
+    await choose(page, SELECT_DEVICE, DEVICE.name);
+    await selected(page, SITE).click();
     await page
       .getByRole("dialog")
-      .getByText(DEVICES_LIST[SITES_LIST.pdx01][0].name)
+      .getByRole("option", { name: SITES_LIST.rno1, exact: true })
       .click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
-
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Check for validation error
-    await expect(
-      page.getByText("Interface is required when providing device information")
-    ).toBeVisible();
+    await expect(picker(page, SELECT_DEVICE)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+    await choose(page, SELECT_DEVICE, OTHER.name);
+    await expect(selected(page, OTHER.name)).toBeVisible();
   });
 
-  test("disables device fields when MAC address is entered", async ({
+  test("blocks empty and incomplete modes before calling the API", async ({
     page,
   }) => {
-    // Fill MAC address
-    const macAddressInput = page.getByLabel("MAC Address");
-    await macAddressInput.waitFor({ state: "visible" });
-    await macAddressInput.fill(SAMPLE_MAC_ADDRESS);
-    await expect(macAddressInput).toHaveValue(SAMPLE_MAC_ADDRESS, {
+    const posts: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST" && request.url().endsWith(ENDPOINT)) {
+        posts.push(request.url());
+      }
+    });
+
+    await submit(page);
+    await expect(formErrors(page)).toContainText(
+      "Provide Site, Device, Interface or MAC Address"
+    );
+    expect(posts).toEqual([]);
+    await noFailureToast(page);
+
+    await interfaceInput(page).fill(INTERFACE);
+    await submit(page);
+    await expect(page.getByText("Device is required")).toBeVisible();
+    await expect(page.getByText("Site is required for Device")).toBeVisible();
+    expect(posts).toEqual([]);
+  });
+
+  test("shows a forbidden device in the failure toast", async ({ page }) => {
+    const forbidden = DEVICES_LIST[FORBIDDEN_SITE_ID].find(
+      (device) => device.id === FORBIDDEN_DEVICE_IDS.ARISTA
+    )!;
+    await choose(page, SELECT_SITE, FORBIDDEN_SITE_ID);
+    await choose(page, SELECT_DEVICE, forbidden.name);
+    await interfaceInput(page).fill(INTERFACE);
+    await submit(page);
+    await expectFailureToast(
+      page,
+      "Forbidden: You do not have permission to run this workflow"
+    );
+  });
+});
+
+test.describe("Port LLDP Info Form - URL prefill", () => {
+  test("a legacy link prefills Site, Device, and Interface", async ({
+    page,
+  }) => {
+    const query = `?site=${SITE}&device-id=${DEVICE.id}&interface=${INTERFACE}`;
+    await page.goto(`/workflows/portlldpinfoworkflow/form${query}`);
+    await expect(page).toHaveURL(
+      (url) =>
+        url.pathname === PATH && url.searchParams.get("interface") === INTERFACE
+    );
+
+    await expect(selected(page, SITE)).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expect(selected(page, DEVICE.name)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(interfaceInput(page)).toHaveValue(INTERFACE);
+
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toEqual({
+      device_id: DEVICE.id,
+      interface: INTERFACE,
+    });
+    await expectWorkflowDetails(page);
+  });
+
+  test("prefills a MAC address", async ({ page }) => {
+    await page.goto(`${PATH}?remote_mac_address=${MAC}`);
+    await expect(macInput(page)).toHaveValue(MAC);
+    await expect(interfaceInput(page)).toBeDisabled();
+    await expect(picker(page, SELECT_SITE)).toBeDisabled();
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toEqual({ remote_mac_address: MAC });
+  });
+
+  test("an unknown Site is dropped and a device absent from the Site is dropped", async ({
+    page,
+  }) => {
+    await page.goto(`${PATH}?site=NOPE&device-id=${DEVICE.id}`);
+    await expect(picker(page, SELECT_SITE)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(picker(page, SITE_FIRST)).toBeDisabled({
       timeout: TEST_TIMEOUT,
     });
 
-    // Verify device fields are disabled
-    await expect(
-      page.getByRole("button", { name: "Select a Site" })
-    ).toBeDisabled();
-    await expect(
-      page.getByRole("button", { name: "Select a Device" })
-    ).toBeDisabled();
-    await expect(page.getByLabel("Interface")).toBeDisabled();
-  });
-
-  test("disables MAC address field when device information is entered", async ({
-    page,
-  }) => {
-    // Fill site field
-    await page.getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
-
-    // Verify MAC address field is disabled
-    await expect(page.getByLabel("MAC Address")).toBeDisabled();
-  });
-
-  test("clears device fields when MAC address is entered", async ({ page }) => {
-    // Fill device information first
-    await page.getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
-
-    await page.getByRole("button", { name: "Device" }).click();
-    await page
-      .getByRole("dialog")
-      .getByText(DEVICES_LIST[SITES_LIST.pdx01][0].name)
-      .click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
-
-    await page.getByLabel("Interface").fill(SAMPLE_INTERFACE);
-
-    // Reload the page to reset the form state
-    await page.reload();
-
-    // Now fill MAC address
-    await page.getByLabel("MAC Address").fill(SAMPLE_MAC_ADDRESS);
-
-    // Verify device fields are empty and disabled
-    await expect(page.getByRole("button", { name: "Site" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "Device" })).toBeDisabled();
-    await expect(page.getByLabel("Interface")).toBeDisabled();
-    await expect(page.getByLabel("Interface")).toHaveValue("");
-  });
-
-  test("clears MAC address when device information is entered", async ({
-    page,
-  }) => {
-    // Fill MAC address first
-    await page.getByLabel("MAC Address").fill(SAMPLE_MAC_ADDRESS);
-
-    // Reload the page to reset the form state
-    await page.reload();
-
-    // Now fill device information
-    await page.getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
-
-    // Verify MAC address field is empty and disabled
-    await expect(page.getByLabel("MAC Address")).toBeDisabled();
-    await expect(page.getByLabel("MAC Address")).toHaveValue("");
-  });
-
-  test("submits form with device information correctly", async ({ page }) => {
-    // Set up a listener for the request
-    const requestPromise = page.waitForRequest((request) => {
-      return request.url().includes("/v1/workflow/ngc/port_lldp_info");
+    await page.goto(`${PATH}?site=${SITES_LIST.rno1}&device-id=${DEVICE.id}`);
+    await expect(selected(page, SITES_LIST.rno1)).toBeVisible({
+      timeout: TEST_TIMEOUT,
     });
-
-    // Fill device information
-    await page.getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
-
-    await page.getByRole("button", { name: "Device" }).click();
-    await page
-      .getByRole("dialog")
-      .getByText(DEVICES_LIST[SITES_LIST.pdx01][0].name)
-      .click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
-
-    await page.getByLabel("Interface").fill(SAMPLE_INTERFACE);
-
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Get the request before navigation completes
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    // Verify the request data
-    expect(requestData).toEqual({
-      device_id: DEVICES_LIST[SITES_LIST.pdx01][0].id,
-      interface: SAMPLE_INTERFACE,
+    await expect(picker(page, SELECT_DEVICE)).toBeEnabled({
+      timeout: TEST_TIMEOUT,
     });
-
-    // Wait for navigation to confirm submission completed
-    await expect(
-      page.getByRole("heading", { name: "Workflow Details" })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("submits form with MAC address correctly", async ({ page }) => {
-    // Set up a listener for the request
-    const requestPromise = page.waitForRequest((request) => {
-      return request.url().includes("/v1/workflow/ngc/port_lldp_info");
-    });
-
-    // Fill MAC address
-    await page.getByLabel("MAC Address").waitFor({ state: "visible" });
-    await page.getByLabel("MAC Address").fill(SAMPLE_MAC_ADDRESS);
-
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Get the request before navigation completes
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    // Verify the request data
-    expect(requestData).toEqual({
-      remote_mac_address: SAMPLE_MAC_ADDRESS,
-    });
-
-    // Wait for navigation to confirm submission completed
-    await expect(
-      page.getByRole("heading", { name: "Workflow Details" })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("loads device information from URL parameters", async ({ page }) => {
-    // Set up a listener for the request
-    const requestPromise = page.waitForRequest((request) => {
-      return request.url().includes("/v1/workflow/ngc/port_lldp_info");
-    });
-
-    // Navigate with device information URL parameters
-    const siteName = SITES_LIST.pdx01;
-    const deviceId = DEVICES_LIST[siteName][0].id;
-    const deviceName = DEVICES_LIST[siteName][0].name;
-    await page.goto(
-      `/workflows/portlldpinfoworkflow/form?site=${siteName}&device-id=${deviceId}&interface=${SAMPLE_INTERFACE}`
-    );
-
-    // Verify the form is pre-populated with URL parameter values
-    await expect(page.getByRole("button", { name: siteName })).toBeVisible();
-    await expect(page.getByRole("button", { name: deviceName })).toBeVisible();
-    await expect(page.getByLabel("Interface")).toHaveValue(SAMPLE_INTERFACE);
-    await expect(page.getByLabel("MAC Address")).toBeDisabled();
-
-    // Submit the form directly without making any changes
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Get the request before navigation completes
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    // Verify the request data contains the URL parameter values
-    expect(requestData).toEqual({
-      device_id: deviceId,
-      interface: SAMPLE_INTERFACE,
-    });
-
-    // Wait for navigation to confirm submission completed
-    await expect(
-      page.getByRole("heading", { name: "Workflow Details" })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("loads MAC address from URL parameters", async ({ page }) => {
-    // Set up a listener for the request
-    const requestPromise = page.waitForRequest((request) => {
-      return request.url().includes("/v1/workflow/ngc/port_lldp_info");
-    });
-
-    // Navigate with MAC address URL parameter
-    await page.goto(
-      `/workflows/portlldpinfoworkflow/form?remote_mac_address=${SAMPLE_MAC_ADDRESS}`
-    );
-
-    // Verify the form is pre-populated with URL parameter values
-    await expect(page.getByLabel("MAC Address")).toHaveValue(
-      SAMPLE_MAC_ADDRESS
-    );
-    await expect(page.getByRole("button", { name: "Site" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "Device" })).toBeDisabled();
-    await expect(page.getByLabel("Interface")).toBeDisabled();
-
-    // Submit the form directly without making any changes
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Get the request before navigation completes
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    // Verify the request data contains the URL parameter values
-    expect(requestData).toEqual({
-      remote_mac_address: SAMPLE_MAC_ADDRESS,
-    });
-
-    // Wait for navigation to confirm submission completed
-    await expect(
-      page.getByRole("heading", { name: "Workflow Details" })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("prioritizes MAC address when both device info and MAC address are provided in URL parameters", async ({
-    page,
-  }) => {
-    // Set up a listener for the request
-    const requestPromise = page.waitForRequest((request) => {
-      return request.url().includes("/v1/workflow/ngc/port_lldp_info");
-    });
-
-    // Navigate with both device info and MAC address URL parameters
-    const siteName = SITES_LIST.pdx01;
-    const deviceId = DEVICES_LIST[siteName][0].id;
-    await page.goto(
-      `/workflows/portlldpinfoworkflow/form?site=${siteName}&device-id=${deviceId}&interface=${SAMPLE_INTERFACE}&remote_mac_address=${SAMPLE_MAC_ADDRESS}`
-    );
-
-    // Verify the form is pre-populated with MAC address and device fields are disabled
-    await expect(page.getByLabel("MAC Address")).toHaveValue(
-      SAMPLE_MAC_ADDRESS
-    );
-    await expect(page.getByRole("button", { name: "Site" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "Device" })).toBeDisabled();
-    await expect(page.getByLabel("Interface")).toBeDisabled();
-
-    // Submit the form directly without making any changes
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Get the request before navigation completes
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    // Verify the request data contains only the MAC address
-    expect(requestData).toEqual({
-      remote_mac_address: SAMPLE_MAC_ADDRESS,
-    });
-
-    // Wait for navigation to confirm submission completed
-    await expect(
-      page.getByRole("heading", { name: "Workflow Details" })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("disables form during submission when using device information", async ({
-    page,
-  }) => {
-    // Fill device information
-    await page.getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
-
-    await page.getByRole("button", { name: "Device" }).click();
-    await page
-      .getByRole("dialog")
-      .getByText(DEVICES_LIST[SITES_LIST.pdx01][0].name)
-      .click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
-
-    await page.getByLabel("Interface").fill(SAMPLE_INTERFACE);
-
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Verify all form elements are disabled during submission
-    await expect(
-      page.getByRole("button", {
-        name: `${SITES_LIST.pdx01}. Open options`,
-        exact: true,
-      })
-    ).toBeDisabled();
-    await expect(
-      page.getByRole("button", {
-        name: `${DEVICES_LIST[SITES_LIST.pdx01][0].name}. Open options`,
-        exact: true,
-      })
-    ).toBeDisabled();
-    await expect(page.getByLabel("Interface")).toBeDisabled();
-    await expect(page.getByLabel("MAC Address")).toBeDisabled();
-    await expect(
-      page.getByRole("button", { name: "Submitting..." })
-    ).toBeDisabled();
-  });
-
-  test("automatically clears device info when MAC address is entered and submits with only MAC address", async ({
-    page,
-  }) => {
-    // Set up a listener for the request
-    const requestPromise = page.waitForRequest((request) => {
-      return request.url().includes("/v1/workflow/ngc/port_lldp_info");
-    });
-
-    // Fill device information first
-    await page.getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
-
-    await page.getByRole("button", { name: "Device" }).click();
-    await page
-      .getByRole("dialog")
-      .getByText(DEVICES_LIST[SITES_LIST.pdx01][0].name)
-      .click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
-
-    await page.getByLabel("Interface").fill(SAMPLE_INTERFACE);
-
-    // Now fill MAC address - this should clear and disable device fields
-    await page.evaluate(() => {
-      const macInput = document.querySelector(
-        'input[name="remote_mac_address"]'
-      );
-      if (macInput) {
-        macInput.removeAttribute("disabled");
-      }
-    });
-    await page.getByLabel("MAC Address").fill(SAMPLE_MAC_ADDRESS);
-
-    // Verify device fields are cleared and disabled
-    await expect(page.getByRole("button", { name: "Site" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "Device" })).toBeDisabled();
-    await expect(page.getByLabel("Interface")).toBeDisabled();
-
-    // Submit the form
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Get the request before navigation completes
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    // Verify the request data contains ONLY the MAC address
-    expect(requestData).toEqual({
-      remote_mac_address: SAMPLE_MAC_ADDRESS,
-    });
-    expect(requestData).not.toHaveProperty("device_id");
-    expect(requestData).not.toHaveProperty("interface");
-
-    // Wait for navigation to confirm submission completed
-    await expect(
-      page.getByRole("heading", { name: "Workflow Details" })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("disables form during submission when using MAC address", async ({
-    page,
-  }) => {
-    // Fill MAC address
-    await page.getByLabel("MAC Address").waitFor({ state: "visible" });
-    await page.getByLabel("MAC Address").fill(SAMPLE_MAC_ADDRESS);
-
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Verify all form elements are disabled during submission
-    await expect(page.getByRole("button", { name: "Site" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "Device" })).toBeDisabled();
-    await expect(page.getByLabel("Interface")).toBeDisabled();
-    await expect(page.getByLabel("MAC Address")).toBeDisabled();
-    await expect(
-      page.getByRole("button", { name: "Submitting..." })
-    ).toBeDisabled();
-  });
-
-  test("displays forbidden error notification when submitting with forbidden values", async ({
-    page,
-  }) => {
-    // Use the Arista EOS specific forbidden device
-    const forbiddenDevice = DEVICES_LIST[FORBIDDEN_SITE_ID].find(
-      (device) => device.id === FORBIDDEN_DEVICE_IDS.ARISTA
-    );
-
-    // Fill form with forbidden site and device
-    await page.getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(FORBIDDEN_SITE_ID).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
-
-    await page.getByRole("button", { name: "Device" }).click();
-    await page
-      .getByRole("dialog")
-      .getByText(forbiddenDevice?.name || "")
-      .click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", { name: "New Port LLDP Info Workflow" })
-      .click();
-    await page.getByLabel("Interface").fill(SAMPLE_INTERFACE);
-
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // NOTE: While not ideal, firefox has a weird bug where the toast notification is not visible unless we force a viewport adjustment.
-    const errorTitle = page.locator("div.text-sm.font-semibold", {
-      hasText: "Workflow Failed",
-    });
-    const errorMessage = page.locator("div.text-sm.opacity-90", {
-      hasText: "Forbidden: You do not have permission to run this workflow",
-    });
-
-    await expect(errorTitle).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(errorMessage).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("clears site field when an invalid site is provided in URL params", async ({
-    page,
-  }) => {
-    // Navigate with an invalid site parameter
-    const invalidSite = "nonexistent-site";
-    await page.goto(`/workflows/portlldpinfoworkflow/form?site=${invalidSite}`);
-
-    // Allow time for validation logic to run
-    await page.waitForTimeout(500);
-
-    // Check that site field is empty (cleared)
-    await expect(
-      page.getByRole("button", { name: "Select a Site" })
-    ).toBeVisible();
-
-    // Verify site dropdown works properly after clearing invalid value
-    await page.getByRole("button", { name: "Site" }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-
-    // Verify the site was selected correctly
-    await expect(
-      page.getByRole("button", { name: SITES_LIST.pdx01 })
-    ).toBeVisible();
-  });
-
-  test("clears both site and device fields when invalid site and device are provided in URL params", async ({
-    page,
-  }) => {
-    // Navigate with invalid site and device parameters
-    const invalidSite = "nonexistent-site";
-    const invalidDevice = "nonexistent-device";
-    await page.goto(
-      `/workflows/portlldpinfoworkflow/form?site=${invalidSite}&device-id=${invalidDevice}`
-    );
-
-    // Allow time for validation logic to run
-    await page.waitForTimeout(500);
-
-    // Check that both site and device fields are empty (cleared)
-    await expect(
-      page.getByRole("button", { name: "Select a Site" })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Select a Device" })
-    ).toBeVisible();
-
-    // Verify both dropdowns work properly after clearing invalid values
-    await page.getByRole("button", { name: "Site" }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-
-    // Wait for devices to load
-    await page.waitForTimeout(500);
-
-    await page.getByRole("button", { name: "Device" }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-  });
-
-  test("keeps valid site but clears invalid device from URL params", async ({
-    page,
-  }) => {
-    // Navigate with valid site but invalid device parameters
-    const validSite = SITES_LIST.pdx01;
-    const invalidDevice = "nonexistent-device";
-    await page.goto(
-      `/workflows/portlldpinfoworkflow/form?site=${validSite}&device-id=${invalidDevice}`
-    );
-
-    // Allow time for validation logic and device data to load
-    await page.waitForTimeout(1000);
-
-    // Check that site field is populated but device field is empty
-    await expect(page.getByRole("button", { name: validSite })).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Select a Device" })
-    ).toBeVisible();
-
-    // Verify device dropdown works properly after clearing invalid value
-    await page.getByRole("button", { name: "Device" }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-    await page
-      .getByRole("dialog")
-      .getByText(DEVICES_LIST[validSite][0].name)
-      .click();
-
-    // Verify the device was selected correctly
-    await expect(
-      page.getByRole("button", { name: DEVICES_LIST[validSite][0].name })
-    ).toBeVisible();
-  });
-
-  test("automatically clears device field when site field is cleared", async ({
-    page,
-  }) => {
-    await page.getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.forbidden).click();
-
-    // Wait for devices to load
-    await page.waitForTimeout(500);
-
-    await page.getByRole("button", { name: "Device" }).click();
-    await page
-      .getByRole("dialog")
-      .getByText(DEVICES_LIST[SITES_LIST.forbidden][0].name)
-      .click();
-
-    await page.waitForTimeout(500);
-
-    // Verify both fields are properly populated
-    await expect(
-      page.getByRole("button", { name: SITES_LIST.forbidden })
-    ).toBeVisible({ timeout: 5000 });
-    await expect(
-      page.getByRole("button", {
-        name: DEVICES_LIST[SITES_LIST.forbidden][0].name,
-      })
-    ).toBeVisible({ timeout: 5000 });
-
-    // Now clear the site by selecting it and clicking a different option
-    await page.getByRole("button", { name: SITES_LIST.forbidden }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-
-    // Verify site field is cleared
-    await expect(
-      page.getByRole("button", { name: SITES_LIST.pdx01 })
-    ).toBeVisible();
-
-    // Verify device field is also automatically cleared
-    await expect(
-      page.getByRole("button", { name: "Select a Device" })
-    ).toBeVisible();
-  });
-
-  test("automatically clears device field when site is changed after populating from URL params", async ({
-    page,
-  }) => {
-    // Navigate with valid site and device parameters
-    const validSite = SITES_LIST.pdx01;
-    const validDevice = DEVICES_LIST[validSite][0].id;
-    await page.goto(
-      `/workflows/portlldpinfoworkflow/form?site=${validSite}&device-id=${validDevice}`
-    );
-
-    // Allow time for fields to populate
-    await page.waitForTimeout(500);
-
-    // Verify both fields are properly populated from URL params
-    await expect(page.getByRole("button", { name: validSite })).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: DEVICES_LIST[validSite][0].name })
-    ).toBeVisible();
-
-    // Now change the site to a different valid site
-    await page.getByRole("button", { name: validSite }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.rno1).click();
-
-    // Verify site field changed to new value
-    await expect(
-      page.getByRole("button", { name: SITES_LIST.rno1 })
-    ).toBeVisible();
-
-    // Verify device field is automatically cleared
-    await expect(
-      page.getByRole("button", { name: "Select a Device" })
-    ).toBeVisible();
-  });
-
-  test("clearing site resets device and interface fields to default state", async ({
-    page,
-  }) => {
-    // Find a site with devices
-    const site = SITES_LIST.pdx01;
-    const device = DEVICES_LIST[site][0];
-
-    // Fill form with initial site and selections
-    await page.getByRole("button", { name: "Site" }).click();
-    await page.getByRole("dialog").getByText(site).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Port LLDP Info Workflow",
-      })
-      .click();
-
-    await page.getByRole("button", { name: "Device" }).click();
-    await page.getByRole("dialog").getByText(device.name).click();
-    // Click outside to close any dropdown that might be open
-    await page
-      .getByRole("heading", {
-        name: "New Port LLDP Info Workflow",
-      })
-      .click();
-
-    // Verify initial selections are visible
-    await expect(page.getByRole("button", { name: device.name })).toBeVisible();
-
-    // Find the X icon with the specific class inside the button's parent container
-    await page
-      .locator(".flex.items-center.self-stretch")
-      .filter({ has: page.locator("svg.lucide.lucide-x.size-4") })
-      .first()
-      .click();
-
-    // Verify device and interface fields are reset to their default state
-    await expect(
-      page.getByRole("button", { name: "Select a Device" })
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Submit" })).toBeEnabled();
   });
 });

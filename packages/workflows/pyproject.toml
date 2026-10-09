@@ -8,6 +8,7 @@ license = { text = "Apache-2.0" }
 requires-python = ">=3.13"
 dependencies = [
     "aiohttp>=3.14.1",
+    "jsonschema>=4.23.0",
     "junos-eznc>=2.8.2",
     "nats-py>=2.9.0",
     "netaddr>=1.3.0",
@@ -31,6 +32,7 @@ dependencies = [
 
 [project.scripts]
 nv-config-manager-workflows-manifest = "nv_config_manager_workflows.registration.manifest:main"
+nv-config-manager-workflows-validate-plugin = "nv_config_manager_workflows.registration.form_validation:main"
 
 [project.entry-points."nv_config_manager.workflows"]
 builtin = "nv_config_manager_workflows.registration:builtin_plugin"

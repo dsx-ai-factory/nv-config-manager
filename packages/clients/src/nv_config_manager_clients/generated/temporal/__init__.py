@@ -45,6 +45,7 @@ __all__ = [
     "ApiKeyError",
     "ApiAttributeError",
     "ApiException",
+    "ApiErrorResponse",
     "BackupInput",
     "CommandEntry",
     "ConfigDiffInput",
@@ -73,6 +74,9 @@ __all__ = [
     "MultiDeployInput",
     "NVLinkSwitchFirmwareUpgradeInput",
     "NetworkDeviceData",
+    "OptionItem",
+    "OptionSourceMeta",
+    "OptionSourceResponse",
     "Overlay",
     "Platform",
     "PortLLDPInfoInput",
@@ -101,6 +105,15 @@ __all__ = [
     "ValidationError",
     "WhoamiResponse",
     "WorkflowDetailResponse",
+    "WorkflowFormNotFoundResponse",
+    "WorkflowFormResponse",
+    "WorkflowFormUiSchema",
+    "WorkflowFormUiSchemaUiGlobalOptions",
+    "WorkflowFormUiSchemaUiGlobalOptionsExclusiveGroupsInner",
+    "WorkflowFormUiSchemaUiGlobalOptionsFieldComparisonsInner",
+    "WorkflowFormUiSchemaUiSubmitButtonOptions",
+    "WorkflowFormUnavailableDetail",
+    "WorkflowFormUnavailableResponse",
     "WorkflowListResponse",
     "WorkflowMetadata",
     "WorkflowMetadataResponse",
@@ -127,6 +140,7 @@ from nv_config_manager_clients.generated.temporal.exceptions import ApiAttribute
 from nv_config_manager_clients.generated.temporal.exceptions import ApiException as ApiException
 
 # import models into sdk package
+from nv_config_manager_clients.generated.temporal.models.api_error_response import ApiErrorResponse as ApiErrorResponse
 from nv_config_manager_clients.generated.temporal.models.backup_input import BackupInput as BackupInput
 from nv_config_manager_clients.generated.temporal.models.command_entry import CommandEntry as CommandEntry
 from nv_config_manager_clients.generated.temporal.models.config_diff_input import ConfigDiffInput as ConfigDiffInput
@@ -155,6 +169,9 @@ from nv_config_manager_clients.generated.temporal.models.location1_inner import 
 from nv_config_manager_clients.generated.temporal.models.multi_deploy_input import MultiDeployInput as MultiDeployInput
 from nv_config_manager_clients.generated.temporal.models.nv_link_switch_firmware_upgrade_input import NVLinkSwitchFirmwareUpgradeInput as NVLinkSwitchFirmwareUpgradeInput
 from nv_config_manager_clients.generated.temporal.models.network_device_data import NetworkDeviceData as NetworkDeviceData
+from nv_config_manager_clients.generated.temporal.models.option_item import OptionItem as OptionItem
+from nv_config_manager_clients.generated.temporal.models.option_source_meta import OptionSourceMeta as OptionSourceMeta
+from nv_config_manager_clients.generated.temporal.models.option_source_response import OptionSourceResponse as OptionSourceResponse
 from nv_config_manager_clients.generated.temporal.models.overlay import Overlay as Overlay
 from nv_config_manager_clients.generated.temporal.models.platform import Platform as Platform
 from nv_config_manager_clients.generated.temporal.models.port_lldp_info_input import PortLLDPInfoInput as PortLLDPInfoInput
@@ -183,6 +200,15 @@ from nv_config_manager_clients.generated.temporal.models.validate_hardware_input
 from nv_config_manager_clients.generated.temporal.models.validation_error import ValidationError as ValidationError
 from nv_config_manager_clients.generated.temporal.models.whoami_response import WhoamiResponse as WhoamiResponse
 from nv_config_manager_clients.generated.temporal.models.workflow_detail_response import WorkflowDetailResponse as WorkflowDetailResponse
+from nv_config_manager_clients.generated.temporal.models.workflow_form_not_found_response import WorkflowFormNotFoundResponse as WorkflowFormNotFoundResponse
+from nv_config_manager_clients.generated.temporal.models.workflow_form_response import WorkflowFormResponse as WorkflowFormResponse
+from nv_config_manager_clients.generated.temporal.models.workflow_form_ui_schema import WorkflowFormUiSchema as WorkflowFormUiSchema
+from nv_config_manager_clients.generated.temporal.models.workflow_form_ui_schema_ui_global_options import WorkflowFormUiSchemaUiGlobalOptions as WorkflowFormUiSchemaUiGlobalOptions
+from nv_config_manager_clients.generated.temporal.models.workflow_form_ui_schema_ui_global_options_exclusive_groups_inner import WorkflowFormUiSchemaUiGlobalOptionsExclusiveGroupsInner as WorkflowFormUiSchemaUiGlobalOptionsExclusiveGroupsInner
+from nv_config_manager_clients.generated.temporal.models.workflow_form_ui_schema_ui_global_options_field_comparisons_inner import WorkflowFormUiSchemaUiGlobalOptionsFieldComparisonsInner as WorkflowFormUiSchemaUiGlobalOptionsFieldComparisonsInner
+from nv_config_manager_clients.generated.temporal.models.workflow_form_ui_schema_ui_submit_button_options import WorkflowFormUiSchemaUiSubmitButtonOptions as WorkflowFormUiSchemaUiSubmitButtonOptions
+from nv_config_manager_clients.generated.temporal.models.workflow_form_unavailable_detail import WorkflowFormUnavailableDetail as WorkflowFormUnavailableDetail
+from nv_config_manager_clients.generated.temporal.models.workflow_form_unavailable_response import WorkflowFormUnavailableResponse as WorkflowFormUnavailableResponse
 from nv_config_manager_clients.generated.temporal.models.workflow_list_response import WorkflowListResponse as WorkflowListResponse
 from nv_config_manager_clients.generated.temporal.models.workflow_metadata import WorkflowMetadata as WorkflowMetadata
 from nv_config_manager_clients.generated.temporal.models.workflow_metadata_response import WorkflowMetadataResponse as WorkflowMetadataResponse

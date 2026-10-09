@@ -1,0 +1,1965 @@
+{
+  "BackupWorkflow": {
+    "$defs": {
+      "TriggerEnum": {
+        "description": "Enum of potential backup triggers.",
+        "enum": [
+          "SCHEDULED",
+          "SYSLOG",
+          "WORKFLOW",
+          "API"
+        ],
+        "title": "TriggerEnum",
+        "type": "string"
+      }
+    },
+    "description": "Backup Workflow Input Definiton.",
+    "properties": {
+      "device_id": {
+        "description": "Identifier of the network device to back up.",
+        "title": "Device Id",
+        "type": "string"
+      },
+      "intended_config_commit_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Config Store commit containing the intended configuration.",
+        "title": "Intended Config Commit Id"
+      },
+      "suppress_drift_notification": {
+        "default": false,
+        "description": "Suppress the Slack notification when configuration drift is detected.",
+        "title": "Suppress Drift Notification",
+        "type": "boolean"
+      },
+      "terminate_on_failure": {
+        "default": false,
+        "description": "Terminate the workflow instead of waiting to retry a failed stage.",
+        "title": "Terminate On Failure",
+        "type": "boolean"
+      },
+      "trigger": {
+        "$ref": "#/$defs/TriggerEnum",
+        "description": "Reason the backup workflow was started."
+      },
+      "user": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "User that requested the backup.",
+        "title": "User"
+      },
+      "user_domain": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Domain of the user requesting the backup.",
+        "title": "User Domain"
+      },
+      "workflow_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Identifier of the parent workflow, if any.",
+        "title": "Workflow Id"
+      }
+    },
+    "required": [
+      "device_id",
+      "trigger"
+    ],
+    "title": "BackupInput",
+    "type": "object"
+  },
+  "ConfigDiffWorkflow": {
+    "$defs": {
+      "NetworkDeviceData": {
+        "description": "Normalized network-device inventory and configuration intent.",
+        "properties": {
+          "backup_enabled": {
+            "default": false,
+            "title": "Backup Enabled",
+            "type": "boolean"
+          },
+          "deploy_enabled": {
+            "default": false,
+            "title": "Deploy Enabled",
+            "type": "boolean"
+          },
+          "device_type": {
+            "title": "Device Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Intent"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "$ref": "#/$defs/Platform"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Position"
+          },
+          "primary_ip4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Ip4"
+          },
+          "primary_ip6": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Ip6"
+          },
+          "rack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Rack"
+          },
+          "render_enabled": {
+            "default": false,
+            "title": "Render Enabled",
+            "type": "boolean"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "site": {
+            "title": "Site",
+            "type": "string"
+          },
+          "ztp_enabled": {
+            "default": false,
+            "title": "Ztp Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role",
+          "site",
+          "device_type",
+          "platform",
+          "primary_ip4",
+          "primary_ip6"
+        ],
+        "title": "NetworkDeviceData",
+        "type": "object"
+      },
+      "Platform": {
+        "description": "Network device platform types understood by the workflow services.",
+        "enum": [
+          "arista-eos",
+          "cumulus-linux",
+          "nv-os",
+          "mlnx-os",
+          "juniper-junos",
+          "ufm"
+        ],
+        "title": "Platform",
+        "type": "string"
+      }
+    },
+    "description": "Config Diff Workflow input.",
+    "properties": {
+      "device": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/NetworkDeviceData"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Preloaded network device data, if available."
+      },
+      "device_id": {
+        "description": "Identifier of the network device to compare.",
+        "title": "Device Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "device_id"
+    ],
+    "title": "ConfigDiffInput",
+    "type": "object"
+  },
+  "ConnectedHostMetadataWorkflow": {
+    "description": "Connected Host Workflow Input.",
+    "properties": {
+      "device_id": {
+        "description": "Identifier of the network device to analyze.",
+        "title": "Device Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "device_id"
+    ],
+    "title": "ConnectedHostWorkflowInput",
+    "type": "object"
+  },
+  "DeployWorkflow": {
+    "description": "Config Deployment Workflow Input Definiton.",
+    "properties": {
+      "commit_confirm": {
+        "default": true,
+        "description": "Whether to use commit-confirmed mode when the platform supports it.",
+        "title": "Commit Confirm",
+        "type": "boolean"
+      },
+      "device_id": {
+        "description": "Identifier of the network device to configure.",
+        "title": "Device Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "device_id"
+    ],
+    "title": "DeployInput",
+    "type": "object"
+  },
+  "DeviceCableValidationWorkflow": {
+    "$defs": {
+      "NetworkDeviceData": {
+        "description": "Normalized network-device inventory and configuration intent.",
+        "properties": {
+          "backup_enabled": {
+            "default": false,
+            "title": "Backup Enabled",
+            "type": "boolean"
+          },
+          "deploy_enabled": {
+            "default": false,
+            "title": "Deploy Enabled",
+            "type": "boolean"
+          },
+          "device_type": {
+            "title": "Device Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Intent"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "$ref": "#/$defs/Platform"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Position"
+          },
+          "primary_ip4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Ip4"
+          },
+          "primary_ip6": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Ip6"
+          },
+          "rack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Rack"
+          },
+          "render_enabled": {
+            "default": false,
+            "title": "Render Enabled",
+            "type": "boolean"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "site": {
+            "title": "Site",
+            "type": "string"
+          },
+          "ztp_enabled": {
+            "default": false,
+            "title": "Ztp Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role",
+          "site",
+          "device_type",
+          "platform",
+          "primary_ip4",
+          "primary_ip6"
+        ],
+        "title": "NetworkDeviceData",
+        "type": "object"
+      },
+      "Platform": {
+        "description": "Network device platform types understood by the workflow services.",
+        "enum": [
+          "arista-eos",
+          "cumulus-linux",
+          "nv-os",
+          "mlnx-os",
+          "juniper-junos",
+          "ufm"
+        ],
+        "title": "Platform",
+        "type": "string"
+      }
+    },
+    "description": "Input for Device Cable Validation Workflow.",
+    "properties": {
+      "defer_cable_status_updates": {
+        "default": false,
+        "description": "Return pending DCIM updates to a parent site workflow. Direct API calls must leave this false.",
+        "title": "Defer Cable Status Updates",
+        "type": "boolean"
+      },
+      "device": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/NetworkDeviceData",
+            "description": "Preloaded data for the target network device, if available."
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Preloaded data for the target network device, if available."
+      },
+      "device_id": {
+        "description": "Identifier of the network device to validate.",
+        "title": "Device Id",
+        "type": "string"
+      },
+      "ignore_no_neighbor": {
+        "default": false,
+        "description": "Whether interfaces without discovered neighbors should be ignored.",
+        "title": "Ignore No Neighbor",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "device_id"
+    ],
+    "title": "DeviceCableValidationInput",
+    "type": "object"
+  },
+  "DevicePasswordRotationWorkflow": {
+    "description": "Device Password Rotation Workflow Input Definition.",
+    "properties": {
+      "device_id": {
+        "description": "Identifier of the network device to update.",
+        "title": "Device Id",
+        "type": "string"
+      },
+      "selected_secret": {
+        "description": "Name of the managed secret containing the replacement password.",
+        "title": "Selected Secret",
+        "type": "string"
+      }
+    },
+    "required": [
+      "device_id",
+      "selected_secret"
+    ],
+    "title": "DevicePasswordRotationInput",
+    "type": "object"
+  },
+  "DiagnosticsWorkflow": {
+    "properties": {
+      "commands": {
+        "description": "Diagnostic command catalog names to run on each device.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Commands",
+        "type": "array"
+      },
+      "device_ids": {
+        "description": "DCIM identifiers of the devices to diagnose.",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 1000,
+        "title": "Device Ids",
+        "type": "array"
+      },
+      "include_tech_support": {
+        "default": false,
+        "description": "Whether to collect a technical-support bundle from each device.",
+        "title": "Include Tech Support",
+        "type": "boolean"
+      },
+      "issue_key": {
+        "default": "",
+        "description": "Issue key to update; empty enables ticketless mode.",
+        "title": "Issue Key",
+        "type": "string"
+      },
+      "ticketing_platform": {
+        "default": "",
+        "description": "Ticketing platform to update; empty enables ticketless mode.",
+        "title": "Ticketing Platform",
+        "type": "string"
+      },
+      "user": {
+        "default": "",
+        "description": "Engineer username or email, populated from request authentication when omitted.",
+        "title": "User",
+        "type": "string"
+      }
+    },
+    "required": [
+      "device_ids",
+      "commands"
+    ],
+    "title": "DiagnosticsWorkflowInput",
+    "type": "object"
+  },
+  "HelloWorld": {
+    "description": "Hello World Input Definition.",
+    "properties": {
+      "name": {
+        "description": "Name to include in the workflow greeting.",
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "title": "HelloWorldInput",
+    "type": "object"
+  },
+  "HelloWorldApproval": {
+    "description": "Hello World Input Definition.",
+    "properties": {
+      "name": {
+        "description": "Name to include in the workflow greeting.",
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "title": "HelloWorldInput",
+    "type": "object"
+  },
+  "IBPKeyCreationWorkflow": {
+    "$defs": {
+      "DCIMLocationType": {
+        "type": "string"
+      }
+    },
+    "description": "InfiniBand PKey Creation Workflow Input.\n\nBy default, auto-assigns the next available PKey. Pass an explicit\n``pkey`` value only when a specific partition key is required.\n\n``site`` is optional. When omitted, the workflow resolves the device's\nSite-typed DCIM location from ``host`` and uses that as the UFM\ncredential lookup key. Pass ``site`` explicitly to override the\nauto-resolved value (e.g. for API callers that want to skip the\nDCIM round-trip).",
+    "properties": {
+      "host": {
+        "description": "Hostname of the UFM server managing the InfiniBand fabric.",
+        "title": "Host",
+        "type": "string"
+      },
+      "ip_over_ib": {
+        "default": true,
+        "description": "Whether IP over InfiniBand is enabled for the partition.",
+        "title": "Ip Over Ib",
+        "type": "boolean"
+      },
+      "pkey": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Partition key to create; automatically allocated when omitted.",
+        "title": "Pkey"
+      },
+      "pkey_max": {
+        "default": 32766,
+        "description": "Highest partition key eligible for automatic allocation.",
+        "title": "Pkey Max",
+        "type": "integer"
+      },
+      "pkey_min": {
+        "default": 1,
+        "description": "Lowest partition key eligible for automatic allocation.",
+        "title": "Pkey Min",
+        "type": "integer"
+      },
+      "site": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Site used for UFM credential lookup; resolved from the host when omitted.",
+        "title": "Site"
+      },
+      "site_type": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DCIMLocationType"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "DCIM location type for the site identifier."
+      }
+    },
+    "required": [
+      "host"
+    ],
+    "title": "IBPKeyCreationInput",
+    "type": "object"
+  },
+  "IBPKeyMemberAddWorkflow": {
+    "$defs": {
+      "InterfaceRef": {
+        "description": "A device/interface name pair used to look up an interface in the DCIM.\n\n``membership`` is an optional per-port override (\"full\"/\"limited\"); when unset\nthe caller's workflow-level default is applied.",
+        "properties": {
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "interface": {
+            "title": "Interface",
+            "type": "string"
+          },
+          "membership": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Membership"
+          }
+        },
+        "required": [
+          "device",
+          "interface"
+        ],
+        "title": "InterfaceRef",
+        "type": "object"
+      }
+    },
+    "description": "InfiniBand PKey Member Add Workflow Input.\n\nSite and Overlay are resolved server-side from ``host`` and ``pkey``.",
+    "properties": {
+      "guid_memberships": {
+        "default": [],
+        "description": "Per-GUID membership types corresponding to the supplied GUIDs.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Guid Memberships",
+        "type": "array"
+      },
+      "guids": {
+        "default": [],
+        "description": "InfiniBand port GUIDs to add directly to the partition.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Guids",
+        "type": "array"
+      },
+      "host": {
+        "description": "Hostname of the UFM server managing the InfiniBand fabric.",
+        "title": "Host",
+        "type": "string"
+      },
+      "interfaces": {
+        "default": [],
+        "description": "DCIM interfaces to resolve to InfiniBand port GUIDs.",
+        "items": {
+          "$ref": "#/$defs/InterfaceRef"
+        },
+        "title": "Interfaces",
+        "type": "array"
+      },
+      "ip_over_ib": {
+        "default": true,
+        "description": "Whether IP over InfiniBand is enabled for the partition.",
+        "title": "Ip Over Ib",
+        "type": "boolean"
+      },
+      "membership_type": {
+        "default": "full",
+        "description": "Default partition membership type for added members.",
+        "title": "Membership Type",
+        "type": "string"
+      },
+      "pkey": {
+        "description": "Partition key whose membership will be expanded.",
+        "title": "Pkey",
+        "type": "string"
+      }
+    },
+    "required": [
+      "host",
+      "pkey"
+    ],
+    "title": "IBPKeyMemberAddInput",
+    "type": "object"
+  },
+  "IBPKeyMemberDeleteWorkflow": {
+    "$defs": {
+      "InterfaceRef": {
+        "description": "A device/interface name pair used to look up an interface in the DCIM.\n\n``membership`` is an optional per-port override (\"full\"/\"limited\"); when unset\nthe caller's workflow-level default is applied.",
+        "properties": {
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "interface": {
+            "title": "Interface",
+            "type": "string"
+          },
+          "membership": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Membership"
+          }
+        },
+        "required": [
+          "device",
+          "interface"
+        ],
+        "title": "InterfaceRef",
+        "type": "object"
+      }
+    },
+    "description": "InfiniBand PKey Member Delete Workflow Input.\n\nProvide either ``interfaces`` (resolved to GUIDs via the DCIM) or\n``guids`` directly, but not both. Site and Overlay are resolved\nserver-side from ``host`` and ``pkey``.",
+    "properties": {
+      "guids": {
+        "default": [],
+        "description": "InfiniBand port GUIDs to remove directly from the partition.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Guids",
+        "type": "array"
+      },
+      "host": {
+        "description": "Hostname of the UFM server managing the InfiniBand fabric.",
+        "title": "Host",
+        "type": "string"
+      },
+      "interfaces": {
+        "default": [],
+        "description": "DCIM interfaces to resolve to InfiniBand port GUIDs.",
+        "items": {
+          "$ref": "#/$defs/InterfaceRef"
+        },
+        "title": "Interfaces",
+        "type": "array"
+      },
+      "pkey": {
+        "description": "Partition key whose members will be removed.",
+        "title": "Pkey",
+        "type": "string"
+      }
+    },
+    "required": [
+      "host",
+      "pkey"
+    ],
+    "title": "IBPKeyMemberDeleteInput",
+    "type": "object"
+  },
+  "IBPKeyMemberUpdateWorkflow": {
+    "$defs": {
+      "InterfaceRef": {
+        "description": "A device/interface name pair used to look up an interface in the DCIM.\n\n``membership`` is an optional per-port override (\"full\"/\"limited\"); when unset\nthe caller's workflow-level default is applied.",
+        "properties": {
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "interface": {
+            "title": "Interface",
+            "type": "string"
+          },
+          "membership": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Membership"
+          }
+        },
+        "required": [
+          "device",
+          "interface"
+        ],
+        "title": "InterfaceRef",
+        "type": "object"
+      }
+    },
+    "description": "InfiniBand PKey Member Update Workflow Input.\n\nSite and Overlay are resolved server-side from ``host`` and ``pkey``.",
+    "properties": {
+      "guid_memberships": {
+        "default": [],
+        "description": "Per-GUID membership types corresponding to the supplied GUIDs.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Guid Memberships",
+        "type": "array"
+      },
+      "guids": {
+        "default": [],
+        "description": "InfiniBand port GUIDs that should belong to the partition.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Guids",
+        "type": "array"
+      },
+      "host": {
+        "description": "Hostname of the UFM server managing the InfiniBand fabric.",
+        "title": "Host",
+        "type": "string"
+      },
+      "interfaces": {
+        "default": [],
+        "description": "DCIM interfaces to resolve to InfiniBand port GUIDs.",
+        "items": {
+          "$ref": "#/$defs/InterfaceRef"
+        },
+        "title": "Interfaces",
+        "type": "array"
+      },
+      "ip_over_ib": {
+        "default": true,
+        "description": "IP over InfiniBand setting used when the partition does not already exist.",
+        "title": "Ip Over Ib",
+        "type": "boolean"
+      },
+      "membership_type": {
+        "default": "full",
+        "description": "Default partition membership type for updated members.",
+        "title": "Membership Type",
+        "type": "string"
+      },
+      "pkey": {
+        "description": "Partition key whose membership will be replaced.",
+        "title": "Pkey",
+        "type": "string"
+      }
+    },
+    "required": [
+      "host",
+      "pkey"
+    ],
+    "title": "IBPKeyMemberUpdateInput",
+    "type": "object"
+  },
+  "IBPortGuidDiscoveryWorkflow": {
+    "description": "Input for the IB Port GUID Discovery workflow.",
+    "properties": {
+      "dry_run": {
+        "default": true,
+        "description": "Whether to report changes without updating the DCIM.",
+        "title": "Dry Run",
+        "type": "boolean"
+      },
+      "switch_device_ids": {
+        "description": "Identifiers of the InfiniBand switches whose interfaces will be synchronized.",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 1000,
+        "title": "Switch Device Ids",
+        "type": "array"
+      },
+      "ufm_device_id": {
+        "description": "Identifier of the UFM device used to discover port GUIDs.",
+        "title": "Ufm Device Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "ufm_device_id",
+      "switch_device_ids"
+    ],
+    "title": "IBPortGuidDiscoveryInput",
+    "type": "object"
+  },
+  "InfinibandCableValidationWorkflow": {
+    "description": "IB Cable Validation Workflow Input Definition.",
+    "properties": {
+      "switch_device_ids": {
+        "description": "Identifiers of the InfiniBand switches to validate.",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 1000,
+        "title": "Switch Device Ids",
+        "type": "array"
+      },
+      "ufm_device_id": {
+        "description": "Identifier of the UFM device used to inspect the InfiniBand fabric.",
+        "title": "Ufm Device Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "ufm_device_id",
+      "switch_device_ids"
+    ],
+    "title": "InfinibandCableValidationInput",
+    "type": "object"
+  },
+  "InfinibandGetUnhealthyPortsWorkflow": {
+    "description": "Unhealthy Ports Validation Workflow Input Definition.",
+    "properties": {
+      "device_id": {
+        "description": "Identifier of the UFM device to inspect.",
+        "title": "Device Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "device_id"
+    ],
+    "title": "InfinibandGetUnhealthyPortsInput",
+    "type": "object"
+  },
+  "InfinibandMlnxOSUpgradeWorkflow": {
+    "description": "Infiniband Mellanox OS Upgrade Workflow Input Definition.",
+    "properties": {
+      "device_id": {
+        "description": "Identifier of the InfiniBand switch to upgrade.",
+        "title": "Device Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "device_id"
+    ],
+    "title": "InfinibandMlnxOSUpgradeInput",
+    "type": "object"
+  },
+  "MultiDeployWorkflow": {
+    "$defs": {
+      "DCIMLocationType": {
+        "type": "string"
+      }
+    },
+    "description": "Multi-Deploy Workflow Input Definition.",
+    "properties": {
+      "commit_confirm": {
+        "default": true,
+        "description": "Whether to use commit-confirmed mode when the platform supports it.",
+        "title": "Commit Confirm",
+        "type": "boolean"
+      },
+      "location": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Location used to filter the selected network devices.",
+        "title": "Location"
+      },
+      "location_type": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DCIMLocationType"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "DCIM location type for the location identifier."
+      },
+      "max_batch_size": {
+        "default": 10,
+        "description": "Maximum number of devices included in each deployment batch.",
+        "title": "Max Batch Size",
+        "type": "integer"
+      },
+      "role": {
+        "description": "Device role used to select network devices for deployment.",
+        "title": "Role",
+        "type": "string"
+      },
+      "status": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Device statuses used to filter the selected network devices.",
+        "title": "Status"
+      },
+      "tenant": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Tenant used to filter the selected network devices.",
+        "title": "Tenant"
+      }
+    },
+    "required": [
+      "role"
+    ],
+    "title": "MultiDeployInput",
+    "type": "object"
+  },
+  "NVLinkSwitchFirmwareUpgradeWorkflow": {
+    "description": "NVLinkSwitch Firmware Upgrade Workflow Input Definition.",
+    "properties": {
+      "bundle_version": {
+        "description": "Target NVLink firmware bundle version.",
+        "title": "Bundle Version",
+        "type": "string"
+      },
+      "device_id": {
+        "description": "Identifier of the NVLink switch to upgrade.",
+        "title": "Device Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "device_id",
+      "bundle_version"
+    ],
+    "title": "NVLinkSwitchFirmwareUpgradeInput",
+    "type": "object"
+  },
+  "PortLLDPInfoWorkflow": {
+    "description": "Input for Port LLDP Info Workflow.",
+    "properties": {
+      "device_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Identifier of the network device to inspect.",
+        "title": "Device Id"
+      },
+      "interface": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Name of the local interface.",
+        "title": "Interface"
+      },
+      "remote_mac_address": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "MAC address of the remote device to locate.",
+        "title": "Remote Mac Address"
+      }
+    },
+    "title": "PortLLDPInfoInput",
+    "type": "object"
+  },
+  "RedfishProvisioningWorkflow": {
+    "$defs": {
+      "DCIMLocationType": {
+        "type": "string"
+      }
+    },
+    "description": "Input for Redfish provisioning workflow.",
+    "properties": {
+      "bmc_switch_roles": {
+        "description": "Switch roles used to discover BMC-connected network interfaces.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Bmc Switch Roles",
+        "type": "array"
+      },
+      "dpu_manufacturers": {
+        "default": [
+          "Mellanox Technologies",
+          "MLNX"
+        ],
+        "description": "DPU manufacturer names eligible for Redfish provisioning.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Dpu Manufacturers",
+        "type": "array"
+      },
+      "http_timeout_s": {
+        "default": 5,
+        "description": "Timeout in seconds for Redfish HTTP requests.",
+        "title": "Http Timeout S",
+        "type": "integer"
+      },
+      "ip_range_end": {
+        "description": "Last BMC IP address to scan.",
+        "title": "Ip Range End",
+        "type": "string"
+      },
+      "ip_range_start": {
+        "description": "First BMC IP address to scan.",
+        "title": "Ip Range Start",
+        "type": "string"
+      },
+      "port": {
+        "default": 443,
+        "description": "HTTPS port used to contact Redfish services.",
+        "title": "Port",
+        "type": "integer"
+      },
+      "site": {
+        "description": "Site containing the BMC network to provision.",
+        "title": "Site",
+        "type": "string"
+      },
+      "site_type": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DCIMLocationType"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "DCIM location type for the site identifier."
+      }
+    },
+    "required": [
+      "site",
+      "bmc_switch_roles",
+      "ip_range_start",
+      "ip_range_end"
+    ],
+    "title": "RedfishProvisioningInput",
+    "type": "object"
+  },
+  "ReprovisionWorkflow": {
+    "description": "Reprovision Workflow Input Definition.",
+    "properties": {
+      "device_id": {
+        "description": "Identifier of the network device to reprovision.",
+        "title": "Device Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "device_id"
+    ],
+    "title": "ReprovisionInput",
+    "type": "object"
+  },
+  "SiteBackupWorkflow": {
+    "$defs": {
+      "DCIMLocationType": {
+        "type": "string"
+      }
+    },
+    "description": "Site Configuration Backup Workflow Input Definition.",
+    "properties": {
+      "backup_enabled_only": {
+        "default": true,
+        "description": "When true, only devices with backup enabled are included.",
+        "title": "Backup Enabled Only",
+        "type": "boolean"
+      },
+      "roles": {
+        "default": [],
+        "description": "Device roles used to filter the selected network devices.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Roles",
+        "type": "array"
+      },
+      "site": {
+        "description": "Site containing the network devices to back up.",
+        "minLength": 1,
+        "title": "Site",
+        "type": "string"
+      },
+      "site_type": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DCIMLocationType"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "DCIM location type for the site identifier."
+      },
+      "status": {
+        "default": [
+          "Active",
+          "Provisioned"
+        ],
+        "description": "Device statuses used to filter the selected network devices.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Status",
+        "type": "array"
+      },
+      "tenant": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Tenant used to filter the selected network devices.",
+        "title": "Tenant"
+      },
+      "user": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "User that requested the site backup.",
+        "title": "User"
+      },
+      "user_domain": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Domain of the user requesting the site backup.",
+        "title": "User Domain"
+      }
+    },
+    "required": [
+      "site"
+    ],
+    "title": "SiteBackupInput",
+    "type": "object"
+  },
+  "SiteCableValidationWorkflow": {
+    "$defs": {
+      "DCIMLocationType": {
+        "type": "string"
+      }
+    },
+    "description": "Input for Site Cable Validation Workflow.",
+    "properties": {
+      "device_type_ids": {
+        "default": [],
+        "description": "Device type identifiers used to filter network devices.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Device Type Ids",
+        "type": "array"
+      },
+      "raise_for_invalid": {
+        "default": false,
+        "description": "Whether invalid cabling should fail the workflow.",
+        "title": "Raise For Invalid",
+        "type": "boolean"
+      },
+      "roles": {
+        "default": [],
+        "description": "Device roles used to filter the selected network devices.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Roles",
+        "type": "array"
+      },
+      "site": {
+        "description": "Site containing the network devices to validate.",
+        "title": "Site",
+        "type": "string"
+      },
+      "site_type": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DCIMLocationType"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "DCIM location type for the site identifier."
+      },
+      "status": {
+        "default": [
+          "Active",
+          "Provisioned"
+        ],
+        "description": "Device statuses used to filter the selected network devices.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Status",
+        "type": "array"
+      },
+      "tenant": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Tenant used to filter the selected network devices.",
+        "title": "Tenant"
+      }
+    },
+    "required": [
+      "site"
+    ],
+    "title": "SiteCableValidationInput",
+    "type": "object"
+  },
+  "SitePasswordRotationWorkflow": {
+    "$defs": {
+      "DCIMLocationType": {
+        "type": "string"
+      }
+    },
+    "description": "Site Password Rotation Workflow Input Definition.",
+    "properties": {
+      "location": {
+        "description": "Location containing the devices to update.",
+        "minLength": 1,
+        "title": "Location",
+        "type": "string"
+      },
+      "location_type": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DCIMLocationType"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "DCIM location type for the location identifier."
+      },
+      "roles": {
+        "default": [],
+        "description": "Device roles used to filter the selected network devices.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Roles",
+        "type": "array"
+      },
+      "selected_secret": {
+        "description": "Name of the managed secret containing the replacement password.",
+        "title": "Selected Secret",
+        "type": "string"
+      },
+      "status": {
+        "default": [
+          "Active",
+          "Provisioned"
+        ],
+        "description": "Device statuses used to filter the selected network devices.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Status",
+        "type": "array"
+      },
+      "tenant": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Tenant used to filter the selected network devices.",
+        "title": "Tenant"
+      }
+    },
+    "required": [
+      "location",
+      "selected_secret"
+    ],
+    "title": "SitePasswordRotationInput",
+    "type": "object"
+  },
+  "SpXOverlayAssignmentWorkflow": {
+    "$defs": {
+      "DCIMLocationType": {
+        "type": "string"
+      },
+      "NetworkDeviceData": {
+        "description": "Normalized network-device inventory and configuration intent.",
+        "properties": {
+          "backup_enabled": {
+            "default": false,
+            "title": "Backup Enabled",
+            "type": "boolean"
+          },
+          "deploy_enabled": {
+            "default": false,
+            "title": "Deploy Enabled",
+            "type": "boolean"
+          },
+          "device_type": {
+            "title": "Device Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Intent"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "$ref": "#/$defs/Platform"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Position"
+          },
+          "primary_ip4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Ip4"
+          },
+          "primary_ip6": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Ip6"
+          },
+          "rack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Rack"
+          },
+          "render_enabled": {
+            "default": false,
+            "title": "Render Enabled",
+            "type": "boolean"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "site": {
+            "title": "Site",
+            "type": "string"
+          },
+          "ztp_enabled": {
+            "default": false,
+            "title": "Ztp Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role",
+          "site",
+          "device_type",
+          "platform",
+          "primary_ip4",
+          "primary_ip6"
+        ],
+        "title": "NetworkDeviceData",
+        "type": "object"
+      },
+      "Platform": {
+        "description": "Network device platform types understood by the workflow services.",
+        "enum": [
+          "arista-eos",
+          "cumulus-linux",
+          "nv-os",
+          "mlnx-os",
+          "juniper-junos",
+          "ufm"
+        ],
+        "title": "Platform",
+        "type": "string"
+      }
+    },
+    "description": "SpX Overlay Assignment Workflow Input Definition.",
+    "properties": {
+      "device": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "$ref": "#/$defs/NetworkDeviceData"
+          }
+        ],
+        "description": "Identifier or preloaded data for the target network device.",
+        "title": "Device"
+      },
+      "namespace_tag": {
+        "default": "spectrumx",
+        "description": "Tag identifying the namespace used for allocation.",
+        "title": "Namespace Tag",
+        "type": "string"
+      },
+      "overlay_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Identifier of the SpX overlay whose VRF will be assigned to the device and ports. Omit the overlay_id property or explicitly set it to null to remove the selected ports' current SpX assignment.",
+        "title": "Overlay ID"
+      },
+      "port_names": {
+        "description": "Names of the device interfaces to assign to the overlay.",
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1,
+        "title": "Port Names",
+        "type": "array"
+      },
+      "site": {
+        "description": "Site containing the target network device.",
+        "title": "Site",
+        "type": "string"
+      },
+      "site_type": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DCIMLocationType"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "DCIM location type for the site identifier."
+      }
+    },
+    "required": [
+      "device",
+      "port_names",
+      "site"
+    ],
+    "title": "SpXOverlayAssignmentInput",
+    "type": "object"
+  },
+  "SpXOverlayCreationWorkflow": {
+    "$defs": {
+      "DCIMLocationType": {
+        "type": "string"
+      }
+    },
+    "description": "SpX Overlay Creation Workflow Input Definition.",
+    "properties": {
+      "namespace_tag": {
+        "default": "spectrumx",
+        "description": "Tag identifying the namespace used for allocation.",
+        "title": "Namespace Tag",
+        "type": "string"
+      },
+      "overlay_id": {
+        "description": "Unique identifier for the SpX overlay. Used as an idempotency key \u2014 re-running with the same ID returns existing VRFs without creating new ones.",
+        "title": "Overlay ID",
+        "type": "string"
+      },
+      "rd_max": {
+        "default": 65000,
+        "description": "Upper bound of the route-distinguisher allocation range (0\u201365535). Must be greater than rd_min.",
+        "title": "RD Max",
+        "type": "integer"
+      },
+      "rd_min": {
+        "default": 60000,
+        "description": "Lower bound of the route-distinguisher allocation range (0\u201365535). The first available RD in [rd_min, rd_max] is allocated.",
+        "title": "RD Min",
+        "type": "integer"
+      },
+      "site": {
+        "description": "Site where the SpX overlay will be created.",
+        "title": "Site",
+        "type": "string"
+      },
+      "site_type": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DCIMLocationType"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "DCIM location type for the site identifier."
+      },
+      "tenant": {
+        "description": "Tenant that will own the SpX overlay.",
+        "title": "Tenant",
+        "type": "string"
+      }
+    },
+    "required": [
+      "site",
+      "overlay_id",
+      "tenant"
+    ],
+    "title": "SpXOverlayCreationInput",
+    "type": "object"
+  },
+  "SpXOverlayDeletionWorkflow": {
+    "$defs": {
+      "DCIMLocationType": {
+        "type": "string"
+      }
+    },
+    "description": "SpX Overlay Deletion Workflow Input Definition.",
+    "properties": {
+      "namespace_tag": {
+        "default": "spectrumx",
+        "description": "Tag identifying the namespace used for allocation.",
+        "title": "Namespace Tag",
+        "type": "string"
+      },
+      "overlay_id": {
+        "description": "Identifier of the SpX overlay to delete.",
+        "title": "Overlay ID",
+        "type": "string"
+      },
+      "site": {
+        "description": "Site containing the SpX overlay to delete.",
+        "title": "Site",
+        "type": "string"
+      },
+      "site_type": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DCIMLocationType"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "DCIM location type for the site identifier."
+      }
+    },
+    "required": [
+      "site",
+      "overlay_id"
+    ],
+    "title": "SpXOverlayDeletionInput",
+    "type": "object"
+  },
+  "SpXOverlayTenantChangeWorkflow": {
+    "$defs": {
+      "DCIMLocationType": {
+        "type": "string"
+      }
+    },
+    "description": "SpX Overlay Tenant Change Workflow Input Definition.",
+    "properties": {
+      "device_id": {
+        "description": "Identifier of the target network device.",
+        "title": "Device ID",
+        "type": "string"
+      },
+      "namespace_tag": {
+        "default": "spectrumx",
+        "description": "Tag identifying the namespace used for allocation.",
+        "title": "Namespace Tag",
+        "type": "string"
+      },
+      "overlay_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Identifier of the SpX overlay to assign and deploy tenant configuration for. Omit the overlay_id property or explicitly set it to null to remove the selected ports' current SpX assignment.",
+        "title": "Overlay ID"
+      },
+      "port_names": {
+        "description": "Names of the device interfaces to assign to the overlay.",
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1,
+        "title": "Port Names",
+        "type": "array"
+      },
+      "site": {
+        "description": "Site containing the target network device.",
+        "title": "Site",
+        "type": "string"
+      },
+      "site_type": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DCIMLocationType"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "DCIM location type for the site identifier."
+      }
+    },
+    "required": [
+      "device_id",
+      "port_names",
+      "site"
+    ],
+    "title": "SpXOverlayTenantChangeInput",
+    "type": "object"
+  },
+  "SwitchOSUpgradeWorkflow": {
+    "description": "Firmware Upgrade Workflow Input Definition.",
+    "properties": {
+      "device_id": {
+        "description": "Identifier of the network switch to upgrade.",
+        "title": "Device Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "device_id"
+    ],
+    "title": "SwitchOSUpgradeInput",
+    "type": "object"
+  },
+  "ValidateHardwareWorkflow": {
+    "$defs": {
+      "DCIMLocationType": {
+        "type": "string"
+      }
+    },
+    "description": "Validate Hardware Workflow Input.",
+    "properties": {
+      "device_type_ids": {
+        "default": [],
+        "description": "Device type identifiers used to filter network devices.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Device Type Ids",
+        "type": "array"
+      },
+      "raise_for_invalid": {
+        "default": false,
+        "description": "Whether invalid hardware should fail the workflow.",
+        "title": "Raise For Invalid",
+        "type": "boolean"
+      },
+      "roles": {
+        "default": [],
+        "description": "Device roles used to filter the selected network devices.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Roles",
+        "type": "array"
+      },
+      "site": {
+        "description": "Site used to select network devices for validation.",
+        "title": "Site",
+        "type": "string"
+      },
+      "site_type": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DCIMLocationType"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "DCIM location type for the site identifier."
+      },
+      "status": {
+        "default": [
+          "Active",
+          "Provisioned"
+        ],
+        "description": "Device statuses used to filter the selected network devices.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Status",
+        "type": "array"
+      },
+      "tenant": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Tenant used to filter the selected network devices.",
+        "title": "Tenant"
+      }
+    },
+    "required": [
+      "site"
+    ],
+    "title": "ValidateHardwareInput",
+    "type": "object"
+  }
+}

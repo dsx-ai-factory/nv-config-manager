@@ -14,7 +14,9 @@
 # limitations under the License.
 """Network Device Firmware Upgrade Workflow Definition."""
 
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import ClassVar
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
@@ -30,7 +32,9 @@ from nv_config_manager_workflows.stage import (
     StateEnum,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import device_field
 from nv_config_manager_workflows.workflow_references import DeviceReference
+from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.dcim import (
@@ -83,6 +87,13 @@ __all__ = [
 class SwitchOSUpgradeInput(BaseModel):
     """Firmware Upgrade Workflow Input Definition."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "device_id": {
+            **device_field(MANAGED_DEVICE_SOURCE, filters=("site", "tenant", "status")),
+            "ui:title": "Device",
+        },
+    }
+
     device_id: DeviceReference = Field(description="Identifier of the network switch to upgrade.")
 
 
@@ -92,12 +103,15 @@ class SwitchOSUpgradeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Ar
 
     # Workflow metadata
     workflow_name = "Switch OS Upgrade"
+    workflow_group = "Lifecycle & Security"
     workflow_description = (
         "Upgrade network switch operating system with approval and validation workflow"
     )
     workflow_input_class = SwitchOSUpgradeInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/switch_os_upgrade"
+    workflow_form_enabled = True
+    workflow_form_id = "switch-os-upgrade"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         check_recorded_config_drift,

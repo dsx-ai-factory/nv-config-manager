@@ -669,7 +669,7 @@ async function setupDocsMocks(page: Page): Promise<void> {
     await fulfillJson(route, Object.keys(DOC_WORKFLOW_DISPLAY_NAMES));
   });
 
-  await page.route("**/v1/workflow/metadata", async (route) => {
+  await page.route("**/v1/workflow/metadata?include=form", async (route) => {
     await fulfillJson(route, DOC_WORKFLOW_METADATA);
   });
 
@@ -727,12 +727,45 @@ async function setupDocsMocks(page: Page): Promise<void> {
     ]);
   });
 
-  await page.route("**/v1/parameter/diagnostics/commands*", async (route) => {
-    await fulfillJson(route, [
-      { description: "Collect interface state", name: "show interface" },
-      { description: "Collect LLDP neighbors", name: "show lldp neighbor" },
-    ]);
-  });
+  await page.route(
+    "**/v1/workflow/site-password-rotation/form-options/password-users*",
+    async (route) =>
+      fulfillJson(route, {
+        items: [
+          {
+            description: "cumulus (cumulus-password)",
+            label: "cumulus",
+            value: "cumulus",
+          },
+          {
+            description: "admin (admin-password)",
+            label: "admin",
+            value: "admin",
+          },
+        ],
+        meta: { matching_device_count: 5, warnings: [] },
+      })
+  );
+
+  await page.route(
+    "**/v1/workflow/diagnostics/form-options/diagnostic-commands*",
+    async (route) =>
+      fulfillJson(route, {
+        items: [
+          {
+            description: "Collect interface state",
+            label: "show interface",
+            value: "show interface",
+          },
+          {
+            description: "Collect LLDP neighbors",
+            label: "show lldp neighbor",
+            value: "show lldp neighbor",
+          },
+        ],
+        meta: { warnings: [] },
+      })
+  );
 }
 
 function createDocWorkflow(fixture: DocWorkflowFixture): DocWorkflow {

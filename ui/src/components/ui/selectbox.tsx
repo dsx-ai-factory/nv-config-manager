@@ -37,9 +37,12 @@ import {
 interface Option {
   value: string;
   key: string;
+  description?: string;
 }
 
 interface SelectBoxProps {
+  id?: string;
+  accessibleLabel: string;
   options: Option[];
   value?: string[] | string;
   onChange?: (values: string[] | string) => void;
@@ -50,18 +53,21 @@ interface SelectBoxProps {
   multiple?: boolean;
   disabled?: boolean;
   searchable?: boolean;
+  describedBy?: string;
+  required?: boolean;
+  invalid?: boolean;
 }
 
 const filterOption = (
   value: string,
   search: string,
-  keywords: string[] = [],
+  keywords: string[] = []
 ) => {
   const normalizedSearch = search.trim().toLowerCase();
   if (!normalizedSearch) return 1;
 
   const candidates = [value, ...keywords].map((candidate) =>
-    candidate.toLowerCase(),
+    candidate.toLowerCase()
   );
 
   if (candidates.includes(normalizedSearch)) return 1;
@@ -78,6 +84,7 @@ const filterOption = (
 const SelectBox = React.forwardRef<HTMLInputElement, SelectBoxProps>(
   (
     {
+      accessibleLabel,
       inputPlaceholder,
       emptyPlaceholder,
       placeholder,
@@ -88,8 +95,12 @@ const SelectBox = React.forwardRef<HTMLInputElement, SelectBoxProps>(
       multiple,
       disabled,
       searchable = true,
+      id,
+      describedBy,
+      required,
+      invalid,
     },
-    ref,
+    ref
   ) => {
     const [searchTerm, setSearchTerm] = React.useState<string>("");
     const [isOpen, setIsOpen] = React.useState(false);
@@ -116,19 +127,21 @@ const SelectBox = React.forwardRef<HTMLInputElement, SelectBoxProps>(
       .filter((option) =>
         Array.isArray(value)
           ? value.includes(option.value)
-          : option.value === value,
+          : option.value === value
       )
       .map((option) => option.key);
-    const triggerLabel = selectedLabels.length
+    const selectionLabel = selectedLabels.length
       ? `${selectedLabels.join(", ")}. Open options`
-      : (placeholder ?? "Open options");
+      : placeholder ?? "Open options";
+    const triggerLabel = `${accessibleLabel}: ${selectionLabel}`;
     const hasSelection = Boolean(value && value.length > 0);
+    const optionsId = id ? `${id}__options` : undefined;
 
     let selectedContent: React.ReactNode;
     if (hasSelection && multiple) {
       selectedContent = options
         .filter(
-          (option) => Array.isArray(value) && value.includes(option.value),
+          (option) => Array.isArray(value) && value.includes(option.value)
         )
         .map((option) => (
           <span
@@ -168,14 +181,21 @@ const SelectBox = React.forwardRef<HTMLInputElement, SelectBoxProps>(
             "relative flex min-h-[36px] h-full w-full cursor-pointer items-center justify-between rounded-md border border-input bg-background px-3 py-1 text-sm font-medium text-foreground ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground",
             isOpen && "border-ring",
             disabled && "pointer-events-none opacity-50",
-            className,
+            className
           )}
         >
           <PopoverTrigger asChild>
             <button
+              id={id}
               type="button"
+              role="combobox"
               disabled={disabled}
               aria-label={triggerLabel}
+              aria-controls={optionsId}
+              aria-describedby={describedBy}
+              aria-expanded={isOpen}
+              aria-required={required || undefined}
+              aria-invalid={invalid || undefined}
               className="absolute inset-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             />
           </PopoverTrigger>
@@ -184,7 +204,7 @@ const SelectBox = React.forwardRef<HTMLInputElement, SelectBoxProps>(
               "pointer-events-none relative z-10 items-center gap-1 overflow-hidden text-sm",
               multiple
                 ? "flex flex-grow flex-wrap "
-                : "inline-flex whitespace-nowrap",
+                : "inline-flex whitespace-nowrap"
             )}
           >
             {selectedContent}
@@ -201,13 +221,17 @@ const SelectBox = React.forwardRef<HTMLInputElement, SelectBoxProps>(
                 <XIcon className="size-4" aria-hidden="true" />
               </button>
             ) : (
-              <div className="flex items-center self-stretch" aria-hidden="true">
+              <div
+                className="flex items-center self-stretch"
+                aria-hidden="true"
+              >
                 <ArrowUpDownIcon className="size-4" />
               </div>
             )}
           </div>
         </div>
         <PopoverContent
+          id={optionsId}
           className="w-[var(--radix-popover-trigger-width)] p-0"
           align="start"
         >
@@ -246,7 +270,7 @@ const SelectBox = React.forwardRef<HTMLInputElement, SelectBoxProps>(
                     <CommandItem
                       key={option.value}
                       value={option.value}
-                      keywords={[option.key]}
+                      keywords={[option.key, option.description ?? ""]}
                       onSelect={() => handleSelect(option.value)}
                     >
                       {multiple && (
@@ -255,20 +279,25 @@ const SelectBox = React.forwardRef<HTMLInputElement, SelectBoxProps>(
                             "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
                             isSelected
                               ? "bg-primary text-primary-foreground"
-                              : "opacity-50 [&_svg]:invisible",
+                              : "opacity-50 [&_svg]:invisible"
                           )}
                         >
                           <CheckIcon />
                         </div>
                       )}
-                      <span>{option.key}</span>
+                      <span className="flex min-w-0 flex-col">
+                        <span>{option.key}</span>
+                        {option.description ? (
+                          <span className="text-xs font-normal text-muted-foreground">
+                            {option.description}
+                          </span>
+                        ) : null}
+                      </span>
                       {!multiple && option.value === value && (
                         <CheckIcon
                           className={cn(
                             "ml-auto",
-                            option.value === value
-                              ? "opacity-100"
-                              : "opacity-0",
+                            option.value === value ? "opacity-100" : "opacity-0"
                           )}
                         />
                       )}
@@ -281,7 +310,7 @@ const SelectBox = React.forwardRef<HTMLInputElement, SelectBoxProps>(
         </PopoverContent>
       </Popover>
     );
-  },
+  }
 );
 
 SelectBox.displayName = "SelectBox";

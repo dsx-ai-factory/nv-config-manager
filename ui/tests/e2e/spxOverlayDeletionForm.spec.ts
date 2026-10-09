@@ -14,9 +14,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { expect } from "@playwright/test";
+
+/**
+ * Form wording comes from the server's `ui_schema`.
+ */
+import { expect, type Request } from "@playwright/test";
 import { SITES_LIST, FORBIDDEN_SITE_ID, SPX_OVERLAY_LIST } from "@/mocks/data";
+import { mockServerCatalogAndUser } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT } from "./shared/utils";
+
+const FORM_PATH = "/workflows/new/spx-overlay-deletion";
+const SITE_PICKER = { name: "Select a Site..." } as const;
+// Until a site is chosen the overlay picker is disabled, as on the legacy page.
+const OVERLAY_PICKER = { name: "Select a Overlay ID..." } as const;
+
+test.beforeEach(async ({ page }) => {
+  await mockServerCatalogAndUser(page, ["reader", "executor"]);
+});
 
 // Sample VPC data for testing
 const VPC_DATA = {
@@ -27,7 +41,7 @@ const VPC_DATA = {
 
 test.describe("New SpX Overlay Deletion Workflow", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/workflows/spxoverlaydeletionworkflow/form");
+    await page.goto(FORM_PATH);
   });
 
   test("renders form with correct title", async ({ page }) => {
@@ -37,9 +51,81 @@ test.describe("New SpX Overlay Deletion Workflow", () => {
     await expect(title).toBeVisible({ timeout: TEST_TIMEOUT });
   });
 
+  test("shows the legacy fields in order; option lists follow the site like the legacy form", async ({
+    page,
+  }) => {
+    await expect(page.locator("form label")).toHaveText([
+      "Site *",
+      "Overlay ID *",
+      "Namespace Tag",
+    ]);
+    // Like the legacy page: schema descriptions stay hidden. Dependency feedback is
+    // still useful while the overlay options are waiting for a site.
+    for (const description of [
+      "Site containing the SpX overlay to delete.",
+      "Identifier of the SpX overlay to delete.",
+      "Tag identifying the namespace used for allocation.",
+    ]) {
+      await expect(page.getByText(description, { exact: true })).toHaveCount(0);
+    }
+    await expect(
+      page.getByText("Select the required fields to load Overlay ID.", {
+        exact: true,
+      })
+    ).toBeVisible();
+
+    // Namespace tags load unfiltered, then for the chosen site; overlays only for a site.
+    const requests: Request[] = [];
+    page.on("request", (request) => {
+      const { pathname } = new URL(request.url());
+      if (
+        ["/v1/parameter/overlay", "/v1/parameter/namespace-tag"].includes(
+          pathname
+        )
+      ) {
+        requests.push(request);
+      }
+    });
+    await page.goto(FORM_PATH);
+    await expect(
+      page.getByRole("combobox", { name: "spectrumx. Open options" })
+    ).toBeVisible({ timeout: TEST_TIMEOUT });
+    // Distinct requests as path + sorted query; the legacy page ordered them differently.
+    const asSeen = () =>
+      [
+        ...new Set(
+          requests.map((request) => {
+            const url = new URL(request.url());
+            const query = [...url.searchParams].map(
+              ([key, value]) => `${key}=${value}`
+            );
+            return [url.pathname, ...query.sort()].join(" ");
+          })
+        ),
+      ].sort();
+    expect(asSeen()).toEqual(["/v1/parameter/namespace-tag"]);
+
+    await page.getByRole("combobox", SITE_PICKER).click();
+    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
+    await expect(page.getByRole("combobox", OVERLAY_PICKER)).toBeEnabled({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect
+      .poll(asSeen)
+      .toEqual([
+        "/v1/parameter/namespace-tag",
+        `/v1/parameter/namespace-tag location=${SITES_LIST.pdx01}`,
+        `/v1/parameter/overlay isolation_type=spectrum_x_vrf location=${SITES_LIST.pdx01}`,
+      ]);
+    // The namespace tag stays selected across the site change, as before.
+    await expect(
+      page.getByRole("combobox", { name: "spectrumx. Open options" })
+    ).toBeVisible();
+  });
+
   test("displays validation errors for empty submission", async ({ page }) => {
     await expect(
-      page.getByRole("button", { name: "Select a Site..." })
+      page.getByRole("combobox", { name: "Select a Site..." })
     ).toBeEnabled({
       timeout: TEST_TIMEOUT,
     });
@@ -63,7 +149,7 @@ test.describe("New SpX Overlay Deletion Workflow - URL Parameters", () => {
   }) => {
     // Navigate with all URL parameters
     await page.goto(
-      "/workflows/spxoverlaydeletionworkflow/form" +
+      FORM_PATH +
         `?site=${SITES_LIST.pdx01}` +
         `&overlay_id=${VPC_DATA.overlay_id}` +
         `&namespace=${VPC_DATA.namespace_tag}`
@@ -71,20 +157,20 @@ test.describe("New SpX Overlay Deletion Workflow - URL Parameters", () => {
 
     // Verify all fields are pre-populated
     await expect(
-      page.getByRole("button", {
-        name: `${SITES_LIST.pdx01}. Open options`,
+      page.getByRole("combobox", {
+        name: `Site: ${SITES_LIST.pdx01}. Open options`,
         exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
     await expect(
-      page.getByRole("button", {
-        name: `${VPC_DATA.overlay_id}. Open options`,
+      page.getByRole("combobox", {
+        name: `Overlay ID: ${VPC_DATA.overlay_id}. Open options`,
         exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
     await expect(
-      page.getByRole("button", {
-        name: `${VPC_DATA.namespace_tag}. Open options`,
+      page.getByRole("combobox", {
+        name: `Namespace Tag: ${VPC_DATA.namespace_tag}. Open options`,
         exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
@@ -119,7 +205,7 @@ test.describe("New SpX Overlay Deletion Workflow - URL Parameters", () => {
   }) => {
     // Navigate with initial URL parameters
     await page.goto(
-      "/workflows/spxoverlaydeletionworkflow/form" +
+      FORM_PATH +
         `?site=${SITES_LIST.pdx01}` +
         `&overlay_id=${VPC_DATA.overlay_id}` +
         `&namespace=${VPC_DATA.namespace_tag}`
@@ -127,14 +213,14 @@ test.describe("New SpX Overlay Deletion Workflow - URL Parameters", () => {
 
     // Verify initial values are pre-populated
     await expect(
-      page.getByRole("button", {
-        name: `${SITES_LIST.pdx01}. Open options`,
+      page.getByRole("combobox", {
+        name: `Site: ${SITES_LIST.pdx01}. Open options`,
         exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
 
     // Change the site
-    await page.getByRole("button", { name: SITES_LIST.pdx01 }).click();
+    await page.getByRole("combobox", { name: SITES_LIST.pdx01 }).click();
     await page.getByRole("dialog").getByText(SITES_LIST.rno1).click();
     // Click outside to close any dropdown that might be open
     await page
@@ -142,11 +228,11 @@ test.describe("New SpX Overlay Deletion Workflow - URL Parameters", () => {
       .click();
 
     // Change the overlay ID
-    await page.getByRole("button", { name: "Overlay ID" }).click();
+    await page.getByRole("combobox", { name: "Overlay ID" }).click();
     await page.getByRole("dialog").getByText(SPX_OVERLAY_LIST.modified).click();
 
     // Change the namespace tag
-    await page.getByRole("button", { name: VPC_DATA.namespace_tag }).click();
+    await page.getByRole("combobox", { name: VPC_DATA.namespace_tag }).click();
     await page.getByRole("dialog").getByText("spectrumx").click();
 
     // Set up a listener for the request (after page is loaded)
@@ -178,7 +264,7 @@ test.describe("New SpX Overlay Deletion Workflow - URL Parameters", () => {
 // Tests that use beforeEach navigation
 test.describe("New SpX Overlay Deletion Workflow - Standard Tests", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/workflows/spxoverlaydeletionworkflow/form");
+    await page.goto(FORM_PATH);
   });
 
   test("submits correct data to the API", async ({ page }) => {
@@ -188,19 +274,19 @@ test.describe("New SpX Overlay Deletion Workflow - Standard Tests", () => {
     });
 
     // Fill form with specific test values
-    await page.getByRole("button", { name: "Site" }).click();
+    await page.getByRole("combobox", SITE_PICKER).click();
     await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
     // Click outside to close any dropdown that might be open
     await page
       .getByRole("heading", { name: "New SpX Overlay Deletion Workflow" })
       .click();
 
-    await page.getByRole("button", { name: "Overlay ID" }).click();
+    await page.getByRole("combobox", { name: "Overlay ID" }).click();
     await page
       .getByRole("dialog")
       .getByText(SPX_OVERLAY_LIST.submission)
       .click();
-    await page.getByRole("button", { name: "spectrumx" }).click();
+    await page.getByRole("combobox", { name: "spectrumx" }).click();
     await page.getByRole("dialog").getByText("tenant-a").click();
 
     await page.getByRole("button", { name: "Submit" }).click();
@@ -224,14 +310,14 @@ test.describe("New SpX Overlay Deletion Workflow - Standard Tests", () => {
 
   test(`disables form during submission`, async ({ page }) => {
     // Fill form with specific test values
-    await page.getByRole("button", { name: "Site" }).click();
+    await page.getByRole("combobox", SITE_PICKER).click();
     await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
     // Click outside to close any dropdown that might be open
     await page
       .getByRole("heading", { name: "New SpX Overlay Deletion Workflow" })
       .click();
 
-    await page.getByRole("button", { name: "Overlay ID" }).click();
+    await page.getByRole("combobox", { name: "Overlay ID" }).click();
     await page
       .getByRole("dialog")
       .getByText(SPX_OVERLAY_LIST.submission)
@@ -241,19 +327,19 @@ test.describe("New SpX Overlay Deletion Workflow - Standard Tests", () => {
 
     // Verify all form elements are disabled during submission
     await expect(
-      page.getByRole("button", {
-        name: `${SITES_LIST.pdx01}. Open options`,
+      page.getByRole("combobox", {
+        name: `Site: ${SITES_LIST.pdx01}. Open options`,
         exact: true,
       })
     ).toBeDisabled();
     await expect(
-      page.getByRole("button", {
-        name: `${SPX_OVERLAY_LIST.submission}. Open options`,
+      page.getByRole("combobox", {
+        name: `Overlay ID: ${SPX_OVERLAY_LIST.submission}. Open options`,
         exact: true,
       })
     ).toBeDisabled();
     await expect(
-      page.getByRole("button", { name: "spectrumx. Open options", exact: true })
+      page.getByRole("combobox", { name: "spectrumx. Open options" })
     ).toBeDisabled();
     await expect(
       page.getByRole("button", { name: "Submitting..." })
@@ -264,10 +350,10 @@ test.describe("New SpX Overlay Deletion Workflow - Standard Tests", () => {
     page,
   }) => {
     // Fill form with forbidden site and other required fields
-    await page.getByRole("button", { name: "Site" }).click();
+    await page.getByRole("combobox", SITE_PICKER).click();
     await page.getByRole("dialog").getByText(FORBIDDEN_SITE_ID).click();
 
-    await page.getByRole("button", { name: "Overlay ID" }).click();
+    await page.getByRole("combobox", { name: "Overlay ID" }).click();
     await page
       .getByRole("dialog")
       .getByText(SPX_OVERLAY_LIST.forbidden, { exact: true })
@@ -283,8 +369,13 @@ test.describe("New SpX Overlay Deletion Workflow - Standard Tests", () => {
       hasText: "Forbidden: You do not have permission to run this workflow",
     });
 
-    await expect(errorTitle).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(errorMessage).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expect(errorTitle).toHaveText("Workflow Failed", {
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(errorMessage).toHaveText(
+      "Forbidden: You do not have permission to run this workflow",
+      { timeout: TEST_TIMEOUT }
+    );
   });
 });
 
@@ -295,7 +386,7 @@ test.describe("New SpX Overlay Deletion Workflow - URL Parameters 2", () => {
   }) => {
     // Navigate with all URL parameters
     await page.goto(
-      "/workflows/spxoverlaydeletionworkflow/form" +
+      FORM_PATH +
         `?site=${SITES_LIST.pdx01}` +
         `&overlay_id=${VPC_DATA.overlay_id}` +
         `&namespace=${VPC_DATA.namespace_tag}`
@@ -303,8 +394,8 @@ test.describe("New SpX Overlay Deletion Workflow - URL Parameters 2", () => {
 
     // Verify all fields are pre-populated
     await expect(
-      page.getByRole("button", {
-        name: `${SITES_LIST.pdx01}. Open options`,
+      page.getByRole("combobox", {
+        name: `Site: ${SITES_LIST.pdx01}. Open options`,
         exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
@@ -336,19 +427,17 @@ test.describe("New SpX Overlay Deletion Workflow - URL Parameters 2", () => {
 
   test("populates default values for namespace tag", async ({ page }) => {
     // Navigate to the form without any URL parameters
-    await page.goto("/workflows/spxoverlaydeletionworkflow/form");
+    await page.goto(FORM_PATH);
 
     // Verify that namespace tag has the default value "spectrumx"
     await expect(
-      page.getByRole("button", { name: "spectrumx. Open options", exact: true })
+      page.getByRole("combobox", { name: "spectrumx. Open options" })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
 
     // Verify that Site and VPC are empty (no defaults)
-    await expect(page.getByRole("button", { name: "Site" })).toBeVisible({
+    await expect(page.getByRole("combobox", SITE_PICKER)).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
-    await expect(
-      page.getByRole("button", { name: "Overlay ID" })
-    ).toBeDisabled();
+    await expect(page.getByRole("combobox", OVERLAY_PICKER)).toBeDisabled();
   });
 });

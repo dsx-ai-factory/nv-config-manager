@@ -16,8 +16,9 @@
 
 import asyncio
 import hashlib
+from collections.abc import Mapping
 from datetime import timedelta
-from typing import Any
+from typing import Annotated, Any, ClassVar
 
 from nv_config_manager_dcim import (
     DCIMLocationIdentifier,
@@ -46,7 +47,14 @@ from nv_config_manager_workflows.stage import (
     StateEnum,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import FormSchema, api_options, location_field
 from nv_config_manager_workflows.workflow_references import OptionalLocationReference
+from nv_config_manager_workflows.workflows._form_sources import (
+    MANAGED_ROLE_SOURCE,
+    SITE_FILTER_SOURCE,
+    STATUS_FILTER_SOURCE,
+    TENANT_FILTER_SOURCE,
+)
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.config import get_ui_base_url
@@ -151,8 +159,24 @@ def _format_backup_workflow_links(
 class MultiDeployInput(BaseModel):
     """Multi-Deploy Workflow Input Definition."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "role": api_options(MANAGED_ROLE_SOURCE),
+        "max_batch_size": {"ui:title": "Max Batch Size", "ui:placeholder": "10"},
+        "location": location_field(SITE_FILTER_SOURCE, type_field="location_type"),
+        "location_type": {"ui:widget": "hidden"},
+        "status": {**api_options(STATUS_FILTER_SOURCE), "ui:title": "Device Status"},
+        "tenant": api_options(TENANT_FILTER_SOURCE),
+        "commit_confirm": {
+            "ui:title": "Use commit-confirm",
+            "ui:help": (
+                "Rollback if device becomes unreachable after apply. Disable for changes that "
+                "are expected to interrupt connectivity."
+            ),
+        },
+    }
+
     role: str = Field(description="Device role used to select network devices for deployment.")
-    max_batch_size: int = Field(
+    max_batch_size: Annotated[int, FormSchema(minimum=1, maximum=100)] = Field(
         default=10, description="Maximum number of devices included in each deployment batch."
     )
     location: OptionalLocationReference = Field(
@@ -605,12 +629,15 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
 
     # Workflow metadata
     workflow_name = "Multi-Configuration Deploy"
+    workflow_group = "Configuration"
     workflow_description = (
         "Deploy configurations to multiple devices by role with batching and approval workflow"
     )
     workflow_input_class = MultiDeployInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/multi_deploy"
+    workflow_form_enabled = True
+    workflow_form_id = "multi-deploy"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_network_devices,

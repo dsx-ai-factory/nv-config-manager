@@ -14,369 +14,203 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { expect } from "@playwright/test";
+
+/**
+ * Differences from the legacy page, by design: unset optional inputs are omitted
+ * rather than posted as `null`; the Location's type is submitted as `location_type`;
+ * the batch-size range (1-100, a form-only constraint) reports Ajv's messages
+ * ("Must be >= 1", "Must be <= 100") instead of the legacy wording; a cleared batch
+ * size is omitted and the server default (10) applies.
+ */
+import { expect, type Page } from "@playwright/test";
+
+import { FORBIDDEN_SITE_ID, ROLES_LIST, SITES_LIST, STATUS_LIST, TENANT_LIST } from "@/mocks/data";
+
+import { mockServerCatalogAndUser, mockTypedLocationsEndpoint } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT } from "./shared/utils";
 import {
-  SITES_LIST,
-  ROLES_LIST,
-  STATUS_LIST,
-  TENANT_LIST,
-  FORBIDDEN_SITE_ID,
-} from "@/mocks/data";
+  choose,
+  expectFailureToast,
+  expectWorkflowDetails,
+  formErrors,
+  formPath,
+  nextPost,
+  noFailureToast,
+  picker,
+  recordPosts,
+  selected,
+  submit,
+} from "./shared/workflowFormTests";
 
-test.describe("New Multi-Configuration Deploy Workflow", () => {
+const PATH = formPath("MultiDeployWorkflow");
+const TITLE = "New Multi-Configuration Deploy Workflow";
+const ENDPOINT = "/v1/workflow/ngc/multi_deploy";
+const batchSize = (page: Page) => page.getByRole("spinbutton", { name: "Max Batch Size" });
+
+test.beforeEach(async ({ page }) => {
+  await mockServerCatalogAndUser(page, ["reader", "executor"]);
+  await mockTypedLocationsEndpoint(page);
+});
+
+test.describe("Multi-Configuration Deploy Form", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/workflows/multideployworkflow/form");
+    await page.goto(PATH);
+    await expect(page.getByRole("heading", { name: TITLE })).toBeVisible({ timeout: TEST_TIMEOUT });
   });
 
-  test("renders Multi-Configuration Deploy form with correct title", async ({
-    page,
-  }) => {
-    await expect(
-      page.getByRole("heading", {
-        name: "New Multi-Configuration Deploy Workflow",
-      })
-    ).toBeVisible();
+  test("renders the fields with their defaults", async ({ page }) => {
+    await expect(page.locator("form label")).toHaveText([
+      "Role *",
+      "Max Batch Size",
+      "Location",
+      "Device Status",
+      "Tenant",
+      "Use commit-confirm",
+    ]);
+    await expect(batchSize(page)).toHaveValue("10");
+    await expect(page.getByRole("checkbox", { name: "Use commit-confirm" })).toBeChecked();
   });
 
-  test("submits form with all fields correctly", async ({ page }) => {
-    // Set up request listener
-    const requestPromise = page.waitForRequest((request) => {
-      return request.url().includes("/v1/workflow/ngc/multi_deploy");
-    });
+  test("reports a missing role only and sends nothing", async ({ page }) => {
+    const posts = recordPosts(page, ENDPOINT);
+    await submit(page);
+    await expect(page.getByText("Role is required", { exact: true })).toBeVisible();
+    await expect(page.getByText(/is required/)).toHaveCount(1);
+    expect(posts).toEqual([]);
+  });
 
-    // Fill in role (single select)
-    await page.locator("form").getByRole("button", { name: "Role" }).click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.wan).click();
-
-    // Fill in batch size
-    const batchSizeInput = page.getByRole("spinbutton", {
-      name: "Max Batch Size",
-    });
-    await batchSizeInput.clear();
-    await batchSizeInput.fill("10");
-
-    // Fill in location
-    await page.getByRole("button", { name: "Location" }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-
-    // Fill in status (multi-select)
-    await page.getByRole("button", { name: "Device Status" }).click();
-    await page.getByRole("dialog").getByText(STATUS_LIST.provisioning).click();
-    // Click outside to close dropdown
-    await page
-      .getByRole("heading", { name: "New Multi-Configuration Deploy Workflow" })
-      .click();
-
-    // Fill in tenant
-    await page.getByRole("button", { name: "Tenant" }).click();
-    await page.getByRole("dialog").getByText(TENANT_LIST.ngc).click();
-
-    // Submit form
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Verify request data
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    expect(requestData).toEqual({
-      role: ROLES_LIST.wan,
+  test("submits the role with the defaults only", async ({ page }) => {
+    await choose(page, "Select a Role...", ROLES_LIST.leaf);
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toEqual({
+      role: ROLES_LIST.leaf,
       max_batch_size: 10,
-      location: SITES_LIST.pdx01,
-      status: [STATUS_LIST.provisioning],
-      tenant: TENANT_LIST.ngc,
       commit_confirm: true,
     });
-
-    // Verify navigation to workflow details
-    await expect(
-      page.getByRole("heading", { name: "Workflow Details" })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expectWorkflowDetails(page);
   });
 
-  test("validates required fields", async ({ page }) => {
-    // Try to submit without filling required fields
-    await page.getByRole("button", { name: "Submit" }).click();
+  test("submits every field", async ({ page }) => {
+    await choose(page, "Select a Role...", ROLES_LIST.spine);
+    await batchSize(page).fill("25");
+    await choose(page, "Select a Location...", SITES_LIST.rno1);
+    await picker(page, "Select Device Status...").click();
+    await page.getByRole("dialog").getByRole("option", { name: STATUS_LIST.active, exact: true }).click();
+    await page.getByRole("dialog").getByRole("option", { name: STATUS_LIST.planned, exact: true }).click();
+    await page.keyboard.press("Escape");
+    await choose(page, "Select a Tenant...", TENANT_LIST.tenant_a);
+    await page.getByRole("checkbox", { name: "Use commit-confirm" }).click();
 
-    // Check for validation errors - only role is required
-    await expect(page.getByText("Role is required")).toBeVisible();
-
-    // Other fields should not show validation errors
-    await expect(page.getByText("Location is required")).not.toBeVisible();
-    await expect(
-      page.getByText("At least one status is required")
-    ).not.toBeVisible();
-    await expect(page.getByText("Tenant is required")).not.toBeVisible();
-  });
-
-  test("submits form with only required field (role)", async ({ page }) => {
-    // Set up request listener
-    const requestPromise = page.waitForRequest((request) => {
-      return request.url().includes("/v1/workflow/ngc/multi_deploy");
-    });
-
-    // Fill in only the required field - role
-    await page.locator("form").getByRole("button", { name: "Role" }).click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.leaf).click();
-
-    // Submit form
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Verify request data - should have role and default batch size
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    expect(requestData.role).toBe(ROLES_LIST.leaf);
-    expect(requestData.max_batch_size).toBe(10); // Default value
-    expect(requestData.commit_confirm).toBe(true); // Default value
-    // Optional fields should be null when not provided
-    expect(requestData.location).toBeNull();
-    expect(requestData.status).toBeNull();
-    expect(requestData.tenant).toBeNull();
-
-    // Verify navigation to workflow details
-    await expect(
-      page.getByRole("heading", { name: "Workflow Details" })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("validates batch size limits", async ({ page }) => {
-    // Fill required field first (only role is required)
-    await page.locator("form").getByRole("button", { name: "Role" }).click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.leaf).click();
-
-    // Test batch size too small
-    const batchSizeInput = page.getByRole("spinbutton", {
-      name: "Max Batch Size",
-    });
-    await batchSizeInput.clear();
-    await batchSizeInput.fill("0");
-    await page.getByRole("button", { name: "Submit" }).click();
-    await expect(page.getByText("Batch size must be at least 1")).toBeVisible();
-
-    // Test batch size too large
-    await batchSizeInput.clear();
-    await batchSizeInput.fill("101");
-    await page.getByRole("button", { name: "Submit" }).click();
-    await expect(page.getByText("Batch size cannot exceed 100")).toBeVisible();
-  });
-
-  test("loads from URL parameters", async ({ page }) => {
-    // Navigate with URL parameters
-    await page.goto(
-      "/workflows/multideployworkflow/form" +
-        `?role=${ROLES_LIST.spine}` +
-        `&max_batch_size=15` +
-        `&location=${SITES_LIST.rno1}` +
-        `&status=${STATUS_LIST.active}` +
-        `&status=${STATUS_LIST.provisioning}` +
-        `&tenant=${TENANT_LIST.tenant_a}`
-    );
-
-    // Verify fields are pre-populated
-    await expect(
-      page.getByRole("button", {
-        name: `${ROLES_LIST.spine}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-
-    await expect(
-      page.getByRole("spinbutton", { name: "Max Batch Size" })
-    ).toHaveValue("15");
-
-    await expect(
-      page.getByRole("button", {
-        name: `${SITES_LIST.rno1}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible();
-
-    // For multi-select status, verify both badges are displayed
-    await expect(page.getByText(STATUS_LIST.active)).toBeVisible();
-    await expect(page.getByText(STATUS_LIST.provisioning)).toBeVisible();
-
-    await expect(
-      page.getByRole("button", {
-        name: `${TENANT_LIST.tenant_a}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible();
-  });
-
-  test("submits the location ID loaded from a URL parameter", async ({
-    page,
-  }) => {
-    const locationName = "SJC01";
-    const locationId = "location-sjc01-id";
-    await page.route("**/v1/parameter/location*", async (route) => {
-      await route.fulfill({
-        status: 200,
-        json: [{ id: locationId, name: locationName }],
-      });
-    });
-
-    const requestPromise = page.waitForRequest((request) =>
-      request.url().includes("/v1/workflow/ngc/multi_deploy")
-    );
-
-    await page.goto(
-      "/workflows/multideployworkflow/form" +
-        `?role=${ROLES_LIST.leaf}` +
-        `&location=${locationName}`
-    );
-    await expect(
-      page.getByRole("button", {
-        name: `${locationName}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-    expect(requestData.location).toBe(locationId);
-  });
-
-  test("handles manual changes after URL parameter loading", async ({
-    page,
-  }) => {
-    // Set up request listener
-    const requestPromise = page.waitForRequest((request) => {
-      return request.url().includes("/v1/workflow/ngc/multi_deploy");
-    });
-
-    // Navigate with URL parameters
-    await page.goto(
-      "/workflows/multideployworkflow/form" +
-        `?role=${ROLES_LIST.leaf}` +
-        `&max_batch_size=5` +
-        `&location=${SITES_LIST.pdx01}` +
-        `&status=${STATUS_LIST.active}` +
-        `&tenant=${TENANT_LIST.ngc}`
-    );
-
-    // Wait for form to load with pre-filled values
-    await expect(
-      page.getByRole("button", {
-        name: `${ROLES_LIST.leaf}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible({ timeout: TEST_TIMEOUT });
-
-    // Manually change role
-    await page
-      .getByRole("button", { name: `${ROLES_LIST.leaf}. Open options` })
-      .click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.spine).click();
-
-    // Manually change batch size
-    const batchSizeInput = page.getByRole("spinbutton", {
-      name: "Max Batch Size",
-    });
-    await batchSizeInput.clear();
-    await batchSizeInput.fill("20");
-
-    // Manually change location
-    await page.getByRole("button", { name: SITES_LIST.pdx01 }).click();
-    await page.getByRole("dialog").getByText(SITES_LIST.rno1).click();
-
-    // Add another status
-    await page
-      .getByRole("button", { name: `${STATUS_LIST.active}. Open options` })
-      .click();
-    await page.getByRole("dialog").getByText(STATUS_LIST.provisioning).click();
-    await page
-      .getByRole("heading", { name: "New Multi-Configuration Deploy Workflow" })
-      .click();
-
-    // Submit form
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Verify request data has manual changes
-    const request = await requestPromise;
-    const requestData = JSON.parse((await request.postData()) || "{}");
-
-    expect(requestData).toEqual({
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toEqual({
       role: ROLES_LIST.spine,
-      max_batch_size: 20,
+      max_batch_size: 25,
       location: SITES_LIST.rno1,
+      location_type: "Site",
+      status: [STATUS_LIST.active, STATUS_LIST.planned],
+      tenant: TENANT_LIST.tenant_a,
+      commit_confirm: false,
+    });
+  });
+
+  test("validates the batch size range and omits a cleared batch size", async ({ page }) => {
+    const posts = recordPosts(page, ENDPOINT);
+    await choose(page, "Select a Role...", ROLES_LIST.leaf);
+    await batchSize(page).fill("0");
+    await submit(page);
+    await expect(page.getByText("Must be >= 1")).toBeVisible();
+    await batchSize(page).fill("101");
+    await expect(page.getByText("Must be <= 100")).toBeVisible();
+    expect(posts).toEqual([]);
+
+    await batchSize(page).fill("");
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toEqual({ role: ROLES_LIST.leaf, commit_confirm: true });
+  });
+
+  test("shows a forbidden location in the failure toast", async ({ page }) => {
+    await choose(page, "Select a Role...", ROLES_LIST.leaf);
+    await choose(page, "Select a Location...", FORBIDDEN_SITE_ID);
+    await submit(page);
+    await expectFailureToast(page, "Forbidden: You do not have permission to run this workflow");
+  });
+
+  test("shows FastAPI 422 errors on the field and a string detail form-level", async ({ page }) => {
+    let detail: unknown = [
+      { type: "value_error", loc: ["body", "max_batch_size"], msg: "Value error, too many devices" },
+      { type: "value_error", loc: ["body"], msg: "Value error, no devices match" },
+    ];
+    await page.route(`**${ENDPOINT}`, (route) => route.fulfill({ status: 422, json: { detail } }));
+    await choose(page, "Select a Role...", ROLES_LIST.leaf);
+    await submit(page);
+    await expect(page.getByText("Value error, too many devices")).toBeVisible();
+    await expect(formErrors(page)).toContainText("Value error, no devices match");
+    await noFailureToast(page);
+
+    await batchSize(page).fill("5");
+    await expect(page.getByText("Value error, too many devices")).toHaveCount(0);
+
+    detail = "Role cin-leaf has no deployable devices";
+    await submit(page);
+    await expect(formErrors(page)).toContainText("Role cin-leaf has no deployable devices");
+  });
+});
+
+test.describe("Multi-Configuration Deploy Form - URL prefill", () => {
+  test("a legacy link prefills every field and submits them", async ({ page }) => {
+    const query =
+      `?role=${ROLES_LIST.spine}&max_batch_size=15&location=${SITES_LIST.rno1}` +
+      `&status=${STATUS_LIST.active}&status=${STATUS_LIST.provisioning}` +
+      `&tenant=${TENANT_LIST.tenant_a}&commit_confirm=false`;
+    await page.goto(`/workflows/multideployworkflow/form${query}`);
+    await expect(page).toHaveURL(`${PATH}${query}`);
+
+    await expect(selected(page, ROLES_LIST.spine)).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expect(batchSize(page)).toHaveValue("15");
+    await expect(selected(page, SITES_LIST.rno1)).toBeVisible();
+    await expect(selected(page, `${STATUS_LIST.active}, ${STATUS_LIST.provisioning}`)).toBeVisible();
+    await expect(selected(page, TENANT_LIST.tenant_a)).toBeVisible();
+    await expect(page.getByRole("checkbox", { name: "Use commit-confirm" })).not.toBeChecked();
+
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toEqual({
+      role: ROLES_LIST.spine,
+      max_batch_size: 15,
+      location: SITES_LIST.rno1,
+      location_type: "Site",
       status: [STATUS_LIST.active, STATUS_LIST.provisioning],
-      tenant: TENANT_LIST.ngc,
-      commit_confirm: true,
+      tenant: TENANT_LIST.tenant_a,
+      commit_confirm: false,
+    });
+    await expectWorkflowDetails(page);
+  });
+
+  test("a location named in the URL submits its ID", async ({ page }) => {
+    await page.route("**/v1/parameter/location*", (route) =>
+      route.fulfill({
+        status: 200,
+        json: [{ id: "location-sjc01-id", name: "SJC01", location_type: "Site" }],
+      })
+    );
+    await page.goto(`${PATH}?role=${ROLES_LIST.leaf}&location=SJC01`);
+    await expect(selected(page, "SJC01")).toBeVisible({ timeout: TEST_TIMEOUT });
+
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toMatchObject({
+      location: "location-sjc01-id",
+      location_type: "Site",
     });
   });
 
-  test("handles forbidden location error", async ({ page }) => {
-    // Fill in role
-    await page.locator("form").getByRole("button", { name: "Role" }).click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.leaf).click();
-
-    // Fill in forbidden location
-    await page.getByRole("button", { name: "Location" }).click();
-    await page.getByRole("dialog").getByText(FORBIDDEN_SITE_ID).click();
-
-    // Submit form
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    // Verify error message
-    const errorTitle = page.locator("div.text-sm.font-semibold", {
-      hasText: "Workflow Failed",
-    });
-    await expect(errorTitle).toBeVisible({ timeout: TEST_TIMEOUT });
-  });
-
-  test("allows only single role selection", async ({ page }) => {
-    // Select first role
-    await page.locator("form").getByRole("button", { name: "Role" }).click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.leaf).click();
-
-    // Try to select another role - it should replace the first one
-    await page
-      .getByRole("button", { name: `${ROLES_LIST.leaf}. Open options` })
-      .click();
-    await page.getByRole("dialog").getByText(ROLES_LIST.spine).click();
-
-    // Verify only the second role is selected
-    await expect(
-      page.getByRole("button", {
-        name: `${ROLES_LIST.spine}. Open options`,
-        exact: true,
-      })
-    ).toBeVisible();
-
-    // Verify first role is not shown
-    await expect(
-      page.getByRole("button", {
-        name: `${ROLES_LIST.leaf}. Open options`,
-        exact: true,
-      })
-    ).not.toBeVisible();
-  });
-
-  test("allows multiple status selections", async ({ page }) => {
-    // Select multiple statuses
-    await page.getByRole("button", { name: "Device Status" }).click();
-    await page.getByRole("dialog").getByText(STATUS_LIST.active).click();
-    await page.getByRole("dialog").getByText(STATUS_LIST.provisioning).click();
-    await page.getByRole("dialog").getByText(STATUS_LIST.planned).click();
-    await page
-      .getByRole("heading", { name: "New Multi-Configuration Deploy Workflow" })
-      .click();
-
-    await page.waitForTimeout(200);
-
-    // Verify all status badges are shown
-    await expect(page.getByText(STATUS_LIST.active)).toBeVisible();
-    await expect(page.getByText(STATUS_LIST.provisioning)).toBeVisible();
-    await expect(page.getByText(STATUS_LIST.planned)).toBeVisible();
-  });
-
-  test("maintains default batch size value", async ({ page }) => {
-    // Verify default batch size is 10
-    await expect(
-      page.getByRole("spinbutton", { name: "Max Batch Size" })
-    ).toHaveValue("10");
+  test("an out-of-range batch size from the URL is reported on submit", async ({ page }) => {
+    await page.goto(`${PATH}?role=${ROLES_LIST.leaf}&max_batch_size=500`);
+    await expect(selected(page, ROLES_LIST.leaf)).toBeVisible({ timeout: TEST_TIMEOUT });
+    await submit(page);
+    await expect(page.getByText("Must be <= 100")).toBeVisible();
   });
 });

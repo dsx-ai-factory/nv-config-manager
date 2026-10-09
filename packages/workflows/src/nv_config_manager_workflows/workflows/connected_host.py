@@ -17,8 +17,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from datetime import timedelta
-from typing import Any
+from typing import Any, ClassVar
 
 from py_markdown_table.markdown_table import markdown_table
 from pydantic import BaseModel, Field
@@ -34,7 +35,9 @@ from nv_config_manager_workflows.stage import (
     StateEnum,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import device_field
 from nv_config_manager_workflows.workflow_references import DeviceReference
+from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.dcim import (
@@ -108,6 +111,13 @@ def interface_sort_key(interface_name: str) -> tuple[str, list[int]]:
 class ConnectedHostWorkflowInput(BaseModel):
     """Connected Host Workflow Input."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "device_id": {
+            **device_field(MANAGED_DEVICE_SOURCE, filters=("site", "tenant", "status")),
+            "ui:title": "Device",
+        },
+    }
+
     device_id: DeviceReference = Field(description="Identifier of the network device to analyze.")
 
 
@@ -117,12 +127,15 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
 
     # Workflow metadata
     workflow_name = "Connected Host Metadata"
+    workflow_group = "Validation & Diagnostics"
     workflow_description = (
         "Discover and analyze connected hosts via MAC table and LLDP neighbor data"
     )
     workflow_input_class = ConnectedHostWorkflowInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/connected_host_metadata"
+    workflow_form_enabled = True
+    workflow_form_id = "connected-host-metadata"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
     workflow_required_activities = (

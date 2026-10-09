@@ -1,0 +1,75 @@
+{
+  "workflow": "SpXOverlayCreationWorkflow",
+  "input_model": "SpXOverlayCreationInput",
+  "scenarios": [
+    {
+      "name": "manual fill, defaults",
+      "legacy_url": "/workflows/spxoverlaycreationworkflow/form",
+      "new_url": "/workflows/new/spx-overlay-creation",
+      "legacy_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "overlay_id": "test-overlay",
+        "tenant": "TenantB",
+        "namespace_tag": "spectrumx",
+        "rd_min": 60000,
+        "rd_max": 65000
+      },
+      "generic_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "overlay_id": "test-overlay",
+        "tenant": "TenantB",
+        "namespace_tag": "spectrumx",
+        "rd_min": 60000,
+        "rd_max": 65000
+      }
+    },
+    {
+      "name": "manual fill, every field",
+      "legacy_url": "/workflows/spxoverlaycreationworkflow/form",
+      "new_url": "/workflows/new/spx-overlay-creation",
+      "legacy_payload": {
+        "site": "RNO1",
+        "site_type": "Site",
+        "overlay_id": "test-overlay-2",
+        "tenant": "TenantA",
+        "namespace_tag": "tenant-a",
+        "rd_min": 61000,
+        "rd_max": 62000
+      },
+      "generic_payload": {
+        "site": "RNO1",
+        "site_type": "Site",
+        "overlay_id": "test-overlay-2",
+        "tenant": "TenantA",
+        "namespace_tag": "tenant-a",
+        "rd_min": 61000,
+        "rd_max": 62000
+      }
+    },
+    {
+      "name": "prefill from URL, namespace alias",
+      "legacy_url": "/workflows/spxoverlaycreationworkflow/form?site=PDX01&overlay_id=test-overlay-1&tenant=TenantB&namespace=tenant-a&rd_min=61000&rd_max=62000",
+      "new_url": "/workflows/new/spx-overlay-creation?site=PDX01&overlay_id=test-overlay-1&tenant=TenantB&namespace=tenant-a&rd_min=61000&rd_max=62000",
+      "legacy_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "overlay_id": "test-overlay-1",
+        "tenant": "TenantB",
+        "namespace_tag": "tenant-a",
+        "rd_min": 61000,
+        "rd_max": 62000
+      },
+      "generic_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "overlay_id": "test-overlay-1",
+        "tenant": "TenantB",
+        "namespace_tag": "tenant-a",
+        "rd_min": 61000,
+        "rd_max": 62000
+      }
+    }
+  ]
+}

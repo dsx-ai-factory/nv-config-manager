@@ -13,17 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import subprocess
+import sys
 from collections.abc import Sequence
 
 import pytest
 from pydantic import BaseModel
 from temporalio import activity
 
+from nv_config_manager_workflows.form_declarations import (
+    FormOptionProvider as DeclaredFormOptionProvider,
+)
 from nv_config_manager_workflows.metadata import (
     RequiredActivity,
     WorkflowLockSpec,
     WorkflowMetadataMixin,
 )
+from nv_config_manager_workflows.ui import FormOptionProvider as PublicFormOptionProvider
 
 
 class WorkflowInput(BaseModel):
@@ -42,6 +48,9 @@ class DeviceBackupWorkflow(WorkflowMetadataMixin):
     workflow_input_class = WorkflowInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/backup"
+    workflow_form_enabled = True
+    workflow_form_id = "device-backup"
+    workflow_group = "Configuration"
     workflow_required_activities = (collect_facts,)
 
 
@@ -49,7 +58,33 @@ def test_metadata_defaults_fail_closed() -> None:
     assert not WorkflowMetadataMixin.workflow_api_enabled
     assert not WorkflowMetadataMixin.workflow_mcp_enabled
     assert WorkflowMetadataMixin.workflow_api_endpoint is None
+    assert WorkflowMetadataMixin.get_workflow_form_id() is None
+    assert not WorkflowMetadataMixin.get_workflow_form_enabled()
+    assert WorkflowMetadataMixin.get_workflow_form_option_providers() == {}
+    assert WorkflowMetadataMixin.get_workflow_group() is None
     assert WorkflowMetadataMixin.get_workflow_required_activities() == ()
+
+
+def test_importing_metadata_does_not_initialize_the_ui_package() -> None:
+    script = "\n".join(
+        [
+            "import sys",
+            "import nv_config_manager_workflows.metadata",
+            (
+                "assert not [name for name in sys.modules "
+                "if name == 'nv_config_manager_workflows.ui' "
+                "or name.startswith('nv_config_manager_workflows.ui.')], "
+                "sorted(name for name in sys.modules "
+                "if name.startswith('nv_config_manager_workflows.ui'))"
+            ),
+        ]
+    )
+
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_public_form_option_provider_is_the_neutral_declaration() -> None:
+    assert PublicFormOptionProvider is DeclaredFormOptionProvider
 
 
 def test_required_activities_are_composed_across_the_mro() -> None:
@@ -71,6 +106,9 @@ def test_metadata_accessors_read_subclass_declarations() -> None:
     assert DeviceBackupWorkflow.get_workflow_input_class() is WorkflowInput
     assert DeviceBackupWorkflow.get_workflow_api_enabled()
     assert DeviceBackupWorkflow.get_workflow_api_endpoint() == "/backup"
+    assert DeviceBackupWorkflow.get_workflow_form_id() == "device-backup"
+    assert DeviceBackupWorkflow.get_workflow_form_enabled()
+    assert DeviceBackupWorkflow.get_workflow_group() == "Configuration"
     assert DeviceBackupWorkflow.get_workflow_required_activities() == (collect_facts,)
     assert DeviceBackupWorkflow.get_workflow_cli_name() == "device-backup"
 

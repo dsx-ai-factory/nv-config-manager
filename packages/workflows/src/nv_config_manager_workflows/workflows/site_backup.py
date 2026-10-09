@@ -15,8 +15,9 @@
 """Site Configuration Backup Workflow Definition."""
 
 import asyncio
+from collections.abc import Mapping
 from datetime import timedelta
-from typing import Any
+from typing import Annotated, Any, ClassVar
 
 from nv_config_manager_dcim import (
     DCIMLocationIdentifier,
@@ -46,7 +47,20 @@ from nv_config_manager_workflows.stage import (
     StateEnum,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import (
+    FormExcluded,
+    FormSchema,
+    ServerOwned,
+    api_options,
+    location_field,
+)
 from nv_config_manager_workflows.workflow_references import LocationReference
+from nv_config_manager_workflows.workflows._form_sources import (
+    MANAGED_ROLE_SOURCE,
+    SITE_FILTER_SOURCE,
+    STATUS_FILTER_SOURCE,
+    TENANT_FILTER_SOURCE,
+)
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.config import get_ui_base_url
@@ -104,6 +118,21 @@ __all__ = [
 class SiteBackupInput(BaseModel):
     """Site Configuration Backup Workflow Input Definition."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "site": location_field(SITE_FILTER_SOURCE, type_field="site_type"),
+        "site_type": {"ui:widget": "hidden"},
+        "roles": api_options(MANAGED_ROLE_SOURCE),
+        "status": {**api_options(STATUS_FILTER_SOURCE), "ui:title": "Device Status"},
+        "tenant": api_options(TENANT_FILTER_SOURCE),
+        "backup_enabled_only": {
+            "ui:title": "Backup enabled only",
+            "ui:help": (
+                "Include only devices with backup enabled in the DCIM. Uncheck to back up all "
+                "managed devices that match the other filters."
+            ),
+        },
+    }
+
     site: LocationReference = Field(
         min_length=1,
         description="Site containing the network devices to back up.",
@@ -115,7 +144,7 @@ class SiteBackupInput(BaseModel):
         default=[],
         description="Device roles used to filter the selected network devices.",
     )
-    status: list[str] = Field(
+    status: Annotated[list[str], FormSchema(min_items=1)] = Field(
         default=DEFAULT_CONFIG_MANAGER_STATUS,
         description="Device statuses used to filter the selected network devices.",
     )
@@ -127,11 +156,11 @@ class SiteBackupInput(BaseModel):
         default=True,
         description="When true, only devices with backup enabled are included.",
     )
-    user: str | None = Field(
+    user: Annotated[str | None, ServerOwned()] = Field(
         default=None,
         description="User that requested the site backup.",
     )
-    user_domain: str | None = Field(
+    user_domain: Annotated[str | None, FormExcluded()] = Field(
         default=None,
         description="Domain of the user requesting the site backup.",
     )
@@ -152,12 +181,15 @@ class SiteBackupWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixin):
     """Site-wide configuration backup workflow for network infrastructure."""
 
     workflow_name = "Site Configuration Backup"
+    workflow_group = "Configuration"
     workflow_description = (
         "Back up running configurations for in-scope devices at a site to the Config Store"
     )
     workflow_input_class = SiteBackupInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/site_backup"
+    workflow_form_enabled = True
+    workflow_form_id = "site-backup"
     workflow_namespace = "ngc"
     workflow_required_activities = (get_network_devices, get_ui_base_url)
     workflow_mcp_enabled = True

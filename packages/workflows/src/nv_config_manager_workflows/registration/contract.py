@@ -28,7 +28,9 @@ The attributes this module reads from a workflow class (each one optional):
 ``workflow_input_class``                Pydantic model accepted as workflow input
 ``workflow_api_enabled``                expose for direct invocation through the API
 ``workflow_api_endpoint``               API path, unique across plugins
+``workflow_form_enabled``               expose through the browser form contract
 ``workflow_mcp_enabled``                expose as an MCP tool
+``workflow_group``                      UI catalog group, if any
 ``workflow_required_activities``        activity functions the workflow executes
 ``get_workflow_cli_name()``             CLI command name, unique across plugins
 ``get_workflow_required_activities()``  overrides the attribute above
@@ -121,6 +123,11 @@ def workflow_api_enabled(workflow: type[WorkflowMetadataMixin]) -> bool:
     return workflow.workflow_api_enabled
 
 
+def workflow_form_enabled(workflow: type[WorkflowMetadataMixin]) -> bool:
+    """Return whether the workflow opts in to the browser form contract."""
+    return workflow.workflow_form_enabled
+
+
 def normalized_api_endpoint(workflow: type[WorkflowMetadataMixin]) -> str | None:
     """Return the API path in the form used to compare two workflows."""
     endpoint = workflow_api_endpoint(workflow)
@@ -157,6 +164,11 @@ def mcp_tool_name_for_endpoint(endpoint: str) -> str:
     """Derive the MCP tool name an API endpoint is exposed under."""
     slug = endpoint.strip("/").split("/")[-1]
     return f"run_{slug.replace('-', '_')}"
+
+
+def workflow_group(workflow: type[WorkflowMetadataMixin]) -> str | None:
+    """Return the workflow's UI catalog group, if any."""
+    return workflow.workflow_group
 
 
 def workflow_has_complete_metadata(workflow: type[WorkflowMetadataMixin]) -> bool:

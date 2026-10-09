@@ -253,11 +253,6 @@ export type WorkflowMetadataResponse = {
   workflows: WorkflowMetadata[];
 };
 
-export type WorkflowTableProps = {
-  title?: string;
-  workflowMetadata: WorkflowMetadata[];
-};
-
 export type WorkflowColumns = Workflow;
 
 export interface DataTableProps<TData, TValue> {

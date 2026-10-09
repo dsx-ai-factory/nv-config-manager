@@ -17,9 +17,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, ClassVar
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
@@ -43,10 +43,24 @@ from nv_config_manager_workflows.stage import (
     StateEnum,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import (
+    FormExcluded,
+    FormSchema,
+    api_options,
+    device_field,
+    location_field,
+)
 from nv_config_manager_workflows.workflow_references import (
     DEVICE_REFERENCE,
     DeviceReference,
     LocationReference,
+)
+from nv_config_manager_workflows.workflows._form_sources import (
+    MANAGED_DEVICE_SOURCE,
+    MANAGED_ROLE_SOURCE,
+    SITE_FILTER_SOURCE,
+    STATUS_FILTER_SOURCE,
+    TENANT_FILTER_SOURCE,
 )
 
 with workflow.unsafe.imports_passed_through():
@@ -142,6 +156,15 @@ DCIM_PERSISTENCE_PENDING_MESSAGE = (
 class SiteCableValidationInput(BaseModel):
     """Input for Site Cable Validation Workflow."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:globalOptions": {"hideSchemaDescriptions": True},
+        "site": location_field(SITE_FILTER_SOURCE, type_field="site_type"),
+        "site_type": {"ui:widget": "hidden"},
+        "roles": api_options(MANAGED_ROLE_SOURCE),
+        "status": {**api_options(STATUS_FILTER_SOURCE), "ui:title": "Device Status"},
+        "tenant": api_options(TENANT_FILTER_SOURCE),
+    }
+
     site: LocationReference = Field(description="Site containing the network devices to validate.")
     site_type: DCIMLocationType | None = Field(
         default=None, description="DCIM location type for the site identifier."
@@ -150,7 +173,7 @@ class SiteCableValidationInput(BaseModel):
         default=[],
         description="Device roles used to filter the selected network devices.",
     )
-    status: list[str] = Field(
+    status: Annotated[list[str], FormSchema(min_items=1)] = Field(
         default=DEFAULT_CONFIG_MANAGER_STATUS,
         description="Device statuses used to filter the selected network devices.",
     )
@@ -158,16 +181,23 @@ class SiteCableValidationInput(BaseModel):
         default=DEFAULT_CONFIG_MANAGER_TENANT,
         description="Tenant used to filter the selected network devices.",
     )
-    device_type_ids: list[str] = Field(
+    device_type_ids: Annotated[list[str], FormExcluded()] = Field(
         default=[], description="Device type identifiers used to filter network devices."
     )
-    raise_for_invalid: bool = Field(
+    raise_for_invalid: Annotated[bool, FormExcluded()] = Field(
         default=False, description="Whether invalid cabling should fail the workflow."
     )
 
 
 class DeviceCableValidationInput(BaseModel):
     """Input for Device Cable Validation Workflow."""
+
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "device_id": {
+            **device_field(MANAGED_DEVICE_SOURCE, filters=("site", "tenant", "status")),
+            "ui:title": "Device",
+        },
+    }
 
     device_id: DeviceReference = Field(description="Identifier of the network device to validate.")
     device: Annotated[
@@ -177,18 +207,19 @@ class DeviceCableValidationInput(BaseModel):
         ]
         | None,
         DEVICE_REFERENCE,
+        FormExcluded(),
     ] = Field(
         default=None,
         description=DEVICE_CABLE_VALIDATION_DEVICE_DESCRIPTION,
     )
-    defer_cable_status_updates: bool = Field(
+    defer_cable_status_updates: Annotated[bool, FormExcluded()] = Field(
         default=False,
         description=(
             "Return pending DCIM updates to a parent site workflow. "
             "Direct API calls must leave this false."
         ),
     )
-    ignore_no_neighbor: bool = Field(
+    ignore_no_neighbor: Annotated[bool, FormExcluded()] = Field(
         default=False,
         description="Whether interfaces without discovered neighbors should be ignored.",
     )
@@ -267,12 +298,15 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, CableStatusPersistenceM
 
     # Workflow metadata
     workflow_name = "Site Cable Validation"
+    workflow_group = "Validation & Diagnostics"
     workflow_description = (
         "Validate cable connections for all devices in a site against intended topology"
     )
     workflow_input_class = SiteCableValidationInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/site_cable_validation"
+    workflow_form_enabled = True
+    workflow_form_id = "site-cable-validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
     workflow_required_activities = (
@@ -600,12 +634,15 @@ class DeviceCableValidationWorkflow(
 
     # Workflow metadata
     workflow_name = "Device Cable Validation"
+    workflow_group = "Validation & Diagnostics"
     workflow_description = (
         "Validate cable connections for a specific device against intended topology"
     )
     workflow_input_class = DeviceCableValidationInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/device_cable_validation"
+    workflow_form_enabled = True
+    workflow_form_id = "device-cable-validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
     workflow_required_activities = (

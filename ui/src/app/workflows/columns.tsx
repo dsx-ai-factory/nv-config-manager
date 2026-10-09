@@ -19,7 +19,8 @@
 import { ColumnDef } from "@tanstack/react-table";
 import type { ReactNode } from "react";
 import { SortableHeaderButton } from "@/components/data-table";
-import { WorkflowColumns, WorkflowMetadata } from "@/types/data-table.types";
+import { WorkflowColumns } from "@/types/data-table.types";
+import type { WorkflowCatalogEntry } from "@/types/workflow-catalog.types";
 import { renderDeviceNameField } from "@/lib/utils";
 import { useRuntimeConfig } from "@/config/runtime";
 import Link from "next/link";
@@ -264,16 +265,25 @@ function SearchAttributeCell({
   );
 }
 
+/**
+ * Type filter options: every catalog workflow, in catalog order, whether or not it has
+ * executions.
+ */
+export const getWorkflowTypeFilterOptions = (
+  workflowCatalog: readonly WorkflowCatalogEntry[]
+): { label: string; value: string }[] =>
+  workflowCatalog.map((entry) => ({
+    label: entry.display_name,
+    value: entry.name,
+  }));
+
 export const getWorkflowColumns = (
-  workflowMetadata: WorkflowMetadata[]
+  workflowCatalog: readonly WorkflowCatalogEntry[]
 ): ColumnDef<WorkflowColumns>[] => {
   const workflowMetadataByName = new Map(
-    workflowMetadata.map((metadata) => [metadata.name, metadata])
+    workflowCatalog.map((entry) => [entry.name, entry])
   );
-  const workflowTypeOptions = workflowMetadata.map((metadata) => ({
-    label: metadata.display_name,
-    value: metadata.name,
-  }));
+  const workflowTypeOptions = getWorkflowTypeFilterOptions(workflowCatalog);
 
   return [
     {

@@ -21,15 +21,21 @@ var _ MappedNullable = &WorkflowMetadata{}
 
 // WorkflowMetadata Workflow metadata.
 type WorkflowMetadata struct {
-	CliName      string         `json:"cli_name"`
-	Description  string         `json:"description"`
-	DisplayName  string         `json:"display_name"`
-	Endpoint     string         `json:"endpoint"`
-	ExecuteRoles []string       `json:"execute_roles"`
-	InputClass   string         `json:"input_class"`
-	Name         string         `json:"name"`
-	Namespace    NullableString `json:"namespace"`
-	ReadRoles    []string       `json:"read_roles"`
+	CliName      string   `json:"cli_name"`
+	Description  string   `json:"description"`
+	DisplayName  string   `json:"display_name"`
+	Endpoint     string   `json:"endpoint"`
+	ExecuteRoles []string `json:"execute_roles"`
+	// Stable lowercase kebab-case identifier used by this workflow's browser-form endpoints. Returned by the form metadata expansion.
+	FormId NullableString `json:"form_id,omitempty" validate:"regexp=^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"`
+	// Launcher group returned by the form metadata expansion.
+	Group NullableString `json:"group,omitempty"`
+	// Whether the browser-form contract is enabled. When true, the form endpoint may still return HTTP 503 if a third-party declaration failed validation. Returned by the form metadata expansion.
+	HasForm    NullableBool   `json:"has_form,omitempty"`
+	InputClass string         `json:"input_class"`
+	Name       string         `json:"name"`
+	Namespace  NullableString `json:"namespace"`
+	ReadRoles  []string       `json:"read_roles"`
 }
 
 type _WorkflowMetadata WorkflowMetadata
@@ -180,6 +186,141 @@ func (o *WorkflowMetadata) SetExecuteRoles(v []string) {
 	o.ExecuteRoles = v
 }
 
+// GetFormId returns the FormId field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *WorkflowMetadata) GetFormId() string {
+	if o == nil || IsNil(o.FormId.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.FormId.Get()
+}
+
+// GetFormIdOk returns a tuple with the FormId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *WorkflowMetadata) GetFormIdOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.FormId.Get(), o.FormId.IsSet()
+}
+
+// HasFormId returns a boolean if a field has been set.
+func (o *WorkflowMetadata) HasFormId() bool {
+	if o != nil && o.FormId.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetFormId gets a reference to the given NullableString and assigns it to the FormId field.
+func (o *WorkflowMetadata) SetFormId(v string) {
+	o.FormId.Set(&v)
+}
+
+// SetFormIdNil sets the value for FormId to be an explicit nil
+func (o *WorkflowMetadata) SetFormIdNil() {
+	o.FormId.Set(nil)
+}
+
+// UnsetFormId ensures that no value is present for FormId, not even an explicit nil
+func (o *WorkflowMetadata) UnsetFormId() {
+	o.FormId.Unset()
+}
+
+// GetGroup returns the Group field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *WorkflowMetadata) GetGroup() string {
+	if o == nil || IsNil(o.Group.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.Group.Get()
+}
+
+// GetGroupOk returns a tuple with the Group field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *WorkflowMetadata) GetGroupOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.Group.Get(), o.Group.IsSet()
+}
+
+// HasGroup returns a boolean if a field has been set.
+func (o *WorkflowMetadata) HasGroup() bool {
+	if o != nil && o.Group.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetGroup gets a reference to the given NullableString and assigns it to the Group field.
+func (o *WorkflowMetadata) SetGroup(v string) {
+	o.Group.Set(&v)
+}
+
+// SetGroupNil sets the value for Group to be an explicit nil
+func (o *WorkflowMetadata) SetGroupNil() {
+	o.Group.Set(nil)
+}
+
+// UnsetGroup ensures that no value is present for Group, not even an explicit nil
+func (o *WorkflowMetadata) UnsetGroup() {
+	o.Group.Unset()
+}
+
+// GetHasForm returns the HasForm field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *WorkflowMetadata) GetHasForm() bool {
+	if o == nil || IsNil(o.HasForm.Get()) {
+		var ret bool
+		return ret
+	}
+	return *o.HasForm.Get()
+}
+
+// GetHasFormOk returns a tuple with the HasForm field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *WorkflowMetadata) GetHasFormOk() (*bool, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.HasForm.Get(), o.HasForm.IsSet()
+}
+
+// HasHasForm returns a boolean if a field has been set.
+func (o *WorkflowMetadata) HasHasForm() bool {
+	if o != nil && o.HasForm.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetHasForm gets a reference to the given NullableBool and assigns it to the HasForm field.
+func (o *WorkflowMetadata) SetHasForm(v bool) {
+	o.HasForm.Set(&v)
+}
+
+// SetHasFormNil sets the value for HasForm to be an explicit nil
+func (o *WorkflowMetadata) SetHasFormNil() {
+	o.HasForm.Set(nil)
+}
+
+// UnsetHasForm ensures that no value is present for HasForm, not even an explicit nil
+func (o *WorkflowMetadata) UnsetHasForm() {
+	o.HasForm.Unset()
+}
+
 // GetInputClass returns the InputClass field value
 func (o *WorkflowMetadata) GetInputClass() string {
 	if o == nil {
@@ -293,6 +434,15 @@ func (o WorkflowMetadata) ToMap() (map[string]interface{}, error) {
 	toSerialize["display_name"] = o.DisplayName
 	toSerialize["endpoint"] = o.Endpoint
 	toSerialize["execute_roles"] = o.ExecuteRoles
+	if o.FormId.IsSet() {
+		toSerialize["form_id"] = o.FormId.Get()
+	}
+	if o.Group.IsSet() {
+		toSerialize["group"] = o.Group.Get()
+	}
+	if o.HasForm.IsSet() {
+		toSerialize["has_form"] = o.HasForm.Get()
+	}
 	toSerialize["input_class"] = o.InputClass
 	toSerialize["name"] = o.Name
 	toSerialize["namespace"] = o.Namespace.Get()

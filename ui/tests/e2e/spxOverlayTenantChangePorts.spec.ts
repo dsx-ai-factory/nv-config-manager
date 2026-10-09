@@ -14,142 +14,251 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { expect } from "@playwright/test";
+
+/**
+ * Both repeated and legacy comma-separated `?port_names=` links are accepted. Submit
+ * is enabled while the form is incomplete and reports "<label> is required"; a ports
+ * load failure shows under the Ports picker.
+ */
+import { expect, type Page } from "@playwright/test";
+
 import { DEVICES_LIST, SITES_LIST, SPX_OVERLAY_LIST } from "@/mocks/data";
+
+import {
+  mockServerCatalogAndUser,
+  mockTypedLocationsEndpoint,
+} from "./shared/apiMocks";
 import { test, TEST_TIMEOUT } from "./shared/utils";
+import {
+  choose,
+  expectWorkflowDetails,
+  formErrors,
+  formPath,
+  nextPost,
+  picker,
+  recordPosts,
+  SELECT_DEVICE,
+  SELECT_SITE,
+  selected,
+  submit,
+} from "./shared/workflowFormTests";
 
-test("queries the selected device ports and supports multiple selections", async ({
-  page,
-}) => {
-  await page.goto("/workflows/spxoverlaytenantchangeworkflow/form");
+const PATH = formPath("SpXOverlayTenantChangeWorkflow");
+const TITLE = "New SpX Overlay Tenant Change Workflow";
+const ENDPOINT = "/v1/workflow/ngc/spx_overlay_tenant_change";
+const SELECT_OVERLAY =
+  "Select a Overlay ID (optional — leave blank to remove)...";
+const SELECT_PORTS = "Select Ports...";
+const [DEVICE, SECOND_DEVICE] = DEVICES_LIST.PDX01;
 
-  await page.getByRole("button", { name: "Site" }).click();
-  await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
-  await page.getByRole("button", { name: "Overlay ID" }).click();
-  await page
-    .getByRole("dialog")
-    .getByText(SPX_OVERLAY_LIST.primary)
-    .click();
+const pickPorts = async (page: Page, ...ports: string[]) => {
+  await picker(page, SELECT_PORTS).click();
+  for (const port of ports) {
+    await page
+      .getByRole("dialog")
+      .getByRole("option", { name: port, exact: true })
+      .click();
+  }
+  await page.keyboard.press("Escape");
+};
 
-  const firstDevice = DEVICES_LIST.PDX01[0];
-  const interfaceResponse = page.waitForResponse((response) =>
-    response.url().includes(`/v1/parameter/device/${firstDevice.id}/interfaces`)
-  );
-  await page.getByRole("button", { name: "Device" }).click();
-  await page.getByRole("dialog").getByText(firstDevice.name).click();
-  await interfaceResponse;
-
-  await page.getByRole("button", { name: "Ports" }).click();
-  await page.getByRole("dialog").getByText("swp1").click();
-  await page.getByRole("dialog").getByText("swp2").click();
-
-  await expect(
-    page.getByRole("button", { name: "Remove swp1" })
-  ).toBeVisible({ timeout: TEST_TIMEOUT });
-  await expect(
-    page.getByRole("button", { name: "Remove swp2" })
-  ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Submit" })).toBeEnabled();
-
-  await page.getByRole("heading", {
-    name: "New SpX Overlay Tenant Change Workflow",
-  }).click();
-  const secondDevice = DEVICES_LIST.PDX01[1];
-  const secondInterfaceResponse = page.waitForResponse((response) =>
-    response.url().includes(`/v1/parameter/device/${secondDevice.id}/interfaces`)
-  );
-  await page.getByRole("button", { name: firstDevice.name }).click();
-  await page.getByRole("dialog").getByText(secondDevice.name).click();
-  await secondInterfaceResponse;
-
-  await expect(page.getByRole("button", { name: "Submit" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Remove swp1" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Remove swp2" })).toHaveCount(0);
+test.beforeEach(async ({ page }) => {
+  await mockServerCatalogAndUser(page, ["reader", "executor"]);
+  await mockTypedLocationsEndpoint(page);
 });
 
-test("loads device and port selections from URL parameters", async ({ page }) => {
-  const device = DEVICES_LIST.PDX01[0];
-  await page.goto(
-    "/workflows/spxoverlaytenantchangeworkflow/form" +
-      `?site=${SITES_LIST.pdx01}` +
-      `&overlay_id=${SPX_OVERLAY_LIST.primary}` +
-      `&device-id=${device.id}` +
-      "&port_names=swp1%2Cswp2"
-  );
-
-  await expect(
-    page.getByRole("button", { name: device.name })
-  ).toBeVisible({ timeout: TEST_TIMEOUT });
-  await expect(
-    page.getByRole("button", { name: /swp1.*swp2/ })
-  ).toBeVisible({ timeout: TEST_TIMEOUT });
-  await expect(page.getByRole("button", { name: "Submit" })).toBeEnabled();
-});
-
-test("shows an error when device interfaces fail to load", async ({ page }) => {
-  await page.route("**/v1/parameter/device/*/interfaces", async (route) => {
-    await route.fulfill({
-      status: 500,
-      json: { error: "Failed to load device interfaces" },
+test.describe("SpX Overlay Tenant Change Form", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto(PATH);
+    await expect(page.getByRole("heading", { name: TITLE })).toBeVisible({
+      timeout: TEST_TIMEOUT,
     });
   });
-  await page.goto("/workflows/spxoverlaytenantchangeworkflow/form");
 
-  await page.getByRole("button", { name: "Site" }).click();
-  await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
+  test("renders one Site, used by the overlay and the device", async ({
+    page,
+  }) => {
+    await expect(page.locator("form label")).toHaveText([
+      "Site *",
+      "Overlay ID (optional — leave blank to remove)",
+      "Device *",
+      "Ports *",
+    ]);
+  });
 
-  const device = DEVICES_LIST.PDX01[0];
-  const interfaceResponse = page.waitForResponse((response) =>
-    response.url().includes(`/v1/parameter/device/${device.id}/interfaces`)
-  );
-  await page.getByRole("button", { name: "Device" }).click();
-  await page.getByRole("dialog").getByText(device.name).click();
-  await interfaceResponse;
+  test("reports the missing inputs and sends nothing", async ({ page }) => {
+    const posts = recordPosts(page, ENDPOINT);
+    await submit(page);
+    for (const label of ["Site", "Device", "Ports"]) {
+      await expect(
+        page.getByText(`${label} is required`, { exact: true })
+      ).toBeVisible();
+    }
+    expect(posts).toEqual([]);
+  });
 
-  await expect(
-    page.getByRole("alert").filter({
-      hasText: "Unable to load interfaces for the selected device. Try again.",
-    })
-  ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Submit" })).toBeDisabled();
+  test("queries the device's ports, submits several, and clears them on a device change", async ({
+    page,
+  }) => {
+    await choose(page, SELECT_SITE, SITES_LIST.pdx01);
+    await choose(page, SELECT_OVERLAY, SPX_OVERLAY_LIST.primary);
+    const ports = page.waitForRequest((request) =>
+      request.url().includes(`/v1/parameter/device/${DEVICE.id}/interfaces`)
+    );
+    await choose(page, SELECT_DEVICE, DEVICE.name);
+    await ports;
+    await pickPorts(page, "swp1", "swp2");
+    await expect(selected(page, "swp1, swp2")).toBeVisible();
+
+    // Another device: its ports load and the selection is cleared.
+    const secondPorts = page.waitForRequest((request) =>
+      request
+        .url()
+        .includes(`/v1/parameter/device/${SECOND_DEVICE.id}/interfaces`)
+    );
+    await selected(page, DEVICE.name).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("option", { name: SECOND_DEVICE.name, exact: true })
+      .click();
+    await secondPorts;
+    await expect(picker(page, SELECT_PORTS)).toBeEnabled();
+    await pickPorts(page, "swp3");
+
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toEqual({
+      site: SITES_LIST.pdx01,
+      site_type: "Site",
+      overlay_id: SPX_OVERLAY_LIST.primary,
+      device_id: SECOND_DEVICE.id,
+      port_names: ["swp3"],
+    });
+    await expectWorkflowDetails(page);
+  });
+
+  test("submits without an overlay to remove the tenant", async ({ page }) => {
+    await choose(page, SELECT_SITE, SITES_LIST.pdx01);
+    await choose(page, SELECT_DEVICE, DEVICE.name);
+    await pickPorts(page, "swp4");
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toEqual({
+      site: SITES_LIST.pdx01,
+      site_type: "Site",
+      device_id: DEVICE.id,
+      port_names: ["swp4"],
+    });
+  });
+
+  test("shows a ports load failure and requires ports", async ({ page }) => {
+    await page.route("**/v1/parameter/device/*/interfaces", (route) =>
+      route.fulfill({
+        status: 500,
+        json: { error: "Failed to load device interfaces" },
+      })
+    );
+    await choose(page, SELECT_SITE, SITES_LIST.pdx01);
+    await choose(page, SELECT_DEVICE, DEVICE.name);
+    await expect(page.getByText("Could not load Ports options.")).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+
+    const posts = recordPosts(page, ENDPOINT);
+    await submit(page);
+    await expect(
+      page.getByText("Ports is required", { exact: true })
+    ).toBeVisible();
+    expect(posts).toEqual([]);
+  });
+
+  test("shows a 422 on a port item and a string detail form-level", async ({
+    page,
+  }) => {
+    let detail: unknown = [
+      {
+        type: "value_error",
+        loc: ["body", "port_names", 0],
+        msg: "Value error, port is a fabric port",
+      },
+    ];
+    await page.route(`**${ENDPOINT}`, (route) =>
+      route.fulfill({ status: 422, json: { detail } })
+    );
+    await choose(page, SELECT_SITE, SITES_LIST.pdx01);
+    await choose(page, SELECT_DEVICE, DEVICE.name);
+    await pickPorts(page, "swp1");
+    await submit(page);
+    await expect(
+      page.getByText("Item 1: Value error, port is a fabric port")
+    ).toBeVisible();
+
+    detail = "Overlay test-overlay-1 is not on this device";
+    await submit(page);
+    await expect(formErrors(page)).toContainText(
+      "Overlay test-overlay-1 is not on this device"
+    );
+  });
 });
 
-test("rejects URL port selections that are not on the device", async ({ page }) => {
-  const device = DEVICES_LIST.PDX01[0];
-  const interfaceResponse = page.waitForResponse((response) =>
-    response.url().includes(`/v1/parameter/device/${device.id}/interfaces`)
-  );
-  await page.goto(
-    "/workflows/spxoverlaytenantchangeworkflow/form" +
-      `?site=${SITES_LIST.pdx01}` +
-      `&device-id=${device.id}` +
-      "&port_names=not-a-device-port"
-  );
-  await interfaceResponse;
+test.describe("SpX Overlay Tenant Change Form - URL prefill", () => {
+  test("?site=&device-id= and repeated ?port_names= prefill the form through the location field", async ({
+    page,
+  }) => {
+    const query =
+      `?site=${SITES_LIST.pdx01}&overlay_id=${SPX_OVERLAY_LIST.primary}` +
+      `&device-id=${DEVICE.id}&port_names=swp1&port_names=swp2`;
+    await page.goto(`/workflows/spxoverlaytenantchangeworkflow/form${query}`);
+    await expect(page).toHaveURL(`${PATH}${query}`);
 
-  await expect(
-    page.getByRole("button", { name: device.name })
-  ).toBeVisible({ timeout: TEST_TIMEOUT });
-  await expect(page.getByRole("button", { name: "Submit" })).toBeDisabled();
-  await expect(page.getByText("not-a-device-port")).toHaveCount(0);
-});
+    await expect(selected(page, SITES_LIST.pdx01)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(selected(page, SPX_OVERLAY_LIST.primary)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(selected(page, DEVICE.name)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(selected(page, "swp1, swp2")).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
 
-test("rejects delimiter-only URL port selections", async ({ page }) => {
-  const device = DEVICES_LIST.PDX01[0];
-  const interfaceResponse = page.waitForResponse((response) =>
-    response.url().includes(`/v1/parameter/device/${device.id}/interfaces`)
-  );
-  await page.goto(
-    "/workflows/spxoverlaytenantchangeworkflow/form" +
-      `?site=${SITES_LIST.pdx01}` +
-      `&overlay_id=${SPX_OVERLAY_LIST.primary}` +
-      `&device-id=${device.id}` +
-      "&port_names=%2C"
-  );
-  await interfaceResponse;
+    const post = nextPost(page, ENDPOINT);
+    await submit(page);
+    expect((await post).postDataJSON()).toEqual({
+      site: SITES_LIST.pdx01,
+      site_type: "Site",
+      overlay_id: SPX_OVERLAY_LIST.primary,
+      device_id: DEVICE.id,
+      port_names: ["swp1", "swp2"],
+    });
+  });
 
-  await expect(
-    page.getByRole("button", { name: device.name })
-  ).toBeVisible({ timeout: TEST_TIMEOUT });
-  await expect(page.getByRole("button", { name: "Submit" })).toBeDisabled();
+  test("drops URL ports that are not on the device", async ({ page }) => {
+    await page.goto(
+      `${PATH}?site=${SITES_LIST.pdx01}&device-id=${DEVICE.id}&port_names=not-a-device-port`
+    );
+    await expect(selected(page, DEVICE.name)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(picker(page, SELECT_PORTS)).toBeEnabled({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(page.getByText("not-a-device-port")).toHaveCount(0);
+  });
+
+  test("a comma-separated ?port_names= prefills the ports", async ({
+    page,
+  }) => {
+    await page.goto(
+      `${PATH}?site=${SITES_LIST.pdx01}&device-id=${DEVICE.id}&port_names=swp1%2Cswp2`
+    );
+    await expect(selected(page, DEVICE.name)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(selected(page, "swp1, swp2")).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+  });
 });

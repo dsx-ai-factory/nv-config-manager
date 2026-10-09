@@ -355,6 +355,21 @@ kubectl logs -n <namespace> -l app.kubernetes.io/component=network-dhcp -c confi
 
 You do not need to redeploy from scratch when you change data, add images, update templates, or upgrade versions. Treat `nv-config-manager-install.yaml` as the source of truth: re-open it with `nvcm-installer init --config nv-config-manager-install.yaml`, adjust the configuration, and deploy again. The deployer applies updates through Helm and only restarts services when relevant inputs have changed.
 
+### Upgrade Order for Browser Workflow Forms
+
+When upgrading to a release with schema-driven browser workflow forms, roll out
+the workflow API backend before the Config Manager UI. Wait until
+`GET /v1/workflow/metadata?include=form` returns `has_form` and `form_id` for
+workflow entries, then deploy the new UI. The request without `include=form`
+keeps the legacy metadata response shape for existing API clients. For rollback,
+reverse the order: roll back the UI before the workflow API.
+
+This ordering is required because the new UI reads form definitions from backend
+endpoints that older APIs do not provide. If a new UI reaches an older API, it
+fails closed: the workflow launcher disables browser-form links and direct form
+URLs display an API-upgrade message without requesting a `/form` endpoint. API
+and CLI workflow execution remain available during that temporary mismatch.
+
 ### Update Nautobot or Site Data
 
 To change topology, devices, or other data managed by a post-deploy job, edit that job's context data or design files and re-run the deployment with the same post-deploy job configuration. You can also make changes in the Nautobot UI. For subsequent deployments, remove the job configuration if you do not want the job to overwrite UI changes.
