@@ -22,7 +22,7 @@
  */
 import { expect, type Page, type Request } from "@playwright/test";
 
-import { WORKFLOW_ROUTES } from "@/config/workflow-routes";
+import legacyWorkflowRedirects from "@/config/legacy-workflow-redirects.json";
 import { DEVICES_LIST, SITES_LIST, STATUS_LIST, TENANT_LIST } from "@/mocks/data";
 
 import {
@@ -391,8 +391,8 @@ test.describe("/workflows/new/<ClassName>", () => {
 });
 
 /**
- * Legacy form pages of migrated workflows and the URLs Nautobot
- * hardcodes for them (`components/nautobot/.../templates/nv_config_manager/`).
+ * Previously shipped form URLs, including those Nautobot hardcodes in
+ * `components/nautobot/.../templates/nv_config_manager/`.
  */
 const COHORT_1_REDIRECTS: {
   name: string;
@@ -510,9 +510,8 @@ test.describe("legacy form URLs", () => {
     });
   }
 
-  test("each migrated legacy form URL redirects to its class-name route", async ({ page }) => {
-    for (const [name, { legacySlug, migrated }] of Object.entries(WORKFLOW_ROUTES)) {
-      if (!migrated) continue;
+  test("each legacy form URL redirects to its class-name route", async ({ page }) => {
+    for (const [name, legacySlug] of Object.entries(legacyWorkflowRedirects)) {
       const response = await page.request.get(`/workflows/${legacySlug}/form`, {
         maxRedirects: 0,
       });
@@ -524,7 +523,7 @@ test.describe("legacy form URLs", () => {
     }
   });
 
-  test("a user without the execute role sees each migrated form disabled", async ({
+  test("a user without the execute role sees each redirected form disabled", async ({
     page,
   }) => {
     await mockServerCatalogAndUser(page, ["reader"]);

@@ -17,11 +17,7 @@
 
 /** Builds the "New workflow" launcher from the workflow catalog and site overrides. */
 import type { WorkflowLauncherOverride } from "@/config/site";
-import {
-  WORKFLOW_ROUTES,
-  workflowHref,
-  type WorkflowRoutes,
-} from "@/config/workflow-routes";
+import { workflowFormPath } from "@/config/workflow-redirects.mjs";
 import { DEFAULT_WORKFLOW_GROUP } from "@/lib/workflow-catalog";
 import type { WorkflowMetadata } from "@/types/data-table.types";
 import type { WorkflowCatalogEntry } from "@/types/workflow-catalog.types";
@@ -115,14 +111,12 @@ const getOverride = (
   Object.prototype.hasOwnProperty.call(overrides, name) ? overrides[name] : undefined;
 
 /**
- * Launcher entries in display order: every enabled catalog workflow plus every
- * overridden built-in, minus the ones an override hides. A workflow without an
- * override keeps its catalog presentation and links to the class-name route.
+ * Launcher entries in display order: every enabled catalog workflow with a form plus
+ * every overridden built-in, minus the ones an override hides.
  */
 export const buildWorkflowLauncherItems = (
   catalog: readonly WorkflowCatalogEntry[],
-  overrides: WorkflowLauncherOverrides,
-  routes: WorkflowRoutes = WORKFLOW_ROUTES
+  overrides: WorkflowLauncherOverrides
 ): WorkflowLauncherItem[] => {
   const catalogByName = new Map(catalog.map((entry) => [entry.name, entry]));
   const names = new Set([...catalogByName.keys(), ...Object.keys(overrides)]);
@@ -131,7 +125,11 @@ export const buildWorkflowLauncherItems = (
   for (const name of names) {
     const entry = catalogByName.get(name);
     const override = getOverride(overrides, name);
-    if (override?.hidden || entry?.enabled === false) {
+    if (
+      override?.hidden ||
+      entry?.enabled === false ||
+      entry?.has_form === false
+    ) {
       continue;
     }
 
@@ -139,7 +137,7 @@ export const buildWorkflowLauncherItems = (
       name,
       display_name: entry?.display_name || override?.title || name,
       group: entry?.group ?? DEFAULT_WORKFLOW_GROUP,
-      href: workflowHref(name, routes),
+      href: workflowFormPath(name),
       metadata: entry,
     });
   }

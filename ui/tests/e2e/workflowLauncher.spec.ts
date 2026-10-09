@@ -24,7 +24,7 @@ type LauncherEntry = {
   href: string | null;
 };
 
-const migratedForm = (name: string) => `/workflows/new/${name}`;
+const workflowForm = (name: string) => `/workflows/new/${name}`;
 const launcherCollator = new Intl.Collator("en", { numeric: true });
 
 /**
@@ -35,66 +35,66 @@ const launcherCollator = new Intl.Collator("en", { numeric: true });
  * Every workflow form is on its class-name route (the legacy form routes redirect).
  */
 const EXPECTED_LAUNCHER: LauncherEntry[] = [
-  { title: "Configuration Backup", href: migratedForm("BackupWorkflow") },
-  { title: "Site Configuration Backup", href: migratedForm("SiteBackupWorkflow") },
+  { title: "Configuration Backup", href: workflowForm("BackupWorkflow") },
+  { title: "Site Configuration Backup", href: workflowForm("SiteBackupWorkflow") },
   {
     title: "Connected Host Metadata",
-    href: migratedForm("ConnectedHostMetadataWorkflow"),
+    href: workflowForm("ConnectedHostMetadataWorkflow"),
   },
-  { title: "Configuration Deploy", href: migratedForm("DeployWorkflow") },
+  { title: "Configuration Deploy", href: workflowForm("DeployWorkflow") },
   { title: "Configuration Diff", href: null },
   { title: "Multi-Configuration Deploy", href: null },
   {
     title: "Device Cable Validation",
-    href: migratedForm("DeviceCableValidationWorkflow"),
+    href: workflowForm("DeviceCableValidationWorkflow"),
   },
   {
     title: "Site Cable Validation",
-    href: migratedForm("SiteCableValidationWorkflow"),
+    href: workflowForm("SiteCableValidationWorkflow"),
   },
-  { title: "Port LLDP Info", href: migratedForm("PortLLDPInfoWorkflow") },
+  { title: "Port LLDP Info", href: workflowForm("PortLLDPInfoWorkflow") },
   {
     title: "SpX Overlay Creation",
-    href: migratedForm("SpXOverlayCreationWorkflow"),
+    href: workflowForm("SpXOverlayCreationWorkflow"),
   },
   {
     title: "SpX Overlay Deletion",
-    href: migratedForm("SpXOverlayDeletionWorkflow"),
+    href: workflowForm("SpXOverlayDeletionWorkflow"),
   },
   {
     title: "SpX Overlay Tenant Change",
-    href: migratedForm("SpXOverlayTenantChangeWorkflow"),
+    href: workflowForm("SpXOverlayTenantChangeWorkflow"),
   },
   {
     title: "InfiniBand Get Unhealthy Ports",
-    href: migratedForm("InfinibandGetUnhealthyPortsWorkflow"),
+    href: workflowForm("InfinibandGetUnhealthyPortsWorkflow"),
   },
   {
     title: "InfiniBand Cable Validation",
-    href: migratedForm("InfinibandCableValidationWorkflow"),
+    href: workflowForm("InfinibandCableValidationWorkflow"),
   },
   {
     title: "InfiniBand MLNX-OS Upgrade",
-    href: migratedForm("InfinibandMlnxOSUpgradeWorkflow"),
+    href: workflowForm("InfinibandMlnxOSUpgradeWorkflow"),
   },
-  { title: "Reprovision", href: migratedForm("ReprovisionWorkflow") },
-  { title: "Switch OS Upgrade", href: migratedForm("SwitchOSUpgradeWorkflow") },
+  { title: "Reprovision", href: workflowForm("ReprovisionWorkflow") },
+  { title: "Switch OS Upgrade", href: workflowForm("SwitchOSUpgradeWorkflow") },
   {
     title: "Cumulus Hardware Validation",
-    href: migratedForm("ValidateHardwareWorkflow"),
+    href: workflowForm("ValidateHardwareWorkflow"),
   },
   {
     title: "Device Password Rotation",
-    href: migratedForm("DevicePasswordRotationWorkflow"),
+    href: workflowForm("DevicePasswordRotationWorkflow"),
   },
   {
     title: "Site Password Rotation",
-    href: migratedForm("SitePasswordRotationWorkflow"),
+    href: workflowForm("SitePasswordRotationWorkflow"),
   },
-  { title: "Device Diagnostics", href: migratedForm("DiagnosticsWorkflow") },
+  { title: "Device Diagnostics", href: workflowForm("DiagnosticsWorkflow") },
   {
     title: "InfiniBand Port GUID Discovery",
-    href: migratedForm("IBPortGuidDiscoveryWorkflow"),
+    href: workflowForm("IBPortGuidDiscoveryWorkflow"),
   },
   { title: "InfiniBand PKey Creation", href: null },
   { title: "InfiniBand PKey Member Add", href: null },

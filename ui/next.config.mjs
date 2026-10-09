@@ -1,5 +1,5 @@
 import { buildWorkflowRedirects } from "./src/config/workflow-redirects.mjs";
-import workflowRoutes from "./src/config/workflow-routes.json" with { type: "json" };
+import legacyWorkflowRedirects from "./src/config/legacy-workflow-redirects.json" with { type: "json" };
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -12,9 +12,9 @@ const nextConfig = {
       },
     ];
   },
-  // Legacy form pages of migrated workflows → /workflows/new/<ClassName> (307, query kept).
+  // Previously shipped form URLs → /workflows/new/<ClassName> (307, query kept).
   redirects() {
-    return buildWorkflowRedirects(workflowRoutes);
+    return buildWorkflowRedirects(legacyWorkflowRedirects);
   },
 };
 

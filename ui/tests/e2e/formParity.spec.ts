@@ -16,13 +16,12 @@
  */
 
 /**
- * The same scenarios on each migrated legacy form page and on
- * `/workflows/new/<ClassName>`, with the POST bodies kept as goldens in
- * `fixtures/form-parity/` (see `shared/formParity.ts`). Both routes get the same
- * mocked API: the real `/metadata` and `/form` snapshots and typed locations.
+ * Scenarios on `/workflows/new/<ClassName>`, with POST bodies compared to the retired
+ * form pages' goldens in `fixtures/form-parity/` (see `shared/formParity.ts`). The
+ * generic route gets the real `/metadata` and `/form` snapshots and typed locations.
  *
- * Capture with `UPDATE_PARITY=1 npx playwright test formParity.spec.ts`. Once a
- * workflow is migrated its legacy page redirects, so only its generic side runs.
+ * Capture generic goldens with
+ * `UPDATE_PARITY=1 npx playwright test formParity.spec.ts`.
  */
 import { expect, type Page } from "@playwright/test";
 
@@ -45,7 +44,6 @@ import {
   UPDATE_PARITY,
   capturePayload,
   checkPayload,
-  isMigrated,
   readParityFixture,
   type ParityScenario,
   type ParityWorkflow,
@@ -743,18 +741,9 @@ for (const definition of PARITY_WORKFLOWS) {
     }
 
     for (const scenario of definition.scenarios) {
-      test(`legacy page: ${scenario.name}`, async ({ page }) => {
-        test.skip(
-          isMigrated(definition.workflow),
-          "The legacy page redirects; its payload is the golden captured before migration."
-        );
-        const payload = await capturePayload(page, definition, scenario, "legacy");
-        checkPayload(definition, scenario, "legacy", payload);
-      });
-
       test(`generic route: ${scenario.name}`, async ({ page }) => {
-        const payload = await capturePayload(page, definition, scenario, "generic");
-        checkPayload(definition, scenario, "generic", payload);
+        const payload = await capturePayload(page, definition, scenario);
+        checkPayload(definition, scenario, payload);
       });
     }
   });

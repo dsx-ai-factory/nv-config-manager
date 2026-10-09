@@ -16,20 +16,19 @@
  */
 
 /**
- * Golden payload parity between a legacy form page and `/workflows/new/<ClassName>`
- * Each workflow keeps `tests/e2e/fixtures/form-parity/<slug>.json`:
+ * Golden payload parity between the retired form pages and
+ * `/workflows/new/<ClassName>`. Each workflow keeps
+ * `tests/e2e/fixtures/form-parity/<slug>.json`:
  *
  * ```json
  * {"workflow", "input_model", "scenarios": [
  *   {"name", "legacy_url", "new_url", "legacy_payload", "generic_payload"}]}
  * ```
  *
- * A scenario's steps run on both pages; the POST body each page sends is captured.
- * Normal runs assert the captures equal the fixture. `UPDATE_PARITY=1` writes them
- * instead. A migrated legacy page redirects, so its `legacy_payload` stays the golden
- * captured before migration (capture a workflow's scenarios before flipping `migrated`
- * in `workflow-routes.json`). `packages/workflows/tests/workflows/test_form_parity.py`
- * checks that both payloads are equal after `InputModel.model_validate()`.
+ * Normal runs capture the generic form's POST body and assert it against the fixture.
+ * `UPDATE_PARITY=1` updates that generic capture while preserving the legacy golden.
+ * `packages/workflows/tests/workflows/test_form_parity.py` checks that both payloads
+ * are equal after `InputModel.model_validate()`.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -40,16 +39,14 @@ import type { JsonObject } from "@/types/workflow-catalog.types";
 
 const UI_ROOT = join(__dirname, "../../..");
 const FIXTURE_DIR = join(UI_ROOT, "tests/e2e/fixtures/form-parity");
-const WORKFLOW_ROUTES: Record<string, { legacySlug: string; migrated: boolean }> = JSON.parse(
-  readFileSync(join(UI_ROOT, "src/config/workflow-routes.json"), "utf8")
+const LEGACY_WORKFLOW_REDIRECTS: Record<string, string> = JSON.parse(
+  readFileSync(join(UI_ROOT, "src/config/legacy-workflow-redirects.json"), "utf8")
 );
 
 /** Write captured payloads into the fixtures instead of asserting them. */
 export const UPDATE_PARITY = process.env.UPDATE_PARITY === "1";
 
-export type FormRoute = "legacy" | "generic";
-
-/** Fills a form by its visible labels; the same steps drive both pages. */
+/** Fills the generic form by its visible labels. */
 export interface FormDriver {
   page: Page;
   /** Pick options (by label) in the select or multiselect labelled `label`. */
@@ -91,22 +88,21 @@ interface ParityFixture {
   scenarios: FixtureScenario[];
 }
 
-const routeOf = (workflow: string) => {
-  const route = WORKFLOW_ROUTES[workflow];
-  if (!route) throw new Error(`${workflow} is not in workflow-routes.json`);
-  return route;
+const legacySlugOf = (workflow: string) => {
+  const legacySlug = LEGACY_WORKFLOW_REDIRECTS[workflow];
+  if (!legacySlug) {
+    throw new Error(`${workflow} is not in legacy-workflow-redirects.json`);
+  }
+  return legacySlug;
 };
 
-/** Whether the workflow's legacy page now redirects to the class-name route. */
-export const isMigrated = (workflow: string): boolean => routeOf(workflow).migrated;
-
 export const scenarioUrls = (workflow: string, scenario: ParityScenario) => ({
-  legacy_url: `/workflows/${routeOf(workflow).legacySlug}/form${scenario.query ?? ""}`,
+  legacy_url: `/workflows/${legacySlugOf(workflow)}/form${scenario.query ?? ""}`,
   new_url: `/workflows/new/${encodeURIComponent(workflow)}${scenario.query ?? ""}`,
 });
 
 const fixturePath = (workflow: string) =>
-  join(FIXTURE_DIR, `${routeOf(workflow).legacySlug}.json`);
+  join(FIXTURE_DIR, `${legacySlugOf(workflow)}.json`);
 
 export const readParityFixture = (workflow: string): ParityFixture | undefined => {
   const path = fixturePath(workflow);
@@ -117,7 +113,6 @@ export const readParityFixture = (workflow: string): ParityFixture | undefined =
 const recordPayload = (
   definition: ParityWorkflow,
   scenario: ParityScenario,
-  route: FormRoute,
   payload: JsonObject
 ) => {
   const stored = readParityFixture(definition.workflow);
@@ -126,8 +121,8 @@ const recordPayload = (
   byName.set(scenario.name, {
     name: scenario.name,
     ...scenarioUrls(definition.workflow, scenario),
-    legacy_payload: route === "legacy" ? payload : current?.legacy_payload ?? null,
-    generic_payload: route === "generic" ? payload : current?.generic_payload ?? null,
+    legacy_payload: current?.legacy_payload ?? null,
+    generic_payload: payload,
   });
   const fixture: ParityFixture = {
     workflow: definition.workflow,
@@ -194,18 +189,16 @@ export const formDriver = (page: Page): FormDriver => ({
 });
 
 /**
- * Open the scenario on `route`, run its steps, submit, and return the POST body. The
- * submit endpoint is the shared Playwright mock, so the request completes either way.
+ * Open the scenario on the generic route, run its steps, submit, and return the POST
+ * body. The submit endpoint is the shared Playwright mock, so the request completes.
  */
 export const capturePayload = async (
   page: Page,
   definition: ParityWorkflow,
-  scenario: ParityScenario,
-  route: FormRoute
+  scenario: ParityScenario
 ): Promise<JsonObject> => {
   const urls = scenarioUrls(definition.workflow, scenario);
-  const response = await page.goto(route === "legacy" ? urls.legacy_url : urls.new_url);
-  // Never compare a redirected "legacy" page with itself.
+  const response = await page.goto(urls.new_url);
   expect(response?.request().redirectedFrom() ?? null).toBeNull();
   await expect(page.locator('form button[type="submit"]')).toBeVisible();
 
@@ -223,11 +216,10 @@ export const capturePayload = async (
 export const checkPayload = (
   definition: ParityWorkflow,
   scenario: ParityScenario,
-  route: FormRoute,
   payload: JsonObject
 ) => {
   if (UPDATE_PARITY) {
-    recordPayload(definition, scenario, route, payload);
+    recordPayload(definition, scenario, payload);
     return;
   }
   const stored = readParityFixture(definition.workflow)?.scenarios.find(
@@ -239,7 +231,7 @@ export const checkPayload = (
     { legacy_url: stored!.legacy_url, new_url: stored!.new_url },
     `scenario URLs changed; ${hint}`
   ).toEqual(scenarioUrls(definition.workflow, scenario));
-  expect(payload, `${route} payload differs from the fixture; ${hint} if intended`).toEqual(
-    route === "legacy" ? stored!.legacy_payload : stored!.generic_payload
+  expect(payload, `generic payload differs from the fixture; ${hint} if intended`).toEqual(
+    stored!.generic_payload
   );
 };

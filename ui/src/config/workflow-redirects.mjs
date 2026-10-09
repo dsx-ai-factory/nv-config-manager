@@ -16,13 +16,12 @@
  */
 
 /**
- * Workflow form URLs and the legacy-page redirects derived from the migration map
- * (`workflow-routes.json`). Plain ESM so `next.config.mjs` can import it at build time;
- * the app uses it through `workflow-routes.ts`.
+ * Workflow form URLs and redirects from previously shipped per-workflow form URLs.
+ * Plain ESM so `next.config.mjs` can import it at build time.
  */
 
 /**
- * Class-name form route that serves migrated and plugin workflows.
+ * Class-name form route that serves every browser-launchable workflow.
  * @param {string} name Workflow class name.
  * @returns {string}
  */
@@ -36,18 +35,16 @@ export const workflowFormPath = (name) => `/workflows/new/${encodeURIComponent(n
 export const legacyWorkflowFormPath = (slug) => `/workflows/${slug}/form`;
 
 /**
- * Next.js `redirects()` entries: each migrated workflow's legacy form page goes to its
- * class-name route. Temporary (307) for the migration window. Next.js passes the
- * request's query string through, repeated parameters such as `device-id` included.
+ * Next.js `redirects()` entries: each previously shipped form URL goes to its
+ * class-name route. Temporary (307) for the compatibility window. Next.js passes the
+ * request's query string through, including repeated parameters such as `device-id`.
  *
- * @param {Readonly<Record<string, {legacySlug: string, migrated: boolean}>>} routes
+ * @param {Readonly<Record<string, string>>} redirects Workflow class name to legacy slug.
  * @returns {{source: string, destination: string, permanent: false}[]}
  */
-export const buildWorkflowRedirects = (routes) =>
-  Object.entries(routes)
-    .filter(([, route]) => route.migrated)
-    .map(([name, route]) => ({
-      source: legacyWorkflowFormPath(route.legacySlug),
-      destination: workflowFormPath(name),
-      permanent: false,
-    }));
+export const buildWorkflowRedirects = (redirects) =>
+  Object.entries(redirects).map(([name, legacySlug]) => ({
+    source: legacyWorkflowFormPath(legacySlug),
+    destination: workflowFormPath(name),
+    permanent: false,
+  }));
