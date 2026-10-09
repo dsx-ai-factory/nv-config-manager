@@ -312,10 +312,21 @@ spec:
 
 {{- /*
   Routes the probes above do not exercise. Each service's healthcheck path is
-  matched by its auth-bypass route, so the main `/` route (served by the OIDC
-  proxy) and the JWT-only svc-* route need their own targets. The OIDC proxy
+  matched by its auth-bypass route, so the JWT-only svc-* routes and the
+  OIDC-proxied main routes need their own targets. Every proxy listener runs
+  in one Deployment, so a single /ping probe covers the gateway-to-proxy path;
+  per-listener probes would page once per service for one outage. The proxy
   answers /ping itself without authenticating.
 */}}
+{{- if and .Values.oidc.enabled .Values.renderService.enabled }}
+{{ include "nv-config-manager.blackboxProbe" (dict
+    "root" .
+    "name" (printf "%s-proxy" $renderName)
+    "component" "oidc-proxy"
+    "scheme" $probeScheme
+    "target" (printf "%s://%s/ping" $probeScheme (tpl .Values.renderService.gateway.hostname .))) }}
+{{- end }}
+
 {{- $nautobotLocal := and .Values.nautobot.enabled .Values.externalServices.nautobot.local }}
 {{- $routedServices := list
     (dict "enabled" .Values.renderService.enabled "name" $renderName "component" "render-service" "gateway" .Values.renderService.gateway "health" "/healthcheck")
@@ -324,19 +335,11 @@ spec:
     (dict "enabled" .Values.temporal.enabled "name" (printf "%s-api" $temporalName) "component" "temporal-api" "gateway" .Values.temporal.gateway.api "health" "/healthcheck")
     (dict "enabled" .Values.configStore.enabled "name" $configStoreName "component" "config-store" "gateway" .Values.configStore.gateway.api "health" "/healthcheck")
     (dict "enabled" .Values.mcp.enabled "name" $mcpName "component" "mcp" "gateway" .Values.mcp.gateway "health" "/healthcheck")
-    (dict "enabled" $nautobotLocal "name" $nautobotName "component" "nautobot" "gateway" .Values.nautobot.gateway "health" "/health" "skipProxy" true)
+    (dict "enabled" $nautobotLocal "name" $nautobotName "component" "nautobot" "gateway" .Values.nautobot.gateway "health" "/health")
 }}
 {{- if .Values.oidc.enabled }}
 {{- range $svc := $routedServices }}
 {{- if $svc.enabled }}
-{{- if not $svc.skipProxy }}
-{{ include "nv-config-manager.blackboxProbe" (dict
-    "root" $
-    "name" (printf "%s-proxy" $svc.name)
-    "component" $svc.component
-    "scheme" $probeScheme
-    "target" (printf "%s://%s/ping" $probeScheme (tpl $svc.gateway.hostname $))) }}
-{{- end }}
 {{- with $svc.gateway.svcHostname }}
 {{ include "nv-config-manager.blackboxProbe" (dict
     "root" $
