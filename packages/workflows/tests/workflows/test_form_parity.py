@@ -97,11 +97,8 @@ def input_models() -> dict[str, type[BaseModel] | None]:
 
 def test_every_migrated_workflow_has_parity_scenarios() -> None:
     routes = json.loads(_WORKFLOW_ROUTES.read_text())
-    forms = json.loads(_WORKFLOW_FORMS.read_text())
     fixtures = _fixtures()
-    covered = {fixture["workflow"] for fixture in fixtures.values() if fixture["scenarios"]} | {
-        name for name, form in forms.items() if form["ui_component"] is not None
-    }
+    covered = {fixture["workflow"] for fixture in fixtures.values() if fixture["scenarios"]}
     migrated = {name for name, route in routes.items() if route["migrated"]}
 
     assert migrated <= covered, f"migrated without parity scenarios: {sorted(migrated - covered)}"

@@ -19,7 +19,7 @@ import Ajv2020, { type ErrorObject } from "ajv/dist/2020";
 import { APIError, TokenError } from "@/lib/errors";
 import { fetcher } from "@/lib/fetcher";
 import { sanitizeUrl } from "@/lib/utils";
-import capabilityManifest from "@/lib/workflow-form-capabilities-v1.json";
+import capabilityManifest from "@/lib/workflow-form-v1.capabilities.json";
 import wireSchema from "@/lib/workflow-form-v1.schema.json";
 import type { WorkflowFormResponse } from "@/types/workflow-catalog.types";
 

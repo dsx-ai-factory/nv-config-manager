@@ -68,14 +68,18 @@ test.describe("IB PKey Member Add Form", () => {
     ).toBeVisible({ timeout: TEST_TIMEOUT });
   });
 
-  test("requires a membership type per interface row", async ({ page }) => {
+  test("requires every missing value in a partially completed interface row", async ({
+    page,
+  }) => {
     await page.getByLabel("UFM Host").fill("ufm-1.lab");
     await page.getByLabel("PKey").fill("0x8001");
     await page.getByPlaceholder("device (e.g. hca01)").fill("hca01");
-    await page.getByPlaceholder("interface (e.g. mlx5_0)").fill("mlx5_0");
 
     await page.getByRole("button", { name: "Add Members" }).click();
 
+    await expect(page.getByText("Interface is required in row 1.")).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
     await expect(page.getByText("Membership Type is required in row 1.")).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
@@ -153,6 +157,43 @@ test.describe("IB PKey Member Add Form", () => {
     // Regression: the interfaces array used to bleed into this field and render
     // as "[object Object]", hiding the placeholder.
     await expect(guid).toHaveValue("");
+  });
+
+  test("retains each mode while switching repeatedly and submits only the active mode", async ({
+    page,
+  }) => {
+    await page.getByLabel("UFM Host").fill("ufm-1.lab");
+    await page.getByLabel("PKey").fill("0x8001");
+    await page.getByPlaceholder("device (e.g. hca01)").fill("hca01");
+    await page.getByPlaceholder("interface (e.g. mlx5_0)").fill("mlx5_0");
+    await page.getByLabel("Membership Type for row 1").click();
+    await page.getByRole("option", { name: "full" }).click();
+
+    await page.getByLabel("By GUIDs").click();
+    await page.getByLabel("GUID 1").fill(GUID_A);
+    await page.getByLabel("Membership Type for row 1").click();
+    await page.getByRole("option", { name: "limited" }).click();
+
+    await page.getByLabel("By Interfaces").click();
+    await expect(page.getByPlaceholder("device (e.g. hca01)")).toHaveValue("hca01");
+    await expect(page.getByPlaceholder("interface (e.g. mlx5_0)")).toHaveValue("mlx5_0");
+    await expect(page.getByLabel("Membership Type for row 1")).toHaveText("full");
+
+    await page.getByLabel("By GUIDs").click();
+    await expect(page.getByLabel("GUID 1")).toHaveValue(GUID_A);
+    await expect(page.getByLabel("Membership Type for row 1")).toHaveText("limited");
+
+    const requestPromise = page.waitForRequest(
+      (request) => request.method() === "POST" && request.url().includes(ENDPOINT),
+    );
+    await page.getByRole("button", { name: "Add Members" }).click();
+
+    expect((await requestPromise).postDataJSON()).toEqual({
+      host: "ufm-1.lab",
+      pkey: "0x8001",
+      guids: [GUID_A],
+      guid_memberships: ["limited"],
+    });
   });
 
   test("rejects malformed guids inline", async ({ page }) => {

@@ -274,7 +274,6 @@ describe("device filter scopes", () => {
       },
       ui_schema_version: 1,
       requires: ["core-field.device.v1"],
-      ui_component: null,
     };
     holdIf = (url) => url.pathname === "/v1/parameter/tenant";
     await renderForm(form, "site=PDX01&tenant=TenantA&device-id=d1&device-id=d2&device-id=zzz");
@@ -313,7 +312,6 @@ describe("device filter scopes", () => {
       },
       ui_schema_version: 1,
       requires: ["core-field.device.v1"],
-      ui_component: null,
     };
     holdIf = (url) => url.pathname === "/v1/parameter/location";
     await renderForm(form, "site=PDX01&device-id=d1");
@@ -428,6 +426,10 @@ describe("apiOptions prefill", () => {
   });
 
   it("ignores a prefill that arrives after the user picked a value", async () => {
+    override = (url) =>
+      url.pathname === "/v1/parameter/overlay"
+        ? { status: 200, body: [{ name: "ov-PDX01" }, { name: "mine" }] }
+        : undefined;
     holdIf = (url) => url.pathname === "/v1/parameter/overlay";
     await renderForm(WORKFLOW_FORM_FIXTURES.SpXOverlayDeletionWorkflow, "site=PDX01&overlay_id=ov-PDX01");
     await waitFor(() => expect(held).toHaveLength(1));
@@ -511,7 +513,6 @@ describe("form-only minItems on an optional list", () => {
     },
     ui_schema_version: 1,
     requires: ["core-field.api-options.v1"],
-    ui_component: null,
   };
 
   it("keeps a cleared list as [] so 'at least one' blocks the submission", async () => {

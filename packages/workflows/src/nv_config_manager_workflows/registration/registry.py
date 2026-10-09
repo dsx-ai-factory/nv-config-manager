@@ -23,7 +23,6 @@ from nv_config_manager_workflows.registration.builtin import BUILTIN_PLUGIN_NAME
 from nv_config_manager_workflows.registration.contract import (
     workflow_api_enabled,
     workflow_mcp_enabled,
-    workflow_ui_component,
 )
 from nv_config_manager_workflows.registration.descriptor import (
     UNKNOWN_PLUGIN_VERSION,
@@ -176,11 +175,7 @@ def _build_forms(
     for workflow in workflows:
         owner = owners[workflow]
         try:
-            forms[workflow] = build_form(
-                workflow.get_workflow_input_class(),
-                ui_component=workflow_ui_component(workflow),
-                builtin=owner == BUILTIN_PLUGIN_NAME,
-            )
+            forms[workflow] = build_form(workflow.get_workflow_input_class())
         except WorkflowFormContractError as error:
             if owner == BUILTIN_PLUGIN_NAME:
                 raise

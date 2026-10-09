@@ -119,7 +119,6 @@ export async function setupApiMocks(page: Page) {
   await mockDeviceInterfacesEndpoint(page);
   await mockPasswordUsersEndpoint(page);
   await mockPasswordUserOptionsEndpoint(page);
-  await mockDiagnosticsCommandsEndpoint(page);
   await mockDiagnosticsCommandOptionsEndpoint(page);
 
   // Workflow listing endpoints
@@ -1432,18 +1431,12 @@ export async function mockPasswordUserOptionsEndpoint(page: Page) {
   });
 }
 
-/** Diagnostics command catalog rows, as `/v1/parameter/diagnostics/commands` returns them. */
+/** Diagnostics command catalog rows used by the generic options endpoint. */
 export const DIAGNOSTICS_COMMANDS = [
   { name: "show interface", description: "Collect interface state" },
   { name: "show lldp neighbor", description: "Collect LLDP neighbors" },
   { name: "show version", description: "Collect software versions" },
 ];
-
-export async function mockDiagnosticsCommandsEndpoint(page: Page) {
-  await page.route(/\/v1\/parameter\/diagnostics\/commands(\?.*)?$/, (route) =>
-    route.fulfill({ status: 200, json: DIAGNOSTICS_COMMANDS })
-  );
-}
 
 /** Generic options-v1 envelope for the selected diagnostics devices. */
 export async function mockDiagnosticsCommandOptionsEndpoint(page: Page) {

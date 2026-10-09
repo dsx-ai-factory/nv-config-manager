@@ -118,6 +118,4 @@ export interface WorkflowFormResponse {
   ui_schema_version: 1;
   /** Capabilities the UI must support; never passed to RJSF. */
   requires: string[];
-  /** First-party named form component, or `null` for the schema-driven form. */
-  ui_component: string | null;
 }

@@ -363,7 +363,7 @@ The UI launcher renders an API-enabled workflow's start form with
 response is a version 1 envelope:
 
 ```json
-{"schema": {}, "ui_schema": {}, "ui_schema_version": 1, "requires": [], "ui_component": null}
+{"schema": {}, "ui_schema": {}, "ui_schema_version": 1, "requires": []}
 ```
 
 - `schema` is a form projection of the input model's JSON Schema: an optional
@@ -372,7 +372,6 @@ response is a version 1 envelope:
 - `ui_schema` is the model's validated `rjsf_ui_schema`, plus options the server
   fills in (`filterScope`, `queryAliases`).
 - `requires` lists the capabilities the UI must support to render the form.
-- `ui_component` names a first-party form built into the UI, or is `null`.
 
 A model without `rjsf_ui_schema` gets RJSF's default controls for its projected
 schema. The form declaration is UI-only: Pydantic ignores the `ClassVar` and the
@@ -508,9 +507,12 @@ form error (see below).
 
 #### Core fields
 
-`api_options(source)` renders a select whose options come from `source`. A
-string property gets a single select, and an array of strings gets a multiple
-select.
+`api_options(source, *, presentation=None, select_all=False,
+show_descriptions=False, meta_text=None, disable_when_no_matches=False)` renders
+a select whose options come from `source`. A string property gets a single
+select, and an array of strings gets a multiple select. The presentation options
+require `source.response="options-v1"`; `disable_when_no_matches=True` disables
+the picker when that response reports `matching_device_count` as zero.
 
 `location_field(source, *, type_field=None)` renders a site or location select
 for a string property. With `type_field`, selecting a location also writes the
@@ -628,11 +630,6 @@ registry = WorkflowRegistry.build()
 print(registry.form_diagnostics)
 ```
 
-`workflow_ui_component` on `WorkflowMetadataMixin` names a first-party form
-compiled into the UI and is served as `ui_component`. Only the built-in plugin
-may set it. The UI never loads browser code from a workflow or plugin, so a
-third-party workflow that sets it gets the 503 above.
-
 #### Capabilities and versioning
 
 The backend derives `requires` from the declaration:
@@ -650,7 +647,7 @@ older UI can therefore detect a newer server's forms without rendering them
 incorrectly.
 
 The wire schema `workflow-form-v1.schema.json` and the capability manifest
-`workflow-form-capabilities-v1.json` ship in `nv_config_manager_workflows/ui/`
+`workflow-form-v1.capabilities.json` ship in `nv_config_manager_workflows/ui/`
 and are read on first use through `wire_schema()` and `capability_manifest()`,
 so importing a workflow module does not parse them. The UI keeps byte-for-byte copies in
 `ui/src/lib/` because its container build cannot read files outside `ui/`.

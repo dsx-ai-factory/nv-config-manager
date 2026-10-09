@@ -18,8 +18,8 @@
 /**
  * The Configuration Deploy form on its class-name route, rendered by the RJSF form
  * because the legacy `/workflows/deployworkflow/form` redirects there. Ported
- * from the legacy page's spec and its shared `runWorkflowFormTests` suite, which still
- * covers the device forms that have not migrated. Its wording comes from the server's
+ * from the legacy page's spec and its shared `runWorkflowFormTests` suite. Its wording
+ * comes from the server's
  * `ui_schema` (`ui:title`, `ui:help`, `ui:globalOptions.hideSchemaDescriptions`).
  *
  * Differences from the legacy page, by design: Site is a device filter rather than a

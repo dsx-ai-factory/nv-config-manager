@@ -52,7 +52,7 @@ const errorHint = (error: FormLoadError): string | null => {
   }
 };
 
-/** Card chrome of the legacy form pages, for the states that show no form. */
+/** Shared card chrome for workflow-form states that show no form. */
 export const PageCard = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <div className="flex items-center justify-center p-6">
     <Card className="w-full max-w-3xl border-2 shadow-md">

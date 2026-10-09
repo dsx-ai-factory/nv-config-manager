@@ -181,15 +181,13 @@ class WorkflowFormResponse(BaseModel):
 
     ``schema`` is the form projection of the input model's JSON Schema,
     ``ui_schema`` a validated subset of an RJSF ``uiSchema``, ``requires`` the
-    capabilities the UI must support before rendering, and ``ui_component`` a
-    first-party named form or ``null``.
+    capabilities the UI must support before rendering.
     """
 
     json_schema: dict[str, Any] = Field(alias="schema")
     ui_schema: dict[str, Any]
     ui_schema_version: int
     requires: list[str]
-    ui_component: str | None
 
 
 class WorkflowResponse(BaseModel):

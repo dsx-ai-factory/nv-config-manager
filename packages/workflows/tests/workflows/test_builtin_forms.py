@@ -27,15 +27,7 @@ from nv_config_manager_workflows.registration.builtin import BUILTIN_PLUGIN_NAME
 from nv_config_manager_workflows.registration.registry import WorkflowRegistry
 from nv_config_manager_workflows.ui import QUERY_ALIASES, wire_schema
 from nv_config_manager_workflows.workflows.backup import BackupInput, BackupWorkflow, TriggerEnum
-from nv_config_manager_workflows.workflows.diagnostics import DiagnosticsWorkflow
 from nv_config_manager_workflows.workflows.ib_pkey_creation import IBPKeyCreationWorkflow
-from nv_config_manager_workflows.workflows.ib_pkey_member_add import IBPKeyMemberAddWorkflow
-from nv_config_manager_workflows.workflows.ib_pkey_member_delete import (
-    IBPKeyMemberDeleteWorkflow,
-)
-from nv_config_manager_workflows.workflows.ib_pkey_member_update import (
-    IBPKeyMemberUpdateWorkflow,
-)
 from nv_config_manager_workflows.workflows.ib_port_guid_discovery import (
     IBPortGuidDiscoveryWorkflow,
 )
@@ -43,18 +35,7 @@ from nv_config_manager_workflows.workflows.infiniband_cable_validation import (
     InfinibandCableValidationWorkflow,
 )
 from nv_config_manager_workflows.workflows.lldp import PortLLDPInfoWorkflow
-from nv_config_manager_workflows.workflows.site_password_rotation import (
-    SitePasswordRotationWorkflow,
-)
 from nv_config_manager_workflows.workflows.spx_overlay import SpXOverlayTenantChangeWorkflow
-
-NAMED_COMPONENTS = {
-    DiagnosticsWorkflow: "diagnostics",
-    IBPKeyMemberAddWorkflow: "ib-pkey-member-add",
-    IBPKeyMemberDeleteWorkflow: "ib-pkey-member-delete",
-    IBPKeyMemberUpdateWorkflow: "ib-pkey-member-update",
-    SitePasswordRotationWorkflow: "site-password-rotation",
-}
 
 
 @pytest.fixture(scope="module")
@@ -70,16 +51,6 @@ def test_every_builtin_api_workflow_has_a_valid_form(registry: WorkflowRegistry)
     for workflow, envelope in registry.forms.items():
         errors = [error.message for error in validator.iter_errors(envelope)]
         assert errors == [], workflow.__name__
-
-
-def test_named_components_are_unchanged(registry: WorkflowRegistry) -> None:
-    components = {
-        workflow: envelope["ui_component"]
-        for workflow, envelope in registry.forms.items()
-        if envelope["ui_component"] is not None
-    }
-
-    assert components == NAMED_COMPONENTS
 
 
 def test_every_shipped_query_alias_reaches_a_core_field(registry: WorkflowRegistry) -> None:

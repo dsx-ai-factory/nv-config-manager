@@ -13,7 +13,7 @@ version before the selected release candidate is promoted.
 - Added `GET /v1/workflow/{name}/form`, which returns a version 1 form envelope
   for an API workflow: a form projection of its input schema (`schema`), a
   validated RJSF `ui_schema`, `ui_schema_version`, the UI capabilities the form
-  `requires`, and an optional first-party `ui_component`.
+  `requires`.
 - Workflow plugins can declare launcher forms on their input models with an
   `rjsf_ui_schema` class variable, the `api_options`, `device_field`, and
   `location_field` core-field helpers, and the `ServerOwned`, `FormExcluded`,

@@ -35,7 +35,6 @@ class WorkflowMetadataMixin:
     workflow_api_endpoint: str | None = None
     workflow_namespace: str | None = None
     workflow_mcp_enabled: bool = False
-    workflow_ui_component: str | None = None
     workflow_group: str | None = None
     workflow_lock: WorkflowLockSpec | None = None
     workflow_required_activities: Sequence[RequiredActivity] = ()
@@ -97,14 +96,6 @@ class WorkflowMetadataMixin:
     def get_workflow_mcp_enabled(cls) -> bool:
         """Return whether this workflow can be exposed as an MCP tool."""
         return cls.workflow_mcp_enabled
-
-    @classmethod
-    def get_workflow_ui_component(cls) -> str | None:
-        """Return the first-party UI component key for this workflow's form, if any.
-
-        ``None`` selects the generic form rendered from the input model's v1 ``/form``.
-        """
-        return cls.workflow_ui_component
 
     @classmethod
     def get_workflow_group(cls) -> str | None:

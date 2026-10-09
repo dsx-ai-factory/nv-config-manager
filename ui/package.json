@@ -17,7 +17,6 @@
     "test:setup": "test -f .env.local || (echo 'Creating .env.local from .env.example...' && cp .env.example .env.local && echo 'Done! Edit .env.local with your values.')"
   },
   "dependencies": {
-    "@hookform/resolvers": "^3.4.2",
     "@radix-ui/react-accordion": "^1.1.2",
     "@radix-ui/react-checkbox": "^1.0.4",
     "@radix-ui/react-dialog": "^1.0.5",
@@ -53,15 +52,13 @@
     "react": "^18",
     "react-diff-view": "^3.2.1",
     "react-dom": "^18",
-    "react-hook-form": "^7.51.5",
     "react-markdown": "^9.0.1",
     "react-resizable-panels": "^2.0.19",
     "react-syntax-highlighter": "^16.1.0",
     "remark-gfm": "^4.0.0",
     "swr": "^2.2.5",
     "tailwind-merge": "^2.6.0",
-    "tailwindcss-animate": "^1.0.7",
-    "zod": "^3.23.8"
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

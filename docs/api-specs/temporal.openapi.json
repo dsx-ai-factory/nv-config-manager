@@ -2248,7 +2248,7 @@
         "type": "object"
       },
       "WorkflowFormResponse": {
-        "description": "Version 1 input form of an API workflow, rendered with RJSF.\n\n``schema`` is the form projection of the input model's JSON Schema,\n``ui_schema`` a validated subset of an RJSF ``uiSchema``, ``requires`` the\ncapabilities the UI must support before rendering, and ``ui_component`` a\nfirst-party named form or ``null``.",
+        "description": "Version 1 input form of an API workflow, rendered with RJSF.\n\n``schema`` is the form projection of the input model's JSON Schema,\n``ui_schema`` a validated subset of an RJSF ``uiSchema``, ``requires`` the\ncapabilities the UI must support before rendering.",
         "properties": {
           "requires": {
             "items": {
@@ -2261,17 +2261,6 @@
             "additionalProperties": true,
             "title": "Schema",
             "type": "object"
-          },
-          "ui_component": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ui Component"
           },
           "ui_schema": {
             "additionalProperties": true,
@@ -2287,8 +2276,7 @@
           "schema",
           "ui_schema",
           "ui_schema_version",
-          "requires",
-          "ui_component"
+          "requires"
         ],
         "title": "WorkflowFormResponse",
         "type": "object"

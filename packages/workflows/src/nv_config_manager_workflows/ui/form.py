@@ -116,7 +116,7 @@ def wire_schema() -> dict[str, Any]:
 @cache
 def capability_manifest() -> dict[str, Any]:
     """Return the canonical v1 capability manifest the UI supports; treat it as read-only."""
-    return _load_json("workflow-form-capabilities-v1.json")
+    return _load_json("workflow-form-v1.capabilities.json")
 
 
 def supported_capabilities() -> frozenset[str]:
@@ -192,30 +192,12 @@ def declared_ui_schema(model: type[BaseModel]) -> dict[str, Any]:
     return cast(dict[str, Any], _plain(declared, f"{model.__qualname__}.rjsf_ui_schema"))
 
 
-def build_form(
-    model: type[BaseModel] | None,
-    *,
-    ui_component: str | None = None,
-    builtin: bool = True,
-) -> dict[str, Any]:
+def build_form(model: type[BaseModel] | None) -> dict[str, Any]:
     """Return the validated v1 ``/form`` envelope for a workflow input model.
-
-    Args:
-        model: The workflow's input model; ``None`` yields an empty form.
-        ui_component: The workflow's first-party named form, if any.
-        builtin: Whether the workflow's canonical owner is the built-in plugin;
-            only the built-in plugin may name a ``ui_component``.
 
     Raises:
         WorkflowFormContractError: The declaration breaks the v1 form contract.
     """
-    if ui_component is not None:
-        require_text(ui_component, "workflow_ui_component")
-        if not builtin:
-            raise WorkflowFormContractError(
-                f"workflow_ui_component {ui_component!r} is only available to the built-in "
-                "plugin; a third-party plugin cannot supply browser code"
-            )
     if model is None:
         schema: dict[str, Any] = {}
         ui_schema: dict[str, Any] = {}
@@ -238,7 +220,6 @@ def build_form(
         "ui_schema": ui_schema,
         "ui_schema_version": UI_SCHEMA_VERSION,
         "requires": derive_requires(ui_schema),
-        "ui_component": ui_component,
     }
 
 
@@ -468,7 +449,13 @@ class _FormChecker:
                 f"{name!r} apiOptions presentation must be 'select' or "
                 f"'grouped-checkboxes'; got {presentation!r}"
             )
-        presentation_keys = {"presentation", "selectAll", "showDescriptions", "metaText"}
+        presentation_keys = {
+            "presentation",
+            "selectAll",
+            "showDescriptions",
+            "metaText",
+            "disableWhenNoMatches",
+        }
         if set(options) & presentation_keys and not enriched:
             raise self.fail(
                 f"{name!r} uses enriched apiOptions presentation, so its source must set "
@@ -484,7 +471,7 @@ class _FormChecker:
             raise self.fail(
                 f"{name!r} apiOptions selectAll is available only with grouped-checkboxes"
             )
-        for flag in ("selectAll", "showDescriptions"):
+        for flag in ("selectAll", "showDescriptions", "disableWhenNoMatches"):
             if flag in options and options[flag] is not True:
                 raise self.fail(f"{name!r} apiOptions {flag} must be true when present")
         if "metaText" in options:

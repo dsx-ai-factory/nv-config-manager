@@ -19,11 +19,10 @@ import (
 // checks if the WorkflowFormResponse type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &WorkflowFormResponse{}
 
-// WorkflowFormResponse Version 1 input form of an API workflow, rendered with RJSF.  “schema“ is the form projection of the input model's JSON Schema, “ui_schema“ a validated subset of an RJSF “uiSchema“, “requires“ the capabilities the UI must support before rendering, and “ui_component“ a first-party named form or “null“.
+// WorkflowFormResponse Version 1 input form of an API workflow, rendered with RJSF.  “schema“ is the form projection of the input model's JSON Schema, “ui_schema“ a validated subset of an RJSF “uiSchema“, “requires“ the capabilities the UI must support before rendering.
 type WorkflowFormResponse struct {
 	Requires        []string               `json:"requires"`
 	Schema          map[string]interface{} `json:"schema"`
-	UiComponent     NullableString         `json:"ui_component"`
 	UiSchema        map[string]interface{} `json:"ui_schema"`
 	UiSchemaVersion int32                  `json:"ui_schema_version"`
 }
@@ -34,11 +33,10 @@ type _WorkflowFormResponse WorkflowFormResponse
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewWorkflowFormResponse(requires []string, schema map[string]interface{}, uiComponent NullableString, uiSchema map[string]interface{}, uiSchemaVersion int32) *WorkflowFormResponse {
+func NewWorkflowFormResponse(requires []string, schema map[string]interface{}, uiSchema map[string]interface{}, uiSchemaVersion int32) *WorkflowFormResponse {
 	this := WorkflowFormResponse{}
 	this.Requires = requires
 	this.Schema = schema
-	this.UiComponent = uiComponent
 	this.UiSchema = uiSchema
 	this.UiSchemaVersion = uiSchemaVersion
 	return &this
@@ -98,32 +96,6 @@ func (o *WorkflowFormResponse) GetSchemaOk() (map[string]interface{}, bool) {
 // SetSchema sets field value
 func (o *WorkflowFormResponse) SetSchema(v map[string]interface{}) {
 	o.Schema = v
-}
-
-// GetUiComponent returns the UiComponent field value
-// If the value is explicit nil, the zero value for string will be returned
-func (o *WorkflowFormResponse) GetUiComponent() string {
-	if o == nil || o.UiComponent.Get() == nil {
-		var ret string
-		return ret
-	}
-
-	return *o.UiComponent.Get()
-}
-
-// GetUiComponentOk returns a tuple with the UiComponent field value
-// and a boolean to check if the value has been set.
-// NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *WorkflowFormResponse) GetUiComponentOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return o.UiComponent.Get(), o.UiComponent.IsSet()
-}
-
-// SetUiComponent sets field value
-func (o *WorkflowFormResponse) SetUiComponent(v string) {
-	o.UiComponent.Set(&v)
 }
 
 // GetUiSchema returns the UiSchema field value
@@ -186,7 +158,6 @@ func (o WorkflowFormResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["requires"] = o.Requires
 	toSerialize["schema"] = o.Schema
-	toSerialize["ui_component"] = o.UiComponent.Get()
 	toSerialize["ui_schema"] = o.UiSchema
 	toSerialize["ui_schema_version"] = o.UiSchemaVersion
 	return toSerialize, nil
@@ -199,7 +170,6 @@ func (o *WorkflowFormResponse) UnmarshalJSON(data []byte) (err error) {
 	requiredProperties := map[string]bool{
 		"requires":          false,
 		"schema":            false,
-		"ui_component":      true,
 		"ui_schema":         false,
 		"ui_schema_version": false,
 	}

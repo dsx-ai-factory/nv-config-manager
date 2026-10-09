@@ -85,6 +85,62 @@ test.describe("Site Password Rotation Form", () => {
     ).toBeDisabled();
   });
 
+  test("ignores an older option response after the location changes", async ({ page }) => {
+    const releases = new Map<string, () => void>();
+    await page.route(/\/v1\/parameter\/password-users(\?.*)?$/, async (route) => {
+      const location = new URL(route.request().url()).searchParams.get("location") ?? "";
+      await new Promise<void>((resolve) => releases.set(location, resolve));
+      await route.fulfill({
+        status: 200,
+        json: {
+          items: [{ label: `${location} admin`, value: `${location}-admin` }],
+          meta: { matching_device_count: 1, warnings: [] },
+        },
+      });
+    });
+
+    await page.getByRole("button", { name: /Select a Location/i }).click();
+    await page.getByRole("dialog").getByRole("option", { name: SITES_LIST.rno1 }).click();
+    await expect.poll(() => releases.has(SITES_LIST.rno1)).toBe(true);
+
+    await page
+      .getByRole("button", { name: `${SITES_LIST.rno1}. Open options`, exact: true })
+      .click();
+    await page.getByRole("dialog").getByRole("option", { name: SITES_LIST.pdx01 }).click();
+    await expect.poll(() => releases.has(SITES_LIST.pdx01)).toBe(true);
+
+    const currentResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/v1/parameter/password-users" &&
+        url.searchParams.get("location") === SITES_LIST.pdx01
+      );
+    });
+    releases.get(SITES_LIST.pdx01)!();
+    await currentResponse;
+
+    const secretPicker = page.getByRole("button", { name: /select a secret to rotate/i });
+    await expect(secretPicker).toBeEnabled({ timeout: TEST_TIMEOUT });
+    await secretPicker.click();
+    await expect(page.getByRole("dialog").getByText(`${SITES_LIST.pdx01} admin`)).toBeVisible();
+    await expect(page.getByRole("dialog").getByText(`${SITES_LIST.rno1} admin`)).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    const staleResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/v1/parameter/password-users" &&
+        url.searchParams.get("location") === SITES_LIST.rno1
+      );
+    });
+    releases.get(SITES_LIST.rno1)!();
+    await staleResponse;
+
+    await secretPicker.click();
+    await expect(page.getByRole("dialog").getByText(`${SITES_LIST.pdx01} admin`)).toBeVisible();
+    await expect(page.getByRole("dialog").getByText(`${SITES_LIST.rno1} admin`)).toHaveCount(0);
+  });
+
   test("submits the location, filters, and secret", async ({ page }) => {
     await page.getByRole("button", { name: /Select a Location/i }).click();
     await page.getByRole("dialog").getByRole("option", { name: SITES_LIST.rno1 }).click();

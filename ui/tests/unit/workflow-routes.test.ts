@@ -53,12 +53,12 @@ describe("WORKFLOW_ROUTES", () => {
     );
   });
 
-  it("points at legacy form pages that exist", () => {
+  it("does not retain implementations behind migrated legacy routes", () => {
     for (const { legacySlug } of Object.values(WORKFLOW_ROUTES)) {
       expect(
         existsSync(join(UI_ROOT, "src/app/workflows", legacySlug, "form", "page.tsx")),
         legacySlug
-      ).toBe(true);
+      ).toBe(false);
     }
   });
 });

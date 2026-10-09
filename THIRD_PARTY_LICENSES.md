@@ -108,7 +108,6 @@ The following npm packages are dependencies of the NVIDIA Config Manager UI. See
 
 | Package | License | URL |
 |---------|---------|-----|
-| @hookform/resolvers | MIT | https://github.com/react-hook-form/resolvers |
 | @radix-ui/react-accordion | MIT | https://github.com/radix-ui/primitives |
 | @radix-ui/react-checkbox | MIT | https://github.com/radix-ui/primitives |
 | @radix-ui/react-dialog | MIT | https://github.com/radix-ui/primitives |
@@ -137,7 +136,6 @@ The following npm packages are dependencies of the NVIDIA Config Manager UI. See
 | react | MIT | https://github.com/facebook/react |
 | react-diff-view | MIT | https://github.com/otakustay/react-diff-view |
 | react-dom | MIT | https://github.com/facebook/react |
-| react-hook-form | MIT | https://github.com/react-hook-form/react-hook-form |
 | react-markdown | MIT | https://github.com/remarkjs/react-markdown |
 | react-resizable-panels | MIT | https://github.com/bvaughn/react-resizable-panels |
 | react-syntax-highlighter | MIT | https://github.com/react-syntax-highlighter/react-syntax-highlighter |
@@ -145,7 +143,6 @@ The following npm packages are dependencies of the NVIDIA Config Manager UI. See
 | swr | MIT | https://github.com/vercel/swr |
 | tailwind-merge | MIT | https://github.com/dcastil/tailwind-merge |
 | tailwindcss-animate | MIT | https://github.com/jamiebuilds/tailwindcss-animate |
-| zod | MIT | https://github.com/colinhacks/zod |
 
 ### Development Dependencies
 

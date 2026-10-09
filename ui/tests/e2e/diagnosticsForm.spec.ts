@@ -33,6 +33,7 @@ const PATH = formPath("DiagnosticsWorkflow");
 const TITLE = "New Device Diagnostics Workflow";
 const ENDPOINT = "/v1/workflow/ngc/diagnostics";
 const [DEVICE, , SECOND_DEVICE] = DEVICES_LIST.PDX01;
+const THIRD_DEVICE = DEVICES_LIST.PDX01.find(({ platform }) => platform === "UFM")!;
 
 const pickDevices = async (page: Page, ...names: string[]) => {
   await page.locator("form").getByRole("button", { name: "Select Devices..." }).click();
@@ -89,5 +90,60 @@ test("submits the devices, commands, and ticket", async ({ page }) => {
     ticketing_platform: "jira",
     issue_key: "NETSUPPORT-1234",
     include_tech_support: true,
+  });
+});
+
+test("submits a command shared by some selected platforms only once", async ({ page }) => {
+  const partialCommand = "show partial support";
+  await page.route(
+    /\/v1\/parameter\/diagnostics\/command-options(\?.*)?$/,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        json: {
+          items: [
+            {
+              label: "show version",
+              value: "show version",
+              description: "Supported everywhere",
+              group: "Runs on all selected devices",
+            },
+            {
+              label: partialCommand,
+              value: partialCommand,
+              description: "Supported by Arista and Cumulus",
+              group: "Arista EOS only",
+            },
+            {
+              label: partialCommand,
+              value: partialCommand,
+              description: "Supported by Arista and Cumulus",
+              group: "Cumulus Linux only",
+            },
+          ],
+          meta: { warnings: [] },
+        },
+      })
+  );
+  await page.goto(PATH);
+  await page.locator("form").getByRole("button", { name: "Select a Site..." }).click();
+  await page.getByRole("dialog").getByRole("option", { name: SITES_LIST.pdx01, exact: true }).click();
+  await pickDevices(page, DEVICE.name, SECOND_DEVICE.name, THIRD_DEVICE.name);
+
+  await expect(page.getByText("Arista EOS only")).toBeVisible({ timeout: TEST_TIMEOUT });
+  await expect(page.getByText("Cumulus Linux only")).toBeVisible();
+  const appearances = page.getByLabel(partialCommand);
+  await expect(appearances).toHaveCount(2);
+  await appearances.first().click();
+  await expect(appearances.nth(0)).toBeChecked();
+  await expect(appearances.nth(1)).toBeChecked();
+
+  const post = nextPost(page, ENDPOINT);
+  await submit(page);
+  expect((await post).postDataJSON()).toEqual({
+    device_ids: [DEVICE.id, SECOND_DEVICE.id, THIRD_DEVICE.id],
+    commands: [partialCommand],
+    ticketing_platform: "jira",
+    include_tech_support: false,
   });
 });

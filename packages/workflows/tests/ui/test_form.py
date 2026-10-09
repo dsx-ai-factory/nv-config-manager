@@ -118,7 +118,6 @@ def test_a_full_declaration_builds_the_v1_envelope() -> None:
     assert envelope["ui_schema"]["devices"]["ui:options"]["filterScope"] == "fabric"
     assert "queryParam" not in envelope["ui_schema"]["devices"]["ui:options"]
     assert envelope["ui_schema_version"] == 1
-    assert envelope["ui_component"] is None
     assert "user" not in envelope["schema"]["properties"]
     Draft202012Validator(wire_schema()).validate(envelope)
 
@@ -140,19 +139,25 @@ def test_an_undeclared_form_is_a_bare_projection() -> None:
     Draft202012Validator(wire_schema()).validate(envelope)
 
 
+def test_api_options_can_disable_the_picker_when_no_matches_are_returned() -> None:
+    field = api_options(
+        OptionSource("/v1/options", "label", "value", response="options-v1"),
+        disable_when_no_matches=True,
+    )
+
+    envelope = _build({"overlay": field})
+
+    assert envelope["ui_schema"]["overlay"]["ui:options"]["disableWhenNoMatches"] is True
+    Draft202012Validator(wire_schema()).validate(envelope)
+
+
 def test_a_workflow_without_input_has_an_empty_form() -> None:
-    assert build_form(None, ui_component="named") == {
+    assert build_form(None) == {
         "schema": {},
         "ui_schema": {},
         "ui_schema_version": 1,
         "requires": [],
-        "ui_component": "named",
     }
-
-
-def test_only_the_builtin_plugin_may_name_a_component() -> None:
-    with pytest.raises(WorkflowFormContractError, match="only available to the built-in plugin"):
-        build_form(ExampleInput, ui_component="named", builtin=False)
 
 
 def test_the_server_adds_shipped_query_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -238,6 +243,22 @@ _SHARED = device_field(DEVICES, filters=("tenant",), filter_scope="shared", quer
                 }
             },
             "clear_on_change must be true",
+        ),
+        (
+            {
+                "overlay": {
+                    **api_options(
+                        OptionSource("/v1/options", "label", "value", response="options-v1")
+                    ),
+                    "ui:options": {
+                        "source": OptionSource(
+                            "/v1/options", "label", "value", response="options-v1"
+                        ).to_wire(),
+                        "disableWhenNoMatches": False,
+                    },
+                }
+            },
+            "disableWhenNoMatches must be true",
         ),
         (
             {"overlay": api_options(OptionSource("/v1/{overlay}", "name", "name"))},
@@ -462,7 +483,7 @@ def test_the_wire_schema_is_a_valid_draft_2020_12_schema() -> None:
 
 @pytest.mark.skipif(not _REPO_UI_LIB.is_dir(), reason="the repository ui/ directory is absent")
 @pytest.mark.parametrize(
-    "name", ["workflow-form-v1.schema.json", "workflow-form-capabilities-v1.json"]
+    "name", ["workflow-form-v1.schema.json", "workflow-form-v1.capabilities.json"]
 )
 def test_the_ui_copies_of_the_contract_are_byte_identical(name: str) -> None:
     assert (_REPO_UI_LIB / name).read_bytes() == (_PACKAGE_UI / name).read_bytes()

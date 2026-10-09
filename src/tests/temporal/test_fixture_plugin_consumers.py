@@ -100,7 +100,6 @@ def test_the_plugin_form_is_validated_as_a_third_party_form(registry: WorkflowRe
     form = registry.forms[FixtureEchoWorkflow]
 
     assert form["requires"] == ["core-field.api-options.v1"]
-    assert form["ui_component"] is None
     assert form["ui_schema"]["message"]["ui:field"] == "apiOptions"
     assert form["schema"]["properties"]["message"]["maxLength"] == 100
     assert "maxLength" not in FixtureInput.model_json_schema()["properties"]["message"]

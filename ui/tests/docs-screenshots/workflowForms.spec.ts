@@ -745,13 +745,6 @@ async function setupDocsMocks(page: Page): Promise<void> {
     });
   });
 
-  await page.route("**/v1/parameter/diagnostics/commands*", async (route) => {
-    await fulfillJson(route, [
-      { description: "Collect interface state", name: "show interface" },
-      { description: "Collect LLDP neighbors", name: "show lldp neighbor" },
-    ]);
-  });
-
   await page.route("**/v1/parameter/diagnostics/command-options*", async (route) => {
     await fulfillJson(route, {
       items: [
