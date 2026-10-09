@@ -868,12 +868,10 @@ def _l2_vni_vrfs(
     return l2_vni_vrfs
 
 
-def _overlay_data(
-    payload: Mapping[str, Any], device: Mapping[str, Any], device_name: str
-) -> RenderOverlayData:
-    """Map Nautobot overlay plugin records into typed L2/L3 VNI concepts."""
-    raw_vxlans = _mappings(payload.get("vxlans", ()), f"device '{device_name}' VXLANs")
-    raw_assignments = _mappings(payload.get("overlay_assignments", ()), "overlay assignments")
+def _assigned_overlay_keys(
+    raw_assignments: Sequence[Mapping[str, Any]],
+) -> tuple[set[str], set[str]]:
+    """Return overlay ids and names assigned directly to the device."""
     assigned_overlay_ids: set[str] = set()
     assigned_overlay_names: set[str] = set()
     for assignment in raw_assignments:
@@ -888,7 +886,13 @@ def _overlay_data(
             assigned_overlay_ids.add(str(overlay["id"]))
         if (overlay_name := _optional_text(overlay.get("name"))) is not None:
             assigned_overlay_names.add(overlay_name)
+    return assigned_overlay_ids, assigned_overlay_names
 
+
+def _device_vxlan_keys(
+    device: Mapping[str, Any],
+) -> tuple[set[str], set[int], set[str], set[str]]:
+    """Return VLAN and VRF keys a device can use to select VXLAN records."""
     raw_device_vrfs = list(_mappings(device.get("vrfs", ()), "device VRFs"))
     raw_device_vrfs.extend(
         interface["vrf"]
@@ -912,6 +916,103 @@ def _overlay_data(
     device_vlan_vids = {
         int(vlan["vid"]) for vlan in raw_device_vlans if not _is_blank(vlan.get("vid"))
     }
+    return device_vlan_ids, device_vlan_vids, device_vrf_ids, device_vrf_names
+
+
+def device_needs_vxlan_inventory(payload: Mapping[str, Any], device: Mapping[str, Any]) -> bool:
+    """Return whether this device can match any VXLAN record."""
+    assigned_overlay_ids, assigned_overlay_names = _assigned_overlay_keys(
+        _mappings(payload.get("overlay_assignments", ()), "overlay assignments")
+    )
+    device_vlan_ids, device_vlan_vids, device_vrf_ids, device_vrf_names = _device_vxlan_keys(device)
+    return bool(
+        assigned_overlay_ids
+        or assigned_overlay_names
+        or device_vlan_ids
+        or device_vlan_vids
+        or device_vrf_ids
+        or device_vrf_names
+    )
+
+
+def select_render_vxlan_ids(payload: Mapping[str, Any], device: Mapping[str, Any]) -> list[str]:
+    """Return the VXLAN ids the render keeps from a lightweight inventory."""
+    device_name = _optional_text(device.get("name")) or "device"
+    raw_assignments = _mappings(payload.get("overlay_assignments", ()), "overlay assignments")
+    assigned_overlay_ids, assigned_overlay_names = _assigned_overlay_keys(raw_assignments)
+    device_vlan_ids, device_vlan_vids, device_vrf_ids, device_vrf_names = _device_vxlan_keys(device)
+    selected: list[str] = []
+    for raw_vxlan in _mappings(payload.get("vxlans", ()), f"device '{device_name}' VXLANs"):
+        raw_id = raw_vxlan.get("id")
+        if raw_id is None or not _vxlan_matches_device(
+            raw_vxlan,
+            assigned_overlay_ids,
+            assigned_overlay_names,
+            device_vlan_ids,
+            device_vlan_vids,
+            device_vrf_ids,
+            device_vrf_names,
+        ):
+            continue
+        selected.append(str(raw_id))
+    return selected
+
+
+def _vxlan_matches_device(
+    raw_vxlan: Mapping[str, Any],
+    assigned_overlay_ids: set[str],
+    assigned_overlay_names: set[str],
+    device_vlan_ids: set[str],
+    device_vlan_vids: set[int],
+    device_vrf_ids: set[str],
+    device_vrf_names: set[str],
+) -> bool:
+    """Return whether one inventory row is an L2 or L3 VNI for this device."""
+    vni_type = _optional_text(raw_vxlan.get("vni_type"))
+    if not vni_type:
+        return False
+    raw_overlay = raw_vxlan.get("overlay")
+    overlay_name = (
+        _optional_text(raw_overlay.get("name")) if isinstance(raw_overlay, Mapping) else None
+    )
+    overlay_id = _optional_text(raw_overlay.get("id")) if isinstance(raw_overlay, Mapping) else None
+    if vni_type.lower() == "l2":
+        raw_vlan = raw_vxlan.get("vlan")
+        raw_vlan_id = _optional_text(raw_vlan.get("id")) if isinstance(raw_vlan, Mapping) else None
+        raw_vlan_vid = (
+            int(raw_vlan["vid"])
+            if isinstance(raw_vlan, Mapping) and not _is_blank(raw_vlan.get("vid"))
+            else None
+        )
+        overlay_is_assigned = (
+            overlay_id in assigned_overlay_ids
+            if assigned_overlay_ids and overlay_id is not None
+            else overlay_name in assigned_overlay_names
+        )
+        vlan_is_attached = (
+            raw_vlan_id in device_vlan_ids
+            if device_vlan_ids and raw_vlan_id is not None
+            else raw_vlan_vid in device_vlan_vids
+        )
+        return overlay_is_assigned or vlan_is_attached
+    if vni_type.lower() != "l3":
+        return False
+    raw_vrf = raw_vxlan.get("vrf")
+    raw_vrf_id = _optional_text(raw_vrf.get("id")) if isinstance(raw_vrf, Mapping) else None
+    raw_vrf_name = _optional_text(raw_vrf.get("name")) if isinstance(raw_vrf, Mapping) else None
+    if device_vrf_ids and raw_vrf_id is not None:
+        return raw_vrf_id in device_vrf_ids
+    return raw_vrf_name in device_vrf_names
+
+
+def _overlay_data(
+    payload: Mapping[str, Any], device: Mapping[str, Any], device_name: str
+) -> RenderOverlayData:
+    """Map Nautobot overlay plugin records into typed L2/L3 VNI concepts."""
+    raw_vxlans = _mappings(payload.get("vxlans", ()), f"device '{device_name}' VXLANs")
+    raw_assignments = _mappings(payload.get("overlay_assignments", ()), "overlay assignments")
+    assigned_overlay_ids, assigned_overlay_names = _assigned_overlay_keys(raw_assignments)
+    device_vlan_ids, device_vlan_vids, device_vrf_ids, device_vrf_names = _device_vxlan_keys(device)
 
     l2_vnis, l2_by_id, l2_by_overlay = _l2_vnis(
         raw_vxlans,

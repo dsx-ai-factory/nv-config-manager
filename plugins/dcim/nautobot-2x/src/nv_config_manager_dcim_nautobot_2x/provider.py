@@ -55,7 +55,11 @@ from nv_config_manager_dcim_nautobot_2x.client import NautobotException
 from nv_config_manager_dcim_nautobot_2x.dhcp import NautobotDHCPOperations
 from nv_config_manager_dcim_nautobot_2x.events import register_render_event_handlers
 from nv_config_manager_dcim_nautobot_2x.queries import load_graphql_query
-from nv_config_manager_dcim_nautobot_2x.render import build_render_data
+from nv_config_manager_dcim_nautobot_2x.render import (
+    build_render_data,
+    device_needs_vxlan_inventory,
+    select_render_vxlan_ids,
+)
 from nv_config_manager_dcim_nautobot_2x.workflow import NautobotWorkflowClient
 
 logger = logging.getLogger(__name__)
@@ -122,6 +126,8 @@ _MANAGED_DEVICE_METADATA_QUERY = load_graphql_query(
 _DEVICE_SERIAL_QUERY = load_graphql_query("provider/devices.graphql", "GetDeviceSerial")
 _DEVICE_CONTEXTS_QUERY = load_graphql_query("provider/devices.graphql", "ListDeviceContexts")
 _RENDER_DATA_QUERY = load_graphql_query("query_config_data_by_device_id_v2.graphql")
+_VXLAN_INDEX_QUERY = load_graphql_query("vxlan_index.graphql", "RenderVxlanIndex")
+_VXLAN_DETAILS_QUERY = load_graphql_query("vxlan_details.graphql", "RenderVxlanDetails")
 _LOCATION_DATA_QUERY = load_graphql_query("query_location_data.graphql")
 
 _NAUTOBOT_CONNECTION_KEYS = ("server", "token", "public_url", "verify", "timeout")
@@ -711,6 +717,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 f"Nautobot returned incomplete render location data for {device_id}"
             ) from exc
 
+        await self._attach_relevant_vxlans(device_data)
         location_data = await self.graphql_query(_LOCATION_DATA_QUERY, {"location": location_name})
         render_data = build_render_data(device_data, location_data)
         plugin_data: dict[str, RenderDataExtension] = {}
@@ -776,6 +783,44 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             )
         for peer in peers:
             peer["config_context"] = contexts[peer["id"]]
+
+    async def _attach_relevant_vxlans(self, device_data: dict[str, Any]) -> None:
+        """Load VXLAN details for the records this device actually renders.
+
+        The device query used to select every VXLAN, including route targets.
+        Nautobot can filter that list by id, not by the device's VLAN or VRF,
+        so a thin inventory selects the ids and a second query loads those rows.
+        An empty id filter is skipped: Nautobot treats it as "return everything".
+        """
+        data = device_data.get("data")
+        device = data.get("device") if isinstance(data, dict) else None
+        if not isinstance(data, dict) or not isinstance(device, Mapping):
+            return
+        if not device_needs_vxlan_inventory(data, device):
+            data["vxlans"] = []
+            return
+
+        index = await self.graphql_query(_VXLAN_INDEX_QUERY)
+        index_rows = (index.get("data") or {}).get("vxlans") or ()
+        selected_ids = select_render_vxlan_ids(
+            {
+                "overlay_assignments": data.get("overlay_assignments") or (),
+                "vxlans": index_rows,
+            },
+            device,
+        )
+        if not selected_ids:
+            data["vxlans"] = []
+            return
+
+        details = await self.graphql_query(_VXLAN_DETAILS_QUERY, {"ids": selected_ids})
+        detail_rows = (details.get("data") or {}).get("vxlans") or ()
+        by_id = {
+            str(row["id"]): row
+            for row in detail_rows
+            if isinstance(row, Mapping) and row.get("id") is not None
+        }
+        data["vxlans"] = [by_id[vxlan_id] for vxlan_id in selected_ids if vxlan_id in by_id]
 
     async def get_render_device_status(self, device_id: str) -> RenderDeviceStatus | None:
         """Return the managed-device status needed before queueing a render."""

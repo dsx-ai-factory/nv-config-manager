@@ -1,0 +1,18 @@
+query RenderVxlanIndex {
+  vxlans {
+    id
+    vni_type
+    overlay {
+      id
+      name
+    }
+    vlan {
+      id
+      vid
+    }
+    vrf {
+      id
+      name
+    }
+  }
+}

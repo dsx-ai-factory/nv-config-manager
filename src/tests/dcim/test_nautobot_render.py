@@ -25,6 +25,7 @@ from nv_config_manager_dcim_nautobot_2x.render import (
     _bgp_peer,
     _overlay_data,
     _routing_asn_from_instances,
+    select_render_vxlan_ids,
 )
 
 from nv_config_manager.dcim import IntendedConfigurationUpdate, RenderDataRequest
@@ -158,6 +159,7 @@ def test_overlay_inventory_is_scoped_to_device_vlans_and_vrfs():
 
     assert [entry.vlan.vid for entry in overlays.l2_vnis] == [201]
     assert [entry.vrf.name for entry in overlays.l3_vnis] == ["OOB"]
+    assert select_render_vxlan_ids(payload, device) == ["vxlan-201", "vxlan-oob"]
 
 
 @pytest.mark.asyncio
@@ -301,6 +303,136 @@ async def test_get_render_data_rejects_missing_required_interface_type():
         match="Nautobot device 'leaf-1' interface 'swp1' is missing required field 'type'",
     ):
         await client.get_render_data(RenderDataRequest(device_id="device-id"))
+
+
+def _vxlan_index_row(
+    vxlan_id: str,
+    vni_type: str,
+    *,
+    overlay_id: str,
+    vlan: dict | None = None,
+    vrf: dict | None = None,
+) -> dict:
+    """Return one skinny inventory row, the shape of RenderVxlanIndex."""
+    return {
+        "id": vxlan_id,
+        "vni_type": vni_type,
+        "overlay": {"id": overlay_id, "name": overlay_id},
+        "vlan": vlan,
+        "vrf": vrf,
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_render_data_fetches_vxlan_details_for_attached_vlans_only():
+    """A device query no longer embeds the VXLAN table; details follow the index."""
+    client = _client()
+    payload = _render_payload(
+        [
+            {
+                "name": "swp1",
+                "type": "1000base-t",
+                "enabled": True,
+                "untagged_vlan": {"id": "vlan-201", "vid": 201, "name": "Vlan201"},
+                "tagged_vlans": [],
+            }
+        ]
+    )
+    payload["data"]["overlay_assignments"] = []
+    client.graphql_query = AsyncMock(
+        side_effect=[
+            payload,
+            {
+                "data": {
+                    "vxlans": [
+                        _vxlan_index_row(
+                            "vxlan-201",
+                            "L2",
+                            overlay_id="overlay-201",
+                            vlan={"id": "vlan-201", "vid": 201},
+                        ),
+                        _vxlan_index_row(
+                            "vxlan-301",
+                            "L2",
+                            overlay_id="overlay-301",
+                            vlan={"id": "vlan-301", "vid": 301},
+                        ),
+                    ]
+                }
+            },
+            {
+                "data": {
+                    "vxlans": [
+                        {
+                            "id": "vxlan-301",
+                            "vnid": 3001,
+                            "vni_type": "L2",
+                            "overlay": {"id": "overlay-301", "name": "Vlan301"},
+                            "vlan": {"id": "vlan-301", "vid": 301, "name": "Vlan301"},
+                        },
+                        {
+                            "id": "vxlan-201",
+                            "vnid": 2001,
+                            "vni_type": "L2",
+                            "overlay": {"id": "overlay-201", "name": "Vlan201"},
+                            "vlan": {"id": "vlan-201", "vid": 201, "name": "Vlan201"},
+                        },
+                    ]
+                }
+            },
+            _SITE_A,
+        ]
+    )
+
+    render_data = await client.get_render_data(RenderDataRequest(device_id="device-id"))
+
+    assert [entry.vlan.vid for entry in render_data.device.overlays.l2_vnis] == [201]
+    _device_call, index_call, details_call, location_call = client.graphql_query.await_args_list
+    assert index_call.args[0].operation_name == "RenderVxlanIndex"
+    assert details_call.args[0].operation_name == "RenderVxlanDetails"
+    assert details_call.args[1] == {"ids": ["vxlan-201"]}
+    assert location_call.args[1] == {"location": "Site A"}
+
+
+@pytest.mark.asyncio
+async def test_get_render_data_skips_vxlan_details_when_nothing_matches():
+    """An empty id list must not be sent; Nautobot would treat it as every VXLAN."""
+    client = _client()
+    payload = _render_payload(
+        [
+            {
+                "name": "swp1",
+                "type": "1000base-t",
+                "enabled": True,
+                "untagged_vlan": {"id": "vlan-999", "vid": 999, "name": "Unused"},
+                "tagged_vlans": [],
+            }
+        ]
+    )
+    client.graphql_query = AsyncMock(
+        side_effect=[
+            payload,
+            {
+                "data": {
+                    "vxlans": [
+                        _vxlan_index_row(
+                            "vxlan-201",
+                            "L2",
+                            overlay_id="overlay-201",
+                            vlan={"id": "vlan-201", "vid": 201},
+                        )
+                    ]
+                }
+            },
+            _SITE_A,
+        ]
+    )
+
+    render_data = await client.get_render_data(RenderDataRequest(device_id="device-id"))
+
+    assert render_data.device.overlays.l2_vnis == ()
+    assert len(client.graphql_query.await_args_list) == 3
+    assert client.graphql_query.await_args_list[1].args[0].operation_name == "RenderVxlanIndex"
 
 
 def _cabled_interface(name: str, peer: dict) -> dict:

@@ -26,33 +26,6 @@ query ($id: ID!, $id_str: String) {
       }
     }
   }
-  vxlans {
-    id
-    name
-    vnid
-    vni_type
-    l3_vlan_id
-    overlay {
-      id
-      name
-    }
-    vlan {
-      id
-      vid
-      name
-    }
-    vrf {
-      id
-      name
-      rd
-    }
-    import_targets {
-      name
-    }
-    export_targets {
-      name
-    }
-  }
   device(id: $id) {
     id
     vrfs {
