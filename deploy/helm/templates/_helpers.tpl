@@ -592,15 +592,18 @@ false
 
 {{/*
 Return "true" or "false" for [auth] accept_request_headers.
-An explicit auth.acceptRequestHeaders wins; otherwise headers are trusted only
-when neither SPIFFE nor OIDC provides a verifiable credential.
+An explicit auth.acceptRequestHeaders wins; otherwise headers stop being
+trusted only when SPIFFE JWT-SVIDs are enabled. Internal callers have no other
+credential: with OIDC alone or spiffe.authMode mtls they still send the
+identity headers.
 Usage: accept_request_headers = {{ include "nv-config-manager.acceptRequestHeaders" . }}
 */}}
 {{- define "nv-config-manager.acceptRequestHeaders" -}}
 {{- $configured := (.Values.auth | default dict).acceptRequestHeaders -}}
+{{- $spiffe := .Values.spiffe | default dict -}}
 {{- if kindIs "bool" $configured -}}
 {{ $configured }}
-{{- else if or (include "nv-config-manager.spiffe.enabled" .) .Values.oidc.enabled -}}
+{{- else if and (eq (index $spiffe "enabled") true) (eq (index $spiffe "authMode" | default "jwt") "jwt") -}}
 false
 {{- else -}}
 true
