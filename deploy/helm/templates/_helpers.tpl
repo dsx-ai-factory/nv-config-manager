@@ -1722,6 +1722,47 @@ labels:
 {{- end -}}
 
 {{/*
+Blackbox Probe CR for a single target URL.
+
+The job label is `<monitoring.probes.jobNamePrefix><name>-probe`, the same
+shape as the per-service Probes in monitoring.yaml, so site alerting regexes
+keyed on the job prefix pick these up without changes.
+
+Params:
+  root      - chart root context
+  name      - Probe metadata.name (also the job name stem)
+  component - app.kubernetes.io/component label
+  scheme    - scheme Prometheus uses to reach the blackbox exporter
+  target    - full URL the exporter probes
+*/}}
+{{- define "nv-config-manager.blackboxProbe" -}}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: {{ .name }}
+  namespace: {{ .root.Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" .root | nindent 4 }}
+    app.kubernetes.io/component: {{ .component }}
+    {{- with .root.Values.global.customLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  interval: 30s
+  module: http_2xx
+  jobName: {{ .root.Values.monitoring.probes.jobNamePrefix | default "" }}{{ .name }}-probe
+  prober:
+    scheme: {{ .scheme }}
+    url: {{ .root.Values.monitoring.probes.blackboxExporterUrl }}
+  targets:
+    staticConfig:
+      {{- include "nv-config-manager.probeStaticConfigLabels" .root | nindent 6 }}
+      static:
+      - {{ .target }}
+{{- end -}}
+
+{{/*
 =============================================================================
 Security Context Helpers
 =============================================================================
