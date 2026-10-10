@@ -375,7 +375,7 @@ _SETUP_SCRIPT_TEMPLATE = textwrap.dedent("""\
     kubectl get nodes -o wide
     echo ""
     echo "Next step: run nv-config-manager-installer deploy"
-    echo "  sudo KUBECONFIG=/home/nvcm/.kube/config uv run \\\\"
+    echo "  sudo KUBECONFIG=/home/nvcm/.kube/config uv run --python 3.13 \\\\"
     echo "    --directory /home/nvcm/nv-config-manager \\\\"
     echo "    --project /home/nvcm/nv-config-manager/installer \\\\"
     echo "    nv-config-manager-installer deploy /home/nvcm/nv-config-manager-install.yaml \\\\"

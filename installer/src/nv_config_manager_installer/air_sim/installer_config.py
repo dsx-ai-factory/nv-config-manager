@@ -219,7 +219,7 @@ def build_deploy_command(_cfg: SimConfig) -> str:
     config_path = f"/home/{user}/{CONFIG_MANAGER_INSTALL_CONFIG}"
 
     return (
-        f"sudo NO_COLOR=1 {kube} uv run"
+        f"sudo NO_COLOR=1 {kube} uv run --python 3.13"
         f" --directory {CONFIG_MANAGER_REMOTE_DIR}"
         f" --project {CONFIG_MANAGER_REMOTE_DIR}/installer"
         f" nv-config-manager-installer deploy {config_path}"
