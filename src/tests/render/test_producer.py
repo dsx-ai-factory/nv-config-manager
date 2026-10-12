@@ -32,6 +32,7 @@ def mock_dcim_client():
     """Expose a provider client through the normal lifecycle seam."""
     client = AsyncMock()
     client.get_render_template_versions.return_value = []
+    client.get_render_enabled_device_ids.return_value = ["device1", "device2", "device3"]
 
     @asynccontextmanager
     async def session():
@@ -52,6 +53,9 @@ async def test_load_stale_renders_uses_provider_template_versions(mock_dcim_clie
 
     assert await load_stale_renders(CURRENT_VERSION) == ["device1"]
     mock_dcim_client.get_render_template_versions.assert_awaited_once()
+    mock_dcim_client.get_render_enabled_device_ids.assert_awaited_once_with(
+        is_aggregate_managed=None
+    )
 
 
 @pytest.mark.asyncio
@@ -126,4 +130,44 @@ async def test_update_stale_renders_counts_lock_and_render_failures(
 
     assert result == 0
     mock_execute_render.assert_awaited_once()
+    lock.release.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_load_stale_renders_skips_empty_enabled_inventory(mock_dcim_client):
+    """No version lookup is needed when every device has rendering disabled."""
+    mock_dcim_client.get_render_enabled_device_ids.return_value = []
+
+    assert await load_stale_renders(CURRENT_VERSION) == []
+    mock_dcim_client.get_render_template_versions.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@patch("nv_config_manager.render.producer.execute_render", new_callable=AsyncMock)
+@patch("nv_config_manager.render.producer.create_lock")
+async def test_update_stale_renders_excludes_disabled_devices(
+    mock_create_lock, mock_execute_render, mock_dcim_client
+):
+    """A disabled device with an old version is never locked or rendered."""
+    mock_dcim_client.get_render_enabled_device_ids.return_value = ["device1", "device2"]
+    mock_dcim_client.get_render_template_versions.return_value = [
+        RenderTemplateVersion(device_id="device1", template_version=OLDER_VERSION),
+        RenderTemplateVersion(device_id="device2", template_version=CURRENT_VERSION),
+        RenderTemplateVersion(device_id="device3", template_version=OLDER_VERSION),
+    ]
+    lock = MagicMock()
+    lock.acquire = AsyncMock(return_value=True)
+    lock.release = AsyncMock()
+    mock_create_lock.return_value = lock
+
+    assert await update_stale_renders(desired_version=CURRENT_VERSION) == 1
+
+    mock_dcim_client.get_render_enabled_device_ids.assert_awaited_once_with(
+        is_aggregate_managed=None
+    )
+    mock_dcim_client.get_render_template_versions.assert_awaited_once()
+    mock_create_lock.assert_called_once_with("device1", blocking=True, blocking_timeout=120)
+    mock_execute_render.assert_awaited_once_with(
+        "device1", f"Template version change: {CURRENT_VERSION}", "template-updater"
+    )
     lock.release.assert_awaited_once()
