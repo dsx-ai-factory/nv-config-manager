@@ -16,8 +16,12 @@
 
 from __future__ import annotations
 
+import signal
+import subprocess
 from datetime import UTC, datetime
+from io import StringIO
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -204,3 +208,47 @@ def test_setup_nvcm_server_does_not_log_deployment_script(
     assert deployment_script not in caplog.text
     assert "content omitted from logs" in caplog.text
     assert result["deploy_script"] == deployment_script
+
+
+@pytest.mark.parametrize("cleanup_timeouts", [0, 1, 2])
+def test_cloud_init_success_survives_log_stream_cleanup_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    cleanup_timeouts: int,
+) -> None:
+    manager = AirSimulationManager.__new__(AirSimulationManager)
+    monkeypatch.setattr(manager, "_ssh_cmd", lambda _host, _port: ["ssh", "worker.example"])
+    stream = StringIO(f"{manager._SETUP_COMPLETE_MARKER}\n")
+    proc = Mock(pid=12345, stdout=stream)
+    proc.wait.side_effect = [
+        *[subprocess.TimeoutExpired("log stream", 5) for _ in range(cleanup_timeouts)],
+        0,
+    ]
+    popen = Mock(return_value=proc)
+    killpg = Mock()
+    monkeypatch.setattr(sim_manager_module.subprocess, "Popen", popen)
+    monkeypatch.setattr(
+        sim_manager_module.subprocess, "run", Mock(return_value=SimpleNamespace(returncode=0))
+    )
+    monkeypatch.setattr(sim_manager_module.os, "killpg", killpg)
+    monkeypatch.setattr(sim_manager_module.select, "select", lambda *_args: ([stream], [], []))
+
+    assert manager.wait_for_cloud_init("worker.example", 22) is True
+    assert popen.call_args.kwargs["start_new_session"] is True
+    assert killpg.call_args_list[0].args == (proc.pid, signal.SIGTERM)
+    assert killpg.call_count == (1 if cleanup_timeouts == 0 else 2)
+    if cleanup_timeouts:
+        assert killpg.call_args_list[1].args == (proc.pid, signal.SIGKILL)
+    assert stream.closed
+
+
+def test_cloud_init_tail_cleanup_handles_already_exited_process_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = StringIO()
+    proc = Mock(pid=12345, stdout=stream)
+    monkeypatch.setattr(sim_manager_module.os, "killpg", Mock(side_effect=ProcessLookupError))
+
+    AirSimulationManager._stop_cloud_init_tail(proc)
+
+    proc.wait.assert_called_once_with(timeout=5)
+    assert stream.closed

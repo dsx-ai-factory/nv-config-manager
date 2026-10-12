@@ -67,12 +67,16 @@ uv run nvcm-installer --help
 
 ```bash
 cd installer
-uv tool install .
+uv tool install --python 3.13 .
 nvcm-installer --help
 ```
 
 `nvcm-installer` is the short command name. The longer `nv-config-manager-installer`
 command remains available for compatibility and accepts the same subcommands and flags.
+
+The installer pins Python 3.13 in its own `.python-version` because it is a separate
+project from the repository root. The tool installation command explicitly selects
+the same version.
 
 ---
 
