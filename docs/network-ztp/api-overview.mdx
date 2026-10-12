@@ -24,8 +24,8 @@ Device-specific endpoints for boot scripts, configurations, firmware, and provis
 
 Device IDs must be valid UUIDs. Malformed IDs return HTTP 400 with the message
 `Invalid device ID: must be a valid UUID.`, including for authenticated requests.
-Boot-script requests for a valid UUID that does not identify an existing device
-return HTTP 404.
+Boot-script and serial-validation requests for a valid UUID that does not
+identify an existing device return HTTP 404 with a missing-device message.
 
 Serial validation ignores case and trims surrounding whitespace. Both the
 reported serial and the DCIM serial must contain at least four characters.
