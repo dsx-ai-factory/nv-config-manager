@@ -22,9 +22,7 @@ Device-specific endpoints for boot scripts, configurations, firmware, and provis
 - `POST /v1/device/{device_uuid}/provisioned` - Mark device as provisioned
 - `POST /v1/device/{device_uuid}/validate_serial` - Validate device serial number
 
-Device IDs must be valid UUIDs. Malformed IDs return HTTP 400 with the message
-`Invalid device ID: must be a valid UUID.`, including for authenticated requests.
-Boot-script and serial-validation requests for a valid UUID that does not
+Boot-script and serial-validation requests for a device ID that does not
 identify an existing device return HTTP 404 with a missing-device message.
 
 Serial validation ignores case and trims surrounding whitespace. Both the
