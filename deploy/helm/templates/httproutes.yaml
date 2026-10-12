@@ -136,7 +136,7 @@ spec:
   {{- range $.paths }}
   - matches:
     - path:
-        type: PathPrefix
+        type: {{ $.pathType | default "PathPrefix" }}
         value: {{ . }}
       {{- if $.requireAuthorization }}
       headers:
@@ -374,11 +374,13 @@ spec:
 # Temporal Web UI HTTPRoute (temporal.<base>) - OIDC-only, via browser proxy
 {{- if .Values.temporal.server.enabled }}
 {{- if .Values.temporal.gateway.devUi.authBypass }}
+{{- /* Exact match: Temporal Web serves its app for any path under /healthz/. */}}
 {{- include "nv-config-manager.authBypassHTTPRoute" (dict
     "root" .
     "routeName" (printf "%s-web" $temporalName)
     "enabled" (.Values.temporal.gateway.devUi.authBypass.enabled | default false)
     "paths" (.Values.temporal.gateway.devUi.authBypass.paths | default list)
+    "pathType" "Exact"
     "hostname" (tpl .Values.temporal.gateway.devUi.hostname .)
     "backendName" (printf "%s-web-service" $temporalName)
     "backendPort" 8080
