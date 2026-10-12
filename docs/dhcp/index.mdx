@@ -133,7 +133,13 @@ indicate a problem with DHCP configuration generation. Use the configuration-age
 tooltip and service logs to troubleshoot it. When `monitoring.grafanaUrl` is
 configured, **View Grafana** opens the dashboard in a new tab.
 
-Leases, reservations, and pools load 100 at a time as you scroll so the dashboard remains responsive with thousands of records. Summary counts are calculated independently from the detail rows loaded in the browser. Use the filter to search the selected collection by its displayed fields. Reservation and pool results show exact filtered totals. Select the **Active leases**, **Reservations**, or **Pools** tab to inspect each view. You can also clear an active lease after confirming the action.
+Leases, reservations, and pools load 100 at a time as you scroll so the dashboard remains responsive with thousands of records. The active-lease summary reads the shared lease database, so clearing a lease is reflected regardless of which DHCP server answers the next request. Summary counts are calculated independently from the detail rows loaded in the browser. Use the filter to search the selected collection by its displayed fields. Reservation and pool results show exact filtered totals. Select the **Active leases**, **Reservations**, or **Pools** tab to inspect each view. You can also clear an active lease after confirming the action.
+
+The summary requires the Kea statistics-command hook (`libdhcp_stat_cmds.so`),
+which is enabled in generated DHCP configurations. When upgrading, refresh the
+DHCP configuration on every replica before using the updated summary endpoint.
+Lease counts cover the subnets configured on the responding Kea server.
+
 
 **Reload data** re-fetches the latest dashboard API responses. It does not trigger a configuration sync or regenerate the Kea configuration.
 
