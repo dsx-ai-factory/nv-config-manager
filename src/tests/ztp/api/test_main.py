@@ -518,8 +518,40 @@ def test_device_v1_provisioned_auth_disabled_bypasses_ip_check(
                     mock_temporal_client.invoke_backup_workflow.assert_called_once()
 
 
+@pytest.mark.parametrize(
+    ("expected_serial", "observed_serial", "status_code"),
+    [
+        ("MT2531J01M8G", "MT2531J01M8G", 200),
+        ("MT2531J01M8G", "mt2531j01m8g", 200),
+        ("MT2531J01M8G", "PART-MT2531J01M8G", 200),
+        ("PART-MT2531J01M8G", "MT2531J01M8G", 200),
+        ("MT2531J01M8G", "1M8G", 200),
+        ("1M8G", "MT2531J01M8G", 200),
+        ("1M8G", "1M8G", 200),
+        ("MT2531J01M8G", " MT2531J01M8G ", 200),
+        (" MT2531J01M8G ", "MT2531J01M8G", 200),
+        ("MT2531J01M8G", "", 400),
+        ("MT2531J01M8G", "G", 400),
+        ("MT2531J01M8G", "M8G", 400),
+        ("MT2531J01M8G", " M8G ", 400),
+        ("MT2531J01M8G", "       G", 400),
+        ("MT2531J01M8G", "        ", 400),
+        ("MT2531J01M8G", "INVALID_SERIAL_001", 400),
+        ("", "MT2531J01M8G", 400),
+        ("G", "MT2531J01M8G", 400),
+        ("M8G", "MT2531J01M8G", 400),
+        (" M8G ", "MT2531J01M8G", 400),
+        ("       G", "MT2531J01M8G", 400),
+        ("        ", "MT2531J01M8G", 400),
+        ("", "", 400),
+        ("G", "G", 400),
+        ("M8G", "M8G", 400),
+    ],
+)
 @patch("nv_config_manager.ztp.api.device_v1.Request.client")
-def test_device_v1_validate_serial(mock_request_client, mock_device_data, client):
+def test_device_v1_validate_serial(
+    mock_request_client, mock_device_data, client, expected_serial, observed_serial, status_code
+):
     mock_request_client.host = "testclient"
     mock_device_data["data"]["config_manager_device"]["device"]["interfaces"] = [
         {"ip_addresses": [{"host": "testclient"}]}
@@ -531,27 +563,26 @@ def test_device_v1_validate_serial(mock_request_client, mock_device_data, client
     ):
         with patch(
             "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.get_device_serial",
-            return_value="expected_serial",
+            return_value=expected_serial,
         ):
-            rsp = client.post(
-                f"/v1/device/{uuid4()}/validate_serial",
-                json={"serial": "expected_serial"},
-            )
-            assert rsp.status_code == 200
-
             device_uuid = str(uuid4())
             with patch("nv_config_manager.ztp.api.device_v1.logger") as mock_logger:
                 rsp = client.post(
                     f"/v1/device/{device_uuid}/validate_serial",
-                    json={"serial": "invalid_serial"},
+                    json={"serial": observed_serial},
                 )
-            assert rsp.status_code == 400
-            mock_logger.error.assert_called_once_with(
-                "Serial number mismatch observed on device %s, expected: %s, observed: %s.",
-                device_uuid,
-                "expected_serial",
-                "invalid_serial",
-            )
+            assert rsp.status_code == status_code
+            if status_code == 200:
+                assert rsp.json() == "OK"
+                mock_logger.error.assert_not_called()
+            else:
+                assert rsp.json()["detail"] == "Serial number does not match device in the DCIM."
+                mock_logger.error.assert_called_once_with(
+                    "Serial number mismatch observed on device %s, expected: %s, observed: %s.",
+                    device_uuid,
+                    expected_serial,
+                    observed_serial,
+                )
 
 
 def test_v1_firmware(client):
