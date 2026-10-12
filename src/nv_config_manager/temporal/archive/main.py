@@ -21,6 +21,7 @@ import os
 from typing import Any
 
 from nats.aio.msg import Msg
+from nv_config_manager_infrastructure.nats.admin import ARCHIVE_CONSUMER_MAX_DELIVER
 
 from nv_config_manager.common.config import load_config, nats_archive_config
 from nv_config_manager.common.log import configure_logging
@@ -62,14 +63,64 @@ else:
     }
 
 
+ARCHIVE_RETRY_DELAY_SECONDS = 300
+NVDATAFLOW_SUCCESS_STATUSES = frozenset({201, 202})
+NVDATAFLOW_REJECTED_STATUSES = frozenset({400, 413})
+
+
+class ArchiveRejectedError(Exception):
+    """The archive backend refused the record itself, so retrying cannot help."""
+
+
 async def handle_archive_msg(msg: Msg) -> None:
-    """Handler callback for archive messages."""
-    data = json.loads(msg.data.decode("utf-8"))
+    """Archive one workflow result, then ack, retry, or discard its message.
+
+    A failed write goes back to JetStream with a delay instead of being acked,
+    so an outage leaves the backlog in the stream rather than dropping records.
+    """
+    try:
+        data = json.loads(msg.data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        logging.exception("Discarding unreadable archive message")
+        await msg.term()
+        return
     logging.info("Received archive event: %s", data)
     if not data.get("workflow_id"):
         logging.error("No workflow ID in archive message: %s", data)
+        await msg.ack()
         return
 
+    workflow_id = data["workflow_id"]
+    try:
+        await _archive_workflow(data)
+    except ArchiveRejectedError:
+        logging.exception("Archive backend rejected workflow %s; discarding it", workflow_id)
+        await msg.term()
+        return
+    except Exception:
+        deliveries = msg.metadata.num_delivered
+        if deliveries >= ARCHIVE_CONSUMER_MAX_DELIVER:
+            logging.exception(
+                "Giving up on archiving workflow %s after %d attempts",
+                workflow_id,
+                deliveries,
+            )
+            await msg.term()
+            return
+        logging.exception(
+            "Failed to archive workflow %s (attempt %d of %d); retrying in %ds",
+            workflow_id,
+            deliveries,
+            ARCHIVE_CONSUMER_MAX_DELIVER,
+            ARCHIVE_RETRY_DELAY_SECONDS,
+        )
+        await msg.nak(delay=ARCHIVE_RETRY_DELAY_SECONDS)
+        return
+    await msg.ack()
+
+
+async def _archive_workflow(data: dict[str, Any]) -> None:
+    """Look up the finished workflow in Temporal and write it to the archive backend."""
     temporal_client = await get_client()
     workflow_handle = temporal_client.get_workflow_handle(data["workflow_id"])
     workflow_response = await WorkflowDetailResponse.from_handle(workflow_handle)
@@ -120,13 +171,13 @@ async def _archive_nvdataflow(workflow_details: Any) -> None:
     ) as client:
         res_status_code = await client.post(data=archive_data)
 
-    if res_status_code != 201:
-        logging.error(
-            "Failed to archive workflow details to nvdataflow with status code %s",
-            res_status_code,
+    if res_status_code in NVDATAFLOW_REJECTED_STATUSES:
+        raise ArchiveRejectedError(f"nvdataflow rejected the record with status {res_status_code}")
+    if res_status_code not in NVDATAFLOW_SUCCESS_STATUSES:
+        raise RuntimeError(
+            f"Failed to archive workflow details to nvdataflow with status code {res_status_code}"
         )
-    else:
-        logging.info("Results written to nvdataflow. Archive handler complete")
+    logging.info("Results written to nvdataflow. Archive handler complete")
 
 
 def _archive_elasticsearch(workflow_details: Any) -> None:
@@ -213,6 +264,7 @@ def main() -> None:
         subject=subject,
         queue_suffix="archive",
         handler=handle_archive_msg,
+        manual_ack=True,
     )
     consumer.run()
 
