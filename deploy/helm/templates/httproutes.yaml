@@ -373,6 +373,18 @@ spec:
 ---
 # Temporal Web UI HTTPRoute (temporal.<base>) - OIDC-only, via browser proxy
 {{- if .Values.temporal.server.enabled }}
+{{- if .Values.temporal.gateway.devUi.authBypass }}
+{{- include "nv-config-manager.authBypassHTTPRoute" (dict
+    "root" .
+    "routeName" (printf "%s-web" $temporalName)
+    "enabled" (.Values.temporal.gateway.devUi.authBypass.enabled | default false)
+    "paths" (.Values.temporal.gateway.devUi.authBypass.paths | default list)
+    "hostname" (tpl .Values.temporal.gateway.devUi.hostname .)
+    "backendName" (printf "%s-web-service" $temporalName)
+    "backendPort" 8080
+) }}
+---
+{{- end }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
