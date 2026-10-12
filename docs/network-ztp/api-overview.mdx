@@ -22,6 +22,11 @@ Device-specific endpoints for boot scripts, configurations, firmware, and provis
 - `POST /v1/device/{device_uuid}/provisioned` - Mark device as provisioned
 - `POST /v1/device/{device_uuid}/validate_serial` - Validate device serial number
 
+Serial validation ignores case and trims surrounding whitespace. Both the
+reported serial and the DCIM serial must contain at least four characters.
+Either value may include a part-number prefix: validation succeeds when one
+value ends with the other. Shorter values or mismatches return HTTP 400.
+
 The source-IP-authorized SFTP service exposes the same rendered configuration
 at `/device/{device_uuid}/{configlet}` on TCP 2222. The default Cumulus boot
 script retrieves `/device/{device_uuid}/startup.yaml` over SFTP; the HTTP API
