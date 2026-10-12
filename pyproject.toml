@@ -32,9 +32,11 @@ dependencies = [
     "aiohttp[speedups]>=3.14.3",
     "aiohttp-retry>=2.9.1",
     "httpx>=0.27.2",
+    # Security: Fix TLS hostname validation (GHSA-82r6-8w77-94w6).
+    "anyio>=4.14.2",
     # Security: Fix urllib3 decompression chain vulnerabilities (GHSA-gm62-xv2j-4w53, GHSA-2xpw-w6gg-jr37)
     # Security: Fix urllib3 vulnerabilities (GHSA-mf9v-mfxr-j63j, GHSA-qccp-gfcp-xxvc)
-    "urllib3>=2.7.0",
+    "urllib3>=2.8.0",
     # AWS / S3
     "boto3>=1.35.42",
     "aioboto3>=13.1.1",
@@ -81,7 +83,7 @@ dependencies = [
     # Security: Fix PKCS#7 decryption oracle (GHSA-g6cj-pr64-35w5)
     "cryptography>=50.0.0",
     # JWT Authentication
-    "PyJWT[crypto]>=2.13.0",
+    "PyJWT[crypto]>=2.14.0",
     # Templating
     "jinja2>=3.1.2",
     "ruamel-yaml>=0.18.6",
