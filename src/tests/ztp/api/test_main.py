@@ -984,3 +984,30 @@ def test_v1_files_list_all(client):
         rsp = client.get("/v1/files/", headers=SSO_HEADERS)
         assert rsp.status_code == 200
         assert rsp.json() == expected_rsp_json
+
+
+@pytest.mark.parametrize(
+    ("auth_required", "headers"),
+    [(True, {}), (True, SSO_HEADERS), (False, {})],
+    ids=["anonymous", "sso", "auth-disabled"],
+)
+def test_device_v1_validate_serial_missing_device(client, auth_required, headers):
+    """Real serial lookup maps Nautobot's null device response to HTTP 404."""
+    device_id = "00000000-0000-0000-0000-000000000000"
+    with (
+        patch("nv_config_manager.common.auth._auth_config", AuthConfig(required=auth_required)),
+        patch(
+            "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+            new_callable=AsyncMock,
+            return_value={"data": {"device": None, "config_manager_device": None}},
+        ) as mock_query,
+    ):
+        rsp = client.post(
+            f"/v1/device/{device_id}/validate_serial",
+            json={"serial": "MT2531J01M8G"},
+            headers=headers,
+        )
+
+    assert rsp.status_code == 404
+    assert rsp.json() == {"detail": f"No DCIM device data found for {device_id}."}
+    mock_query.assert_awaited_once()
