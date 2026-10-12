@@ -14,6 +14,8 @@
 # limitations under the License.
 """V1 Device API Endpoints."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
@@ -45,6 +47,14 @@ async def _authorize_request(request: Request, device_uuid: str) -> DeviceData |
     Only the anonymous path needs to read the device, so the other paths return
     ``None`` and leave the fetch to whoever actually needs the data.
     """
+    # Reject malformed IDs before either authenticated or anonymous DCIM access.
+    try:
+        UUID(device_uuid)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400, detail="Invalid device ID: must be a valid UUID."
+        ) from exc
+
     # This endpoint has sensitive content, check if coming from the
     # device associated with this configuration
 

@@ -81,6 +81,42 @@ def test_docs(client):
     assert rsp.status_code == 200
 
 
+@pytest.mark.parametrize("device_id", ["not-a-uuid", "123", "g" * 32])
+@pytest.mark.parametrize(
+    ("auth_required", "headers"),
+    [(True, {}), (True, SSO_HEADERS), (False, {})],
+    ids=["anonymous", "sso", "auth-disabled"],
+)
+@pytest.mark.parametrize(
+    ("method", "endpoint", "body"),
+    [
+        ("GET", "boot-script", None),
+        ("GET", "config/startup.yaml", None),
+        ("GET", "firmware", None),
+        ("GET", "onie", None),
+        ("GET", "firmware/checksum", None),
+        ("POST", "provisioned", None),
+        ("POST", "validate_serial", {"serial": "MT2531J01M8G"}),
+    ],
+)
+def test_device_v1_rejects_invalid_uuid(
+    client, device_id, auth_required, headers, method, endpoint, body
+):
+    """Invalid device IDs fail before accessing DCIM, regardless of login."""
+    with (
+        patch("nv_config_manager.common.auth._auth_config", AuthConfig(required=auth_required)),
+        patch("nv_config_manager.ztp.api.device_v1.dcim_client_session") as mock_dcim,
+    ):
+        rsp = client.request(
+            method, f"/v1/device/{device_id}/{endpoint}", headers=headers, json=body
+        )
+
+    assert rsp.status_code == 400
+    assert rsp.json() == {"detail": "Invalid device ID: must be a valid UUID."}
+    mock_dcim.assert_not_called()
+
+
+@pytest.mark.parametrize("headers", [{}, SSO_HEADERS], ids=["anonymous", "sso"])
 @patch("nv_config_manager.ztp.api.device_v1.Request.client")
 def test_device_v1_bootscript(
     mock_request_client,
@@ -88,6 +124,7 @@ def test_device_v1_bootscript(
     mock_not_found_data,
     mock_no_render_data,
     client,
+    headers,
 ):
     """Test device bootscript v1 endpoint."""
     mock_request_client.host = "testclient"
@@ -107,7 +144,7 @@ def test_device_v1_bootscript(
             new_callable=AsyncMock,
             return_value="boot-script content",
         ):
-            rsp = client.get(f"/v1/device/{uuid4()}/boot-script")
+            rsp = client.get(f"/v1/device/{uuid4()}/boot-script", headers=headers)
             assert rsp.text == "boot-script content"
             assert rsp.status_code == 200
 
@@ -115,14 +152,14 @@ def test_device_v1_bootscript(
         "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         return_value=mock_not_found_data,
     ):
-        rsp = client.get(f"/v1/device/{uuid4()}/boot-script")
+        rsp = client.get(f"/v1/device/{uuid4()}/boot-script", headers=headers)
         assert rsp.status_code == 404
 
     with patch(
         "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
         return_value=mock_no_render_data,
     ):
-        rsp = client.get(f"/v1/device/{uuid4()}/boot-script")
+        rsp = client.get(f"/v1/device/{uuid4()}/boot-script", headers=headers)
         assert rsp.status_code == 404
 
 

@@ -22,6 +22,11 @@ Device-specific endpoints for boot scripts, configurations, firmware, and provis
 - `POST /v1/device/{device_uuid}/provisioned` - Mark device as provisioned
 - `POST /v1/device/{device_uuid}/validate_serial` - Validate device serial number
 
+Device IDs must be valid UUIDs. Malformed IDs return HTTP 400 with the message
+`Invalid device ID: must be a valid UUID.`, including for authenticated requests.
+Boot-script requests for a valid UUID that does not identify an existing device
+return HTTP 404.
+
 The source-IP-authorized SFTP service exposes the same rendered configuration
 at `/device/{device_uuid}/{configlet}` on TCP 2222. The default Cumulus boot
 script retrieves `/device/{device_uuid}/startup.yaml` over SFTP; the HTTP API
