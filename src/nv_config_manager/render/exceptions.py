@@ -20,4 +20,4 @@ class RenderException(Exception):
 
 
 class RenderScopeMismatch(RenderException):
-    """The device is outside the aggregate deployment's render scope."""
+    """The device is outside this deployment's aggregate-management scope."""
