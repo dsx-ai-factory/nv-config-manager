@@ -684,7 +684,10 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             _DEVICE_SERIAL_QUERY,
             variables={"id": device_id},
         )
-        serial = result.get("data", {}).get("device", {}).get("serial")
+        device = result.get("data", {}).get("device")
+        if device is None:
+            raise DCIMNotFoundError(f"No DCIM device data found for {device_id}.")
+        serial = device.get("serial")
         if not serial:
             raise DCIMNotFoundError(f"No serial found in DCIM for {device_id}.")
         return str(serial)

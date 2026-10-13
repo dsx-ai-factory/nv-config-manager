@@ -55,6 +55,7 @@ def test_git_token_is_not_persisted_in_setup_script() -> None:
     setup_script = write_files["/opt/nvcm-setup.sh"]
     git_token_file = write_files["/opt/nvcm-git-token"]
 
+    assert "uv run --python 3.13" in setup_script["content"]
     assert setup_script["permissions"] == "0700"
     assert setup_script["owner"] == "root:root"
     assert token not in setup_script["content"]

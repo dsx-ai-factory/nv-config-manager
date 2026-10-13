@@ -170,7 +170,8 @@ push-based subscriptions, which improves flow control and horizontal scaling.
 
 **Distributed locking**: Redis-backed locks prevent concurrent renders for the same device across multiple consumer instances.
 
-**Version-aware processing**: The template-updater job compares the current
+**Version-aware processing**: The template-updater job selects only devices with
+rendering enabled in the DCIM provider, then compares the current
 template package version with the version recorded by the selected DCIM
 provider. It renders stale devices directly with bounded concurrency and
 per-device locks.
