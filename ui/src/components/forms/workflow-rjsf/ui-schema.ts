@@ -155,6 +155,9 @@ export const fieldUi = (uiSchema: unknown, name: string): JsonObject => {
   return isObject(ui) ? ui : {};
 };
 
+export const isReadonly = (uiSchema: unknown, name: string): boolean =>
+  own(fieldUi(uiSchema, name), "ui:readonly") === true;
+
 export const fieldOptions = (uiSchema: unknown, name: string): JsonObject => {
   const options = own(fieldUi(uiSchema, name), "ui:options");
   return isObject(options) ? options : {};

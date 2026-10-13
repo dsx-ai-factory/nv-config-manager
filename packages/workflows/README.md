@@ -475,9 +475,10 @@ Form-catalog construction rejects every other key, widget, and field.
 | root | `ui:submitButtonOptions` | `{"submitText": "<label>"}` |
 | root | `ui:globalOptions` | Form-wide `hideSchemaDescriptions`, `exclusiveGroups`, and `fieldComparisons` behavior described below |
 | property | `ui:title`, `ui:help`, `ui:description`, `ui:placeholder` | Non-blank text |
+| property | `ui:helpVariant` | `info`, `success`, `warning`, or `destructive`; requires `ui:help` |
 | property | `ui:widget` | `text`, `textarea`, `checkbox`, `select`, or `hidden` |
 | property | `ui:field` | `apiOptions`, `device`, `location`, or `variantRows`; set by the helpers |
-| property | `ui:readonly` | Boolean |
+| property | `ui:readonly` | Boolean; URL prefill is ignored so the initialized value remains unchanged |
 | property | `ui:options` | `{"rows": <positive int>}` for a standard field; core-field options come from the helpers |
 
 Property keys must name top-level properties of the projected schema, and a
@@ -801,22 +802,35 @@ submitted body, owns the marked identity value:
   default applies. Direct HTTP and Temporal callers may still provide it. Use it
   for values that schedulers or parent workflows send, and for fields resolved
   outside the form.
-- `FormSchema(*, default=..., min_items=, max_items=, min_length=, max_length=,
-  minimum=, maximum=, pattern=)`: adds form-only JSON Schema keywords (`default`,
-  `minItems`, `maxItems`, `minLength`, `maxLength`, `minimum`, `maximum`, and
-  `pattern`) to the property. Each keyword must fit the property's JSON type,
-  `pattern` uses JSON Schema's ECMAScript Unicode syntax, and `default` must
-  validate against the field's type and must not be `None`. Use it to tighten
-  or seed the form without changing what the API accepts. For example,
-  `BackupInput` keeps `trigger` required and gives the form a hidden default of
-  `API`.
+- `FormSchema(*, required=False, default=..., min_items=, max_items=, min_length=,
+  max_length=, minimum=, maximum=, pattern=)`: adds form-only JSON Schema rules.
+  `required=True` makes a defaulted model field required by the form; the other
+  arguments add `default`, `minItems`, `maxItems`, `minLength`, `maxLength`,
+  `minimum`, `maximum`, and `pattern` to the property. Each keyword must fit the
+  property's JSON type, `pattern` uses JSON Schema's ECMAScript Unicode syntax,
+  and `default` must validate against the field's type and must not be `None`.
+  Use it to tighten or seed the form without changing what the API accepts. A
+  top-level `default` seeds the form only when it is initialized. If the user
+  clears the field, or a dependency change clears it, the UI does not restore
+  the default. A field marked `required=True` must then be selected again before
+  submission. For example, `BackupInput` keeps `trigger` required and gives the
+  form a hidden default of `API`.
 
 `ServerOwned` and `FormExcluded` fields must have a Pydantic default or
 `default_factory`, because the request body is validated before the server
 fills it. A field carries at most one marker. Markers belong only in a top-level
 field's own metadata or in a top-level `Annotated` alias. Form-catalog
 construction rejects a marker in a list item, a union member, or a nested
-model's field. Marked fields cannot appear in `rjsf_ui_schema`.
+model's field. `ServerOwned` and `FormExcluded` fields cannot appear in
+`rjsf_ui_schema`. Root JSON Schema dependencies, effective conditionals,
+combinators, and same-document JSON Pointer references may constrain the
+remaining form fields, but cannot reference an omitted property. Whole-object
+assertions such as `minProperties`, `maxProperties`, `const`, and `enum` cannot
+be combined with omitted properties. When properties are omitted, the form
+catalog also rejects embedded schema resources, alternate dialects, anchors,
+dynamic references, custom vocabularies, unrecognized root-scope keywords, and
+malformed schemas. It rejects these unsafe combinations instead of guessing or
+changing a constraint's meaning during projection.
 
 Keep input models compatible: an input model is the API request body and the
 Temporal payload of existing workflow histories. Express form-only rules with
@@ -912,6 +926,7 @@ The backend derives `requires` from the declaration:
   `ui:globalOptions.exclusiveGroups`
 - `prefill.query-separator.v1` for a server-owned legacy multi-value URL
   delimiter
+- `theme.help-variant.v1` when a property sets `ui:helpVariant`
 - `theme.hide-schema-descriptions.v1` when `ui:globalOptions.hideSchemaDescriptions`
   is `true`
 - `validation.field-comparison.v1` for

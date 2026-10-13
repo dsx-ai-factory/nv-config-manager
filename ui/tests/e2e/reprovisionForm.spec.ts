@@ -38,9 +38,10 @@ test("Reprovision warns that the workflow is destructive", async ({ page }) => {
   await mockServerCatalogAndUser(page, ["reader", "executor"]);
   await page.goto(formPath("ReprovisionWorkflow"));
   await expect(
-    page.getByText(
-      "This workflow is destructive. It will replace all existing configuration on the " +
-        "device with the intended configuration."
-    )
+    page.getByRole("alert").filter({
+      hasText:
+        "This workflow is destructive. It will replace all existing configuration on the " +
+        "device with the intended configuration.",
+    })
   ).toBeVisible({ timeout: TEST_TIMEOUT });
 });

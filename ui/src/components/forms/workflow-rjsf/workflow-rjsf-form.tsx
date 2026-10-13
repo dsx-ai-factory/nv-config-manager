@@ -50,6 +50,7 @@ import {
   activeExclusiveGroups,
   RJSF_DEFAULT_STATE_BEHAVIOR,
   type FormData,
+  withoutTopLevelDefaults,
 } from "./state";
 import { workflowTheme } from "./theme";
 import {
@@ -76,6 +77,10 @@ const RjsfForm = ({ entry, form, searchParams }: WorkflowRjsfFormProps) => {
   const { toast } = useToast();
   const schema = form.schema as RJSFSchema;
   const uiSchema = form.ui_schema as UiSchema;
+  const runtimeSchema = React.useMemo(
+    () => withoutTopLevelDefaults(schema),
+    [schema]
+  );
   const [query] = React.useState(() => snapshotQuery(searchParams));
   const { state, dispatch, context } = useShellState(schema, uiSchema, query);
   const [submitAttempted, setSubmitAttempted] = React.useState(false);
@@ -109,13 +114,7 @@ const RjsfForm = ({ entry, form, searchParams }: WorkflowRjsfFormProps) => {
     [schema, uiSchema, context.layout]
   );
   const customValidate = React.useMemo(
-    () =>
-      createCustomValidate(
-        schema,
-        uiSchema,
-        context.layout,
-        state.filters
-      ),
+    () => createCustomValidate(schema, uiSchema, context.layout, state.filters),
     [schema, uiSchema, context.layout, state.filters]
   );
   const { submitText = "Submit" } = getSubmitButtonOptions(uiSchema);
@@ -163,7 +162,7 @@ const RjsfForm = ({ entry, form, searchParams }: WorkflowRjsfFormProps) => {
 
   return (
     <Form
-      schema={schema}
+      schema={runtimeSchema}
       uiSchema={renderedUiSchema}
       formData={state.formData}
       formContext={context}

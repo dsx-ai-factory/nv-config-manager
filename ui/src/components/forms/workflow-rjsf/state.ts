@@ -68,6 +68,35 @@ export const RJSF_DEFAULT_STATE_BEHAVIOR: Experimental_DefaultFormStateBehavior 
     emptyObjectFields: "populateRequiredDefaults",
   };
 
+/**
+ * The shell initializes top-level defaults once from the contract schema. Remove
+ * those annotations from the schema subsequently given to controlled RJSF so
+ * deleting a value does not cause RJSF to restore it. Nested, array-item, and
+ * conditional defaults remain available to RJSF.
+ */
+export const withoutTopLevelDefaults = (schema: RJSFSchema): RJSFSchema => {
+  const properties = propertiesOf(schema);
+  if (
+    !Object.values(properties).some((property) =>
+      Object.prototype.hasOwnProperty.call(property, "default")
+    )
+  ) {
+    return schema;
+  }
+
+  return {
+    ...schema,
+    properties: Object.fromEntries(
+      Object.entries(properties).map(([name, property]) => [
+        name,
+        Object.fromEntries(
+          Object.entries(property).filter(([key]) => key !== "default")
+        ),
+      ])
+    ),
+  };
+};
+
 export interface ShellState {
   /** Projected properties only. */
   formData: Readonly<FormData>;
@@ -390,9 +419,7 @@ export const shellReducer = (
       if (eventChanged.length === 0) return state;
       let formData = applyPatch(
         state.formData,
-        Object.fromEntries(
-          eventChanged.map((key) => [key, action.next[key]])
-        )
+        Object.fromEntries(eventChanged.map((key) => [key, action.next[key]]))
       );
       let pending = state.pending;
       for (const key of eventChanged)

@@ -28,6 +28,7 @@ import {
   deviceOptionsOf,
   fieldOptions,
   isHidden,
+  isReadonly,
   propertiesOf,
   resolveRef,
   type CoreFieldName,
@@ -126,8 +127,8 @@ const coerce = (raw: string, type: unknown): unknown => {
 
 /**
  * Coerce standard-field URL values into form data by schema type. Only projected
- * properties are read, so server-owned and excluded inputs cannot be set; hidden and
- * core fields are skipped, and unknown parameters are ignored.
+ * properties are read, so server-owned and excluded inputs cannot be set; hidden,
+ * read-only, and core fields are skipped, and unknown parameters are ignored.
  */
 export const standardPrefill = (
   schema: unknown,
@@ -136,7 +137,13 @@ export const standardPrefill = (
 ): FormData => {
   const data: FormData = {};
   for (const [name, node] of Object.entries(propertiesOf(schema))) {
-    if (isHidden(uiSchema, name) || coreFieldOf(uiSchema, name)) continue;
+    if (
+      isHidden(uiSchema, name) ||
+      isReadonly(uiSchema, name) ||
+      coreFieldOf(uiSchema, name)
+    ) {
+      continue;
+    }
     const values = queryValues(query, [name]);
     if (values.length === 0) continue;
     const property = resolveRef(schema, node);
@@ -160,6 +167,7 @@ export const initialPending = (
 ): Set<Owner> => {
   const pending = new Set<Owner>();
   for (const name of Object.keys(propertiesOf(schema))) {
+    if (isReadonly(uiSchema, name)) continue;
     const core = coreFieldOf(uiSchema, name);
     if (!core) continue;
     if (queryValues(query, fieldPrefillParams(uiSchema, name)).length > 0) {

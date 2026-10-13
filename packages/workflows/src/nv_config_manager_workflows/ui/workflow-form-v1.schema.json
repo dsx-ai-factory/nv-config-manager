@@ -106,7 +106,7 @@
       "additionalProperties": false
     },
     "dependency": {
-      "description": "A sibling form property whose value supplies one option query parameter. A required dependency holds the request while empty; an optional one is omitted while empty.",
+      "description": "A sibling form property whose value supplies one option query parameter. The dependency is required by default: the request waits while the field is empty. Set required to false to omit an empty dependency from the request.",
       "type": "object",
       "properties": {
         "field": {
@@ -114,7 +114,7 @@
           "$ref": "#/$defs/propertyName"
         },
         "required": {
-          "description": "When false, omit an empty dependency instead of holding the request.",
+          "description": "Set to false to make the dependency optional. When omitted, the dependency is required and an empty field holds the request.",
           "const": false
         }
       },
@@ -476,6 +476,10 @@
           "description": "Supporting help text displayed with the field.",
           "$ref": "#/$defs/nonBlankString"
         },
+        "ui:helpVariant": {
+          "description": "Prominent semantic presentation applied to ui:help.",
+          "enum": ["info", "success", "warning", "destructive"]
+        },
         "ui:description": {
           "description": "UI-specific description displayed with the field.",
           "$ref": "#/$defs/nonBlankString"
@@ -502,6 +506,7 @@
         }
       },
       "additionalProperties": false,
+      "dependentRequired": { "ui:helpVariant": ["ui:help"] },
       "not": { "required": ["ui:widget", "ui:field"] },
       "allOf": [
         {

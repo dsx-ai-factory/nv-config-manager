@@ -90,6 +90,7 @@ class ReprovisionInput(BaseModel):
                 "This workflow is destructive. It will replace all existing configuration on "
                 "the device with the intended configuration."
             ),
+            "ui:helpVariant": "destructive",
         },
     }
 

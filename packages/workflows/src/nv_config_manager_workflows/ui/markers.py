@@ -56,14 +56,16 @@ class FormExcluded:
 class FormSchema:
     """Form-only JSON Schema keywords merged into this field's ``/form`` property.
 
-    They tighten or seed the form without changing what the API accepts:
-    ``default`` becomes the projected ``default`` (JSON-encoded through the
-    field's type), and the remaining keywords become ``minItems``, ``maxItems``,
-    ``minLength``, ``maxLength``, ``minimum``, ``maximum``, and ``pattern``.
-    ``pattern`` uses the ECMAScript Unicode syntax defined by JSON Schema and is
-    compiled by the browser before the form is rendered.
+    They tighten or seed the form without changing what the API accepts.
+    ``required=True`` adds a defaulted model field to the projected object's
+    ``required`` list. ``default`` becomes the projected ``default`` (JSON-encoded
+    through the field's type), and the remaining keywords become ``minItems``,
+    ``maxItems``, ``minLength``, ``maxLength``, ``minimum``, ``maximum``, and
+    ``pattern``. ``pattern`` uses the ECMAScript Unicode syntax defined by JSON
+    Schema and is compiled by the browser before the form is rendered.
     """
 
+    required: bool = False
     default: Any = UNSET
     min_items: int | None = None
     max_items: int | None = None

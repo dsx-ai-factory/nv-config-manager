@@ -362,7 +362,7 @@ class SpXOverlayDeletionInput(BaseModel):
         title="Overlay ID",
         description="Identifier of the SpX overlay to delete.",
     )
-    namespace_tag: str = Field(
+    namespace_tag: Annotated[str, ui.FormSchema(required=True)] = Field(
         default=NAMESPACE_TAG, description="Tag identifying the namespace used for allocation."
     )
 

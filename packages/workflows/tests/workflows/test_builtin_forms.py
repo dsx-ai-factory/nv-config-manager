@@ -42,7 +42,11 @@ from nv_config_manager_workflows.workflows.lldp import PortLLDPInfoWorkflow
 from nv_config_manager_workflows.workflows.site_password_rotation import (
     SitePasswordRotationWorkflow,
 )
-from nv_config_manager_workflows.workflows.spx_overlay import SpXOverlayTenantChangeWorkflow
+from nv_config_manager_workflows.workflows.spx_overlay import (
+    SpXOverlayDeletionInput,
+    SpXOverlayDeletionWorkflow,
+    SpXOverlayTenantChangeWorkflow,
+)
 
 _FORM_IDS = Path(__file__).resolve().parents[1] / "fixtures" / "builtin_form_ids.json"
 
@@ -224,6 +228,15 @@ def test_spx_tenant_change_drives_the_device_from_its_site_field(
         "core-field.location.v1",
         "prefill.query-separator.v1",
     ]
+
+
+def test_spx_deletion_requires_a_namespace_only_in_the_form(
+    form_catalog: WorkflowFormCatalog,
+) -> None:
+    form_schema = form_catalog.forms[SpXOverlayDeletionWorkflow]["schema"]
+
+    assert "namespace_tag" in form_schema["required"]
+    assert "namespace_tag" not in SpXOverlayDeletionInput.model_json_schema()["required"]
 
 
 @pytest.mark.parametrize(

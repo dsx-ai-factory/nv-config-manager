@@ -50,6 +50,7 @@ from nv_config_manager_workflows.registration.registry import (
 from nv_config_manager_workflows.stage import StageMixin
 from nv_config_manager_workflows.ui import (
     Dependency,
+    FormExcluded,
     FormOptionProvider,
     FormOptionSource,
     FormSchema,
@@ -69,6 +70,15 @@ class InvalidFormInput(BaseModel):
 
     device: str
     count: Annotated[int, FormSchema(default="many")] = 1
+
+
+class OmittedConstraintInput(BaseModel):
+    """References an omitted property from a root form constraint."""
+
+    model_config = ConfigDict(json_schema_extra={"dependentRequired": {"device": ["internal"]}})
+
+    device: str
+    internal: Annotated[str, FormExcluded()] = "server-default"
 
 
 class WireInvalidFormInput(BaseModel):
@@ -679,6 +689,20 @@ class TestForms:
         assert "FormSchema default 'many' is not valid for the field" in diagnostic.message
         assert "\n" not in diagnostic.message
 
+    def test_an_unsafe_omitted_constraint_is_isolated_from_the_third_party_catalog(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(BetaWorkflow, "workflow_input_class", OmittedConstraintInput)
+        registry = WorkflowRegistry.build(
+            installed(plugin("beta-plugin", workflows=(BetaWorkflow,)))
+        )
+
+        catalog = WorkflowFormCatalog.build(registry)
+
+        assert BetaWorkflow in registry.api_workflows
+        assert BetaWorkflow not in catalog.forms
+        assert "#/dependentRequired/device/0" in catalog.diagnostics[BetaWorkflow].message
+
     def test_a_wire_invalid_third_party_form_is_isolated_and_fails_offline_validation(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -777,6 +801,20 @@ class TestForms:
         )
 
         with pytest.raises(WorkflowFormContractError, match="FormSchema default"):
+            WorkflowFormCatalog.build(registry)
+
+    def test_an_unsafe_omitted_constraint_fails_the_builtin_form_catalog_build(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(BetaWorkflow, "workflow_input_class", OmittedConstraintInput)
+        registry = WorkflowRegistry.build(
+            installed(plugin(BUILTIN_PLUGIN_NAME, workflows=(BetaWorkflow,)))
+        )
+
+        with pytest.raises(
+            WorkflowFormContractError,
+            match=r"cannot omit form property 'internal'.*#/dependentRequired/device/0",
+        ):
             WorkflowFormCatalog.build(registry)
 
     def test_a_wire_invalid_builtin_form_fails_the_form_catalog_build(

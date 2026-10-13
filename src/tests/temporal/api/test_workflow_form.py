@@ -508,9 +508,14 @@ def test_form_operation_is_published_under_its_operation_id() -> None:
         "ui:order",
         "ui:submitButtonOptions",
     }
-    assert (
-        ui_schema["patternProperties"]["^[A-Za-z_][A-Za-z0-9_]*$"]["additionalProperties"] is False
-    )
+    field_ui_schema = ui_schema["patternProperties"]["^[A-Za-z_][A-Za-z0-9_]*$"]
+    assert field_ui_schema["additionalProperties"] is False
+    assert field_ui_schema["properties"]["ui:helpVariant"]["enum"] == [
+        "info",
+        "success",
+        "warning",
+        "destructive",
+    ]
     assert list(_refs(ui_schema)) == []
     assert response_schema["properties"]["ui_schema_version"]["const"] == 1
     assert path_item["get"]["responses"]["404"]["content"]["application/json"]["schema"] == {

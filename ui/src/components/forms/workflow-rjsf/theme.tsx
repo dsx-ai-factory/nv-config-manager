@@ -170,10 +170,39 @@ const FieldErrorTemplate = ({
 const FieldHelpTemplate = ({
   help,
   fieldPathId,
+  uiSchema,
 }: {
   help?: string | React.ReactElement;
   fieldPathId: { $id: string };
-}) => (help ? <Muted id={`${fieldPathId.$id}__help`}>{help}</Muted> : null);
+  uiSchema?: UiSchema;
+}) => {
+  if (!help) return null;
+  const variant = uiSchema?.["ui:helpVariant"];
+  const variantClasses = {
+    info: "border-blue-500/50 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+    success:
+      "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    warning:
+      "border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    destructive: "border-destructive/50 bg-destructive/10 text-destructive",
+  } as const;
+  const classes =
+    typeof variant === "string"
+      ? variantClasses[variant as keyof typeof variantClasses]
+      : undefined;
+  if (classes) {
+    return (
+      <div
+        id={`${fieldPathId.$id}__help`}
+        role="alert"
+        className={`rounded-md border px-3 py-2 text-sm ${classes}`}
+      >
+        {help}
+      </div>
+    );
+  }
+  return <Muted id={`${fieldPathId.$id}__help`}>{help}</Muted>;
+};
 
 /** The root object is the form itself; a nested object is a fieldset. */
 const ObjectFieldTemplate = ({

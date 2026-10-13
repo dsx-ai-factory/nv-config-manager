@@ -140,6 +140,20 @@ def test_a_full_declaration_builds_the_v1_envelope() -> None:
     Draft202012Validator(wire_schema()).validate(envelope)
 
 
+def test_help_variant_requires_the_matching_ui_capability() -> None:
+    envelope = _build(
+        {
+            "site": {
+                "ui:help": "This operation is destructive.",
+                "ui:helpVariant": "destructive",
+            }
+        }
+    )
+
+    assert envelope["requires"] == ["theme.help-variant.v1"]
+    Draft202012Validator(wire_schema()).validate(envelope)
+
+
 def test_an_undeclared_form_is_a_bare_projection() -> None:
     envelope = build_form(ExampleInput)
 
@@ -155,6 +169,22 @@ def test_an_undeclared_form_is_a_bare_projection() -> None:
         "count",
     ]
     Draft202012Validator(wire_schema()).validate(envelope)
+
+
+def test_ui_schema_declared_as_a_model_field_is_rejected() -> None:
+    class MisdeclaredInput(BaseModel):
+        rjsf_ui_schema: Mapping[str, object] = {"name": {"ui:title": "Name"}}
+
+        name: str
+
+    with pytest.raises(
+        WorkflowFormContractError,
+        match=(
+            r"MisdeclaredInput\.rjsf_ui_schema is a Pydantic model field; declare form "
+            r"metadata as rjsf_ui_schema: ClassVar\[Mapping\[str, object\]\] instead"
+        ),
+    ):
+        build_form(MisdeclaredInput)
 
 
 def test_api_options_can_disable_the_picker_when_no_matches_are_returned() -> None:
@@ -383,6 +413,14 @@ _SHARED = device_field(DEVICES, filters=("tenant",), filter_scope="shared", quer
         ({"site": "text"}, "must be a mapping"),
         ({"site": {"ui:label": "Site"}}, "unsupported keys ['ui:label']"),
         ({"site": {"ui:title": " "}}, "must be a non-empty string"),
+        (
+            {"site": {"ui:helpVariant": "destructive"}},
+            "ui:helpVariant requires ui:help",
+        ),
+        (
+            {"site": {"ui:help": "Help", "ui:helpVariant": "urgent"}},
+            "ui:helpVariant 'urgent' is not one of",
+        ),
         ({"site": {"ui:widget": "radio"}}, "ui:widget 'radio' is not one of"),
         ({"site": {"ui:field": "tags", "ui:options": {}}}, "ui:field 'tags' is not one of"),
         ({"site": {**LOCATION_FIELD, "ui:widget": "text"}}, "sets both ui:widget and ui:field"),
@@ -653,6 +691,17 @@ def test_a_standard_tenant_field_and_a_tenant_filter_collide() -> None:
     )
 
 
+def test_a_read_only_property_is_not_a_url_prefill_owner() -> None:
+    class WithReadOnlyTenant(ExampleInput):
+        tenant: str = "fixed"
+        rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+            "tenant": {"ui:readonly": True},
+            "device_id": device_field(DEVICES, filters=("tenant",)),
+        }
+
+    build_form(WithReadOnlyTenant)
+
+
 def test_an_alias_colliding_with_another_property_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -693,6 +742,7 @@ def test_derivable_capabilities_are_supported_by_the_manifest() -> None:
         *form_module.FIELD_CAPABILITIES.values(),
         form_module.EXCLUSIVE_GROUPS_CAPABILITY,
         form_module.FIELD_COMPARISON_CAPABILITY,
+        form_module.HELP_VARIANT_CAPABILITY,
         form_module.HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY,
         form_module.QUERY_SEPARATOR_CAPABILITY,
     }

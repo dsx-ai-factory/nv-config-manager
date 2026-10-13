@@ -57,7 +57,7 @@ test.describe("New SpX Overlay Deletion Workflow", () => {
     await expect(page.locator("form label")).toHaveText([
       "Site *",
       "Overlay ID *",
-      "Namespace Tag",
+      "Namespace Tag *",
     ]);
     // Like the legacy page: schema descriptions stay hidden. Dependency feedback is
     // still useful while the overlay options are waiting for a site.
@@ -129,6 +129,7 @@ test.describe("New SpX Overlay Deletion Workflow", () => {
     ).toBeEnabled({
       timeout: TEST_TIMEOUT,
     });
+    await page.getByRole("button", { name: "Clear selection" }).click();
 
     await page.getByRole("button", { name: "Submit" }).click();
 
@@ -137,6 +138,9 @@ test.describe("New SpX Overlay Deletion Workflow", () => {
       timeout: TEST_TIMEOUT,
     });
     await expect(page.getByText("Overlay ID is required")).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(page.getByText("Namespace Tag is required")).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
   });

@@ -44,9 +44,9 @@ NAMESPACE_TAG_SOURCE = OptionSource(
 )
 """Namespace tags, optionally scoped to the form's ``site`` and ``site_type``.
 
-No ``clear_on_change``: choosing a site keeps the default or chosen tag, as the
-legacy forms did. Clearing it would omit the field, so the workflow would
-silently run with the default tag instead of the one shown.
+No ``clear_on_change``: choosing a site keeps the default or chosen tag when it
+remains available, as the legacy forms did. The picker still prunes a tag absent
+from the site's options; forms that require the tag then ask for another selection.
 """
 
 __all__ = [

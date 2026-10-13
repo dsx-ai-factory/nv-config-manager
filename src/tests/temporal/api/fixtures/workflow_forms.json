@@ -1868,12 +1868,14 @@
           "filterScope": "implicit:device_id"
         },
         "ui:title": "Device",
-        "ui:help": "This workflow is destructive. It will replace all existing configuration on the device with the intended configuration."
+        "ui:help": "This workflow is destructive. It will replace all existing configuration on the device with the intended configuration.",
+        "ui:helpVariant": "destructive"
       }
     },
     "ui_schema_version": 1,
     "requires": [
-      "core-field.device.v1"
+      "core-field.device.v1",
+      "theme.help-variant.v1"
     ]
   },
   "SiteBackupWorkflow": {
@@ -2496,7 +2498,8 @@
       },
       "required": [
         "site",
-        "overlay_id"
+        "overlay_id",
+        "namespace_tag"
       ],
       "title": "SpXOverlayDeletionInput",
       "type": "object"

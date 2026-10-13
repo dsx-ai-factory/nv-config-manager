@@ -33,10 +33,12 @@ import {
   createInitialState,
   shellReducer,
   type ShellState,
+  withoutTopLevelDefaults,
 } from "@/components/forms/workflow-rjsf/state";
 import {
   type DeviceOptions,
   effectiveOrder,
+  propertiesOf,
 } from "@/components/forms/workflow-rjsf/ui-schema";
 import {
   createCustomValidate,
@@ -141,6 +143,34 @@ const scoped = {
 };
 
 describe("initial state", () => {
+  it("removes only top-level defaults from the controlled RJSF schema", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        name: { type: "string", default: "initial", title: "Name" },
+        ticket: { $ref: "#/$defs/Ticket", title: "Ticket" },
+      },
+      $defs: {
+        Ticket: {
+          type: "object",
+          properties: {
+            platform: {
+              type: "string",
+              default: "jira",
+              title: "Platform",
+            },
+          },
+        },
+      },
+    } as RJSFSchema;
+
+    const runtimeSchema = withoutTopLevelDefaults(schema);
+
+    expect(propertiesOf(runtimeSchema).name).not.toHaveProperty("default");
+    expect(propertiesOf(schema).name).toHaveProperty("default", "initial");
+    expect(runtimeSchema.$defs).toBe(schema.$defs);
+  });
+
   it("accepts repeated and comma-separated values for multi-select option prefills", () => {
     const values = optionQueryValues(
       query("port_names=swp1%2C+swp2&port_names=swp3"),
@@ -215,6 +245,50 @@ describe("initial state", () => {
         query("count=1.5&dry_run=yes")
       )
     ).toEqual({});
+  });
+
+  it("keeps read-only defaults while editable fields accept URL prefills", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        locked: { type: "string", default: "fixed" },
+        editable: { type: "string", default: "initial" },
+      },
+    } as RJSFSchema;
+    const uiSchema = { locked: { "ui:readonly": true } };
+    const search = query("locked=override&editable=changed");
+
+    expect(standardPrefill(schema, uiSchema, search)).toEqual({
+      editable: "changed",
+    });
+    expect(createInitialState(schema, uiSchema, search).formData).toEqual({
+      locked: "fixed",
+      editable: "changed",
+    });
+  });
+
+  it("does not start field or filter prefill for a read-only core field", () => {
+    const schema = {
+      type: "object",
+      properties: { device_id: { type: "string" } },
+    } as RJSFSchema;
+    const uiSchema = {
+      device_id: {
+        "ui:field": "device",
+        "ui:readonly": true,
+        "ui:options": {
+          ...DEVICE_OPTIONS,
+          filters: ["tenant"],
+          filterSources: { tenant: DEVICE_OPTIONS.filterSources.tenant },
+          filterScope: "implicit:device_id",
+          queryParam: "device-id",
+        },
+      },
+    };
+
+    expect([
+      ...initialPending(schema, uiSchema, query("device-id=d1&tenant=T")),
+    ]).toEqual([]);
   });
 
   it("never prefills hidden, core, or non-projected properties", () => {
@@ -790,9 +864,7 @@ describe("validation messages", () => {
         { "implicit:device_id": { site: { id: "PDX01", type: "Site" } } }
       )
     ).toEqual([]);
-    expect(validate({ remote_mac_address: "00:11:22:33:44:55" })).toEqual(
-      []
-    );
+    expect(validate({ remote_mac_address: "00:11:22:33:44:55" })).toEqual([]);
     expect(
       messages(
         validate({

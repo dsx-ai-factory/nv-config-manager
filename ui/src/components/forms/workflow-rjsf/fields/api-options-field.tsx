@@ -226,10 +226,7 @@ const GroupedOptions = ({
       )}
 
       {description ? (
-        <p
-          id={descriptionId(id)}
-          className="text-sm text-muted-foreground"
-        >
+        <p id={descriptionId(id)} className="text-sm text-muted-foreground">
           {description}
         </p>
       ) : null}

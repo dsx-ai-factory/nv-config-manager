@@ -143,6 +143,8 @@ ENRICHED_API_OPTIONS_CAPABILITY = "core-field.api-options.enriched.v1"
 
 HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY = "theme.hide-schema-descriptions.v1"
 
+HELP_VARIANT_CAPABILITY = "theme.help-variant.v1"
+
 EXCLUSIVE_GROUPS_CAPABILITY = "interaction.exclusive-groups.v1"
 
 QUERY_SEPARATOR_CAPABILITY = "prefill.query-separator.v1"
@@ -159,6 +161,7 @@ class _Vocabulary:
     defs: dict[str, Any]
     root_keys: frozenset[str]
     field_keys: frozenset[str]
+    help_variants: frozenset[str]
     widgets: frozenset[str]
     core_fields: frozenset[str]
     source_keys: frozenset[str]
@@ -175,6 +178,7 @@ def _vocabulary() -> _Vocabulary:
         defs=defs,
         root_keys=frozenset(defs["uiSchema"]["properties"]),
         field_keys=frozenset(field_properties),
+        help_variants=frozenset(field_properties["ui:helpVariant"]["enum"]),
         widgets=frozenset(field_properties["ui:widget"]["enum"]),
         core_fields=frozenset(field_properties["ui:field"]["enum"]),
         source_keys=frozenset(defs["optionSource"]["properties"]),
@@ -199,6 +203,12 @@ def declared_ui_schema(
     compile_option_source: FormOptionSourceCompiler | None = None,
 ) -> dict[str, Any]:
     """Return a JSON-only deep copy of the model's ``rjsf_ui_schema``; ``{}`` when absent."""
+    if RJSF_UI_SCHEMA_ATTRIBUTE in model.model_fields:
+        raise WorkflowFormContractError(
+            f"{model.__qualname__}.{RJSF_UI_SCHEMA_ATTRIBUTE} is a Pydantic model field; "
+            f"declare form metadata as {RJSF_UI_SCHEMA_ATTRIBUTE}: "
+            "ClassVar[Mapping[str, object]] instead"
+        )
     declared = getattr(model, RJSF_UI_SCHEMA_ATTRIBUTE, None)
     if declared is None:
         return {}
@@ -261,7 +271,11 @@ def derive_requires(ui_schema: Mapping[str, Any]) -> list[str]:
     """
     required: set[str] = set()
     for key, entry in ui_schema.items():
-        if key.startswith("ui:") or "ui:field" not in entry:
+        if key.startswith("ui:"):
+            continue
+        if entry.get("ui:helpVariant") is not None:
+            required.add(HELP_VARIANT_CAPABILITY)
+        if "ui:field" not in entry:
             continue
         field = entry["ui:field"]
         required.add(FIELD_CAPABILITIES[field])
@@ -390,6 +404,15 @@ class _FormChecker:
         for key in _TEXT_KEYS:
             if key in entry:
                 require_text(entry[key], f"{self.name} {name!r} {key}")
+        help_variant = entry.get("ui:helpVariant")
+        if help_variant is not None:
+            if help_variant not in vocabulary.help_variants:
+                raise self.fail(
+                    f"{name!r} ui:helpVariant {help_variant!r} is not one of "
+                    f"{sorted(vocabulary.help_variants)}"
+                )
+            if "ui:help" not in entry:
+                raise self.fail(f"{name!r} ui:helpVariant requires ui:help")
         widget, field = entry.get("ui:widget"), entry.get("ui:field")
         if widget is not None and widget not in vocabulary.widgets:
             raise self.fail(
@@ -1067,7 +1090,7 @@ class _FormChecker:
 
         for name in self.properties:
             entry = self.fields.get(name, {})
-            if entry.get("ui:widget") == "hidden":
+            if entry.get("ui:widget") == "hidden" or entry.get("ui:readonly") is True:
                 continue
             field = entry.get("ui:field")
             options = entry.get("ui:options", {})

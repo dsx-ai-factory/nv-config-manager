@@ -284,6 +284,46 @@ describe("initial state and RJSF agreement", () => {
     ).toBeTruthy();
   });
 
+  it("renders destructive help below its field without changing ordinary help", async () => {
+    await renderForm(WORKFLOW_FORM_FIXTURES.ReprovisionWorkflow);
+
+    const warning = screen.getByRole("alert");
+    expect(warning.textContent).toBe(
+      "This workflow is destructive. It will replace all existing configuration on " +
+        "the device with the intended configuration."
+    );
+    expect(warning.className).toContain("border-destructive/50");
+    expect(warning.className).toContain("bg-destructive/10");
+    expect(warning.className).toContain("text-destructive");
+    expect(warning.parentElement?.textContent).toContain("Device");
+
+    cleanup();
+    await renderForm(WORKFLOW_FORM_FIXTURES.DeployWorkflow);
+    expect(screen.queryByRole("alert")).toBeNull();
+    const help = screen.getByText(/Rollback if device becomes unreachable/);
+    expect(help.tagName).toBe("P");
+    expect(help.className).toContain("text-sm");
+    expect(help.className).toContain("text-muted-foreground");
+  });
+
+  it.each([
+    ["info", "border-blue-500/50", "text-blue-700"],
+    ["success", "border-emerald-500/50", "text-emerald-700"],
+    ["warning", "border-amber-500/50", "text-amber-700"],
+    ["destructive", "border-destructive/50", "text-destructive"],
+  ])("renders the %s help variant", async (variant, border, text) => {
+    const form = structuredClone(WORKFLOW_FORM_FIXTURES.DeployWorkflow);
+    const help = form.ui_schema.commit_confirm as Record<string, unknown>;
+    help["ui:helpVariant"] = variant;
+    form.requires.push("theme.help-variant.v1");
+
+    await renderForm(form);
+
+    const alert = screen.getByRole("alert");
+    expect(alert.className).toContain(border);
+    expect(alert.className).toContain(text);
+  });
+
   it("starts a required minItems list as an empty list", async () => {
     await renderForm(WORKFLOW_FORM_FIXTURES.SpXOverlayTenantChangeWorkflow);
     expect(formData().port_names).toEqual([]);
@@ -666,6 +706,29 @@ describe("location and siteField", () => {
     ).toBe(false);
   });
 
+  it("requires another namespace when a site change prunes the selected tag", async () => {
+    override = (url) =>
+      url.pathname === "/v1/parameter/namespace-tag" &&
+      url.searchParams.get("location") === "RNO1"
+        ? { status: 200, body: [{ name: "ns1" }] }
+        : undefined;
+    await renderForm(WORKFLOW_FORM_FIXTURES.SpXOverlayDeletionWorkflow);
+    await waitFor(() => expect(formData().namespace_tag).toBe("spectrumx"));
+
+    await act(async () =>
+      context().setFields(
+        "field:site",
+        { site: "RNO1", site_type: "Site" },
+        "user"
+      )
+    );
+    await waitFor(() => expect(formData()).not.toHaveProperty("namespace_tag"));
+
+    fireEvent.click(submitButton());
+    expect(await screen.findByText("Namespace Tag is required")).toBeTruthy();
+    expect(posts).toEqual([]);
+  });
+
   it("never requests dependent options with a mismatched location id and type", async () => {
     await renderForm(WORKFLOW_FORM_FIXTURES.SpXOverlayDeletionWorkflow);
     await act(async () =>
@@ -871,6 +934,19 @@ describe("submission errors", () => {
       expect(screen.queryByText("Site is required")).toBeNull()
     );
   });
+
+  it("does not reapply a default after a required apiOptions field is cleared", async () => {
+    await renderForm(WORKFLOW_FORM_FIXTURES.SpXOverlayDeletionWorkflow);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Clear selection" })
+    );
+    await waitFor(() => expect(formData()).not.toHaveProperty("namespace_tag"));
+
+    fireEvent.click(submitButton());
+
+    expect(await screen.findByText("Namespace Tag is required")).toBeTruthy();
+    expect(posts).toEqual([]);
+  });
 });
 
 describe("variant rows", () => {
@@ -942,9 +1018,9 @@ describe("variant rows", () => {
     expect(device.getAttribute("aria-describedby")).toContain(
       `${group.id}__error`
     );
-    expect(document.getElementById(`${group.id}__error`)?.textContent).toContain(
-      "At least 1 row is required."
-    );
+    expect(
+      document.getElementById(`${group.id}__error`)?.textContent
+    ).toContain("At least 1 row is required.");
   });
 });
 
