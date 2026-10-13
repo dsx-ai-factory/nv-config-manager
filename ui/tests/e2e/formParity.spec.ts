@@ -181,22 +181,14 @@ const PARITY_WORKFLOWS: ParityWorkflow[] = [
       {
         name: "devices, command, and ticket",
         steps: async (form) => {
+          await form.select("Site", SITES_LIST.pdx01);
           await form.select(
             "Devices",
             PDX01_DEVICE.name,
             PDX01_TENANT_A_PROVISIONED.name
           );
           await form.page.getByLabel(DIAGNOSTICS_COMMANDS[0].name).click();
-          // The legacy form exposed Jira as a select; the generic declaration owns
-          // the same value as a hidden default.
-          if (
-            await form.page
-              .getByText("Ticketing Platform", { exact: true })
-              .isVisible()
-              .catch(() => false)
-          ) {
-            await form.select("Ticketing Platform", "Jira");
-          }
+          await form.expectSelected("Ticketing Platform", "Jira");
           await form.fill(
             "Issue Key (optional — leave blank for ticketless mode)",
             "NETSUPPORT-1234"

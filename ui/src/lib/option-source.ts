@@ -36,7 +36,7 @@ export interface OptionSourceItem {
   group?: string;
   /**
    * The row's `type_key` value; set only when the source has a `type_key`
-   * (location fields), and `null` when the row has none.
+   * (location fields or selected-option dependencies), and `null` when absent.
    */
   type?: ScalarValue | null;
 }
@@ -45,6 +45,16 @@ export interface OptionSourceMeta {
   matching_device_count?: number;
   warnings?: string[];
 }
+
+/** Metadata retained for the currently selected options of one projected field. */
+export interface OptionSelection {
+  /** Normalized submitted values that this metadata was derived from. */
+  values: readonly string[];
+  /** Source response property → normalized values from the selected rows. */
+  properties: Readonly<Record<string, readonly string[]>>;
+}
+
+export type OptionSelections = Readonly<Record<string, OptionSelection>>;
 
 /** Form data dependencies are read from: projected properties by name. */
 export type DependencyValues = Readonly<Record<string, unknown>>;
@@ -88,6 +98,30 @@ export const normalizeDependencyValue = (value: unknown): string[] => {
     return [...new Set(items)].sort();
   }
   return [];
+};
+
+/**
+ * Retain one source `type_key` property for the options selected by `value`.
+ * `selectedType` disambiguates location rows whose submitted IDs are identical.
+ */
+export const buildOptionSelection = (
+  value: unknown,
+  options: readonly OptionSourceItem[],
+  typeKey: string | undefined,
+  selectedType?: unknown
+): OptionSelection | undefined => {
+  if (typeKey === undefined) return undefined;
+  const values = normalizeDependencyValue(value);
+  const selected = new Set(values);
+  const normalizedType = normalizeDependencyValue(selectedType)[0];
+  const properties = normalizeDependencyValue(
+    options.flatMap((option) => {
+      if (!selected.has(String(option.value)) || option.type == null) return [];
+      if (normalizedType !== undefined && String(option.type) !== normalizedType) return [];
+      return [option.type];
+    })
+  );
+  return { values, properties: { [typeKey]: properties } };
 };
 
 const PLACEHOLDER = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -163,7 +197,8 @@ interface ResolvedDependencies {
 const resolveDependencies = (
   source: OptionSource,
   placeholders: readonly string[],
-  values: DependencyValues
+  values: DependencyValues,
+  selections: OptionSelections
 ): ResolvedDependencies => {
   const missing: string[] = [];
   const addMissing = (name: string) => {
@@ -180,7 +215,24 @@ const resolveDependencies = (
 
   const query = new Map<string, string[]>();
   for (const [param, dependency] of Object.entries(source.depends_on ?? {})) {
-    const normalized = normalizeDependencyValue(readOwn(values, dependency.field));
+    const fieldValues = normalizeDependencyValue(readOwn(values, dependency.field));
+    const selection = readOwn(selections, dependency.field);
+    const selectedValues =
+      isPlainObject(selection) && Array.isArray(selection.values)
+        ? selection.values.map(String)
+        : [];
+    const propertyValues =
+      dependency.option_key !== undefined &&
+      isPlainObject(selection) &&
+      isPlainObject(selection.properties) &&
+      fieldValues.length === selectedValues.length &&
+      fieldValues.every((value, index) => value === selectedValues[index])
+        ? readOwn(selection.properties, dependency.option_key)
+        : undefined;
+    const normalized =
+      dependency.option_key === undefined
+        ? fieldValues
+        : normalizeDependencyValue(propertyValues);
     query.set(param, normalized);
     if (normalized.length === 0 && dependency.required !== false) {
       addMissing(dependency.field);
@@ -206,12 +258,14 @@ export const dependencyFields = (source: OptionSource): string[] => [
  */
 export const dependencySignature = (
   source: OptionSource,
-  values: DependencyValues
+  values: DependencyValues,
+  selections: OptionSelections = {}
 ): string => {
   const { path, query } = resolveDependencies(
     source,
     endpointPlaceholders(source.endpoint) ?? [],
-    values
+    values,
+    selections
   );
   const sorted = (map: Map<string, string[]>) =>
     [...map.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
@@ -241,7 +295,8 @@ export const buildOptionSourceRequest = (
   apiURL: string,
   source: OptionSource,
   values: DependencyValues,
-  extra: ExtraParams = {}
+  extra: ExtraParams = {},
+  selections: OptionSelections = {}
 ): OptionSourceRequest => {
   const invalidEndpoint: OptionSourceRequest = {
     kind: "invalid",
@@ -258,7 +313,12 @@ export const buildOptionSourceRequest = (
     return invalidEndpoint;
   }
 
-  const { path, query, missing } = resolveDependencies(source, placeholders, values);
+  const { path, query, missing } = resolveDependencies(
+    source,
+    placeholders,
+    values,
+    selections
+  );
   if (missing.length > 0) return { kind: "waiting", missingDependencies: missing };
 
   const segments = new Map<string, string>();

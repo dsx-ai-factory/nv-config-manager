@@ -416,7 +416,23 @@ describe("shellReducer", () => {
     formData,
     pending: new Set(pending) as ShellState["pending"],
     filters,
+    optionSelections: {},
     serverErrors: undefined,
+  });
+
+  it("stores selected option metadata outside submitted form data", () => {
+    const selection = {
+      values: ["d1"],
+      properties: { platform: ["cumulus-linux"] },
+    };
+    const next = shellReducer(state([], { device_ids: ["d1"] }), {
+      type: "option-selection",
+      field: "device_ids",
+      selection,
+    });
+
+    expect(next.formData).toEqual({ device_ids: ["d1"] });
+    expect(next.optionSelections.device_ids).toEqual(selection);
   });
 
   it("applies a field patch atomically and ends its owner's pending state", () => {

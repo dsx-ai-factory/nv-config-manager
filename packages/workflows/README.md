@@ -475,6 +475,7 @@ Form-catalog construction rejects every other key, widget, and field.
 | root | `ui:submitButtonOptions` | `{"submitText": "<label>"}` |
 | root | `ui:globalOptions` | Form-wide `hideSchemaDescriptions`, `exclusiveGroups`, and `fieldComparisons` behavior described below |
 | property | `ui:title`, `ui:help`, `ui:description`, `ui:placeholder` | Non-blank text |
+| property | `ui:enumNames` | Non-blank display labels corresponding by position to the property's `enum` values |
 | property | `ui:helpVariant` | `info`, `success`, `warning`, or `destructive`; requires `ui:help` |
 | property | `ui:widget` | `text`, `textarea`, `checkbox`, `select`, or `hidden` |
 | property | `ui:field` | `apiOptions`, `device`, `location`, or `variantRows`; set by the helpers |
@@ -504,14 +505,20 @@ depends_on={}, clear_on_change=False, response=None)`:
   is filled from that sibling property. It is a required dependency: options
   wait until the property has a value.
 - Each returned row supplies its label under `label_key` and its submitted
-  value under `value_key`. `type_key` supplies the selected location type for
-  a location field with a `type_field` and for the device field's Site filter.
+  value under `value_key`. `type_key` exposes one additional response property,
+  such as a location type or device platform, for a location `type_field` or an
+  `option_key` dependency.
 - `params` are static query parameters: strings, finite numbers, booleans, or
   lists of them, which become repeated parameters.
-- `depends_on` maps a query parameter to a `Dependency(field, *, required=True)`
-  on another projected property. A required dependency holds the request while
-  that property is empty. An optional one (`required=False`) is left out of the
-  request instead.
+- `depends_on` maps a query parameter to a
+  `Dependency(field, *, required=True, option_key=None)` on another projected
+  property. A required dependency holds the request while that property is
+  empty. An optional one (`required=False`) is left out of the request instead.
+  With `option_key`, the parameter comes from that property on the selected
+  option rows rather than from the submitted field values. The key must match
+  the referenced device or location source's `type_key`; this lets one field
+  reuse metadata already loaded for another picker without another backend
+  lookup.
 - `clear_on_change=True` clears the selection when a dependency changes.
 - `response="options-v1"` selects the standard enriched envelope. Its `items`
   rows use `label` and `value`, may include `description` and `group`, and its
@@ -802,13 +809,15 @@ submitted body, owns the marked identity value:
   default applies. Direct HTTP and Temporal callers may still provide it. Use it
   for values that schedulers or parent workflows send, and for fields resolved
   outside the form.
-- `FormSchema(*, required=False, default=..., min_items=, max_items=, min_length=,
-  max_length=, minimum=, maximum=, pattern=)`: adds form-only JSON Schema rules.
+- `FormSchema(*, required=False, default=..., enum=, min_items=, max_items=,
+  min_length=, max_length=, minimum=, maximum=, pattern=)`: adds form-only JSON Schema rules.
   `required=True` makes a defaulted model field required by the form; the other
-  arguments add `default`, `minItems`, `maxItems`, `minLength`, `maxLength`,
-  `minimum`, `maximum`, and `pattern` to the property. Each keyword must fit the
-  property's JSON type, `pattern` uses JSON Schema's ECMAScript Unicode syntax,
-  and `default` must validate against the field's type and must not be `None`.
+  arguments add `default`, `enum`, `minItems`, `maxItems`, `minLength`,
+  `maxLength`, `minimum`, `maximum`, and `pattern` to the property. Each keyword
+  must fit the property's JSON type, `enum` must be a non-empty tuple of unique
+  values accepted by the field, `pattern` uses JSON Schema's ECMAScript Unicode
+  syntax, and `default` must validate against the field's type, belong to `enum`
+  when one is set, and must not be `None`.
   Use it to tighten or seed the form without changing what the API accepts. A
   top-level `default` seeds the form only when it is initialized. If the user
   clears the field, or a dependency change clears it, the UI does not restore
@@ -924,6 +933,8 @@ The backend derives `requires` from the declaration:
 - `core-field.variant-rows.v1` when the form uses `variant_rows`
 - `interaction.exclusive-groups.v1` for
   `ui:globalOptions.exclusiveGroups`
+- `option-source.selected-option.v1` when an option dependency reads selected
+  option metadata through `option_key`
 - `prefill.query-separator.v1` for a server-owned legacy multi-value URL
   delimiter
 - `theme.help-variant.v1` when a property sets `ui:helpVariant`

@@ -40,16 +40,24 @@ class Dependency:
     """A sibling form property whose value supplies one option query parameter.
 
     A ``required`` dependency holds the option request while the property is
-    empty; an optional one is left out of the request instead.
+    empty; an optional one is left out of the request instead. ``option_key``
+    reads the named ``type_key`` value from the property's selected source
+    options instead of reading the submitted property value.
     """
 
     field: str
     _: KW_ONLY
     required: bool = True
+    option_key: str | None = None
 
     def to_wire(self) -> dict[str, Any]:
         """Return the v1 wire form, omitting the default ``required``."""
-        return {"field": self.field} if self.required else {"field": self.field, "required": False}
+        wire: dict[str, Any] = {"field": self.field}
+        if not self.required:
+            wire["required"] = False
+        if self.option_key is not None:
+            wire["option_key"] = self.option_key
+        return wire
 
 
 @dataclass(frozen=True)
@@ -60,8 +68,8 @@ class OptionSource:
     ``{property}`` path segment is filled from that sibling property and is a
     required dependency. Each returned row supplies its label under
     ``label_key``, its submitted value under ``value_key``, and its optional
-    location type under ``type_key``. The latter is used by a location field
-    with a ``typeField`` and by the device field's Site filter.
+    metadata value under ``type_key``. The latter is used by a location field
+    with a ``typeField`` and by selected-option dependencies.
     ``params`` are static query parameters, ``depends_on`` maps a query
     parameter to the :class:`Dependency` supplying its value, and
     ``clear_on_change`` clears the selection when a dependency changes.

@@ -27,7 +27,12 @@ import {
 import { Label } from "@/components/ui/label";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { SelectBox } from "@/components/ui/selectbox";
-import type { OptionSourceItem, OptionSourceState } from "@/lib/option-source";
+import {
+  buildOptionSelection,
+  type OptionSelection,
+  type OptionSourceItem,
+  type OptionSourceState,
+} from "@/lib/option-source";
 
 /**
  * Options matching raw URL values, by value first and then by label (links may carry a
@@ -58,6 +63,22 @@ export const isEmptyValue = (value: unknown): boolean =>
   value === null ||
   value === "" ||
   (Array.isArray(value) && value.length === 0);
+
+/** Publish selected `type_key` values for option sources that depend on them. */
+export const usePublishOptionSelection = (
+  field: string,
+  value: unknown,
+  options: readonly OptionSourceItem[],
+  typeKey: string | undefined,
+  selectedType: unknown,
+  publish: (field: string, selection: OptionSelection | undefined) => void
+) => {
+  const selection = React.useMemo(
+    () => buildOptionSelection(value, options, typeKey, selectedType),
+    [value, options, typeKey, selectedType]
+  );
+  React.useEffect(() => publish(field, selection), [field, selection, publish]);
+};
 
 /** A field's label: `ui:title`, schema `title`, or its name. */
 export const fieldLabel = ({

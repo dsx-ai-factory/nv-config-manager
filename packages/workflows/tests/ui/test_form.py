@@ -129,6 +129,34 @@ def test_a_full_declaration_builds_the_v1_envelope() -> None:
     Draft202012Validator(wire_schema()).validate(envelope)
 
 
+def test_selected_option_metadata_dependency_adds_its_capability() -> None:
+    devices = OptionSource(
+        "/v1/parameter/device",
+        "name",
+        "id",
+        type_key="platform",
+    )
+    commands = OptionSource(
+        "/v1/commands",
+        "name",
+        "name",
+        depends_on={"platform": Dependency("device_id", option_key="platform")},
+    )
+
+    envelope = _build(
+        {
+            "device_id": device_field(devices),
+            "overlay": api_options(commands),
+        }
+    )
+
+    assert envelope["ui_schema"]["overlay"]["ui:options"]["source"]["depends_on"] == {
+        "platform": {"field": "device_id", "option_key": "platform"}
+    }
+    assert "option-source.selected-option.v1" in envelope["requires"]
+    Draft202012Validator(wire_schema()).validate(envelope)
+
+
 def test_help_variant_requires_the_matching_ui_capability() -> None:
     envelope = _build(
         {

@@ -73,6 +73,7 @@ export type OptionSourceParamValue = ScalarValue | ScalarValue[];
 export interface Dependency {
   field: string;
   required?: false;
+  option_key?: string;
 }
 
 export interface OptionSource {

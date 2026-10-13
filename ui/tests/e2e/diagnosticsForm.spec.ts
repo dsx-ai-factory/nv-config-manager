@@ -25,6 +25,7 @@ import { DEVICES_LIST, SITES_LIST } from "@/mocks/data";
 import {
   DIAGNOSTICS_COMMANDS,
   mockServerCatalogAndUser,
+  mockTypedLocationsEndpoint,
 } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT } from "./shared/utils";
 import {
@@ -58,6 +59,7 @@ const pickDevices = async (page: Page, ...names: string[]) => {
 
 test.beforeEach(async ({ page }) => {
   await mockServerCatalogAndUser(page, ["reader", "executor"]);
+  await mockTypedLocationsEndpoint(page);
 });
 
 test("a legacy link opens the generic form on the form ID route", async ({
@@ -87,7 +89,32 @@ test("requires a device and a command", async ({ page }) => {
 });
 
 test("submits the devices, commands, and ticket", async ({ page }) => {
+  const deviceRequests: URL[] = [];
+  const commandRequests: URL[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/v1/parameter/device") deviceRequests.push(url);
+    if (
+      url.pathname ===
+      "/v1/workflow/diagnostics/form-options/diagnostic-commands"
+    ) {
+      commandRequests.push(url);
+    }
+  });
+
   await page.goto(PATH);
+  await expect(page.getByRole("heading", { name: TITLE })).toBeVisible({
+    timeout: TEST_TIMEOUT,
+  });
+  await expect(
+    page.locator("form").getByRole("combobox", {
+      name: "Ticketing Platform: Jira. Open options",
+      exact: true,
+    })
+  ).toBeVisible();
+  expect(deviceRequests).toEqual([]);
+  expect(commandRequests).toEqual([]);
+
   await page
     .locator("form")
     .getByRole("combobox", { name: "Select a Site..." })
@@ -96,7 +123,23 @@ test("submits the devices, commands, and ticket", async ({ page }) => {
     .getByRole("dialog")
     .getByRole("option", { name: SITES_LIST.pdx01, exact: true })
     .click();
+  await expect.poll(() => deviceRequests.length).toBe(1);
+  expect(deviceRequests[0].searchParams.getAll("site")).toEqual([
+    SITES_LIST.pdx01,
+  ]);
+  expect(deviceRequests[0].searchParams.getAll("site_type")).toEqual(["Site"]);
+  expect(commandRequests).toEqual([]);
+
   await pickDevices(page, DEVICE.name, SECOND_DEVICE.name);
+
+  await expect.poll(() => commandRequests.length).toBeGreaterThan(0);
+  const commandRequest = commandRequests.at(-1)!;
+  expect(commandRequest.searchParams.getAll("platform")).toEqual([
+    "arista-eos",
+    "cumulus-linux",
+  ]);
+  expect(commandRequest.searchParams.has("device_id")).toBe(false);
+  expect(deviceRequests).toHaveLength(1);
 
   const [first, second] = DIAGNOSTICS_COMMANDS;
   await expect(page.getByText("Runs on all selected devices")).toBeVisible({
@@ -176,13 +219,17 @@ test("submits a command shared by some selected platforms only once", async ({
   await appearances.first().click();
   await expect(appearances.nth(0)).toBeChecked();
   await expect(appearances.nth(1)).toBeChecked();
+  await page
+    .getByText("Ticketing Platform", { exact: true })
+    .locator("..")
+    .getByRole("button", { name: "Clear selection" })
+    .click();
 
   const post = nextPost(page, ENDPOINT);
   await submit(page);
   expect((await post).postDataJSON()).toEqual({
     device_ids: [DEVICE.id, SECOND_DEVICE.id, THIRD_DEVICE.id],
     commands: [partialCommand],
-    ticketing_platform: "jira",
     include_tech_support: false,
   });
 });

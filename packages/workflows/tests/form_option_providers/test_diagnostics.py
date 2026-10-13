@@ -16,41 +16,23 @@
 
 import subprocess
 import sys
-from typing import cast
-from unittest.mock import AsyncMock, MagicMock
-
-from nv_config_manager_dcim.api import DCIMClient
-from nv_config_manager_dcim.models import DCIMDeviceSelection
 
 from nv_config_manager_workflows.form_option_providers.diagnostics import (
     DiagnosticsCommandOptionsQuery,
     resolve_diagnostics_command_options,
 )
-from nv_config_manager_workflows.runtime import configure_dcim_client
 
 
-async def test_resolver_uses_the_provider_neutral_runtime_client() -> None:
-    client = MagicMock()
-    client.__aenter__ = AsyncMock(return_value=client)
-    client.__aexit__ = AsyncMock(return_value=None)
-    client.list_devices = AsyncMock(
-        return_value=[
-            DCIMDeviceSelection(
-                id="device-1",
-                name="leaf-1",
-                platform="cumulus-linux",
-            )
-        ]
-    )
-    configure_dcim_client(lambda: cast(DCIMClient, client))
-
+async def test_resolver_builds_commands_from_selected_device_platforms() -> None:
     response = await resolve_diagnostics_command_options(
-        DiagnosticsCommandOptionsQuery(device_id=["device-1", "missing-device"])
+        DiagnosticsCommandOptionsQuery(platform=["cumulus-linux", "unsupported-os"])
     )
 
     assert response.items
     assert response.meta is not None
-    assert response.meta.warnings == ["Some selected devices could not be resolved."]
+    assert response.meta.warnings == [
+        "Diagnostic command options are unavailable for unsupported platforms: unsupported-os."
+    ]
 
 
 def test_importing_the_workflow_does_not_import_its_api_only_resolver() -> None:

@@ -26,6 +26,7 @@ import {
   mapOptionRows,
   type DependencyValues,
   type ExtraParams,
+  type OptionSelections,
   type OptionSourceRequest,
   type OptionSourceState,
 } from "@/lib/option-source";
@@ -34,6 +35,12 @@ import type { OptionSource } from "@/types/workflow-catalog.types";
 export type { OptionSourceState, OptionSourceStatus } from "@/lib/option-source";
 
 const NO_EXTRA: ExtraParams = {};
+const NO_SELECTIONS: OptionSelections = {};
+
+interface UseOptionSourceOptions {
+  extra?: ExtraParams;
+  selections?: OptionSelections;
+}
 
 /**
  * Load options for a v1 option source.
@@ -58,13 +65,15 @@ const NO_EXTRA: ExtraParams = {};
 const useOptionSource = (
   source: OptionSource | undefined,
   values: DependencyValues,
-  extra: ExtraParams = NO_EXTRA
+  { extra = NO_EXTRA, selections = NO_SELECTIONS }: UseOptionSourceOptions = {}
 ): OptionSourceState => {
   const { config } = useRuntimeConfig();
   const apiURL = config?.workflowApiUrl;
 
   const request =
-    apiURL && source ? buildOptionSourceRequest(apiURL, source, values, extra) : undefined;
+    apiURL && source
+      ? buildOptionSourceRequest(apiURL, source, values, extra, selections)
+      : undefined;
   const url = request?.kind === "ready" ? request.url : null;
   const invalidMessage = request?.kind === "invalid" ? request.message : undefined;
   const missingSignature =

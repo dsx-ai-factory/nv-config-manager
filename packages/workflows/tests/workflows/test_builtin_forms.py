@@ -141,13 +141,23 @@ def test_diagnostics_uses_its_workflow_owned_command_provider(
     form_catalog: WorkflowFormCatalog,
 ) -> None:
     form = form_catalog.forms[DiagnosticsWorkflow]
+    device_options = form["ui_schema"]["device_ids"]["ui:options"]
+    assert device_options["siteRequired"] is True
+    assert device_options["source"]["type_key"] == "platform"
+    assert form["schema"]["properties"]["ticketing_platform"]["enum"] == ["jira"]
+    assert form["schema"]["properties"]["ticketing_platform"]["default"] == "jira"
+    assert form["ui_schema"]["ticketing_platform"] == {
+        "ui:title": "Ticketing Platform",
+        "ui:widget": "select",
+        "ui:enumNames": ["Jira"],
+    }
     source = form["ui_schema"]["commands"]["ui:options"]["source"]
 
     assert source == {
         "endpoint": ("/v1/workflow/diagnostics/form-options/diagnostic-commands"),
         "label_key": "label",
         "value_key": "value",
-        "depends_on": {"device_id": {"field": "device_ids"}},
+        "depends_on": {"platform": {"field": "device_ids", "option_key": "platform"}},
         "response": "options-v1",
     }
     binding = next(
@@ -162,6 +172,7 @@ def test_diagnostics_uses_its_workflow_owned_command_provider(
         "nv_config_manager_workflows.form_option_providers.diagnostics:"
         "DiagnosticsCommandOptionsQuery"
     )
+    assert "option-source.selected-option.v1" in form["requires"]
 
 
 def test_site_password_rotation_uses_its_workflow_owned_password_user_provider(

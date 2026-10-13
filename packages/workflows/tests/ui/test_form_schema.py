@@ -159,6 +159,39 @@ def test_form_schema_keywords_and_default_are_applied(projected: dict[str, Any])
     assert properties["pkey"]["maxLength"] == 6
 
 
+def test_form_schema_enum_is_form_only_and_validates_its_default() -> None:
+    class Model(BaseModel):
+        platform: Annotated[
+            str,
+            FormSchema(default="jira", enum=("jira", "custom")),
+        ] = ""
+
+    assert Model.model_json_schema()["properties"]["platform"]["default"] == ""
+    assert "enum" not in Model.model_json_schema()["properties"]["platform"]
+    assert project_form_schema(Model)["properties"]["platform"] == {
+        "default": "jira",
+        "enum": ["jira", "custom"],
+        "title": "Platform",
+        "type": "string",
+    }
+
+
+@pytest.mark.parametrize(
+    ("marker", "message"),
+    [
+        (FormSchema(enum=()), "must be a non-empty tuple"),
+        (FormSchema(enum=("jira", "jira")), "must be unique"),
+        (FormSchema(default="jira", enum=("custom",)), "is not one of its enum values"),
+    ],
+)
+def test_invalid_form_schema_enums_are_rejected(marker: FormSchema, message: str) -> None:
+    class Model(BaseModel):
+        platform: Annotated[str, marker] = ""
+
+    with pytest.raises(WorkflowFormContractError, match=message):
+        project_form_schema(Model)
+
+
 def test_form_schema_can_require_a_defaulted_field_without_changing_the_model() -> None:
     class Model(BaseModel):
         first: str

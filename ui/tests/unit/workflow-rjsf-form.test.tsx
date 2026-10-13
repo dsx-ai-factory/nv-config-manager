@@ -90,13 +90,16 @@ const context = () => lastProps().formContext as ShellFormContext;
 const formData = () => lastProps().formData as Record<string, unknown>;
 const pending = () => [...context().pending].sort();
 
-const DEVICES: Record<string, Array<{ id: string; name: string }>> = {
-  "": [{ id: "d9", name: "unfiltered-9" }],
+const DEVICES: Record<
+  string,
+  Array<{ id: string; name: string; platform?: string }>
+> = {
+  "": [{ id: "d9", name: "unfiltered-9", platform: "cumulus-linux" }],
   PDX01: [
-    { id: "d1", name: "pdx-1" },
-    { id: "d2", name: "pdx-2" },
+    { id: "d1", name: "pdx-1", platform: "cumulus-linux" },
+    { id: "d2", name: "pdx-2", platform: "nv-os" },
   ],
-  RNO1: [{ id: "d3", name: "rno-3" }],
+  RNO1: [{ id: "d3", name: "rno-3", platform: "arista-eos" }],
 };
 
 type Route = (
@@ -167,6 +170,12 @@ const release = async (match: (url: URL) => boolean = () => true) => {
 
 const deviceRequests = () =>
   requests.filter((url) => url.pathname === "/v1/parameter/device");
+const diagnosticsCommandRequests = () =>
+  requests.filter(
+    (url) =>
+      url.pathname ===
+      "/v1/workflow/diagnostics/form-options/diagnostic-commands"
+  );
 const param = (url: URL, name: string) => url.searchParams.getAll(name);
 
 beforeEach(() => {
@@ -266,6 +275,27 @@ describe("initial state and RJSF agreement", () => {
         RJSF_DEFAULT_STATE_BEHAVIOR
       );
     }
+  });
+
+  it("shows the Diagnostics Jira default as a clearable selector", async () => {
+    await renderForm(
+      WORKFLOW_FORM_FIXTURES.DiagnosticsWorkflow,
+      "",
+      "DiagnosticsWorkflow"
+    );
+
+    const platform = labelledControl("Ticketing Platform");
+    expect(platform.getAttribute("aria-label")).toBe(
+      "Ticketing Platform: Jira. Open options"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+
+    await waitFor(() =>
+      expect(formData()).not.toHaveProperty("ticketing_platform")
+    );
+    expect(platform.getAttribute("aria-label")).toBe(
+      "Ticketing Platform: Select a Ticketing Platform..."
+    );
   });
 
   it("hides schema descriptions only when ui:globalOptions asks", async () => {
@@ -454,6 +484,66 @@ describe("exclusive input modes", () => {
 });
 
 describe("device filter scopes", () => {
+  it("requires a Site before Diagnostics loads devices", async () => {
+    await renderForm(WORKFLOW_FORM_FIXTURES.DiagnosticsWorkflow);
+
+    const sitePicker = labelledControl("Site");
+    expect(labels("Site")[0].textContent).toBe("Site *");
+    expect(sitePicker.getAttribute("aria-required")).toBe("true");
+    expect(deviceRequests()).toEqual([]);
+
+    await act(async () =>
+      context().setFilters(
+        "implicit:device_ids",
+        { site: { id: "PDX01", type: "Site" } },
+        "user"
+      )
+    );
+
+    await waitFor(() => expect(deviceRequests()).toHaveLength(1));
+    expect(param(deviceRequests()[0], "site")).toEqual(["PDX01"]);
+    expect(param(deviceRequests()[0], "site_type")).toEqual(["Site"]);
+  });
+
+  it("derives Diagnostics command platforms from the loaded Site devices", async () => {
+    override = (url) =>
+      url.pathname ===
+      "/v1/workflow/diagnostics/form-options/diagnostic-commands"
+        ? { status: 200, body: { items: [], meta: {} } }
+        : undefined;
+    await renderForm(WORKFLOW_FORM_FIXTURES.DiagnosticsWorkflow);
+
+    await act(async () =>
+      context().setFilters(
+        "implicit:device_ids",
+        { site: { id: "PDX01", type: "Site" } },
+        "user"
+      )
+    );
+    await waitFor(() => expect(deviceRequests()).toHaveLength(1));
+
+    await act(async () =>
+      context().setFields(
+        "field:device_ids",
+        { device_ids: ["d1", "d2"] },
+        "user"
+      )
+    );
+
+    await waitFor(() =>
+      expect(context().optionSelections.device_ids).toEqual({
+        values: ["d1", "d2"],
+        properties: { platform: ["cumulus-linux", "nv-os"] },
+      })
+    );
+    await waitFor(() => expect(diagnosticsCommandRequests()).toHaveLength(1));
+    expect(param(diagnosticsCommandRequests()[0], "platform")).toEqual([
+      "cumulus-linux",
+      "nv-os",
+    ]);
+    expect(deviceRequests()).toHaveLength(1);
+  });
+
   it("loads filter controls from the sources in the form contract", async () => {
     const form: WorkflowFormResponse = {
       schema: {
@@ -1078,8 +1168,11 @@ describe("form-only minItems on an optional list", () => {
 
   it("associates grouped checkboxes with their label and validation error", async () => {
     const groupedStatusForm = structuredClone(statusForm);
-    groupedStatusForm.ui_schema.status["ui:options"] = {
-      ...groupedStatusForm.ui_schema.status["ui:options"],
+    const statusUi = groupedStatusForm.ui_schema.status as {
+      "ui:options": Record<string, unknown>;
+    };
+    statusUi["ui:options"] = {
+      ...statusUi["ui:options"],
       presentation: "grouped-checkboxes",
     };
     await renderForm(groupedStatusForm);

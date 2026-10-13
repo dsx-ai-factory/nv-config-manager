@@ -45,6 +45,8 @@ EXCLUSIVE_GROUPS_CAPABILITY = "interaction.exclusive-groups.v1"
 
 QUERY_SEPARATOR_CAPABILITY = "prefill.query-separator.v1"
 
+SELECTED_OPTION_DEPENDENCY_CAPABILITY = "option-source.selected-option.v1"
+
 FIELD_COMPARISON_CAPABILITY = "validation.field-comparison.v1"
 
 
@@ -138,6 +140,11 @@ def derive_requires(ui_schema: Mapping[str, Any]) -> list[str]:
         required.add(FIELD_CAPABILITIES[field])
         if field == "apiOptions" and entry["ui:options"]["source"].get("response") == "options-v1":
             required.add(ENRICHED_API_OPTIONS_CAPABILITY)
+        if any(
+            dependency.get("option_key") is not None
+            for dependency in entry["ui:options"].get("source", {}).get("depends_on", {}).values()
+        ):
+            required.add(SELECTED_OPTION_DEPENDENCY_CAPABILITY)
         if entry["ui:options"].get("querySeparator"):
             required.add(QUERY_SEPARATOR_CAPABILITY)
     if ui_schema.get("ui:globalOptions", {}).get("hideSchemaDescriptions") is True:
@@ -162,6 +169,7 @@ __all__ = [
     "HELP_VARIANT_CAPABILITY",
     "HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY",
     "QUERY_SEPARATOR_CAPABILITY",
+    "SELECTED_OPTION_DEPENDENCY_CAPABILITY",
     "RJSF_UI_SCHEMA_ATTRIBUTE",
     "UI_SCHEMA_VERSION",
     "Vocabulary",

@@ -2399,11 +2399,16 @@
                                 "depends_on": {
                                   "additionalProperties": {
                                     "additionalProperties": false,
-                                    "description": "A sibling form property whose value supplies one option query parameter. The dependency is required by default: the request waits while the field is empty. Set required to false to omit an empty dependency from the request.",
+                                    "description": "A sibling form property whose value, or selected option metadata, supplies one option query parameter. The dependency is required by default: the request waits while the value is empty. Set required to false to omit an empty dependency from the request.",
                                     "properties": {
                                       "field": {
                                         "description": "Projected sibling property whose value supplies the dependency.",
                                         "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                        "type": "string"
+                                      },
+                                      "option_key": {
+                                        "description": "Response-object property read from the selected options instead of using their submitted values; must match the referenced field source's type_key.",
+                                        "pattern": "\\S",
                                         "type": "string"
                                       },
                                       "required": {
@@ -2542,11 +2547,16 @@
                                 "depends_on": {
                                   "additionalProperties": {
                                     "additionalProperties": false,
-                                    "description": "A sibling form property whose value supplies one option query parameter. The dependency is required by default: the request waits while the field is empty. Set required to false to omit an empty dependency from the request.",
+                                    "description": "A sibling form property whose value, or selected option metadata, supplies one option query parameter. The dependency is required by default: the request waits while the value is empty. Set required to false to omit an empty dependency from the request.",
                                     "properties": {
                                       "field": {
                                         "description": "Projected sibling property whose value supplies the dependency.",
                                         "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                        "type": "string"
+                                      },
+                                      "option_key": {
+                                        "description": "Response-object property read from the selected options instead of using their submitted values; must match the referenced field source's type_key.",
+                                        "pattern": "\\S",
                                         "type": "string"
                                       },
                                       "required": {
@@ -2688,11 +2698,16 @@
                                     "depends_on": {
                                       "additionalProperties": {
                                         "additionalProperties": false,
-                                        "description": "A sibling form property whose value supplies one option query parameter. The dependency is required by default: the request waits while the field is empty. Set required to false to omit an empty dependency from the request.",
+                                        "description": "A sibling form property whose value, or selected option metadata, supplies one option query parameter. The dependency is required by default: the request waits while the value is empty. Set required to false to omit an empty dependency from the request.",
                                         "properties": {
                                           "field": {
                                             "description": "Projected sibling property whose value supplies the dependency.",
                                             "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                            "type": "string"
+                                          },
+                                          "option_key": {
+                                            "description": "Response-object property read from the selected options instead of using their submitted values; must match the referenced field source's type_key.",
+                                            "pattern": "\\S",
                                             "type": "string"
                                           },
                                           "required": {
@@ -2805,11 +2820,16 @@
                                     "depends_on": {
                                       "additionalProperties": {
                                         "additionalProperties": false,
-                                        "description": "A sibling form property whose value supplies one option query parameter. The dependency is required by default: the request waits while the field is empty. Set required to false to omit an empty dependency from the request.",
+                                        "description": "A sibling form property whose value, or selected option metadata, supplies one option query parameter. The dependency is required by default: the request waits while the value is empty. Set required to false to omit an empty dependency from the request.",
                                         "properties": {
                                           "field": {
                                             "description": "Projected sibling property whose value supplies the dependency.",
                                             "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                            "type": "string"
+                                          },
+                                          "option_key": {
+                                            "description": "Response-object property read from the selected options instead of using their submitted values; must match the referenced field source's type_key.",
+                                            "pattern": "\\S",
                                             "type": "string"
                                           },
                                           "required": {
@@ -2922,11 +2942,16 @@
                                     "depends_on": {
                                       "additionalProperties": {
                                         "additionalProperties": false,
-                                        "description": "A sibling form property whose value supplies one option query parameter. The dependency is required by default: the request waits while the field is empty. Set required to false to omit an empty dependency from the request.",
+                                        "description": "A sibling form property whose value, or selected option metadata, supplies one option query parameter. The dependency is required by default: the request waits while the value is empty. Set required to false to omit an empty dependency from the request.",
                                         "properties": {
                                           "field": {
                                             "description": "Projected sibling property whose value supplies the dependency.",
                                             "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                            "type": "string"
+                                          },
+                                          "option_key": {
+                                            "description": "Response-object property read from the selected options instead of using their submitted values; must match the referenced field source's type_key.",
+                                            "pattern": "\\S",
                                             "type": "string"
                                           },
                                           "required": {
@@ -3079,11 +3104,16 @@
                                 "depends_on": {
                                   "additionalProperties": {
                                     "additionalProperties": false,
-                                    "description": "A sibling form property whose value supplies one option query parameter. The dependency is required by default: the request waits while the field is empty. Set required to false to omit an empty dependency from the request.",
+                                    "description": "A sibling form property whose value, or selected option metadata, supplies one option query parameter. The dependency is required by default: the request waits while the value is empty. Set required to false to omit an empty dependency from the request.",
                                     "properties": {
                                       "field": {
                                         "description": "Projected sibling property whose value supplies the dependency.",
                                         "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                                        "type": "string"
+                                      },
+                                      "option_key": {
+                                        "description": "Response-object property read from the selected options instead of using their submitted values; must match the referenced field source's type_key.",
+                                        "pattern": "\\S",
                                         "type": "string"
                                       },
                                       "required": {
@@ -3158,13 +3188,6 @@
                                 "value_key"
                               ],
                               "type": "object"
-                            },
-                            {
-                              "not": {
-                                "required": [
-                                  "type_key"
-                                ]
-                              }
                             },
                             {
                               "not": {
@@ -3404,6 +3427,16 @@
                 "description": "UI-specific description displayed with the field.",
                 "pattern": "\\S",
                 "type": "string"
+              },
+              "ui:enumNames": {
+                "description": "Display labels corresponding by position to the property's enum values.",
+                "items": {
+                  "description": "A string containing at least one non-whitespace character.",
+                  "pattern": "\\S",
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
               },
               "ui:field": {
                 "description": "Registered core field used to render and manage the property.",
@@ -5297,16 +5330,16 @@
         "operationId": "get_workflow_form_options_diagnostics__diagnostic_commands",
         "parameters": [
           {
-            "description": "Selected managed device IDs",
+            "description": "Platforms of the selected managed devices",
             "in": "query",
-            "name": "device_id",
+            "name": "platform",
             "required": true,
             "schema": {
-              "description": "Selected managed device IDs",
+              "description": "Platforms of the selected managed devices",
               "items": {
                 "type": "string"
               },
-              "title": "Device Id",
+              "title": "Platform",
               "type": "array"
             }
           }

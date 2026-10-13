@@ -14,12 +14,10 @@
 # limitations under the License.
 """Form-option provider for the built-in diagnostics workflow."""
 
-from nv_config_manager_dcim.models import DCIMDeviceSelectionFilter
 from nv_config_manager_dcim.workflow_models import Platform
 from pydantic import BaseModel, ConfigDict, Field
 
 from nv_config_manager_workflows.activities.diagnostics import get_available_commands
-from nv_config_manager_workflows.runtime import get_dcim_client
 from nv_config_manager_workflows.ui import OptionItem, OptionSourceMeta, OptionSourceResponse
 
 _PLATFORM_LABELS = {
@@ -35,7 +33,7 @@ class DiagnosticsCommandOptionsQuery(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    device_id: list[str] = Field(description="Selected managed device IDs")
+    platform: list[str] = Field(description="Platforms of the selected managed devices")
 
 
 def _diagnostic_command_options(platforms: list[str]) -> list[OptionItem]:
@@ -89,21 +87,9 @@ def _diagnostic_command_options(platforms: list[str]) -> list[OptionItem]:
 async def resolve_diagnostics_command_options(
     query: DiagnosticsCommandOptionsQuery,
 ) -> OptionSourceResponse:
-    """Resolve grouped command options for the selected managed devices."""
-    requested_ids = set(query.device_id)
-    client = get_dcim_client()
-    async with client:
-        devices = await client.list_devices(DCIMDeviceSelectionFilter(managed_only=True))
-
-    selected_devices = [device for device in devices if device.id in requested_ids]
-    platforms = list(
-        dict.fromkeys(device.platform for device in selected_devices if device.platform)
-    )
+    """Resolve grouped command options from the selected devices' platforms."""
+    platforms = list(dict.fromkeys(query.platform))
     warnings = []
-    if len({device.id for device in selected_devices}) != len(requested_ids):
-        warnings.append("Some selected devices could not be resolved.")
-    if any(not device.platform for device in selected_devices):
-        warnings.append("Some selected devices do not have a platform.")
     known_platforms = {platform.value for platform in Platform}
     unsupported_platforms = sorted(set(platforms) - known_platforms)
     if unsupported_platforms:

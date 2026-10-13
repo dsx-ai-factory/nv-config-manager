@@ -22,6 +22,20 @@ from nv_config_manager.dcim import DCIMDeviceSelection
 from nv_config_manager.temporal.api.main import app
 
 
+def test_diagnostics_commands_accept_selected_device_platforms() -> None:
+    """The generated provider route accepts platform metadata retained by the form UI."""
+    with patch(
+        "nv_config_manager.temporal.api.form_option_endpoints.require_workflow_execute_access"
+    ):
+        response = TestClient(app).get(
+            "/v1/workflow/diagnostics/form-options/diagnostic-commands",
+            params=[("platform", "cumulus-linux"), ("platform", "nv-os")],
+        )
+
+    assert response.status_code == 200
+    assert response.json()["items"]
+
+
 def test_site_password_rotation_password_users_are_served_by_generated_route() -> None:
     """The generated route invokes the built-in provider and preserves its response contract."""
     dcim_client = MagicMock()

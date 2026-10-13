@@ -106,7 +106,7 @@
       "additionalProperties": false
     },
     "dependency": {
-      "description": "A sibling form property whose value supplies one option query parameter. The dependency is required by default: the request waits while the field is empty. Set required to false to omit an empty dependency from the request.",
+      "description": "A sibling form property whose value, or selected option metadata, supplies one option query parameter. The dependency is required by default: the request waits while the value is empty. Set required to false to omit an empty dependency from the request.",
       "type": "object",
       "properties": {
         "field": {
@@ -116,6 +116,10 @@
         "required": {
           "description": "Set to false to make the dependency optional. When omitted, the dependency is required and an empty field holds the request.",
           "const": false
+        },
+        "option_key": {
+          "description": "Response-object property read from the selected options instead of using their submitted values; must match the referenced field source's type_key.",
+          "$ref": "#/$defs/nonBlankString"
         }
       },
       "required": ["field"],
@@ -299,7 +303,6 @@
           "description": "API source that supplies selectable devices.",
           "allOf": [
             { "$ref": "#/$defs/optionSource" },
-            { "not": { "required": ["type_key"] } },
             { "not": { "required": ["depends_on"] } },
             { "not": { "required": ["response"] } }
           ]
@@ -487,6 +490,12 @@
         "ui:placeholder": {
           "description": "Hint displayed while the field is empty.",
           "$ref": "#/$defs/nonBlankString"
+        },
+        "ui:enumNames": {
+          "description": "Display labels corresponding by position to the property's enum values.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonBlankString" },
+          "minItems": 1
         },
         "ui:widget": {
           "description": "Standard RJSF widget used to render the field.",

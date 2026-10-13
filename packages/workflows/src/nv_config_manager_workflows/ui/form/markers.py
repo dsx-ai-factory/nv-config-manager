@@ -59,14 +59,16 @@ class FormSchema:
     They tighten or seed the form without changing what the API accepts.
     ``required=True`` adds a defaulted model field to the projected object's
     ``required`` list. ``default`` becomes the projected ``default`` (JSON-encoded
-    through the field's type), and the remaining keywords become ``minItems``,
-    ``maxItems``, ``minLength``, ``maxLength``, ``minimum``, ``maximum``, and
-    ``pattern``. ``pattern`` uses the ECMAScript Unicode syntax defined by JSON
-    Schema and is compiled by the browser before the form is rendered.
+    through the field's type), and the remaining keywords become ``enum``,
+    ``minItems``, ``maxItems``, ``minLength``, ``maxLength``, ``minimum``,
+    ``maximum``, and ``pattern``. ``pattern`` uses the ECMAScript Unicode syntax
+    defined by JSON Schema and is compiled by the browser before the form is
+    rendered.
     """
 
     required: bool = False
     default: Any = UNSET
+    enum: tuple[Any, ...] | None = None
     min_items: int | None = None
     max_items: int | None = None
     min_length: int | None = None
@@ -78,6 +80,7 @@ class FormSchema:
     def keywords(self) -> dict[str, Any]:
         """Return the set JSON Schema keywords other than ``default``, keyed by wire name."""
         values = {
+            "enum": self.enum,
             "minItems": self.min_items,
             "maxItems": self.max_items,
             "minLength": self.min_length,

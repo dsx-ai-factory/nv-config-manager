@@ -93,6 +93,12 @@ const FILLED = {
   location: "PDX01",
   status: ["Active"],
 };
+const SELECTED_OPTIONS = {
+  device_ids: {
+    values: ["1"],
+    properties: { platform: ["cumulus-linux"] },
+  },
+};
 
 const sources: Array<[string, OptionSource]> = [
   ...Object.entries(WORKFLOW_FORM_FIXTURES).flatMap(([name, form]) =>
@@ -123,7 +129,13 @@ const sources: Array<[string, OptionSource]> = [
 
 describe("MSW parameter endpoints referenced by the /form samples", () => {
   it.each(sources)("serves options for %s", async (_label, source) => {
-    const request = buildOptionSourceRequest(mockApiURL, source, FILLED);
+    const request = buildOptionSourceRequest(
+      mockApiURL,
+      source,
+      FILLED,
+      {},
+      SELECTED_OPTIONS
+    );
     if (request.kind !== "ready") throw new Error(JSON.stringify(request));
 
     const response = await fetcher(request.url);

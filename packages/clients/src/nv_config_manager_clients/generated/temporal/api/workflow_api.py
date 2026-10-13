@@ -2858,7 +2858,7 @@ class WorkflowApi:
     @validate_call
     async def get_workflow_form_options_diagnostics_diagnostic_commands(
         self,
-        device_id: Annotated[List[Optional[StrictStr]], Field(description="Selected managed device IDs")],
+        platform: Annotated[List[Optional[StrictStr]], Field(description="Platforms of the selected managed devices")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2876,8 +2876,8 @@ class WorkflowApi:
 
         Return diagnostic-commands form options for DiagnosticsWorkflow.
 
-        :param device_id: Selected managed device IDs (required)
-        :type device_id: List[Optional[str]]
+        :param platform: Platforms of the selected managed devices (required)
+        :type platform: List[Optional[str]]
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -2901,7 +2901,7 @@ class WorkflowApi:
         """ # noqa: E501
 
         _param = self._get_workflow_form_options_diagnostics_diagnostic_commands_serialize(
-            device_id=device_id,
+            platform=platform,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -2929,7 +2929,7 @@ class WorkflowApi:
     @validate_call
     async def get_workflow_form_options_diagnostics_diagnostic_commands_with_http_info(
         self,
-        device_id: Annotated[List[Optional[StrictStr]], Field(description="Selected managed device IDs")],
+        platform: Annotated[List[Optional[StrictStr]], Field(description="Platforms of the selected managed devices")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2947,8 +2947,8 @@ class WorkflowApi:
 
         Return diagnostic-commands form options for DiagnosticsWorkflow.
 
-        :param device_id: Selected managed device IDs (required)
-        :type device_id: List[Optional[str]]
+        :param platform: Platforms of the selected managed devices (required)
+        :type platform: List[Optional[str]]
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -2972,7 +2972,7 @@ class WorkflowApi:
         """ # noqa: E501
 
         _param = self._get_workflow_form_options_diagnostics_diagnostic_commands_serialize(
-            device_id=device_id,
+            platform=platform,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -3000,7 +3000,7 @@ class WorkflowApi:
     @validate_call
     async def get_workflow_form_options_diagnostics_diagnostic_commands_without_preload_content(
         self,
-        device_id: Annotated[List[Optional[StrictStr]], Field(description="Selected managed device IDs")],
+        platform: Annotated[List[Optional[StrictStr]], Field(description="Platforms of the selected managed devices")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -3018,8 +3018,8 @@ class WorkflowApi:
 
         Return diagnostic-commands form options for DiagnosticsWorkflow.
 
-        :param device_id: Selected managed device IDs (required)
-        :type device_id: List[Optional[str]]
+        :param platform: Platforms of the selected managed devices (required)
+        :type platform: List[Optional[str]]
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -3043,7 +3043,7 @@ class WorkflowApi:
         """ # noqa: E501
 
         _param = self._get_workflow_form_options_diagnostics_diagnostic_commands_serialize(
-            device_id=device_id,
+            platform=platform,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -3066,7 +3066,7 @@ class WorkflowApi:
 
     def _get_workflow_form_options_diagnostics_diagnostic_commands_serialize(
         self,
-        device_id,
+        platform,
         _request_auth,
         _content_type,
         _headers,
@@ -3076,7 +3076,7 @@ class WorkflowApi:
         _host = None
 
         _collection_formats: Dict[str, str] = {
-            'device_id': 'multi',
+            'platform': 'multi',
         }
 
         _path_params: Dict[str, str] = {}
@@ -3090,9 +3090,9 @@ class WorkflowApi:
 
         # process the path parameters
         # process the query parameters
-        if device_id is not None:
+        if platform is not None:
 
-            _query_params.append(('device_id', device_id))
+            _query_params.append(('platform', platform))
 
         # process the header parameters
         # process the form parameters

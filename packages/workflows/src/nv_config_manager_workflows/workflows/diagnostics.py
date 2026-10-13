@@ -39,12 +39,12 @@ from nv_config_manager_workflows.ui import (
     FormOptionProvider,
     FormOptionSource,
     FormSchema,
+    OptionSource,
     ServerOwned,
     api_options,
     device_field,
 )
 from nv_config_manager_workflows.workflow_references import DeviceReferences
-from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.dcim import (
@@ -117,6 +117,14 @@ _EXPENSIVE_RETRY = RetryPolicy(
 )  # don't retry a timed-out collection — it already waited 600s
 _PREFLIGHT_RETRY = RetryPolicy(maximum_attempts=1)  # fail fast before touching devices
 
+_DIAGNOSTICS_DEVICE_SOURCE = OptionSource(
+    "/v1/parameter/device",
+    "name",
+    "id",
+    type_key="platform",
+    params={"managed_only": True},
+)
+
 
 # =============================================================================
 # Workflow Input / Result
@@ -135,9 +143,9 @@ class DiagnosticsWorkflowInput(BaseModel):
         "ui:globalOptions": {"hideSchemaDescriptions": True},
         "device_ids": {
             **device_field(
-                MANAGED_DEVICE_SOURCE,
+                _DIAGNOSTICS_DEVICE_SOURCE,
                 filters=["site"],
-                site_required=False,
+                site_required=True,
             ),
             "ui:title": "Devices",
         },
@@ -145,7 +153,7 @@ class DiagnosticsWorkflowInput(BaseModel):
             **api_options(
                 FormOptionSource(
                     "diagnostic-commands",
-                    depends_on={"device_id": Dependency("device_ids")},
+                    depends_on={"platform": Dependency("device_ids", option_key="platform")},
                 ),
                 presentation="grouped-checkboxes",
                 select_all=True,
@@ -153,7 +161,11 @@ class DiagnosticsWorkflowInput(BaseModel):
             ),
             "ui:title": "Commands",
         },
-        "ticketing_platform": {"ui:widget": "hidden"},
+        "ticketing_platform": {
+            "ui:title": "Ticketing Platform",
+            "ui:widget": "select",
+            "ui:enumNames": ["Jira"],
+        },
         "issue_key": {
             "ui:title": "Issue Key (optional — leave blank for ticketless mode)",
             "ui:placeholder": "NETSUPPORT-1234",
@@ -173,7 +185,7 @@ class DiagnosticsWorkflowInput(BaseModel):
     commands: Annotated[list[str], FormSchema(min_items=1)] = Field(
         description="Diagnostic command catalog names to run on each device."
     )
-    ticketing_platform: Annotated[str, FormSchema(default="jira")] = Field(
+    ticketing_platform: Annotated[str, FormSchema(default="jira", enum=("jira",))] = Field(
         default="", description="Ticketing platform to update; empty enables ticketless mode."
     )
     issue_key: str = Field(

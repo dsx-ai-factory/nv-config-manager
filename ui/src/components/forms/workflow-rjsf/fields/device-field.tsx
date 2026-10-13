@@ -53,6 +53,7 @@ import {
   isLoading,
   matchOptions,
   Picker,
+  usePublishOptionSelection,
   useSignatureChange,
 } from "./shared";
 
@@ -262,7 +263,16 @@ export const DeviceField = (props: FieldProps) => {
     fieldPathId,
   } = props;
   const context = contextOf(registry.formContext);
-  const { formData, pending, layout, query, setFields, settle } = context;
+  const {
+    formData,
+    pending,
+    layout,
+    optionSelections,
+    query,
+    setFields,
+    setOptionSelection,
+    settle,
+  } = context;
   const options = getUiOptions(uiSchema) as unknown as DeviceOptions;
   const {
     source,
@@ -316,11 +326,10 @@ export const DeviceField = (props: FieldProps) => {
     return params;
   }, [site?.id, site?.type, tenant, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const devices = useOptionSource(
-    siteMissing ? undefined : source,
-    formData,
-    extra
-  );
+  const devices = useOptionSource(siteMissing ? undefined : source, formData, {
+    extra,
+    selections: optionSelections,
+  });
 
   const ownPending = pending.has(owner);
   const siteOwner =
@@ -361,6 +370,14 @@ export const DeviceField = (props: FieldProps) => {
   ]);
 
   const value = formData[name];
+  usePublishOptionSelection(
+    name,
+    value,
+    devices.options,
+    source.type_key,
+    undefined,
+    setOptionSelection
+  );
   useSignatureChange(JSON.stringify([site ?? null, tenant, status]), () => {
     if (ownPending || isEmptyValue(value)) return;
     setFields(owner, { [name]: undefined }, "user");

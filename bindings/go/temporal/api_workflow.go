@@ -1246,12 +1246,12 @@ func (a *WorkflowAPIService) GetWorkflowFormExecute(r ApiGetWorkflowFormRequest)
 type ApiGetWorkflowFormOptionsDiagnosticsDiagnosticCommandsRequest struct {
 	ctx        context.Context
 	ApiService *WorkflowAPIService
-	deviceId   *[]*string
+	platform   *[]*string
 }
 
-// Selected managed device IDs
-func (r ApiGetWorkflowFormOptionsDiagnosticsDiagnosticCommandsRequest) DeviceId(deviceId []*string) ApiGetWorkflowFormOptionsDiagnosticsDiagnosticCommandsRequest {
-	r.deviceId = &deviceId
+// Platforms of the selected managed devices
+func (r ApiGetWorkflowFormOptionsDiagnosticsDiagnosticCommandsRequest) Platform(platform []*string) ApiGetWorkflowFormOptionsDiagnosticsDiagnosticCommandsRequest {
+	r.platform = &platform
 	return r
 }
 
@@ -1295,19 +1295,19 @@ func (a *WorkflowAPIService) GetWorkflowFormOptionsDiagnosticsDiagnosticCommands
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.deviceId == nil {
-		return localVarReturnValue, nil, reportError("deviceId is required and must be specified")
+	if r.platform == nil {
+		return localVarReturnValue, nil, reportError("platform is required and must be specified")
 	}
 
 	{
-		t := *r.deviceId
+		t := *r.platform
 		if reflect.TypeOf(t).Kind() == reflect.Slice {
 			s := reflect.ValueOf(t)
 			for i := 0; i < s.Len(); i++ {
-				parameterAddToHeaderOrQuery(localVarQueryParams, "device_id", s.Index(i).Interface(), "form", "multi")
+				parameterAddToHeaderOrQuery(localVarQueryParams, "platform", s.Index(i).Interface(), "form", "multi")
 			}
 		} else {
-			parameterAddToHeaderOrQuery(localVarQueryParams, "device_id", t, "form", "multi")
+			parameterAddToHeaderOrQuery(localVarQueryParams, "platform", t, "form", "multi")
 		}
 	}
 	// to determine the Content-Type header

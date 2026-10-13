@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 from nv_config_manager_workflows.ui import (
     Dependency,
+    FormSchema,
     OptionSource,
     ServerOwned,
     WorkflowFormContractError,
@@ -98,6 +99,39 @@ def test_api_options_accepts_a_referenced_array_of_strings() -> None:
     )
 
     assert schema["properties"]["values"]["$ref"] == "#/$defs/StringList"
+
+
+def test_enum_names_match_the_projected_enum() -> None:
+    class Model(BaseModel):
+        platform: Annotated[str, FormSchema(default="jira", enum=("jira", "custom"))] = ""
+
+    _validate(
+        {"platform": {"ui:widget": "select", "ui:enumNames": ["Jira", "Custom"]}},
+        model=Model,
+    )
+
+    with pytest.raises(WorkflowFormContractError, match="has 1 labels for 2 enum values"):
+        _validate(
+            {"platform": {"ui:widget": "select", "ui:enumNames": ["Jira"]}},
+            model=Model,
+        )
+
+
+def test_selected_option_dependency_requires_the_referenced_source_type_key() -> None:
+    ui_schema = {
+        "device_id": device_field(DEVICES),
+        "overlay": api_options(
+            OptionSource(
+                "/v1/options",
+                "name",
+                "name",
+                depends_on={"platform": Dependency("device_id", option_key="platform")},
+            )
+        ),
+    }
+
+    with pytest.raises(WorkflowFormContractError, match="must match 'device_id' source type_key"):
+        _validate(ui_schema)
 
 
 def test_the_server_adds_shipped_query_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -198,6 +232,8 @@ _SHARED = device_field(DEVICES, filters=("tenant",), filter_scope="shared", quer
         ({"site": "text"}, "must be a mapping"),
         ({"site": {"ui:label": "Site"}}, "unsupported keys ['ui:label']"),
         ({"site": {"ui:title": " "}}, "must be a non-empty string"),
+        ({"site": {"ui:enumNames": ["Site"]}}, "requires enum values"),
+        ({"site": {"ui:enumNames": []}}, "must be a non-empty list"),
         (
             {"site": {"ui:helpVariant": "destructive"}},
             "ui:helpVariant requires ui:help",

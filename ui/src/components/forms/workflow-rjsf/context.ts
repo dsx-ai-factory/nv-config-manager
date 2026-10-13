@@ -21,6 +21,8 @@
 import * as React from "react";
 import type { RJSFSchema } from "@rjsf/utils";
 
+import type { OptionSelection } from "@/lib/option-source";
+
 import {
   createInitialState,
   shellReducer,
@@ -47,9 +49,14 @@ export interface FormContext {
   query: QuerySnapshot; // immutable snapshot taken at mount
   pending: ReadonlySet<Owner>; // prefills not yet settled
   filters: Readonly<Record<string, ScopeFilters>>; // non-model device filters
+  optionSelections: Readonly<Record<string, OptionSelection>>; // non-model selected row metadata
 
   setFields(owner: Owner, patch: FormData, source: Source): void;
   setFilters(scope: string, patch: Partial<ScopeFilters>, source: Source): void;
+  setOptionSelection(
+    field: string,
+    selection: OptionSelection | undefined
+  ): void;
   settle(owner: Owner): void;
 }
 
@@ -174,6 +181,11 @@ export const useShellState = (
     (owner: Owner) => dispatch({ type: "settle", owner }),
     []
   );
+  const setOptionSelection = React.useCallback(
+    (field: string, selection: OptionSelection | undefined) =>
+      dispatch({ type: "option-selection", field, selection }),
+    []
+  );
 
   const context = React.useMemo<ShellFormContext>(
     () => ({
@@ -181,8 +193,10 @@ export const useShellState = (
       query,
       pending: state.pending,
       filters: state.filters,
+      optionSelections: state.optionSelections,
       setFields,
       setFilters,
+      setOptionSelection,
       settle,
       layout,
     }),
@@ -191,8 +205,10 @@ export const useShellState = (
       query,
       state.pending,
       state.filters,
+      state.optionSelections,
       setFields,
       setFilters,
+      setOptionSelection,
       settle,
       layout,
     ]

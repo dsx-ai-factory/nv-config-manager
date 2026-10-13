@@ -68,12 +68,12 @@ export const workflowFormOptionHandlers = [
       `${apiURL}/v1/workflow/diagnostics/form-options/diagnostic-commands`
     ),
     async ({ request }) => {
-      const selectedDeviceIds = new URL(request.url).searchParams.getAll("device_id");
-      const group = selectedDeviceIds.length > 1 ? "Runs on all selected devices" : undefined;
+      const platforms = new URL(request.url).searchParams.getAll("platform");
+      const group = platforms.length > 1 ? "Runs on all selected platforms" : undefined;
       return HttpResponse.json(
         {
           items:
-            selectedDeviceIds.length > 0
+            platforms.length > 0
               ? diagnosticsCommands.map((item) => ({ ...item, group }))
               : [],
           meta: { warnings: [] },

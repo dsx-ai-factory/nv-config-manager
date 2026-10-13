@@ -62,6 +62,7 @@ import {
   isLoading,
   matchOptions,
   Picker,
+  usePublishOptionSelection,
   useSignatureChange,
 } from "./shared";
 
@@ -268,13 +269,24 @@ export const SourceOptionsField = ({
     fieldPathId,
   } = field;
   const context = contextOf(registry.formContext);
-  const { formData, pending, layout, setFields, settle, query } = context;
+  const {
+    formData,
+    pending,
+    layout,
+    optionSelections,
+    setFields,
+    setOptionSelection,
+    settle,
+    query,
+  } = context;
   const owner: Owner = `field:${name}`;
   const multiple = schema.type === "array";
   const typed = typeField !== undefined;
   const label = fieldLabel(field);
 
-  const loaded = useOptionSource(source, formData);
+  const loaded = useOptionSource(source, formData, {
+    selections: optionSelections,
+  });
   const ownPending = pending.has(owner);
   const dependencyPending = dependencyFields(source).some((dependency) => {
     const dependencyOwner = layout.owners[dependency];
@@ -335,11 +347,22 @@ export const SourceOptionsField = ({
 
   const value = formData[name];
   const type = typeField !== undefined ? formData[typeField] : undefined;
-  useSignatureChange(dependencySignature(source, formData), () => {
-    if (ownPending || !source.clear_on_change) return;
-    if (isEmptyValue(value) && isEmptyValue(type)) return;
-    setFields(owner, patchFor([]), "user");
-  });
+  usePublishOptionSelection(
+    name,
+    value,
+    loaded.options,
+    source.type_key,
+    type,
+    setOptionSelection
+  );
+  useSignatureChange(
+    dependencySignature(source, formData, optionSelections),
+    () => {
+      if (ownPending || !source.clear_on_change) return;
+      if (isEmptyValue(value) && isEmptyValue(type)) return;
+      setFields(owner, patchFor([]), "user");
+    }
+  );
 
   React.useEffect(() => {
     if (

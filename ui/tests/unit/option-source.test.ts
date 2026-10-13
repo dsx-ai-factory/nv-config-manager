@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildOptionSourceRequest,
+  buildOptionSelection,
   dependencyFields,
   dependencySignature,
   deriveOptionSourceState,
@@ -182,6 +183,36 @@ describe("buildOptionSourceRequest", () => {
       "http://localhost:9000/v1/parameter/device" +
         "?limit=50&managed_only=true&role=leaf&role=spine&site=PDX01&status=Active"
     );
+  });
+
+  it("reads selected option metadata only when it matches the current field value", () => {
+    const source: OptionSource = {
+      endpoint: "/v1/commands",
+      label_key: "label",
+      value_key: "value",
+      depends_on: { platform: { field: "device_ids", option_key: "platform" } },
+    };
+    const selections = {
+      device_ids: {
+        values: ["d1", "d2"],
+        properties: { platform: ["cumulus-linux", "nv-os"] },
+      },
+    };
+
+    expect(
+      readyUrl(
+        buildOptionSourceRequest(
+          API_URL,
+          source,
+          { device_ids: ["d2", "d1"] },
+          {},
+          selections
+        )
+      )
+    ).toBe("http://localhost:9000/v1/commands?platform=cumulus-linux&platform=nv-os");
+    expect(
+      buildOptionSourceRequest(API_URL, source, { device_ids: ["d1"] }, {}, selections)
+    ).toEqual({ kind: "waiting", missingDependencies: ["device_ids"] });
   });
 
   it("reads a location's type from its typeField sibling and omits it when empty", () => {
@@ -378,6 +409,50 @@ describe("dependencySignature", () => {
     expect(dependencySignature(interfacesSource, { device_id: "d1" })).not.toBe(
       dependencySignature(interfacesSource, { device_id: "d2" })
     );
+  });
+
+  it("tracks selected option metadata rather than IDs when option_key is used", () => {
+    const source: OptionSource = {
+      endpoint: "/v1/commands",
+      label_key: "label",
+      value_key: "value",
+      depends_on: { platform: { field: "device_ids", option_key: "platform" } },
+    };
+    const first = {
+      device_ids: {
+        values: ["d1"],
+        properties: { platform: ["cumulus-linux"] },
+      },
+    };
+    const second = {
+      device_ids: {
+        values: ["d2"],
+        properties: { platform: ["cumulus-linux"] },
+      },
+    };
+
+    expect(dependencySignature(source, { device_ids: ["d1"] }, first)).toBe(
+      dependencySignature(source, { device_ids: ["d2"] }, second)
+    );
+  });
+});
+
+describe("buildOptionSelection", () => {
+  it("retains the selected rows' type_key values", () => {
+    expect(
+      buildOptionSelection(
+        ["d2", "d1"],
+        [
+          { label: "Leaf 1", value: "d1", type: "cumulus-linux" },
+          { label: "Leaf 2", value: "d2", type: "nv-os" },
+          { label: "Leaf 3", value: "d3", type: "arista-eos" },
+        ],
+        "platform"
+      )
+    ).toEqual({
+      values: ["d1", "d2"],
+      properties: { platform: ["cumulus-linux", "nv-os"] },
+    });
   });
 });
 

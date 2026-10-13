@@ -20,6 +20,7 @@ Pydantic stays the authoritative validator of every submission.
 """
 
 import copy
+import json
 import math
 from typing import Annotated, Any, TypeAliasType, get_args, get_origin
 
@@ -41,6 +42,7 @@ from nv_config_manager_workflows.ui.form.projection_constraints import (
 )
 
 _KEYWORD_TYPES: dict[str, tuple[str, ...]] = {
+    "enum": ("boolean", "integer", "number", "string"),
     "minItems": ("array",),
     "maxItems": ("array",),
     "minLength": ("string",),
@@ -301,6 +303,34 @@ def _apply_form_schema(
                 f"{' or '.join(_KEYWORD_TYPES[keyword])} properties; the property's type is "
                 f"{kind!r}"
             )
+        if keyword == "enum":
+            if not isinstance(value, tuple) or not value:
+                raise WorkflowFormContractError(
+                    f"{where} FormSchema enum must be a non-empty tuple"
+                )
+            adapter: TypeAdapter[Any] = TypeAdapter(info.rebuild_annotation())
+            try:
+                encoded = [
+                    adapter.dump_python(adapter.validate_python(item), mode="json")
+                    for item in value
+                ]
+            except ValidationError as error:
+                raise WorkflowFormContractError(
+                    f"{where} FormSchema enum contains a value that is not valid for the "
+                    f"field: {error}"
+                ) from error
+            if any(item is None for item in encoded):
+                raise WorkflowFormContractError(
+                    f"{where} FormSchema enum must not contain None; leave an optional "
+                    "field empty to omit it"
+                )
+            serialized = [
+                json.dumps(item, sort_keys=True, separators=(",", ":")) for item in encoded
+            ]
+            if len(set(serialized)) != len(serialized):
+                raise WorkflowFormContractError(f"{where} FormSchema enum values must be unique")
+            prop[keyword] = encoded
+            continue
         if keyword == "pattern":
             if not isinstance(value, str):
                 raise WorkflowFormContractError(f"{where} FormSchema pattern must be a string")
@@ -333,6 +363,10 @@ def _apply_form_schema(
                 "empty without a form default instead"
             )
         prop["default"] = default
+    if "default" in prop and "enum" in prop and prop["default"] not in prop["enum"]:
+        raise WorkflowFormContractError(
+            f"{where} FormSchema default {prop['default']!r} is not one of its enum values"
+        )
 
 
 def _reject_nested_markers(model: type[BaseModel]) -> None:

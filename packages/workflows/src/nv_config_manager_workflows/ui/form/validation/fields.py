@@ -78,6 +78,23 @@ def check_field(context: FormValidationContext, name: str, entry: dict[str, Any]
     for key in _TEXT_KEYS:
         if key in entry:
             require_text(entry[key], f"{context.name} {name!r} {key}")
+    enum_names = entry.get("ui:enumNames")
+    if enum_names is not None:
+        if (
+            not isinstance(enum_names, list)
+            or not enum_names
+            or any(not isinstance(label, str) or not label.strip() for label in enum_names)
+        ):
+            raise context.fail(f"{name!r} ui:enumNames must be a non-empty list of labels")
+        prop = context.properties[name]
+        enum_values = prop.get("enum", context.resolve_schema(prop).get("enum"))
+        if not isinstance(enum_values, list):
+            raise context.fail(f"{name!r} ui:enumNames requires enum values in its form schema")
+        if len(enum_names) != len(enum_values):
+            raise context.fail(
+                f"{name!r} ui:enumNames has {len(enum_names)} labels for "
+                f"{len(enum_values)} enum values"
+            )
     help_variant = entry.get("ui:helpVariant")
     if help_variant is not None:
         if help_variant not in vocabulary.help_variants:
@@ -135,7 +152,7 @@ def check_core_field(context: FormValidationContext, name: str, entry: dict[str,
         context,
         name,
         options.get("source"),
-        type_key=field == "location",
+        type_key=field in {"device", "location"},
         depends_on=field != "device",
         enriched=field == "apiOptions",
     )
@@ -358,17 +375,34 @@ def _check_source(
         require_text(param, f"{where}.depends_on key")
         if (
             not isinstance(dependency, dict)
-            or not set(dependency) <= {"field", "required"}
+            or not set(dependency) <= {"field", "required", "option_key"}
             or dependency.get("required", False) is not False
         ):
             raise context.fail(
-                f"{name!r} depends_on[{param!r}] must be {{field, required?: false}}"
+                f"{name!r} depends_on[{param!r}] must be "
+                "{field, required?: false, option_key?: string}"
             )
-        dependencies.append(
-            context.require_property(
-                dependency.get("field"), f"{name!r} dependency", wire_name=True
-            )
+        dependency_field = context.require_property(
+            dependency.get("field"), f"{name!r} dependency", wire_name=True
         )
+        dependencies.append(dependency_field)
+        if "option_key" not in dependency:
+            continue
+        option_key = require_text(
+            dependency["option_key"], f"{where}.depends_on[{param!r}].option_key"
+        )
+        dependency_entry = context.fields.get(dependency_field, {})
+        dependency_source = dependency_entry.get("ui:options", {}).get("source", {})
+        if dependency_entry.get("ui:field") not in {"device", "location"}:
+            raise context.fail(
+                f"{name!r} depends_on[{param!r}] option_key requires {dependency_field!r} "
+                "to be a device or location field"
+            )
+        if dependency_source.get("type_key") != option_key:
+            raise context.fail(
+                f"{name!r} depends_on[{param!r}] option_key {option_key!r} must match "
+                f"{dependency_field!r} source type_key"
+            )
     return dependencies
 
 

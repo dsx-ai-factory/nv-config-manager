@@ -30,6 +30,8 @@ import {
   type RJSFSchema,
 } from "@rjsf/utils";
 
+import type { OptionSelection } from "@/lib/option-source";
+
 import { initialPending, standardPrefill } from "./prefill";
 import { propertiesOf, type ExclusiveGroup } from "./ui-schema";
 import { workflowValidator } from "./validator";
@@ -102,6 +104,8 @@ export interface ShellState {
   formData: Readonly<FormData>;
   pending: ReadonlySet<Owner>;
   filters: Readonly<Record<string, ScopeFilters>>;
+  /** Selected source-option metadata used only by dependent option requests. */
+  optionSelections: Readonly<Record<string, OptionSelection>>;
   /** Mapped 422 errors (`extraErrors`). */
   serverErrors: ErrorSchema | undefined;
 }
@@ -122,6 +126,11 @@ export type ShellAction =
       exclusiveGroups?: readonly ExclusiveGroup[];
     }
   | { type: "settle"; owner: Owner }
+  | {
+      type: "option-selection";
+      field: string;
+      selection: OptionSelection | undefined;
+    }
   /** `base` is the form data passed to the RJSF render that produced `next`. */
   | {
       type: "rjsf-change";
@@ -172,6 +181,7 @@ export const createInitialState = (
     formData: normalized,
     pending: initialPending(schema, uiSchema, query),
     filters: {},
+    optionSelections: {},
     serverErrors: undefined,
   };
 };
@@ -411,6 +421,14 @@ export const shellReducer = (
     case "settle": {
       const pending = withoutOwner(state.pending, action.owner);
       return pending === state.pending ? state : { ...state, pending };
+    }
+    case "option-selection": {
+      const current = state.optionSelections[action.field];
+      if (deepEquals(current, action.selection)) return state;
+      const optionSelections = { ...state.optionSelections };
+      if (action.selection === undefined) delete optionSelections[action.field];
+      else optionSelections[action.field] = action.selection;
+      return { ...state, optionSelections };
     }
     case "rjsf-change": {
       // Three-way merge: apply only what this event changed relative to the data its

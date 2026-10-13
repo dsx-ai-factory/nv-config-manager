@@ -1380,7 +1380,12 @@ export async function mockDevicesEndpoint(page: Page) {
 
     await route.fulfill({
       status: 200,
-      json: devices,
+      json: devices.map((device) => ({
+        ...device,
+        // The DCIM provider normalizes Nautobot platform names before the
+        // parameter endpoint returns them.
+        platform: device.platform.toLowerCase().replaceAll(" ", "-"),
+      })),
     });
   });
 }
@@ -1474,21 +1479,21 @@ export const DIAGNOSTICS_COMMANDS = [
   { name: "show version", description: "Collect software versions" },
 ];
 
-/** Options-v1 envelope for the selected diagnostics devices. */
+/** Options-v1 envelope for the selected diagnostics device platforms. */
 export async function mockDiagnosticsCommandOptionsEndpoint(page: Page) {
   await page.route(
     /\/v1\/workflow\/diagnostics\/form-options\/diagnostic-commands(\?.*)?$/,
     (route) => {
-      const deviceIds = new URL(route.request().url()).searchParams.getAll(
-        "device_id"
+      const platforms = new URL(route.request().url()).searchParams.getAll(
+        "platform"
       );
       const group =
-        deviceIds.length > 1 ? "Runs on all selected devices" : undefined;
+        platforms.length > 1 ? "Runs on all selected devices" : undefined;
       return route.fulfill({
         status: 200,
         json: {
           items:
-            deviceIds.length > 0
+            platforms.length > 0
               ? DIAGNOSTICS_COMMANDS.map(({ name, description }) => ({
                   label: name,
                   value: name,

@@ -58,7 +58,7 @@ const validForm = () => ({
 });
 
 const CANONICAL_UI_DIR = new URL(
-  "../../../packages/workflows/src/nv_config_manager_workflows/ui/",
+  "../../../packages/workflows/src/nv_config_manager_workflows/ui/form/resources/",
   import.meta.url
 );
 const read = (url: URL) => readFileSync(fileURLToPath(url), "utf8");
@@ -121,7 +121,11 @@ describe("parseWorkflowFormResponse", () => {
 
   it("rejects an invalid variantRows pattern before rendering", () => {
     const form = structuredClone(WORKFLOW_FORM_FIXTURES.IBPKeyMemberAddWorkflow);
-    const options = form.ui_schema.interfaces["ui:options"];
+    const options = (
+      form.ui_schema.interfaces as {
+        "ui:options": { modes: Array<{ columns: Array<{ pattern?: string }> }> };
+      }
+    )["ui:options"];
     options.modes[1].columns[0].pattern = "(?P<guid>[0-9a-f]+)";
 
     const result = parseWorkflowFormResponse(form);

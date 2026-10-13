@@ -516,7 +516,10 @@
           "default": "jira",
           "description": "Ticketing platform to update; empty enables ticketless mode.",
           "title": "Ticketing Platform",
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "jira"
+          ]
         },
         "issue_key": {
           "default": "",
@@ -556,6 +559,7 @@
             "endpoint": "/v1/parameter/device",
             "label_key": "name",
             "value_key": "id",
+            "type_key": "platform",
             "params": {
               "managed_only": true
             }
@@ -577,7 +581,7 @@
               }
             }
           },
-          "siteRequired": false,
+          "siteRequired": true,
           "queryParam": "device-id",
           "filterScope": "implicit:device_ids"
         },
@@ -591,8 +595,9 @@
             "label_key": "label",
             "value_key": "value",
             "depends_on": {
-              "device_id": {
-                "field": "device_ids"
+              "platform": {
+                "field": "device_ids",
+                "option_key": "platform"
               }
             },
             "response": "options-v1"
@@ -604,7 +609,11 @@
         "ui:title": "Commands"
       },
       "ticketing_platform": {
-        "ui:widget": "hidden"
+        "ui:title": "Ticketing Platform",
+        "ui:widget": "select",
+        "ui:enumNames": [
+          "Jira"
+        ]
       },
       "issue_key": {
         "ui:title": "Issue Key (optional \u2014 leave blank for ticketless mode)",
@@ -620,6 +629,7 @@
       "core-field.api-options.enriched.v1",
       "core-field.api-options.v1",
       "core-field.device.v1",
+      "option-source.selected-option.v1",
       "theme.hide-schema-descriptions.v1"
     ]
   },
