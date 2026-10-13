@@ -23,6 +23,7 @@ import pytest
 from nv_config_manager_dcim import (
     DCIMInvalidDataError,
     DCIMLocationReference,
+    DCIMNotFoundError,
     DCIMProviderConfigurationError,
 )
 from nv_config_manager_dcim import registry as sdk_registry
@@ -426,3 +427,40 @@ def test_event_provider_mismatch_is_rejected() -> None:
             },
             _config(),
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("data", [{"device": None}, {}])
+async def test_nautobot_device_serial_missing_device(data) -> None:
+    """A null or absent device raises the provider's missing-device error."""
+    device_id = "00000000-0000-0000-0000-000000000000"
+    client = NautobotDCIMClient("https://dcim.example", "token")
+    client.graphql_query = AsyncMock(return_value={"data": data})
+
+    with pytest.raises(DCIMNotFoundError) as exc_info:
+        await client.get_device_serial(device_id)
+
+    assert str(exc_info.value) == f"No DCIM device data found for {device_id}."
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("device", [{"serial": ""}, {"serial": None}, {}])
+async def test_nautobot_device_serial_missing_serial(device) -> None:
+    """An existing device without a serial retains the serial-specific error."""
+    device_id = "00000000-0000-0000-0000-000000000000"
+    client = NautobotDCIMClient("https://dcim.example", "token")
+    client.graphql_query = AsyncMock(return_value={"data": {"device": device}})
+
+    with pytest.raises(DCIMNotFoundError) as exc_info:
+        await client.get_device_serial(device_id)
+
+    assert str(exc_info.value) == f"No serial found in DCIM for {device_id}."
+
+
+@pytest.mark.asyncio
+async def test_nautobot_device_serial_found() -> None:
+    """An existing serial is returned unchanged."""
+    client = NautobotDCIMClient("https://dcim.example", "token")
+    client.graphql_query = AsyncMock(return_value={"data": {"device": {"serial": "MT2531J01M8G"}}})
+
+    assert await client.get_device_serial("00000000-0000-0000-0000-000000000000") == "MT2531J01M8G"

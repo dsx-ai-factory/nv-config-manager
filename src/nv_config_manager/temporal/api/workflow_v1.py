@@ -46,7 +46,10 @@ from nv_config_manager.temporal.api.dynamic_endpoints import (
     set_start_workflow_function,
 )
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
-from nv_config_manager.temporal.api.workflow_catalog import WORKFLOW_API_CATALOG
+from nv_config_manager.temporal.api.workflow_catalog import (
+    WORKFLOW_API_CATALOG,
+    WORKFLOW_TYPE_CATALOG,
+)
 from nv_config_manager.temporal.api.workflow_submission import resolve_workflow_references
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
 from nv_config_manager.temporal.client.redis import RedisClient
@@ -800,7 +803,7 @@ async def get_workflows(  # pylint: disable=R0913,R0914
 @router.get("/types")
 async def get_workflow_types() -> list[str]:
     """Return registered workflow type names."""
-    return sorted(workflow.__name__ for workflow in WORKFLOW_API_CATALOG)
+    return sorted(workflow.__name__ for workflow in WORKFLOW_TYPE_CATALOG)
 
 
 @router.get("/metadata")

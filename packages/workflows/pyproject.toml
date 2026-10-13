@@ -29,6 +29,9 @@ dependencies = [
     "urllib3>=2.7.0",
 ]
 
+[project.scripts]
+nv-config-manager-workflows-manifest = "nv_config_manager_workflows.registration.manifest:main"
+
 [project.entry-points."nv_config_manager.workflows"]
 builtin = "nv_config_manager_workflows.registration:builtin_plugin"
 
@@ -47,6 +50,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nv_config_manager_workflows"]
+
+[tool.hatch.build.targets.sdist]
+# The fixture plugin is a separate distribution built from its own pyproject.toml.
+exclude = ["tests/fixtures/plugin"]
 
 [tool.pytest.ini_options]
 cache_dir = ".cache/pytest_cache"

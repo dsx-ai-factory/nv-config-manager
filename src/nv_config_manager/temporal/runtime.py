@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from types import TracebackType
 from typing import cast
@@ -27,9 +28,15 @@ from nv_config_manager_clients.ztp import ZTPClient
 from nv_config_manager_dcim.api import DCIMClient
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData
 from nv_config_manager_infrastructure.redis import RedisClient
+from temporalio.client import Client
+from temporalio.contrib.opentelemetry import TracingInterceptor
 
 from nv_config_manager.common.client import NatsProducer
-from nv_config_manager.common.config import load_config, nats_archive_config
+from nv_config_manager.common.config import (
+    is_aggregate_environment,
+    load_config,
+    nats_archive_config,
+)
 from nv_config_manager.common.config.client_settings.config_store import (
     config_store_client_settings,
 )
@@ -42,12 +49,19 @@ from nv_config_manager.common.config.client_settings.ztp import ztp_client_setti
 from nv_config_manager.common.config.storage import get_storage_client
 from nv_config_manager.common.lock import token_lock_backend
 from nv_config_manager.dcim.registry import create_dcim_client
+from nv_config_manager.temporal.client.connection import (
+    client_connect_options,
+    temporal_address,
+)
 from nv_config_manager.temporal.client.device.base import NetworkConnection
 from nv_config_manager.temporal.client.redfish import (
     get_config_manager_connection,
     get_default_connection,
 )
 from nv_config_manager.temporal.client.ufm import UFMClient
+from nv_config_manager.temporal.common.rbac_config import RBACConfig
+from nv_config_manager.temporal.converter import get_data_converter
+from nv_config_manager.temporal.telemetry import get_runtime
 from nv_config_manager.ztp.storage import (
     ObjectStorageClient,
     ObjectStorageNotFoundException,
@@ -72,6 +86,11 @@ from nv_config_manager_workflows.runtime import (
     configure_dcim_client,
     configure_runtime,
     configure_ui_base_url,
+)
+from nv_config_manager_workflows.schedulers.runtime import (
+    BuiltinSchedulerRuntime,
+    SchedulerRuntime,
+    SchedulerWorkflowRoles,
 )
 
 
@@ -216,6 +235,52 @@ class _FirmwareStorageAdapter:
 def _firmware_storage() -> FirmwareStorage:
     """Create a narrow firmware-storage adapter from current service configuration."""
     return _FirmwareStorageAdapter(get_storage_client())
+
+
+async def _scheduler_temporal_client() -> Client:
+    """Connect a new scheduler Temporal client from current configuration on every call."""
+    return await Client.connect(
+        temporal_address(),
+        **client_connect_options(),
+        data_converter=get_data_converter(),
+        interceptors=[TracingInterceptor(always_create_workflow_spans=True)],
+        runtime=get_runtime(),
+    )
+
+
+async def _desired_backup_devices() -> set[str]:
+    """Read the provider-neutral desired backup set from current configuration."""
+    config = load_config()
+    # Validate the aggregate flag before creating the DCIM client, as main did.
+    is_aggregate_env = is_aggregate_environment(config)
+    client = create_dcim_client(config)
+    async with client:
+        return await client.get_backup_enabled_device_ids(is_aggregate_env)
+
+
+def _scheduler_workflow_roles(workflow_class_name: str) -> SchedulerWorkflowRoles | None:
+    """Translate service RBAC configuration into the scheduler package contract."""
+    roles = RBACConfig().get_workflow_roles(workflow_class_name)
+    if not roles:
+        return None
+    return SchedulerWorkflowRoles(
+        read_roles=frozenset(roles["read_roles"]),
+        execute_roles=frozenset(roles["execute_roles"]),
+    )
+
+
+def build_scheduler_runtime() -> SchedulerRuntime:
+    """Build inert shared scheduler adapters without opening service connections."""
+    return SchedulerRuntime(
+        temporal_client=_scheduler_temporal_client,
+        workflow_roles=_scheduler_workflow_roles,
+        sleep=asyncio.sleep,
+    )
+
+
+def build_builtin_scheduler_runtime() -> BuiltinSchedulerRuntime:
+    """Build inert built-in scheduler adapters without opening service connections."""
+    return BuiltinSchedulerRuntime(desired_backup_devices=_desired_backup_devices)
 
 
 def configure_workflow_runtime() -> None:

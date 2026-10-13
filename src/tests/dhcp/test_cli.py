@@ -14,7 +14,9 @@
 # limitations under the License.
 """Tests for DHCP sync hash reconciliation and reconcile-loop observability."""
 
+import contextlib
 import logging
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -23,12 +25,15 @@ import click
 import pytest
 from aiohttp import ClientError
 
+from nv_config_manager.dcim import DCIMReadCancelledError
 from nv_config_manager.dhcp import cli
 from nv_config_manager.dhcp.kea import KeaException
 from nv_config_manager.dhcp.metrics import (
     DHCP_CONFIG_HASH_MISMATCHES,
     DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP,
+    DHCP_QUERY_ERRORS,
     DHCP_SYNC_FAILURES,
+    QueryErrorType,
     SyncOperation,
     SyncState,
     initialize_refresh_metrics,
@@ -913,6 +918,120 @@ async def test_refresh_counts_config_test_rejection() -> None:
         == before + 1
     )
     redis_client.persist_kea_config.assert_not_awaited()
+
+
+@contextlib.asynccontextmanager
+async def _patched_refresh_loop(
+    refresh: AsyncMock,
+) -> AsyncIterator[AsyncMock]:
+    """Run ``_refresh_loop_async`` against mocked dependencies and a mocked cycle."""
+
+    @contextlib.asynccontextmanager
+    async def _session(_config: Any) -> AsyncIterator[MagicMock]:
+        yield MagicMock()
+
+    with (
+        patch.object(cli, "load_config", MagicMock()),
+        patch.object(cli, "KeaClient", MagicMock(from_config=MagicMock(return_value=AsyncMock()))),
+        patch.object(
+            cli, "RedisClient", MagicMock(from_config=MagicMock(return_value=AsyncMock()))
+        ),
+        patch.object(cli, "dcim_client_session", _session),
+        patch.object(cli, "_refresh_kea_configuration_async", refresh),
+        patch.object(cli.asyncio, "sleep", AsyncMock()) as sleep,
+    ):
+        yield sleep
+
+
+async def test_refresh_cycle_retries_a_read_the_dcim_cancelled() -> None:
+    """A replica cancelling one read is not a reason to drop the cycle.
+
+    The counter tracks skipped cycles, so a retry that goes on to publish must
+    leave it alone -- otherwise a healthy pod reports skips it never made.
+    """
+    refresh = AsyncMock(side_effect=[DCIMReadCancelledError("replica cancelled"), False])
+    before = _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.READ_CANCELLED)
+
+    with (
+        patch.object(cli, "_refresh_kea_configuration_async", refresh),
+        patch.object(cli.asyncio, "sleep", AsyncMock()),
+    ):
+        assert (
+            await cli._refresh_cycle_async(MagicMock(), MagicMock(), MagicMock(), 4, check=False)
+            is False
+        )
+
+    assert refresh.await_count == 2
+    assert _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.READ_CANCELLED) == before
+
+
+async def test_refresh_cycle_stops_retrying_reads_that_keep_being_cancelled() -> None:
+    """Every attempt re-reads the whole inventory, so the retries have to be bounded."""
+    refresh = AsyncMock(side_effect=DCIMReadCancelledError("replica cancelled"))
+
+    with (
+        patch.object(cli, "_refresh_kea_configuration_async", refresh),
+        patch.object(cli.asyncio, "sleep", AsyncMock()),
+        pytest.raises(DCIMReadCancelledError),
+    ):
+        await cli._refresh_cycle_async(MagicMock(), MagicMock(), MagicMock(), 4, check=False)
+
+    assert refresh.await_count == cli.CANCELLED_READ_ATTEMPTS
+
+
+async def test_cancelled_read_is_not_recorded_as_a_generation_failure() -> None:
+    """The loop retries or skips the cycle itself; a recovered read must not log an error."""
+    before = _counter_value(
+        DHCP_SYNC_FAILURES, operation=SyncOperation.CONFIG_GENERATION, ip_version="4"
+    )
+
+    with pytest.raises(DCIMReadCancelledError):
+        await cli._track_sync_operation(
+            SyncOperation.CONFIG_GENERATION,
+            4,
+            AsyncMock(side_effect=DCIMReadCancelledError("replica cancelled"))(),
+        )
+
+    assert (
+        _counter_value(
+            DHCP_SYNC_FAILURES, operation=SyncOperation.CONFIG_GENERATION, ip_version="4"
+        )
+        == before
+    )
+
+
+async def test_refresh_loop_skips_a_cycle_whose_reads_kept_being_cancelled() -> None:
+    """The crash this replaces: the pod exited and re-ran straight into the same replica.
+
+    The skip is still visible: ``cache_last_refresh_timestamp`` is written with
+    the config, so not publishing is what the ten-minute refresh alert sees.
+    """
+    refresh = AsyncMock(
+        side_effect=[DCIMReadCancelledError("replica cancelled")] * cli.CANCELLED_READ_ATTEMPTS
+        + [True]
+    )
+    before = _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.READ_CANCELLED)
+
+    async with _patched_refresh_loop(refresh) as sleep:
+        await cli._refresh_loop_async(4, check=False, refresh_interval=300)
+
+    assert refresh.await_count == cli.CANCELLED_READ_ATTEMPTS + 1
+    sleep.assert_any_await(300)
+    # Once per skipped cycle: counting each attempt would report this skip twice.
+    assert _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.READ_CANCELLED) == before + 1
+
+
+async def test_refresh_loop_fails_a_one_shot_run_whose_reads_were_cancelled() -> None:
+    """Without an interval there is no later cycle to recover in, so it must surface."""
+    refresh = AsyncMock(side_effect=DCIMReadCancelledError("replica cancelled"))
+    before = _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.READ_CANCELLED)
+
+    async with _patched_refresh_loop(refresh):
+        with pytest.raises(DCIMReadCancelledError):
+            await cli._refresh_loop_async(4, check=False, refresh_interval=0)
+
+    # A failed one-shot run is not a skipped periodic cycle.
+    assert _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.READ_CANCELLED) == before
 
 
 async def test_refresh_check_mode_reports_invalid_config() -> None:

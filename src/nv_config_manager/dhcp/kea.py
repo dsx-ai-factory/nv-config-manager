@@ -303,10 +303,10 @@ class KeaClient:
                 "KEA Request timed out, are you running within a KEA Docker Container?"
             ) from exc
 
-    async def get_statistics(self, version: int = 4) -> list[dict[str, Any]]:
-        """Return all statistics recorded by the KEA DHCP service."""
+    async def get_lease_statistics(self, version: int = 4) -> list[dict[str, Any]]:
+        """Return lease counts from the shared database, independent of server counters."""
         data = {
-            "command": "statistic-get-all",
+            "command": f"stat-lease{version}-get",
             "service": [f"dhcp{version}"],
             "arguments": {},
         }

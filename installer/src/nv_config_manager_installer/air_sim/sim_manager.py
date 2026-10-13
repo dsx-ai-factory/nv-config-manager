@@ -23,6 +23,7 @@ import platform
 import re
 import select
 import shlex
+import signal
 import subprocess
 import threading
 import time
@@ -2116,6 +2117,26 @@ class AirSimulationManager:
                     p.terminate()
                     p.wait(timeout=5)
 
+    @staticmethod
+    def _stop_cloud_init_tail(proc: subprocess.Popen[str]) -> None:
+        """Stop and reap the log stream without changing the setup result."""
+        try:
+            # sshpass wraps ssh; stop both so ssh cannot keep the pipe open.
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(proc.pid, sig)
+                except ProcessLookupError:
+                    pass
+                try:
+                    proc.wait(timeout=5)
+                    break
+                except subprocess.TimeoutExpired:
+                    if sig == signal.SIGKILL:
+                        LOG.warning("Cloud-init log stream did not exit after being killed.")
+        finally:
+            if proc.stdout is not None:
+                proc.stdout.close()
+
     def wait_for_cloud_init(
         self,
         host: str,
@@ -2183,12 +2204,14 @@ class AirSimulationManager:
         LOG.info("Tailing cloud-init output ...")
         LOG.info("(Ctrl+C to stop tailing and continue)\n")
 
+        proc: subprocess.Popen[str] | None = None
         try:
             proc = subprocess.Popen(
                 [*ssh_base, "sudo", "tail", "-n", "+1", "-f", "/var/log/cloud-init-output.log"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 text=True,
+                start_new_session=True,
             )
 
             assert proc.stdout is not None
@@ -2204,7 +2227,6 @@ class AirSimulationManager:
                             "Log tail ended unexpectedly. SSH session "
                             "may have dropped -- check the server manually."
                         )
-                        proc.wait(timeout=5)
                         return False
 
                     line = line.rstrip("\n")
@@ -2212,8 +2234,6 @@ class AirSimulationManager:
 
                     if self._SETUP_COMPLETE_MARKER in line:
                         LOG.info("\nCloud-init setup finished successfully.")
-                        proc.terminate()
-                        proc.wait(timeout=5)
                         return True
 
                 now = time.monotonic()
@@ -2230,32 +2250,44 @@ class AirSimulationManager:
                 status_text = f"{status.stdout}\n{status.stderr}".strip()
                 if "status: error" in status_text or "extended_status: error" in status_text:
                     LOG.warning("Cloud-init reported an error:\n%s", status_text)
-                    proc.terminate()
-                    proc.wait(timeout=5)
                     return False
 
                 if "status: done" in status_text:
+                    # TextIOWrapper can buffer log lines that select() no longer sees.
+                    # Check the files directly before declaring a missing marker.
+                    marker = subprocess.run(
+                        [
+                            *ssh_base,
+                            "sudo grep -Fq -- "
+                            f"{shlex.quote(self._SETUP_COMPLETE_MARKER)} "
+                            "/var/log/nvcm-setup.log /var/log/cloud-init-output.log",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    if marker.returncode == 0:
+                        LOG.info("\nCloud-init setup finished successfully.")
+                        proc.terminate()
+                        proc.wait(timeout=5)
+                        return True
                     done_seen_at = done_seen_at or now
                     if now - done_seen_at > 5:
                         LOG.warning(
                             "Cloud-init completed without the setup-complete marker. "
                             "Check /var/log/nvcm-setup.log on the server."
                         )
-                        proc.terminate()
-                        proc.wait(timeout=5)
                         return False
 
             LOG.warning("\nTimed out waiting for setup to complete. Check the server manually.")
-            proc.terminate()
-            proc.wait(timeout=5)
             return False
 
         except KeyboardInterrupt:
             LOG.info("\nTailing interrupted. Setup may still be running on the server.")
-            if proc.poll() is None:
-                proc.terminate()
-                proc.wait(timeout=5)
             return False
+        finally:
+            if proc is not None:
+                self._stop_cloud_init_tail(proc)
 
     def start_simulation(self, simulation_id: str, wait: bool = True) -> None:
         """Start a simulation and optionally wait for it to load.

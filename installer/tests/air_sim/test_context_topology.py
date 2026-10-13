@@ -20,11 +20,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from nv_config_manager_installer.air_sim.context_topology import (
     build_site_design_from_mock_context,
 )
+from nv_config_manager_installer.air_sim.models import NVCMServerConfig
 from nv_config_manager_installer.air_sim.topology import AirTopologyBuilder
 
 
@@ -206,3 +208,204 @@ def test_air_topology_builder_preserves_explicit_oob_server_cpu_mode(tmp_path: P
 
     assert topology["nodes"]["oob-mgmt-server"]["cpu_mode"] == "host-model"
     assert "cpu_mode" not in topology["nodes"]["oob-mleaf-01"]
+
+
+@pytest.mark.parametrize("enabled", ["false", 0, 1, None, [], {}])
+def test_air_enabled_requires_boolean(tmp_path: Path, enabled: Any) -> None:
+    """Malformed enablement values must not silently launch inventory-only nodes."""
+    topology_path = tmp_path / "site-design.yaml"
+    _write_yaml(topology_path, {"devices": [{"name": "server", "_air": {"enabled": enabled}}]})
+    with pytest.raises(ValueError, match="_air.enabled must be a boolean"):
+        AirTopologyBuilder(str(topology_path))
+
+
+@pytest.mark.parametrize("device_name", ["oob-mgmt-server", "oob-mleaf-01"])
+def test_air_topology_builder_accepts_null_air_config(tmp_path: Path, device_name: str) -> None:
+    """A YAML null AIR block uses defaults for both server and switch nodes."""
+    _write_context(tmp_path)
+    site_design = build_site_design_from_mock_context(
+        "demo_blueprint", "demo", context_root=tmp_path
+    )
+    device = next(device for device in site_design["devices"] if device["name"] == device_name)
+    device["_air"] = None
+    topology_path = tmp_path / "site-design.yaml"
+    _write_yaml(topology_path, site_design)
+
+    builder = AirTopologyBuilder(str(topology_path))
+    topology = builder.build_topology()
+
+    assert builder.devices[device["name"]].air_enabled is True
+    assert builder.devices[device["name"]].air_config == {}
+    assert device["name"] in topology["nodes"]
+
+
+def test_air_topology_builder_omits_inventory_only_devices_and_their_cables(
+    tmp_path: Path,
+) -> None:
+    _write_context(tmp_path)
+    site_design = build_site_design_from_mock_context(
+        "demo_blueprint", "demo", context_root=tmp_path
+    )
+    site_design["devices"].append(
+        {
+            "name": "inventory-only-node",
+            "role": "GPU-Node",
+            "platform": "Ubuntu",
+            "device_type": {"manufacturer": "NVIDIA", "model": "Compute Tray"},
+            "_air": {"enabled": False},
+        }
+    )
+    site_design["interfaces"].extend(
+        [
+            {
+                "device": "inventory-only-node",
+                "name": "bmc",
+                "type": "1000base-t",
+            },
+            {
+                "device": "oob-mleaf-01",
+                "name": "swp2",
+                "type": "1000base-t",
+            },
+        ]
+    )
+    site_design["cabling_assignments"]["connections"].append(
+        {
+            "source": {"device": "inventory-only-node", "component": {"name": "bmc"}},
+            "destination": {"device": "oob-mleaf-01", "component": {"name": "swp2"}},
+        }
+    )
+    topology_path = tmp_path / "site-design.yaml"
+    _write_yaml(topology_path, site_design)
+
+    builder = AirTopologyBuilder(str(topology_path))
+    topology = builder.build_topology()
+
+    assert "inventory-only-node" in builder.devices
+    assert "inventory-only-node" not in topology["nodes"]
+    assert not any(
+        isinstance(endpoint, dict) and endpoint.get("node") == "inventory-only-node"
+        for link in topology["links"]
+        for endpoint in link
+    )
+    assert [
+        {"node": "oob-mleaf-01", "interface": "swp2"},
+        "unconnected",
+    ] in topology["links"]
+
+
+@pytest.mark.parametrize("air_enabled", [False, True])
+def test_cumulus_eth0_without_mac_requires_air_enabled(
+    tmp_path: Path,
+    air_enabled: bool,
+) -> None:
+    _write_context(tmp_path)
+    site_design = build_site_design_from_mock_context(
+        "demo_blueprint", "demo", context_root=tmp_path
+    )
+    site_design["devices"].append(
+        {
+            "name": "inventory-switch",
+            "platform": "Cumulus Linux",
+            "role": "SMN-Leaf",
+            "device_type": {"manufacturer": "NVIDIA", "model": "SN5600"},
+            "_air": {"enabled": air_enabled},
+        }
+    )
+    site_design["interfaces"].append(
+        {
+            "device": "inventory-switch",
+            "name": "eth0",
+            "type": "1000base-t",
+        }
+    )
+    topology_path = tmp_path / "site-design.yaml"
+    _write_yaml(topology_path, site_design)
+
+    if air_enabled:
+        with pytest.raises(ValueError, match="interface eth0 must define"):
+            AirTopologyBuilder(str(topology_path)).build_topology()
+    else:
+        builder = AirTopologyBuilder(str(topology_path))
+        topology = builder.build_topology()
+        assert "inventory-switch" in builder.devices
+        assert "inventory-switch" not in topology["nodes"]
+
+
+@pytest.mark.parametrize("air_enabled", [False, True])
+def test_interface_mac_validation_only_applies_to_air_devices(
+    tmp_path: Path, air_enabled: bool
+) -> None:
+    """Inventory-only devices must not fail AIR-specific MAC validation."""
+    _write_context(tmp_path)
+    site_design = build_site_design_from_mock_context(
+        "demo_blueprint", "demo", context_root=tmp_path
+    )
+    device = next(d for d in site_design["devices"] if d["name"] == "oob-mleaf-01")
+    device["_air"] = {"enabled": air_enabled}
+    interface = next(i for i in site_design["interfaces"] if i["device"] == device["name"])
+    interface["mac_address"] = 12345
+    topology_path = tmp_path / "site-design.yaml"
+    _write_yaml(topology_path, site_design)
+
+    if air_enabled:
+        with pytest.raises(ValueError, match="mac_address must be a string"):
+            AirTopologyBuilder(str(topology_path))
+    else:
+        builder = AirTopologyBuilder(str(topology_path))
+        assert device["name"] in builder.devices
+        assert device["name"] not in builder.build_topology()["nodes"]
+
+
+@pytest.mark.parametrize("minimal_mode", [False, True])
+@pytest.mark.parametrize("air_enabled", [False, True])
+def test_nvcm_server_attachment_requires_air_enabled_switch(
+    tmp_path: Path, minimal_mode: bool, air_enabled: bool
+) -> None:
+    """Both topology modes reject disabled targets and retain valid attachments."""
+    _write_context(tmp_path)
+    site_design = build_site_design_from_mock_context(
+        "demo_blueprint", "demo", context_root=tmp_path
+    )
+    switch = next(d for d in site_design["devices"] if d["name"] == "oob-mleaf-01")
+    switch["_air"] = {"enabled": air_enabled}
+    topology_path = tmp_path / "site-design.yaml"
+    _write_yaml(topology_path, site_design)
+    server = NVCMServerConfig(attach_switch=switch["name"], attach_interface="swp2")
+    builder = AirTopologyBuilder(str(topology_path), minimal_mode=minimal_mode, nvcm_server=server)
+
+    if air_enabled:
+        topology = builder.build_topology()
+        assert server.server_name in topology["nodes"]
+        assert any(
+            isinstance(endpoint, dict) and endpoint.get("node") == server.server_name
+            for link in topology["links"]
+            for endpoint in link
+        )
+    else:
+        with pytest.raises(ValueError, match="Switch 'oob-mleaf-01'"):
+            builder.build_topology()
+
+
+def test_air_topology_builder_omits_inventory_only_devices_in_minimal_mode(
+    tmp_path: Path,
+) -> None:
+    _write_context(tmp_path)
+    site_design = build_site_design_from_mock_context(
+        "demo_blueprint", "demo", context_root=tmp_path
+    )
+    site_design["devices"].append(
+        {
+            "name": "inventory-only-node",
+            "role": "GPU-Node",
+            "platform": "Ubuntu",
+            "device_type": {"manufacturer": "NVIDIA", "model": "Compute Tray"},
+            "_air": {"enabled": False},
+        }
+    )
+    topology_path = tmp_path / "site-design.yaml"
+    _write_yaml(topology_path, site_design)
+
+    topology = AirTopologyBuilder(str(topology_path), minimal_mode=True).build_topology()
+
+    assert all("Compute-Tray" not in node for node in topology["nodes"])

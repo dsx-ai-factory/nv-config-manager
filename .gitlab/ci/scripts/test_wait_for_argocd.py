@@ -119,21 +119,28 @@ def run_gate(
 class RolloutObserverTests(unittest.TestCase):
     """Regression tests for rollout identity, terminal state, and API failures."""
 
-    def test_environment_target_requires_exactly_seven_fields(self) -> None:
+    def test_environment_target_accepts_optional_shared_overlay(self) -> None:
         base_environment = os.environ.copy()
         valid = (
             "test|test-branch|test-namespace|test-release|baseline.yaml|state-dir|test-application"
         )
-        result = subprocess.run(
-            ["bash", str(SCRIPT_DIRECTORY / "test_env_config.sh"), "test"],
-            check=True,
-            capture_output=True,
-            text=True,
-            env={**base_environment, "NVCM_TEST_ENV_TARGETS": valid},
-        )
-        self.assertIn("export NVCM_ENV_ARGOCD_APPLICATION=test-application", result.stdout)
+        for target, shared_values in (
+            (valid, "''"),
+            (f"{valid}|shared.yaml", "shared.yaml"),
+            (f"{valid}|", "''"),
+        ):
+            with self.subTest(target=target):
+                result = subprocess.run(
+                    ["bash", str(SCRIPT_DIRECTORY / "test_env_config.sh"), "test"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    env={**base_environment, "NVCM_TEST_ENV_TARGETS": target},
+                )
+                self.assertIn("export NVCM_ENV_ARGOCD_APPLICATION=test-application", result.stdout)
+                self.assertIn(f"export NVCM_ENV_SHARED_VALUES={shared_values}", result.stdout)
 
-        for target in (valid.rsplit("|", 1)[0], f"{valid}|extra"):
+        for target in (valid.rsplit("|", 1)[0], f"{valid}|shared.yaml|extra"):
             with self.subTest(target=target):
                 result = subprocess.run(
                     ["bash", str(SCRIPT_DIRECTORY / "test_env_config.sh"), "test"],

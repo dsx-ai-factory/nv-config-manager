@@ -28,7 +28,11 @@ from nv_config_manager_workflows.registration.descriptor import (
     WorkflowPluginDescriptor,
 )
 from nv_config_manager_workflows.registration.errors import WorkflowConflictError
-from nv_config_manager_workflows.registration.registry import PluginInfo, WorkflowRegistry
+from nv_config_manager_workflows.registration.registry import (
+    PluginInfo,
+    SchedulerRegistration,
+    WorkflowRegistry,
+)
 from nv_config_manager_workflows.stage import StageMixin
 
 
@@ -45,10 +49,20 @@ async def push_config() -> None: ...
 
 
 class BackupScheduler:
+    scheduler_identity = "alpha-plugin.backup"
+
     async def run(self) -> None: ...
 
 
 class InventoryScheduler:
+    scheduler_identity = "zulu-plugin.inventory"
+
+    async def run(self) -> None: ...
+
+
+class ComplianceScheduler:
+    scheduler_identity = "zulu-plugin.compliance"
+
     async def run(self) -> None: ...
 
 
@@ -134,6 +148,7 @@ class TestEmptyRegistry:
         assert registry.all_workflows == []
         assert registry.all_activities == []
         assert registry.all_schedulers == []
+        assert registry.scheduler_registrations == ()
         assert registry.api_workflows == []
         assert registry.mcp_workflows == []
         assert registry.plugin_diagnostics == []
@@ -181,18 +196,53 @@ class TestMergedCatalogs:
         assert registry.all_workflows == [AlphaWorkflow, BetaWorkflow, InternalWorkflow]
         assert registry.all_activities == [collect_facts, push_config]
         assert registry.all_schedulers == [BackupScheduler, InventoryScheduler]
+        assert registry.scheduler_registrations == (
+            SchedulerRegistration(
+                plugin="alpha-plugin",
+                identity="alpha-plugin.backup",
+                scheduler=BackupScheduler,
+            ),
+            SchedulerRegistration(
+                plugin="zulu-plugin",
+                identity="zulu-plugin.inventory",
+                scheduler=InventoryScheduler,
+            ),
+        )
 
-    def test_a_workflow_two_plugins_both_contribute_is_registered_once(self) -> None:
+    def test_the_builtin_plugin_comes_before_plugins_named_ahead_of_it(self) -> None:
+        """API routes follow this order, so a plugin route must not shadow a built-in one."""
         registry = WorkflowRegistry.build(
             installed(
-                plugin("alpha-plugin", workflows=(AlphaWorkflow,), activities=(collect_facts,)),
+                plugin("acme", workflows=(AlphaWorkflow,)),
+                plugin("builtin", workflows=(BetaWorkflow,)),
+            )
+        )
+
+        assert registry.all_workflows == [BetaWorkflow, AlphaWorkflow]
+        assert [info.name for info in registry.plugin_diagnostics] == ["builtin", "acme"]
+
+    def test_scheduler_registration_provenance_is_immutable(self) -> None:
+        registry = WorkflowRegistry.build(
+            installed(plugin("alpha-plugin", schedulers=(BackupScheduler,)))
+        )
+
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            registry.scheduler_registrations[0].plugin = "renamed"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+
+    def test_workflows_and_activities_contributed_by_two_plugins_are_registered_once(self) -> None:
+        registry = WorkflowRegistry.build(
+            installed(
                 plugin(
-                    "downstream-plugin",
+                    "alpha-plugin",
                     workflows=(AlphaWorkflow,),
                     activities=(collect_facts,),
                     schedulers=(BackupScheduler,),
                 ),
-                plugin("scheduler-plugin", schedulers=(BackupScheduler,)),
+                plugin(
+                    "downstream-plugin",
+                    workflows=(AlphaWorkflow,),
+                    activities=(collect_facts,),
+                ),
             )
         )
 
@@ -257,10 +307,10 @@ class TestPluginDiagnostics:
                     schedulers=(BackupScheduler,),
                 ),
                 plugin(
-                    "downstream-plugin",
+                    "zulu-plugin",
                     workflows=(AlphaWorkflow, InternalWorkflow),
                     activities=(collect_facts,),
-                    schedulers=(BackupScheduler, InventoryScheduler),
+                    schedulers=(InventoryScheduler, ComplianceScheduler),
                 ),
             )
         )

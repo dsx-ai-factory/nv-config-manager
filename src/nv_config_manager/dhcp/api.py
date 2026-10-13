@@ -144,7 +144,7 @@ async def _fetch_summary_sources(
     """Fetch summary sources and drain every task before returning or raising."""
     config, statistics = await _gather_requests(
         client.get_config(ip_version),
-        client.get_statistics(ip_version),
+        client.get_lease_statistics(ip_version),
     )
     return config, statistics
 

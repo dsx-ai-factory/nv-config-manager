@@ -18,7 +18,6 @@ from collections.abc import Callable
 from typing import Any
 
 from nv_config_manager.temporal.ngc import activities
-from nv_config_manager.temporal.ngc.activities import REGISTERED_ACTIVITIES
 from nv_config_manager_workflows.activities import builtin
 from nv_config_manager_workflows.activities.hello_world import HELLO_WORLD_ACTIVITIES
 from nv_config_manager_workflows.activities.lock import LOCK_ACTIVITIES
@@ -50,14 +49,6 @@ def _expected_ngc_activities() -> tuple[Callable[..., Any], ...]:
     """Exclude activity domains registered by other service workers."""
     excluded = {*HELLO_WORLD_ACTIVITIES, *LOCK_ACTIVITIES}
     return tuple(activity for activity in builtin.BUILTIN_ACTIVITIES if activity not in excluded)
-
-
-def test_legacy_catalog_matches_the_canonical_ngc_activity_set() -> None:
-    """The compatibility snapshot contains every NGC activity exactly once."""
-    expected = _expected_ngc_activities()
-
-    assert set(REGISTERED_ACTIVITIES) == set(expected)
-    assert len(REGISTERED_ACTIVITIES) == len(expected)
 
 
 def test_service_root_reexports_canonical_ngc_activity_objects() -> None:

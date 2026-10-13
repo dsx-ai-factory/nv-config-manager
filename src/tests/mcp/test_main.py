@@ -18,10 +18,69 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi import HTTPException
+from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
+from temporalio import workflow
 
-from nv_config_manager.mcp.main import create_app
+from nv_config_manager.mcp.main import create_app, create_mcp_server
 from nv_config_manager.mcp.settings import MCPOAuthSettings, MCPSettings
+from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.registration import (
+    BUILTIN_PLUGIN_NAME,
+    WorkflowConflictError,
+    WorkflowPluginDescriptor,
+    WorkflowRegistry,
+    builtin_plugin,
+    workflow_mcp_tool_name,
+)
+from nv_config_manager_workflows.stage import StageMixin
+
+
+class _PluginInput(BaseModel):
+    target: str = Field(description="Target to diagnose.")
+
+
+@workflow.defn
+class _McpPluginWorkflow(WorkflowMetadataMixin, StageMixin):
+    workflow_name = "MCP Plugin Diagnostic"
+    workflow_description = "A plugin diagnostic exposed to MCP"
+    workflow_input_class = _PluginInput
+    workflow_api_enabled = True
+    workflow_api_endpoint = "/plugin/plugin-diagnostic"
+    workflow_mcp_enabled = True
+
+    @workflow.run
+    async def run(self, workflow_input: _PluginInput) -> None: ...
+
+
+@workflow.defn
+class _ApiOnlyPluginWorkflow(WorkflowMetadataMixin, StageMixin):
+    workflow_name = "API-only Plugin Workflow"
+    workflow_description = "A plugin workflow exposed through the API but not MCP"
+    workflow_input_class = _PluginInput
+    workflow_api_enabled = True
+    workflow_api_endpoint = "/plugin/api-only"
+
+    @workflow.run
+    async def run(self, workflow_input: _PluginInput) -> None: ...
+
+
+@workflow.defn
+class _BackupToolCollisionWorkflow(WorkflowMetadataMixin, StageMixin):
+    workflow_name = "Backup Tool Collision"
+    workflow_description = "Derives the built-in run_backup MCP tool name"
+    workflow_input_class = _PluginInput
+    workflow_api_enabled = True
+    workflow_api_endpoint = "/plugin/backup"
+    workflow_mcp_enabled = True
+
+    @workflow.run
+    async def run(self, workflow_input: _PluginInput) -> None: ...
+
+
+def _registry_with_plugin(*workflows: type) -> WorkflowRegistry:
+    plugin = WorkflowPluginDescriptor(name="mcp-test-plugin", workflows=workflows)
+    return WorkflowRegistry.build({BUILTIN_PLUGIN_NAME: builtin_plugin(), plugin.name: plugin})
 
 
 def test_healthcheck() -> None:
@@ -359,6 +418,60 @@ def test_oauth_metadata_endpoints_not_registered_when_disabled() -> None:
     response = client.get("/.well-known/oauth-protected-resource/mcp")
 
     assert response.status_code == 404
+
+
+async def test_create_mcp_server_serves_registry_mcp_workflows_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    builds: list[WorkflowRegistry] = []
+
+    def build_registry() -> WorkflowRegistry:
+        builds.append(_registry_with_plugin(_McpPluginWorkflow, _ApiOnlyPluginWorkflow))
+        return builds[-1]
+
+    monkeypatch.setattr("nv_config_manager.mcp.main.build_workflow_registry", build_registry)
+
+    server = create_mcp_server(_settings(), MCPOAuthSettings(enabled=False))
+    tools = {tool.name: tool for tool in await server.list_tools()}
+
+    assert len(builds) == 1
+    assert [name for name in tools if name.startswith("run_")] == sorted(
+        workflow_mcp_tool_name(registered) for registered in builds[0].mcp_workflows
+    )
+    assert tools["run_plugin_diagnostic"].description == "A plugin diagnostic exposed to MCP"
+    assert tools["run_plugin_diagnostic"].inputSchema["required"] == ["target"]
+    assert _ApiOnlyPluginWorkflow in builds[0].api_workflows
+    assert "run_api_only" not in tools
+
+
+async def test_create_mcp_server_serves_builtin_backup_input_schema() -> None:
+    server = create_mcp_server(_settings(), MCPOAuthSettings(enabled=False))
+    backup = next(tool for tool in await server.list_tools() if tool.name == "run_backup")
+
+    assert backup.inputSchema["required"] == ["device_id"]
+    assert list(backup.inputSchema["properties"]) == [
+        "terminate_on_failure",
+        "device_id",
+        "trigger",
+        "user",
+        "user_domain",
+        "workflow_id",
+        "intended_config_commit_id",
+        "suppress_drift_notification",
+    ]
+    assert backup.inputSchema["properties"]["trigger"]["default"] == "API"
+    for nullable_field in ("user", "user_domain", "workflow_id", "intended_config_commit_id"):
+        assert backup.inputSchema["properties"][nullable_field]["default"] is None
+
+
+def test_create_mcp_server_propagates_registry_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "nv_config_manager.mcp.main.build_workflow_registry",
+        lambda: _registry_with_plugin(_BackupToolCollisionWorkflow),
+    )
+
+    with pytest.raises(WorkflowConflictError, match='MCP tool name "run_backup"'):
+        create_mcp_server(_settings(), MCPOAuthSettings(enabled=False))
 
 
 def test_mcp_auth_failure_includes_resource_metadata(

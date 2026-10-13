@@ -12,39 +12,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Validated workflows visible to the Temporal API."""
+"""Workflow registry snapshot and the workflow catalogs the Temporal API serves."""
 
-from typing import cast
-
-from nv_config_manager.temporal.hello_world.workflows import (
-    REGISTERED_WORKFLOWS as HELLO_WORLD_WORKFLOWS,
-)
-from nv_config_manager.temporal.ngc.workflows import REGISTERED_WORKFLOWS as NGC_WORKFLOWS
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.registration import validate_workflow_catalog
-from nv_config_manager_workflows.registration.registry import WorkflowRegistry
-
-_SERVICE_WORKFLOWS = cast(
-    tuple[type[WorkflowMetadataMixin], ...],
-    (*NGC_WORKFLOWS, *HELLO_WORLD_WORKFLOWS),
-)
-
-
-def build_workflow_api_catalog(
-    registry: WorkflowRegistry | None = None,
-) -> tuple[type[WorkflowMetadataMixin], ...]:
-    """Merge service workflows with API-enabled workflows from the validated registry."""
-    workflow_registry = WorkflowRegistry.build() if registry is None else registry
-    all_workflows = tuple(dict.fromkeys((*_SERVICE_WORKFLOWS, *workflow_registry.all_workflows)))
-    validate_workflow_catalog(
-        all_workflows,
-        activities=workflow_registry.all_activities,
-    )
-    return tuple(dict.fromkeys((*_SERVICE_WORKFLOWS, *workflow_registry.api_workflows)))
-
+from nv_config_manager.temporal.workflow_registry import build_workflow_registry
 
 # Dynamic routes are constructed while the API module is imported. Build the
 # registry once so every API catalog surface uses the same validated snapshot.
-WORKFLOW_API_CATALOG = build_workflow_api_catalog()
+WORKFLOW_REGISTRY = build_workflow_registry()
+# API-enabled workflows: dynamic POST routes and /metadata.
+WORKFLOW_API_CATALOG = tuple(WORKFLOW_REGISTRY.api_workflows)
+# Every registered workflow, including API-disabled child workflows: /types.
+WORKFLOW_TYPE_CATALOG = tuple(WORKFLOW_REGISTRY.all_workflows)
 
-__all__ = ["WORKFLOW_API_CATALOG", "build_workflow_api_catalog"]
+__all__ = ["WORKFLOW_API_CATALOG", "WORKFLOW_REGISTRY", "WORKFLOW_TYPE_CATALOG"]

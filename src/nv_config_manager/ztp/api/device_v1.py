@@ -32,6 +32,8 @@ logger = get_logger(__name__, category=LogCategory.ZTP_API)
 
 router = APIRouter(prefix="/device", tags=["device"], responses={404: {"description": "Not found"}})
 
+MIN_SERIAL_LENGTH = 4
+
 
 async def _get_device_data(device_uuid: str) -> DeviceData:
     """Load ZTP device data through the selected DCIM provider."""
@@ -189,15 +191,21 @@ class ValidateSerialBody(BaseModel):
 
 
 def _compare_serials(expected: str, observed: str) -> bool:
+    expected = expected.strip().lower()
+    observed = observed.strip().lower()
+    # Require enough identifying characters on both sides of a suffix match.
+    if len(expected) < MIN_SERIAL_LENGTH or len(observed) < MIN_SERIAL_LENGTH:
+        return False
+
     # Some devices may report part number and serial in the CID field
     # in the DHCP request in which case we'll have to update nautobot
     # with the extended serial data for DHCP to work
     # We've also seen some devices that may be reporting the serial
     # as the part number + serial within the OS but not in the CID field
     # so we'll allow comparisons both directions to avoid conflicts
-    if observed.lower().endswith(expected.lower()):
+    if observed.endswith(expected):
         return True
-    if expected.lower().endswith(observed.lower()):
+    if expected.endswith(observed):
         return True
     return False
 

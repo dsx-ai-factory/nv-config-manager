@@ -30,13 +30,20 @@ DEFAULT_TEMPLATE_UPDATE_LOCK_TIMEOUT = 120
 
 
 async def load_stale_renders(desired_version: TemplateVersion | str) -> list[str]:
-    """Return device IDs where the provider records an old template version."""
+    """Return render-enabled device IDs with an old recorded template version."""
     desired_template_version = TemplateVersion.parse(desired_version)
     async with dcim_client_session() as dcim_client:
+        enabled_device_ids = set(
+            await dcim_client.get_render_enabled_device_ids(is_aggregate_managed=None)
+        )
+        if not enabled_device_ids:
+            return []
         existing_renders = await dcim_client.get_render_template_versions()
 
     stale: list[str] = []
     for entry in existing_renders:
+        if entry.device_id not in enabled_device_ids:
+            continue
         if not entry.template_version:
             continue
         template_version = TemplateVersion.parse(entry.template_version)

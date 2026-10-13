@@ -80,6 +80,21 @@ class SyncState:
     DEPENDENCY_ERROR = "dependency-error"
 
 
+class QueryErrorType:
+    """Canonical ``error_type`` label values for DCIM read failures.
+
+    Deliberately separate from the generic generation failure counter: these
+    mean the cycle was skipped on purpose and Kea kept its last config.
+    ``READ_CANCELLED`` means the DCIM's datastore killed the read, which points
+    at the DCIM's database rather than at the request or its data.
+    """
+
+    READ_CANCELLED = "read_cancelled"
+
+
+REFRESH_PROCESS_QUERY_ERRORS = (QueryErrorType.READ_CANCELLED,)
+
+
 DHCP_CONFIG_GENERATION_ERRORS = Counter(
     "nv_config_manager_dhcp_config_generation_errors_total",
     "Total DHCP configuration generation errors",
@@ -168,3 +183,5 @@ def initialize_refresh_metrics(ip_version: int) -> None:
     sync timestamp it can never advance would alert forever.
     """
     _seed_failure_counters(str(ip_version), REFRESH_PROCESS_OPERATIONS)
+    for error_type in REFRESH_PROCESS_QUERY_ERRORS:
+        DHCP_QUERY_ERRORS.labels(error_type=error_type)

@@ -39,6 +39,7 @@ def _load_config(
     # can observe a Secret-volume swap and record a digest the process is not using.
     snapshot = read_config_snapshot(config_path)
     if snapshot is None:
+        config.read(config_path)
         return config
     digest, text = snapshot
     config.read_string(text, source=config_path)

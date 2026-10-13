@@ -66,6 +66,7 @@ from nv_config_manager.common.config.loader import (  # noqa: F401
 )
 from nv_config_manager.common.config.nats import (  # noqa: F401
     NATSConnectionManager,
+    ensure_local_streams,
     nats_archive_config,
     nats_config_manager_api_prefix,
     nats_connection,

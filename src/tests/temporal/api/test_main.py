@@ -27,9 +27,11 @@ from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 
 from nv_config_manager.dcim import DCIMSelection, DeviceMetadata
 from nv_config_manager.temporal import runtime as service_runtime
+from nv_config_manager.temporal import workflow_registry
 from nv_config_manager.temporal.api import main as temporal_main
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
 from nv_config_manager.temporal.api.main import app
+from nv_config_manager.temporal.api.workflow_catalog import WORKFLOW_REGISTRY
 from nv_config_manager.temporal.api.workflow_v1 import (
     WorkflowDetailResponse,
     WorkflowSummaryResponse,
@@ -85,6 +87,14 @@ def test_api_startup_configures_only_workflow_ui_runtime() -> None:
     configure_all.assert_not_called()
 
 
+def test_api_startup_logs_the_workflow_registry_serving_routes() -> None:
+    """API startup logs the same registry snapshot its workflow routes were built from."""
+    with patch.object(workflow_registry, "log_workflow_registry") as log_registry:
+        reload(temporal_main)
+
+    log_registry.assert_called_once_with(WORKFLOW_REGISTRY)
+
+
 def test_openapi_operation_tags_are_unique():
     """Verify routes do not duplicate tags inherited from their parent router."""
     schema = app.openapi()
@@ -98,11 +108,6 @@ def test_openapi_operation_tags_are_unique():
             assert len(tags) == len(set(tags)), (
                 f"{method.upper()} {path} has duplicate tags: {tags}"
             )
-
-
-def test_batch_deploy_child_workflow_is_not_exposed_by_api():
-    """Parent-generated device connection data must not have an external API path."""
-    assert "/v1/workflow/ngc/batch_deploy" not in app.openapi()["paths"]
 
 
 def test_metrics():
@@ -1662,10 +1667,22 @@ def test_workflow_metadata(mock_dynamic_rbac_config):
     assert backup_workflow["execute_roles"] == ["BackupWorkflow", "executor"]
 
 
-def test_tenant_deploy_endpoint_is_not_registered():
-    """Do not expose the internal Tenant Deploy child workflow through REST."""
-    route_paths = {path for route in app.routes if (path := getattr(route, "path", None))}
-    assert "/v1/workflow/ngc/tenant-deploy" not in route_paths
+def test_dynamic_routes_are_exactly_the_registry_api_workflows():
+    """Expose one POST route per API-enabled workflow and none for internal child workflows."""
+    executed = [
+        (path, operation["summary"])
+        for path, path_item in app.openapi()["paths"].items()
+        for method, operation in path_item.items()
+        if method == "post" and operation.get("summary", "").startswith("Execute ")
+    ]
+
+    assert sorted(executed) == sorted(
+        (f"/v1/workflow{workflow.get_workflow_api_endpoint()}", f"Execute {workflow.__name__}")
+        for workflow in WORKFLOW_REGISTRY.api_workflows
+    )
+    summaries = {summary for _, summary in executed}
+    assert "Execute TenantDeployWorkflow" not in summaries
+    assert "Execute BatchDeployWorkflow" not in summaries
 
 
 @patch("nv_config_manager.common.auth.x509.load_pem_x509_certificate")

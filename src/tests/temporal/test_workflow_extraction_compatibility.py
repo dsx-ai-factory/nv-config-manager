@@ -21,20 +21,11 @@ from types import ModuleType
 
 import pytest
 
-from nv_config_manager.temporal.hello_world.workflows import (
-    LOCAL_TEST_WORKFLOWS as LEGACY_LOCAL_TEST_WORKFLOWS,
-)
-from nv_config_manager.temporal.hello_world.workflows import (
-    REGISTERED_WORKFLOWS as LEGACY_HELLO_WORLD_WORKFLOWS,
-)
-from nv_config_manager.temporal.ngc.workflows import (
-    REGISTERED_WORKFLOWS as LEGACY_NGC_WORKFLOWS,
-)
 from nv_config_manager_workflows.workflows.builtin import BUILTIN_WORKFLOWS
 from nv_config_manager_workflows.workflows.hello_world import (
-    LOCAL_TEST_WORKFLOWS,
     HelloWorld,
     HelloWorldApproval,
+    HelloWorldRunning,
 )
 
 _NGC_MODULE_NAMES = (
@@ -98,18 +89,30 @@ def test_hello_world_facade_exports_canonical_objects() -> None:
         assert getattr(legacy_module, name) is getattr(canonical_module, name)
 
 
-def test_legacy_aggregate_catalogs_retain_shape_order_and_identity() -> None:
-    """Transition-period consumers receive lists containing canonical classes."""
-    normal_ngc_workflows = [
-        workflow
-        for workflow in BUILTIN_WORKFLOWS
-        if workflow not in (HelloWorld, HelloWorldApproval)
-    ]
+@pytest.mark.parametrize(
+    ("package_name", "expected_workflows"),
+    [
+        (
+            "nv_config_manager.temporal.ngc.workflows",
+            set(BUILTIN_WORKFLOWS) - {HelloWorld, HelloWorldApproval},
+        ),
+        (
+            "nv_config_manager.temporal.hello_world.workflows",
+            {HelloWorld, HelloWorldApproval, HelloWorldRunning},
+        ),
+    ],
+    ids=["ngc", "hello-world"],
+)
+def test_service_workflow_package_roots_export_canonical_workflows(
+    package_name: str, expected_workflows: set[type]
+) -> None:
+    """Each legacy package root re-exports exactly its share of the package-owned workflows."""
+    legacy_root = importlib.import_module(package_name)
+    canonical_root = importlib.import_module("nv_config_manager_workflows.workflows")
 
-    assert isinstance(LEGACY_NGC_WORKFLOWS, list)
-    assert LEGACY_NGC_WORKFLOWS == normal_ngc_workflows
-    assert LEGACY_HELLO_WORLD_WORKFLOWS == [HelloWorld, HelloWorldApproval]
-    assert LEGACY_LOCAL_TEST_WORKFLOWS == list(LOCAL_TEST_WORKFLOWS)
+    assert {getattr(legacy_root, name) for name in legacy_root.__all__} == expected_workflows
+    for name in legacy_root.__all__:
+        assert getattr(legacy_root, name) is getattr(canonical_root, name)
 
 
 def test_service_workflow_modules_define_no_temporal_workflows() -> None:

@@ -239,9 +239,7 @@ def test_load_config_parses_the_snapshot_it_records(
     assert changed_keys(ORIGINAL, ini.read_text()) == ["nats.password"]
 
 
-def test_unparseable_config_records_no_baseline(
-    ini: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_unparseable_config_records_no_baseline(ini: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A file the process failed to load must not become the watcher baseline."""
     ini.write_text("password = no section header\n")
     monkeypatch.setenv("NV_CONFIG_MANAGER_INI", str(ini))
