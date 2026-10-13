@@ -64,6 +64,10 @@ version before the selected release candidate is promoted.
 
 ### Fixed
 
+- The DHCP `api` container no longer gets OOM-killed every few days. Its
+  default memory request and limit (`networkDhcp.resources.api`) go from 128Mi
+  to 256Mi. A fresh pod used about 105Mi of the old limit and reached it within
+  one to three days, even when idle.
 - Render consumers on bundled NATS now re-create their stream when it is
   missing, instead of retrying `stream not found` until restarted. A NATS pod
   rescheduled after nats-box started came back without JetStream state, and
