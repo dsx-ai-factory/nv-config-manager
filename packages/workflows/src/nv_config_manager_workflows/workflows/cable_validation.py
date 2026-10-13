@@ -157,7 +157,6 @@ class SiteCableValidationInput(BaseModel):
     """Input for Site Cable Validation Workflow."""
 
     rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
-        "ui:globalOptions": {"hideSchemaDescriptions": True},
         "site": location_field(SITE_FILTER_SOURCE, type_field="site_type"),
         "site_type": {"ui:widget": "hidden"},
         "roles": api_options(MANAGED_ROLE_SOURCE),

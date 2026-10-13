@@ -343,4 +343,4 @@ def test_ib_pkey_creation_sends_only_host_and_pkey(
     assert list(form["schema"]["properties"]) == ["host", "pkey"]
     assert "pattern" not in form["schema"]["properties"]["pkey"]
     assert form["ui_schema"]["ui:submitButtonOptions"] == {"submitText": "Create PKey"}
-    assert form["requires"] == ["theme.hide-schema-descriptions.v1"]
+    assert form["requires"] == []

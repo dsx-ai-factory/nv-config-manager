@@ -71,9 +71,7 @@ test.describe("Port LLDP Info Form", () => {
     });
   });
 
-  test("requires Site before choosing a device", async ({
-    page,
-  }) => {
+  test("requires Site before choosing a device", async ({ page }) => {
     await expect(page.locator("form label")).toHaveText([
       "Site *",
       "Device",
@@ -84,10 +82,10 @@ test.describe("Port LLDP Info Form", () => {
       page.getByText(
         "Select a device and interface, or enter a remote MAC address."
       )
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       page.getByText("Use this instead of the device and interface fields.")
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(picker(page, SITE_FIRST)).toBeDisabled({
       timeout: TEST_TIMEOUT,
     });

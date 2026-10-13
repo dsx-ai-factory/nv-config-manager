@@ -89,6 +89,13 @@ const Muted = ({
   </p>
 );
 
+/** Ordinary checkbox help sits below its label, matching the legacy forms. */
+const checkboxHelpText = (uiSchema: UiSchema | undefined) => {
+  if (typeof uiSchema?.["ui:helpVariant"] === "string") return undefined;
+  const help = uiSchema?.["ui:help"];
+  return typeof help === "string" && help ? help : undefined;
+};
+
 /** Errors no field shows: the form-level (root) errors, server ones included. */
 const FormErrors = ({ errors }: { errors: string[] }) => (
   <Alert variant="destructive">
@@ -134,6 +141,8 @@ const FieldTemplate = ({
   const description = showLabel
     ? descriptionText(uiSchema, schema.description, registry.globalUiOptions)
     : undefined;
+  const helpIsInsideCheckbox =
+    schema.type === "boolean" && checkboxHelpText(uiSchema) !== undefined;
   return (
     <div className="space-y-2">
       {showLabel ? (
@@ -145,7 +154,7 @@ const FieldTemplate = ({
       {children}
       {description ? <Muted id={descriptionId(id)}>{description}</Muted> : null}
       {errors}
-      {help}
+      {helpIsInsideCheckbox ? null : help}
     </div>
   );
 };
@@ -429,6 +438,7 @@ const CheckboxWidget = ({
     schema.description,
     registry.globalUiOptions
   );
+  const help = checkboxHelpText(uiSchema);
   return (
     <div className="flex flex-row items-start space-x-3 space-y-0">
       <Checkbox
@@ -446,6 +456,7 @@ const CheckboxWidget = ({
         {description ? (
           <Muted id={descriptionId(id)}>{description}</Muted>
         ) : null}
+        {help ? <Muted id={`${id}__help`}>{help}</Muted> : null}
       </div>
     </div>
   );

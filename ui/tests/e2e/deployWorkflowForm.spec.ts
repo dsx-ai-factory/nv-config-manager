@@ -16,8 +16,8 @@
  */
 
 /**
- * Form wording comes from the server's
- * `ui_schema` (`ui:title`, `ui:help`, `ui:globalOptions.hideSchemaDescriptions`).
+ * Form wording comes from the server's `ui_schema` (`ui:title` and `ui:help`);
+ * API-model descriptions are omitted from the projected browser-form schema.
  *
  * Differences from the legacy page, by design: Site is a device filter rather than a
  * model property, so an empty submission reports only "Device is required" (the device
@@ -89,6 +89,12 @@ test.describe(`${FORM_TITLE} Form`, () => {
       page.getByRole("checkbox", { name: "Use commit-confirm" })
     ).toBeChecked();
     await expect(page.locator("form p")).toHaveText([COMMIT_CONFIRM_HELP]);
+    await expect(
+      page
+        .getByText(COMMIT_CONFIRM_HELP, { exact: true })
+        .locator("..")
+        .getByText("Use commit-confirm", { exact: true })
+    ).toHaveText("Use commit-confirm");
     await expect(picker(page, SITE_FIRST)).toBeDisabled();
   });
 

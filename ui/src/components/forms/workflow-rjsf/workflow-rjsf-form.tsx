@@ -192,7 +192,7 @@ const RjsfForm = ({ entry, form, searchParams }: WorkflowRjsfFormProps) => {
 /** Card chrome shared with the launcher's other states. */
 export const WorkflowRjsfForm = (props: WorkflowRjsfFormProps) => (
   <div className="flex items-center justify-center p-6">
-    <Card className="w-full max-w-3xl border-2 shadow-md">
+    <Card className="h-full border-2 shadow-md justify-center">
       <CardHeader>
         <CardTitle>{`New ${props.entry.display_name} Workflow`}</CardTitle>
       </CardHeader>

@@ -91,7 +91,6 @@ class IBPKeyCreationInput(BaseModel):
     """
 
     rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
-        "ui:globalOptions": {"hideSchemaDescriptions": True},
         "ui:submitButtonOptions": {"submitText": "Create PKey"},
         "host": {"ui:title": "UFM Host", "ui:placeholder": "ufm.example.com"},
         "pkey": {

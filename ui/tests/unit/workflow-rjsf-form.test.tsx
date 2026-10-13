@@ -268,6 +268,10 @@ describe("initial state and RJSF agreement", () => {
   it("renders with schema defaults and passes the shared default-state behavior", async () => {
     await renderForm(WORKFLOW_FORM_FIXTURES.DeployWorkflow);
 
+    const card = screen.getByRole("heading").parentElement?.parentElement;
+    expect(card?.classList).toContain("h-full");
+    expect(card?.classList).toContain("justify-center");
+    expect(card?.classList).not.toContain("max-w-3xl");
     expect(rendered.props[0].formData).toEqual({ commit_confirm: true });
     expect(formData()).toEqual({ commit_confirm: true });
     for (const props of rendered.props) {
@@ -299,8 +303,11 @@ describe("initial state and RJSF agreement", () => {
     );
   });
 
-  it("hides schema descriptions only when ui:globalOptions asks", async () => {
+  it("omits API schema descriptions while preserving explicit UI help", async () => {
     await renderForm(WORKFLOW_FORM_FIXTURES.DeployWorkflow);
+    expect(WORKFLOW_FORM_FIXTURES.DeployWorkflow.schema).not.toHaveProperty(
+      "properties.commit_confirm.description"
+    );
     expect(
       screen.queryByText(/Whether to use commit-confirmed mode/)
     ).toBeNull();
@@ -311,8 +318,8 @@ describe("initial state and RJSF agreement", () => {
 
     await renderForm(WORKFLOW_FORM_FIXTURES.BackupWorkflow);
     expect(
-      screen.getByText("Identifier of the network device to back up.")
-    ).toBeTruthy();
+      screen.queryByText("Identifier of the network device to back up.")
+    ).toBeNull();
   });
 
   it("renders destructive help below its field without changing ordinary help", async () => {
@@ -335,6 +342,10 @@ describe("initial state and RJSF agreement", () => {
     expect(help.tagName).toBe("P");
     expect(help.className).toContain("text-sm");
     expect(help.className).toContain("text-muted-foreground");
+    const label = screen.getByText("Use commit-confirm", {
+      selector: "label",
+    });
+    expect(help.parentElement).toBe(label.parentElement);
   });
 
   it.each([
@@ -375,7 +386,7 @@ describe("initial state and RJSF agreement", () => {
     expect(pkey.hasAttribute("aria-required")).toBe(false);
   });
 
-  it("associates picker labels, descriptions, and required state with their buttons", async () => {
+  it("associates picker labels and required state with their buttons", async () => {
     await renderForm(WORKFLOW_FORM_FIXTURES.BackupWorkflow);
 
     const devicePicker = labelledControl("Device");
@@ -388,12 +399,9 @@ describe("initial state and RJSF agreement", () => {
     expect(devicePicker.getAttribute("aria-describedby")).not.toContain(
       `${devicePicker.id}__label`
     );
-    expect(devicePicker.getAttribute("aria-describedby")).toContain(
-      `${devicePicker.id}__description`
-    );
     expect(
       document.getElementById(`${devicePicker.id}__description`)?.textContent
-    ).toBe("Identifier of the network device to back up.");
+    ).toBeUndefined();
 
     const sitePicker = labelledControl("Site");
     fireEvent.click(sitePicker);

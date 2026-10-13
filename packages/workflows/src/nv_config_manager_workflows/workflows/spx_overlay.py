@@ -347,7 +347,6 @@ class SpXOverlayDeletionInput(BaseModel):
     """SpX Overlay Deletion Workflow Input Definition."""
 
     rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
-        "ui:globalOptions": {"hideSchemaDescriptions": True},
         "site": ui.location_field(SITE_FILTER_SOURCE, type_field="site_type"),
         "site_type": {"ui:widget": "hidden"},
         "overlay_id": ui.api_options(SPX_OVERLAY_SOURCE),

@@ -59,7 +59,7 @@ test.describe("New SpX Overlay Deletion Workflow", () => {
       "Overlay ID *",
       "Namespace Tag *",
     ]);
-    // Like the legacy page: schema descriptions stay hidden. Dependency feedback is
+    // Like the legacy page: API schema descriptions are absent. Dependency feedback is
     // still useful while the overlay options are waiting for a site.
     for (const description of [
       "Site containing the SpX overlay to delete.",

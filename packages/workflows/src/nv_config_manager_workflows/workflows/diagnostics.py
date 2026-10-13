@@ -140,7 +140,6 @@ class DiagnosticsWorkflowInput(BaseModel):
             "issue_key",
             "include_tech_support",
         ],
-        "ui:globalOptions": {"hideSchemaDescriptions": True},
         "device_ids": {
             **device_field(
                 _DIAGNOSTICS_DEVICE_SOURCE,

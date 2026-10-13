@@ -120,7 +120,6 @@ class SitePasswordRotationInput(BaseModel):
             "selected_secret",
             "location_type",
         ],
-        "ui:globalOptions": {"hideSchemaDescriptions": True},
         "location": location_field(SITE_FILTER_SOURCE, type_field="location_type"),
         "location_type": {"ui:widget": "hidden"},
         "roles": api_options(MANAGED_ROLE_SOURCE),

@@ -80,7 +80,6 @@ class IBPKeyMemberAddInput(BaseModel):
     rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
         "ui:order": ["host", "pkey", "interfaces", "guids", "guid_memberships"],
         "ui:submitButtonOptions": {"submitText": "Add Members"},
-        "ui:globalOptions": {"hideSchemaDescriptions": True},
         "host": {"ui:title": "UFM Host", "ui:placeholder": "ufm.example.com"},
         "pkey": {"ui:title": "PKey", "ui:placeholder": "0x8001"},
         "interfaces": variant_rows(

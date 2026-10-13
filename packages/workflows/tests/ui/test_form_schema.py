@@ -65,7 +65,7 @@ def projected() -> dict[str, Any]:
 
 def test_optional_fields_collapse_and_drop_null_defaults(projected: dict[str, Any]) -> None:
     note = projected["properties"]["note"]
-    assert note == {"description": "Optional note.", "title": "Note", "type": "string"}
+    assert note == {"title": "Note", "type": "string"}
     assert projected["properties"]["address"] == {"$ref": "#/$defs/Address", "title": "Address"}
     assert projected["$defs"]["Address"]["properties"]["port"] == {
         "title": "Port",
@@ -234,10 +234,29 @@ def test_projection_leaves_the_model_json_schema_unchanged() -> None:
     schema = ExampleInput.model_json_schema()
 
     assert json.dumps(schema) == before
+    assert schema["properties"]["note"]["description"] == "Optional note."
     assert "user" in schema["properties"]
     assert schema["properties"]["note"]["anyOf"] == [{"type": "string"}, {"type": "null"}]
     assert "minItems" not in schema["properties"]["statuses"]
     assert "trigger" in schema["required"]
+
+
+def test_projection_removes_schema_copy_without_removing_a_description_field() -> None:
+    class Model(BaseModel):
+        """API model documentation."""
+
+        description: str = Field(description="API field documentation.")
+
+    projected = project_form_schema(Model)
+
+    assert "description" not in projected
+    assert projected["properties"]["description"] == {
+        "title": "Description",
+        "type": "string",
+    }
+    api_schema = Model.model_json_schema()
+    assert api_schema["description"] == "API model documentation."
+    assert api_schema["properties"]["description"]["description"] == ("API field documentation.")
 
 
 def test_definitions_used_only_by_omitted_fields_are_pruned() -> None:

@@ -3,7 +3,6 @@
     "schema": {
       "$defs": {
         "TriggerEnum": {
-          "description": "Enum of potential backup triggers.",
           "enum": [
             "SCHEDULED",
             "SYSLOG",
@@ -14,16 +13,13 @@
           "type": "string"
         }
       },
-      "description": "Backup Workflow Input Definiton.",
       "properties": {
         "device_id": {
-          "description": "Identifier of the network device to back up.",
           "title": "Device Id",
           "type": "string"
         },
         "trigger": {
           "$ref": "#/$defs/TriggerEnum",
-          "description": "Reason the backup workflow was started.",
           "title": "Trigger",
           "default": "API"
         }
@@ -99,10 +95,8 @@
   },
   "ConfigDiffWorkflow": {
     "schema": {
-      "description": "Config Diff Workflow input.",
       "properties": {
         "device_id": {
-          "description": "Identifier of the network device to compare.",
           "title": "Device Id",
           "type": "string"
         }
@@ -174,10 +168,8 @@
   },
   "ConnectedHostMetadataWorkflow": {
     "schema": {
-      "description": "Connected Host Workflow Input.",
       "properties": {
         "device_id": {
-          "description": "Identifier of the network device to analyze.",
           "title": "Device Id",
           "type": "string"
         }
@@ -249,16 +241,13 @@
   },
   "DeployWorkflow": {
     "schema": {
-      "description": "Config Deployment Workflow Input Definiton.",
       "properties": {
         "device_id": {
-          "description": "Identifier of the network device to configure.",
           "title": "Device Id",
           "type": "string"
         },
         "commit_confirm": {
           "default": true,
-          "description": "Whether to use commit-confirmed mode when the platform supports it.",
           "title": "Commit Confirm",
           "type": "boolean"
         }
@@ -270,9 +259,6 @@
       "type": "object"
     },
     "ui_schema": {
-      "ui:globalOptions": {
-        "hideSchemaDescriptions": true
-      },
       "device_id": {
         "ui:field": "device",
         "ui:options": {
@@ -332,16 +318,13 @@
     },
     "ui_schema_version": 1,
     "requires": [
-      "core-field.device.v1",
-      "theme.hide-schema-descriptions.v1"
+      "core-field.device.v1"
     ]
   },
   "DeviceCableValidationWorkflow": {
     "schema": {
-      "description": "Input for Device Cable Validation Workflow.",
       "properties": {
         "device_id": {
-          "description": "Identifier of the network device to validate.",
           "title": "Device Id",
           "type": "string"
         }
@@ -413,15 +396,12 @@
   },
   "DevicePasswordRotationWorkflow": {
     "schema": {
-      "description": "Device Password Rotation Workflow Input Definition.",
       "properties": {
         "device_id": {
-          "description": "Identifier of the network device to update.",
           "title": "Device Id",
           "type": "string"
         },
         "selected_secret": {
-          "description": "Name of the managed secret containing the replacement password.",
           "title": "Selected Secret",
           "type": "string"
         }
@@ -494,7 +474,6 @@
     "schema": {
       "properties": {
         "device_ids": {
-          "description": "DCIM identifiers of the devices to diagnose.",
           "items": {
             "type": "string"
           },
@@ -504,7 +483,6 @@
           "minItems": 1
         },
         "commands": {
-          "description": "Diagnostic command catalog names to run on each device.",
           "items": {
             "type": "string"
           },
@@ -513,7 +491,6 @@
           "minItems": 1
         },
         "ticketing_platform": {
-          "description": "Ticketing platform to update; empty enables ticketless mode.",
           "title": "Ticketing Platform",
           "type": "string",
           "enum": [
@@ -522,13 +499,11 @@
         },
         "issue_key": {
           "default": "",
-          "description": "Issue key to update; empty enables ticketless mode.",
           "title": "Issue Key",
           "type": "string"
         },
         "include_tech_support": {
           "default": false,
-          "description": "Whether to collect a technical-support bundle from each device.",
           "title": "Include Tech Support",
           "type": "boolean"
         }
@@ -548,9 +523,6 @@
         "issue_key",
         "include_tech_support"
       ],
-      "ui:globalOptions": {
-        "hideSchemaDescriptions": true
-      },
       "device_ids": {
         "ui:field": "device",
         "ui:options": {
@@ -628,21 +600,17 @@
       "core-field.api-options.enriched.v1",
       "core-field.api-options.v1",
       "core-field.device.v1",
-      "option-source.selected-option.v1",
-      "theme.hide-schema-descriptions.v1"
+      "option-source.selected-option.v1"
     ]
   },
   "IBPKeyCreationWorkflow": {
     "schema": {
-      "description": "InfiniBand PKey Creation Workflow Input.\n\nBy default, auto-assigns the next available PKey. Pass an explicit\n``pkey`` value only when a specific partition key is required.\n\n``site`` is optional. When omitted, the workflow resolves the device's\nSite-typed DCIM location from ``host`` and uses that as the UFM\ncredential lookup key. Pass ``site`` explicitly to override the\nauto-resolved value (e.g. for API callers that want to skip the\nDCIM round-trip).",
       "properties": {
         "host": {
-          "description": "Hostname of the UFM server managing the InfiniBand fabric.",
           "title": "Host",
           "type": "string"
         },
         "pkey": {
-          "description": "Partition key to create; automatically allocated when omitted.",
           "title": "Pkey",
           "type": "string"
         }
@@ -654,9 +622,6 @@
       "type": "object"
     },
     "ui_schema": {
-      "ui:globalOptions": {
-        "hideSchemaDescriptions": true
-      },
       "ui:submitButtonOptions": {
         "submitText": "Create PKey"
       },
@@ -671,15 +636,12 @@
       }
     },
     "ui_schema_version": 1,
-    "requires": [
-      "theme.hide-schema-descriptions.v1"
-    ]
+    "requires": []
   },
   "IBPKeyMemberAddWorkflow": {
     "schema": {
       "$defs": {
         "InterfaceRef": {
-          "description": "A device/interface name pair used to look up an interface in the DCIM.\n\n``membership`` is an optional per-port override (\"full\"/\"limited\"); when unset\nthe caller's workflow-level default is applied.",
           "properties": {
             "device": {
               "title": "Device",
@@ -702,23 +664,19 @@
           "type": "object"
         }
       },
-      "description": "InfiniBand PKey Member Add Workflow Input.\n\nSite and Overlay are resolved server-side from ``host`` and ``pkey``.",
       "properties": {
         "host": {
-          "description": "Hostname of the UFM server managing the InfiniBand fabric.",
           "title": "Host",
           "type": "string",
           "minLength": 1
         },
         "pkey": {
-          "description": "Partition key whose membership will be expanded.",
           "title": "Pkey",
           "type": "string",
           "pattern": "^\\s*0[xX][0-9a-fA-F]{1,4}\\s*$"
         },
         "interfaces": {
           "default": [],
-          "description": "DCIM interfaces to resolve to InfiniBand port GUIDs.",
           "items": {
             "$ref": "#/$defs/InterfaceRef"
           },
@@ -727,7 +685,6 @@
         },
         "guids": {
           "default": [],
-          "description": "InfiniBand port GUIDs to add directly to the partition.",
           "items": {
             "type": "string"
           },
@@ -736,7 +693,6 @@
         },
         "guid_memberships": {
           "default": [],
-          "description": "Per-GUID membership types corresponding to the supplied GUIDs.",
           "items": {
             "type": "string"
           },
@@ -761,9 +717,6 @@
       ],
       "ui:submitButtonOptions": {
         "submitText": "Add Members"
-      },
-      "ui:globalOptions": {
-        "hideSchemaDescriptions": true
       },
       "host": {
         "ui:title": "UFM Host",
@@ -865,15 +818,13 @@
     },
     "ui_schema_version": 1,
     "requires": [
-      "core-field.variant-rows.v1",
-      "theme.hide-schema-descriptions.v1"
+      "core-field.variant-rows.v1"
     ]
   },
   "IBPKeyMemberDeleteWorkflow": {
     "schema": {
       "$defs": {
         "InterfaceRef": {
-          "description": "A device/interface name pair used to look up an interface in the DCIM.\n\n``membership`` is an optional per-port override (\"full\"/\"limited\"); when unset\nthe caller's workflow-level default is applied.",
           "properties": {
             "device": {
               "title": "Device",
@@ -896,23 +847,19 @@
           "type": "object"
         }
       },
-      "description": "InfiniBand PKey Member Delete Workflow Input.\n\nProvide either ``interfaces`` (resolved to GUIDs via the DCIM) or\n``guids`` directly, but not both. Site and Overlay are resolved\nserver-side from ``host`` and ``pkey``.",
       "properties": {
         "host": {
-          "description": "Hostname of the UFM server managing the InfiniBand fabric.",
           "title": "Host",
           "type": "string",
           "minLength": 1
         },
         "pkey": {
-          "description": "Partition key whose members will be removed.",
           "title": "Pkey",
           "type": "string",
           "pattern": "^\\s*0[xX][0-9a-fA-F]{1,4}\\s*$"
         },
         "interfaces": {
           "default": [],
-          "description": "DCIM interfaces to resolve to InfiniBand port GUIDs.",
           "items": {
             "$ref": "#/$defs/InterfaceRef"
           },
@@ -921,7 +868,6 @@
         },
         "guids": {
           "default": [],
-          "description": "InfiniBand port GUIDs to remove directly from the partition.",
           "items": {
             "type": "string"
           },
@@ -945,9 +891,6 @@
       ],
       "ui:submitButtonOptions": {
         "submitText": "Remove Members"
-      },
-      "ui:globalOptions": {
-        "hideSchemaDescriptions": true
       },
       "host": {
         "ui:title": "UFM Host",
@@ -1012,15 +955,13 @@
     },
     "ui_schema_version": 1,
     "requires": [
-      "core-field.variant-rows.v1",
-      "theme.hide-schema-descriptions.v1"
+      "core-field.variant-rows.v1"
     ]
   },
   "IBPKeyMemberUpdateWorkflow": {
     "schema": {
       "$defs": {
         "InterfaceRef": {
-          "description": "A device/interface name pair used to look up an interface in the DCIM.\n\n``membership`` is an optional per-port override (\"full\"/\"limited\"); when unset\nthe caller's workflow-level default is applied.",
           "properties": {
             "device": {
               "title": "Device",
@@ -1043,23 +984,19 @@
           "type": "object"
         }
       },
-      "description": "InfiniBand PKey Member Update Workflow Input.\n\nSite and Overlay are resolved server-side from ``host`` and ``pkey``.",
       "properties": {
         "host": {
-          "description": "Hostname of the UFM server managing the InfiniBand fabric.",
           "title": "Host",
           "type": "string",
           "minLength": 1
         },
         "pkey": {
-          "description": "Partition key whose membership will be replaced.",
           "title": "Pkey",
           "type": "string",
           "pattern": "^\\s*0[xX][0-9a-fA-F]{1,4}\\s*$"
         },
         "interfaces": {
           "default": [],
-          "description": "DCIM interfaces to resolve to InfiniBand port GUIDs.",
           "items": {
             "$ref": "#/$defs/InterfaceRef"
           },
@@ -1068,7 +1005,6 @@
         },
         "guids": {
           "default": [],
-          "description": "InfiniBand port GUIDs that should belong to the partition.",
           "items": {
             "type": "string"
           },
@@ -1077,7 +1013,6 @@
         },
         "guid_memberships": {
           "default": [],
-          "description": "Per-GUID membership types corresponding to the supplied GUIDs.",
           "items": {
             "type": "string"
           },
@@ -1102,9 +1037,6 @@
       ],
       "ui:submitButtonOptions": {
         "submitText": "Replace Members"
-      },
-      "ui:globalOptions": {
-        "hideSchemaDescriptions": true
       },
       "host": {
         "ui:title": "UFM Host",
@@ -1207,21 +1139,17 @@
     },
     "ui_schema_version": 1,
     "requires": [
-      "core-field.variant-rows.v1",
-      "theme.hide-schema-descriptions.v1"
+      "core-field.variant-rows.v1"
     ]
   },
   "IBPortGuidDiscoveryWorkflow": {
     "schema": {
-      "description": "Input for the IB Port GUID Discovery workflow.",
       "properties": {
         "ufm_device_id": {
-          "description": "Identifier of the UFM device used to discover port GUIDs.",
           "title": "Ufm Device Id",
           "type": "string"
         },
         "switch_device_ids": {
-          "description": "Identifiers of the InfiniBand switches whose interfaces will be synchronized.",
           "items": {
             "type": "string"
           },
@@ -1232,7 +1160,6 @@
         },
         "dry_run": {
           "default": true,
-          "description": "Whether to report changes without updating the DCIM.",
           "title": "Dry Run",
           "type": "boolean"
         }
@@ -1323,15 +1250,12 @@
   },
   "InfinibandCableValidationWorkflow": {
     "schema": {
-      "description": "IB Cable Validation Workflow Input Definition.",
       "properties": {
         "ufm_device_id": {
-          "description": "Identifier of the UFM device used to inspect the InfiniBand fabric.",
           "title": "Ufm Device Id",
           "type": "string"
         },
         "switch_device_ids": {
-          "description": "Identifiers of the InfiniBand switches to validate.",
           "items": {
             "type": "string"
           },
@@ -1428,10 +1352,8 @@
   },
   "InfinibandGetUnhealthyPortsWorkflow": {
     "schema": {
-      "description": "Unhealthy Ports Validation Workflow Input Definition.",
       "properties": {
         "device_id": {
-          "description": "Identifier of the UFM device to inspect.",
           "title": "Device Id",
           "type": "string"
         }
@@ -1503,10 +1425,8 @@
   },
   "InfinibandMlnxOSUpgradeWorkflow": {
     "schema": {
-      "description": "Infiniband Mellanox OS Upgrade Workflow Input Definition.",
       "properties": {
         "device_id": {
-          "description": "Identifier of the InfiniBand switch to upgrade.",
           "title": "Device Id",
           "type": "string"
         }
@@ -1584,33 +1504,27 @@
           "type": "string"
         }
       },
-      "description": "Multi-Deploy Workflow Input Definition.",
       "properties": {
         "role": {
-          "description": "Device role used to select network devices for deployment.",
           "title": "Role",
           "type": "string"
         },
         "max_batch_size": {
           "default": 10,
-          "description": "Maximum number of devices included in each deployment batch.",
           "title": "Max Batch Size",
           "type": "integer",
           "minimum": 1,
           "maximum": 100
         },
         "location": {
-          "description": "Location used to filter the selected network devices.",
           "title": "Location",
           "type": "string"
         },
         "location_type": {
           "$ref": "#/$defs/DCIMLocationType",
-          "description": "DCIM location type for the location identifier.",
           "title": "Location Type"
         },
         "status": {
-          "description": "Device statuses used to filter the selected network devices.",
           "items": {
             "type": "string"
           },
@@ -1618,13 +1532,11 @@
           "type": "array"
         },
         "tenant": {
-          "description": "Tenant used to filter the selected network devices.",
           "title": "Tenant",
           "type": "string"
         },
         "commit_confirm": {
           "default": true,
-          "description": "Whether to use commit-confirmed mode when the platform supports it.",
           "title": "Commit Confirm",
           "type": "boolean"
         }
@@ -1718,20 +1630,16 @@
   },
   "PortLLDPInfoWorkflow": {
     "schema": {
-      "description": "Input for Port LLDP Info Workflow.",
       "properties": {
         "device_id": {
-          "description": "Identifier of the network device to inspect.",
           "title": "Device Id",
           "type": "string"
         },
         "interface": {
-          "description": "Name of the local interface.",
           "title": "Interface",
           "type": "string"
         },
         "remote_mac_address": {
-          "description": "MAC address of the remote device to locate.",
           "title": "Remote Mac Address",
           "type": "string"
         }
@@ -1792,15 +1700,13 @@
           "queryParam": "device-id",
           "filterScope": "implicit:device_id"
         },
-        "ui:title": "Device",
-        "ui:help": "Select a device and interface, or enter a remote MAC address."
+        "ui:title": "Device"
       },
       "interface": {
         "ui:title": "Interface"
       },
       "remote_mac_address": {
-        "ui:title": "MAC Address",
-        "ui:help": "Use this instead of the device and interface fields."
+        "ui:title": "MAC Address"
       }
     },
     "ui_schema_version": 1,
@@ -1811,10 +1717,8 @@
   },
   "ReprovisionWorkflow": {
     "schema": {
-      "description": "Reprovision Workflow Input Definition.",
       "properties": {
         "device_id": {
-          "description": "Identifier of the network device to reprovision.",
           "title": "Device Id",
           "type": "string"
         }
@@ -1898,22 +1802,18 @@
           "type": "string"
         }
       },
-      "description": "Site Configuration Backup Workflow Input Definition.",
       "properties": {
         "site": {
-          "description": "Site containing the network devices to back up.",
           "minLength": 1,
           "title": "Site",
           "type": "string"
         },
         "site_type": {
           "$ref": "#/$defs/DCIMLocationType",
-          "description": "DCIM location type for the site identifier.",
           "title": "Site Type"
         },
         "roles": {
           "default": [],
-          "description": "Device roles used to filter the selected network devices.",
           "items": {
             "type": "string"
           },
@@ -1925,7 +1825,6 @@
             "Active",
             "Provisioned"
           ],
-          "description": "Device statuses used to filter the selected network devices.",
           "items": {
             "type": "string"
           },
@@ -1934,13 +1833,11 @@
           "minItems": 1
         },
         "tenant": {
-          "description": "Tenant used to filter the selected network devices.",
           "title": "Tenant",
           "type": "string"
         },
         "backup_enabled_only": {
           "default": true,
-          "description": "When true, only devices with backup enabled are included.",
           "title": "Backup Enabled Only",
           "type": "boolean"
         }
@@ -2038,21 +1935,17 @@
           "type": "string"
         }
       },
-      "description": "Input for Site Cable Validation Workflow.",
       "properties": {
         "site": {
-          "description": "Site containing the network devices to validate.",
           "title": "Site",
           "type": "string"
         },
         "site_type": {
           "$ref": "#/$defs/DCIMLocationType",
-          "description": "DCIM location type for the site identifier.",
           "title": "Site Type"
         },
         "roles": {
           "default": [],
-          "description": "Device roles used to filter the selected network devices.",
           "items": {
             "type": "string"
           },
@@ -2064,7 +1957,6 @@
             "Active",
             "Provisioned"
           ],
-          "description": "Device statuses used to filter the selected network devices.",
           "items": {
             "type": "string"
           },
@@ -2073,7 +1965,6 @@
           "minItems": 1
         },
         "tenant": {
-          "description": "Tenant used to filter the selected network devices.",
           "title": "Tenant",
           "type": "string"
         }
@@ -2085,9 +1976,6 @@
       "type": "object"
     },
     "ui_schema": {
-      "ui:globalOptions": {
-        "hideSchemaDescriptions": true
-      },
       "site": {
         "ui:field": "location",
         "ui:options": {
@@ -2156,8 +2044,7 @@
     "ui_schema_version": 1,
     "requires": [
       "core-field.api-options.v1",
-      "core-field.location.v1",
-      "theme.hide-schema-descriptions.v1"
+      "core-field.location.v1"
     ]
   },
   "SitePasswordRotationWorkflow": {
@@ -2167,28 +2054,23 @@
           "type": "string"
         }
       },
-      "description": "Site Password Rotation Workflow Input Definition.",
       "properties": {
         "location": {
-          "description": "Location containing the devices to update.",
           "minLength": 1,
           "title": "Location",
           "type": "string"
         },
         "location_type": {
           "$ref": "#/$defs/DCIMLocationType",
-          "description": "DCIM location type for the location identifier.",
           "title": "Location Type"
         },
         "selected_secret": {
-          "description": "Name of the managed secret containing the replacement password.",
           "title": "Selected Secret",
           "type": "string",
           "minLength": 1
         },
         "roles": {
           "default": [],
-          "description": "Device roles used to filter the selected network devices.",
           "items": {
             "type": "string"
           },
@@ -2200,7 +2082,6 @@
             "Active",
             "Provisioned"
           ],
-          "description": "Device statuses used to filter the selected network devices.",
           "items": {
             "type": "string"
           },
@@ -2209,7 +2090,6 @@
           "minItems": 1
         },
         "tenant": {
-          "description": "Tenant used to filter the selected network devices.",
           "title": "Tenant",
           "type": "string"
         }
@@ -2230,9 +2110,6 @@
         "selected_secret",
         "location_type"
       ],
-      "ui:globalOptions": {
-        "hideSchemaDescriptions": true
-      },
       "location": {
         "ui:field": "location",
         "ui:options": {
@@ -2344,8 +2221,7 @@
     "requires": [
       "core-field.api-options.enriched.v1",
       "core-field.api-options.v1",
-      "core-field.location.v1",
-      "theme.hide-schema-descriptions.v1"
+      "core-field.location.v1"
     ]
   },
   "SpXOverlayCreationWorkflow": {
@@ -2355,37 +2231,30 @@
           "type": "string"
         }
       },
-      "description": "SpX Overlay Creation Workflow Input Definition.",
       "properties": {
         "site": {
-          "description": "Site where the SpX overlay will be created.",
           "title": "Site",
           "type": "string"
         },
         "site_type": {
           "$ref": "#/$defs/DCIMLocationType",
-          "description": "DCIM location type for the site identifier.",
           "title": "Site Type"
         },
         "overlay_id": {
-          "description": "Unique identifier for the SpX overlay. Used as an idempotency key \u2014 re-running with the same ID returns existing VRFs without creating new ones.",
           "title": "Overlay ID",
           "type": "string"
         },
         "tenant": {
-          "description": "Tenant that will own the SpX overlay.",
           "title": "Tenant",
           "type": "string"
         },
         "namespace_tag": {
           "default": "spectrumx",
-          "description": "Tag identifying the namespace used for allocation.",
           "title": "Namespace Tag",
           "type": "string"
         },
         "rd_min": {
           "default": 60000,
-          "description": "Lower bound of the route-distinguisher allocation range (0\u201365535). The first available RD in [rd_min, rd_max] is allocated.",
           "title": "RD Min",
           "type": "integer",
           "minimum": 0,
@@ -2393,7 +2262,6 @@
         },
         "rd_max": {
           "default": 65000,
-          "description": "Upper bound of the route-distinguisher allocation range (0\u201365535). Must be greater than rd_min.",
           "title": "RD Max",
           "type": "integer",
           "minimum": 0,
@@ -2490,26 +2358,21 @@
           "type": "string"
         }
       },
-      "description": "SpX Overlay Deletion Workflow Input Definition.",
       "properties": {
         "site": {
-          "description": "Site containing the SpX overlay to delete.",
           "title": "Site",
           "type": "string"
         },
         "site_type": {
           "$ref": "#/$defs/DCIMLocationType",
-          "description": "DCIM location type for the site identifier.",
           "title": "Site Type"
         },
         "overlay_id": {
-          "description": "Identifier of the SpX overlay to delete.",
           "title": "Overlay ID",
           "type": "string"
         },
         "namespace_tag": {
           "default": "spectrumx",
-          "description": "Tag identifying the namespace used for allocation.",
           "title": "Namespace Tag",
           "type": "string"
         }
@@ -2523,9 +2386,6 @@
       "type": "object"
     },
     "ui_schema": {
-      "ui:globalOptions": {
-        "hideSchemaDescriptions": true
-      },
       "site": {
         "ui:field": "location",
         "ui:options": {
@@ -2598,8 +2458,7 @@
     "ui_schema_version": 1,
     "requires": [
       "core-field.api-options.v1",
-      "core-field.location.v1",
-      "theme.hide-schema-descriptions.v1"
+      "core-field.location.v1"
     ]
   },
   "SpXOverlayTenantChangeWorkflow": {
@@ -2609,20 +2468,16 @@
           "type": "string"
         }
       },
-      "description": "SpX Overlay Tenant Change Workflow Input Definition.",
       "properties": {
         "overlay_id": {
-          "description": "Identifier of the SpX overlay to assign and deploy tenant configuration for. Omit the overlay_id property or explicitly set it to null to remove the selected ports' current SpX assignment.",
           "title": "Overlay ID",
           "type": "string"
         },
         "device_id": {
-          "description": "Identifier of the target network device.",
           "title": "Device ID",
           "type": "string"
         },
         "port_names": {
-          "description": "Names of the device interfaces to assign to the overlay.",
           "items": {
             "type": "string"
           },
@@ -2631,13 +2486,11 @@
           "type": "array"
         },
         "site": {
-          "description": "Site containing the target network device.",
           "title": "Site",
           "type": "string"
         },
         "site_type": {
           "$ref": "#/$defs/DCIMLocationType",
-          "description": "DCIM location type for the site identifier.",
           "title": "Site Type"
         }
       },
@@ -2762,10 +2615,8 @@
   },
   "SwitchOSUpgradeWorkflow": {
     "schema": {
-      "description": "Firmware Upgrade Workflow Input Definition.",
       "properties": {
         "device_id": {
-          "description": "Identifier of the network switch to upgrade.",
           "title": "Device Id",
           "type": "string"
         }
@@ -2842,21 +2693,17 @@
           "type": "string"
         }
       },
-      "description": "Validate Hardware Workflow Input.",
       "properties": {
         "site": {
-          "description": "Site used to select network devices for validation.",
           "title": "Site",
           "type": "string"
         },
         "site_type": {
           "$ref": "#/$defs/DCIMLocationType",
-          "description": "DCIM location type for the site identifier.",
           "title": "Site Type"
         },
         "roles": {
           "default": [],
-          "description": "Device roles used to filter the selected network devices.",
           "items": {
             "type": "string"
           },
@@ -2868,7 +2715,6 @@
             "Active",
             "Provisioned"
           ],
-          "description": "Device statuses used to filter the selected network devices.",
           "items": {
             "type": "string"
           },
@@ -2877,7 +2723,6 @@
           "minItems": 1
         },
         "tenant": {
-          "description": "Tenant used to filter the selected network devices.",
           "title": "Tenant",
           "type": "string"
         }

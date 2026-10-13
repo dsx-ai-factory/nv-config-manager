@@ -73,13 +73,9 @@ class PortLLDPInfoInput(BaseModel):
         "device_id": {
             **device_field(MANAGED_DEVICE_SOURCE, filters=("site",), site_required=True),
             "ui:title": "Device",
-            "ui:help": "Select a device and interface, or enter a remote MAC address.",
         },
         "interface": {"ui:title": "Interface"},
-        "remote_mac_address": {
-            "ui:title": "MAC Address",
-            "ui:help": "Use this instead of the device and interface fields.",
-        },
+        "remote_mac_address": {"ui:title": "MAC Address"},
     }
 
     device_id: OptionalDeviceReference = Field(

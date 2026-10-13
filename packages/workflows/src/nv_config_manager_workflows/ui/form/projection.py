@@ -150,6 +150,44 @@ def _collapse_non_required_nulls(schema: dict[str, Any], definitions: dict[str, 
                     _collapse_non_required_nulls(item, definitions)
 
 
+def _remove_descriptions(schema: dict[str, Any]) -> None:
+    """Remove API documentation from a browser-form schema in place.
+
+    Pydantic field descriptions belong to the API, MCP, and generated-client
+    contracts. Browser-facing copy is declared explicitly through ``ui:help``
+    or ``ui:description`` so forms do not acquire text merely because an API
+    model was documented.
+    """
+    schema.pop("description", None)
+    for keyword in ("$defs", "definitions", "properties", "patternProperties"):
+        children = schema.get(keyword)
+        if isinstance(children, dict):
+            for child in children.values():
+                if isinstance(child, dict):
+                    _remove_descriptions(child)
+    for keyword in (
+        "additionalProperties",
+        "contains",
+        "else",
+        "if",
+        "items",
+        "not",
+        "propertyNames",
+        "then",
+        "unevaluatedItems",
+        "unevaluatedProperties",
+    ):
+        child = schema.get(keyword)
+        if isinstance(child, dict):
+            _remove_descriptions(child)
+    for keyword in ("allOf", "anyOf", "oneOf", "prefixItems"):
+        children = schema.get(keyword)
+        if isinstance(children, list):
+            for child in children:
+                if isinstance(child, dict):
+                    _remove_descriptions(child)
+
+
 def field_marker(model: type[BaseModel], name: str) -> object | None:
     """Return the form marker in a top-level field's metadata, or ``None``.
 
@@ -205,9 +243,9 @@ def _validate_server_owned_fields(model: type[BaseModel]) -> None:
 def project_form_schema(model: type[BaseModel]) -> dict[str, Any]:
     """Return the form projection of ``model``'s JSON Schema.
 
-    Optional fields collapse to their type, every property is titled,
-    ``ServerOwned`` and ``FormExcluded`` properties are removed, and
-    ``FormSchema`` keywords are merged into their properties.
+    Optional fields collapse to their type, every property is titled, API
+    descriptions are removed, ``ServerOwned`` and ``FormExcluded`` properties
+    are removed, and ``FormSchema`` keywords are merged into their properties.
 
     Raises:
         WorkflowFormContractError: A marker is misplaced, a marked field has no
@@ -216,6 +254,7 @@ def project_form_schema(model: type[BaseModel]) -> dict[str, Any]:
     """
     _reject_nested_markers(model)
     schema = model.model_json_schema(schema_generator=FormJsonSchema)
+    _remove_descriptions(schema)
     _collapse_non_required_nulls(schema, schema.get("$defs", {}))
     schema = FormJsonSchema().sort(schema)
     omitted = omitted_properties(model)

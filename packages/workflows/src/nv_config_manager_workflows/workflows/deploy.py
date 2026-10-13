@@ -109,7 +109,6 @@ class DeployInput(BaseModel):
     """Config Deployment Workflow Input Definiton."""
 
     rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
-        "ui:globalOptions": {"hideSchemaDescriptions": True},
         "device_id": {
             **device_field(MANAGED_DEVICE_SOURCE, filters=("site", "tenant", "status")),
             "ui:title": "Device",
