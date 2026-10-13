@@ -23,9 +23,57 @@ from nv_config_manager_templates.models import DeviceRenderData, LocationRenderD
 from nv_config_manager.common.client import ConfigFile, ConfigFileMetadata
 from nv_config_manager.common.client.render import FileCommit
 from nv_config_manager.dcim import IntendedConfigurationUpdate, RenderDeviceIdentity, RenderLocation
+from nv_config_manager.render.exceptions import RenderScopeMismatch
 from nv_config_manager.render.render import execute_render
 
 TEMPLATE_VERSION = "engine=nv-config-manager-templates:0.0.1;plugins=none"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [None, MagicMock(is_aggregate_managed=False)])
+async def test_aggregate_render_rejects_devices_outside_scope(status):
+    """Manual and queued renders cannot write another cell's configuration."""
+    client = AsyncMock()
+    client.get_render_device_status.return_value = status
+
+    @asynccontextmanager
+    async def session():
+        yield client
+
+    with (
+        patch("nv_config_manager.render.render.dcim_client_session", session),
+        patch("nv_config_manager.render.render.is_aggregate_environment", return_value=True),
+        patch("nv_config_manager.render.render.Renderer") as renderer,
+        patch("nv_config_manager.render.render.config_store_client") as storage,
+        pytest.raises(RenderScopeMismatch, match="not aggregate-managed"),
+    ):
+        await execute_render("device-id", "message", "user")
+
+    client.get_render_data.assert_not_awaited()
+    renderer.assert_not_called()
+    storage.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_aggregate_render_accepts_aggregate_managed_device():
+    """The execution guard retains rendering for aggregate-owned devices."""
+    client = AsyncMock()
+    client.get_render_device_status.return_value = MagicMock(is_aggregate_managed=True)
+    client.get_render_data.return_value = _render_data()
+
+    @asynccontextmanager
+    async def session():
+        yield client
+
+    with (
+        patch("nv_config_manager.render.render.dcim_client_session", session),
+        patch("nv_config_manager.render.render.is_aggregate_environment", return_value=True),
+        patch("nv_config_manager.render.render.Renderer") as renderer,
+    ):
+        renderer.return_value.plugin_data_requirements = {}
+        renderer.return_value.render_entrypoints.return_value = {}
+        assert await execute_render("device-id", "message", "user") == []
+    client.get_render_data.assert_awaited_once()
 
 
 def _render_data() -> RenderData:

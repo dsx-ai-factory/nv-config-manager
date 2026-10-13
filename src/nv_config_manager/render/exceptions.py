@@ -17,3 +17,7 @@
 
 class RenderException(Exception):
     """Failure to render device configuration."""
+
+
+class RenderScopeMismatch(RenderException):
+    """The device is outside the aggregate deployment's render scope."""
