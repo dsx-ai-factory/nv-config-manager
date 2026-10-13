@@ -3096,6 +3096,9 @@ monitoring:
       enabled: true
     redis:
       enabled: false
+    # oauth2-proxy metrics from every OIDC proxy container (requires oidc.enabled).
+    oidcProxy:
+      enabled: true
     # Per-endpoint metricRelabelings for global.customLabels are rendered in monitoring.yaml (job-based).
 # =============================================================================
 # Local Observability Stack (subcharts)

@@ -59,6 +59,7 @@ data:
     client_secret_file = "/etc/oidc-secret/client-secret"
     redirect_url = {{ printf "https://%s%s/oauth2/callback" $.Values.gateway.baseHostname (ternary (printf ":%v" $.Values.oidc.callbackPort) "" (not (empty $.Values.oidc.callbackPort))) | quote }}
     http_address = {{ printf "0.0.0.0:%v" $proxy.port | quote }}
+    metrics_address = {{ printf "0.0.0.0:%v" (add $proxy.port 100) | quote }}
     upstreams = [{{ $proxy.upstream | quote }}]
     email_domains = ["*"]
     scope = {{ join " " ($.Values.oidc.scopes | default (list "openid" "email" "profile")) | quote }}
@@ -162,6 +163,9 @@ spec:
         ports:
         - name: {{ $proxy.name }}
           containerPort: {{ $proxy.port }}
+        # monitoring.yaml scrapes every port named m-*; keep names within 15 characters.
+        - name: m-{{ $proxy.name }}
+          containerPort: {{ add $proxy.port 100 }}
         readinessProbe:
           httpGet:
             path: /ready

@@ -8,6 +8,16 @@ version before the selected release candidate is promoted.
 
 ## Unreleased
 
+### Added
+
+- The OIDC proxy now exports oauth2-proxy Prometheus metrics. Each proxied
+  service's container serves `/metrics` on its proxy port plus 100 (9200-9209),
+  and a PodMonitor scrapes them when `monitoring.podMonitors.enabled` is set.
+  Set `monitoring.podMonitors.oidcProxy.enabled: false` to skip the PodMonitor.
+  `oauth2_proxy_requests_total` by container shows login callback failures and
+  upstream errors per service. The namespace NetworkPolicy allows the
+  Prometheus namespace to reach these ports.
+
 ### Fixed
 
 - Render consumers on bundled NATS now re-create their stream when it is

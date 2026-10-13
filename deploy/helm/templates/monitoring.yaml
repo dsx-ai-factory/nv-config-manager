@@ -760,6 +760,46 @@ spec:
       {{- end }}
 {{- end }}
 
+{{- /* OIDC proxy PodMonitor. The endpoint names no port, so it covers every
+       container port, and the relabeling keeps only the oauth2-proxy metrics
+       ports (m-*) whatever set of proxies oidc-proxy.yaml renders. Gated on the
+       same conditions as the oidc-proxy Deployment. */}}
+{{- if and .Values.monitoring.podMonitors.enabled .Values.monitoring.podMonitors.oidcProxy.enabled .Values.gateway.enabled .Values.oidc.enabled }}
+{{- $oidcProxyName := include "nv-config-manager.componentName" (dict "root" . "component" "oidc-proxy") }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ $oidcProxyName }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+    app.kubernetes.io/component: oidc-proxy
+    {{- with $monitoringCRLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- include "nv-config-manager.podTargetLabels" . | nindent 2 }}
+  namespaceSelector:
+    matchNames:
+      - {{ $namespace }}
+  selector:
+    matchLabels:
+      app: {{ $oidcProxyName }}
+  podMetricsEndpoints:
+    - path: /metrics
+      interval: {{ $scrapeInterval }}
+      scrapeTimeout: {{ $scrapeTimeout }}
+      relabelings:
+        - action: keep
+          sourceLabels: [__meta_kubernetes_pod_container_port_name]
+          regex: m-.+
+      {{- if .Values.global.customLabels }}
+      metricRelabelings:
+        {{- include "nv-config-manager.podMonitorMetricRelabelings" . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
 {{- /* Bundled Redis exporter PodMonitor. Gated on the same local Redis and
        exporter conditions as the redis-exporter sidecar. */}}
 {{- if and .Values.monitoring.podMonitors.enabled .Values.monitoring.podMonitors.redis.enabled .Values.externalServices.redis.local .Values.externalServices.redis.metricsExport.enabled }}

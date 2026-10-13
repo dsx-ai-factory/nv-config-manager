@@ -60,6 +60,11 @@ spec:
           port: {{ .Values.networkDhcp.kea.storkAgentPort }}
         - protocol: TCP
           port: 9187  # CNPG metrics exporter
+        {{- if .Values.oidc.enabled }}
+        - protocol: TCP
+          port: 9200  # oidc-proxy metrics (one port per proxied service)
+          endPort: 9209
+        {{- end }}
         {{- if .Values.nautobotNats.metrics.enabled }}
         - protocol: TCP
           port: {{ .Values.nautobotNats.metrics.port | default 7777 }}  # bundled NATS exporter
