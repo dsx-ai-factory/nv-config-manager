@@ -35,11 +35,14 @@ def _load_config(
 ) -> ConfigParser:
     """Parse one version of the unified INI file."""
     config = ConfigParser(interpolation=None, delimiters=("=",))
-    # Captured immediately before the parse so the watcher can tell a rewrite
-    # that landed after this load from the file the process is actually using.
+    # One read supplies both the parse and the watcher baseline. A second read
+    # can observe a Secret-volume swap and record a digest the process is not using.
     snapshot = read_config_snapshot(config_path)
-    if config.read(config_path) and snapshot is not None:
-        remember_loaded_config(config_path, snapshot[0], snapshot[1])
+    if snapshot is None:
+        return config
+    digest, text = snapshot
+    config.read_string(text, source=config_path)
+    remember_loaded_config(config_path, digest, text)
     return config
 
 

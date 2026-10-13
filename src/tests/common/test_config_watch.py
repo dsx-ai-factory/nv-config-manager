@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests for restarting a service when its configuration file changes."""
 
+import configparser
 import hashlib
 import os
 import signal
@@ -28,7 +29,12 @@ import pytest
 from nv_config_manager.common import config_watch
 from nv_config_manager.common.config import clear_config_cache, load_config
 from nv_config_manager.common.config_watch import _watch, changed_keys, restart_on_config_change
-from nv_config_manager.common.ini import file_digest, loaded_config_snapshot, remember_loaded_config
+from nv_config_manager.common.ini import (
+    file_digest,
+    loaded_config_snapshot,
+    read_config_snapshot,
+    remember_loaded_config,
+)
 
 ORIGINAL = """[nats]
 server = nats://nats:4222
@@ -204,16 +210,47 @@ def test_a_change_after_startup_load_still_restarts(ini: Path) -> None:
     assert signals == [(os.getpid(), signal.SIGTERM)]
 
 
-def test_load_config_records_the_bytes_the_watcher_compares(
+def test_read_config_snapshot_matches_the_file(ini: Path) -> None:
+    """The digest is the file bytes the watcher will read again later."""
+    assert read_config_snapshot(str(ini)) == (file_digest(str(ini)), ORIGINAL)
+
+
+def test_load_config_parses_the_snapshot_it_records(
     ini: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The recorded snapshot is the file the process parsed, not a later read."""
+    """A swap between the snapshot and the parse cannot split the two."""
+    original_digest = file_digest(str(ini))
+
+    def snapshot_then_swap(path: str) -> tuple[str, str] | None:
+        snapshot = read_config_snapshot(path)
+        ini.write_text(ROTATED)
+        return snapshot
+
+    monkeypatch.setenv("NV_CONFIG_MANAGER_INI", str(ini))
+    monkeypatch.setattr(
+        "nv_config_manager.common.config.loader.read_config_snapshot", snapshot_then_swap
+    )
+    clear_config_cache()
+
+    loaded = load_config()
+
+    assert loaded.get("nats", "password") == "original"
+    assert loaded_config_snapshot(str(ini)) == (original_digest, ORIGINAL)
+    assert changed_keys(ORIGINAL, ini.read_text()) == ["nats.password"]
+
+
+def test_unparseable_config_records_no_baseline(
+    ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file the process failed to load must not become the watcher baseline."""
+    ini.write_text("password = no section header\n")
     monkeypatch.setenv("NV_CONFIG_MANAGER_INI", str(ini))
     clear_config_cache()
 
-    load_config()
+    with pytest.raises(configparser.MissingSectionHeaderError):
+        load_config()
 
-    assert loaded_config_snapshot(str(ini)) == (file_digest(str(ini)), ORIGINAL)
+    assert loaded_config_snapshot(str(ini)) is None
 
 
 def test_restart_baselines_on_the_loaded_snapshot(
