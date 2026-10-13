@@ -16,8 +16,9 @@
 
 from nv_config_manager_workflows.ui.form.validation.query_compatibility import (
     QUERY_ALIASES,
+    QUERY_COERCIONS,
     QUERY_SEPARATORS,
 )
 from nv_config_manager_workflows.ui.form.validation.ui_schema import validate_ui_schema
 
-__all__ = ["QUERY_ALIASES", "QUERY_SEPARATORS", "validate_ui_schema"]
+__all__ = ["QUERY_ALIASES", "QUERY_COERCIONS", "QUERY_SEPARATORS", "validate_ui_schema"]

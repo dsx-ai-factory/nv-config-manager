@@ -125,7 +125,7 @@ export default function NewWorkflowPage({ params }: NewWorkflowPageProps) {
   }
   if (!catalogLoaded && catalogError)
     return <CatalogUnavailable error={catalogError} />;
-  if (!entry || !result || !whoamiLoaded) return <WorkflowFormSkeleton />;
+  if (!entry || !result) return <WorkflowFormSkeleton />;
   if (result.kind === "not_found") return <WorkflowNotFound name={formId} />;
   if (result.kind !== "ok") {
     return (
@@ -136,6 +136,7 @@ export default function NewWorkflowPage({ params }: NewWorkflowPageProps) {
       />
     );
   }
+  if (!whoamiLoaded) return <WorkflowFormSkeleton />;
 
   // Role information improves the form UX, but workflow submission remains the
   // authorization boundary. Keep the form available when only this advisory probe fails.
@@ -151,8 +152,8 @@ export default function NewWorkflowPage({ params }: NewWorkflowPageProps) {
             <AlertTitle>Permissions could not be verified</AlertTitle>
             <AlertDescription>
               <p>
-                The workflow form remains available. The server will verify
-                your permission when you submit it.
+                The workflow form remains available. The server will verify your
+                permission when you submit it.
               </p>
               <Button
                 className="mt-3"

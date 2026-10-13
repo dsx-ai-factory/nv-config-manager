@@ -43,7 +43,8 @@ import {
 } from "./shared/formParity";
 import { test } from "./shared/utils";
 
-const [PDX01_DEVICE, PDX01_DEVICE_2, PDX01_TENANT_A_PROVISIONED] = DEVICES_LIST.PDX01;
+const [PDX01_DEVICE, PDX01_DEVICE_2, PDX01_TENANT_A_PROVISIONED] =
+  DEVICES_LIST.PDX01;
 const RNO1_DEVICE = DEVICES_LIST.RNO1[0];
 // Its name differs from its id, like a Nautobot location name.
 const MODULE = TYPED_LOCATIONS_LIST_API_RESPONSE.find(
@@ -167,8 +168,12 @@ const PARITY_WORKFLOWS: ParityWorkflow[] = [
         name: "prefill from URL",
         query: "?host=ufm.example.com&pkey=0x0100",
         steps: async (form) => {
-          await expect(form.page.getByLabel("UFM Host")).toHaveValue("ufm.example.com");
-          await expect(form.page.getByLabel("PKey (optional)")).toHaveValue("0x0100");
+          await expect(form.page.getByLabel("UFM Host")).toHaveValue(
+            "ufm.example.com"
+          );
+          await expect(form.page.getByLabel("PKey (optional)")).toHaveValue(
+            "0x0100"
+          );
         },
       },
     ],
@@ -188,12 +193,20 @@ const PARITY_WORKFLOWS: ParityWorkflow[] = [
             PDX01_TENANT_A_PROVISIONED.name
           );
           await form.page.getByLabel(DIAGNOSTICS_COMMANDS[0].name).click();
-          await form.expectSelected("Ticketing Platform", "Jira");
+          await form.select("Ticketing Platform", "Jira");
           await form.fill(
             "Issue Key (optional — leave blank for ticketless mode)",
             "NETSUPPORT-1234"
           );
           await form.setChecked("Include tech support bundle", true);
+        },
+      },
+      {
+        name: "ticketless by default",
+        steps: async (form) => {
+          await form.select("Site", SITES_LIST.pdx01);
+          await form.select("Devices", PDX01_DEVICE.name);
+          await form.page.getByLabel(DIAGNOSTICS_COMMANDS[0].name).click();
         },
       },
     ],
@@ -339,7 +352,10 @@ const PARITY_WORKFLOWS: ParityWorkflow[] = [
           `&tenant=${TENANT_LIST.tenant_a}&status=${STATUS_LIST.provisioned}`,
         steps: async (form) => {
           await form.expectSelected("Tenant (optional)", TENANT_LIST.tenant_a);
-          await form.expectSelected("Status (optional)", STATUS_LIST.provisioned);
+          await form.expectSelected(
+            "Status (optional)",
+            STATUS_LIST.provisioned
+          );
           await form.expectSelected("Device", PDX01_TENANT_A_PROVISIONED.name);
         },
       },
@@ -471,12 +487,42 @@ const PARITY_WORKFLOWS: ParityWorkflow[] = [
   ...(
     [
       ["ConfigDiffWorkflow", "ConfigDiffInput", "config_diff", "Arista EOS"],
-      ["ConnectedHostMetadataWorkflow", "ConnectedHostWorkflowInput", "connected_host_metadata", "Arista EOS"],
-      ["DeviceCableValidationWorkflow", "DeviceCableValidationInput", "device_cable_validation", "Arista EOS"],
-      ["InfinibandGetUnhealthyPortsWorkflow", "InfinibandGetUnhealthyPortsInput", "infiniband_get_unhealthy_ports", "UFM"],
-      ["InfinibandMlnxOSUpgradeWorkflow", "InfinibandMlnxOSUpgradeInput", "infiniband_mlnx_os_upgrade", "MLNX-OS"],
-      ["ReprovisionWorkflow", "ReprovisionInput", "reprovision", "Cumulus Linux"],
-      ["SwitchOSUpgradeWorkflow", "SwitchOSUpgradeInput", "switch_os_upgrade", "Arista EOS"],
+      [
+        "ConnectedHostMetadataWorkflow",
+        "ConnectedHostWorkflowInput",
+        "connected_host_metadata",
+        "Arista EOS",
+      ],
+      [
+        "DeviceCableValidationWorkflow",
+        "DeviceCableValidationInput",
+        "device_cable_validation",
+        "Arista EOS",
+      ],
+      [
+        "InfinibandGetUnhealthyPortsWorkflow",
+        "InfinibandGetUnhealthyPortsInput",
+        "infiniband_get_unhealthy_ports",
+        "UFM",
+      ],
+      [
+        "InfinibandMlnxOSUpgradeWorkflow",
+        "InfinibandMlnxOSUpgradeInput",
+        "infiniband_mlnx_os_upgrade",
+        "MLNX-OS",
+      ],
+      [
+        "ReprovisionWorkflow",
+        "ReprovisionInput",
+        "reprovision",
+        "Cumulus Linux",
+      ],
+      [
+        "SwitchOSUpgradeWorkflow",
+        "SwitchOSUpgradeInput",
+        "switch_os_upgrade",
+        "Arista EOS",
+      ],
     ] as const
   ).map(
     ([workflow, inputModel, endpoint, platform]): ParityWorkflow => ({
@@ -519,7 +565,11 @@ const PARITY_WORKFLOWS: ParityWorkflow[] = [
         steps: async (form) => {
           await form.select("Site", SITES_LIST.pdx01);
           await form.select("UFM Device", PDX01("UFM")[0].name);
-          await form.select("Switch Devices", PDX01("MLNX-OS")[0].name, PDX01("MLNX-OS")[1].name);
+          await form.select(
+            "Switch Devices",
+            PDX01("MLNX-OS")[0].name,
+            PDX01("MLNX-OS")[1].name
+          );
         },
       },
       {
@@ -543,7 +593,11 @@ const PARITY_WORKFLOWS: ParityWorkflow[] = [
         steps: async (form) => {
           await form.select("Site", SITES_LIST.pdx01);
           await form.select("Device", PDX01("UFM")[0].name);
-          await form.select("Device IDs", PDX01("MLNX-OS")[0].name, PDX01("MLNX-OS")[1].name);
+          await form.select(
+            "Device IDs",
+            PDX01("MLNX-OS")[0].name,
+            PDX01("MLNX-OS")[1].name
+          );
         },
       },
       {
@@ -573,7 +627,11 @@ const PARITY_WORKFLOWS: ParityWorkflow[] = [
           await form.select("Role", ROLES_LIST.spine);
           await form.fill("Max Batch Size", "25");
           await form.select("Location", SITES_LIST.rno1);
-          await form.select("Device Status", STATUS_LIST.active, STATUS_LIST.planned);
+          await form.select(
+            "Device Status",
+            STATUS_LIST.active,
+            STATUS_LIST.planned
+          );
           await form.select("Tenant", TENANT_LIST.tenant_a);
           await form.setChecked("Use commit-confirm", false);
         },
@@ -607,14 +665,17 @@ const PARITY_WORKFLOWS: ParityWorkflow[] = [
       },
       {
         name: "MAC address",
-        steps: (form) => fillText(form.page, "MAC Address", "00:11:22:33:44:55"),
+        steps: (form) =>
+          fillText(form.page, "MAC Address", "00:11:22:33:44:55"),
       },
       {
         name: "prefill device and interface from URL",
         query: `?site=${SITES_LIST.pdx01}&device-id=${PDX01_DEVICE.id}&interface=Ethernet1/1`,
         steps: async (form) => {
           await form.expectSelected("Device", PDX01_DEVICE.name);
-          await expect(form.page.getByLabel("Interface", { exact: true })).toHaveValue("Ethernet1/1");
+          await expect(
+            form.page.getByLabel("Interface", { exact: true })
+          ).toHaveValue("Ethernet1/1");
         },
       },
     ],
@@ -686,7 +747,10 @@ const PARITY_WORKFLOWS: ParityWorkflow[] = [
         name: "manual fill",
         steps: async (form) => {
           await form.select("Site", SITES_LIST.pdx01);
-          await form.select("Overlay ID (optional — leave blank to remove)", SPX_OVERLAY_LIST.primary);
+          await form.select(
+            "Overlay ID (optional — leave blank to remove)",
+            SPX_OVERLAY_LIST.primary
+          );
           await form.select("Device", PDX01_DEVICE.name);
           await form.select("Ports", "swp1", "swp2");
         },

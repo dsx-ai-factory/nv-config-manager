@@ -15,7 +15,7 @@
 """Validate root JSON Schema constraints before form properties are omitted."""
 
 import re
-from typing import Any
+from typing import Any, Never, cast
 from urllib.parse import unquote
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
@@ -171,11 +171,12 @@ def validate_omitted_root_constraints(
             f"invalid JSON Schema at {_json_pointer(error_path)} ({error.message})"
         ) from error
 
-    document_scope = schema.get("$id") if isinstance(schema.get("$id"), str) else "#"
+    schema_id = schema.get("$id")
+    document_scope = schema_id if isinstance(schema_id, str) else "#"
     root_instance: tuple[str, ...] = ()
     visited: set[tuple[int, str, tuple[str, ...]]] = set()
 
-    def fail_unsupported(path: tuple[str, ...], reason: str) -> None:
+    def fail_unsupported(path: tuple[str, ...], reason: str) -> Never:
         raise WorkflowFormContractError(
             f"{model.__qualname__} cannot safely omit form properties {omitted_names}; "
             f"{reason} at {_json_pointer(path)}"
@@ -197,6 +198,7 @@ def validate_omitted_root_constraints(
     ) -> None:
         if not isinstance(node, dict):
             return
+        node = cast(dict[str, Any], node)
         visit = (id(node), document_scope, instance_scope)
         if visit in visited:
             return

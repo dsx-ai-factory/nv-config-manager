@@ -26,6 +26,7 @@ from nv_config_manager_workflows.ui.form.projection import json_type
 from nv_config_manager_workflows.ui.form.validation.context import FormValidationContext
 from nv_config_manager_workflows.ui.form.validation.query_compatibility import (
     QUERY_ALIASES,
+    QUERY_COERCIONS,
     QUERY_SEPARATORS,
 )
 from nv_config_manager_workflows.ui.form.validation.variant_rows import check_variant_rows
@@ -126,8 +127,8 @@ def check_field(context: FormValidationContext, name: str, entry: dict[str, Any]
         kind = f"a {field} field" if field else "a standard field"
         raise context.fail(
             f"{name!r} ui:options keys {sorted(unknown)} are not supported on {kind}; "
-            f"supported: {sorted(supported)} (queryAliases and querySeparator are added by "
-            "the server from its central compatibility map)"
+            f"supported: {sorted(supported)} (queryAliases, queryCoercion, and querySeparator "
+            "are added by the server from its central compatibility map)"
         )
     if field is None and "rows" in options:
         rows = options["rows"]
@@ -136,6 +137,24 @@ def check_field(context: FormValidationContext, name: str, entry: dict[str, Any]
     if field is not None and "ui:options" not in entry:
         suffix = "" if field == "variantRows" else " with a source"
         raise context.fail(f"{name!r} ui:field {field!r} requires ui:options{suffix}")
+    coercion = QUERY_COERCIONS.get((context.key, name))
+    if coercion:
+        prop = context.resolve_schema(context.properties[name])
+        kind = json_type(prop, context.definitions)
+        if coercion == "integer-prefix-or-default":
+            default = prop.get("default")
+            if kind != "integer" or isinstance(default, bool) or not isinstance(default, int):
+                raise context.fail(
+                    f"internal query coercion for {name!r} requires an integer with a default"
+                )
+        elif coercion == "case-insensitive-boolean":
+            if kind != "boolean":
+                raise context.fail(
+                    f"internal query coercion for {name!r} requires a boolean property"
+                )
+        else:  # pragma: no cover - the central map is a repository-owned constant
+            raise context.fail(f"internal query coercion for {name!r} is unsupported: {coercion}")
+        entry.setdefault("ui:options", {})["queryCoercion"] = coercion
 
 
 def check_core_field(context: FormValidationContext, name: str, entry: dict[str, Any]) -> None:

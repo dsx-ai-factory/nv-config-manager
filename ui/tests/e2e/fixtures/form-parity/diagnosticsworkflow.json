@@ -27,6 +27,24 @@
         "issue_key": "NETSUPPORT-1234",
         "include_tech_support": true
       }
+    },
+    {
+      "name": "ticketless by default",
+      "legacy_url": "/workflows/diagnosticsworkflow/form",
+      "new_url": "/workflows/new/diagnostics",
+      "legacy_payload": {
+        "device_ids": ["e9243d67-dad0-4f4b-9f6d-9cc977ff0023"],
+        "commands": ["show interface"],
+        "ticketing_platform": "",
+        "issue_key": "",
+        "include_tech_support": false,
+        "user": ""
+      },
+      "generic_payload": {
+        "device_ids": ["e9243d67-dad0-4f4b-9f6d-9cc977ff0023"],
+        "commands": ["show interface"],
+        "include_tech_support": false
+      }
     }
   ]
 }

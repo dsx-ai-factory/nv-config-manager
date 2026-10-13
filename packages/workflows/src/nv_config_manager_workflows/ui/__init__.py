@@ -25,6 +25,7 @@ without changing the model.
 from nv_config_manager_workflows.ui.form import (
     ENRICHED_API_OPTIONS_CAPABILITY,
     QUERY_ALIASES,
+    QUERY_COERCIONS,
     QUERY_SEPARATORS,
     RJSF_UI_SCHEMA_ATTRIBUTE,
     SELECTED_OPTION_DEPENDENCY_CAPABILITY,
@@ -57,6 +58,7 @@ from nv_config_manager_workflows.ui.form import (
 __all__ = [
     "ENRICHED_API_OPTIONS_CAPABILITY",
     "QUERY_ALIASES",
+    "QUERY_COERCIONS",
     "QUERY_SEPARATORS",
     "RJSF_UI_SCHEMA_ATTRIBUTE",
     "SELECTED_OPTION_DEPENDENCY_CAPABILITY",

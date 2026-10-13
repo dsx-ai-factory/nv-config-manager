@@ -62,4 +62,16 @@ QUERY_SEPARATORS: Mapping[tuple[str, str], str] = {
 }
 """Already-shipped multi-value URL delimiters, keyed by (input model, property)."""
 
-__all__ = ["QUERY_ALIASES", "QUERY_SEPARATORS"]
+QUERY_COERCIONS: Mapping[tuple[str, str], str] = {
+    (
+        "nv_config_manager_workflows.workflows.multi_deploy.MultiDeployInput",
+        "max_batch_size",
+    ): "integer-prefix-or-default",
+    (
+        "nv_config_manager_workflows.workflows.site_backup.SiteBackupInput",
+        "backup_enabled_only",
+    ): "case-insensitive-boolean",
+}
+"""Legacy scalar URL coercions, keyed by (input model, property)."""
+
+__all__ = ["QUERY_ALIASES", "QUERY_COERCIONS", "QUERY_SEPARATORS"]

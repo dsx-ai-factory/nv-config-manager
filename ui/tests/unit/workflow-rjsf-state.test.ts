@@ -242,9 +242,28 @@ describe("initial state", () => {
       standardPrefill(
         scoped.schema,
         scoped.uiSchema,
-        query("count=1.5&dry_run=yes")
+        query("count=1.5&dry_run=FALSE")
       )
     ).toEqual({});
+  });
+
+  it("preserves shipped scalar query coercion", () => {
+    expect(
+      initial("MultiDeployWorkflow", "max_batch_size=15abc").formData
+        .max_batch_size
+    ).toBe(15);
+    expect(
+      initial("MultiDeployWorkflow", "max_batch_size=1.5").formData
+        .max_batch_size
+    ).toBe(1);
+    expect(
+      initial("MultiDeployWorkflow", "max_batch_size=500").formData
+        .max_batch_size
+    ).toBe(10);
+    expect(
+      initial("SiteBackupWorkflow", "backup_enabled_only=FALSE").formData
+        .backup_enabled_only
+    ).toBe(false);
   });
 
   it("keeps read-only defaults while editable fields accept URL prefills", () => {
@@ -811,7 +830,14 @@ describe("validation messages", () => {
   it("applies declared numeric field comparisons", () => {
     const spx = fixture("SpXOverlayCreationWorkflow");
     const errors = workflowValidator.validateFormData(
-      { site: "s", overlay_id: "o", tenant: "t", rd_min: 65000, rd_max: 60000 },
+      {
+        site: "s",
+        overlay_id: "o",
+        tenant: "t",
+        namespace_tag: "spectrumx",
+        rd_min: 65000,
+        rd_max: 60000,
+      },
       spx.schema,
       createCustomValidate(spx.schema, spx.uiSchema),
       createTransformErrors(spx.schema, spx.uiSchema),

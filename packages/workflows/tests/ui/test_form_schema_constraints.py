@@ -18,7 +18,7 @@ import json
 from typing import Annotated, Any
 
 import pytest
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from nv_config_manager_workflows.ui import (
     FormExcluded,
@@ -61,7 +61,7 @@ def test_supported_root_schema_dialect_spellings(dialect: str) -> None:
     ids=["value", "trigger"],
 )
 def test_omitted_fields_reject_root_dependencies_that_reference_them(
-    dependency: dict[str, list[str]], pointer: str
+    dependency: dict[str, JsonValue], pointer: str
 ) -> None:
     class Model(BaseModel):
         model_config = ConfigDict(json_schema_extra={"dependentRequired": dependency})
@@ -156,7 +156,10 @@ def test_ignored_standalone_conditionals_do_not_constrain_omitted_fields(keyword
 
 
 def test_root_applicators_that_only_reference_visible_fields_are_preserved() -> None:
-    one_of = [{"required": ["first"]}, {"required": ["second"]}]
+    one_of: list[JsonValue] = [
+        {"required": ["first"]},
+        {"required": ["second"]},
+    ]
 
     class Model(BaseModel):
         model_config = ConfigDict(json_schema_extra={"oneOf": one_of})

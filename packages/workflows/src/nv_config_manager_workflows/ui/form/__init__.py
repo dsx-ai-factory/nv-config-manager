@@ -26,6 +26,7 @@ from nv_config_manager_workflows.ui.form.contract import (
     FIELD_COMPARISON_CAPABILITY,
     HELP_VARIANT_CAPABILITY,
     HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY,
+    QUERY_COERCION_CAPABILITY,
     QUERY_SEPARATOR_CAPABILITY,
     RJSF_UI_SCHEMA_ATTRIBUTE,
     SELECTED_OPTION_DEPENDENCY_CAPABILITY,
@@ -78,6 +79,7 @@ from nv_config_manager_workflows.ui.form.projection_constraints import (
 )
 from nv_config_manager_workflows.ui.form.validation import (
     QUERY_ALIASES,
+    QUERY_COERCIONS,
     QUERY_SEPARATORS,
     validate_ui_schema,
 )
@@ -91,8 +93,10 @@ __all__ = [
     "FORM_MARKERS",
     "HELP_VARIANT_CAPABILITY",
     "HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY",
+    "QUERY_COERCION_CAPABILITY",
     "QUERY_SEPARATOR_CAPABILITY",
     "QUERY_ALIASES",
+    "QUERY_COERCIONS",
     "QUERY_SEPARATORS",
     "RJSF_UI_SCHEMA_ATTRIBUTE",
     "SELECTED_OPTION_DEPENDENCY_CAPABILITY",

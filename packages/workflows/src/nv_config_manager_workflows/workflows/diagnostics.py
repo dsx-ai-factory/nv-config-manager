@@ -185,7 +185,7 @@ class DiagnosticsWorkflowInput(BaseModel):
     commands: Annotated[list[str], FormSchema(min_items=1)] = Field(
         description="Diagnostic command catalog names to run on each device."
     )
-    ticketing_platform: Annotated[str, FormSchema(default="jira", enum=("jira",))] = Field(
+    ticketing_platform: Annotated[str, FormSchema(enum=("jira",))] = Field(
         default="", description="Ticketing platform to update; empty enables ticketless mode."
     )
     issue_key: str = Field(

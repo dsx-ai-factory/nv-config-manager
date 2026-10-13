@@ -16,7 +16,7 @@
 
 import json
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import pytest
 from pydantic import AliasChoices, AliasPath, BaseModel, ConfigDict, Field
@@ -176,6 +176,17 @@ def test_form_schema_enum_is_form_only_and_validates_its_default() -> None:
     }
 
 
+def test_form_schema_enum_can_leave_an_optional_empty_model_default_unselected() -> None:
+    class Model(BaseModel):
+        platform: Annotated[str, FormSchema(enum=("jira",))] = ""
+
+    schema = project_form_schema(Model)
+
+    assert schema["properties"]["platform"]["enum"] == ["jira"]
+    assert "default" not in schema["properties"]["platform"]
+    assert Model.model_json_schema()["properties"]["platform"]["default"] == ""
+
+
 @pytest.mark.parametrize(
     ("marker", "message"),
     [
@@ -208,7 +219,7 @@ def test_form_schema_can_require_a_defaulted_field_without_changing_the_model() 
 
 
 def test_form_schema_required_must_be_a_boolean() -> None:
-    marker = FormSchema(required="yes")  # type: ignore[arg-type]
+    marker = FormSchema(required=cast(bool, "yes"))
 
     class Model(BaseModel):
         namespace: Annotated[str, marker] = "spectrumx"

@@ -83,7 +83,7 @@ test.describe("New SpX Overlay Creation Workflow", () => {
       "Site *",
       "Overlay ID *",
       "Tenant *",
-      "Namespace Tag",
+      "Namespace Tag *",
       "RD Min",
       "RD Max",
     ]);
@@ -97,8 +97,9 @@ test.describe("New SpX Overlay Creation Workflow", () => {
 
   test("reports the missing inputs and sends nothing", async ({ page }) => {
     const posts = recordPosts(page, ENDPOINT);
+    await page.getByRole("button", { name: "Clear selection" }).click();
     await submit(page);
-    for (const label of ["Site", "Overlay ID", "Tenant"]) {
+    for (const label of ["Site", "Overlay ID", "Tenant", "Namespace Tag"]) {
       await expect(
         page.getByText(`${label} is required`, { exact: true })
       ).toBeVisible();

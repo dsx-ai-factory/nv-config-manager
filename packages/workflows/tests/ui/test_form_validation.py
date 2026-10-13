@@ -156,6 +156,35 @@ def test_the_server_adds_a_shipped_multi_value_query_separator(
     assert ui_schema["devices"]["ui:options"]["querySeparator"] == ","
 
 
+@pytest.mark.parametrize(
+    ("field", "coercion"),
+    [
+        ("count", "integer-prefix-or-default"),
+        ("enabled", "case-insensitive-boolean"),
+    ],
+)
+def test_the_server_adds_a_shipped_standard_field_query_coercion(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    coercion: str,
+) -> None:
+    class Model(BaseModel):
+        rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+            "count": {"ui:title": "Count"},
+            "enabled": {"ui:title": "Enabled"},
+        }
+
+        count: int = 1
+        enabled: bool = True
+
+    key = (f"{Model.__module__}.{Model.__qualname__}", field)
+    monkeypatch.setitem(form_validation_module.QUERY_COERCIONS, key, coercion)
+
+    ui_schema = _validate_declared(Model)
+
+    assert ui_schema[field]["ui:options"]["queryCoercion"] == coercion
+
+
 def test_repeated_parameters_of_one_owner_are_allowed() -> None:
     shared = device_field(DEVICES, filters=("tenant", "status"), filter_scope="fabric")
     _validate(

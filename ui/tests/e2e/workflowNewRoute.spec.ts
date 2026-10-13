@@ -15,12 +15,7 @@
  * limitations under the License.
  */
 
-import {
-  expect,
-  type Page,
-  type Request,
-  type Route,
-} from "@playwright/test";
+import { expect, type Page, type Request, type Route } from "@playwright/test";
 
 import legacyWorkflowRedirects from "@/config/legacy-workflow-redirects.json";
 import workflowFormIds from "@/config/workflow-form-ids.json";
@@ -318,6 +313,29 @@ test.describe("/workflows/new/<form_id>", () => {
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Submit" })).toHaveCount(0);
     expect(requests).toEqual(["/v1/workflow/deploy/form"]);
+  });
+
+  test("shows a resolved form error without waiting for the advisory identity request", async ({
+    page,
+  }) => {
+    let releaseWhoami: (() => void) | undefined;
+    await page.route("**/whoami", async (route) => {
+      await new Promise<void>((resolve) => {
+        releaseWhoami = resolve;
+      });
+      await route.fulfill({ status: 200, json: { user: "test", roles: [] } });
+    });
+    await page.route("**/v1/workflow/deploy/form", (route) =>
+      route.fulfill({ status: 404, json: { detail: "not found" } })
+    );
+
+    await page.goto("/workflows/new/deploy");
+    await expect.poll(() => typeof releaseWhoami).toBe("function");
+
+    await expect(
+      page.getByRole("heading", { name: "Workflow not found" })
+    ).toBeVisible();
+    releaseWhoami?.();
   });
 
   test("a workflow disabled for browser forms cannot be opened directly", async ({

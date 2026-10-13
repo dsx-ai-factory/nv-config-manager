@@ -34,6 +34,8 @@ import {
   type CoreFieldName,
   type DeviceFilter,
   type DeviceOptions,
+  type JsonObject,
+  type StandardFieldOptions,
 } from "./ui-schema";
 
 /** Anything with `forEach` over `(value, name)`, e.g. `URLSearchParams`. */
@@ -114,13 +116,41 @@ export const scopePrefillFilters = (options: DeviceOptions): DeviceFilter[] =>
     (filter) => filter !== "site" || options.siteField === undefined
   );
 
-const coerce = (raw: string, type: unknown): unknown => {
-  if (type === "boolean")
-    return raw === "true" ? true : raw === "false" ? false : undefined;
-  if (type === "integer" || type === "number") {
+const boundedIntegerOrDefault = (
+  raw: string,
+  property: JsonObject
+): unknown => {
+  const value = Number.parseInt(raw, 10);
+  const minimum = property.minimum;
+  const maximum = property.maximum;
+  if (
+    Number.isNaN(value) ||
+    (typeof minimum === "number" && value < minimum) ||
+    (typeof maximum === "number" && value > maximum)
+  ) {
+    return property.default;
+  }
+  return value;
+};
+
+const coerce = (
+  raw: string,
+  property: JsonObject,
+  queryCoercion?: StandardFieldOptions["queryCoercion"]
+): unknown => {
+  if (queryCoercion === "integer-prefix-or-default")
+    return boundedIntegerOrDefault(raw, property);
+  if (property.type === "boolean") {
+    const value =
+      queryCoercion === "case-insensitive-boolean" ? raw.toLowerCase() : raw;
+    return value === "true" ? true : value === "false" ? false : undefined;
+  }
+  if (property.type === "integer" || property.type === "number") {
     const value = Number(raw);
     if (raw.trim() === "" || !Number.isFinite(value)) return undefined;
-    return type === "integer" && !Number.isInteger(value) ? undefined : value;
+    return property.type === "integer" && !Number.isInteger(value)
+      ? undefined
+      : value;
   }
   return raw;
 };
@@ -147,13 +177,14 @@ export const standardPrefill = (
     const values = queryValues(query, [name]);
     if (values.length === 0) continue;
     const property = resolveRef(schema, node);
+    const options = fieldOptions(uiSchema, name) as StandardFieldOptions;
     if (property.type === "array") {
-      const itemType = resolveRef(schema, property.items).type;
-      const items = values.map((value) => coerce(value, itemType));
+      const itemProperty = resolveRef(schema, property.items);
+      const items = values.map((value) => coerce(value, itemProperty));
       if (items.every((item) => item !== undefined)) data[name] = items;
       continue;
     }
-    const value = coerce(values[0], property.type);
+    const value = coerce(values[0], property, options.queryCoercion);
     if (value !== undefined) data[name] = value;
   }
   return data;

@@ -349,6 +349,11 @@
           "description": "Visible row count for a multiline text control.",
           "type": "integer",
           "minimum": 1
+        },
+        "queryCoercion": {
+          "description": "Compatibility rule used to coerce this field's URL parameter.",
+          "type": "string",
+          "enum": ["integer-prefix-or-default", "case-insensitive-boolean"]
         }
       },
       "additionalProperties": false

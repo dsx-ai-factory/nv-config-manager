@@ -40,6 +40,7 @@ def test_derivable_capabilities_are_supported_by_the_manifest() -> None:
         form_contract_module.FIELD_COMPARISON_CAPABILITY,
         form_contract_module.HELP_VARIANT_CAPABILITY,
         form_contract_module.HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY,
+        form_contract_module.QUERY_COERCION_CAPABILITY,
         form_contract_module.QUERY_SEPARATOR_CAPABILITY,
     }
 

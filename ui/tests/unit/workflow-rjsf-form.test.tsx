@@ -277,7 +277,7 @@ describe("initial state and RJSF agreement", () => {
     }
   });
 
-  it("shows the Diagnostics Jira default as a clearable selector", async () => {
+  it("starts Diagnostics ticketless and offers Jira explicitly", async () => {
     await renderForm(
       WORKFLOW_FORM_FIXTURES.DiagnosticsWorkflow,
       "",
@@ -286,15 +286,16 @@ describe("initial state and RJSF agreement", () => {
 
     const platform = labelledControl("Ticketing Platform");
     expect(platform.getAttribute("aria-label")).toBe(
-      "Ticketing Platform: Jira. Open options"
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
-
-    await waitFor(() =>
-      expect(formData()).not.toHaveProperty("ticketing_platform")
-    );
-    expect(platform.getAttribute("aria-label")).toBe(
       "Ticketing Platform: Select a Ticketing Platform..."
+    );
+    expect(formData()).not.toHaveProperty("ticketing_platform");
+
+    fireEvent.click(platform);
+    fireEvent.click(await screen.findByRole("option", { name: "Jira" }));
+
+    await waitFor(() => expect(formData().ticketing_platform).toBe("jira"));
+    expect(platform.getAttribute("aria-label")).toBe(
+      "Ticketing Platform: Jira. Open options"
     );
   });
 
@@ -873,6 +874,34 @@ describe("location and siteField", () => {
 });
 
 describe("apiOptions prefill", () => {
+  it("waits for selected-option metadata before prefilling a dependent field", async () => {
+    override = (url) =>
+      url.pathname ===
+      "/v1/workflow/diagnostics/form-options/diagnostic-commands"
+        ? {
+            status: 200,
+            body: {
+              items: [{ label: "show version", value: "show version" }],
+              meta: {},
+            },
+          }
+        : undefined;
+
+    await renderForm(
+      WORKFLOW_FORM_FIXTURES.DiagnosticsWorkflow,
+      "site=PDX01&device-id=d1&commands=show%20version",
+      "DiagnosticsWorkflow"
+    );
+
+    await waitFor(() => expect(pending()).toEqual([]));
+    expect(formData().device_ids).toEqual(["d1"]);
+    expect(formData().commands).toEqual(["show version"]);
+    expect(diagnosticsCommandRequests()).toHaveLength(1);
+    expect(param(diagnosticsCommandRequests()[0], "platform")).toEqual([
+      "cumulus-linux",
+    ]);
+  });
+
   it("matches a value (or an already-shipped alias) once its dependencies settle", async () => {
     await renderForm(
       WORKFLOW_FORM_FIXTURES.SpXOverlayDeletionWorkflow,

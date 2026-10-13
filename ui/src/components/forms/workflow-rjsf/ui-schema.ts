@@ -91,6 +91,11 @@ export interface DeviceOptions {
   queryAliases?: string[];
 }
 
+export interface StandardFieldOptions {
+  rows?: number;
+  queryCoercion?: "integer-prefix-or-default" | "case-insensitive-boolean";
+}
+
 export interface ExclusiveGroupDeclaration {
   fields?: string[];
   deviceFilters?: string[];

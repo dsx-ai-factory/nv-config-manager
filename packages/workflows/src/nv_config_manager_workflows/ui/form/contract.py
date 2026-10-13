@@ -45,6 +45,8 @@ EXCLUSIVE_GROUPS_CAPABILITY = "interaction.exclusive-groups.v1"
 
 QUERY_SEPARATOR_CAPABILITY = "prefill.query-separator.v1"
 
+QUERY_COERCION_CAPABILITY = "prefill.query-coercion.v1"
+
 SELECTED_OPTION_DEPENDENCY_CAPABILITY = "option-source.selected-option.v1"
 
 FIELD_COMPARISON_CAPABILITY = "validation.field-comparison.v1"
@@ -115,7 +117,7 @@ def vocabulary() -> Vocabulary:
             "location": frozenset(defs["locationFieldOptions"]["properties"]) - {"queryAliases"},
             "device": frozenset(defs["deviceFieldOptions"]["properties"]) - {"queryAliases"},
             "variantRows": frozenset(defs["variantRowsFieldOptions"]["properties"]),
-            None: frozenset(defs["standardFieldOptions"]["properties"]),
+            None: frozenset(defs["standardFieldOptions"]["properties"]) - {"queryCoercion"},
         },
         property_name=re.compile(defs["propertyName"]["pattern"]),
     )
@@ -134,6 +136,8 @@ def derive_requires(ui_schema: Mapping[str, Any]) -> list[str]:
             continue
         if entry.get("ui:helpVariant") is not None:
             required.add(HELP_VARIANT_CAPABILITY)
+        if entry.get("ui:options", {}).get("queryCoercion"):
+            required.add(QUERY_COERCION_CAPABILITY)
         if "ui:field" not in entry:
             continue
         field = entry["ui:field"]
@@ -168,6 +172,7 @@ __all__ = [
     "FIELD_CAPABILITIES",
     "HELP_VARIANT_CAPABILITY",
     "HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY",
+    "QUERY_COERCION_CAPABILITY",
     "QUERY_SEPARATOR_CAPABILITY",
     "SELECTED_OPTION_DEPENDENCY_CAPABILITY",
     "RJSF_UI_SCHEMA_ATTRIBUTE",

@@ -175,7 +175,7 @@ class SpXOverlayCreationInput(BaseModel):
         description="Unique identifier for the SpX overlay. Used as an idempotency key — re-running with the same ID returns existing VRFs without creating new ones.",
     )
     tenant: str = Field(description="Tenant that will own the SpX overlay.")
-    namespace_tag: str = Field(
+    namespace_tag: Annotated[str, ui.FormSchema(required=True)] = Field(
         default=NAMESPACE_TAG, description="Tag identifying the namespace used for allocation."
     )
     rd_min: Annotated[int, ui.FormSchema(minimum=0, maximum=65535)] = Field(

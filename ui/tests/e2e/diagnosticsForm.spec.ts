@@ -108,7 +108,7 @@ test("submits the devices, commands, and ticket", async ({ page }) => {
   });
   await expect(
     page.locator("form").getByRole("combobox", {
-      name: "Ticketing Platform: Jira. Open options",
+      name: "Ticketing Platform: Select a Ticketing Platform...",
       exact: true,
     })
   ).toBeVisible();
@@ -148,6 +148,14 @@ test("submits the devices, commands, and ticket", async ({ page }) => {
   await page.getByLabel(first.name).click();
   await page.getByLabel(second.name).click();
   await page
+    .locator("form")
+    .getByRole("combobox", {
+      name: "Ticketing Platform: Select a Ticketing Platform...",
+      exact: true,
+    })
+    .click();
+  await page.getByRole("dialog").getByRole("option", { name: "Jira" }).click();
+  await page
     .getByLabel("Issue Key (optional — leave blank for ticketless mode)")
     .fill("NETSUPPORT-1234");
   await page
@@ -162,6 +170,45 @@ test("submits the devices, commands, and ticket", async ({ page }) => {
     ticketing_platform: "jira",
     issue_key: "NETSUPPORT-1234",
     include_tech_support: true,
+  });
+});
+
+test("prefills a device and command after selected-device metadata settles", async ({
+  page,
+}) => {
+  const commandRequests: URL[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      url.pathname ===
+      "/v1/workflow/diagnostics/form-options/diagnostic-commands"
+    ) {
+      commandRequests.push(url);
+    }
+  });
+  const command = DIAGNOSTICS_COMMANDS[2].name;
+  const query = new URLSearchParams({
+    site: SITES_LIST.pdx01,
+    "device-id": DEVICE.id,
+    commands: command,
+  });
+
+  await page.goto(`${PATH}?${query}`);
+
+  await expect(page.getByLabel(command)).toBeChecked({
+    timeout: TEST_TIMEOUT,
+  });
+  await expect.poll(() => commandRequests.length).toBeGreaterThan(0);
+  expect(commandRequests.at(-1)!.searchParams.getAll("platform")).toEqual([
+    "arista-eos",
+  ]);
+
+  const post = nextPost(page, ENDPOINT);
+  await submit(page);
+  expect((await post).postDataJSON()).toEqual({
+    device_ids: [DEVICE.id],
+    commands: [command],
+    include_tech_support: false,
   });
 });
 
@@ -219,12 +266,6 @@ test("submits a command shared by some selected platforms only once", async ({
   await appearances.first().click();
   await expect(appearances.nth(0)).toBeChecked();
   await expect(appearances.nth(1)).toBeChecked();
-  await page
-    .getByText("Ticketing Platform", { exact: true })
-    .locator("..")
-    .getByRole("button", { name: "Clear selection" })
-    .click();
-
   const post = nextPost(page, ENDPOINT);
   await submit(page);
   expect((await post).postDataJSON()).toEqual({

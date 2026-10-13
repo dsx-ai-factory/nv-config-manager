@@ -28,7 +28,12 @@ from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 from nv_config_manager_workflows.registration.builtin import BUILTIN_PLUGIN_NAME, builtin_plugin
 from nv_config_manager_workflows.registration.form_catalog import WorkflowFormCatalog
 from nv_config_manager_workflows.registration.registry import WorkflowRegistry
-from nv_config_manager_workflows.ui import QUERY_ALIASES, QUERY_SEPARATORS, wire_schema
+from nv_config_manager_workflows.ui import (
+    QUERY_ALIASES,
+    QUERY_COERCIONS,
+    QUERY_SEPARATORS,
+    wire_schema,
+)
 from nv_config_manager_workflows.workflows.backup import BackupInput, BackupWorkflow, TriggerEnum
 from nv_config_manager_workflows.workflows.diagnostics import DiagnosticsWorkflow
 from nv_config_manager_workflows.workflows.ib_pkey_creation import IBPKeyCreationWorkflow
@@ -43,6 +48,8 @@ from nv_config_manager_workflows.workflows.site_password_rotation import (
     SitePasswordRotationWorkflow,
 )
 from nv_config_manager_workflows.workflows.spx_overlay import (
+    SpXOverlayCreationInput,
+    SpXOverlayCreationWorkflow,
     SpXOverlayDeletionInput,
     SpXOverlayDeletionWorkflow,
     SpXOverlayTenantChangeWorkflow,
@@ -118,6 +125,22 @@ def test_every_shipped_query_separator_reaches_a_core_field(
     assert {key: served.get(key) for key in QUERY_SEPARATORS} == dict(QUERY_SEPARATORS)
 
 
+def test_every_shipped_query_coercion_reaches_a_standard_field(
+    form_catalog: WorkflowFormCatalog,
+) -> None:
+    served = {
+        (f"{model.__module__}.{model.__qualname__}", name): entry.get("ui:options", {}).get(
+            "queryCoercion"
+        )
+        for workflow, envelope in form_catalog.forms.items()
+        if (model := workflow.get_workflow_input_class()) is not None
+        for name, entry in envelope["ui_schema"].items()
+        if not name.startswith("ui:") and "ui:field" not in entry
+    }
+
+    assert {key: served.get(key) for key in QUERY_COERCIONS} == dict(QUERY_COERCIONS)
+
+
 def test_backup_sends_a_hidden_api_trigger_and_picks_a_filtered_device(
     form_catalog: WorkflowFormCatalog,
 ) -> None:
@@ -145,7 +168,7 @@ def test_diagnostics_uses_its_workflow_owned_command_provider(
     assert device_options["siteRequired"] is True
     assert device_options["source"]["type_key"] == "platform"
     assert form["schema"]["properties"]["ticketing_platform"]["enum"] == ["jira"]
-    assert form["schema"]["properties"]["ticketing_platform"]["default"] == "jira"
+    assert "default" not in form["schema"]["properties"]["ticketing_platform"]
     assert form["ui_schema"]["ticketing_platform"] == {
         "ui:title": "Ticketing Platform",
         "ui:widget": "select",
@@ -173,6 +196,16 @@ def test_diagnostics_uses_its_workflow_owned_command_provider(
         "DiagnosticsCommandOptionsQuery"
     )
     assert "option-source.selected-option.v1" in form["requires"]
+
+
+def test_spx_overlay_creation_requires_its_defaulted_namespace_tag(
+    form_catalog: WorkflowFormCatalog,
+) -> None:
+    form = form_catalog.forms[SpXOverlayCreationWorkflow]
+
+    assert "namespace_tag" in form["schema"]["required"]
+    assert form["schema"]["properties"]["namespace_tag"]["default"] == "spectrumx"
+    assert "namespace_tag" not in SpXOverlayCreationInput.model_json_schema()["required"]
 
 
 def test_site_password_rotation_uses_its_workflow_owned_password_user_provider(

@@ -22,9 +22,18 @@
  */
 import { expect } from "@playwright/test";
 
-import { FORBIDDEN_SITE_ID, ROLES_LIST, SITES_LIST, STATUS_LIST, TENANT_LIST } from "@/mocks/data";
+import {
+  FORBIDDEN_SITE_ID,
+  ROLES_LIST,
+  SITES_LIST,
+  STATUS_LIST,
+  TENANT_LIST,
+} from "@/mocks/data";
 
-import { mockServerCatalogAndUser, mockTypedLocationsEndpoint } from "./shared/apiMocks";
+import {
+  mockServerCatalogAndUser,
+  mockTypedLocationsEndpoint,
+} from "./shared/apiMocks";
 import { test, TEST_TIMEOUT } from "./shared/utils";
 import {
   choose,
@@ -53,7 +62,9 @@ test.beforeEach(async ({ page }) => {
 test.describe("Site Backup Form", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(PATH);
-    await expect(page.getByRole("heading", { name: TITLE })).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expect(page.getByRole("heading", { name: TITLE })).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
   });
 
   test("renders the fields with their defaults", async ({ page }) => {
@@ -64,14 +75,18 @@ test.describe("Site Backup Form", () => {
       "Tenant",
       "Backup enabled only",
     ]);
-    await expect(selected(page, DEFAULT_STATUSES)).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expect(selected(page, DEFAULT_STATUSES)).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
     await expect(page.getByLabel("Backup enabled only")).toBeChecked();
   });
 
   test("reports a missing site and sends nothing", async ({ page }) => {
     const posts = recordPosts(page, ENDPOINT);
     await submit(page);
-    await expect(page.getByText("Site is required", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("Site is required", { exact: true })
+    ).toBeVisible();
     expect(posts).toEqual([]);
   });
 
@@ -95,30 +110,49 @@ test.describe("Site Backup Form", () => {
 
     const post = nextPost(page, ENDPOINT);
     await submit(page);
-    expect((await post).postDataJSON()).toMatchObject({ backup_enabled_only: false });
+    expect((await post).postDataJSON()).toMatchObject({
+      backup_enabled_only: false,
+    });
   });
 
   test("requires at least one Device Status", async ({ page }) => {
     const posts = recordPosts(page, ENDPOINT);
     await choose(page, SELECT_SITE, SITES_LIST.pdx01);
-    await page.getByRole("button", { name: `Remove ${STATUS_LIST.active}` }).click();
-    await page.getByRole("button", { name: `Remove ${STATUS_LIST.provisioned}` }).click();
+    await page
+      .getByRole("button", { name: `Remove ${STATUS_LIST.active}` })
+      .click();
+    await page
+      .getByRole("button", { name: `Remove ${STATUS_LIST.provisioned}` })
+      .click();
     await submit(page);
-    await expect(page.getByText("At least 1 Device Status is required")).toBeVisible();
+    await expect(
+      page.getByText("At least 1 Device Status is required")
+    ).toBeVisible();
     expect(posts).toEqual([]);
   });
 
   test("shows a forbidden site in the failure toast", async ({ page }) => {
     await choose(page, SELECT_SITE, FORBIDDEN_SITE_ID);
     await submit(page);
-    await expectFailureToast(page, "Forbidden: You do not have permission to run this workflow");
+    await expectFailureToast(
+      page,
+      "Forbidden: You do not have permission to run this workflow"
+    );
   });
 
-  test("shows FastAPI 422 errors on the field and a string detail form-level", async ({ page }) => {
+  test("shows FastAPI 422 errors on the field and a string detail form-level", async ({
+    page,
+  }) => {
     let detail: unknown = [
-      { type: "value_error", loc: ["body", "site_type"], msg: "Value error, not a site" },
+      {
+        type: "value_error",
+        loc: ["body", "site_type"],
+        msg: "Value error, not a site",
+      },
     ];
-    await page.route(`**${ENDPOINT}`, (route) => route.fulfill({ status: 422, json: { detail } }));
+    await page.route(`**${ENDPOINT}`, (route) =>
+      route.fulfill({ status: 422, json: { detail } })
+    );
     await choose(page, SELECT_SITE, SITES_LIST.pdx01);
     await submit(page);
     // The hidden type sibling reports on its location field.
@@ -128,18 +162,24 @@ test.describe("Site Backup Form", () => {
 
     detail = "Backups are paused for this site";
     await submit(page);
-    await expect(formErrors(page)).toContainText("Backups are paused for this site");
+    await expect(formErrors(page)).toContainText(
+      "Backups are paused for this site"
+    );
   });
 });
 
-test("Site Backup Form - a legacy link with ?role= prefills every field", async ({ page }) => {
+test("Site Backup Form - a legacy link with ?role= prefills every field", async ({
+  page,
+}) => {
   const query =
     `?site=${SITES_LIST.pdx01}&role=${ROLES_LIST.leaf}&status=${STATUS_LIST.active}` +
     `&tenant=${TENANT_LIST.tenant_a}&backup_enabled_only=false`;
   await page.goto(`/workflows/sitebackupworkflow/form${query}`);
   await expect(page).toHaveURL(`${PATH}${query}`);
 
-  await expect(selected(page, SITES_LIST.pdx01)).toBeVisible({ timeout: TEST_TIMEOUT });
+  await expect(selected(page, SITES_LIST.pdx01)).toBeVisible({
+    timeout: TEST_TIMEOUT,
+  });
   await expect(selected(page, ROLES_LIST.leaf)).toBeVisible();
   await expect(selected(page, STATUS_LIST.active)).toBeVisible();
   await expect(selected(page, TENANT_LIST.tenant_a)).toBeVisible();
@@ -156,4 +196,14 @@ test("Site Backup Form - a legacy link with ?role= prefills every field", async 
     backup_enabled_only: false,
   });
   await expectWorkflowDetails(page);
+});
+
+test("Site Backup Form - preserves legacy case-insensitive boolean prefill", async ({
+  page,
+}) => {
+  await page.goto(`${PATH}?backup_enabled_only=FALSE`);
+
+  await expect(page.getByLabel("Backup enabled only")).not.toBeChecked({
+    timeout: TEST_TIMEOUT,
+  });
 });

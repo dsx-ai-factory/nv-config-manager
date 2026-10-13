@@ -46,6 +46,7 @@ import useOptionSource from "@/hooks/useOptionSource";
 import {
   dependencyFields,
   dependencySignature,
+  normalizeDependencyValue,
   type OptionSourceItem,
   type OptionSourceState,
 } from "@/lib/option-source";
@@ -288,14 +289,26 @@ export const SourceOptionsField = ({
     selections: optionSelections,
   });
   const ownPending = pending.has(owner);
-  const dependencyPending = dependencyFields(source).some((dependency) => {
-    const dependencyOwner = layout.owners[dependency];
-    return (
-      dependencyOwner !== undefined &&
-      dependencyOwner !== owner &&
-      pending.has(dependencyOwner)
-    );
-  });
+  const dependencyPending =
+    dependencyFields(source).some((dependency) => {
+      const dependencyOwner = layout.owners[dependency];
+      return (
+        dependencyOwner !== undefined &&
+        dependencyOwner !== owner &&
+        pending.has(dependencyOwner)
+      );
+    }) ||
+    Object.values(source.depends_on ?? {}).some((dependency) => {
+      if (dependency.option_key === undefined) return false;
+      const values = normalizeDependencyValue(formData[dependency.field]);
+      const selected = optionSelections[dependency.field]?.values;
+      return (
+        values.length > 0 &&
+        (selected === undefined ||
+          values.length !== selected.length ||
+          values.some((value, index) => value !== selected[index]))
+      );
+    });
 
   const patchFor = React.useCallback(
     (selected: readonly OptionSourceItem[]): FormData => {

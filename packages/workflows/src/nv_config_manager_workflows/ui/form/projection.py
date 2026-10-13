@@ -308,10 +308,10 @@ def _apply_form_schema(
                 raise WorkflowFormContractError(
                     f"{where} FormSchema enum must be a non-empty tuple"
                 )
-            adapter: TypeAdapter[Any] = TypeAdapter(info.rebuild_annotation())
+            enum_adapter: TypeAdapter[Any] = TypeAdapter(info.rebuild_annotation())
             try:
                 encoded = [
-                    adapter.dump_python(adapter.validate_python(item), mode="json")
+                    enum_adapter.dump_python(enum_adapter.validate_python(item), mode="json")
                     for item in value
                 ]
             except ValidationError as error:
@@ -349,14 +349,14 @@ def _apply_form_schema(
             )
         prop[keyword] = value
     if marker.default is not UNSET:
-        adapter: TypeAdapter[Any] = TypeAdapter(info.rebuild_annotation())
+        default_adapter: TypeAdapter[Any] = TypeAdapter(info.rebuild_annotation())
         try:
-            value = adapter.validate_python(marker.default)
+            value = default_adapter.validate_python(marker.default)
         except ValidationError as error:
             raise WorkflowFormContractError(
                 f"{where} FormSchema default {marker.default!r} is not valid for the field: {error}"
             ) from error
-        default = adapter.dump_python(value, mode="json")
+        default = default_adapter.dump_python(value, mode="json")
         if default is None:
             raise WorkflowFormContractError(
                 f"{where} FormSchema default must not be None; leave an optional field "
@@ -364,9 +364,15 @@ def _apply_form_schema(
             )
         prop["default"] = default
     if "default" in prop and "enum" in prop and prop["default"] not in prop["enum"]:
-        raise WorkflowFormContractError(
-            f"{where} FormSchema default {prop['default']!r} is not one of its enum values"
-        )
+        # An optional string field commonly uses the empty model default to mean
+        # "not selected". Keep that API fallback while letting the form expose only
+        # its non-empty choices; without a projected default, the select starts blank.
+        if not marker.required and prop["default"] == "":
+            prop.pop("default")
+        else:
+            raise WorkflowFormContractError(
+                f"{where} FormSchema default {prop['default']!r} is not one of its enum values"
+            )
 
 
 def _reject_nested_markers(model: type[BaseModel]) -> None:
