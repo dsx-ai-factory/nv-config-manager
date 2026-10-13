@@ -271,7 +271,7 @@ describe("initial state and RJSF agreement", () => {
     const card = screen.getByRole("heading").parentElement?.parentElement;
     expect(card?.classList).toContain("h-full");
     expect(card?.classList).toContain("justify-center");
-    expect(card?.classList).not.toContain("max-w-3xl");
+    expect(card?.classList).toContain("max-w-3xl");
     expect(rendered.props[0].formData).toEqual({ commit_confirm: true });
     expect(formData()).toEqual({ commit_confirm: true });
     for (const props of rendered.props) {
@@ -1038,7 +1038,8 @@ describe("submission errors", () => {
 
     fireEvent.click(submitButton());
     expect(await screen.findByText("Cannot canonicalize input")).toBeTruthy();
-    expect(screen.getByText("The workflow input is invalid")).toBeTruthy();
+    expect(screen.getByTestId("form-errors")).toBeTruthy();
+    expect(screen.queryByText("The workflow input is invalid")).toBeNull();
   });
 
   it("validates on submit and live afterwards with '<label> is required'", async () => {

@@ -21,6 +21,8 @@ var _ MappedNullable = &WorkflowFormUiSchemaUiGlobalOptions{}
 type WorkflowFormUiSchemaUiGlobalOptions struct {
 	// Mutually exclusive input modes. A value in one mode disables and clears the others.
 	ExclusiveGroups []WorkflowFormUiSchemaUiGlobalOptionsExclusiveGroupsInner `json:"exclusiveGroups,omitempty"`
+	// Optional form-level validation message displayed when every required exclusive input mode is empty.
+	ExclusiveGroupsEmptyMessage *string `json:"exclusiveGroupsEmptyMessage,omitempty" validate:"regexp=\\\\S"`
 	// Client-side comparisons between projected numeric fields.
 	FieldComparisons []WorkflowFormUiSchemaUiGlobalOptionsFieldComparisonsInner `json:"fieldComparisons,omitempty"`
 	// Hide descriptions inherited from the projected input schema.
@@ -75,6 +77,39 @@ func (o *WorkflowFormUiSchemaUiGlobalOptions) HasExclusiveGroups() bool {
 // SetExclusiveGroups gets a reference to the given []WorkflowFormUiSchemaUiGlobalOptionsExclusiveGroupsInner and assigns it to the ExclusiveGroups field.
 func (o *WorkflowFormUiSchemaUiGlobalOptions) SetExclusiveGroups(v []WorkflowFormUiSchemaUiGlobalOptionsExclusiveGroupsInner) {
 	o.ExclusiveGroups = v
+}
+
+// GetExclusiveGroupsEmptyMessage returns the ExclusiveGroupsEmptyMessage field value if set, zero value otherwise.
+func (o *WorkflowFormUiSchemaUiGlobalOptions) GetExclusiveGroupsEmptyMessage() string {
+	if o == nil || IsNil(o.ExclusiveGroupsEmptyMessage) {
+		var ret string
+		return ret
+	}
+	return *o.ExclusiveGroupsEmptyMessage
+}
+
+// GetExclusiveGroupsEmptyMessageOk returns a tuple with the ExclusiveGroupsEmptyMessage field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+func (o *WorkflowFormUiSchemaUiGlobalOptions) GetExclusiveGroupsEmptyMessageOk() (*string, bool) {
+	if o == nil || IsNil(o.ExclusiveGroupsEmptyMessage) {
+		return nil, false
+	}
+	return o.ExclusiveGroupsEmptyMessage, true
+}
+
+// HasExclusiveGroupsEmptyMessage returns a boolean if a field has been set.
+func (o *WorkflowFormUiSchemaUiGlobalOptions) HasExclusiveGroupsEmptyMessage() bool {
+	if o != nil && !IsNil(o.ExclusiveGroupsEmptyMessage) {
+		return true
+	}
+
+	return false
+}
+
+// SetExclusiveGroupsEmptyMessage gets a reference to the given string and assigns it to the ExclusiveGroupsEmptyMessage field.
+func (o *WorkflowFormUiSchemaUiGlobalOptions) SetExclusiveGroupsEmptyMessage(v string) {
+	o.ExclusiveGroupsEmptyMessage = &v
 }
 
 // GetFieldComparisons returns the FieldComparisons field value if set, zero value otherwise.
@@ -155,6 +190,9 @@ func (o WorkflowFormUiSchemaUiGlobalOptions) ToMap() (map[string]interface{}, er
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.ExclusiveGroups) {
 		toSerialize["exclusiveGroups"] = o.ExclusiveGroups
+	}
+	if !IsNil(o.ExclusiveGroupsEmptyMessage) {
+		toSerialize["exclusiveGroupsEmptyMessage"] = o.ExclusiveGroupsEmptyMessage
 	}
 	if !IsNil(o.FieldComparisons) {
 		toSerialize["fieldComparisons"] = o.FieldComparisons

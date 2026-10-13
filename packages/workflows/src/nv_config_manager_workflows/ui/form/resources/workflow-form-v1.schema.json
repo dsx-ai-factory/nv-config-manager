@@ -428,6 +428,10 @@
           "description": "Human-readable mode label.",
           "$ref": "#/$defs/nonBlankString"
         },
+        "description": {
+          "description": "Supporting text displayed below the rows while this mode is active.",
+          "$ref": "#/$defs/nonBlankString"
+        },
         "columns": {
           "description": "Columns rendered for every row in this mode.",
           "type": "array",
@@ -594,6 +598,10 @@
               "type": "array",
               "items": { "$ref": "#/$defs/exclusiveGroup" },
               "minItems": 2
+            },
+            "exclusiveGroupsEmptyMessage": {
+              "description": "Optional form-level validation message displayed when every required exclusive input mode is empty.",
+              "$ref": "#/$defs/nonBlankString"
             },
             "fieldComparisons": {
               "description": "Client-side comparisons between projected numeric fields.",

@@ -32,6 +32,7 @@ import { editsWholeValue } from "./server-errors";
 import type { FormData } from "./state";
 import {
   deviceOptionsOf,
+  exclusiveGroupsEmptyMessageOf,
   labelOf,
   fieldComparisonsOf,
   own,
@@ -170,9 +171,10 @@ const validateCompleteExclusiveGroups = (
   );
   if (active.length === 0) {
     errors.addError(
-      `Provide ${joinModes(
-        groups.map((group) => completeModeLabel(schema, uiSchema, group))
-      )}`
+      exclusiveGroupsEmptyMessageOf(uiSchema) ??
+        `Provide ${joinModes(
+          groups.map((group) => completeModeLabel(schema, uiSchema, group))
+        )}`
     );
     return;
   }
@@ -199,6 +201,34 @@ const validateCompleteExclusiveGroups = (
         `Site is required for ${labelOf(schema, uiSchema, deviceField)}`
       );
     }
+  }
+};
+
+/** Validate required Site filters, which live outside the projected form data. */
+const validateRequiredDeviceSites = (
+  uiSchema: unknown,
+  errors: Parameters<CustomValidator>[1],
+  layout: FormLayout | undefined,
+  filters: ValidationFilters
+): void => {
+  if (!layout) return;
+  const exclusiveDeviceFields = new Set(
+    layout.exclusiveGroups.flatMap((group) =>
+      group.requireComplete ? group.deviceFields : []
+    )
+  );
+  for (const [scope, deviceField] of Object.entries(layout.scopeHosts)) {
+    const options = deviceOptionsOf(uiSchema, deviceField);
+    if (
+      exclusiveDeviceFields.has(deviceField) ||
+      !options.filters.includes("site") ||
+      !options.siteRequired ||
+      options.siteField !== undefined ||
+      filters[scope]?.site !== undefined
+    ) {
+      continue;
+    }
+    errors[deviceField]?.addError("Site is required");
   }
 };
 
@@ -321,6 +351,7 @@ export const createCustomValidate =
         errors[comparison.left]?.addError(comparison.message);
       }
     }
+    validateRequiredDeviceSites(uiSchema, errors, layout, filters);
     validateCompleteExclusiveGroups(
       schema,
       uiSchema,

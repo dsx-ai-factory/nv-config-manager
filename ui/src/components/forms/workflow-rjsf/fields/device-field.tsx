@@ -71,7 +71,7 @@ interface ScopeControlsProps {
   filterSources: DeviceOptions["filterSources"];
   /** Whether this scope renders its own Site control (no `siteField`). */
   ownSite: boolean;
-  siteRequired: boolean;
+  markSiteRequired: boolean;
   context: ShellFormContext;
   disabled: boolean;
   idPrefix: string;
@@ -86,7 +86,7 @@ const ScopeControls = ({
   filters,
   filterSources,
   ownSite,
-  siteRequired,
+  markSiteRequired,
   context,
   disabled,
   idPrefix,
@@ -169,7 +169,7 @@ const ScopeControls = ({
         <Picker
           id={`${idPrefix}__site`}
           label="Site"
-          required={siteRequired}
+          required={markSiteRequired}
           options={sites.options.map((item) => ({
             key: item.label,
             value: siteKey(item),
@@ -316,6 +316,11 @@ export const DeviceField = (props: FieldProps) => {
   const tenant = filters.includes("tenant") ? scope.tenant : [];
   const status = filters.includes("status") ? scope.status : [];
   const siteMissing = usesSite && siteRequired && site === undefined;
+  const markSiteRequired =
+    siteRequired &&
+    !layout.exclusiveGroups.some(
+      (group) => group.requireComplete && group.deviceFields.includes(name)
+    );
 
   const extra = React.useMemo<ExtraParams>(() => {
     const params: Record<string, readonly string[]> = { tenant, status };
@@ -398,7 +403,7 @@ export const DeviceField = (props: FieldProps) => {
           filters={scopePrefillFilters(options)}
           filterSources={filterSources}
           ownSite={usesSite && siteField === undefined}
-          siteRequired={siteRequired}
+          markSiteRequired={markSiteRequired}
           context={context}
           disabled={locked}
           idPrefix={fieldPathId.$id}

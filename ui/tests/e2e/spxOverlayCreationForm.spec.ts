@@ -93,6 +93,10 @@ test.describe("New SpX Overlay Creation Workflow", () => {
     await expect(rdMin(page)).toHaveValue("60000");
     await expect(rdMax(page)).toHaveValue("65000");
     await expect(page.getByLabel("Overlay ID")).toHaveValue("");
+    await expect(page.getByLabel("Overlay ID")).toHaveAttribute(
+      "placeholder",
+      "Overlay ID"
+    );
   });
 
   test("reports the missing inputs and sends nothing", async ({ page }) => {

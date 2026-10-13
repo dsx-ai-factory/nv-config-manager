@@ -164,8 +164,7 @@ test.describe("IB PKey Creation Form", () => {
 
     await expect(
       page
-        .getByRole("alert")
-        .filter({ hasText: "The workflow input is invalid" })
+        .getByTestId("form-errors")
     ).toContainText(DETAIL);
     await expect(
       page.locator("div.text-sm.font-semibold", { hasText: "Workflow Failed" })

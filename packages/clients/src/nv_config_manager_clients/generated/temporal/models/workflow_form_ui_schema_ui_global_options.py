@@ -31,7 +31,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from typing_extensions import Annotated
 from nv_config_manager_clients.generated.temporal.models.workflow_form_ui_schema_ui_global_options_exclusive_groups_inner import WorkflowFormUiSchemaUiGlobalOptionsExclusiveGroupsInner
@@ -45,9 +45,20 @@ class WorkflowFormUiSchemaUiGlobalOptions(BaseModel):
     Rendering options applied to the whole form.
     """ # noqa: E501
     exclusive_groups: Optional[Annotated[List[Optional[WorkflowFormUiSchemaUiGlobalOptionsExclusiveGroupsInner]], Field(min_length=2)]] = Field(default=None, description="Mutually exclusive input modes. A value in one mode disables and clears the others.", alias="exclusiveGroups")
+    exclusive_groups_empty_message: Optional[Annotated[str, Field(strict=True)]] = Field(default=None, description="Optional form-level validation message displayed when every required exclusive input mode is empty.", alias="exclusiveGroupsEmptyMessage")
     field_comparisons: Optional[Annotated[List[WorkflowFormUiSchemaUiGlobalOptionsFieldComparisonsInner], Field(min_length=1)]] = Field(default=None, description="Client-side comparisons between projected numeric fields.", alias="fieldComparisons")
     hide_schema_descriptions: Optional[StrictBool] = Field(default=None, description="Hide descriptions inherited from the projected input schema.", alias="hideSchemaDescriptions")
-    __properties: ClassVar[List[str]] = ["exclusiveGroups", "fieldComparisons", "hideSchemaDescriptions"]
+    __properties: ClassVar[List[str]] = ["exclusiveGroups", "exclusiveGroupsEmptyMessage", "fieldComparisons", "hideSchemaDescriptions"]
+
+    @field_validator('exclusive_groups_empty_message')
+    def exclusive_groups_empty_message_validate_regular_expression(cls, value):
+        """Validates the regular expression"""
+        if value is None:
+            return value
+
+        if not re.match(r"\S", value):
+            raise ValueError(r"must validate the regular expression /\S/")
+        return value
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -115,6 +126,7 @@ class WorkflowFormUiSchemaUiGlobalOptions(BaseModel):
 
         _obj = cls.model_validate({
             "exclusiveGroups": [WorkflowFormUiSchemaUiGlobalOptionsExclusiveGroupsInner.from_dict(_item) for _item in obj["exclusiveGroups"]] if obj.get("exclusiveGroups") is not None else None,
+            "exclusiveGroupsEmptyMessage": obj.get("exclusiveGroupsEmptyMessage"),
             "fieldComparisons": [WorkflowFormUiSchemaUiGlobalOptionsFieldComparisonsInner.from_dict(_item) for _item in obj["fieldComparisons"]] if obj.get("fieldComparisons") is not None else None,
             "hideSchemaDescriptions": obj.get("hideSchemaDescriptions")
         })

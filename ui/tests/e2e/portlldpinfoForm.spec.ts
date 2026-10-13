@@ -73,7 +73,7 @@ test.describe("Port LLDP Info Form", () => {
 
   test("requires Site before choosing a device", async ({ page }) => {
     await expect(page.locator("form label")).toHaveText([
-      "Site *",
+      "Site",
       "Device",
       "Interface",
       "MAC Address",
@@ -170,8 +170,11 @@ test.describe("Port LLDP Info Form", () => {
 
     await submit(page);
     await expect(formErrors(page)).toContainText(
-      "Provide Site, Device, Interface or MAC Address"
+      "Please provide either all the device information or a MAC Address"
     );
+    await expect(
+      page.getByText("The workflow input is invalid", { exact: true })
+    ).toHaveCount(0);
     expect(posts).toEqual([]);
     await noFailureToast(page);
 

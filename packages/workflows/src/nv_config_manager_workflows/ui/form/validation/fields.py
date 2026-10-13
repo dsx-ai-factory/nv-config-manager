@@ -51,6 +51,11 @@ def check_root(context: FormValidationContext, key: str, value: Any) -> None:
         require_text(value["submitText"], f"{context.name} {key}.submitText")
     if "hideSchemaDescriptions" in value and not isinstance(value["hideSchemaDescriptions"], bool):
         raise context.fail(f"{key}.hideSchemaDescriptions must be a boolean")
+    if "exclusiveGroupsEmptyMessage" in value:
+        require_text(
+            value["exclusiveGroupsEmptyMessage"],
+            f"{context.name} {key}.exclusiveGroupsEmptyMessage",
+        )
 
 
 def _check_order(context: FormValidationContext, order: Any) -> None:
@@ -124,9 +129,9 @@ def check_field(context: FormValidationContext, name: str, entry: dict[str, Any]
     supported = vocabulary.author_option_keys[field]
     unknown = set(options) - supported
     if unknown:
-        kind = f"a {field} field" if field else "a standard field"
+        field_kind = f"a {field} field" if field else "a standard field"
         raise context.fail(
-            f"{name!r} ui:options keys {sorted(unknown)} are not supported on {kind}; "
+            f"{name!r} ui:options keys {sorted(unknown)} are not supported on {field_kind}; "
             f"supported: {sorted(supported)} (queryAliases, queryCoercion, and querySeparator "
             "are added by the server from its central compatibility map)"
         )

@@ -187,6 +187,7 @@ class IBPKeyMemberUpdateInput(BaseModel):
                 {
                     "id": "guids",
                     "label": "By GUIDs",
+                    "description": "One GUID per row. Each must match 0x + 16 hex digits.",
                     "columns": [
                         {
                             "arrayProperty": "guids",

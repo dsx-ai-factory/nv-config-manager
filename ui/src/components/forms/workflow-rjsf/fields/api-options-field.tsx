@@ -174,11 +174,7 @@ const GroupedOptions = ({
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <LoadingSpinner /> Loading {label}...
         </div>
-      ) : waiting ? (
-        <p className="text-sm text-muted-foreground">
-          Select the required fields to load {label}.
-        </p>
-      ) : loaded.status === "error" ? (
+      ) : waiting ? null : loaded.status === "error" ? (
         <p className="text-sm text-destructive">
           Could not load {label} options.
         </p>
@@ -448,6 +444,9 @@ export const SourceOptionsField = ({
   const waiting = loaded.missingDependencies.length > 0;
   const hasNoMatchingDevices =
     disableWhenNoMatches && loaded.meta?.matching_device_count === 0;
+  const matchingDeviceCount = disableWhenNoMatches
+    ? loaded.meta?.matching_device_count
+    : undefined;
   const pickerDisabled =
     Boolean(disabled || readonly) ||
     ownPending ||
@@ -458,17 +457,29 @@ export const SourceOptionsField = ({
 
   const feedback = (
     <>
-      {presentation !== "grouped-checkboxes" && waiting ? (
-        <p className="text-sm text-muted-foreground">
-          Select the required fields to load {label}.
-        </p>
-      ) : null}
-      {presentation !== "grouped-checkboxes" && loaded.status === "empty" ? (
+      {presentation !== "grouped-checkboxes" &&
+      loaded.status === "empty" &&
+      !hasNoMatchingDevices ? (
         <p className="text-sm text-muted-foreground">No {label} found.</p>
       ) : null}
       {presentation !== "grouped-checkboxes" &&
-      metaText &&
-      typeof loaded.meta?.[metaText.key] === "number" ? (
+      typeof matchingDeviceCount === "number" ? (
+        <p
+          className={
+            matchingDeviceCount > 0
+              ? "text-sm text-green-600"
+              : "text-sm text-amber-600"
+          }
+        >
+          {matchingDeviceCount > 0
+            ? `✓ Found ${matchingDeviceCount} matching device${
+                matchingDeviceCount === 1 ? "" : "s"
+              }`
+            : "⚠ No devices found matching the selected criteria"}
+        </p>
+      ) : presentation !== "grouped-checkboxes" &&
+        metaText &&
+        typeof loaded.meta?.[metaText.key] === "number" ? (
         <p className="text-sm text-muted-foreground">
           {metaText.label}: {loaded.meta[metaText.key]}
         </p>

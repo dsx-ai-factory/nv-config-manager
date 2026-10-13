@@ -162,6 +162,7 @@ class SpXOverlayCreationInput(BaseModel):
         },
         "site": ui.location_field(SITE_FILTER_SOURCE, type_field="site_type"),
         "site_type": {"ui:widget": "hidden"},
+        "overlay_id": {"ui:placeholder": "Overlay ID"},
         "tenant": ui.api_options(ui.OptionSource("/v1/parameter/tenant", "name", "name")),
         "namespace_tag": {**ui.api_options(NAMESPACE_TAG_SOURCE), "ui:title": "Namespace Tag"},
     }

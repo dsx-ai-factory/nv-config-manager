@@ -59,8 +59,7 @@ test.describe("New SpX Overlay Deletion Workflow", () => {
       "Overlay ID *",
       "Namespace Tag *",
     ]);
-    // Like the legacy page: API schema descriptions are absent. Dependency feedback is
-    // still useful while the overlay options are waiting for a site.
+    // Like the legacy page: API schema descriptions and dependency prompts are absent.
     for (const description of [
       "Site containing the SpX overlay to delete.",
       "Identifier of the SpX overlay to delete.",
@@ -72,7 +71,7 @@ test.describe("New SpX Overlay Deletion Workflow", () => {
       page.getByText("Select the required fields to load Overlay ID.", {
         exact: true,
       })
-    ).toBeVisible();
+    ).toHaveCount(0);
 
     // Namespace tags load unfiltered, then for the chosen site; overlays only for a site.
     const requests: Request[] = [];

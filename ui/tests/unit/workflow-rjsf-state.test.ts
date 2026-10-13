@@ -817,6 +817,64 @@ describe("validation messages", () => {
     ).toEqual(["Site is required"]);
   });
 
+  it("requires one Site for a standalone shared device-filter scope", () => {
+    const sharedSchema = {
+      type: "object",
+      properties: {
+        ufm_device_id: { type: "string", title: "UFM Device" },
+        switch_device_ids: {
+          type: "array",
+          title: "Switch Devices",
+          items: { type: "string" },
+          minItems: 1,
+        },
+      },
+      required: ["ufm_device_id", "switch_device_ids"],
+    } as RJSFSchema;
+    const sharedUiSchema = {
+      ufm_device_id: {
+        "ui:field": "device",
+        "ui:options": {
+          filters: ["site"],
+          filterScope: "fabric-devices",
+          siteRequired: true,
+        },
+      },
+      switch_device_ids: {
+        "ui:field": "device",
+        "ui:options": {
+          filters: ["site"],
+          filterScope: "fabric-devices",
+          siteRequired: true,
+        },
+      },
+    };
+    const layout = buildLayout(sharedSchema, sharedUiSchema);
+    const validateShared = (
+      filters: Record<string, { site?: { id: string; type: string } }> = {}
+    ) =>
+      workflowValidator.validateFormData(
+        {},
+        sharedSchema,
+        createCustomValidate(sharedSchema, sharedUiSchema, layout, filters),
+        createTransformErrors(sharedSchema, sharedUiSchema, layout),
+        sharedUiSchema
+      ).errors;
+
+    expect(messages(validateShared())).toEqual([
+      "Site is required",
+      "Switch Devices is required",
+      "UFM Device is required",
+    ]);
+    expect(
+      messages(
+        validateShared({
+          "fabric-devices": { site: { id: "PDX01", type: "Site" } },
+        })
+      )
+    ).toEqual(["Switch Devices is required", "UFM Device is required"]);
+  });
+
   it("moves item errors of a whole-list control onto the list", () => {
     const errors = validate({ site: "s", device_id: "d", port_names: [1] });
     expect(errors).toEqual([
@@ -863,6 +921,8 @@ describe("validation messages", () => {
     } as RJSFSchema;
     const uiSchema = {
       "ui:globalOptions": {
+        exclusiveGroupsEmptyMessage:
+          "Please provide either all the device information or a MAC Address",
         exclusiveGroups: [
           {
             fields: ["device_id", "interface"],
@@ -894,7 +954,7 @@ describe("validation messages", () => {
       ).errors;
 
     expect(messages(validate({}))).toEqual([
-      "Provide Site, Device, Interface or MAC Address",
+      "Please provide either all the device information or a MAC Address",
     ]);
     expect(messages(validate({ interface: "swp1" }))).toEqual([
       "Device is required",

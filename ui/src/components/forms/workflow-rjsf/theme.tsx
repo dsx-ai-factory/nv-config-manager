@@ -49,7 +49,7 @@ import {
   type WidgetProps,
 } from "@rjsf/utils";
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -98,10 +98,9 @@ const checkboxHelpText = (uiSchema: UiSchema | undefined) => {
 
 /** Errors no field shows: the form-level (root) errors, server ones included. */
 const FormErrors = ({ errors }: { errors: string[] }) => (
-  <Alert variant="destructive">
-    <AlertTitle>The workflow input is invalid</AlertTitle>
+  <Alert variant="destructive" data-testid="form-errors">
     <AlertDescription>
-      <ul className="mt-2 list-disc pl-5">
+      <ul className="list-disc pl-5">
         {[...new Set(errors)].map((error) => (
           <li key={error}>{error}</li>
         ))}

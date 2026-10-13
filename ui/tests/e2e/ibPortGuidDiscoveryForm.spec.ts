@@ -68,6 +68,7 @@ test("renders one Site for both device pickers, and dry run on", async ({ page }
 test("reports both missing device inputs and sends nothing", async ({ page }) => {
   const posts = recordPosts(page, ENDPOINT);
   await submit(page);
+  await expect(page.getByText("Site is required", { exact: true })).toBeVisible();
   await expect(page.getByText("UFM Device is required", { exact: true })).toBeVisible();
   await expect(page.getByText("Switch Devices is required", { exact: true })).toBeVisible();
   expect(posts).toEqual([]);

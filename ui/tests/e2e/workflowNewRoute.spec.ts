@@ -211,7 +211,7 @@ test.describe("/workflows/new/<form_id>", () => {
       {
         name: "SpXOverlayDeletionWorkflow",
         title: "New SpX Overlay Deletion Workflow",
-        labels: ["Site *", "Overlay ID *", "Namespace Tag"],
+        labels: ["Site *", "Overlay ID *", "Namespace Tag *"],
         submit: "Submit",
       },
     ];

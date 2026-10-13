@@ -482,8 +482,7 @@ test.describe("Site Cable Validation Form", () => {
     await page.getByRole("button", { name: "Submit" }).click();
     await expect(
       page
-        .getByRole("alert")
-        .filter({ hasText: "The workflow input is invalid" })
+        .getByTestId("form-errors")
     ).toContainText("Site PDX01 has no cabling plan");
   });
 

@@ -66,9 +66,12 @@ test.describe("Site Password Rotation Form", () => {
       .getByRole("option", { name: SITES_LIST.rno1 })
       .click();
 
-    await expect(page.getByText(/Matching devices: \d+/)).toBeVisible({
+    await expect(
+      page.getByText("✓ Found 5 matching devices", { exact: true })
+    ).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
+    await expect(page.getByText(/Matching devices:/)).toHaveCount(0);
   });
 
   test("disables the secret picker when no devices match", async ({ page }) => {
@@ -88,9 +91,13 @@ test.describe("Site Password Rotation Form", () => {
       .click();
     await page.keyboard.press("Escape");
 
-    await expect(page.getByText("Matching devices: 0")).toBeVisible({
-      timeout: TEST_TIMEOUT,
-    });
+    await expect(
+      page.getByText("⚠ No devices found matching the selected criteria", {
+        exact: true,
+      })
+    ).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expect(page.getByText("No Secret to Rotate found.")).toHaveCount(0);
+    await expect(page.getByText(/Matching devices:/)).toHaveCount(0);
     await expect(
       page.getByRole("combobox", { name: /select a secret to rotate/i })
     ).toBeDisabled();

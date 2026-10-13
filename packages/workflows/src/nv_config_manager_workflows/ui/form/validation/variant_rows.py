@@ -105,8 +105,10 @@ def _check_variant_rows_mode(
 ) -> set[str]:
     """Validate one object-array or parallel-array row mode."""
     where = f"{anchor!r} variantRows modes[{index}]"
-    if not isinstance(mode, dict) or set(mode) != {"id", "label", "columns"}:
-        raise context.fail(f"{where} must contain exactly id, label, and columns")
+    required = {"id", "label", "columns"}
+    allowed = {*required, "description"}
+    if not isinstance(mode, dict) or not required <= set(mode) or set(mode) - allowed:
+        raise context.fail(f"{where} must contain id, label, and columns and only supported keys")
     mode_mapping = cast(dict[str, object], mode)
     mode_id = require_text(mode_mapping["id"], f"{context.name} {where}.id")
     if not context.vocabulary.property_name.fullmatch(mode_id):
@@ -115,6 +117,8 @@ def _check_variant_rows_mode(
         raise context.fail(f"{anchor!r} variantRows mode ids must be unique")
     mode_ids.add(mode_id)
     require_text(mode_mapping["label"], f"{context.name} {where}.label")
+    if "description" in mode_mapping:
+        require_text(mode_mapping["description"], f"{context.name} {where}.description")
     columns = mode_mapping["columns"]
     if not isinstance(columns, list) or not columns:
         raise context.fail(f"{where}.columns must be a non-empty list")

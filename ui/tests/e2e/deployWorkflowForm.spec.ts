@@ -20,10 +20,8 @@
  * API-model descriptions are omitted from the projected browser-form schema.
  *
  * Differences from the legacy page, by design: Site is a device filter rather than a
- * model property, so an empty submission reports only "Device is required" (the device
- * picker says "Select a Site first"); a failed submission shows the generic
- * "Workflow Failed" toast with the server's message; required labels
- * carry a visible " *".
+ * model property; a failed submission shows the generic "Workflow Failed" toast with
+ * the server's message; required labels carry a visible " *".
  */
 import { expect, type Page } from "@playwright/test";
 import {
@@ -108,14 +106,18 @@ test.describe(`${FORM_TITLE} Form`, () => {
       }
     });
     await page.getByRole("button", { name: "Submit" }).click();
-    // Site is a device filter, not an input of the workflow: only the device reports.
+    await expect(
+      page.getByText("Site is required", { exact: true })
+    ).toBeVisible({ timeout: TEST_TIMEOUT });
     await expect(page.getByText("Device is required")).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
-    await expect(page.getByText("Site is required")).toHaveCount(0);
 
     // After the failed submit, validation is live: choosing the device clears it.
     await choose(page, SELECT_SITE, SITES_LIST.pdx01);
+    await expect(
+      page.getByText("Site is required", { exact: true })
+    ).toHaveCount(0);
     await expect(page.getByText("Device is required")).toBeVisible();
     await choose(page, SELECT_DEVICE, DEVICES_LIST[SITES_LIST.pdx01][0].name);
     await expect(page.getByText("Device is required")).toHaveCount(0);
@@ -320,8 +322,7 @@ test.describe(`${FORM_TITLE} - Error Scenarios`, () => {
     ).toBeVisible();
     await expect(
       page
-        .getByRole("alert")
-        .filter({ hasText: "The workflow input is invalid" })
+        .getByTestId("form-errors")
     ).toContainText("user: Field required");
     await expect(
       page.locator("div.text-sm.font-semibold", { hasText: "Workflow Failed" })

@@ -151,12 +151,77 @@ test.describe("IB PKey Member Add Form", () => {
   test("first GUID row starts empty after switching modes", async ({
     page,
   }) => {
+    const guidDescription = page.getByText(
+      "One GUID per row. Each must match 0x + 16 hex digits.",
+      { exact: true }
+    );
+
+    await expect(guidDescription).toHaveCount(0);
     await page.getByLabel("By GUIDs").click();
     const guid = page.getByLabel("GUID 1");
     await expect(guid).toBeVisible({ timeout: TEST_TIMEOUT });
     // Regression: the interfaces array used to bleed into this field and render
     // as "[object Object]", hiding the placeholder.
     await expect(guid).toHaveValue("");
+    await expect(guidDescription).toBeVisible();
+  });
+
+  test("uses the main membership placeholder in each input method", async ({
+    page,
+  }) => {
+    const membership = () =>
+      page.getByRole("combobox", { name: "Membership Type for row 1" });
+
+    await expect(membership()).toHaveText("Membership Type");
+
+    await page.getByLabel("By GUIDs").click();
+
+    await expect(page.getByLabel("GUID 1")).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(membership()).toHaveText("Membership Type");
+  });
+
+  test("keeps the membership column fixed when switching input methods", async ({
+    page,
+  }) => {
+    const deviceBox = await page
+      .getByPlaceholder("device (e.g. hca01)")
+      .boundingBox();
+    const interfaceBox = await page
+      .getByPlaceholder("interface (e.g. mlx5_0)")
+      .boundingBox();
+    const interfaceMembershipBox = await page
+      .getByLabel("Membership Type for row 1")
+      .boundingBox();
+
+    await page.getByLabel("By GUIDs").click();
+
+    const guidBox = await page.getByLabel("GUID 1").boundingBox();
+    const guidMembershipBox = await page
+      .getByLabel("Membership Type for row 1")
+      .boundingBox();
+
+    if (
+      !deviceBox ||
+      !interfaceBox ||
+      !interfaceMembershipBox ||
+      !guidBox ||
+      !guidMembershipBox
+    ) {
+      throw new Error("Expected every variant-row control to have a bounding box");
+    }
+
+    const expectWithinOnePixel = (actual: number, expected: number) =>
+      expect(Math.abs(actual - expected)).toBeLessThanOrEqual(1);
+
+    expectWithinOnePixel(guidBox.x, deviceBox.x);
+    expectWithinOnePixel(
+      guidBox.x + guidBox.width,
+      interfaceBox.x + interfaceBox.width
+    );
+    expectWithinOnePixel(guidMembershipBox.x, interfaceMembershipBox.x);
+    expectWithinOnePixel(guidMembershipBox.width, interfaceMembershipBox.width);
   });
 
   test("retains each mode while switching repeatedly and submits only the active mode", async ({

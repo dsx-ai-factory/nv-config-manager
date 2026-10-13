@@ -72,13 +72,16 @@ test("a legacy link opens the generic form on the form ID route", async ({
   });
   await expect(
     page.getByText("Select the required fields to load Commands.")
-  ).toBeVisible();
+  ).toHaveCount(0);
 });
 
 test("requires a device and a command", async ({ page }) => {
   await page.goto(PATH);
   const posts = recordPosts(page, ENDPOINT);
   await submit(page);
+  await expect(page.getByText("Site is required", { exact: true })).toBeVisible({
+    timeout: TEST_TIMEOUT,
+  });
   await expect(page.getByText("Devices is required")).toBeVisible({
     timeout: TEST_TIMEOUT,
   });

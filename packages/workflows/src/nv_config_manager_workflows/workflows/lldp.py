@@ -61,6 +61,9 @@ class PortLLDPInfoInput(BaseModel):
 
     rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
         "ui:globalOptions": {
+            "exclusiveGroupsEmptyMessage": (
+                "Please provide either all the device information or a MAC Address"
+            ),
             "exclusiveGroups": [
                 {
                     "fields": ["device_id", "interface"],
@@ -68,14 +71,14 @@ class PortLLDPInfoInput(BaseModel):
                     "requireComplete": True,
                 },
                 {"fields": ["remote_mac_address"], "requireComplete": True},
-            ]
+            ],
         },
         "device_id": {
             **device_field(MANAGED_DEVICE_SOURCE, filters=("site",), site_required=True),
             "ui:title": "Device",
         },
-        "interface": {"ui:title": "Interface"},
-        "remote_mac_address": {"ui:title": "MAC Address"},
+        "interface": {"ui:title": "Interface", "ui:placeholder": "Interface"},
+        "remote_mac_address": {"ui:title": "MAC Address", "ui:placeholder": "MAC Address"},
     }
 
     device_id: OptionalDeviceReference = Field(

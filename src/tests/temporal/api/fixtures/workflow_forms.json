@@ -777,6 +777,7 @@
             {
               "id": "guids",
               "label": "By GUIDs",
+              "description": "One GUID per row. Each must match 0x + 16 hex digits.",
               "columns": [
                 {
                   "arrayProperty": "guids",
@@ -933,6 +934,7 @@
             {
               "id": "guids",
               "label": "By GUIDs",
+              "description": "One GUID per row. Each must match 0x + 16 hex digits.",
               "columns": [
                 {
                   "arrayProperty": "guids",
@@ -1097,6 +1099,7 @@
             {
               "id": "guids",
               "label": "By GUIDs",
+              "description": "One GUID per row. Each must match 0x + 16 hex digits.",
               "columns": [
                 {
                   "arrayProperty": "guids",
@@ -1649,6 +1652,7 @@
     },
     "ui_schema": {
       "ui:globalOptions": {
+        "exclusiveGroupsEmptyMessage": "Please provide either all the device information or a MAC Address",
         "exclusiveGroups": [
           {
             "fields": [
@@ -1703,10 +1707,12 @@
         "ui:title": "Device"
       },
       "interface": {
-        "ui:title": "Interface"
+        "ui:title": "Interface",
+        "ui:placeholder": "Interface"
       },
       "remote_mac_address": {
-        "ui:title": "MAC Address"
+        "ui:title": "MAC Address",
+        "ui:placeholder": "MAC Address"
       }
     },
     "ui_schema_version": 1,
@@ -2308,6 +2314,9 @@
       },
       "site_type": {
         "ui:widget": "hidden"
+      },
+      "overlay_id": {
+        "ui:placeholder": "Overlay ID"
       },
       "tenant": {
         "ui:field": "apiOptions",

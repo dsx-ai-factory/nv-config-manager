@@ -114,7 +114,7 @@ export const noFailureToast = (page: Page) =>
 
 /** The form-level error box (422 errors no field owns). */
 export const formErrors = (page: Page) =>
-  page.getByRole("alert").filter({ hasText: "The workflow input is invalid" });
+  page.getByTestId("form-errors");
 
 /** Answer the next POSTs to `endpoint` with a 422 and `detail`. */
 export const reply422 = (page: Page, endpoint: string, detail: unknown) =>
@@ -148,12 +148,11 @@ export interface DeviceFormConfig {
 
 /**
  * The suite every single-device form shares. Differences from the legacy pages, by
- * design: Site, Tenant, and Status are device filters rather than workflow inputs, so
- * an empty submission reports only "Device is required" (the device picker says
- * "Select a Site first"); required labels carry a visible " *"; a failed submission
- * shows the generic "Workflow Failed" toast with the server's message; a 422 shows
- * inline. The payload holds exactly the projected inputs (no `user`, `user_domain`,
- * `workflow_id`, or empty strings).
+ * design: Site, Tenant, and Status are device filters rather than workflow inputs;
+ * required labels carry a visible " *"; a failed submission shows the generic
+ * "Workflow Failed" toast with the server's message; a 422 shows inline. The payload
+ * holds exactly the projected inputs (no `user`, `user_domain`, `workflow_id`, or
+ * empty strings).
  */
 export const runWorkflowFormTests = (config: DeviceFormConfig) => {
   const {
@@ -198,17 +197,22 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
       await expect(page.getByRole("button", { name: "Submit" })).toBeEnabled();
     });
 
-    test("reports a missing device and sends nothing", async ({ page }) => {
+    test("reports a missing site and device and sends nothing", async ({ page }) => {
       const posts = recordPosts(page, endpoint);
       await submit(page);
+      await expect(
+        page.getByText("Site is required", { exact: true })
+      ).toBeVisible({ timeout: TEST_TIMEOUT });
       await expect(
         page.getByText("Device is required", { exact: true })
       ).toBeVisible({
         timeout: TEST_TIMEOUT,
       });
-      await expect(page.getByText("Site is required")).toHaveCount(0);
 
       await choose(page, SELECT_SITE, site);
+      await expect(
+        page.getByText("Site is required", { exact: true })
+      ).toHaveCount(0);
       await expect(
         page.getByText("Device is required", { exact: true })
       ).toBeVisible();

@@ -3332,6 +3332,11 @@
                                 "minItems": 1,
                                 "type": "array"
                               },
+                              "description": {
+                                "description": "Supporting text displayed below the rows while this mode is active.",
+                                "pattern": "\\S",
+                                "type": "string"
+                              },
                               "id": {
                                 "description": "Stable identifier for this mode.",
                                 "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
@@ -3398,6 +3403,14 @@
                       "additionalProperties": false,
                       "description": "Supported ui:options for a standard RJSF field.",
                       "properties": {
+                        "queryCoercion": {
+                          "description": "Compatibility rule used to coerce this field's URL parameter.",
+                          "enum": [
+                            "integer-prefix-or-default",
+                            "case-insensitive-boolean"
+                          ],
+                          "type": "string"
+                        },
                         "rows": {
                           "description": "Visible row count for a multiline text control.",
                           "minimum": 1.0,
@@ -3547,6 +3560,11 @@
                 },
                 "minItems": 2,
                 "type": "array"
+              },
+              "exclusiveGroupsEmptyMessage": {
+                "description": "Optional form-level validation message displayed when every required exclusive input mode is empty.",
+                "pattern": "\\S",
+                "type": "string"
               },
               "fieldComparisons": {
                 "description": "Client-side comparisons between projected numeric fields.",

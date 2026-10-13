@@ -111,7 +111,6 @@ export const activeMode = (
     ) ?? config.modes[0]
   );
 };
-
 const patchForRows = (
   config: VariantRowsFieldOptions,
   mode: VariantRowsMode,
@@ -211,7 +210,7 @@ const RowInput = ({
         aria-describedby={describedBy}
         aria-invalid={invalid || undefined}
       >
-        <SelectValue placeholder={column.placeholder ?? `Select ${column.label}...`} />
+        <SelectValue placeholder={column.placeholder ?? column.label} />
       </SelectTrigger>
       <SelectContent>
         {(column.choices ?? []).map((choice) => (
@@ -322,7 +321,10 @@ export const VariantRowsField = (props: FieldProps) => {
         {rows.map((row, index) => (
           <div key={index} className="flex items-start gap-2">
             {mode.columns.map((column) => (
-              <div key={columnId(column)} className="min-w-0 flex-1">
+              <div
+                key={columnId(column)}
+                className={column.kind === "select" ? "w-40" : "min-w-0 flex-1"}
+              >
                 <RowInput
                   column={column}
                   value={row[columnId(column)] ?? ""}
@@ -367,6 +369,9 @@ export const VariantRowsField = (props: FieldProps) => {
           <Plus className="mr-1 h-4 w-4" />
           Add Row
         </Button>
+        {mode.description ? (
+          <p className="mt-1 text-sm text-muted-foreground">{mode.description}</p>
+        ) : null}
       </div>
 
       {config.warning ? (

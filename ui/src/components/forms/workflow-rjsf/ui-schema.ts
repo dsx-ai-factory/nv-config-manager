@@ -62,6 +62,7 @@ export interface VariantRowsMode {
   id: string;
   label: string;
   columns: VariantRowsColumn[];
+  description?: string;
 }
 
 export interface VariantRowsFieldOptions {
@@ -227,6 +228,17 @@ export const exclusiveGroupsOf = (uiSchema: unknown): ExclusiveGroup[] => {
       requireComplete: declaration.requireComplete === true,
     };
   });
+};
+
+/** Optional copy for the validation error shown before an exclusive mode is chosen. */
+export const exclusiveGroupsEmptyMessageOf = (
+  uiSchema: unknown
+): string | undefined => {
+  const value = own(
+    own(uiSchema, "ui:globalOptions"),
+    "exclusiveGroupsEmptyMessage"
+  );
+  return typeof value === "string" && value ? value : undefined;
 };
 
 export const fieldComparisonsOf = (uiSchema: unknown): FieldComparison[] => {

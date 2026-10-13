@@ -85,6 +85,7 @@ const RjsfForm = ({ entry, form, searchParams }: WorkflowRjsfFormProps) => {
   const { state, dispatch, context } = useShellState(schema, uiSchema, query);
   const [submitAttempted, setSubmitAttempted] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
+  const formRef = React.useRef<Form>(null);
   const renderedUiSchema = React.useMemo(() => {
     const active = activeExclusiveGroups(
       state.formData,
@@ -117,6 +118,9 @@ const RjsfForm = ({ entry, form, searchParams }: WorkflowRjsfFormProps) => {
     () => createCustomValidate(schema, uiSchema, context.layout, state.filters),
     [schema, uiSchema, context.layout, state.filters]
   );
+  React.useEffect(() => {
+    if (submitAttempted) formRef.current?.validateForm();
+  }, [submitAttempted, customValidate]);
   const { submitText = "Submit" } = getSubmitButtonOptions(uiSchema);
   const submitPath = `/v1/workflow${entry.endpoint}`;
 
@@ -162,6 +166,7 @@ const RjsfForm = ({ entry, form, searchParams }: WorkflowRjsfFormProps) => {
 
   return (
     <Form
+      ref={formRef}
       schema={runtimeSchema}
       uiSchema={renderedUiSchema}
       formData={state.formData}
@@ -192,7 +197,7 @@ const RjsfForm = ({ entry, form, searchParams }: WorkflowRjsfFormProps) => {
 /** Card chrome shared with the launcher's other states. */
 export const WorkflowRjsfForm = (props: WorkflowRjsfFormProps) => (
   <div className="flex items-center justify-center p-6">
-    <Card className="h-full border-2 shadow-md justify-center">
+    <Card className="h-full w-full max-w-3xl border-2 shadow-md justify-center">
       <CardHeader>
         <CardTitle>{`New ${props.entry.display_name} Workflow`}</CardTitle>
       </CardHeader>

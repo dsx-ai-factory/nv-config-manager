@@ -321,6 +321,9 @@ def test_lldp_requires_one_complete_lookup_mode(form_catalog: WorkflowFormCatalo
     assert options["filters"] == ["site"]
     assert options["siteRequired"] is True
     assert "required" not in form["schema"]
+    assert form["ui_schema"]["ui:globalOptions"]["exclusiveGroupsEmptyMessage"] == (
+        "Please provide either all the device information or a MAC Address"
+    )
     assert form["ui_schema"]["ui:globalOptions"]["exclusiveGroups"] == [
         {
             "fields": ["device_id", "interface"],
