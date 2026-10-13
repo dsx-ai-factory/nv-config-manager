@@ -22,8 +22,8 @@ further standard keys into them, for example
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
-from nv_config_manager_workflows.ui.form_options import FormOptionSource
-from nv_config_manager_workflows.ui.option_sources import (
+from nv_config_manager_workflows.ui.form.option_providers import FormOptionSource
+from nv_config_manager_workflows.ui.form.option_sources import (
     DEVICE_FILTER_SOURCES,
     DeviceFilter,
     OptionSource,

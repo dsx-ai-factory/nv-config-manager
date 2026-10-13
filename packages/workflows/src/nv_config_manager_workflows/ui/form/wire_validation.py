@@ -22,8 +22,8 @@ from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 from jsonschema.exceptions import ValidationError  # type: ignore[import-untyped]
 from jsonschema.protocols import Validator  # type: ignore[import-untyped]
 
-from nv_config_manager_workflows.ui.errors import WorkflowFormContractError
-from nv_config_manager_workflows.ui.form import wire_schema
+from nv_config_manager_workflows.ui.form.contract import wire_schema
+from nv_config_manager_workflows.ui.form.errors import WorkflowFormContractError
 
 
 @cache

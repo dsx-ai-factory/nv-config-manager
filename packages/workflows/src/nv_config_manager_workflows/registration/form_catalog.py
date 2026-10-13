@@ -30,7 +30,7 @@ from nv_config_manager_workflows.ui import (
     WorkflowFormContractError,
     build_form,
 )
-from nv_config_manager_workflows.ui.wire_validation import validate_form_envelope
+from nv_config_manager_workflows.ui.form.wire_validation import validate_form_envelope
 
 _MAX_DIAGNOSTIC_LENGTH = 1000
 WORKFLOW_FORM_ID_PATTERN = r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"

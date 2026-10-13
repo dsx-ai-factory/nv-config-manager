@@ -21,7 +21,7 @@ import pytest
 from pydantic import BaseModel
 
 from nv_config_manager_workflows.ui import WorkflowFormContractError, build_form
-from nv_config_manager_workflows.ui.wire_validation import validate_form_envelope
+from nv_config_manager_workflows.ui.form.wire_validation import validate_form_envelope
 
 
 class NullWidgetInput(BaseModel):

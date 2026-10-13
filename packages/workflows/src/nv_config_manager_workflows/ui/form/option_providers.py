@@ -25,7 +25,7 @@ from dataclasses import KW_ONLY, dataclass, field
 from pydantic import BaseModel, ConfigDict, Field
 
 from nv_config_manager_workflows.form_declarations import FormOptionProvider
-from nv_config_manager_workflows.ui.option_sources import Dependency, OptionParamValue
+from nv_config_manager_workflows.ui.form.option_sources import Dependency, OptionParamValue
 
 
 @dataclass(frozen=True, slots=True)

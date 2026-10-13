@@ -26,7 +26,7 @@ from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
 from nv_config_manager.temporal.api.workflow_catalog import WORKFLOW_API_CATALOG
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.ui.form_schema import injectable_server_owned_fields
+from nv_config_manager_workflows.ui.form.projection import injectable_server_owned_fields
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_API)
 

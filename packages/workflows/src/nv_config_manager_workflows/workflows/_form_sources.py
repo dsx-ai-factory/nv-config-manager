@@ -19,7 +19,7 @@ parameters the legacy workflow forms sent.
 """
 
 from nv_config_manager_workflows.ui import Dependency, OptionSource
-from nv_config_manager_workflows.ui.option_sources import (
+from nv_config_manager_workflows.ui.form.option_sources import (
     SITE_FILTER_SOURCE,
     STATUS_FILTER_SOURCE,
     TENANT_FILTER_SOURCE,

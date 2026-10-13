@@ -20,7 +20,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, Literal
 
-from nv_config_manager_workflows.ui.errors import WorkflowFormContractError
+from nv_config_manager_workflows.ui.form.errors import WorkflowFormContractError
 
 type ScalarValue = str | int | float | bool
 
