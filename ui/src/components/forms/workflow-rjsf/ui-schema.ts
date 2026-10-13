@@ -37,6 +37,7 @@ export interface ApiOptionsOptions {
   presentation?: "select" | "grouped-checkboxes";
   selectAll?: boolean;
   showDescriptions?: boolean;
+  waitingText?: string;
   disableWhenNoMatches?: boolean;
   metaText?: { key: "matching_device_count"; label: string };
 }

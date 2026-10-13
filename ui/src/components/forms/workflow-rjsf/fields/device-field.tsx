@@ -58,6 +58,16 @@ import {
 } from "./shared";
 
 const NO_VALUES = {};
+const SITE_REQUIRED_ERROR = "Site is required";
+
+const partitionValidationErrors = (errors: readonly string[]) => {
+  const site: string[] = [];
+  const remaining: string[] = [];
+  for (const error of errors) {
+    (error === SITE_REQUIRED_ERROR ? site : remaining).push(error);
+  }
+  return { site, remaining };
+};
 
 const siteKey = (item: OptionSourceItem): string =>
   JSON.stringify([
@@ -72,6 +82,7 @@ interface ScopeControlsProps {
   /** Whether this scope renders its own Site control (no `siteField`). */
   ownSite: boolean;
   markSiteRequired: boolean;
+  siteValidationErrors: readonly string[];
   context: ShellFormContext;
   disabled: boolean;
   idPrefix: string;
@@ -87,6 +98,7 @@ const ScopeControls = ({
   filterSources,
   ownSite,
   markSiteRequired,
+  siteValidationErrors,
   context,
   disabled,
   idPrefix,
@@ -182,6 +194,7 @@ const ScopeControls = ({
           multiple={false}
           disabled={locked || isLoading(sites)}
           busy={sites.status === "loading"}
+          validationErrors={siteValidationErrors}
           error={
             sites.status === "error"
               ? "Could not load Site options."
@@ -321,6 +334,10 @@ export const DeviceField = (props: FieldProps) => {
     !layout.exclusiveGroups.some(
       (group) => group.requireComplete && group.deviceFields.includes(name)
     );
+  const {
+    site: siteValidationErrors,
+    remaining: remainingValidationErrors,
+  } = partitionValidationErrors(rawErrors ?? []);
 
   const extra = React.useMemo<ExtraParams>(() => {
     const params: Record<string, readonly string[]> = { tenant, status };
@@ -404,6 +421,7 @@ export const DeviceField = (props: FieldProps) => {
           filterSources={filterSources}
           ownSite={usesSite && siteField === undefined}
           markSiteRequired={markSiteRequired}
+          siteValidationErrors={siteValidationErrors}
           context={context}
           disabled={locked}
           idPrefix={fieldPathId.$id}
@@ -428,7 +446,8 @@ export const DeviceField = (props: FieldProps) => {
           isLoading(devices)
         }
         busy={devices.status === "loading" || ownPending}
-        invalid={Boolean(rawErrors?.length)}
+        invalid={remainingValidationErrors.length > 0}
+        validationErrors={remainingValidationErrors}
         error={
           devices.status === "error"
             ? `Could not load ${label} options.`

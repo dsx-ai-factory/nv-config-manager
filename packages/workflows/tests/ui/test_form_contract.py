@@ -36,6 +36,7 @@ _REPO_UI_LIB = Path(__file__).resolve().parents[4] / "ui" / "src" / "lib"
 def test_derivable_capabilities_are_supported_by_the_manifest() -> None:
     derivable = {
         *form_contract_module.FIELD_CAPABILITIES.values(),
+        form_contract_module.API_OPTIONS_WAITING_TEXT_CAPABILITY,
         form_contract_module.EXCLUSIVE_GROUPS_CAPABILITY,
         form_contract_module.FIELD_COMPARISON_CAPABILITY,
         form_contract_module.HELP_VARIANT_CAPABILITY,

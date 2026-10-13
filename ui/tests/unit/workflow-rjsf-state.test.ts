@@ -958,7 +958,7 @@ describe("validation messages", () => {
     ]);
     expect(messages(validate({ interface: "swp1" }))).toEqual([
       "Device is required",
-      "Site is required for Device",
+      "Site is required",
     ]);
     expect(
       validate(

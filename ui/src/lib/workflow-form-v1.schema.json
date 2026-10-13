@@ -188,6 +188,10 @@
           "description": "Show option descriptions from an enriched response.",
           "const": true
         },
+        "waitingText": {
+          "description": "Supporting text shown while required option-source dependencies are missing.",
+          "$ref": "#/$defs/nonBlankString"
+        },
         "disableWhenNoMatches": {
           "description": "Disable the field when response metadata reports zero matching devices.",
           "const": true
@@ -218,6 +222,15 @@
         }
       },
       "required": ["source"],
+      "allOf": [
+        {
+          "if": { "required": ["waitingText"] },
+          "then": {
+            "required": ["presentation"],
+            "properties": { "presentation": { "const": "grouped-checkboxes" } }
+          }
+        }
+      ],
       "additionalProperties": false
     },
     "locationFieldOptions": {

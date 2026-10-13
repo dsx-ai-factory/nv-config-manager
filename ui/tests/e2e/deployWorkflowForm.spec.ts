@@ -21,7 +21,7 @@
  *
  * Differences from the legacy page, by design: Site is a device filter rather than a
  * model property; a failed submission shows the generic "Workflow Failed" toast with
- * the server's message; required labels carry a visible " *".
+ * the server's message; required labels have no separate visual marker.
  */
 import { expect, type Page } from "@playwright/test";
 import {
@@ -77,10 +77,10 @@ test.describe(`${FORM_TITLE} Form`, () => {
     page,
   }) => {
     await expect(page.locator("form label")).toHaveText([
-      "Site *",
+      "Site",
       "Tenant (optional)",
       "Status (optional)",
-      "Device *",
+      "Device",
       "Use commit-confirm",
     ]);
     await expect(

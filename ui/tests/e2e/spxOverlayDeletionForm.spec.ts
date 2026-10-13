@@ -55,9 +55,9 @@ test.describe("New SpX Overlay Deletion Workflow", () => {
     page,
   }) => {
     await expect(page.locator("form label")).toHaveText([
-      "Site *",
-      "Overlay ID *",
-      "Namespace Tag *",
+      "Site",
+      "Overlay ID",
+      "Namespace Tag",
     ]);
     // Like the legacy page: API schema descriptions and dependency prompts are absent.
     for (const description of [

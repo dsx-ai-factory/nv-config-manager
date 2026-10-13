@@ -2330,6 +2330,25 @@
                   "properties": {
                     "ui:options": {
                       "additionalProperties": false,
+                      "allOf": [
+                        {
+                          "if": {
+                            "required": [
+                              "waitingText"
+                            ]
+                          },
+                          "then": {
+                            "properties": {
+                              "presentation": {
+                                "const": "grouped-checkboxes"
+                              }
+                            },
+                            "required": [
+                              "presentation"
+                            ]
+                          }
+                        }
+                      ],
                       "description": "Rendering and data-source options for the apiOptions core field.",
                       "properties": {
                         "disableWhenNoMatches": {
@@ -2493,6 +2512,11 @@
                             }
                           ],
                           "description": "API source that supplies selectable options."
+                        },
+                        "waitingText": {
+                          "description": "Supporting text shown while required option-source dependencies are missing.",
+                          "pattern": "\\S",
+                          "type": "string"
                         }
                       },
                       "required": [

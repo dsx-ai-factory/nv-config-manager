@@ -3,6 +3,7 @@
   "capabilities": [
     "core-field.api-options.enriched.v1",
     "core-field.api-options.v1",
+    "core-field.api-options.waiting-text.v1",
     "core-field.device.v1",
     "core-field.location.v1",
     "core-field.variant-rows.v1",

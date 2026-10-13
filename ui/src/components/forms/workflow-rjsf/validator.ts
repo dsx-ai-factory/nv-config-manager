@@ -197,9 +197,7 @@ const validateCompleteExclusiveGroups = (
       : filters[options.filterScope]?.site !== undefined;
     if (!hasSite) {
       const target = options.siteField ?? deviceField;
-      errors[target]?.addError(
-        `Site is required for ${labelOf(schema, uiSchema, deviceField)}`
-      );
+      errors[target]?.addError("Site is required");
     }
   }
 };

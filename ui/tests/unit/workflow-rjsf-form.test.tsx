@@ -73,9 +73,9 @@ globalThis.ResizeObserver ??= class {
 };
 Element.prototype.scrollIntoView ??= vi.fn();
 
-/** Labels with exactly this text (a required marker allowed). */
+/** Labels with exactly this text. */
 const labels = (text: string) =>
-  screen.queryAllByText(new RegExp(`^${text}( \\*)?$`), { selector: "label" });
+  screen.queryAllByText(text, { exact: true, selector: "label" });
 
 const labelledControl = (text: string): HTMLElement => {
   const id = labels(text)[0]?.getAttribute("for");
@@ -376,10 +376,9 @@ describe("initial state and RJSF agreement", () => {
     expect(screen.getByRole("button", { name: "Create PKey" })).toBeTruthy();
   });
 
-  it("keeps the required marker out of accessible names and marks the control required", async () => {
+  it("marks required controls without adding a visible marker", async () => {
     await renderForm(WORKFLOW_FORM_FIXTURES.IBPKeyCreationWorkflow);
-    // Visible "UFM Host *", but announced as "UFM Host" plus required.
-    expect(labels("UFM Host")[0].textContent).toBe("UFM Host *");
+    expect(labels("UFM Host")[0].textContent).toBe("UFM Host");
     const host = screen.getByRole("textbox", { name: "UFM Host" });
     expect(host.getAttribute("aria-required")).toBe("true");
     const pkey = screen.getByRole("textbox", { name: "PKey (optional)" });
@@ -395,7 +394,7 @@ describe("initial state and RJSF agreement", () => {
     expect(devicePicker.getAttribute("aria-label")).toMatch(/^Device:/);
     expect(devicePicker.getAttribute("aria-required")).toBe("true");
     expect(devicePicker.getAttribute("aria-haspopup")).toBe("dialog");
-    expect(labels("Device")[0].textContent).toBe("Device *");
+    expect(labels("Device")[0].textContent).toBe("Device");
     expect(devicePicker.getAttribute("aria-describedby")).not.toContain(
       `${devicePicker.id}__label`
     );
@@ -493,11 +492,41 @@ describe("exclusive input modes", () => {
 });
 
 describe("device filter scopes", () => {
+  it("renders a missing Site error beneath the Site picker", async () => {
+    await renderForm(WORKFLOW_FORM_FIXTURES.BackupWorkflow);
+    await waitFor(() =>
+      expect((submitButton() as HTMLButtonElement).disabled).toBe(false)
+    );
+
+    fireEvent.click(submitButton());
+    expect(await screen.findByText("Site is required")).toBeTruthy();
+
+    const sitePicker = labelledControl("Site");
+    const devicePicker = labelledControl("Device");
+    expect(sitePicker.getAttribute("aria-describedby")).toContain(
+      `${sitePicker.id}__error`
+    );
+    expect(
+      document.getElementById(`${sitePicker.id}__error`)?.textContent
+    ).toBe("Site is required");
+    expect(
+      document.getElementById(`${devicePicker.id}__error`)?.textContent
+    ).toBe("Device is required");
+  });
+
   it("requires a Site before Diagnostics loads devices", async () => {
     await renderForm(WORKFLOW_FORM_FIXTURES.DiagnosticsWorkflow);
 
     const sitePicker = labelledControl("Site");
-    expect(labels("Site")[0].textContent).toBe("Site *");
+    expect(labels("Site")[0].textContent).toBe("Site");
+    const commands = screen.getByRole("group", { name: "Commands" });
+    const waitingText = screen.getByText(
+      "Select devices above to see available commands."
+    );
+    expect(waitingText.id).toBe(`${commands.id}__waiting`);
+    expect(commands.getAttribute("aria-describedby")?.split(" ")).toContain(
+      waitingText.id
+    );
     expect(sitePicker.getAttribute("aria-required")).toBe("true");
     expect(deviceRequests()).toEqual([]);
 
@@ -546,6 +575,12 @@ describe("device filter scopes", () => {
       })
     );
     await waitFor(() => expect(diagnosticsCommandRequests()).toHaveLength(1));
+    expect(
+      screen.queryByText("Select devices above to see available commands.")
+    ).toBeNull();
+    expect(
+      screen.queryByText("Select the required fields to load Commands.")
+    ).toBeNull();
     expect(param(diagnosticsCommandRequests()[0], "platform")).toEqual([
       "cumulus-linux",
       "nv-os",
@@ -677,7 +712,7 @@ describe("device filter scopes", () => {
     );
 
     expect(labels("Site")).toHaveLength(1);
-    expect(labels("Tenant \\(optional\\)")).toHaveLength(1);
+    expect(labels("Tenant (optional)")).toHaveLength(1);
     expect(deviceRequests()).toEqual([]);
 
     await release();

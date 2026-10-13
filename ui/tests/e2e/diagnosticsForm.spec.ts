@@ -71,6 +71,9 @@ test("a legacy link opens the generic form on the form ID route", async ({
     timeout: TEST_TIMEOUT,
   });
   await expect(
+    page.getByText("Select devices above to see available commands.")
+  ).toBeVisible();
+  await expect(
     page.getByText("Select the required fields to load Commands.")
   ).toHaveCount(0);
 });
@@ -110,6 +113,12 @@ test("submits the devices, commands, and ticket", async ({ page }) => {
     timeout: TEST_TIMEOUT,
   });
   await expect(
+    page.getByText("Select devices above to see available commands.")
+  ).toBeVisible();
+  await expect(
+    page.getByText("Select the required fields to load Commands.")
+  ).toHaveCount(0);
+  await expect(
     page.locator("form").getByRole("combobox", {
       name: "Ticketing Platform: Select a Ticketing Platform...",
       exact: true,
@@ -136,6 +145,12 @@ test("submits the devices, commands, and ticket", async ({ page }) => {
   await pickDevices(page, DEVICE.name, SECOND_DEVICE.name);
 
   await expect.poll(() => commandRequests.length).toBeGreaterThan(0);
+  await expect(
+    page.getByText("Select devices above to see available commands.")
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Select the required fields to load Commands.")
+  ).toHaveCount(0);
   const commandRequest = commandRequests.at(-1)!;
   expect(commandRequest.searchParams.getAll("platform")).toEqual([
     "arista-eos",

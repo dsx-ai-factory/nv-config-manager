@@ -79,10 +79,10 @@ test.describe("SpX Overlay Tenant Change Form", () => {
     page,
   }) => {
     await expect(page.locator("form label")).toHaveText([
-      "Site *",
+      "Site",
       "Overlay ID (optional — leave blank to remove)",
-      "Device *",
-      "Ports *",
+      "Device",
+      "Ports",
     ]);
   });
 

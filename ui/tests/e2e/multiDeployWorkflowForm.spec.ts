@@ -72,7 +72,7 @@ test.describe("Multi-Configuration Deploy Form", () => {
 
   test("renders the fields with their defaults", async ({ page }) => {
     await expect(page.locator("form label")).toHaveText([
-      "Role *",
+      "Role",
       "Max Batch Size",
       "Location",
       "Device Status",

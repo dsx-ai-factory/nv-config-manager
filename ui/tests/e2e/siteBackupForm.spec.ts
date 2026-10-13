@@ -69,7 +69,7 @@ test.describe("Site Backup Form", () => {
 
   test("renders the fields with their defaults", async ({ page }) => {
     await expect(page.locator("form label")).toHaveText([
-      "Site *",
+      "Site",
       "Roles",
       "Device Status",
       "Tenant",

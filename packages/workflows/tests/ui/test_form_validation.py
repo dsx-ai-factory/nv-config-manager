@@ -101,6 +101,31 @@ def test_api_options_accepts_a_referenced_array_of_strings() -> None:
     assert schema["properties"]["values"]["$ref"] == "#/$defs/StringList"
 
 
+@pytest.mark.parametrize("waiting_text", ["", " ", cast(Any, 42)])
+def test_api_options_waiting_text_must_be_nonblank_text(waiting_text: str) -> None:
+    field = api_options(
+        OptionSource("/v1/options", "label", "value", response="options-v1"),
+        presentation="grouped-checkboxes",
+        waiting_text=waiting_text,
+    )
+
+    with pytest.raises(WorkflowFormContractError, match="waitingText"):
+        _validate({"devices": field})
+
+
+def test_api_options_waiting_text_requires_grouped_checkboxes() -> None:
+    field = api_options(
+        OptionSource("/v1/options", "label", "value", response="options-v1"),
+        waiting_text="Choose devices first.",
+    )
+
+    with pytest.raises(
+        WorkflowFormContractError,
+        match="waitingText is available only with grouped-checkboxes",
+    ):
+        _validate({"devices": field})
+
+
 def test_enum_names_match_the_projected_enum() -> None:
     class Model(BaseModel):
         platform: Annotated[str, FormSchema(default="jira", enum=("jira", "custom"))] = ""

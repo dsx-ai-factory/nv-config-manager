@@ -80,7 +80,7 @@ test.describe("Site Cable Validation Form", () => {
     await page.goto(FORM_PATH);
 
     await expect(page.locator("form label")).toHaveText([
-      "Site *",
+      "Site",
       "Roles",
       "Device Status",
       "Tenant",

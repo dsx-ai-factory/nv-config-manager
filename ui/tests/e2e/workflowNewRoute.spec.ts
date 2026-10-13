@@ -98,12 +98,12 @@ test.describe("/workflows/new/<form_id>", () => {
     await expect(
       page.getByRole("heading", { name: DEPLOY_TITLE })
     ).toBeVisible();
-    // Required fields carry a visible " *" (hidden from their accessible names).
+    // Required fields keep their normal labels and expose required semantics on controls.
     for (const label of [
-      "Site *",
+      "Site",
       "Tenant (optional)",
       "Status (optional)",
-      "Device *",
+      "Device",
     ]) {
       await expect(page.getByText(label, { exact: true })).toBeVisible();
     }
@@ -199,19 +199,19 @@ test.describe("/workflows/new/<form_id>", () => {
       {
         name: "IBPKeyCreationWorkflow",
         title: "New InfiniBand PKey Creation Workflow",
-        labels: ["UFM Host *", "PKey (optional)"],
+        labels: ["UFM Host", "PKey (optional)"],
         submit: "Create PKey", // ui:submitButtonOptions.submitText
       },
       {
         name: "SiteCableValidationWorkflow",
         title: "New Site Cable Validation Workflow",
-        labels: ["Site *", "Roles", "Device Status", "Tenant"],
+        labels: ["Site", "Roles", "Device Status", "Tenant"],
         submit: "Submit",
       },
       {
         name: "SpXOverlayDeletionWorkflow",
         title: "New SpX Overlay Deletion Workflow",
-        labels: ["Site *", "Overlay ID *", "Namespace Tag *"],
+        labels: ["Site", "Overlay ID", "Namespace Tag"],
         submit: "Submit",
       },
     ];

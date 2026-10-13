@@ -60,7 +60,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { ApiOptionsField } from "./fields/api-options-field";
 import { DeviceField } from "./fields/device-field";
 import { LocationField } from "./fields/location-field";
-import { RequiredMark } from "./fields/shared";
 import { VariantRowsField } from "./fields/variant-rows-field";
 
 /** `ui:description`, else the schema description unless schema descriptions are hidden. */
@@ -117,7 +116,6 @@ const FieldTemplate = ({
   rawErrors,
   help,
   hidden,
-  required,
   displayLabel,
   schema,
   uiSchema,
@@ -142,17 +140,15 @@ const FieldTemplate = ({
     : undefined;
   const helpIsInsideCheckbox =
     schema.type === "boolean" && checkboxHelpText(uiSchema) !== undefined;
+  const fieldOwnsErrors = uiSchema?.["ui:field"] === "device";
   return (
     <div className="space-y-2">
       {showLabel ? (
-        <Label htmlFor={id}>
-          {label}
-          <RequiredMark required={required} />
-        </Label>
+        <Label htmlFor={id}>{label}</Label>
       ) : null}
       {children}
       {description ? <Muted id={descriptionId(id)}>{description}</Muted> : null}
-      {errors}
+      {fieldOwnsErrors ? null : errors}
       {helpIsInsideCheckbox ? null : help}
     </div>
   );
@@ -246,7 +242,6 @@ const ArrayFieldTemplate = ({
   schema,
   uiSchema,
   registry,
-  required,
   items,
   canAdd,
   onAddClick,
@@ -261,10 +256,7 @@ const ArrayFieldTemplate = ({
   return (
     <div className="space-y-3">
       {title ? (
-        <Label>
-          {title}
-          <RequiredMark required={required} />
-        </Label>
+        <Label>{title}</Label>
       ) : null}
       {items}
       {canAdd ? (
@@ -426,7 +418,6 @@ const CheckboxWidget = ({
   disabled,
   readonly,
   label,
-  required,
   schema,
   uiSchema,
   registry,
@@ -448,10 +439,7 @@ const CheckboxWidget = ({
         onCheckedChange={(checked) => onChange(checked === true)}
       />
       <div className="space-y-1 leading-none">
-        <Label htmlFor={id}>
-          {label}
-          <RequiredMark required={required} />
-        </Label>
+        <Label htmlFor={id}>{label}</Label>
         {description ? (
           <Muted id={descriptionId(id)}>{description}</Muted>
         ) : null}

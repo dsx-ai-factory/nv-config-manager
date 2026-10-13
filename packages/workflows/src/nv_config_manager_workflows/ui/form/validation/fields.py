@@ -236,6 +236,7 @@ def _check_api_options(
         "presentation",
         "selectAll",
         "showDescriptions",
+        "waitingText",
         "metaText",
         "disableWhenNoMatches",
     }
@@ -257,6 +258,15 @@ def _check_api_options(
     for flag in ("selectAll", "showDescriptions", "disableWhenNoMatches"):
         if flag in options and options[flag] is not True:
             raise context.fail(f"{name!r} apiOptions {flag} must be true when present")
+    if "waitingText" in options:
+        require_text(
+            options["waitingText"],
+            f"{context.name} {name!r} apiOptions waitingText",
+        )
+        if presentation != "grouped-checkboxes":
+            raise context.fail(
+                f"{name!r} apiOptions waitingText is available only with grouped-checkboxes"
+            )
     if "metaText" in options:
         meta = options["metaText"]
         if (

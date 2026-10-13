@@ -181,7 +181,7 @@ test.describe("Port LLDP Info Form", () => {
     await interfaceInput(page).fill(INTERFACE);
     await submit(page);
     await expect(page.getByText("Device is required")).toBeVisible();
-    await expect(page.getByText("Site is required for Device")).toBeVisible();
+    await expect(page.getByText("Site is required", { exact: true })).toBeVisible();
     expect(posts).toEqual([]);
   });
 

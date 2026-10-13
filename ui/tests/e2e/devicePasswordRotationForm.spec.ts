@@ -63,7 +63,7 @@ test.describe("Device Password Rotation Form", () => {
   });
 
   test("renders Site, Device, and Secret; the secret waits for a device", async ({ page }) => {
-    await expect(page.locator("form label")).toHaveText(["Site *", "Device *", "Secret to Rotate *"]);
+    await expect(page.locator("form label")).toHaveText(["Site", "Device", "Secret to Rotate"]);
     await expect(picker(page, SITE_FIRST)).toBeDisabled();
     await expect(picker(page, SELECT_SECRET)).toBeDisabled();
 

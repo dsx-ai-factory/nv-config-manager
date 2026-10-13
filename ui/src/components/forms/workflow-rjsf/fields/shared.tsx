@@ -113,13 +113,6 @@ export const fieldDescription = ({
     : undefined;
 };
 
-/**
- * The required marker after a label. Hidden from assistive technology, so the
- * accessible name is the label alone; controls carry `aria-required` instead.
- */
-export const RequiredMark = ({ required }: { required?: boolean }) =>
-  required ? <span aria-hidden="true"> *</span> : null;
-
 export interface PickerProps {
   id: string;
   label: string;
@@ -132,6 +125,7 @@ export interface PickerProps {
   busy: boolean;
   /** The form value failed RJSF validation (separate from an option-load error). */
   invalid?: boolean;
+  validationErrors?: readonly string[];
   error?: string;
   placeholder?: string;
   onChange: (keys: string[]) => void;
@@ -149,11 +143,13 @@ export const Picker = ({
   disabled,
   busy,
   invalid,
+  validationErrors,
   error,
   placeholder,
   onChange,
 }: PickerProps) => {
   const labelId = `${id}__label`;
+  const validationErrorId = `${id}__error`;
   const loadErrorId = `${id}__load-error`;
   const describedBy = `${ariaDescribedByIds(id)}${
     error ? ` ${loadErrorId}` : ""
@@ -162,7 +158,6 @@ export const Picker = ({
     <div className="space-y-2" data-testid={`picker-${id}`}>
       <Label id={labelId} htmlFor={id}>
         {label}
-        <RequiredMark required={required} />
       </Label>
       <div className="flex items-center space-x-2">
         <SelectBox
@@ -182,7 +177,7 @@ export const Picker = ({
           disabled={disabled}
           describedBy={describedBy}
           required={required}
-          invalid={Boolean(invalid || error)}
+          invalid={Boolean(invalid || validationErrors?.length || error)}
         />
         {busy ? <LoadingSpinner /> : null}
       </div>
@@ -190,6 +185,15 @@ export const Picker = ({
         <p id={descriptionId(id)} className="text-sm text-muted-foreground">
           {description}
         </p>
+      ) : null}
+      {validationErrors && validationErrors.length > 0 ? (
+        <div id={validationErrorId} className="space-y-1">
+          {validationErrors.map((validationError, index) => (
+            <p key={index} className="text-sm font-medium text-destructive">
+              {validationError}
+            </p>
+          ))}
+        </div>
       ) : null}
       {error ? (
         <p id={loadErrorId} className="text-sm text-destructive">

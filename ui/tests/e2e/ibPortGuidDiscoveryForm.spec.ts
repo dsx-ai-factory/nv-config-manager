@@ -56,9 +56,9 @@ test.beforeEach(async ({ page }) => {
 
 test("renders one Site for both device pickers, and dry run on", async ({ page }) => {
   await expect(page.locator("form label")).toHaveText([
-    "Site *",
-    "UFM Device *",
-    "Switch Devices *",
+    "Site",
+    "UFM Device",
+    "Switch Devices",
     "Dry run",
   ]);
   await expect(picker(page, SITE_FIRST)).toHaveCount(2);

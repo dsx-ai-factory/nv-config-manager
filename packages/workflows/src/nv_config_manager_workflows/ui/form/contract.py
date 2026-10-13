@@ -37,6 +37,8 @@ FIELD_CAPABILITIES = {
 
 ENRICHED_API_OPTIONS_CAPABILITY = "core-field.api-options.enriched.v1"
 
+API_OPTIONS_WAITING_TEXT_CAPABILITY = "core-field.api-options.waiting-text.v1"
+
 HIDE_SCHEMA_DESCRIPTIONS_CAPABILITY = "theme.hide-schema-descriptions.v1"
 
 HELP_VARIANT_CAPABILITY = "theme.help-variant.v1"
@@ -144,6 +146,8 @@ def derive_requires(ui_schema: Mapping[str, Any]) -> list[str]:
         required.add(FIELD_CAPABILITIES[field])
         if field == "apiOptions" and entry["ui:options"]["source"].get("response") == "options-v1":
             required.add(ENRICHED_API_OPTIONS_CAPABILITY)
+        if field == "apiOptions" and entry["ui:options"].get("waitingText") is not None:
+            required.add(API_OPTIONS_WAITING_TEXT_CAPABILITY)
         if any(
             dependency.get("option_key") is not None
             for dependency in entry["ui:options"].get("source", {}).get("depends_on", {}).values()
@@ -166,6 +170,7 @@ def derive_requires(ui_schema: Mapping[str, Any]) -> list[str]:
 
 
 __all__ = [
+    "API_OPTIONS_WAITING_TEXT_CAPABILITY",
     "ENRICHED_API_OPTIONS_CAPABILITY",
     "EXCLUSIVE_GROUPS_CAPABILITY",
     "FIELD_COMPARISON_CAPABILITY",

@@ -80,10 +80,10 @@ test.describe("New SpX Overlay Creation Workflow", () => {
     page,
   }) => {
     await expect(page.locator("form label")).toHaveText([
-      "Site *",
-      "Overlay ID *",
-      "Tenant *",
-      "Namespace Tag *",
+      "Site",
+      "Overlay ID",
+      "Tenant",
+      "Namespace Tag",
       "RD Min",
       "RD Max",
     ]);

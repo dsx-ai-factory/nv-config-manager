@@ -153,9 +153,8 @@ const recordPayload = (
 const escapeRegExp = (text: string) =>
   text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** A field label's text: `label`, with or without the required marker. */
-const labelText = (label: string) =>
-  new RegExp(`^${escapeRegExp(label)}( \\*)?$`);
+/** A field label's exact text. */
+const labelText = (label: string) => new RegExp(`^${escapeRegExp(label)}$`);
 
 /** A select's trigger: the first button in the field its label heads. */
 const selectTrigger = (page: Page, label: string): Locator =>

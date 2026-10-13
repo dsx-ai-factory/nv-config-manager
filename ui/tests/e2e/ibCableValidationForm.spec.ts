@@ -72,7 +72,7 @@ test.describe("InfiniBand Cable Validation Form", () => {
   });
 
   test("renders one Site for both device pickers", async ({ page }) => {
-    await expect(page.locator("form label")).toHaveText(["Site *", "Device *", "Device IDs *"]);
+    await expect(page.locator("form label")).toHaveText(["Site", "Device", "Device IDs"]);
     await expect(picker(page, SITE_FIRST)).toHaveCount(2);
   });
 

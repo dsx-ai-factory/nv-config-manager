@@ -70,7 +70,7 @@ test.describe("Cumulus Hardware Validation Form", () => {
 
   test("renders the fields with the default statuses", async ({ page }) => {
     await expect(page.locator("form label")).toHaveText([
-      "Site *",
+      "Site",
       "Roles",
       "Device Status",
       "Tenant",

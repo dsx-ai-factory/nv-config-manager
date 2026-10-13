@@ -175,6 +175,10 @@ def test_diagnostics_uses_its_workflow_owned_command_provider(
         "ui:enumNames": ["Jira"],
     }
     source = form["ui_schema"]["commands"]["ui:options"]["source"]
+    assert form["ui_schema"]["commands"]["ui:options"]["waitingText"] == (
+        "Select devices above to see available commands."
+    )
+    assert "core-field.api-options.waiting-text.v1" in form["requires"]
 
     assert source == {
         "endpoint": ("/v1/workflow/diagnostics/form-options/diagnostic-commands"),

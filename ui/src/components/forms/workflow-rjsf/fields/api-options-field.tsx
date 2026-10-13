@@ -79,6 +79,7 @@ interface SourceFieldProps {
   presentation?: "select" | "grouped-checkboxes";
   selectAll?: boolean;
   showDescriptions?: boolean;
+  waitingText?: string;
   disableWhenNoMatches?: boolean;
   metaText?: { key: "matching_device_count"; label: string };
   prune?: boolean;
@@ -93,7 +94,6 @@ const keyOf = (value: unknown, type: unknown, typed: boolean): string =>
 interface GroupedOptionsProps {
   id: string;
   label: string;
-  required?: boolean;
   description?: string;
   loaded: OptionSourceState;
   selected: string[];
@@ -101,6 +101,7 @@ interface GroupedOptionsProps {
   invalid: boolean;
   selectAll: boolean;
   showDescriptions: boolean;
+  waitingText?: string;
   metaText?: { key: "matching_device_count"; label: string };
   onChange(keys: string[]): void;
 }
@@ -108,7 +109,6 @@ interface GroupedOptionsProps {
 const GroupedOptions = ({
   id,
   label,
-  required,
   description,
   loaded,
   selected,
@@ -116,6 +116,7 @@ const GroupedOptions = ({
   invalid,
   selectAll,
   showDescriptions,
+  waitingText,
   metaText,
   onChange,
 }: GroupedOptionsProps) => {
@@ -131,7 +132,13 @@ const GroupedOptions = ({
   const waiting = loaded.missingDependencies.length > 0;
   const busy = isLoading(loaded);
   const labelId = `${id}__label`;
-  const describedBy = ariaDescribedByIds(id);
+  const waitingId = `${id}__waiting`;
+  const describedBy = [
+    ariaDescribedByIds(id),
+    waiting && waitingText ? waitingId : undefined,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div
@@ -144,7 +151,6 @@ const GroupedOptions = ({
       <div className="flex items-center justify-between gap-4">
         <Label id={labelId}>
           {label}
-          {required ? <span aria-hidden="true"> *</span> : null}
         </Label>
         {selectAll && allKeys.length > 0 ? (
           <div className="flex gap-2">
@@ -174,7 +180,15 @@ const GroupedOptions = ({
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <LoadingSpinner /> Loading {label}...
         </div>
-      ) : waiting ? null : loaded.status === "error" ? (
+      ) : waiting ? (
+        waitingText ? (
+          <div className="space-y-2 rounded-md border p-3">
+            <p id={waitingId} className="text-sm text-muted-foreground">
+              {waitingText}
+            </p>
+          </div>
+        ) : null
+      ) : loaded.status === "error" ? (
         <p className="text-sm text-destructive">
           Could not load {label} options.
         </p>
@@ -251,6 +265,7 @@ export const SourceOptionsField = ({
   presentation = "select",
   selectAll = false,
   showDescriptions = false,
+  waitingText,
   disableWhenNoMatches = false,
   metaText,
   prune = false,
@@ -501,7 +516,6 @@ export const SourceOptionsField = ({
     <GroupedOptions
       id={fieldPathId.$id}
       label={label}
-      required={required}
       description={fieldDescription(field)}
       loaded={loaded}
       selected={Array.isArray(selected) ? selected : selected ? [selected] : []}
@@ -509,6 +523,7 @@ export const SourceOptionsField = ({
       invalid={Boolean(rawErrors?.length)}
       selectAll={selectAll}
       showDescriptions={showDescriptions}
+      waitingText={waitingText}
       metaText={metaText}
       onChange={(keys) =>
         setFields(
@@ -588,6 +603,7 @@ export const ApiOptionsField = (props: FieldProps) => {
       presentation={options.presentation}
       selectAll={options.selectAll}
       showDescriptions={options.showDescriptions}
+      waitingText={options.waitingText}
       disableWhenNoMatches={options.disableWhenNoMatches}
       metaText={options.metaText}
       prune

@@ -678,11 +678,14 @@ are warnings because they are never imported by the API.
 #### Core fields
 
 `api_options(source, *, presentation=None, select_all=False,
-show_descriptions=False, meta_text=None, disable_when_no_matches=False)` renders
-a select whose options come from `source`. A string property gets a single
-select, and an array of strings gets a multiple select. The presentation options
-require `source.response="options-v1"`; `disable_when_no_matches=True` disables
-the picker when that response reports `matching_device_count` as zero.
+show_descriptions=False, waiting_text=None, meta_text=None,
+disable_when_no_matches=False)` renders a select whose options come from
+`source`. A string property gets a single select, and an array of strings gets a
+multiple select. The presentation options require
+`source.response="options-v1"`; `waiting_text` supplies supporting copy while a
+`grouped-checkboxes` source is waiting for required dependencies, and
+`disable_when_no_matches=True` disables the picker when that response reports
+`matching_device_count` as zero.
 
 `location_field(source, *, type_field=None)` renders a site or location select
 for a string property. With `type_field`, selecting a location also writes the
@@ -930,6 +933,8 @@ The backend derives `requires` from the declaration:
   `core-field.location.v1` for each core field type the form uses
 - `core-field.api-options.enriched.v1` when an `apiOptions` source sets
   `response="options-v1"`
+- `core-field.api-options.waiting-text.v1` when an `apiOptions` field declares
+  `waitingText`
 - `core-field.variant-rows.v1` when the form uses `variant_rows`
 - `interaction.exclusive-groups.v1` for
   `ui:globalOptions.exclusiveGroups`

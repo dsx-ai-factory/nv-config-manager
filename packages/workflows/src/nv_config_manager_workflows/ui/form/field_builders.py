@@ -39,6 +39,7 @@ def api_options(
     presentation: OptionPresentation | None = None,
     select_all: bool = False,
     show_descriptions: bool = False,
+    waiting_text: str | None = None,
     meta_text: Mapping[str, str] | None = None,
     disable_when_no_matches: bool = False,
 ) -> dict[str, Any]:
@@ -62,6 +63,8 @@ def api_options(
         options["selectAll"] = True
     if show_descriptions:
         options["showDescriptions"] = True
+    if waiting_text is not None:
+        options["waitingText"] = waiting_text
     if meta_text:
         options["metaText"] = wire_value(meta_text)
     if disable_when_no_matches:

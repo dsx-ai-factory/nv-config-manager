@@ -221,6 +221,25 @@ def test_api_options_can_disable_the_picker_when_no_matches_are_returned() -> No
     Draft202012Validator(wire_schema()).validate(envelope)
 
 
+def test_api_options_waiting_text_requires_its_ui_capability() -> None:
+    field = api_options(
+        OptionSource(
+            "/v1/options",
+            "label",
+            "value",
+            response="options-v1",
+            depends_on={"device": Dependency("device_id")},
+        ),
+        presentation="grouped-checkboxes",
+        waiting_text="Choose devices first.",
+    )
+
+    envelope = _build({"devices": field})
+
+    assert "core-field.api-options.waiting-text.v1" in envelope["requires"]
+    Draft202012Validator(wire_schema()).validate(envelope)
+
+
 def test_a_symbolic_option_source_requires_workflow_provider_context() -> None:
     source = FormOptionSource("fabric-profiles")
 

@@ -49,7 +49,7 @@ test.describe("IB PKey Creation Form", () => {
 
   test("shows only UFM Host and PKey, in that order", async ({ page }) => {
     await expect(page.locator("form label")).toHaveText([
-      "UFM Host *",
+      "UFM Host",
       "PKey (optional)",
     ]);
     await expect(page.getByLabel("UFM Host")).toHaveAttribute(

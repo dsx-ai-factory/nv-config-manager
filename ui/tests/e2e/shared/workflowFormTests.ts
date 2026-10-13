@@ -149,7 +149,7 @@ export interface DeviceFormConfig {
 /**
  * The suite every single-device form shares. Differences from the legacy pages, by
  * design: Site, Tenant, and Status are device filters rather than workflow inputs;
- * required labels carry a visible " *"; a failed submission shows the generic
+ * required labels have no separate visual marker; a failed submission shows the generic
  * "Workflow Failed" toast with the server's message; a 422 shows inline. The payload
  * holds exactly the projected inputs (no `user`, `user_domain`, `workflow_id`, or
  * empty strings).
@@ -188,10 +188,10 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
       page,
     }) => {
       await expect(page.locator("form label")).toHaveText([
-        "Site *",
+        "Site",
         "Tenant (optional)",
         "Status (optional)",
-        "Device *",
+        "Device",
       ]);
       await expect(picker(page, SITE_FIRST)).toBeDisabled();
       await expect(page.getByRole("button", { name: "Submit" })).toBeEnabled();
@@ -208,6 +208,16 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
       ).toBeVisible({
         timeout: TEST_TIMEOUT,
       });
+      const siteId = await picker(page, SELECT_SITE).getAttribute("id");
+      const deviceId = await picker(page, SITE_FIRST).getAttribute("id");
+      expect(siteId).not.toBeNull();
+      expect(deviceId).not.toBeNull();
+      await expect(page.getByTestId(`picker-${siteId}`)).toContainText(
+        "Site is required"
+      );
+      await expect(page.getByTestId(`picker-${deviceId}`)).not.toContainText(
+        "Site is required"
+      );
 
       await choose(page, SELECT_SITE, site);
       await expect(

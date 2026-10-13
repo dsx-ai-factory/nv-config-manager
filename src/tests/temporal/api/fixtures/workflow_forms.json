@@ -575,7 +575,8 @@
           },
           "presentation": "grouped-checkboxes",
           "selectAll": true,
-          "showDescriptions": true
+          "showDescriptions": true,
+          "waitingText": "Select devices above to see available commands."
         },
         "ui:title": "Commands"
       },
@@ -599,6 +600,7 @@
     "requires": [
       "core-field.api-options.enriched.v1",
       "core-field.api-options.v1",
+      "core-field.api-options.waiting-text.v1",
       "core-field.device.v1",
       "option-source.selected-option.v1"
     ]

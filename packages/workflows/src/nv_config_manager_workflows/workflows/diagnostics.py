@@ -157,6 +157,7 @@ class DiagnosticsWorkflowInput(BaseModel):
                 presentation="grouped-checkboxes",
                 select_all=True,
                 show_descriptions=True,
+                waiting_text="Select devices above to see available commands.",
             ),
             "ui:title": "Commands",
         },
