@@ -84,6 +84,35 @@ def test_service_adapter_creates_the_selected_sdk_provider() -> None:
     )
 
 
+def test_nautobot_client_uses_spiffe_bearer_when_svid_is_readable(tmp_path) -> None:
+    """A readable JWT-SVID replaces the API token on each Nautobot request."""
+    jwt_file = tmp_path / "jwt-svid"
+    jwt_file.write_text("svid-v1")
+    config = ConfigParser()
+    config.add_section("auth.spiffe")
+    config.set("auth.spiffe", "jwt_svid_path", str(jwt_file))
+    client = create_dcim_client(_config())
+
+    with patch("nv_config_manager.common.config.http.load_config", return_value=config):
+        assert client._resolve_headers() == {"Authorization": "Bearer svid-v1"}
+        jwt_file.write_text("svid-v2")
+        assert client._resolve_headers() == {"Authorization": "Bearer svid-v2"}
+
+
+def test_nautobot_client_keeps_api_token_when_spiffe_is_unavailable(tmp_path) -> None:
+    """The API token remains the credential when no JWT-SVID can be read."""
+    config = ConfigParser()
+    config.add_section("auth.spiffe")
+    config.set("auth.spiffe", "jwt_svid_path", str(tmp_path / "missing"))
+    client = create_dcim_client(_config())
+
+    with patch("nv_config_manager.common.config.http.load_config", return_value=config):
+        assert client._resolve_headers() == {"Authorization": "Token token"}
+
+    with patch("nv_config_manager.common.config.http.load_config", return_value=ConfigParser()):
+        assert client._resolve_headers() == {"Authorization": "Token token"}
+
+
 def test_nautobot_provider_owns_identifier_shape_validation() -> None:
     """The Nautobot provider accepts only canonical UUID identifiers."""
     client = NautobotDCIMClient("https://dcim.example", "token")

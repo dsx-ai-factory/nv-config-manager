@@ -28,6 +28,7 @@ from nv_config_manager.common.config import (
     get_internal_auth_headers,
     load_config,
     reload_config,
+    spiffe_authorization_headers,
 )
 
 
@@ -285,3 +286,32 @@ class TestSpiffeJwtAuth:
         """_read_spiffe_jwt returns None when no section is configured."""
         with patch("nv_config_manager.common.config.http.load_config", return_value=ConfigParser()):
             assert _read_spiffe_jwt() is None
+
+    def test_spiffe_authorization_headers_when_svid_is_readable(self, tmp_path):
+        """A readable JWT-SVID becomes a Bearer header and nothing else."""
+        jwt_file = tmp_path / "jwt-svid"
+        jwt_file.write_text("token-v1\n")
+
+        cp = _config_with_spiffe_path(str(jwt_file))
+        with patch("nv_config_manager.common.config.http.load_config", return_value=cp):
+            assert spiffe_authorization_headers() == {"Authorization": "Bearer token-v1"}
+
+    @pytest.mark.parametrize(
+        "setup",
+        ["unset", "missing", "blank"],
+    )
+    def test_spiffe_authorization_headers_absent_when_svid_unavailable(self, tmp_path, setup):
+        """Missing SPIFFE config or an unreadable SVID leaves the caller to use its own credential."""
+        if setup == "unset":
+            cp = ConfigParser()
+        else:
+            jwt_file = tmp_path / "jwt-svid"
+            if setup == "blank":
+                jwt_file.write_text(" \n")
+                path = str(jwt_file)
+            else:
+                path = str(tmp_path / "missing")
+            cp = _config_with_spiffe_path(path)
+
+        with patch("nv_config_manager.common.config.http.load_config", return_value=cp):
+            assert spiffe_authorization_headers() is None
