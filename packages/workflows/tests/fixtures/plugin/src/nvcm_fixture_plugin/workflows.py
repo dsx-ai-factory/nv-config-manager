@@ -14,7 +14,9 @@
 # limitations under the License.
 """The fixture plugin's workflows."""
 
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import Annotated, ClassVar
 
 from pydantic import BaseModel
 from temporalio import workflow
@@ -22,13 +24,31 @@ from temporalio import workflow
 from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
 from nv_config_manager_workflows.stage import StageMixin
+from nv_config_manager_workflows.ui import (
+    FormOptionProvider,
+    FormOptionSource,
+    FormSchema,
+    api_options,
+)
 from nvcm_fixture_plugin.activities import echo
 
 
 class FixtureInput(BaseModel):
     """Input for the fixture workflows."""
 
-    message: str
+    # A worked form declaration. The ClassVar and the FormSchema marker change
+    # only the /form projection, not the model's JSON Schema or validation, and
+    # registration validates the form as a third-party plugin form.
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ui:submitButtonOptions": {"submitText": "Echo"},
+        "message": {
+            **api_options(FormOptionSource("fixture-messages", params={"prefix": "fixture"})),
+            "ui:title": "Message",
+            "ui:help": "The workflow echoes the selected provider-backed message.",
+        },
+    }
+
+    message: Annotated[str, FormSchema(max_length=100)]
 
 
 @workflow.defn
@@ -40,9 +60,17 @@ class FixtureEchoWorkflow(WorkflowMetadataMixin, StageMixin):
     workflow_input_class = FixtureInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/fixture/echo"
+    workflow_form_enabled = True
+    workflow_form_id = "fixture-echo"
     workflow_namespace = "fixture"
     workflow_mcp_enabled = True
     workflow_required_activities = (echo,)
+    workflow_form_option_providers = {
+        "fixture-messages": FormOptionProvider(
+            resolver="nvcm_fixture_plugin.form_options:list_fixture_messages",
+            query_model="nvcm_fixture_plugin.form_options:FixtureMessageQuery",
+        )
+    }
 
     @run_nv_config_manager_workflow
     async def run(self, workflow_input: FixtureInput) -> str:  # type: ignore[override, ty:invalid-method-override]
@@ -63,8 +91,16 @@ class FixtureApiOnlyWorkflow(WorkflowMetadataMixin, StageMixin):
     workflow_input_class = FixtureInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/fixture/api-only"
+    workflow_form_enabled = True
+    workflow_form_id = "fixture-api-only"
     workflow_namespace = "fixture"
     workflow_mcp_enabled = False
+    workflow_form_option_providers = {
+        "fixture-messages": FormOptionProvider(
+            resolver="nvcm_fixture_plugin.form_options:list_fixture_messages",
+            query_model="nvcm_fixture_plugin.form_options:FixtureMessageQuery",
+        )
+    }
 
     @run_nv_config_manager_workflow
     async def run(self, workflow_input: FixtureInput) -> str:  # type: ignore[override, ty:invalid-method-override]

@@ -19,6 +19,9 @@ import path from "node:path";
 
 import { expect, test as base, type Page, type Route } from "@playwright/test";
 
+import workflowFormIds from "@/config/workflow-form-ids.json";
+import { getWorkflowFormFixture } from "@/mocks/data/workflowForms";
+
 const SCREENSHOT_DIR = path.resolve(
   process.cwd(),
   "../docs/assets/images/workflows"
@@ -44,9 +47,9 @@ const DOC_WORKFLOW_DISPLAY_NAMES: Record<string, string> = {
   PortLLDPInfoWorkflow: "Port LLDP Info",
   SiteCableValidationWorkflow: "Site Cable Validation",
   SitePasswordRotationWorkflow: "Site Password Rotation",
-  VpcCreationWorkflow: "VPC Creation",
-  VpcDeletionWorkflow: "VPC Deletion",
-  VpcTenantChangeWorkflow: "VPC Tenant Change",
+  SpXOverlayCreationWorkflow: "SpX Overlay Creation",
+  SpXOverlayDeletionWorkflow: "SpX Overlay Deletion",
+  SpXOverlayTenantChangeWorkflow: "SpX Overlay Tenant Change",
   InfinibandGetUnhealthyPortsWorkflow: "InfiniBand Get Unhealthy Ports",
   InfinibandCableValidationWorkflow: "InfiniBand Cable Validation",
   InfinibandMlnxOSUpgradeWorkflow: "InfiniBand MLNX-OS Upgrade",
@@ -72,9 +75,9 @@ const DOC_WORKFLOW_ENDPOINTS: Record<string, string> = {
   PortLLDPInfoWorkflow: "/ngc/port_lldp_info",
   SiteCableValidationWorkflow: "/ngc/site_cable_validation",
   SitePasswordRotationWorkflow: "/ngc/site_password_rotation",
-  VpcCreationWorkflow: "/ngc/vpc_creation",
-  VpcDeletionWorkflow: "/ngc/vpc_deletion",
-  VpcTenantChangeWorkflow: "/ngc/vpc-tenant-change",
+  SpXOverlayCreationWorkflow: "/ngc/spx_overlay_creation",
+  SpXOverlayDeletionWorkflow: "/ngc/spx_overlay_deletion",
+  SpXOverlayTenantChangeWorkflow: "/ngc/spx_overlay_tenant_change",
   InfinibandGetUnhealthyPortsWorkflow: "/ngc/infiniband_get_unhealthy_ports",
   InfinibandCableValidationWorkflow: "/ngc/infiniband_cable_validation",
   InfinibandMlnxOSUpgradeWorkflow: "/ngc/infiniband_mlnx_os_upgrade",
@@ -95,6 +98,14 @@ function getDocWorkflowEndpoint(workflowType: string): string {
     throw new Error(`Missing docs workflow endpoint for ${workflowType}`);
   }
   return endpoint;
+}
+
+function getDocWorkflowFormId(workflowType: string): string {
+  const formId = workflowFormIds[workflowType as keyof typeof workflowFormIds];
+  if (!formId) {
+    throw new Error(`Missing docs workflow form ID for ${workflowType}`);
+  }
+  return formId;
 }
 
 type ParameterOption = {
@@ -145,6 +156,7 @@ type DocWorkflowFixture = {
 type QueryValue = string | string[];
 
 type WorkflowScreenshot = {
+  expectedSelections?: Array<{ field: string; value: string }>;
   fileName: string;
   path: string;
   query?: Record<string, QueryValue>;
@@ -281,6 +293,8 @@ const DOC_WORKFLOW_METADATA = {
       namespace: "ngc",
       cli_name: workflowType.toLowerCase(),
       input_class: `${workflowType}Input`,
+      has_form: true,
+      form_id: getDocWorkflowFormId(workflowType),
       read_roles: ["all"],
       execute_roles:
         workflowType === "MultiDeployWorkflow" ? ["nvcm-admin"] : ["all"],
@@ -351,6 +365,10 @@ const AIR_DEVICE_QUERY = {
 };
 const PDX_MLNX_QUERY = {
   "device-id": PDX_MLNX_ID,
+  site: PDX_SITE,
+};
+const PDX_UFM_QUERY = {
+  "device-id": UFM_DEVICE_ID,
   site: PDX_SITE,
 };
 const SITE_SCOPE_QUERY = {
@@ -451,17 +469,25 @@ const WORKFLOW_SCREENSHOTS: WorkflowScreenshot[] = [
     fileName: "infinibandcablevalidationworkflow-form.png",
     path: "/workflows/infinibandcablevalidationworkflow/form",
     query: {
-      role: ["UFM", "CIN-Spine"],
+      "device-id": PDX_MLNX_ID,
       site: PDX_SITE,
-      status: "Active",
-      tenant: "TenantB",
+      ufm_device_id: UFM_DEVICE_ID,
     },
+    expectedSelections: [
+      { field: "Site", value: PDX_SITE },
+      { field: "Device", value: "ufm-01" },
+      { field: "Device IDs", value: "infiniband-switch1" },
+    ],
     title: "New InfiniBand Cable Validation Workflow",
   },
   {
     fileName: "infinibandgetunhealthyportsworkflow-form.png",
     path: "/workflows/infinibandgetunhealthyportsworkflow/form",
-    query: PDX_MLNX_QUERY,
+    query: PDX_UFM_QUERY,
+    expectedSelections: [
+      { field: "Site", value: PDX_SITE },
+      { field: "Device", value: "ufm-01" },
+    ],
     title: "New InfiniBand Get Unhealthy Ports Workflow",
   },
   {
@@ -551,10 +577,18 @@ const WORKFLOW_SCREENSHOTS: WorkflowScreenshot[] = [
     query: {
       "device-id": AIR_TAN_LEAF_01_ID,
       overlay_id: DEMO_VPC_ID,
-      namespace: "spectrumx",
       port_names: "swp1, swp2",
       site: AIR_SITE,
     },
+    expectedSelections: [
+      { field: "Site", value: AIR_SITE },
+      {
+        field: "Overlay ID (optional — leave blank to remove)",
+        value: DEMO_VPC_ID,
+      },
+      { field: "Device", value: "tan-leaf-01" },
+      { field: "Ports", value: "swp1, swp2" },
+    ],
     title: "New SpX Overlay Tenant Change Workflow",
   },
 ];
@@ -599,6 +633,7 @@ test.describe("workflow form docs screenshots", () => {
 
       const heading = page.getByRole("heading", { name: workflow.title });
       await expect(heading).toBeVisible();
+      await expectPrefillsSettled(page, workflow);
       await settleFonts(page);
       await screenshotWorkflowCard(page, workflow);
     });
@@ -669,8 +704,23 @@ async function setupDocsMocks(page: Page): Promise<void> {
     await fulfillJson(route, Object.keys(DOC_WORKFLOW_DISPLAY_NAMES));
   });
 
-  await page.route("**/v1/workflow/metadata", async (route) => {
+  await page.route("**/v1/workflow/metadata?include=form", async (route) => {
     await fulfillJson(route, DOC_WORKFLOW_METADATA);
+  });
+
+  await page.route(/.*\/v1\/workflow\/[^/?#]+\/form(\?.*)?$/, async (route) => {
+    const url = new URL(route.request().url());
+    const formId = decodeURIComponent(url.pathname.split("/").at(-2) ?? "");
+    const form = getWorkflowFormFixture(formId);
+
+    if (!form) {
+      await route.fulfill({
+        json: { detail: `Workflow '${formId}' not found` },
+        status: 404,
+      });
+      return;
+    }
+    await fulfillJson(route, form);
   });
 
   await page.route(/.*\/v1\/workflow\/?(\?.*)?$/, async (route) => {
@@ -727,12 +777,45 @@ async function setupDocsMocks(page: Page): Promise<void> {
     ]);
   });
 
-  await page.route("**/v1/parameter/diagnostics/commands*", async (route) => {
-    await fulfillJson(route, [
-      { description: "Collect interface state", name: "show interface" },
-      { description: "Collect LLDP neighbors", name: "show lldp neighbor" },
-    ]);
-  });
+  await page.route(
+    "**/v1/workflow/site-password-rotation/form-options/password-users*",
+    async (route) =>
+      fulfillJson(route, {
+        items: [
+          {
+            description: "cumulus (cumulus-password)",
+            label: "cumulus",
+            value: "cumulus",
+          },
+          {
+            description: "admin (admin-password)",
+            label: "admin",
+            value: "admin",
+          },
+        ],
+        meta: { matching_device_count: 5, warnings: [] },
+      })
+  );
+
+  await page.route(
+    "**/v1/workflow/diagnostics/form-options/diagnostic-commands*",
+    async (route) =>
+      fulfillJson(route, {
+        items: [
+          {
+            description: "Collect interface state",
+            label: "show interface",
+            value: "show interface",
+          },
+          {
+            description: "Collect LLDP neighbors",
+            label: "show lldp neighbor",
+            value: "show lldp neighbor",
+          },
+        ],
+        meta: { warnings: [] },
+      })
+  );
 }
 
 function createDocWorkflow(fixture: DocWorkflowFixture): DocWorkflow {
@@ -964,6 +1047,28 @@ async function settleFonts(page: Page): Promise<void> {
   });
 }
 
+async function expectPrefillsSettled(
+  page: Page,
+  workflow: WorkflowScreenshot
+): Promise<void> {
+  if (!workflow.expectedSelections) {
+    return;
+  }
+
+  const form = page.locator("form");
+  for (const { field, value } of workflow.expectedSelections) {
+    await expect(
+      form.getByRole("combobox", {
+        exact: true,
+        name: `${field}: ${value}. Open options`,
+      })
+    ).toBeVisible();
+  }
+  await expect(
+    form.getByRole("button", { exact: true, name: "Submit" })
+  ).toBeEnabled();
+}
+
 async function screenshotWorkflowCard(
   page: Page,
   workflow: WorkflowScreenshot
@@ -990,7 +1095,10 @@ async function screenshotWorkflowCard(
 
 async function screenshotWorkflowListPage(page: Page): Promise<void> {
   const viewport = page.viewportSize() ?? { width: 1280, height: 900 };
-  const pageContentBox = await page.locator("div.container.py-6").first().boundingBox();
+  const pageContentBox = await page
+    .getByRole("heading", { name: "Workflows" })
+    .locator("xpath=ancestor::div[.//table][1]")
+    .boundingBox();
 
   if (!pageContentBox) {
     throw new Error("Workflow page content was not available for screenshot.");

@@ -747,6 +747,7 @@ jobs:
           restore-keys: |
             ui-next-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}-
       - run: npm ci --prefer-offline
+      - run: npm run test:unit
       - run: npm run build
       - run: npm run test:e2e:ci
       - uses: *upload_artifact

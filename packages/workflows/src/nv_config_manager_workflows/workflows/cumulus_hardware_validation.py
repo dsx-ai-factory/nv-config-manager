@@ -16,8 +16,9 @@
 
 import ast
 import asyncio
+from collections.abc import Mapping
 from datetime import timedelta
-from typing import Any
+from typing import Annotated, Any, ClassVar
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
@@ -37,7 +38,14 @@ from nv_config_manager_workflows.stage import (
     StateEnum,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import FormExcluded, FormSchema, api_options, location_field
 from nv_config_manager_workflows.workflow_references import LocationReference
+from nv_config_manager_workflows.workflows._form_sources import (
+    MANAGED_ROLE_SOURCE,
+    SITE_FILTER_SOURCE,
+    STATUS_FILTER_SOURCE,
+    TENANT_FILTER_SOURCE,
+)
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_dcim import (
@@ -288,6 +296,14 @@ def analyze_flagged_results(
 class ValidateHardwareInput(BaseModel):
     """Validate Hardware Workflow Input."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "site": location_field(SITE_FILTER_SOURCE, type_field="site_type"),
+        "site_type": {"ui:widget": "hidden"},
+        "roles": api_options(MANAGED_ROLE_SOURCE),
+        "status": {**api_options(STATUS_FILTER_SOURCE), "ui:title": "Device Status"},
+        "tenant": api_options(TENANT_FILTER_SOURCE),
+    }
+
     site: LocationReference = Field(
         description="Site used to select network devices for validation."
     )
@@ -297,7 +313,7 @@ class ValidateHardwareInput(BaseModel):
     roles: list[str] = Field(
         default=[], description="Device roles used to filter the selected network devices."
     )
-    status: list[str] = Field(
+    status: Annotated[list[str], FormSchema(min_items=1)] = Field(
         default=DEFAULT_HARDWARE_VALIDATION_STATUS,
         description="Device statuses used to filter the selected network devices.",
     )
@@ -305,10 +321,10 @@ class ValidateHardwareInput(BaseModel):
         default=None,
         description="Tenant used to filter the selected network devices.",
     )
-    device_type_ids: list[str] = Field(
+    device_type_ids: Annotated[list[str], FormExcluded()] = Field(
         default=[], description="Device type identifiers used to filter network devices."
     )
-    raise_for_invalid: bool = Field(
+    raise_for_invalid: Annotated[bool, FormExcluded()] = Field(
         default=False, description="Whether invalid hardware should fail the workflow."
     )
 
@@ -319,12 +335,15 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
 
     # Workflow metadata
     workflow_name = "Cumulus Hardware Validation"
+    workflow_group = "Validation & Diagnostics"
     workflow_description = (
         "Validate hardware components (fans, PSUs, LEDs, voltage) across network devices"
     )
     workflow_input_class = ValidateHardwareInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/cumulus_hardware_validation"
+    workflow_form_enabled = True
+    workflow_form_id = "cumulus-hardware-validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
     workflow_required_activities = (

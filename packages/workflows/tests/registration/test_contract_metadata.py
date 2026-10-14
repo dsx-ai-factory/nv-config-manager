@@ -32,6 +32,8 @@ from nv_config_manager_workflows.registration.contract import (
     workflow_class_name,
     workflow_cli_name,
     workflow_declared_name,
+    workflow_form_enabled,
+    workflow_group,
     workflow_has_complete_metadata,
     workflow_mcp_enabled,
     workflow_mcp_tool_name,
@@ -64,6 +66,7 @@ class FullyDeclaredWorkflow(WorkflowMetadataMixin, StageMixin):
     workflow_api_enabled = True
     workflow_api_endpoint = "/config/apply-golden-config"
     workflow_mcp_enabled = True
+    workflow_group = "Configuration"
     workflow_required_activities = (collect_facts, apply_configuration)
 
     @workflow.run
@@ -159,6 +162,13 @@ class TestApiExposure:
         assert not workflow_api_enabled(BareWorkflow)
         assert workflow_api_enabled(FullyDeclaredWorkflow)
 
+    def test_form_exposure_is_opt_in(self) -> None:
+        class FormWorkflow(WorkflowMetadataMixin):
+            workflow_form_enabled = True
+
+        assert not workflow_form_enabled(BareWorkflow)
+        assert workflow_form_enabled(FormWorkflow)
+
 
 class TestCliName:
     def test_the_base_accessor_provides_a_cli_name(self) -> None:
@@ -210,6 +220,18 @@ class TestMcpExposure:
     )
     def test_tool_names_are_derived_from_a_path_alone(self, endpoint: str, expected: str) -> None:
         assert mcp_tool_name_for_endpoint(endpoint) == expected
+
+
+class TestWorkflowGroup:
+    def test_undeclared_group_reads_as_none(self) -> None:
+        assert workflow_group(BareWorkflow) is None
+
+    def test_declared_group_is_returned_verbatim(self) -> None:
+        assert workflow_group(FullyDeclaredWorkflow) == "Configuration"
+
+    def test_group_is_not_required_api_metadata(self) -> None:
+        assert "workflow_group" not in METADATA_ATTRIBUTES
+        assert workflow_has_complete_metadata(FullyDeclaredWorkflow)
 
 
 class TestMetadataCompleteness:

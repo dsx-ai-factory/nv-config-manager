@@ -1,0 +1,39 @@
+{
+  "workflow": "InfinibandGetUnhealthyPortsWorkflow",
+  "input_model": "InfinibandGetUnhealthyPortsInput",
+  "scenarios": [
+    {
+      "name": "manual site and device",
+      "legacy_url": "/workflows/infinibandgetunhealthyportsworkflow/form",
+      "new_url": "/workflows/new/infiniband-get-unhealthy-ports",
+      "legacy_payload": {
+        "device_id": "32fdefda-df59-4285-9d6e-a1f220906a8d"
+      },
+      "generic_payload": {
+        "device_id": "32fdefda-df59-4285-9d6e-a1f220906a8d"
+      }
+    },
+    {
+      "name": "manual fill narrowed by tenant",
+      "legacy_url": "/workflows/infinibandgetunhealthyportsworkflow/form",
+      "new_url": "/workflows/new/infiniband-get-unhealthy-ports",
+      "legacy_payload": {
+        "device_id": "32fdefda-df59-4285-9d6e-a1f220906a8d"
+      },
+      "generic_payload": {
+        "device_id": "32fdefda-df59-4285-9d6e-a1f220906a8d"
+      }
+    },
+    {
+      "name": "Nautobot device link",
+      "legacy_url": "/workflows/infinibandgetunhealthyportsworkflow/form?site=PDX01&device-id=32fdefda-df59-4285-9d6e-a1f220906a8d&tenant=TenantA",
+      "new_url": "/workflows/new/infiniband-get-unhealthy-ports?site=PDX01&device-id=32fdefda-df59-4285-9d6e-a1f220906a8d&tenant=TenantA",
+      "legacy_payload": {
+        "device_id": "32fdefda-df59-4285-9d6e-a1f220906a8d"
+      },
+      "generic_payload": {
+        "device_id": "32fdefda-df59-4285-9d6e-a1f220906a8d"
+      }
+    }
+  ]
+}
