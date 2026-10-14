@@ -79,7 +79,6 @@ def test_commit_confirm_controls_arista_commit_timer(commit_confirm: bool) -> No
             [
                 "configure session sess-1",
                 f"commit timer {hours:02d}:{minutes:02d}:{seconds:02d}",
-                "commit",
             ]
         )
         assert conn._node.enable.call_args_list == [
