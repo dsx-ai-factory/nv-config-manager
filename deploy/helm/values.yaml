@@ -1106,11 +1106,12 @@ ui:
     hostname: "{{ .Values.gateway.baseHostname }}"
     # Optional: restrict access to specific groups (Azure AD group UUIDs)
     allowedGroups: []
-    # Static file bypass - no JWT auth on assets (faster load, fewer refreshes)
-    # UI is OIDC-only; static file auth bypass removed
+    # The UI is OIDC-only except for its health endpoint, which the
+    # blackbox probe must reach without a login redirect.
     authBypass:
-      enabled: false
-      pathRegex: ""
+      enabled: true
+      paths:
+        - /api/health
   # Resource limits
   resources:
     requests:
@@ -2895,6 +2896,12 @@ nautobot:
       paths:
         - /logout/
         - /api/
+    # Health endpoint reachable without a login redirect or Authorization
+    # header, so the blackbox probe reaches Nautobot instead of the login page.
+    healthBypass:
+      enabled: true
+      paths:
+        - /health
   # Ingress (optional, for direct access)
   ingress:
     enabled: false
