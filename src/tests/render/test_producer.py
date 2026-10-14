@@ -54,7 +54,7 @@ async def test_load_stale_renders_uses_provider_template_versions(mock_dcim_clie
     assert await load_stale_renders(CURRENT_VERSION) == ["device1"]
     mock_dcim_client.get_render_template_versions.assert_awaited_once()
     mock_dcim_client.get_render_enabled_device_ids.assert_awaited_once_with(
-        is_aggregate_managed=None
+        is_aggregate_managed=False
     )
 
 
@@ -163,11 +163,51 @@ async def test_update_stale_renders_excludes_disabled_devices(
     assert await update_stale_renders(desired_version=CURRENT_VERSION) == 1
 
     mock_dcim_client.get_render_enabled_device_ids.assert_awaited_once_with(
-        is_aggregate_managed=None
+        is_aggregate_managed=False
     )
     mock_dcim_client.get_render_template_versions.assert_awaited_once()
     mock_create_lock.assert_called_once_with("device1", blocking=True, blocking_timeout=120)
     mock_execute_render.assert_awaited_once_with(
         "device1", f"Template version change: {CURRENT_VERSION}", "template-updater"
+    )
+    lock.release.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_aggregate", [False, True])
+@patch("nv_config_manager.render.producer.is_aggregate_environment")
+@patch("nv_config_manager.render.producer.execute_render", new_callable=AsyncMock)
+@patch("nv_config_manager.render.producer.create_lock")
+async def test_update_stale_renders_excludes_devices_owned_by_other_environments(
+    mock_create_lock,
+    mock_execute_render,
+    mock_is_aggregate_environment,
+    mock_dcim_client,
+    is_aggregate,
+):
+    """Stale synced devices are rendered only by their owning environment."""
+    mock_is_aggregate_environment.return_value = is_aggregate
+    inventory = {False: ["site-device"], True: ["aggregate-device"]}
+    mock_dcim_client.get_render_enabled_device_ids.side_effect = lambda is_aggregate_managed: (
+        inventory[is_aggregate_managed]
+    )
+    mock_dcim_client.get_render_template_versions.return_value = [
+        RenderTemplateVersion(device_id=device_id, template_version=OLDER_VERSION)
+        for device_id in ("site-device", "aggregate-device")
+    ]
+    lock = MagicMock()
+    lock.acquire = AsyncMock(return_value=True)
+    lock.release = AsyncMock()
+    mock_create_lock.return_value = lock
+
+    assert await update_stale_renders(desired_version=CURRENT_VERSION) == 1
+
+    owned_device = inventory[is_aggregate][0]
+    mock_dcim_client.get_render_enabled_device_ids.assert_awaited_once_with(
+        is_aggregate_managed=is_aggregate
+    )
+    mock_create_lock.assert_called_once_with(owned_device, blocking=True, blocking_timeout=120)
+    mock_execute_render.assert_awaited_once_with(
+        owned_device, f"Template version change: {CURRENT_VERSION}", "template-updater"
     )
     lock.release.assert_awaited_once()
