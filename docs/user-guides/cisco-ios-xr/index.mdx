@@ -1,0 +1,69 @@
+---
+title: Cisco IOS XR
+sidebar-title: Cisco IOS XR
+position: 20
+---
+
+Config Manager manages Cisco IOS XR routers over NETCONF (SSH subsystem, port 830). IOS XR supports most of what Juniper Junos supports (rescue configuration and OS image installation are not available yet, see Limits): [Configuration Backup](../configuration-backup/index.mdx), [Site Configuration Backup](../site-configuration-backup/index.mdx), [Configuration Deploy](../configuration-deploy/index.mdx), [Multi-Device Deploy](../multi-deploy/index.mdx), [Cable Validation](../cable-validation/index.mdx), [Switch OS Upgrade](../switch-os-upgrade/index.mdx) (ZTP based), [Device Password Rotation](../device-password-rotation/index.mdx), [Site Password Rotation](../site-password-rotation/index.mdx), a diagnostics catalog, and ZTP DHCP options. Hardware validation is Cumulus-only.
+
+## Prerequisites
+
+- The device's Nautobot platform is named `Cisco IOS XR`. The bundled bootstrap data creates it together with the `Cisco` manufacturer.
+- NETCONF is enabled on the router and TCP port 830 is reachable from the Config Manager network. On the router (replace `MGMT` with the management VRF):
+
+  ```text
+  configure terminal
+  netconf-yang agent ssh
+  ssh server v2
+  ssh server netconf vrf MGMT
+  ssh server netconf port 830
+  commit
+  ```
+
+  The exact syntax varies slightly between XR releases. The router must advertise the `:candidate` and `:confirmed-commit` NETCONF capabilities.
+- The service account is present on the router with a task group that allows NETCONF (for example `root-lr`).
+- The service account password is in the secrets store for the device's site. Config Manager tries each configured password in turn.
+- A template plugin renders an intended configuration for the device. The Render Service selects it by `<platform>/<role>/<desired firmware>`, so the `cisco-ios-xr` directory is used for this platform. The rendered file is named `full-config`.
+
+## How it behaves
+
+| Operation | What Config Manager does |
+|---|---|
+| Backup | Reads the running configuration through NETCONF (`show running-config`), removes lines that are not configuration (clock line, comments, `end`), redacts secret values, and stores the text. |
+| Drift and Deploy diff | Compares the running configuration with the intended configuration on the Config Manager side. Nothing is loaded on the router and no configuration lock is taken. The diff marks lines only on the router with `-` and lines only in the intended configuration with `+`. An empty diff means the router matches. |
+| Deploy | Applies the difference in one atomic commit. A rejected command or a failed commit leaves the router unchanged. |
+| Commit timer | When the timer is enabled, Config Manager locks the candidate configuration, loads the changes and commits with a NETCONF confirmed commit, opens a second NETCONF session to prove the account still works, checks that the router now matches the intended configuration, and only then confirms. If either check fails it does not confirm, and the router rolls itself back when the timer expires. |
+
+## Safety checks before a Deploy
+
+A full-configuration Deploy removes everything the intended configuration omits. Before sending any command, Config Manager refuses to continue when the intended configuration would remove or break:
+
+- the account Config Manager logs in with (`username` block and its `group` lines),
+- the interface that carries the management address, and every `MgmtEth` interface (the interface, its IPv4 address, its VRF), or shut one of them down,
+- any `ssh server` line (including `ssh server netconf`), the `netconf-yang agent` and its `ssh` transport, any `aaa authentication` line or VTY `transport` line that the router has,
+- the management default route.
+
+The refusal names the missing item. Add it to the template or the Nautobot data and render again.
+
+## Secrets and other data the template needs
+
+A Deploy removes whatever the intended configuration omits, so the template renders everything the router needs, and stops the render when something is missing instead of leaving it out. Nautobot holds names only; the values are in the secrets store of the device's site.
+
+| On the router | Nautobot (names, never values) | Secrets store |
+|---|---|---|
+| Login accounts | `password_mappings` config context | `<secret>_<rotation>`, hashed with the site salt |
+| `snmp-server community` | `snmp_communities` config context: secret name, `authorization`, `clients` (IPv4 prefixes, rendered as an access list) | the community string |
+| MACsec `key chain` | `macsec_key_chains` config context: `name`, `start_time`, `secret`, `ckn`, optional `algorithm`, `policy`, `associations` | the `key-string` text and the key name |
+| Port breakout and `apply-group` | interface custom fields `sub_port_count`, `port_speed`, `interface_profile` | none |
+| `interface tunnel-te`, `router bgp / vrf`, `evpn` and `l2vpn xconnect` | the routing app (LSPs, peer groups with a VRF and its RD, EVPN-VPWS services) | none |
+
+Both `snmp_communities` and `macsec_key_chains` must exist on the device (an empty list is fine), or the render stops. MACsec policies, configuration groups and VRF definitions are static template baseline; the render stops if a key chain, policy, access list or group is used and not defined.
+
+## Limits
+
+- Partial configuration is not supported; supply the full desired state.
+- The Diagnostics workflow offers version, interfaces, LLDP neighbors and ARP table for IOS XR. The route table and BGP summary are not available yet.
+- Rescue configuration is not supported for IOS XR: the router has copy and delete actions but none that reads or loads a file. Numbered rollback and ZTP initiation use the router's YANG actions; rollback commits at once and has no timer.
+- Switch OS upgrade does not work for IOS XR yet: it needs an image install, which Config Manager does not do for XR.
+- Secret values are redacted in backups and drift displays. The Deploy approval diff shows what will be sent, so treat it as sensitive. The intended configuration in the Config Store contains the rendered secret values.
+- Not modelled: tunable-optics wavelength (the render stops), LSP attributes such as priorities and bandwidth, IPv6 SNMP client lists, and more than one MACsec key per chain.

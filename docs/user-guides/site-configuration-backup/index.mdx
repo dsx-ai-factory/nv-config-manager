@@ -56,7 +56,7 @@ The workflow runs three stages. None require manual approval at the site level.
 
 1. **`get_devices` — Resolve the device list from Nautobot.**
 
-   Calls Nautobot with the supplied site, role, status, tenant, and backup-enabled filters. Supported platforms are Arista EOS, Cumulus Linux, and NV-OS. The stage display lists the devices that will be backed up.
+   Calls Nautobot with the supplied site, role, status, tenant, and backup-enabled filters. Supported platforms are Arista EOS, Cisco IOS XR, Cumulus Linux, Juniper Junos, and NV-OS. The stage display lists the devices that will be backed up.
 
 1. **`perform_backups` — Fan out a child backup per device.**
 

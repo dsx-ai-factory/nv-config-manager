@@ -103,7 +103,13 @@ OVERLAYS_PLUGIN_BASE = "plugins/overlays"
 _BACKUP_ENABLED_DEVICES_QUERY = load_graphql_query(
     "workflow/operations.graphql", "GetBackupEnabledDevices"
 )
-_BACKUP_SUPPORTED_PLATFORMS = {"Arista EOS", "Cumulus Linux", "Juniper Junos", "NV-OS"}
+_BACKUP_SUPPORTED_PLATFORMS = {
+    "Arista EOS",
+    "Cisco IOS XR",
+    "Cumulus Linux",
+    "Juniper Junos",
+    "NV-OS",
+}
 _BACKUP_SUPPORTED_STATUSES = {"Provisioned", "Active"}
 
 _OS_IMAGE_DEVICE_QUERY = load_graphql_query("workflow/operations.graphql", "GetOSImageDevice")
@@ -137,6 +143,7 @@ _NAUTOBOT_PLATFORM_NAMES = {
     Platform.NV_OS: "NV-OS",
     Platform.MLNX_OS: "MLNX-OS",
     Platform.JUNIPER_JUNOS: "Juniper Junos",
+    Platform.CISCO_IOS_XR: "Cisco IOS XR",
     Platform.UFM: "UFM",
 }
 

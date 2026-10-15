@@ -87,6 +87,7 @@ SUPPORTED_PLATFORMS = [
     Platform.CUMULUS_LINUX,
     Platform.NV_OS,
     Platform.JUNIPER_JUNOS,
+    Platform.CISCO_IOS_XR,
 ]
 
 CLONE_SEARCH_ATTRS = [

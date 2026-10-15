@@ -144,3 +144,30 @@ async def validate_juniper_upgrade_artifacts(
     raise ApplicationError(
         f"Timeout waiting for Juniper firmware {desired} and full-config for device {device_id}"
     )
+
+
+async def validate_iosxr_upgrade_artifacts(
+    activity_input: ValidateRenderedImageChangeInput,
+) -> bool:
+    """Poll until the IOS XR image is available and full-config is rendered.
+
+    Same artifacts as Junos ZTP: the firmware file in firmware storage and the
+    rendered ``full-config`` that ZTP serves to the router.
+    """
+    desired = activity_input.desired_image
+    device_id = activity_input.device_data.id
+    platform = str(activity_input.device_data.platform)
+    config_client = get_config_store_runtime().client(ConfigStoreType.INTENDED)
+    storage = get_firmware_storage()
+    start_time = datetime.now()
+    async with config_client, storage:
+        while datetime.now() - start_time < _IMAGE_RENDER_POLL_TIMEOUT:
+            _heartbeat_render_poll(start_time)
+            firmware_ready = await _juniper_firmware_present(storage, platform, desired)
+            config_ready = await _juniper_full_config_present(config_client, device_id)
+            if firmware_ready and config_ready:
+                return True
+            await asyncio.sleep(_IMAGE_RENDER_POLL_INTERVAL_SECONDS)
+    raise ApplicationError(
+        f"Timeout waiting for IOS XR firmware {desired} and full-config for device {device_id}"
+    )

@@ -43,6 +43,12 @@ option boot-file-name "http://ztp.example.com/v1/device/{device_uuid}/config/ztp
 
 `full-config` is the intended Junos configuration rendered by operator or plugin templates. The ZTP API does not synthesize a placeholder file.
 
+**Cisco IOS XR** — DHCP option 67 (`boot-file-name`) pointing at the rendered configuration. The bundled `Cisco IOS XR ZTP DHCP Options` context sets, on `MgmtEth0/RP0/CPU0/0`:
+
+- `boot-file-name`: `http://ztp.example.com/v1/device/{device_uuid}/config/full-config`
+
+`full-config` is the intended IOS XR configuration rendered by operator or plugin templates. The router applies it as its ZTP configuration; image installation needs a ZTP script, which is not bundled.
+
 Replace `ztp.example.com` with your ZTP server URL and `{device_uuid}` with the device UUID from the device management system.
 
 ### ONIE Configuration
@@ -125,7 +131,7 @@ Common configuration file names:
 
 - `boot-script`: Cumulus Linux initial boot script
 - `ztp.json`: NV-OS ZTP sequence
-- `full-config`: Junos hierarchical configuration (operator- or plugin-rendered)
+- `full-config`: Junos hierarchical configuration, or IOS XR configuration (operator- or plugin-rendered)
 - `startup.yaml`: Cumulus / NV-OS intended configuration
 - `system.cfg`: System configuration
 - `interfaces.cfg`: Interface configuration

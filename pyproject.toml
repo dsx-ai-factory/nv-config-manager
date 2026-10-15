@@ -70,6 +70,7 @@ dependencies = [
     # Network Automation
     "pyeapi>=1.0.2",
     "junos-eznc>=2.8.2",
+    "ncclient>=0.6.15",
     "netmiko>=4.3.0",
     "macaddress>=2.0.2",
     "netaddr>=0.10.1",

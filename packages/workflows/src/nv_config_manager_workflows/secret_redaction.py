@@ -30,3 +30,35 @@ _JUNOS_SECRET_VALUE_RE = re.compile(r'"\$([15689])\$[^"]*"')
 def redact_junos_secrets(config_text: str) -> str:
     """Replace Junos ``$``-format secret values with a placeholder."""
     return _JUNOS_SECRET_VALUE_RE.sub(r'"$\1$<redacted>"', config_text)
+
+
+# IOS XR keeps secrets as ``<keyword> <type> <value>`` (``secret 10 $6$...``,
+# ``key-string password 7 ...``, ``key 7 ...``) and as the SNMP community name
+# itself. The keyword, type and structure stay readable; only the value goes.
+_IOSXR_TYPED_SECRET_RE = re.compile(
+    r"^(?P<lead>[ \t]*[+-]?[ \t]*)"
+    r"(?P<kw>secret|password|key-string(?:[ \t]+password)?|key|shared-secret(?:[ \t]+key)?)"
+    r"[ \t]+(?P<type>\d+)[ \t]+\S+",
+    re.MULTILINE,
+)
+# Newer releases write the type attached to the keyword: ``key-string password7 <hash>``,
+# ``key-string password6 <hash>``, or a clear ``key-string clear <text>``.
+_IOSXR_ATTACHED_TYPE_RE = re.compile(
+    r"^(?P<lead>[ \t]*[+-]?[ \t]*)(?P<kw>key-string[ \t]+(?:password\d+|clear))[ \t]+\S+",
+    re.MULTILINE,
+)
+_IOSXR_COMMUNITY_RE = re.compile(
+    r"^(?P<lead>[ \t]*[+-]?[ \t]*)(?P<kw>snmp-server community)[ \t]+\S+", re.MULTILINE
+)
+
+
+def redact_iosxr_secrets(config_text: str) -> str:
+    """Replace the values of IOS XR secret lines with a placeholder."""
+    redacted = _IOSXR_TYPED_SECRET_RE.sub(r"\g<lead>\g<kw> \g<type> <redacted>", config_text)
+    redacted = _IOSXR_ATTACHED_TYPE_RE.sub(r"\g<lead>\g<kw> <redacted>", redacted)
+    return _IOSXR_COMMUNITY_RE.sub(r"\g<lead>\g<kw> <redacted>", redacted)
+
+
+def redact_device_secrets(config_text: str) -> str:
+    """Redact the secrets of every supported platform from config or diff text."""
+    return redact_iosxr_secrets(redact_junos_secrets(config_text))

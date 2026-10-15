@@ -22,6 +22,7 @@ from nv_config_manager_dcim.workflow_models import Platform
 
 from nv_config_manager_workflows.clients.device.arista import AristaConnection
 from nv_config_manager_workflows.clients.device.base import NetworkConnection
+from nv_config_manager_workflows.clients.device.cisco_xr import CiscoIosXrConnection
 from nv_config_manager_workflows.clients.device.cumulus import CumulusConnection, NVOSConnection
 from nv_config_manager_workflows.clients.device.juniper import JuniperConnection
 from nv_config_manager_workflows.clients.device.mellanox import MellanoxConnection
@@ -58,6 +59,8 @@ def connection_class_for_platform(platform: Platform, *, mock: bool) -> DeviceCo
             return MellanoxConnection
         case Platform.JUNIPER_JUNOS:
             return JuniperConnection
+        case Platform.CISCO_IOS_XR:
+            return CiscoIosXrConnection
         case Platform.UFM:
             raise NotImplementedError(
                 f"No NetworkConnection for platform {platform}; use UFMClient"

@@ -304,6 +304,52 @@ async def test_validate_juniper_timeout_preserves_message(
     )
 
 
+async def test_validate_iosxr_waits_for_firmware_and_full_config(
+    mocker: MockerFixture,
+) -> None:
+    client = _async_client(ConfigStoreClient)
+    client.load_file = AsyncMock(return_value=SimpleNamespace(content="config"))
+    _configure_config_store(mocker, client)
+    storage = _async_client()
+    storage.firmware_exists = AsyncMock(return_value=True)
+    mocker.patch.object(os_helpers, "get_firmware_storage", return_value=storage)
+    mocker.patch.object(os_helpers, "_heartbeat_render_poll")
+
+    result = await validate_rendered_image_change(
+        ValidateRenderedImageChangeInput(
+            device_data=_device(Platform.CISCO_IOS_XR),
+            desired_image="26.4.1",
+        )
+    )
+
+    assert result is True
+    storage.firmware_exists.assert_awaited_once_with("cisco-ios-xr", "26.4.1")
+    client.load_file.assert_awaited_once_with(device_uuid="device-id", filename="full-config")
+
+
+async def test_validate_iosxr_timeout_names_the_platform(mocker: MockerFixture) -> None:
+    client = _async_client(ConfigStoreClient)
+    _configure_config_store(mocker, client)
+    storage = _async_client()
+    storage.firmware_exists = AsyncMock(return_value=False)
+    mocker.patch.object(os_helpers, "get_firmware_storage", return_value=storage)
+    start = datetime(2026, 1, 1)
+    datetime_mock = mocker.patch.object(os_helpers, "datetime")
+    datetime_mock.now.side_effect = [start, start + timedelta(minutes=5)]
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await validate_rendered_image_change(
+            ValidateRenderedImageChangeInput(
+                device_data=_device(Platform.CISCO_IOS_XR),
+                desired_image="26.4.1",
+            )
+        )
+
+    assert exc_info.value.message == (
+        "Timeout waiting for IOS XR firmware 26.4.1 and full-config for device device-id"
+    )
+
+
 async def test_validate_rendered_image_rejects_unsupported_platform() -> None:
     with pytest.raises(NotImplementedError, match="^Platform arista-eos not supported$"):
         await validate_rendered_image_change(

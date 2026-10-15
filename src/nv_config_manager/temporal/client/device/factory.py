@@ -24,6 +24,9 @@ from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
 from nv_config_manager_workflows.clients.device.arista import (
     AristaConnection as _AristaConnection,
 )
+from nv_config_manager_workflows.clients.device.cisco_xr import (
+    CiscoIosXrConnection as _CiscoIosXrConnection,
+)
 
 # isort: off
 from nv_config_manager_workflows.clients.device.cumulus import (
@@ -67,6 +70,7 @@ def from_device_data(
         _CumulusConnection: service_clients.CumulusConnection,
         _NVOSConnection: service_clients.NVOSConnection,
         _JuniperConnection: service_clients.JuniperConnection,
+        _CiscoIosXrConnection: service_clients.CiscoIosXrConnection,
         _MellanoxConnection: service_clients.MellanoxConnection,
         _MockNetworkConnection: service_clients.MockNetworkConnection,
     }
