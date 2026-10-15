@@ -72,6 +72,7 @@ const WorkflowLauncherEntry = ({
       href={item.href}
       className="flex rounded-sm border-none px-3 py-2 hover:border-none hover:bg-accent hover:text-accent-foreground"
       onClick={onSelect}
+      prefetch={false}
       onNavigate={() => {
         const formId = item.metadata?.form_id;
         if (workflowApiUrl && formId) {
