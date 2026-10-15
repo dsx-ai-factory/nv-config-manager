@@ -43,6 +43,45 @@ kubectl get httproutes -n <namespace> | grep -E 'workflow|temporal'
 
 Open the workflow API at `https://workflow.<hostname>/docs` and Temporal Web at `https://temporal.<hostname>` if Temporal Web is enabled for the environment.
 
+## Jira Cloud ticketing
+
+Diagnostics workflows can verify a Jira ticket, upload attachments, and post a
+summary comment. Configure the direct API endpoint rather than a legacy Jira
+hostname that redirects to the browser login page.
+
+For an Atlassian account API token, set the following in the `[jira]` INI section:
+
+```ini
+[jira]
+base_url = https://yourcompany.atlassian.net
+email = service-account@example.com
+api_token = <Atlassian API token>
+```
+
+Scoped API tokens use `https://api.atlassian.com/ex/jira/<cloud-id>` as the
+`base_url`. Dedicated Atlassian service-account bearer tokens use that gateway
+URL with `api_token` and no `email`. Existing Jira Data Center personal access
+tokens also omit `email` and keep the Data Center base URL.
+
+With Vault Agent or ESO, use the secret selected by `secrets.vault.paths.jira`.
+The default Vault field names are `baseUrl`, `apiToken`, and optional `email`;
+`keys.baseUrl`, `keys.apiToken`, and `keys.email` can map them to different names
+(for example, `base_url` and `api_token`). For Kubernetes secrets, set
+`externalServices.jira.baseUrl` and
+`externalServices.jira.email`; the token stays in `jira-creds` under `api-token`.
+Use a Cloud token with permission to read the ticket, create attachments, and add
+comments. A Data Center token does not become a Cloud token after migration.
+
+The Cloud provider uses REST API v2 to preserve plain-text diagnostic comments.
+API redirects and browser challenges produce a configuration warning without
+following the login redirect. Diagnostics still continue in ticketless mode;
+attachments and comments are skipped when ticket verification fails. After
+updating the deployed configuration and credentials, run a new diagnostics
+workflow to retry ticket verification.
+
+See Atlassian's [API token authentication guide](https://developer.atlassian.com/cloud/jira/platform/basic-auth-for-rest-apis/)
+and [service-account token guide](https://support.atlassian.com/user-management/docs/manage-api-tokens-for-service-accounts/).
+
 ## Operations
 
 For normal operator actions, use the Config Manager UI. Use Temporal Web for detailed workflow event history, retries, payload inspection, and child workflow troubleshooting. See [Which Interface Should I Use?](../getting-started/interfaces.mdx).

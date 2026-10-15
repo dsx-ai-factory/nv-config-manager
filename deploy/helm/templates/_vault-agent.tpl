@@ -587,6 +587,7 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           [jira]
           base_url  = {{ include "nv-config-manager.vaultAgent.ctKv2Key" (dict "var" "jira" "key" (include "nv-config-manager.vault.keyName" (dict "root" $root "secret" "jira" "key" "baseUrl"))) }}
           api_token = {{ include "nv-config-manager.vaultAgent.ctKv2Key" (dict "var" "jira" "key" (include "nv-config-manager.vault.keyName" (dict "root" $root "secret" "jira" "key" "apiToken"))) }}
+          {{ include "nv-config-manager.vaultAgent.ctKv2OptionalIniLine" (dict "var" "jira" "key" (include "nv-config-manager.vault.keyName" (dict "root" $root "secret" "jira" "key" "email")) "name" "email") }}
           {{- end }}
 
           {{- if and $root.Values.customConfig.enabled $root.Values.customConfig.iniSnippets }}

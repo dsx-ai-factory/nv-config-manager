@@ -574,3 +574,13 @@ async def test_service_factories_construct_reusable_package_clients() -> None:
         await config_store.close()
         await render.close()
         await redis.close()
+
+
+def test_ticketing_settings_include_optional_cloud_email() -> None:
+    config = _config()
+    config["jira"]["email"] = "bot@example.com"
+    assert ticketing_client_settings(config, platform="jira") == {
+        "base_url": "https://jira.example.com",
+        "api_token": "jira-secret",
+        "email": "bot@example.com",
+    }

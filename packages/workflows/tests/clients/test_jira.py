@@ -107,7 +107,7 @@ async def test_request_urls_preserve_unencoded_main_behavior() -> None:
         await provider.upload_attachment(issue_key, "diagnostics.txt", b"data", "text/plain")
         await provider.add_comment(issue_key, "Diagnostics complete.")
 
-    session.get.assert_called_once_with(issue_url)
+    session.get.assert_called_once_with(issue_url, allow_redirects=False)
     assert [request.args[0] for request in session.post.call_args_list] == [
         f"{issue_url}/attachments",
         f"{issue_url}/comment",
@@ -123,7 +123,7 @@ async def test_validate_issue_returns_main_response_shape() -> None:
         result = await provider.validate_issue(ISSUE_KEY)
 
     assert result == payload
-    session.get.assert_called_once_with(ISSUE_URL)
+    session.get.assert_called_once_with(ISSUE_URL, allow_redirects=False)
 
 
 async def test_validate_issue_preserves_missing_issue_error() -> None:
@@ -229,6 +229,7 @@ async def test_add_comment_preserves_success_statuses(status: int) -> None:
     session.post.assert_called_once_with(
         COMMENT_URL,
         json={"body": "Diagnostics complete."},
+        allow_redirects=False,
     )
 
 

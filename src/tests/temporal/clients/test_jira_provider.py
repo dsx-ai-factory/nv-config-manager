@@ -26,6 +26,7 @@ HTTP responses are intercepted via aioresponses — no real connections are made
 
 from unittest.mock import patch
 
+import aiohttp
 import pytest
 from aioresponses import aioresponses
 from temporalio import workflow
@@ -238,3 +239,75 @@ async def test_add_comment_accepts_200():
             m.post(_COMMENT_URL, status=200, payload={"id": "9876"})
             result = await provider.add_comment(ISSUE_KEY, "ok")
     assert result == "9876"
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://example.atlassian.net",
+        "https://api.atlassian.com/ex/jira/example-cloud-id",
+    ],
+)
+async def test_cloud_basic_auth_uses_v2_for_lookup_attachment_and_plain_text_comment(base_url):
+    provider = JiraTicketingProvider.from_settings(
+        {
+            "base_url": base_url,
+            "api_token": API_TOKEN,
+            "email": "bot@example.com",
+        }
+    )
+    auth = aiohttp.BasicAuth.decode(provider._headers["Authorization"])
+    assert (auth.login, auth.password) == ("bot@example.com", API_TOKEN)
+    issue_url = f"{base_url}/rest/api/2/issue/{ISSUE_KEY}"
+    with aioresponses() as responses:
+        async with provider:
+            responses.get(issue_url, payload={"fields": {"summary": "Example"}})
+            responses.post(f"{issue_url}/attachments", payload=[{"id": "42"}])
+            responses.post(f"{issue_url}/comment", status=201, payload={"id": "43"})
+            assert (await provider.validate_issue(ISSUE_KEY))["fields"]["summary"] == "Example"
+            assert (
+                await provider.upload_attachment(
+                    ISSUE_KEY, "diagnostics.txt", b"data", "text/plain"
+                )
+                == "42"
+            )
+            assert await provider.add_comment(ISSUE_KEY, "Diagnostics complete.") == "43"
+            requests = [request for calls in responses.requests.values() for request in calls]
+            assert all(request.kwargs["allow_redirects"] is False for request in requests)
+            assert requests[-1].kwargs["json"] == {"body": "Diagnostics complete."}
+
+
+async def test_cloud_service_account_bearer_token_uses_gateway_v2():
+    base_url = "https://api.atlassian.com/ex/jira/example-cloud-id"
+    with aioresponses() as responses:
+        async with JiraTicketingProvider(base_url, API_TOKEN) as provider:
+            responses.get(f"{base_url}/rest/api/2/issue/{ISSUE_KEY}", payload={"fields": {}})
+            assert await provider.validate_issue(ISSUE_KEY) == {"fields": {}}
+            assert provider._headers["Authorization"] == f"Bearer {API_TOKEN}"
+
+
+@pytest.mark.parametrize("operation", ["lookup", "attachment", "comment"])
+@pytest.mark.parametrize(
+    "status,headers",
+    [
+        (302, {"Location": "https://id.atlassian.com/login"}),
+        (202, {"x-amzn-waf-action": "challenge"}),
+    ],
+)
+async def test_login_redirects_and_challenges_report_configuration_problem(
+    operation, status, headers
+):
+    with aioresponses() as responses:
+        async with _make_provider() as provider:
+            if operation == "lookup":
+                responses.get(_ISSUE_URL, status=status, headers=headers)
+                action = provider.validate_issue(ISSUE_KEY)
+            elif operation == "attachment":
+                responses.post(_ATTACHMENTS_URL, status=status, headers=headers)
+                action = provider.upload_attachment(ISSUE_KEY, "diag.txt", b"data", "text/plain")
+            else:
+                responses.post(_COMMENT_URL, status=status, headers=headers)
+                action = provider.add_comment(ISSUE_KEY, "Diagnostics complete.")
+            with pytest.raises(JiraClientError, match="Configure the direct Jira API base_url"):
+                await action
+            assert len(responses.requests) == 1
