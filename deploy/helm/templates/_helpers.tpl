@@ -275,6 +275,19 @@ local_stream_subjects in the services.
 {{- end -}}
 
 {{/*
+Gateway hostnames for a provider-owned in-cluster DCIM (dcim.local).
+*/}}
+{{- define "nv-config-manager.dcimLocalHostname" -}}
+{{- $provider := .Values.dcim.provider | default "nautobot-2x" -}}
+{{- tpl (.Values.dcim.local.gateway.hostname | default (printf "%s.{{ .Values.gateway.baseHostname }}" $provider)) . -}}
+{{- end -}}
+
+{{- define "nv-config-manager.dcimLocalSvcHostname" -}}
+{{- $provider := .Values.dcim.provider | default "nautobot-2x" -}}
+{{- tpl (.Values.dcim.local.gateway.svcHostname | default (printf "svc-%s.{{ .Values.gateway.baseHostname }}" $provider)) . -}}
+{{- end -}}
+
+{{/*
 [nats] INI keys for the DCIM change stream. The nautobot_* keys are deprecated
 aliases kept for one release.
 */}}

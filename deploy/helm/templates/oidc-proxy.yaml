@@ -36,6 +36,9 @@
 {{- if and .Values.nautobot.enabled .Values.externalServices.nautobot.local }}
   {{- $proxies = append $proxies (dict "name" "nautobot" "port" 9106 "upstream" (printf "http://%s:80" $nautobotName)) }}
 {{- end }}
+{{- if .Values.dcim.local.enabled }}
+  {{- $proxies = append $proxies (dict "name" "dcim" "port" .Values.dcim.local.gateway.proxyPort "upstream" (printf "http://%s:%v" .Values.dcim.local.backendName .Values.dcim.local.backendPort)) }}
+{{- end }}
 {{- if .Values.configStore.enabled }}
   {{- $proxies = append $proxies (dict "name" "config-store" "port" 9107 "upstream" (printf "http://%s-api:9000" $configStoreName)) }}
 {{- end }}

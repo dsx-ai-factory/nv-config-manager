@@ -84,6 +84,21 @@ dcim:
     # Match the glibc-based NVCM runtime so compiled provider wheels remain compatible.
     installerImage: python:3.13-bookworm
     images: []
+  # In-cluster DCIM provided by a provider-owned chart in this namespace.
+  # Leave disabled for the bundled reference provider, which has its own blocks.
+  local:
+    enabled: false
+    backendName: ""          # Service name of the DCIM web endpoint
+    backendPort: 80
+    gateway:
+      hostname: ""           # default "<dcim.provider>.<gateway.baseHostname>"
+      svcHostname: ""        # default "svc-<dcim.provider>.<gateway.baseHostname>"
+      proxyPort: 9110        # OIDC proxy listener for the browser route
+      authBypass:
+        enabled: true
+        paths: ["/api/", "/graphql/"]
+    probe:
+      path: "/login/"
 
 # =============================================================================
 # Global Configuration
@@ -449,6 +464,8 @@ secrets:
           dhcpPassword: "dhcp_password"
           nautobotUser: "nautobot_user"
           nautobotPassword: "nautobot_password"
+          dcimUser: "dcim_user"
+          dcimPassword: "dcim_password"
       network:
         path: "" # Required: e.g., "my-org/nv-config-manager/dev/network"
         keys:
@@ -2598,6 +2615,11 @@ cnpg:
       schedule: "0 0 0 * * *"
       retentionPolicy: "30d"
       target: preferStandby
+  # Credentials and monitoring for a provider-owned DCIM database cluster.
+  # The cluster itself is rendered by the provider chart.
+  dcim:
+    enabled: false
+    clusterName: cluster-dcim
 # =============================================================================
 # Local Nautobot Deployment (Optional)
 # =============================================================================
