@@ -81,9 +81,7 @@ def build_template_plugins(cfg: SimConfig) -> list[dict[str, str]]:
     """Return installer content.template_plugins entries."""
     paths = template_plugin_paths(cfg)
 
-    return [
-        {"path": path if cfg._air_content_staged else remote_repo_path(path)} for path in paths
-    ]
+    return [{"path": path if cfg._air_content_staged else remote_repo_path(path)} for path in paths]
 
 
 def generate_air_sim_install_config(
