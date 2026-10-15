@@ -1797,9 +1797,8 @@ labels:
 {{/*
 Blackbox Probe CR for a single target URL.
 
-The job label is `<monitoring.probes.jobNamePrefix><name>-probe`, the same
-shape as the per-service Probes in monitoring.yaml, so site alerting regexes
-keyed on the job prefix pick these up without changes.
+The job label is `<monitoring.probes.jobNamePrefix><name>-probe`, so site
+alerting regexes keyed on the job prefix match every Probe the chart renders.
 
 Params:
   root      - chart root context

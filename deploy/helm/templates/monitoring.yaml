@@ -60,254 +60,92 @@
 {{- if and .Values.monitoring.probes .Values.monitoring.probes.enabled .Values.monitoring.probes.blackboxExporterUrl $hasIngress }}
 {{- /* Render Service Probe */}}
 {{- if and .Values.monitoring.probes.enabled .Values.renderService.enabled }}
----
-apiVersion: monitoring.coreos.com/v1
-kind: Probe
-metadata:
-  name: {{ $renderName }}
-  namespace: {{ $namespace }}
-  labels:
-    {{- include "nv-config-manager.labels" . | nindent 4 }}
-    app.kubernetes.io/component: render-service
-    {{- with $monitoringCRLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-spec:
-  interval: 30s
-  module: http_2xx
-  jobName: {{ $probeJobPrefix }}{{ $renderName }}-probe
-  prober:
-    scheme: {{ $probeScheme }}
-    url: {{ .Values.monitoring.probes.blackboxExporterUrl }}
-  targets:
-    staticConfig:
-      {{- include "nv-config-manager.probeStaticConfigLabels" . | nindent 6 }}
-      static:
-      - {{ $probeScheme }}://{{ tpl .Values.renderService.gateway.hostname . }}/healthcheck
+{{ include "nv-config-manager.blackboxProbe" (dict
+    "root" .
+    "name" $renderName
+    "component" "render-service"
+    "scheme" $probeScheme
+    "target" (printf "%s://%s/healthcheck" $probeScheme (tpl .Values.renderService.gateway.hostname .))) }}
 {{- end }}
 
 {{- /* Network ZTP Probe */}}
 {{- if and .Values.monitoring.probes.enabled .Values.networkZtp.enabled }}
----
-apiVersion: monitoring.coreos.com/v1
-kind: Probe
-metadata:
-  name: {{ $ztpName }}
-  namespace: {{ $namespace }}
-  labels:
-    {{- include "nv-config-manager.labels" . | nindent 4 }}
-    app.kubernetes.io/component: network-ztp
-    {{- with $monitoringCRLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-spec:
-  interval: 30s
-  module: http_2xx
-  jobName: {{ $probeJobPrefix }}{{ $ztpName }}-probe
-  prober:
-    scheme: https
-    url: {{ .Values.monitoring.probes.blackboxExporterUrl }}
-  targets:
-    staticConfig:
-      {{- include "nv-config-manager.probeStaticConfigLabels" . | nindent 6 }}
-      static:
-      - {{ $probeScheme }}://{{ tpl .Values.networkZtp.gateway.hostname . }}/healthcheck
+{{ include "nv-config-manager.blackboxProbe" (dict
+    "root" .
+    "name" $ztpName
+    "component" "network-ztp"
+    "scheme" "https"
+    "target" (printf "%s://%s/healthcheck" $probeScheme (tpl .Values.networkZtp.gateway.hostname .))) }}
 {{- end }}
 
 {{- /* Network DHCP Probe */}}
 {{- if and .Values.monitoring.probes.enabled .Values.networkDhcp.enabled }}
----
-apiVersion: monitoring.coreos.com/v1
-kind: Probe
-metadata:
-  name: {{ $dhcpName }}
-  namespace: {{ $namespace }}
-  labels:
-    {{- include "nv-config-manager.labels" . | nindent 4 }}
-    app.kubernetes.io/component: network-dhcp
-    {{- with $monitoringCRLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-spec:
-  interval: 30s
-  module: http_2xx
-  jobName: {{ $probeJobPrefix }}{{ $dhcpName }}-probe
-  prober:
-    scheme: {{ $probeScheme }}
-    url: {{ .Values.monitoring.probes.blackboxExporterUrl }}
-  targets:
-    staticConfig:
-      {{- include "nv-config-manager.probeStaticConfigLabels" . | nindent 6 }}
-      static:
-      - {{ $probeScheme }}://{{ tpl .Values.networkDhcp.gateway.hostname . }}/healthcheck
+{{ include "nv-config-manager.blackboxProbe" (dict
+    "root" .
+    "name" $dhcpName
+    "component" "network-dhcp"
+    "scheme" $probeScheme
+    "target" (printf "%s://%s/healthcheck" $probeScheme (tpl .Values.networkDhcp.gateway.hostname .))) }}
 {{- end }}
 
 {{- /* Config Store Probe */}}
 {{- if and .Values.monitoring.probes.enabled .Values.configStore.enabled }}
----
-apiVersion: monitoring.coreos.com/v1
-kind: Probe
-metadata:
-  name: {{ $configStoreName }}
-  namespace: {{ $namespace }}
-  labels:
-    {{- include "nv-config-manager.labels" . | nindent 4 }}
-    app.kubernetes.io/component: config-store
-    {{- with $monitoringCRLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-spec:
-  interval: 30s
-  module: http_2xx
-  jobName: {{ $probeJobPrefix }}{{ $configStoreName }}-probe
-  prober:
-    scheme: {{ $probeScheme }}
-    url: {{ .Values.monitoring.probes.blackboxExporterUrl }}
-  targets:
-    staticConfig:
-      {{- include "nv-config-manager.probeStaticConfigLabels" . | nindent 6 }}
-      static:
-      - {{ $probeScheme }}://{{ tpl .Values.configStore.gateway.api.hostname . }}/healthcheck
+{{ include "nv-config-manager.blackboxProbe" (dict
+    "root" .
+    "name" $configStoreName
+    "component" "config-store"
+    "scheme" $probeScheme
+    "target" (printf "%s://%s/healthcheck" $probeScheme (tpl .Values.configStore.gateway.api.hostname .))) }}
 {{- end }}
 
 {{- /* MCP Probe */}}
 {{- if and .Values.monitoring.probes.enabled .Values.mcp.enabled }}
----
-apiVersion: monitoring.coreos.com/v1
-kind: Probe
-metadata:
-  name: {{ $mcpName }}
-  namespace: {{ .Values.namespace }}
-  labels:
-    {{- include "nv-config-manager.labels" . | nindent 4 }}
-    app.kubernetes.io/component: mcp
-    {{- with $monitoringCRLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-spec:
-  interval: 30s
-  module: http_2xx
-  jobName: {{ $probeJobPrefix }}{{ $mcpName }}-probe
-  prober:
-    scheme: {{ $probeScheme }}
-    url: {{ .Values.monitoring.probes.blackboxExporterUrl }}
-  targets:
-    staticConfig:
-      {{- include "nv-config-manager.probeStaticConfigLabels" . | nindent 6 }}
-      static:
-      - {{ $probeScheme }}://{{ tpl .Values.mcp.gateway.hostname . }}/healthcheck
+{{ include "nv-config-manager.blackboxProbe" (dict
+    "root" .
+    "name" $mcpName
+    "component" "mcp"
+    "scheme" $probeScheme
+    "target" (printf "%s://%s/healthcheck" $probeScheme (tpl .Values.mcp.gateway.hostname .))) }}
 {{- end }}
 
 {{- /* Temporal API Probe */}}
 {{- if and .Values.monitoring.probes.enabled .Values.temporal.enabled }}
----
-apiVersion: monitoring.coreos.com/v1
-kind: Probe
-metadata:
-  name: {{ $temporalName }}-api
-  namespace: {{ $namespace }}
-  labels:
-    {{- include "nv-config-manager.labels" . | nindent 4 }}
-    app.kubernetes.io/component: temporal-api
-    {{- with $monitoringCRLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-spec:
-  interval: 30s
-  module: http_2xx
-  jobName: {{ $probeJobPrefix }}{{ $temporalName }}-api-probe
-  prober:
-    scheme: {{ $probeScheme }}
-    url: {{ .Values.monitoring.probes.blackboxExporterUrl }}
-  targets:
-    staticConfig:
-      {{- include "nv-config-manager.probeStaticConfigLabels" . | nindent 6 }}
-      static:
-      - {{ $probeScheme }}://{{ tpl .Values.temporal.gateway.api.hostname . }}/healthcheck
+{{ include "nv-config-manager.blackboxProbe" (dict
+    "root" .
+    "name" (printf "%s-api" $temporalName)
+    "component" "temporal-api"
+    "scheme" $probeScheme
+    "target" (printf "%s://%s/healthcheck" $probeScheme (tpl .Values.temporal.gateway.api.hostname .))) }}
 {{- end }}
 
 {{- /* Temporal UI Probe */}}
 {{- if and .Values.monitoring.probes.enabled .Values.temporal.enabled .Values.temporal.server.enabled }}
----
-apiVersion: monitoring.coreos.com/v1
-kind: Probe
-metadata:
-  name: {{ $temporalName }}-ui
-  namespace: {{ $namespace }}
-  labels:
-    {{- include "nv-config-manager.labels" . | nindent 4 }}
-    app.kubernetes.io/component: temporal-ui
-    {{- with $monitoringCRLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-spec:
-  interval: 30s
-  module: http_2xx
-  jobName: {{ $probeJobPrefix }}{{ $temporalName }}-ui-probe
-  prober:
-    scheme: {{ $probeScheme }}
-    url: {{ .Values.monitoring.probes.blackboxExporterUrl }}
-  targets:
-    staticConfig:
-      {{- include "nv-config-manager.probeStaticConfigLabels" . | nindent 6 }}
-      static:
-      - {{ $probeScheme }}://{{ tpl .Values.temporal.gateway.devUi.hostname . }}/healthz
+{{ include "nv-config-manager.blackboxProbe" (dict
+    "root" .
+    "name" (printf "%s-ui" $temporalName)
+    "component" "temporal-ui"
+    "scheme" $probeScheme
+    "target" (printf "%s://%s/healthz" $probeScheme (tpl .Values.temporal.gateway.devUi.hostname .))) }}
 {{- end }}
 
 {{- /* NVIDIA Config Manager UI Probe */}}
 {{- if and .Values.monitoring.probes.enabled .Values.ui.enabled }}
----
-apiVersion: monitoring.coreos.com/v1
-kind: Probe
-metadata:
-  name: {{ $uiName }}
-  namespace: {{ $namespace }}
-  labels:
-    {{- include "nv-config-manager.labels" . | nindent 4 }}
-    app.kubernetes.io/component: ui
-    {{- with $monitoringCRLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-spec:
-  interval: 30s
-  module: http_2xx
-  jobName: {{ $probeJobPrefix }}{{ $uiName }}-probe
-  prober:
-    scheme: {{ $probeScheme }}
-    url: {{ .Values.monitoring.probes.blackboxExporterUrl }}
-  targets:
-    staticConfig:
-      {{- include "nv-config-manager.probeStaticConfigLabels" . | nindent 6 }}
-      static:
-      - {{ $probeScheme }}://{{ tpl .Values.ui.gateway.hostname . }}/api/health
+{{ include "nv-config-manager.blackboxProbe" (dict
+    "root" .
+    "name" $uiName
+    "component" "ui"
+    "scheme" $probeScheme
+    "target" (printf "%s://%s/api/health" $probeScheme (tpl .Values.ui.gateway.hostname .))) }}
 {{- end }}
 
 {{- /* Nautobot Probe */}}
 {{- if and .Values.monitoring.probes.enabled .Values.nautobot.enabled .Values.externalServices.nautobot.local }}
----
-apiVersion: monitoring.coreos.com/v1
-kind: Probe
-metadata:
-  name: {{ $nautobotName }}
-  namespace: {{ $namespace }}
-  labels:
-    {{- include "nv-config-manager.labels" . | nindent 4 }}
-    app.kubernetes.io/component: nautobot
-    {{- with $monitoringCRLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-spec:
-  interval: 30s
-  module: http_2xx
-  jobName: {{ $probeJobPrefix }}{{ $nautobotName }}-probe
-  prober:
-    scheme: {{ $probeScheme }}
-    url: {{ .Values.monitoring.probes.blackboxExporterUrl }}
-  targets:
-    staticConfig:
-      {{- include "nv-config-manager.probeStaticConfigLabels" . | nindent 6 }}
-      static:
-      - {{ $probeScheme }}://{{ tpl .Values.nautobot.gateway.hostname . }}/health
+{{ include "nv-config-manager.blackboxProbe" (dict
+    "root" .
+    "name" $nautobotName
+    "component" "nautobot"
+    "scheme" $probeScheme
+    "target" (printf "%s://%s/health" $probeScheme (tpl .Values.nautobot.gateway.hostname .))) }}
 {{- end }}
 
 {{- /*
