@@ -29,10 +29,31 @@ jobs:
           persist-credentials: false
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@14229018fe157c83e03c008f27d183d8e99bc67c
+      - name: Select secret scan range
+        id: secret-scan-range
+        env:
+          SCAN_REF: ${{ github.ref }}
+          SCAN_HEAD: ${{ github.sha }}
+        run: |
+          base=""
+          empty=false
+          if [[ "$SCAN_REF" == refs/heads/pull-request/* ]]; then
+            base=$(git merge-base origin/main "$SCAN_HEAD")
+            if [[ "$base" == "$SCAN_HEAD" ]]; then
+              empty=true
+              echo "Mirrored PR has no commits beyond main; no PR changes to scan."
+            fi
+          fi
+          # An explicit head with an empty base scans its full history, rather
+          # than letting the action limit main pushes to the event's commits.
+          printf 'base=%s\nhead=%s\nempty=%s\n' "$base" "$SCAN_HEAD" "$empty" >> "$GITHUB_OUTPUT"
       - name: Scan for secrets
+        if: steps.secret-scan-range.outputs.empty != 'true'
         uses: trufflesecurity/trufflehog@bcfcf73aaf4759d4dadc2783177c245a02792318 # v3.97.0
         with:
           version: 3.97.0
+          base: ${{ steps.secret-scan-range.outputs.base }}
+          head: ${{ steps.secret-scan-range.outputs.head }}
           extra_args: --results=verified,unknown
 
   codeql:

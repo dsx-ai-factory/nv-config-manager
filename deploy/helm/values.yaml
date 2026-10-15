@@ -1658,10 +1658,10 @@ networkDhcp:
     api:
       requests:
         cpu: 200m
-        memory: 128Mi
+        memory: 256Mi
       limits:
         cpu: 200m
-        memory: 128Mi
+        memory: 256Mi
     confgen:
       requests:
         cpu: 100m

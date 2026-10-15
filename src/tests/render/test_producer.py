@@ -27,10 +27,43 @@ CURRENT_VERSION = "engine=nv-config-manager-templates:1.0.0;plugins=none"
 OLDER_VERSION = "engine=nv-config-manager-templates:0.9.0;plugins=none"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("aggregate", [True, False])
+async def test_template_updates_render_only_devices_owned_by_environment(
+    mock_dcim_client, monkeypatch, aggregate
+):
+    """Stale devices belonging to the other deployment are never rendered."""
+    monkeypatch.setattr(
+        "nv_config_manager.render.producer.is_aggregate_environment", lambda: aggregate
+    )
+    selected = "aggregate-device" if aggregate else "cell-device"
+    mock_dcim_client.get_render_enabled_device_ids.return_value = [selected]
+    mock_dcim_client.get_render_template_versions.return_value = [
+        RenderTemplateVersion(device_id=device, template_version=OLDER_VERSION)
+        for device in ("aggregate-device", "cell-device")
+    ]
+    lock = MagicMock()
+    lock.acquire = AsyncMock(return_value=True)
+    lock.release = AsyncMock()
+    with (
+        patch("nv_config_manager.render.producer.create_lock", return_value=lock) as create_lock,
+        patch("nv_config_manager.render.producer.execute_render", new_callable=AsyncMock) as render,
+    ):
+        assert await update_stale_renders(CURRENT_VERSION) == 1
+    mock_dcim_client.get_render_enabled_device_ids.assert_awaited_once_with(
+        is_aggregate_managed=aggregate
+    )
+    create_lock.assert_called_once_with(selected, blocking=True, blocking_timeout=120)
+    render.assert_awaited_once_with(
+        selected, f"Template version change: {CURRENT_VERSION}", "template-updater"
+    )
+
+
 @pytest.fixture
-def mock_dcim_client():
+def mock_dcim_client(monkeypatch):
     """Expose a provider client through the normal lifecycle seam."""
     client = AsyncMock()
+    monkeypatch.setattr("nv_config_manager.render.producer.is_aggregate_environment", lambda: False)
     client.get_render_template_versions.return_value = []
     client.get_render_enabled_device_ids.return_value = ["device1", "device2", "device3"]
 
@@ -54,7 +87,7 @@ async def test_load_stale_renders_uses_provider_template_versions(mock_dcim_clie
     assert await load_stale_renders(CURRENT_VERSION) == ["device1"]
     mock_dcim_client.get_render_template_versions.assert_awaited_once()
     mock_dcim_client.get_render_enabled_device_ids.assert_awaited_once_with(
-        is_aggregate_managed=None
+        is_aggregate_managed=False
     )
 
 
@@ -163,7 +196,7 @@ async def test_update_stale_renders_excludes_disabled_devices(
     assert await update_stale_renders(desired_version=CURRENT_VERSION) == 1
 
     mock_dcim_client.get_render_enabled_device_ids.assert_awaited_once_with(
-        is_aggregate_managed=None
+        is_aggregate_managed=False
     )
     mock_dcim_client.get_render_template_versions.assert_awaited_once()
     mock_create_lock.assert_called_once_with("device1", blocking=True, blocking_timeout=120)
