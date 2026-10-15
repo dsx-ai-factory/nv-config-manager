@@ -55,6 +55,7 @@ from nv_config_manager_installer.schema import (
     SSOConfig,
     SSOProvider,
     TemporalAuthMethod,
+    TemporalDeploymentConfig,
     VaultAuthMethod,
     ZTPOSImage,
     ZTPS3CephConfig,
@@ -106,6 +107,54 @@ class TestNVConfigManagerInstallConfig:
     def test_external_temporal_rejects_unsafe_namespace(self, namespace: str):
         with pytest.raises(ValueError, match="namespace must not contain control characters"):
             ExternalTemporalConfig(namespace=namespace)
+
+    def test_default_yaml_omits_temporal_deployment(self):
+        data = yaml.safe_load(NVConfigManagerInstallConfig().to_yaml_str())
+
+        assert "temporal" not in data
+
+    def test_temporal_deployment_yaml_roundtrip(self, tmp_path: Path):
+        path = tmp_path / "config.yaml"
+        config = NVConfigManagerInstallConfig(
+            temporal=TemporalDeploymentConfig(
+                history_replicas=16,
+                num_history_shards=128,
+            )
+        )
+
+        config.to_yaml(path)
+        loaded = NVConfigManagerInstallConfig.from_yaml(path)
+
+        assert loaded.temporal.history_replicas == 16
+        assert loaded.temporal.num_history_shards == 128
+        assert yaml.safe_load(path.read_text())["temporal"] == {
+            "history_replicas": 16,
+            "num_history_shards": 128,
+        }
+
+    @pytest.mark.parametrize("field", ["history_replicas", "num_history_shards"])
+    def test_temporal_deployment_rejects_negative_values(self, field: str):
+        with pytest.raises(ValueError, match="greater than or equal to 0"):
+            TemporalDeploymentConfig(**{field: -1})
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {
+                "services": ServicesConfig(temporal=False),
+                "temporal": TemporalDeploymentConfig(history_replicas=8),
+            },
+            {
+                "external_services": ExternalServicesConfig(
+                    temporal=ExternalTemporalConfig(address="temporal.example.com:7233")
+                ),
+                "temporal": TemporalDeploymentConfig(num_history_shards=128),
+            },
+        ],
+    )
+    def test_temporal_deployment_rejects_unmanaged_server(self, config: dict[str, object]):
+        with pytest.raises(ValueError, match="managed Temporal server"):
+            NVConfigManagerInstallConfig(**config)
 
     def test_ztp_image_rejects_unsupported_platform(self):
         with pytest.raises(ValueError, match="Unsupported ZTP platform 'sonic'"):
