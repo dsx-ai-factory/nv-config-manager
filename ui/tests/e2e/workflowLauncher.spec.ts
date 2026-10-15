@@ -164,6 +164,82 @@ test.describe("New workflow launcher", () => {
     );
   });
 
+  test("preloads only the selected form while route navigation continues", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (...args) => {
+        const [input] = args;
+        const requestURL =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url;
+        const requestPathname = new URL(
+          requestURL,
+          window.location.href
+        ).pathname;
+        if (/^\/v1\/workflow\/[^/]+\/form$/.test(requestPathname)) {
+          window.sessionStorage.setItem(
+            "workflow-form-fetch-start-path",
+            window.location.pathname
+          );
+        }
+        return nativeFetch(...args);
+      };
+    });
+
+    const formRequests: string[] = [];
+    let releaseDeployForm: () => void = () => undefined;
+    const deployFormGate = new Promise<void>((resolve) => {
+      releaseDeployForm = resolve;
+    });
+    await page.route(/\/v1\/workflow\/[^/?#]+\/form(\?.*)?$/, async (route) => {
+      const pathname = new URL(route.request().url()).pathname;
+      formRequests.push(pathname);
+      if (pathname === "/v1/workflow/deploy/form") {
+        await deployFormGate;
+      }
+      await route.fallback();
+    });
+
+    await page.goto("/workflows");
+    const launcher = await openLauncher(page);
+    const backup = launcher.getByRole("link", {
+      name: "Configuration Backup",
+      exact: true,
+    });
+    const deploy = launcher.getByRole("link", {
+      name: "Configuration Deploy",
+      exact: true,
+    });
+
+    await backup.hover();
+    await backup.focus();
+    expect(formRequests).toEqual([]);
+
+    const navigation = deploy.click();
+    await expect.poll(() => formRequests).toEqual(["/v1/workflow/deploy/form"]);
+    expect(
+      await page.evaluate(() =>
+        window.sessionStorage.getItem("workflow-form-fetch-start-path")
+      )
+    ).toBe("/workflows");
+    await expect(page).toHaveURL("/workflows/new/deploy");
+    expect(formRequests).toEqual(["/v1/workflow/deploy/form"]);
+
+    releaseDeployForm();
+    await navigation;
+    await expect(
+      page.getByRole("heading", {
+        name: "New Configuration Deploy Workflow",
+      })
+    ).toBeVisible();
+    expect(formRequests).toEqual(["/v1/workflow/deploy/form"]);
+  });
+
   test("lists a plugin workflow from the catalog on its form ID route", async ({
     page,
   }) => {

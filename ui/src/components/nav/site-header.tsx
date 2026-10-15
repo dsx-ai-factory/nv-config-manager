@@ -36,8 +36,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import useWhoami from "@/hooks/useWhoami";
+import { useRuntimeConfig } from "@/config/runtime";
 import { cn } from "@/lib/utils";
 import useWorkflowCatalog from "@/hooks/useWorkflowCatalog";
+import { preloadWorkflowForm } from "@/hooks/useWorkflowForm";
 import {
   buildWorkflowLauncherItems,
   getWorkflowExecutePermission,
@@ -50,11 +52,13 @@ const WorkflowLauncherEntry = ({
   item,
   onSelect,
   userRoles,
+  workflowApiUrl,
 }: {
   isUnauthorized: boolean;
   item: WorkflowLauncherItem;
   onSelect: () => void;
   userRoles: ReadonlySet<string>;
+  workflowApiUrl: string | undefined;
 }) => {
   const reasonId = useId();
   const permission = getWorkflowExecutePermission(
@@ -68,6 +72,13 @@ const WorkflowLauncherEntry = ({
       href={item.href}
       className="flex rounded-sm border-none px-3 py-2 hover:border-none hover:bg-accent hover:text-accent-foreground"
       onClick={onSelect}
+      prefetch={false}
+      onNavigate={() => {
+        const formId = item.metadata?.form_id;
+        if (workflowApiUrl && formId) {
+          void preloadWorkflowForm(workflowApiUrl, formId);
+        }
+      }}
     >
       {item.display_name}
     </Link>
@@ -100,6 +111,8 @@ const WorkflowLauncherEntry = ({
 
 const NewWorkflowChooser = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const { config } = useRuntimeConfig();
+  const workflowApiUrl = config?.workflowApiUrl;
   const { catalog } = useWorkflowCatalog();
   const { isUnauthorized, userRoles } = useWhoami();
   const sections = useMemo(
@@ -141,6 +154,7 @@ const NewWorkflowChooser = () => {
                   key={item.name}
                   onSelect={() => setIsOpen(false)}
                   userRoles={userRoles}
+                  workflowApiUrl={workflowApiUrl}
                 />
               ))}
             </Fragment>
