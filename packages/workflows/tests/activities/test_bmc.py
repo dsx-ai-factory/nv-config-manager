@@ -14,10 +14,11 @@
 # limitations under the License.
 """Package-owned BMC and Redfish activity contracts."""
 
-from typing import Any, Self, cast
+from typing import Self, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from aioresponses import aioresponses
 from nv_config_manager_dcim.api import DCIMClient
 from temporalio.exceptions import ApplicationError
 
@@ -119,31 +120,30 @@ async def test_discovery_skips_a_fully_excluded_range() -> None:
 
 
 @pytest.mark.asyncio
-async def test_discovery_returns_only_successful_supported_redfish_hosts(
-    aioresponses: Any,
-) -> None:
-    aioresponses.get(
-        "https://192.0.2.1:443/redfish/v1/",
-        payload={"RedfishVersion": "1.0.0", "Vendor": "Lenovo"},
-    )
-    aioresponses.get(
-        "https://192.0.2.2:443/redfish/v1/",
-        status=404,
-        payload={"error": "not found"},
-    )
-    aioresponses.get(
-        "https://192.0.2.3:443/redfish/v1/",
-        payload={"RedfishVersion": "1.0.0", "Vendor": "unsupported"},
-    )
-
-    result = await discover_redfish_hosts(
-        DiscoverHostsInput(
-            ip_range_start="192.0.2.1",
-            ip_range_end="192.0.2.4",
-            ips_excluded=[],
-            port=443,
+async def test_discovery_returns_only_successful_supported_redfish_hosts() -> None:
+    with aioresponses() as mocked:
+        mocked.get(
+            "https://192.0.2.1:443/redfish/v1/",
+            payload={"RedfishVersion": "1.0.0", "Vendor": "Lenovo"},
         )
-    )
+        mocked.get(
+            "https://192.0.2.2:443/redfish/v1/",
+            status=404,
+            payload={"error": "not found"},
+        )
+        mocked.get(
+            "https://192.0.2.3:443/redfish/v1/",
+            payload={"RedfishVersion": "1.0.0", "Vendor": "unsupported"},
+        )
+
+        result = await discover_redfish_hosts(
+            DiscoverHostsInput(
+                ip_range_start="192.0.2.1",
+                ip_range_end="192.0.2.4",
+                ips_excluded=[],
+                port=443,
+            )
+        )
 
     assert result.hosts == [RedfishHost(address="192.0.2.1", port=443, vendor=RedfishVendor.LENOVO)]
 

@@ -232,6 +232,33 @@ jobs:
           name: network-template-test-artifacts
           path: packages/templates/coverage.xml
 
+  workflow-package-tests:
+    name: Workflow Package Tests
+    runs-on: linux-amd64-cpu4
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: *actions_checkout
+        with:
+          persist-credentials: false
+      - name: Setup proxy cache
+        uses: *setup_proxy_cache
+      - uses: *actions_setup_python
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: *setup_uv
+        with:
+          enable-cache: true
+      - name: Test the non-editable workflows package and collect coverage
+        run: make test-workflow-package
+      - uses: *upload_artifact
+        if: always()
+        with:
+          name: workflow-package-test-artifacts
+          path: packages/workflows/coverage.xml
+          if-no-files-found: error
+
   workflow-wheel-tests:
     name: Workflow Wheel Tests
     runs-on: linux-amd64-cpu4

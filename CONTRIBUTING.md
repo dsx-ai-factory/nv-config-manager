@@ -236,7 +236,7 @@ entry-point, Pydantic model, event, render-data, and test contract.
 1. **Ensure all tests pass** before submitting:
    ```bash
    # Python tests
-   uv run pytest
+   make test
 
    # Linting
    uv run ruff check .

@@ -2737,6 +2737,10 @@ dev = [
     { name = "aioresponses" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-mock" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
     { name = "responses" },
     { name = "ruff" },
 ]
@@ -2771,6 +2775,10 @@ dev = [
     { name = "aioresponses", specifier = ">=0.7.9" },
     { name = "pytest", specifier = ">=8.3.3" },
     { name = "pytest-asyncio", specifier = ">=0.23.7" },
+    { name = "pytest-cov", specifier = ">=5.0.0" },
+    { name = "pytest-mock", specifier = ">=3.14.0" },
+    { name = "pytest-timeout", specifier = ">=2.3.1" },
+    { name = "pytest-xdist", specifier = ">=3.8.0" },
     { name = "responses", specifier = ">=0.25.3" },
     { name = "ruff", specifier = "==0.16.3" },
 ]

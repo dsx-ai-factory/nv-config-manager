@@ -16,7 +16,7 @@
 
 # Prove the workflow package and the fixture plugin work from built artifacts
 # without the root nv-config-manager distribution: build the wheels, install them
-# into an empty virtual environment, and run workflow_wheels_probe.py from a
+# into an empty virtual environment, and run wheels_probe.py from a
 # directory outside the repository with an isolated interpreter.
 #
 # Needs network access for PyPI (build backends and third-party wheels) and, on
@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 work=$(mktemp -d "${TMPDIR:-/tmp}/nvcm-workflow-wheels.XXXXXX")
 if [[ "${KEEP_WORKDIR:-}" == 1 ]]; then
   trap 'echo "Kept work dir $work"' EXIT
@@ -59,7 +59,7 @@ uv pip install --python "$venv_python" --no-index "$dist"/*.whl
 echo "==> Running the probe from $work"
 cd "$work"
 # Unsetting PYTHONPATH also covers the console-script child, which runs without -I.
-env -u PYTHONPATH "$venv_python" -I -u "$repo_root/scripts/workflow_wheels_probe.py" \
+env -u PYTHONPATH "$venv_python" -I -u "$repo_root/scripts/workflows/wheels_probe.py" \
   --dist "$dist"
 
 echo "==> Workflow wheel tests passed in ${SECONDS}s"

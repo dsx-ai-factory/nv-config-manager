@@ -243,7 +243,6 @@ testpaths = [
     "src/tests",
     "development/mock_topology/tests",
     "development/ufm_mock/tests",
-    "packages/workflows/tests",
     "packages/clients/tests",
     "packages/infrastructure/tests",
     "packages/logging/tests",

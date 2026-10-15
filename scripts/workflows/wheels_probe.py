@@ -14,7 +14,7 @@
 # limitations under the License.
 """Check the built workflow package and fixture plugin outside the monorepo.
 
-Run only by ``scripts/check-workflow-wheels.sh``, with ``python -I`` from a
+Run only by ``scripts/workflows/check-wheels.sh``, with ``python -I`` from a
 virtual environment holding just the built wheels and a working directory
 outside the repository, so that nothing can be imported from the source tree.
 """
