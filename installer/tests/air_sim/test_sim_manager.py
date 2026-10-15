@@ -252,3 +252,86 @@ def test_cloud_init_tail_cleanup_handles_already_exited_process_group(
 
     proc.wait.assert_called_once_with(timeout=5)
     assert stream.closed
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected_success"),
+    [
+        ("status-timeout", True),
+        ("marker-timeout", True),
+        ("persistent-timeout", False),
+        ("cloud-init-error", False),
+        ("missing-marker", False),
+    ],
+)
+def test_cloud_init_polling_retries_timeouts_without_logging_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    scenario: str,
+    expected_success: bool,
+) -> None:
+    manager = AirSimulationManager.__new__(AirSimulationManager)
+    password = "dummy-ssh-password"
+    ssh_base = ["sshpass", "-p", password, "ssh", "worker.example"]
+    monkeypatch.setattr(manager, "_ssh_cmd", lambda _host, _port: ssh_base)
+    stream = StringIO()
+    proc = Mock(pid=12345, stdout=stream)
+    proc.wait.return_value = 0
+    monkeypatch.setattr(sim_manager_module.subprocess, "Popen", Mock(return_value=proc))
+    killpg = Mock()
+    monkeypatch.setattr(sim_manager_module.os, "killpg", killpg)
+
+    elapsed = [0.0]
+    monkeypatch.setattr(sim_manager_module.time, "monotonic", lambda: elapsed[0])
+
+    def select_without_log_output(*_args):
+        elapsed[0] += 11
+        return [], [], []
+
+    monkeypatch.setattr(sim_manager_module.select, "select", select_without_log_output)
+    attempts = {"status": 0, "marker": 0}
+    poll_timeouts = []
+
+    def run(command, **kwargs):
+        if command[-1] == "true":
+            return SimpleNamespace(returncode=0)
+        poll_timeouts.append(kwargs["timeout"])
+        is_status = command[-3:] == ["cloud-init", "status", "--long"]
+        kind = "status" if is_status else "marker"
+        attempts[kind] += 1
+        if (
+            scenario == "persistent-timeout"
+            or (scenario == "status-timeout" and is_status and attempts[kind] == 1)
+            or (scenario == "marker-timeout" and not is_status and attempts[kind] == 1)
+        ):
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        if is_status:
+            status = "error" if scenario == "cloud-init-error" else "done"
+            return SimpleNamespace(returncode=0, stdout=f"status: {status}", stderr="")
+        return SimpleNamespace(returncode=1 if scenario == "missing-marker" else 0)
+
+    monkeypatch.setattr(sim_manager_module.subprocess, "run", run)
+
+    with caplog.at_level("INFO"):
+        assert manager.wait_for_cloud_init("worker.example", 22, timeout=35) is expected_success
+
+    assert password not in caplog.text
+    assert "sshpass" not in caplog.text
+    assert stream.closed
+    killpg.assert_called_once_with(proc.pid, signal.SIGTERM)
+    assert not proc.terminate.called
+    assert all(0 < timeout <= 10 for timeout in poll_timeouts)
+    if scenario == "persistent-timeout":
+        assert attempts["status"] == 3
+        assert poll_timeouts[-1] == 2
+        assert "Timed out waiting for setup to complete" in caplog.text
+    elif scenario == "status-timeout":
+        assert attempts["status"] == 2
+        assert "Cloud-init status check timed out" in caplog.text
+    elif scenario == "marker-timeout":
+        assert attempts["marker"] == 2
+        assert "Setup marker check timed out" in caplog.text
+    elif scenario == "cloud-init-error":
+        assert "Cloud-init reported an error" in caplog.text
+    else:
+        assert "completed without the setup-complete marker" in caplog.text
