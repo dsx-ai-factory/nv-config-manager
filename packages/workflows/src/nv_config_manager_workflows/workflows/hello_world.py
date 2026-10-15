@@ -59,6 +59,7 @@ class HelloWorld(WorkflowMetadataMixin, StageMixin):
     workflow_input_class = HelloWorldInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/hello_world"
+    workflow_form_enabled = False
     workflow_namespace = "hello_world"
     workflow_required_activities = (hello_world_activity,)
 
@@ -150,6 +151,7 @@ class HelloWorldApproval(WorkflowMetadataMixin, StageMixin):
     workflow_input_class = HelloWorldInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/hello_world_approval"
+    workflow_form_enabled = False
     workflow_namespace = "hello_world"
     workflow_required_activities = (
         hello_world_prompt_activity,

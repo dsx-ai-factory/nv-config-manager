@@ -1,0 +1,38 @@
+---
+.main-promote-rules: &main-promote-rules
+  - if: $CI_PIPELINE_SOURCE == "parent_pipeline" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true" && $NVCM_PROMOTE_SOURCE_PIPELINE_ID && $NVCM_PROMOTE_SOURCE_SHA && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa|demo01)$/ && $NVCM_PROMOTE_PR == null
+    when: on_success
+  - if: $CI_PIPELINE_SOURCE == "parent_pipeline" && $CI_COMMIT_TAG =~ /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-rc\.(0|[1-9][0-9]*)$/ && $CI_COMMIT_REF_PROTECTED == "true" && $NVCM_PROMOTE_SOURCE_PIPELINE_ID && $NVCM_PROMOTE_SOURCE_SHA && $NVCM_PROMOTE_SOURCE_TAG && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa|demo01)$/ && $NVCM_PROMOTE_PR == null
+    when: on_success
+  - when: never
+
+main-promote-prepare:
+  extends: test-promote-build
+  rules: *main-promote-rules
+  script:
+    - bash .gitlab/ci/scripts/prepare_main_promotion.sh
+  artifacts:
+    paths: [promote.env, digests.env]
+    expire_in: 1 week
+
+main-promote-chart:
+  extends: test-promote-chart
+  rules: *main-promote-rules
+  needs:
+    - job: main-promote-prepare
+      artifacts: true
+
+main-promote-deploy-state:
+  extends: test-promote-deploy-state
+  rules: *main-promote-rules
+  needs:
+    - job: main-promote-prepare
+      artifacts: true
+    - job: main-promote-chart
+      artifacts: true
+  script:
+    - |
+      env_config="$(bash .gitlab/ci/scripts/test_env_config.sh "$NVCM_PROMOTE_ENV")" || exit $?
+      eval "$env_config"
+    - bash .gitlab/ci/scripts/write_deploy_state.sh
+    - python3 "${CI_PROJECT_DIR}/.gitlab/ci/scripts/wait_for_argocd.py"

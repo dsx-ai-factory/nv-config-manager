@@ -38,7 +38,7 @@ from nv_config_manager.dcim import (
     get_dcim_provider,
 )
 from nv_config_manager.render.events.util import queue_render_batch
-from nv_config_manager.render.exceptions import RenderException
+from nv_config_manager.render.exceptions import RenderException, RenderScopeMismatch
 from nv_config_manager.render.render import execute_render
 
 # Define custom bucket values for histograms (in seconds)
@@ -277,6 +277,8 @@ class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-publi
                 DCIM_CHANGE_PROCESSED_COUNTER, NAUTOBOT_CHANGE_PROCESSED_COUNTER, labels=labels
             )
 
+        except RenderScopeMismatch as exc:
+            self.logger.info("Skipping render outside aggregate scope: %s", exc)
         except (RenderException, ConfigStoreException, DCIMError) as exc:
             self.logger.exception("Error processing DCIM device change event: %s", data)
             _observe_change_times(

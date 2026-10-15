@@ -155,7 +155,7 @@ async def mock_get_host_data_by_macs(mac_addresses: list[str]) -> Any:
             HostData(
                 interfaces=[HostInterface(name="eth0", mac=mac)],
                 name=f"server{i}",
-                tenant="TenantA",
+                tenant=None if i == 2 else "TenantA",
                 device_id=f"uuid-{i}",
                 url="mock_nb_url",
                 alias="server1alias" if i == 1 else None,
@@ -175,7 +175,7 @@ async def mock_get_host_data_by_names(device_names: list[str]) -> Any:
             HostData(
                 interfaces=[],
                 name=name,
-                tenant="TenantA",
+                tenant=None if name == "mock_neighbor4" else "TenantA",
                 device_id=f"uuid-neighbor-{i}",
                 url="mock_nb_url",
                 alias=f"{name}_alias" if i == 0 else None,
@@ -263,8 +263,7 @@ async def test_execute_workflow(
             in result_stripped
         )
         assert (
-            "|swp2|[server2](mock_nb_url)|--|--|eth0|00:00:00:00:00:03|TenantA|300|"
-            in result_stripped
+            "|swp2|[server2](mock_nb_url)|--|--|eth0|00:00:00:00:00:03|--|300|" in result_stripped
         )
         # Check entries with MAC addresses reported over LLDP
         assert (
@@ -277,7 +276,7 @@ async def test_execute_workflow(
             in result_stripped
         )
         assert (
-            "|swp51|[mock_neighbor4](mock_nb_url)|mock_neighbor4|--|Ethernet1/2|--|TenantA|--|"
+            "|swp51|[mock_neighbor4](mock_nb_url)|mock_neighbor4|--|Ethernet1/2|--|--|--|"
             in result_stripped
         )
 

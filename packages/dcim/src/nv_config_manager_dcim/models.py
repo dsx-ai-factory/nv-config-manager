@@ -268,7 +268,7 @@ class HostMetadata(DCIMModel):
 
     device_id: str
     name: str
-    tenant: str
+    tenant: str | None
     alias: str | None
     interfaces: tuple[HostInterfaceMetadata, ...] = ()
 

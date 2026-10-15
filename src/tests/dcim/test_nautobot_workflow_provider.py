@@ -1041,3 +1041,35 @@ async def test_installed_plugins():
             plugins = await client.installed_plugins()
 
         assert plugins == {"plugin1": "1.0.0", "plugin2": "2.0.0"}
+
+
+@pytest.mark.parametrize("lookup", ["macs", "names"])
+@pytest.mark.parametrize("tenant_data", [None, {}, {"name": "tenant-a"}])
+async def test_host_metadata_allows_unassigned_tenant(lookup, tenant_data):
+    first = {
+        "id": "host-1",
+        "name": "compute-1",
+        "tenant": tenant_data,
+        "cf_alias": "compute-alias",
+        "interfaces": [{"name": "eth0", "mac_address": "00:11:22:33:44:55"}],
+    }
+    if tenant_data == {}:
+        del first["tenant"]
+    second = {**first, "id": "host-2", "name": "compute-2", "tenant": {"name": "tenant-b"}}
+    with aioresponses() as responses:
+        responses.post(
+            "https://nautobot.example.com/api/graphql/",
+            payload={"data": {"devices": [first, second]}},
+        )
+        async with NautobotClient() as client:
+            if lookup == "macs":
+                hosts = await client.get_host_metadata_by_macs(["00:11:22:33:44:55"])
+            else:
+                hosts = await client.get_host_metadata_by_names(["compute-1", "compute-2"])
+    assert [host.device_id for host in hosts] == ["host-1", "host-2"]
+    assert hosts[0].tenant == (tenant_data.get("name") if tenant_data else None)
+    assert hosts[1].tenant == "tenant-b"
+    assert hosts[0].alias == "compute-alias"
+    assert [interface.mac_address for interface in hosts[0].interfaces] == (
+        ["00:11:22:33:44:55"] if lookup == "macs" else []
+    )

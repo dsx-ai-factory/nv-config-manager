@@ -1,0 +1,2819 @@
+{
+  "BackupWorkflow": {
+    "schema": {
+      "$defs": {
+        "TriggerEnum": {
+          "enum": [
+            "SCHEDULED",
+            "SYSLOG",
+            "WORKFLOW",
+            "API"
+          ],
+          "title": "TriggerEnum",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "trigger": {
+          "$ref": "#/$defs/TriggerEnum",
+          "title": "Trigger",
+          "default": "API"
+        }
+      },
+      "required": [
+        "device_id",
+        "trigger"
+      ],
+      "title": "BackupInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "device_id": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "filters": [
+            "site",
+            "tenant",
+            "status"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
+          "siteRequired": true,
+          "queryParam": "device-id",
+          "filterScope": "implicit:device_id"
+        },
+        "ui:title": "Device"
+      },
+      "trigger": {
+        "ui:widget": "hidden"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.device.v1"
+    ]
+  },
+  "ConfigDiffWorkflow": {
+    "schema": {
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "ConfigDiffInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "device_id": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "filters": [
+            "site",
+            "tenant",
+            "status"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
+          "siteRequired": true,
+          "queryParam": "device-id",
+          "filterScope": "implicit:device_id"
+        },
+        "ui:title": "Device"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.device.v1"
+    ]
+  },
+  "ConnectedHostMetadataWorkflow": {
+    "schema": {
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "ConnectedHostWorkflowInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "device_id": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "filters": [
+            "site",
+            "tenant",
+            "status"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
+          "siteRequired": true,
+          "queryParam": "device-id",
+          "filterScope": "implicit:device_id"
+        },
+        "ui:title": "Device"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.device.v1"
+    ]
+  },
+  "DeployWorkflow": {
+    "schema": {
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "commit_confirm": {
+          "default": true,
+          "title": "Commit Confirm",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "DeployInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "device_id": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "filters": [
+            "site",
+            "tenant",
+            "status"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
+          "siteRequired": true,
+          "queryParam": "device-id",
+          "filterScope": "implicit:device_id"
+        },
+        "ui:title": "Device"
+      },
+      "commit_confirm": {
+        "ui:title": "Use commit-confirm",
+        "ui:help": "Rollback if device becomes unreachable after apply. Disable for changes that are expected to interrupt connectivity."
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.device.v1"
+    ]
+  },
+  "DeviceCableValidationWorkflow": {
+    "schema": {
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "DeviceCableValidationInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "device_id": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "filters": [
+            "site",
+            "tenant",
+            "status"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
+          "siteRequired": true,
+          "queryParam": "device-id",
+          "filterScope": "implicit:device_id"
+        },
+        "ui:title": "Device"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.device.v1"
+    ]
+  },
+  "DevicePasswordRotationWorkflow": {
+    "schema": {
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "selected_secret": {
+          "title": "Selected Secret",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id",
+        "selected_secret"
+      ],
+      "title": "DevicePasswordRotationInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "device_id": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "filters": [
+            "site"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
+          "siteRequired": true,
+          "queryParam": "device-id",
+          "filterScope": "implicit:device_id",
+          "queryAliases": [
+            "device"
+          ]
+        },
+        "ui:title": "Device"
+      },
+      "selected_secret": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device/{device_id}/password_users",
+            "label_key": "name",
+            "value_key": "name",
+            "clear_on_change": true
+          }
+        },
+        "ui:title": "Secret to Rotate"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.api-options.v1",
+      "core-field.device.v1"
+    ]
+  },
+  "DiagnosticsWorkflow": {
+    "schema": {
+      "properties": {
+        "device_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Device Ids",
+          "type": "array",
+          "minItems": 1
+        },
+        "commands": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Commands",
+          "type": "array",
+          "minItems": 1
+        },
+        "ticketing_platform": {
+          "title": "Ticketing Platform",
+          "type": "string",
+          "enum": [
+            "jira"
+          ]
+        },
+        "issue_key": {
+          "default": "",
+          "title": "Issue Key",
+          "type": "string"
+        },
+        "include_tech_support": {
+          "default": false,
+          "title": "Include Tech Support",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "device_ids",
+        "commands"
+      ],
+      "title": "DiagnosticsWorkflowInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "ui:order": [
+        "device_ids",
+        "commands",
+        "ticketing_platform",
+        "issue_key",
+        "include_tech_support"
+      ],
+      "device_ids": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "type_key": "platform",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "filters": [
+            "site"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
+          "siteRequired": true,
+          "queryParam": "device-id",
+          "filterScope": "implicit:device_ids"
+        },
+        "ui:title": "Devices"
+      },
+      "commands": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/workflow/diagnostics/form-options/diagnostic-commands",
+            "label_key": "label",
+            "value_key": "value",
+            "depends_on": {
+              "platform": {
+                "field": "device_ids",
+                "option_key": "platform"
+              }
+            },
+            "response": "options-v1"
+          },
+          "presentation": "grouped-checkboxes",
+          "selectAll": true,
+          "showDescriptions": true,
+          "waitingText": "Select devices above to see available commands."
+        },
+        "ui:title": "Commands"
+      },
+      "ticketing_platform": {
+        "ui:title": "Ticketing Platform",
+        "ui:widget": "select",
+        "ui:enumNames": [
+          "Jira"
+        ]
+      },
+      "issue_key": {
+        "ui:title": "Issue Key (optional \u2014 leave blank for ticketless mode)",
+        "ui:placeholder": "NETSUPPORT-1234"
+      },
+      "include_tech_support": {
+        "ui:title": "Include tech support bundle",
+        "ui:help": "Collect and upload a full tech support archive for each device. This significantly increases runtime."
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.api-options.enriched.v1",
+      "core-field.api-options.v1",
+      "core-field.api-options.waiting-text.v1",
+      "core-field.device.v1",
+      "option-source.selected-option.v1"
+    ]
+  },
+  "IBPKeyCreationWorkflow": {
+    "schema": {
+      "properties": {
+        "host": {
+          "title": "Host",
+          "type": "string"
+        },
+        "pkey": {
+          "title": "Pkey",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host"
+      ],
+      "title": "IBPKeyCreationInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "ui:submitButtonOptions": {
+        "submitText": "Create PKey"
+      },
+      "host": {
+        "ui:title": "UFM Host",
+        "ui:placeholder": "ufm.example.com"
+      },
+      "pkey": {
+        "ui:title": "PKey (optional)",
+        "ui:placeholder": "0x8001 (leave blank to auto-assign)",
+        "ui:help": "Leave blank to auto-assign the next free PKey; otherwise use 0x followed by 1-4 hexadecimal digits, for example 0x8001."
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": []
+  },
+  "IBPKeyMemberAddWorkflow": {
+    "schema": {
+      "$defs": {
+        "InterfaceRef": {
+          "properties": {
+            "device": {
+              "title": "Device",
+              "type": "string"
+            },
+            "interface": {
+              "title": "Interface",
+              "type": "string"
+            },
+            "membership": {
+              "title": "Membership",
+              "type": "string"
+            }
+          },
+          "required": [
+            "device",
+            "interface"
+          ],
+          "title": "InterfaceRef",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "host": {
+          "title": "Host",
+          "type": "string",
+          "minLength": 1
+        },
+        "pkey": {
+          "title": "Pkey",
+          "type": "string",
+          "pattern": "^\\s*0[xX][0-9a-fA-F]{1,4}\\s*$"
+        },
+        "interfaces": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/InterfaceRef"
+          },
+          "title": "Interfaces",
+          "type": "array"
+        },
+        "guids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Guids",
+          "type": "array"
+        },
+        "guid_memberships": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Guid Memberships",
+          "type": "array"
+        }
+      },
+      "required": [
+        "host",
+        "pkey"
+      ],
+      "title": "IBPKeyMemberAddInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "ui:order": [
+        "host",
+        "pkey",
+        "interfaces",
+        "guids",
+        "guid_memberships"
+      ],
+      "ui:submitButtonOptions": {
+        "submitText": "Add Members"
+      },
+      "host": {
+        "ui:title": "UFM Host",
+        "ui:placeholder": "ufm.example.com"
+      },
+      "pkey": {
+        "ui:title": "PKey",
+        "ui:placeholder": "0x8001"
+      },
+      "interfaces": {
+        "ui:field": "variantRows",
+        "ui:options": {
+          "ownedProperties": [
+            "interfaces",
+            "guids",
+            "guid_memberships"
+          ],
+          "modes": [
+            {
+              "id": "interfaces",
+              "label": "By Interfaces",
+              "columns": [
+                {
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "device",
+                  "label": "Device",
+                  "kind": "text",
+                  "placeholder": "device (e.g. hca01)",
+                  "required": true
+                },
+                {
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "interface",
+                  "label": "Interface",
+                  "kind": "text",
+                  "placeholder": "interface (e.g. mlx5_0)",
+                  "required": true
+                },
+                {
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "membership",
+                  "label": "Membership Type",
+                  "kind": "select",
+                  "required": true,
+                  "choices": [
+                    {
+                      "label": "full",
+                      "value": "full"
+                    },
+                    {
+                      "label": "limited",
+                      "value": "limited"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "guids",
+              "label": "By GUIDs",
+              "description": "One GUID per row. Each must match 0x + 16 hex digits.",
+              "columns": [
+                {
+                  "arrayProperty": "guids",
+                  "label": "GUID",
+                  "kind": "text",
+                  "placeholder": "0x0011223344556677",
+                  "required": true,
+                  "pattern": "^0[xX][0-9a-fA-F]{16}$"
+                },
+                {
+                  "arrayProperty": "guid_memberships",
+                  "label": "Membership Type",
+                  "kind": "select",
+                  "required": true,
+                  "choices": [
+                    {
+                      "label": "full",
+                      "value": "full"
+                    },
+                    {
+                      "label": "limited",
+                      "value": "limited"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "minimumRows": 1,
+          "clearInactive": true
+        }
+      },
+      "guids": {
+        "ui:widget": "hidden"
+      },
+      "guid_memberships": {
+        "ui:widget": "hidden"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.variant-rows.v1"
+    ]
+  },
+  "IBPKeyMemberDeleteWorkflow": {
+    "schema": {
+      "$defs": {
+        "InterfaceRef": {
+          "properties": {
+            "device": {
+              "title": "Device",
+              "type": "string"
+            },
+            "interface": {
+              "title": "Interface",
+              "type": "string"
+            },
+            "membership": {
+              "title": "Membership",
+              "type": "string"
+            }
+          },
+          "required": [
+            "device",
+            "interface"
+          ],
+          "title": "InterfaceRef",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "host": {
+          "title": "Host",
+          "type": "string",
+          "minLength": 1
+        },
+        "pkey": {
+          "title": "Pkey",
+          "type": "string",
+          "pattern": "^\\s*0[xX][0-9a-fA-F]{1,4}\\s*$"
+        },
+        "interfaces": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/InterfaceRef"
+          },
+          "title": "Interfaces",
+          "type": "array"
+        },
+        "guids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Guids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "host",
+        "pkey"
+      ],
+      "title": "IBPKeyMemberDeleteInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "ui:order": [
+        "host",
+        "pkey",
+        "interfaces",
+        "guids"
+      ],
+      "ui:submitButtonOptions": {
+        "submitText": "Remove Members"
+      },
+      "host": {
+        "ui:title": "UFM Host",
+        "ui:placeholder": "ufm.example.com"
+      },
+      "pkey": {
+        "ui:title": "PKey",
+        "ui:placeholder": "0x8001"
+      },
+      "interfaces": {
+        "ui:field": "variantRows",
+        "ui:options": {
+          "ownedProperties": [
+            "interfaces",
+            "guids"
+          ],
+          "modes": [
+            {
+              "id": "interfaces",
+              "label": "By Interfaces",
+              "columns": [
+                {
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "device",
+                  "label": "Device",
+                  "kind": "text",
+                  "placeholder": "device (e.g. hca01)",
+                  "required": true
+                },
+                {
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "interface",
+                  "label": "Interface",
+                  "kind": "text",
+                  "placeholder": "interface (e.g. mlx5_0)",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "id": "guids",
+              "label": "By GUIDs",
+              "description": "One GUID per row. Each must match 0x + 16 hex digits.",
+              "columns": [
+                {
+                  "arrayProperty": "guids",
+                  "label": "GUID",
+                  "kind": "text",
+                  "placeholder": "0x0011223344556677",
+                  "required": true,
+                  "pattern": "^0[xX][0-9a-fA-F]{16}$"
+                }
+              ]
+            }
+          ],
+          "minimumRows": 1,
+          "clearInactive": true
+        }
+      },
+      "guids": {
+        "ui:widget": "hidden"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.variant-rows.v1"
+    ]
+  },
+  "IBPKeyMemberUpdateWorkflow": {
+    "schema": {
+      "$defs": {
+        "InterfaceRef": {
+          "properties": {
+            "device": {
+              "title": "Device",
+              "type": "string"
+            },
+            "interface": {
+              "title": "Interface",
+              "type": "string"
+            },
+            "membership": {
+              "title": "Membership",
+              "type": "string"
+            }
+          },
+          "required": [
+            "device",
+            "interface"
+          ],
+          "title": "InterfaceRef",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "host": {
+          "title": "Host",
+          "type": "string",
+          "minLength": 1
+        },
+        "pkey": {
+          "title": "Pkey",
+          "type": "string",
+          "pattern": "^\\s*0[xX][0-9a-fA-F]{1,4}\\s*$"
+        },
+        "interfaces": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/InterfaceRef"
+          },
+          "title": "Interfaces",
+          "type": "array"
+        },
+        "guids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Guids",
+          "type": "array"
+        },
+        "guid_memberships": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Guid Memberships",
+          "type": "array"
+        }
+      },
+      "required": [
+        "host",
+        "pkey"
+      ],
+      "title": "IBPKeyMemberUpdateInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "ui:order": [
+        "host",
+        "pkey",
+        "interfaces",
+        "guids",
+        "guid_memberships"
+      ],
+      "ui:submitButtonOptions": {
+        "submitText": "Replace Members"
+      },
+      "host": {
+        "ui:title": "UFM Host",
+        "ui:placeholder": "ufm.example.com"
+      },
+      "pkey": {
+        "ui:title": "PKey",
+        "ui:placeholder": "0x8001"
+      },
+      "interfaces": {
+        "ui:field": "variantRows",
+        "ui:options": {
+          "ownedProperties": [
+            "interfaces",
+            "guids",
+            "guid_memberships"
+          ],
+          "modes": [
+            {
+              "id": "interfaces",
+              "label": "By Interfaces",
+              "columns": [
+                {
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "device",
+                  "label": "Device",
+                  "kind": "text",
+                  "placeholder": "device (e.g. hca01)",
+                  "required": true
+                },
+                {
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "interface",
+                  "label": "Interface",
+                  "kind": "text",
+                  "placeholder": "interface (e.g. mlx5_0)",
+                  "required": true
+                },
+                {
+                  "arrayProperty": "interfaces",
+                  "itemProperty": "membership",
+                  "label": "Membership Type",
+                  "kind": "select",
+                  "required": true,
+                  "choices": [
+                    {
+                      "label": "full",
+                      "value": "full"
+                    },
+                    {
+                      "label": "limited",
+                      "value": "limited"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "guids",
+              "label": "By GUIDs",
+              "description": "One GUID per row. Each must match 0x + 16 hex digits.",
+              "columns": [
+                {
+                  "arrayProperty": "guids",
+                  "label": "GUID",
+                  "kind": "text",
+                  "placeholder": "0x0011223344556677",
+                  "required": true,
+                  "pattern": "^0[xX][0-9a-fA-F]{16}$"
+                },
+                {
+                  "arrayProperty": "guid_memberships",
+                  "label": "Membership Type",
+                  "kind": "select",
+                  "required": true,
+                  "choices": [
+                    {
+                      "label": "full",
+                      "value": "full"
+                    },
+                    {
+                      "label": "limited",
+                      "value": "limited"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "minimumRows": 1,
+          "clearInactive": true,
+          "warning": "This reconciles PKey membership to the list below. Any current members not present here will be removed. Removals require approval before they execute."
+        }
+      },
+      "guids": {
+        "ui:widget": "hidden"
+      },
+      "guid_memberships": {
+        "ui:widget": "hidden"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.variant-rows.v1"
+    ]
+  },
+  "IBPortGuidDiscoveryWorkflow": {
+    "schema": {
+      "properties": {
+        "ufm_device_id": {
+          "title": "Ufm Device Id",
+          "type": "string"
+        },
+        "switch_device_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Switch Device Ids",
+          "type": "array",
+          "minItems": 1
+        },
+        "dry_run": {
+          "default": true,
+          "title": "Dry Run",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ufm_device_id",
+        "switch_device_ids"
+      ],
+      "title": "IBPortGuidDiscoveryInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "ufm_device_id": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "role": "UFM"
+            }
+          },
+          "filters": [
+            "site"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
+          "siteRequired": true,
+          "filterScope": "fabric-devices"
+        },
+        "ui:title": "UFM Device"
+      },
+      "switch_device_ids": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "filters": [
+            "site"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
+          "siteRequired": true,
+          "filterScope": "fabric-devices"
+        },
+        "ui:title": "Switch Devices"
+      },
+      "dry_run": {
+        "ui:title": "Dry run",
+        "ui:help": "Compute the UFM-to-DCIM GUID mappings without writing ib_guid back onto any interface. Uncheck to apply the changes."
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.device.v1"
+    ]
+  },
+  "InfinibandCableValidationWorkflow": {
+    "schema": {
+      "properties": {
+        "ufm_device_id": {
+          "title": "Ufm Device Id",
+          "type": "string"
+        },
+        "switch_device_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Switch Device Ids",
+          "type": "array",
+          "minItems": 1
+        }
+      },
+      "required": [
+        "ufm_device_id",
+        "switch_device_ids"
+      ],
+      "title": "InfinibandCableValidationInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "ufm_device_id": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "platform": "UFM"
+            }
+          },
+          "filters": [
+            "site"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
+          "siteRequired": true,
+          "filterScope": "fabric-devices",
+          "queryParam": "ufm_device_id",
+          "queryAliases": [
+            "device"
+          ]
+        },
+        "ui:title": "Device"
+      },
+      "switch_device_ids": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "platform": "MLNX-OS"
+            }
+          },
+          "filters": [
+            "site"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
+          "siteRequired": true,
+          "filterScope": "fabric-devices",
+          "queryParam": "device-id"
+        },
+        "ui:title": "Device IDs"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.device.v1"
+    ]
+  },
+  "InfinibandGetUnhealthyPortsWorkflow": {
+    "schema": {
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "InfinibandGetUnhealthyPortsInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "device_id": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "platform": "UFM"
+            }
+          },
+          "filters": [
+            "site",
+            "tenant",
+            "status"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
+          "siteRequired": true,
+          "queryParam": "device-id",
+          "filterScope": "implicit:device_id"
+        },
+        "ui:title": "Device"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.device.v1"
+    ]
+  },
+  "InfinibandMlnxOSUpgradeWorkflow": {
+    "schema": {
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "InfinibandMlnxOSUpgradeInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "device_id": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "managed_only": true,
+              "platform": "MLNX-OS"
+            }
+          },
+          "filters": [
+            "site",
+            "tenant",
+            "status"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
+          "siteRequired": true,
+          "queryParam": "device-id",
+          "filterScope": "implicit:device_id"
+        },
+        "ui:title": "Device"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.device.v1"
+    ]
+  },
+  "MultiDeployWorkflow": {
+    "schema": {
+      "$defs": {
+        "DCIMLocationType": {
+          "type": "string"
+        }
+      },
+      "properties": {
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "max_batch_size": {
+          "default": 10,
+          "title": "Max Batch Size",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "location": {
+          "title": "Location",
+          "type": "string"
+        },
+        "location_type": {
+          "$ref": "#/$defs/DCIMLocationType",
+          "title": "Location Type"
+        },
+        "status": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Status",
+          "type": "array"
+        },
+        "tenant": {
+          "title": "Tenant",
+          "type": "string"
+        },
+        "commit_confirm": {
+          "default": true,
+          "title": "Commit Confirm",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "role"
+      ],
+      "title": "MultiDeployInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "role": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/role",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "managed_only": true
+            }
+          }
+        }
+      },
+      "max_batch_size": {
+        "ui:title": "Max Batch Size",
+        "ui:placeholder": "10",
+        "ui:options": {
+          "queryCoercion": "integer-prefix-or-default"
+        }
+      },
+      "location": {
+        "ui:field": "location",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/location",
+            "label_key": "name",
+            "value_key": "id",
+            "type_key": "location_type",
+            "params": {
+              "location_type": [
+                "Site",
+                "Module"
+              ]
+            }
+          },
+          "typeField": "location_type"
+        }
+      },
+      "location_type": {
+        "ui:widget": "hidden"
+      },
+      "status": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/status",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "content_type": "dcim.device"
+            }
+          }
+        },
+        "ui:title": "Device Status"
+      },
+      "tenant": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/tenant",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "managed_only": true
+            }
+          }
+        }
+      },
+      "commit_confirm": {
+        "ui:title": "Use commit-confirm",
+        "ui:help": "Rollback if device becomes unreachable after apply. Disable for changes that are expected to interrupt connectivity."
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.api-options.v1",
+      "core-field.location.v1",
+      "prefill.query-coercion.v1"
+    ]
+  },
+  "PortLLDPInfoWorkflow": {
+    "schema": {
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "interface": {
+          "title": "Interface",
+          "type": "string"
+        },
+        "remote_mac_address": {
+          "title": "Remote Mac Address",
+          "type": "string"
+        }
+      },
+      "title": "PortLLDPInfoInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "ui:globalOptions": {
+        "exclusiveGroupsEmptyMessage": "Please provide either all the device information or a MAC Address",
+        "exclusiveGroups": [
+          {
+            "fields": [
+              "device_id",
+              "interface"
+            ],
+            "deviceFilters": [
+              "device_id"
+            ],
+            "requireComplete": true
+          },
+          {
+            "fields": [
+              "remote_mac_address"
+            ],
+            "requireComplete": true
+          }
+        ]
+      },
+      "device_id": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "filters": [
+            "site"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
+          "siteRequired": true,
+          "queryParam": "device-id",
+          "filterScope": "implicit:device_id"
+        },
+        "ui:title": "Device"
+      },
+      "interface": {
+        "ui:title": "Interface",
+        "ui:placeholder": "Interface"
+      },
+      "remote_mac_address": {
+        "ui:title": "MAC Address",
+        "ui:placeholder": "MAC Address"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.device.v1",
+      "interaction.exclusive-groups.v1"
+    ]
+  },
+  "ReprovisionWorkflow": {
+    "schema": {
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "ReprovisionInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "device_id": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "managed_only": true,
+              "platform": [
+                "Cumulus Linux",
+                "NV-OS"
+              ]
+            }
+          },
+          "filters": [
+            "site",
+            "tenant",
+            "status"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
+          "siteRequired": true,
+          "queryParam": "device-id",
+          "filterScope": "implicit:device_id"
+        },
+        "ui:title": "Device",
+        "ui:help": "This workflow is destructive. It will replace all existing configuration on the device with the intended configuration.",
+        "ui:helpVariant": "destructive"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.device.v1",
+      "theme.help-variant.v1"
+    ]
+  },
+  "SiteBackupWorkflow": {
+    "schema": {
+      "$defs": {
+        "DCIMLocationType": {
+          "type": "string"
+        }
+      },
+      "properties": {
+        "site": {
+          "minLength": 1,
+          "title": "Site",
+          "type": "string"
+        },
+        "site_type": {
+          "$ref": "#/$defs/DCIMLocationType",
+          "title": "Site Type"
+        },
+        "roles": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "status": {
+          "default": [
+            "Active",
+            "Provisioned"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Status",
+          "type": "array",
+          "minItems": 1
+        },
+        "tenant": {
+          "title": "Tenant",
+          "type": "string"
+        },
+        "backup_enabled_only": {
+          "default": true,
+          "title": "Backup Enabled Only",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "site"
+      ],
+      "title": "SiteBackupInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "site": {
+        "ui:field": "location",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/location",
+            "label_key": "name",
+            "value_key": "id",
+            "type_key": "location_type",
+            "params": {
+              "location_type": [
+                "Site",
+                "Module"
+              ]
+            }
+          },
+          "typeField": "site_type"
+        }
+      },
+      "site_type": {
+        "ui:widget": "hidden"
+      },
+      "roles": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/role",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "queryAliases": [
+            "role"
+          ]
+        }
+      },
+      "status": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/status",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "content_type": "dcim.device"
+            }
+          }
+        },
+        "ui:title": "Device Status"
+      },
+      "tenant": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/tenant",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "managed_only": true
+            }
+          }
+        }
+      },
+      "backup_enabled_only": {
+        "ui:title": "Backup enabled only",
+        "ui:help": "Include only devices with backup enabled in the DCIM. Uncheck to back up all managed devices that match the other filters.",
+        "ui:options": {
+          "queryCoercion": "case-insensitive-boolean"
+        }
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.api-options.v1",
+      "core-field.location.v1",
+      "prefill.query-coercion.v1"
+    ]
+  },
+  "SiteCableValidationWorkflow": {
+    "schema": {
+      "$defs": {
+        "DCIMLocationType": {
+          "type": "string"
+        }
+      },
+      "properties": {
+        "site": {
+          "title": "Site",
+          "type": "string"
+        },
+        "site_type": {
+          "$ref": "#/$defs/DCIMLocationType",
+          "title": "Site Type"
+        },
+        "roles": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "status": {
+          "default": [
+            "Active",
+            "Provisioned"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Status",
+          "type": "array",
+          "minItems": 1
+        },
+        "tenant": {
+          "title": "Tenant",
+          "type": "string"
+        }
+      },
+      "required": [
+        "site"
+      ],
+      "title": "SiteCableValidationInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "site": {
+        "ui:field": "location",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/location",
+            "label_key": "name",
+            "value_key": "id",
+            "type_key": "location_type",
+            "params": {
+              "location_type": [
+                "Site",
+                "Module"
+              ]
+            }
+          },
+          "typeField": "site_type"
+        }
+      },
+      "site_type": {
+        "ui:widget": "hidden"
+      },
+      "roles": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/role",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "queryAliases": [
+            "role"
+          ]
+        }
+      },
+      "status": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/status",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "content_type": "dcim.device"
+            }
+          }
+        },
+        "ui:title": "Device Status"
+      },
+      "tenant": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/tenant",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "managed_only": true
+            }
+          }
+        }
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.api-options.v1",
+      "core-field.location.v1"
+    ]
+  },
+  "SitePasswordRotationWorkflow": {
+    "schema": {
+      "$defs": {
+        "DCIMLocationType": {
+          "type": "string"
+        }
+      },
+      "properties": {
+        "location": {
+          "minLength": 1,
+          "title": "Location",
+          "type": "string"
+        },
+        "location_type": {
+          "$ref": "#/$defs/DCIMLocationType",
+          "title": "Location Type"
+        },
+        "selected_secret": {
+          "title": "Selected Secret",
+          "type": "string",
+          "minLength": 1
+        },
+        "roles": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "status": {
+          "default": [
+            "Active",
+            "Provisioned"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Status",
+          "type": "array",
+          "minItems": 1
+        },
+        "tenant": {
+          "title": "Tenant",
+          "type": "string"
+        }
+      },
+      "required": [
+        "location",
+        "selected_secret"
+      ],
+      "title": "SitePasswordRotationInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "ui:order": [
+        "location",
+        "roles",
+        "status",
+        "tenant",
+        "selected_secret",
+        "location_type"
+      ],
+      "location": {
+        "ui:field": "location",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/location",
+            "label_key": "name",
+            "value_key": "id",
+            "type_key": "location_type",
+            "params": {
+              "location_type": [
+                "Site",
+                "Module"
+              ]
+            }
+          },
+          "typeField": "location_type"
+        }
+      },
+      "location_type": {
+        "ui:widget": "hidden"
+      },
+      "roles": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/role",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "queryAliases": [
+            "role"
+          ]
+        }
+      },
+      "status": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/status",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "content_type": "dcim.device"
+            }
+          }
+        },
+        "ui:title": "Device Status"
+      },
+      "tenant": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/tenant",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "managed_only": true
+            }
+          }
+        }
+      },
+      "selected_secret": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/workflow/site-password-rotation/form-options/password-users",
+            "label_key": "label",
+            "value_key": "value",
+            "params": {
+              "managed_only": true
+            },
+            "depends_on": {
+              "location": {
+                "field": "location"
+              },
+              "location_type": {
+                "field": "location_type",
+                "required": false
+              },
+              "role": {
+                "field": "roles",
+                "required": false
+              },
+              "status": {
+                "field": "status"
+              },
+              "tenant": {
+                "field": "tenant",
+                "required": false
+              }
+            },
+            "clear_on_change": true,
+            "response": "options-v1"
+          },
+          "showDescriptions": true,
+          "metaText": {
+            "key": "matching_device_count",
+            "label": "Matching devices"
+          },
+          "disableWhenNoMatches": true
+        },
+        "ui:title": "Secret to Rotate"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.api-options.enriched.v1",
+      "core-field.api-options.v1",
+      "core-field.location.v1"
+    ]
+  },
+  "SpXOverlayCreationWorkflow": {
+    "schema": {
+      "$defs": {
+        "DCIMLocationType": {
+          "type": "string"
+        }
+      },
+      "properties": {
+        "site": {
+          "title": "Site",
+          "type": "string"
+        },
+        "site_type": {
+          "$ref": "#/$defs/DCIMLocationType",
+          "title": "Site Type"
+        },
+        "overlay_id": {
+          "title": "Overlay ID",
+          "type": "string"
+        },
+        "tenant": {
+          "title": "Tenant",
+          "type": "string"
+        },
+        "namespace_tag": {
+          "default": "spectrumx",
+          "title": "Namespace Tag",
+          "type": "string"
+        },
+        "rd_min": {
+          "default": 60000,
+          "title": "RD Min",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "rd_max": {
+          "default": 65000,
+          "title": "RD Max",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        }
+      },
+      "required": [
+        "site",
+        "overlay_id",
+        "tenant",
+        "namespace_tag"
+      ],
+      "title": "SpXOverlayCreationInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "ui:globalOptions": {
+        "fieldComparisons": [
+          {
+            "left": "rd_min",
+            "operator": "lessThan",
+            "right": "rd_max",
+            "message": "RD Min must be less than RD Max"
+          }
+        ]
+      },
+      "site": {
+        "ui:field": "location",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/location",
+            "label_key": "name",
+            "value_key": "id",
+            "type_key": "location_type",
+            "params": {
+              "location_type": [
+                "Site",
+                "Module"
+              ]
+            }
+          },
+          "typeField": "site_type"
+        }
+      },
+      "site_type": {
+        "ui:widget": "hidden"
+      },
+      "overlay_id": {
+        "ui:placeholder": "Overlay ID"
+      },
+      "tenant": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/tenant",
+            "label_key": "name",
+            "value_key": "name"
+          }
+        }
+      },
+      "namespace_tag": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/namespace-tag",
+            "label_key": "name",
+            "value_key": "name",
+            "depends_on": {
+              "location": {
+                "field": "site",
+                "required": false
+              },
+              "location_type": {
+                "field": "site_type",
+                "required": false
+              }
+            }
+          },
+          "queryAliases": [
+            "namespace"
+          ]
+        },
+        "ui:title": "Namespace Tag"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.api-options.v1",
+      "core-field.location.v1",
+      "validation.field-comparison.v1"
+    ]
+  },
+  "SpXOverlayDeletionWorkflow": {
+    "schema": {
+      "$defs": {
+        "DCIMLocationType": {
+          "type": "string"
+        }
+      },
+      "properties": {
+        "site": {
+          "title": "Site",
+          "type": "string"
+        },
+        "site_type": {
+          "$ref": "#/$defs/DCIMLocationType",
+          "title": "Site Type"
+        },
+        "overlay_id": {
+          "title": "Overlay ID",
+          "type": "string"
+        },
+        "namespace_tag": {
+          "default": "spectrumx",
+          "title": "Namespace Tag",
+          "type": "string"
+        }
+      },
+      "required": [
+        "site",
+        "overlay_id",
+        "namespace_tag"
+      ],
+      "title": "SpXOverlayDeletionInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "site": {
+        "ui:field": "location",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/location",
+            "label_key": "name",
+            "value_key": "id",
+            "type_key": "location_type",
+            "params": {
+              "location_type": [
+                "Site",
+                "Module"
+              ]
+            }
+          },
+          "typeField": "site_type"
+        }
+      },
+      "site_type": {
+        "ui:widget": "hidden"
+      },
+      "overlay_id": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/overlay",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "isolation_type": "spectrum_x_vrf"
+            },
+            "depends_on": {
+              "location": {
+                "field": "site"
+              },
+              "location_type": {
+                "field": "site_type",
+                "required": false
+              }
+            },
+            "clear_on_change": true
+          }
+        }
+      },
+      "namespace_tag": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/namespace-tag",
+            "label_key": "name",
+            "value_key": "name",
+            "depends_on": {
+              "location": {
+                "field": "site",
+                "required": false
+              },
+              "location_type": {
+                "field": "site_type",
+                "required": false
+              }
+            }
+          },
+          "queryAliases": [
+            "namespace"
+          ]
+        },
+        "ui:title": "Namespace Tag"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.api-options.v1",
+      "core-field.location.v1"
+    ]
+  },
+  "SpXOverlayTenantChangeWorkflow": {
+    "schema": {
+      "$defs": {
+        "DCIMLocationType": {
+          "type": "string"
+        }
+      },
+      "properties": {
+        "overlay_id": {
+          "title": "Overlay ID",
+          "type": "string"
+        },
+        "device_id": {
+          "title": "Device ID",
+          "type": "string"
+        },
+        "port_names": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Port Names",
+          "type": "array"
+        },
+        "site": {
+          "title": "Site",
+          "type": "string"
+        },
+        "site_type": {
+          "$ref": "#/$defs/DCIMLocationType",
+          "title": "Site Type"
+        }
+      },
+      "required": [
+        "device_id",
+        "port_names",
+        "site"
+      ],
+      "title": "SpXOverlayTenantChangeInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "ui:order": [
+        "site",
+        "overlay_id",
+        "device_id",
+        "port_names",
+        "*"
+      ],
+      "site": {
+        "ui:field": "location",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/location",
+            "label_key": "name",
+            "value_key": "id",
+            "type_key": "location_type",
+            "params": {
+              "location_type": [
+                "Site",
+                "Module"
+              ]
+            }
+          },
+          "typeField": "site_type"
+        },
+        "ui:title": "Site"
+      },
+      "site_type": {
+        "ui:widget": "hidden"
+      },
+      "overlay_id": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/overlay",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "isolation_type": "spectrum_x_vrf"
+            },
+            "depends_on": {
+              "location": {
+                "field": "site"
+              },
+              "location_type": {
+                "field": "site_type",
+                "required": false
+              }
+            },
+            "clear_on_change": true
+          }
+        },
+        "ui:title": "Overlay ID (optional \u2014 leave blank to remove)"
+      },
+      "device_id": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "filters": [
+            "site"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            }
+          },
+          "siteRequired": true,
+          "siteField": "site",
+          "queryParam": "device-id",
+          "filterScope": "implicit:device_id"
+        },
+        "ui:title": "Device"
+      },
+      "port_names": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device/{device_id}/interfaces",
+            "label_key": "name",
+            "value_key": "name",
+            "clear_on_change": true
+          },
+          "querySeparator": ","
+        },
+        "ui:title": "Ports"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.api-options.v1",
+      "core-field.device.v1",
+      "core-field.location.v1",
+      "prefill.query-separator.v1"
+    ]
+  },
+  "SwitchOSUpgradeWorkflow": {
+    "schema": {
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "SwitchOSUpgradeInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "device_id": {
+        "ui:field": "device",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/device",
+            "label_key": "name",
+            "value_key": "id",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "filters": [
+            "site",
+            "tenant",
+            "status"
+          ],
+          "filterSources": {
+            "site": {
+              "endpoint": "/v1/parameter/location",
+              "label_key": "name",
+              "value_key": "id",
+              "type_key": "location_type",
+              "params": {
+                "location_type": [
+                  "Site",
+                  "Module"
+                ]
+              }
+            },
+            "tenant": {
+              "endpoint": "/v1/parameter/tenant",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "managed_only": true
+              }
+            },
+            "status": {
+              "endpoint": "/v1/parameter/status",
+              "label_key": "name",
+              "value_key": "name",
+              "params": {
+                "content_type": "dcim.device"
+              }
+            }
+          },
+          "siteRequired": true,
+          "queryParam": "device-id",
+          "filterScope": "implicit:device_id"
+        },
+        "ui:title": "Device"
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.device.v1"
+    ]
+  },
+  "ValidateHardwareWorkflow": {
+    "schema": {
+      "$defs": {
+        "DCIMLocationType": {
+          "type": "string"
+        }
+      },
+      "properties": {
+        "site": {
+          "title": "Site",
+          "type": "string"
+        },
+        "site_type": {
+          "$ref": "#/$defs/DCIMLocationType",
+          "title": "Site Type"
+        },
+        "roles": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "status": {
+          "default": [
+            "Active",
+            "Provisioned"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Status",
+          "type": "array",
+          "minItems": 1
+        },
+        "tenant": {
+          "title": "Tenant",
+          "type": "string"
+        }
+      },
+      "required": [
+        "site"
+      ],
+      "title": "ValidateHardwareInput",
+      "type": "object"
+    },
+    "ui_schema": {
+      "site": {
+        "ui:field": "location",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/location",
+            "label_key": "name",
+            "value_key": "id",
+            "type_key": "location_type",
+            "params": {
+              "location_type": [
+                "Site",
+                "Module"
+              ]
+            }
+          },
+          "typeField": "site_type"
+        }
+      },
+      "site_type": {
+        "ui:widget": "hidden"
+      },
+      "roles": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/role",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "managed_only": true
+            }
+          },
+          "queryAliases": [
+            "role"
+          ]
+        }
+      },
+      "status": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/status",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "content_type": "dcim.device"
+            }
+          }
+        },
+        "ui:title": "Device Status"
+      },
+      "tenant": {
+        "ui:field": "apiOptions",
+        "ui:options": {
+          "source": {
+            "endpoint": "/v1/parameter/tenant",
+            "label_key": "name",
+            "value_key": "name",
+            "params": {
+              "managed_only": true
+            }
+          }
+        }
+      }
+    },
+    "ui_schema_version": 1,
+    "requires": [
+      "core-field.api-options.v1",
+      "core-field.location.v1"
+    ]
+  }
+}

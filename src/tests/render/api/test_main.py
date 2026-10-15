@@ -20,6 +20,17 @@ from fastapi.testclient import TestClient
 
 from nv_config_manager.common.client.render import FileCommit
 from nv_config_manager.render.api.main import app
+from nv_config_manager.render.exceptions import RenderScopeMismatch
+
+
+@patch("nv_config_manager.render.api.render_v1.execute_render", new_callable=AsyncMock)
+@patch.dict(os.environ, {"LOCAL_VENV": "1"})
+def test_manual_render_rejects_aggregate_scope_mismatch(mock_render):
+    """An ownership rejection is a client error instead of a server fault."""
+    mock_render.side_effect = RenderScopeMismatch("Device is not aggregate-managed")
+    response = TestClient(app).post("/v1/render/test/render")
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Device is not aggregate-managed"}
 
 
 def test_healthcheck():

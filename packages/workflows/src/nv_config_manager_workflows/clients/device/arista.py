@@ -271,7 +271,7 @@ class AristaConnection(NetworkConnection):
             if not self._diff_eq(diff, approved_diff):
                 raise DiffChangedException("Diff has changed since approval, aborting.")
             if commit_confirm:
-                # commit timer HH:MM:SS = roll back unless confirmed; commit applies
+                # commit timer HH:MM:SS = roll back unless confirmed
                 m, s = divmod(COMMIT_CONFIRM_ROLLBACK_SECONDS, 60)
                 h, m = divmod(m, 60)
                 timer_str = f"{h:02d}:{m:02d}:{s:02d}"
@@ -279,7 +279,6 @@ class AristaConnection(NetworkConnection):
                     [
                         f"configure session {self._session_id}",
                         f"commit timer {timer_str}",
-                        "commit",
                     ]
                 )
                 # Confirm (make permanent); from exec: configure session <name> commit

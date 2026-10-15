@@ -27,6 +27,7 @@ from nv_config_manager.common.config import (
 )
 from nv_config_manager.dcim import dcim_client_session
 from nv_config_manager.render.events.util import queue_render_batch
+from nv_config_manager.render.exceptions import RenderScopeMismatch
 from nv_config_manager.render.lock import create_lock
 from nv_config_manager.render.render import execute_render
 
@@ -117,6 +118,8 @@ async def render(
         updated_files = await execute_render(device_uuid, commit_message, user)
         response.status_code = 200 if not updated_files else 201
         return RenderResponse(updated_files=updated_files)
+    except RenderScopeMismatch as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     finally:
         await lock.release()
 

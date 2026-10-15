@@ -23,9 +23,66 @@ from nv_config_manager_templates.models import DeviceRenderData, LocationRenderD
 from nv_config_manager.common.client import ConfigFile, ConfigFileMetadata
 from nv_config_manager.common.client.render import FileCommit
 from nv_config_manager.dcim import IntendedConfigurationUpdate, RenderDeviceIdentity, RenderLocation
+from nv_config_manager.render.exceptions import RenderScopeMismatch
 from nv_config_manager.render.render import execute_render
 
 TEMPLATE_VERSION = "engine=nv-config-manager-templates:0.0.1;plugins=none"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "aggregate,status",
+    [
+        (True, None),
+        (False, None),
+        (True, MagicMock(is_aggregate_managed=False)),
+        (False, MagicMock(is_aggregate_managed=True)),
+    ],
+)
+async def test_render_rejects_devices_outside_environment_scope(aggregate, status):
+    """Manual and queued renders cannot write another cell's configuration."""
+    client = AsyncMock()
+    client.get_render_device_status.return_value = status
+
+    @asynccontextmanager
+    async def session():
+        yield client
+
+    with (
+        patch("nv_config_manager.render.render.dcim_client_session", session),
+        patch("nv_config_manager.render.render.is_aggregate_environment", return_value=aggregate),
+        patch("nv_config_manager.render.render.Renderer") as renderer,
+        patch("nv_config_manager.render.render.config_store_client") as storage,
+        pytest.raises(RenderScopeMismatch, match="outside this deployment's render scope"),
+    ):
+        await execute_render("device-id", "message", "user")
+
+    client.get_render_data.assert_not_awaited()
+    renderer.assert_not_called()
+    storage.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("aggregate", [True, False])
+async def test_render_accepts_devices_owned_by_environment(aggregate):
+    """Both deployment types retain rendering for devices they own."""
+    client = AsyncMock()
+    client.get_render_device_status.return_value = MagicMock(is_aggregate_managed=aggregate)
+    client.get_render_data.return_value = _render_data()
+
+    @asynccontextmanager
+    async def session():
+        yield client
+
+    with (
+        patch("nv_config_manager.render.render.dcim_client_session", session),
+        patch("nv_config_manager.render.render.is_aggregate_environment", return_value=aggregate),
+        patch("nv_config_manager.render.render.Renderer") as renderer,
+    ):
+        renderer.return_value.plugin_data_requirements = {}
+        renderer.return_value.render_entrypoints.return_value = {}
+        assert await execute_render("device-id", "message", "user") == []
+    client.get_render_data.assert_awaited_once()
 
 
 def _render_data() -> RenderData:
@@ -64,6 +121,7 @@ async def test_execute_render_uses_provider_for_data_and_state(
 ):
     """Render inputs and resulting intended-config state cross the provider API."""
     dcim_client = AsyncMock()
+    dcim_client.get_render_device_status.return_value = MagicMock(is_aggregate_managed=False)
     render_data = _render_data()
     dcim_client.get_render_data.return_value = render_data
 
@@ -111,6 +169,7 @@ async def test_execute_render_uses_provider_for_data_and_state(
 async def test_execute_render_logs_post_render_failures_without_wrapping(caplog) -> None:
     """Persistence failures retain their type and gain device context in logs."""
     dcim_client = AsyncMock()
+    dcim_client.get_render_device_status.return_value = MagicMock(is_aggregate_managed=False)
     dcim_client.get_render_data.return_value = _render_data()
 
     @asynccontextmanager
@@ -147,6 +206,7 @@ async def test_execute_render_updates_template_version_without_deployable_file(
 ):
     """A non-deployable update records only the normalized template version."""
     dcim_client = AsyncMock()
+    dcim_client.get_render_device_status.return_value = MagicMock(is_aggregate_managed=False)
     dcim_client.get_render_data.return_value = _render_data()
 
     @asynccontextmanager
@@ -184,6 +244,7 @@ async def test_execute_render_resyncs_unchanged_deployable_file(
 ):
     """No-diff renders retain the existing Config Store re-sync behavior."""
     dcim_client = AsyncMock()
+    dcim_client.get_render_device_status.return_value = MagicMock(is_aggregate_managed=False)
     dcim_client.get_render_data.return_value = _render_data()
 
     @asynccontextmanager

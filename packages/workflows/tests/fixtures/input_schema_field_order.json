@@ -1,0 +1,551 @@
+{
+  "BackupWorkflow": {
+    "#": {
+      "properties": [
+        "terminate_on_failure",
+        "device_id",
+        "trigger",
+        "user",
+        "user_domain",
+        "workflow_id",
+        "intended_config_commit_id",
+        "suppress_drift_notification"
+      ],
+      "required": [
+        "device_id",
+        "trigger"
+      ]
+    }
+  },
+  "ConfigDiffWorkflow": {
+    "#": {
+      "properties": [
+        "device_id",
+        "device"
+      ],
+      "required": [
+        "device_id"
+      ]
+    },
+    "#/$defs/NetworkDeviceData": {
+      "properties": [
+        "id",
+        "name",
+        "rack",
+        "position",
+        "role",
+        "site",
+        "device_type",
+        "platform",
+        "primary_ip4",
+        "primary_ip6",
+        "intent",
+        "render_enabled",
+        "deploy_enabled",
+        "backup_enabled",
+        "ztp_enabled"
+      ],
+      "required": [
+        "id",
+        "name",
+        "role",
+        "site",
+        "device_type",
+        "platform",
+        "primary_ip4",
+        "primary_ip6"
+      ]
+    }
+  },
+  "ConnectedHostMetadataWorkflow": {
+    "#": {
+      "properties": [
+        "device_id"
+      ],
+      "required": [
+        "device_id"
+      ]
+    }
+  },
+  "DeployWorkflow": {
+    "#": {
+      "properties": [
+        "device_id",
+        "commit_confirm"
+      ],
+      "required": [
+        "device_id"
+      ]
+    }
+  },
+  "DeviceCableValidationWorkflow": {
+    "#": {
+      "properties": [
+        "device_id",
+        "device",
+        "defer_cable_status_updates",
+        "ignore_no_neighbor"
+      ],
+      "required": [
+        "device_id"
+      ]
+    },
+    "#/$defs/NetworkDeviceData": {
+      "properties": [
+        "id",
+        "name",
+        "rack",
+        "position",
+        "role",
+        "site",
+        "device_type",
+        "platform",
+        "primary_ip4",
+        "primary_ip6",
+        "intent",
+        "render_enabled",
+        "deploy_enabled",
+        "backup_enabled",
+        "ztp_enabled"
+      ],
+      "required": [
+        "id",
+        "name",
+        "role",
+        "site",
+        "device_type",
+        "platform",
+        "primary_ip4",
+        "primary_ip6"
+      ]
+    }
+  },
+  "DevicePasswordRotationWorkflow": {
+    "#": {
+      "properties": [
+        "device_id",
+        "selected_secret"
+      ],
+      "required": [
+        "device_id",
+        "selected_secret"
+      ]
+    }
+  },
+  "DiagnosticsWorkflow": {
+    "#": {
+      "properties": [
+        "device_ids",
+        "commands",
+        "ticketing_platform",
+        "issue_key",
+        "include_tech_support",
+        "user"
+      ],
+      "required": [
+        "device_ids",
+        "commands"
+      ]
+    }
+  },
+  "HelloWorld": {
+    "#": {
+      "properties": [
+        "name"
+      ],
+      "required": [
+        "name"
+      ]
+    }
+  },
+  "HelloWorldApproval": {
+    "#": {
+      "properties": [
+        "name"
+      ],
+      "required": [
+        "name"
+      ]
+    }
+  },
+  "IBPKeyCreationWorkflow": {
+    "#": {
+      "properties": [
+        "host",
+        "site",
+        "site_type",
+        "pkey",
+        "ip_over_ib",
+        "pkey_min",
+        "pkey_max"
+      ],
+      "required": [
+        "host"
+      ]
+    }
+  },
+  "IBPKeyMemberAddWorkflow": {
+    "#": {
+      "properties": [
+        "host",
+        "pkey",
+        "interfaces",
+        "guids",
+        "guid_memberships",
+        "membership_type",
+        "ip_over_ib"
+      ],
+      "required": [
+        "host",
+        "pkey"
+      ]
+    },
+    "#/$defs/InterfaceRef": {
+      "properties": [
+        "device",
+        "interface",
+        "membership"
+      ],
+      "required": [
+        "device",
+        "interface"
+      ]
+    }
+  },
+  "IBPKeyMemberDeleteWorkflow": {
+    "#": {
+      "properties": [
+        "host",
+        "pkey",
+        "interfaces",
+        "guids"
+      ],
+      "required": [
+        "host",
+        "pkey"
+      ]
+    },
+    "#/$defs/InterfaceRef": {
+      "properties": [
+        "device",
+        "interface",
+        "membership"
+      ],
+      "required": [
+        "device",
+        "interface"
+      ]
+    }
+  },
+  "IBPKeyMemberUpdateWorkflow": {
+    "#": {
+      "properties": [
+        "host",
+        "pkey",
+        "interfaces",
+        "guids",
+        "guid_memberships",
+        "membership_type",
+        "ip_over_ib"
+      ],
+      "required": [
+        "host",
+        "pkey"
+      ]
+    },
+    "#/$defs/InterfaceRef": {
+      "properties": [
+        "device",
+        "interface",
+        "membership"
+      ],
+      "required": [
+        "device",
+        "interface"
+      ]
+    }
+  },
+  "IBPortGuidDiscoveryWorkflow": {
+    "#": {
+      "properties": [
+        "ufm_device_id",
+        "switch_device_ids",
+        "dry_run"
+      ],
+      "required": [
+        "ufm_device_id",
+        "switch_device_ids"
+      ]
+    }
+  },
+  "InfinibandCableValidationWorkflow": {
+    "#": {
+      "properties": [
+        "ufm_device_id",
+        "switch_device_ids"
+      ],
+      "required": [
+        "ufm_device_id",
+        "switch_device_ids"
+      ]
+    }
+  },
+  "InfinibandGetUnhealthyPortsWorkflow": {
+    "#": {
+      "properties": [
+        "device_id"
+      ],
+      "required": [
+        "device_id"
+      ]
+    }
+  },
+  "InfinibandMlnxOSUpgradeWorkflow": {
+    "#": {
+      "properties": [
+        "device_id"
+      ],
+      "required": [
+        "device_id"
+      ]
+    }
+  },
+  "MultiDeployWorkflow": {
+    "#": {
+      "properties": [
+        "role",
+        "max_batch_size",
+        "location",
+        "location_type",
+        "status",
+        "tenant",
+        "commit_confirm"
+      ],
+      "required": [
+        "role"
+      ]
+    }
+  },
+  "NVLinkSwitchFirmwareUpgradeWorkflow": {
+    "#": {
+      "properties": [
+        "device_id",
+        "bundle_version"
+      ],
+      "required": [
+        "device_id",
+        "bundle_version"
+      ]
+    }
+  },
+  "PortLLDPInfoWorkflow": {
+    "#": {
+      "properties": [
+        "device_id",
+        "interface",
+        "remote_mac_address"
+      ],
+      "required": []
+    }
+  },
+  "RedfishProvisioningWorkflow": {
+    "#": {
+      "properties": [
+        "site",
+        "site_type",
+        "bmc_switch_roles",
+        "ip_range_start",
+        "ip_range_end",
+        "port",
+        "http_timeout_s",
+        "dpu_manufacturers"
+      ],
+      "required": [
+        "site",
+        "bmc_switch_roles",
+        "ip_range_start",
+        "ip_range_end"
+      ]
+    }
+  },
+  "ReprovisionWorkflow": {
+    "#": {
+      "properties": [
+        "device_id"
+      ],
+      "required": [
+        "device_id"
+      ]
+    }
+  },
+  "SiteBackupWorkflow": {
+    "#": {
+      "properties": [
+        "site",
+        "site_type",
+        "roles",
+        "status",
+        "tenant",
+        "backup_enabled_only",
+        "user",
+        "user_domain"
+      ],
+      "required": [
+        "site"
+      ]
+    }
+  },
+  "SiteCableValidationWorkflow": {
+    "#": {
+      "properties": [
+        "site",
+        "site_type",
+        "roles",
+        "status",
+        "tenant",
+        "device_type_ids",
+        "raise_for_invalid"
+      ],
+      "required": [
+        "site"
+      ]
+    }
+  },
+  "SitePasswordRotationWorkflow": {
+    "#": {
+      "properties": [
+        "location",
+        "location_type",
+        "selected_secret",
+        "roles",
+        "status",
+        "tenant"
+      ],
+      "required": [
+        "location",
+        "selected_secret"
+      ]
+    }
+  },
+  "SpXOverlayAssignmentWorkflow": {
+    "#": {
+      "properties": [
+        "overlay_id",
+        "device",
+        "port_names",
+        "site",
+        "site_type",
+        "namespace_tag"
+      ],
+      "required": [
+        "device",
+        "port_names",
+        "site"
+      ]
+    },
+    "#/$defs/NetworkDeviceData": {
+      "properties": [
+        "id",
+        "name",
+        "rack",
+        "position",
+        "role",
+        "site",
+        "device_type",
+        "platform",
+        "primary_ip4",
+        "primary_ip6",
+        "intent",
+        "render_enabled",
+        "deploy_enabled",
+        "backup_enabled",
+        "ztp_enabled"
+      ],
+      "required": [
+        "id",
+        "name",
+        "role",
+        "site",
+        "device_type",
+        "platform",
+        "primary_ip4",
+        "primary_ip6"
+      ]
+    }
+  },
+  "SpXOverlayCreationWorkflow": {
+    "#": {
+      "properties": [
+        "site",
+        "site_type",
+        "overlay_id",
+        "tenant",
+        "namespace_tag",
+        "rd_min",
+        "rd_max"
+      ],
+      "required": [
+        "site",
+        "overlay_id",
+        "tenant"
+      ]
+    }
+  },
+  "SpXOverlayDeletionWorkflow": {
+    "#": {
+      "properties": [
+        "site",
+        "site_type",
+        "overlay_id",
+        "namespace_tag"
+      ],
+      "required": [
+        "site",
+        "overlay_id"
+      ]
+    }
+  },
+  "SpXOverlayTenantChangeWorkflow": {
+    "#": {
+      "properties": [
+        "overlay_id",
+        "device_id",
+        "port_names",
+        "site",
+        "site_type",
+        "namespace_tag"
+      ],
+      "required": [
+        "device_id",
+        "port_names",
+        "site"
+      ]
+    }
+  },
+  "SwitchOSUpgradeWorkflow": {
+    "#": {
+      "properties": [
+        "device_id"
+      ],
+      "required": [
+        "device_id"
+      ]
+    }
+  },
+  "ValidateHardwareWorkflow": {
+    "#": {
+      "properties": [
+        "site",
+        "site_type",
+        "roles",
+        "status",
+        "tenant",
+        "device_type_ids",
+        "raise_for_invalid"
+      ],
+      "required": [
+        "site"
+      ]
+    }
+  }
+}

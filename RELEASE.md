@@ -16,15 +16,23 @@ candidates). Apply Semantic Versioning: incompatible public API or configuration
 changes require a major version; compatible features a minor version; compatible
 fixes a patch. Document migration steps for breaking changes before promotion.
 
-Only repository administrators can trigger successful tag creation. Review the
-release commit, CI results, migration notes, and changelog before promotion.
+Tagging jobs require both the original operator and anyone rerunning the job
+to be repository admins. Review the release commit, CI results, migration notes,
+and changelog before promotion.
+
+Tagging uses a repository write deploy key stored as `RELEASE_TAG_SSH_KEY` in the
+`release-tagging` environment, restricted to `main`. The release tag ruleset
+must allow repository admins and deploy keys to bypass its restrictions.
 
 ## Release Steps
+
+Run both tagging workflows from `main`; their inputs select the source.
 
 1. Merge reviewed changes and release notes into `main`.
 1. Run **Create RC Tag** with `source_ref=main`. Keep
    `require_public_ci_success=true`. The workflow checks main ancestry and creates
-   the platform and Go binding tags atomically.
+   the platform and Go binding tags atomically. For a maintenance RC, use
+   `source_ref=release/X.Y.Z` to tag that protected branch's tip.
 1. Validate the candidate using the project's release qualification process.
 1. Run **Promote Release** for the validated candidate. The workflow promotes the
    same commit and publishes a GitHub Release using its changelog section.

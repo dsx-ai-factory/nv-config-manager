@@ -612,7 +612,7 @@ class NautobotWorkflowClient(BaseNautobotClient):
             HostMetadata(
                 device_id=device["id"],
                 name=device["name"],
-                tenant=device["tenant"]["name"],
+                tenant=device["tenant"]["name"] if device.get("tenant") else None,
                 alias=device.get("cf_alias"),
                 interfaces=tuple(
                     HostInterfaceMetadata(
@@ -635,7 +635,7 @@ class NautobotWorkflowClient(BaseNautobotClient):
             HostMetadata(
                 device_id=device["id"],
                 name=device["name"],
-                tenant=device["tenant"]["name"],
+                tenant=device["tenant"]["name"] if device.get("tenant") else None,
                 alias=device.get("cf_alias"),
             )
             for device in data["data"]["devices"]

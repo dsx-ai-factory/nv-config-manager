@@ -18,8 +18,10 @@ import concurrent.futures
 import re
 from unittest import mock
 
+import aiohttp
 import pytest
 from opentelemetry.instrumentation.utils import is_instrumentation_enabled
+from opentelemetry.metrics import _internal as metrics_internal
 
 from nv_config_manager.common import telemetry
 
@@ -327,3 +329,18 @@ class TestHttpClientInstrumentation:
         boom.assert_called_once_with()
         # A failure in one instrumentor does not stop the others from running.
         healthy.assert_called_once_with()
+
+    @pytest.mark.asyncio
+    async def test_aiohttp_sessions_do_not_accumulate_meters(self):
+        """A session per request must not leave a meter behind on the global proxy provider."""
+        proxy_meters = metrics_internal._PROXY_METER_PROVIDER._meters
+        instrument = dict(telemetry._http_client_instrumentors())["aiohttp"]
+        instrument()
+        try:
+            before = len(proxy_meters)
+            for _ in range(50):
+                async with aiohttp.ClientSession():
+                    pass
+            assert len(proxy_meters) == before
+        finally:
+            telemetry.AioHttpClientInstrumentor().uninstrument()

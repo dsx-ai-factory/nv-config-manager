@@ -101,7 +101,11 @@ def build_content_jobs(cfg: SimConfig) -> tuple[list[dict[str, str]], list[dict[
 
     if cfg.run_mock_topology_job:
         jobs.append(
-            {"path": remote_repo_path(cfg.mock_topology_path or "development/mock_topology")}
+            {
+                "path": cfg.mock_topology_path
+                if cfg._air_content_staged
+                else remote_repo_path(cfg.mock_topology_path or "development/mock_topology")
+            }
         )
         run_after_deploy.append(
             {
@@ -114,7 +118,7 @@ def build_content_jobs(cfg: SimConfig) -> tuple[list[dict[str, str]], list[dict[
 
     for path in cfg.extra_job_paths:
         if path:
-            jobs.append({"path": remote_repo_path(path)})
+            jobs.append({"path": path if cfg._air_content_staged else remote_repo_path(path)})
 
     for job_spec in cfg.extra_run_after_deploy:
         normalized = _normalize_post_deploy_job(job_spec)

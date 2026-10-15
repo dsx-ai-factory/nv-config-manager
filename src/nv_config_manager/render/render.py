@@ -28,6 +28,7 @@ from nv_config_manager.common.client.render import FileCommit
 from nv_config_manager.common.config import (
     config_store_client,
     config_store_ui_url,
+    is_aggregate_environment,
 )
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import (
@@ -36,7 +37,7 @@ from nv_config_manager.dcim import (
     RenderDataRequest,
     dcim_client_session,
 )
-from nv_config_manager.render.exceptions import RenderException
+from nv_config_manager.render.exceptions import RenderException, RenderScopeMismatch
 
 logger = get_logger(__name__, category=LogCategory.RENDER)
 
@@ -158,6 +159,14 @@ async def execute_render(device_uuid: str, commit_message: str, user: str) -> li
     user_domain = os.getenv("NV_CONFIG_MANAGER_DOMAIN", "local.config-manager.example.com")
 
     async with dcim_client_session() as dcim_client:
+        aggregate = is_aggregate_environment()
+        status = await dcim_client.get_render_device_status(device_uuid)
+        if status is None or status.is_aggregate_managed != aggregate:
+            scope = "aggregate-managed" if aggregate else "non-aggregate-managed"
+            raise RenderScopeMismatch(
+                f"Device {device_uuid} is outside this deployment's render scope; "
+                f"only {scope} devices can render here."
+            )
         try:
             renderer = Renderer()
             render_data = await dcim_client.get_render_data(

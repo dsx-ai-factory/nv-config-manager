@@ -64,17 +64,26 @@ def remote_repo_path(path: str) -> str:
     return f"{CONFIG_MANAGER_REMOTE_DIR}/{path_obj.as_posix()}"
 
 
-def build_template_plugins(cfg: SimConfig) -> list[dict[str, str]]:
-    """Return installer content.template_plugins entries."""
+def template_plugin_paths(cfg: SimConfig) -> list[str]:
+    """Return configured and inferred local template-plugin paths."""
     paths = [path for path in cfg.template_plugin_paths if path]
 
-    if cfg.mock_blueprint in _DEMO_TEMPLATE_BLUEPRINTS:
+    if cfg.mock_blueprint in _DEMO_TEMPLATE_BLUEPRINTS and not cfg._air_content_staged:
         default_path = DEFAULT_AIR_DEMO_TEMPLATE_PLUGIN_PATH.as_posix()
         default_remote_path = remote_repo_path(default_path)
         if all(remote_repo_path(path) != default_remote_path for path in paths):
             paths.append(default_path)
 
-    return [{"path": remote_repo_path(path)} for path in paths]
+    return paths
+
+
+def build_template_plugins(cfg: SimConfig) -> list[dict[str, str]]:
+    """Return installer content.template_plugins entries."""
+    paths = template_plugin_paths(cfg)
+
+    return [
+        {"path": path if cfg._air_content_staged else remote_repo_path(path)} for path in paths
+    ]
 
 
 def generate_air_sim_install_config(
@@ -170,7 +179,7 @@ def build_deploy_command(_cfg: SimConfig) -> str:
     config_path = f"/home/{user}/{CONFIG_MANAGER_INSTALL_CONFIG}"
 
     return (
-        f"sudo NO_COLOR=1 {kube} uv run"
+        f"sudo NO_COLOR=1 {kube} uv run --python 3.13"
         f" --directory {CONFIG_MANAGER_REMOTE_DIR}"
         f" --project {CONFIG_MANAGER_REMOTE_DIR}/installer"
         f" nv-config-manager-installer deploy {config_path}"

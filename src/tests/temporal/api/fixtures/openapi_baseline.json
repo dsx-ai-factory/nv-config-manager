@@ -1,0 +1,5653 @@
+{
+  "components": {
+    "schemas": {
+      "BackupInput": {
+        "description": "Backup Workflow Input Definiton.",
+        "properties": {
+          "device_id": {
+            "description": "Identifier of the network device to back up.",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "intended_config_commit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Config Store commit containing the intended configuration.",
+            "title": "Intended Config Commit Id"
+          },
+          "suppress_drift_notification": {
+            "default": false,
+            "description": "Suppress the Slack notification when configuration drift is detected.",
+            "title": "Suppress Drift Notification",
+            "type": "boolean"
+          },
+          "terminate_on_failure": {
+            "default": false,
+            "description": "Terminate the workflow instead of waiting to retry a failed stage.",
+            "title": "Terminate On Failure",
+            "type": "boolean"
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/TriggerEnum",
+            "description": "Reason the backup workflow was started."
+          },
+          "user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "User that requested the backup.",
+            "title": "User"
+          },
+          "user_domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Domain of the user requesting the backup.",
+            "title": "User Domain"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Identifier of the parent workflow, if any.",
+            "title": "Workflow Id"
+          }
+        },
+        "required": [
+          "device_id",
+          "trigger"
+        ],
+        "title": "BackupInput",
+        "type": "object"
+      },
+      "CommandEntry": {
+        "description": "A single command in the diagnostics catalog.",
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "title": "CommandEntry",
+        "type": "object"
+      },
+      "ConfigDiffInput": {
+        "description": "Config Diff Workflow input.",
+        "properties": {
+          "device": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NetworkDeviceData"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Preloaded network device data, if available."
+          },
+          "device_id": {
+            "description": "Identifier of the network device to compare.",
+            "title": "Device Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id"
+        ],
+        "title": "ConfigDiffInput",
+        "type": "object"
+      },
+      "ConnectedHostWorkflowInput": {
+        "description": "Connected Host Workflow Input.",
+        "properties": {
+          "device_id": {
+            "description": "Identifier of the network device to analyze.",
+            "title": "Device Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id"
+        ],
+        "title": "ConnectedHostWorkflowInput",
+        "type": "object"
+      },
+      "DCIMLocationType": {
+        "type": "string"
+      },
+      "DeployInput": {
+        "description": "Config Deployment Workflow Input Definiton.",
+        "properties": {
+          "commit_confirm": {
+            "default": true,
+            "description": "Whether to use commit-confirmed mode when the platform supports it.",
+            "title": "Commit Confirm",
+            "type": "boolean"
+          },
+          "device_id": {
+            "description": "Identifier of the network device to configure.",
+            "title": "Device Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id"
+        ],
+        "title": "DeployInput",
+        "type": "object"
+      },
+      "Device": {
+        "description": "Device data for dropdown population.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "Device",
+        "type": "object"
+      },
+      "DeviceCableValidationInput": {
+        "description": "Input for Device Cable Validation Workflow.",
+        "properties": {
+          "defer_cable_status_updates": {
+            "default": false,
+            "description": "Return pending DCIM updates to a parent site workflow. Direct API calls must leave this false.",
+            "title": "Defer Cable Status Updates",
+            "type": "boolean"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NetworkDeviceData",
+                "description": "Preloaded data for the target network device, if available."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Preloaded data for the target network device, if available."
+          },
+          "device_id": {
+            "description": "Identifier of the network device to validate.",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "ignore_no_neighbor": {
+            "default": false,
+            "description": "Whether interfaces without discovered neighbors should be ignored.",
+            "title": "Ignore No Neighbor",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "device_id"
+        ],
+        "title": "DeviceCableValidationInput",
+        "type": "object"
+      },
+      "DeviceInterface": {
+        "description": "Device interface data for dropdown population.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "DeviceInterface",
+        "type": "object"
+      },
+      "DevicePasswordRotationInput": {
+        "description": "Device Password Rotation Workflow Input Definition.",
+        "properties": {
+          "device_id": {
+            "description": "Identifier of the network device to update.",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "selected_secret": {
+            "description": "Name of the managed secret containing the replacement password.",
+            "title": "Selected Secret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id",
+          "selected_secret"
+        ],
+        "title": "DevicePasswordRotationInput",
+        "type": "object"
+      },
+      "DiagnosticsWorkflowInput": {
+        "properties": {
+          "commands": {
+            "description": "Diagnostic command catalog names to run on each device.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Commands",
+            "type": "array"
+          },
+          "device_ids": {
+            "description": "DCIM identifiers of the devices to diagnose.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Device Ids",
+            "type": "array"
+          },
+          "include_tech_support": {
+            "default": false,
+            "description": "Whether to collect a technical-support bundle from each device.",
+            "title": "Include Tech Support",
+            "type": "boolean"
+          },
+          "issue_key": {
+            "default": "",
+            "description": "Issue key to update; empty enables ticketless mode.",
+            "title": "Issue Key",
+            "type": "string"
+          },
+          "ticketing_platform": {
+            "default": "",
+            "description": "Ticketing platform to update; empty enables ticketless mode.",
+            "title": "Ticketing Platform",
+            "type": "string"
+          },
+          "user": {
+            "default": "",
+            "description": "Engineer username or email, populated from request authentication when omitted.",
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_ids",
+          "commands"
+        ],
+        "title": "DiagnosticsWorkflowInput",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HelloWorldInput": {
+        "description": "Hello World Input Definition.",
+        "properties": {
+          "name": {
+            "description": "Name to include in the workflow greeting.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "HelloWorldInput",
+        "type": "object"
+      },
+      "HistoryEntry": {
+        "description": "State Transition History Entry.",
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/StateEnum"
+          },
+          "time": {
+            "title": "Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "time"
+        ],
+        "title": "HistoryEntry",
+        "type": "object"
+      },
+      "IBPKeyCreationInput": {
+        "description": "InfiniBand PKey Creation Workflow Input.\n\nBy default, auto-assigns the next available PKey. Pass an explicit\n``pkey`` value only when a specific partition key is required.\n\n``site`` is optional. When omitted, the workflow resolves the device's\nSite-typed DCIM location from ``host`` and uses that as the UFM\ncredential lookup key. Pass ``site`` explicitly to override the\nauto-resolved value (e.g. for API callers that want to skip the\nDCIM round-trip).",
+        "properties": {
+          "host": {
+            "description": "Hostname of the UFM server managing the InfiniBand fabric.",
+            "title": "Host",
+            "type": "string"
+          },
+          "ip_over_ib": {
+            "default": true,
+            "description": "Whether IP over InfiniBand is enabled for the partition.",
+            "title": "Ip Over Ib",
+            "type": "boolean"
+          },
+          "pkey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Partition key to create; automatically allocated when omitted.",
+            "title": "Pkey"
+          },
+          "pkey_max": {
+            "default": 32766,
+            "description": "Highest partition key eligible for automatic allocation.",
+            "title": "Pkey Max",
+            "type": "integer"
+          },
+          "pkey_min": {
+            "default": 1,
+            "description": "Lowest partition key eligible for automatic allocation.",
+            "title": "Pkey Min",
+            "type": "integer"
+          },
+          "site": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Site used for UFM credential lookup; resolved from the host when omitted.",
+            "title": "Site"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "title": "IBPKeyCreationInput",
+        "type": "object"
+      },
+      "IBPKeyMemberAddInput": {
+        "description": "InfiniBand PKey Member Add Workflow Input.\n\nSite and Overlay are resolved server-side from ``host`` and ``pkey``.",
+        "properties": {
+          "guid_memberships": {
+            "default": [],
+            "description": "Per-GUID membership types corresponding to the supplied GUIDs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Guid Memberships",
+            "type": "array"
+          },
+          "guids": {
+            "default": [],
+            "description": "InfiniBand port GUIDs to add directly to the partition.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Guids",
+            "type": "array"
+          },
+          "host": {
+            "description": "Hostname of the UFM server managing the InfiniBand fabric.",
+            "title": "Host",
+            "type": "string"
+          },
+          "interfaces": {
+            "default": [],
+            "description": "DCIM interfaces to resolve to InfiniBand port GUIDs.",
+            "items": {
+              "$ref": "#/components/schemas/InterfaceRef"
+            },
+            "title": "Interfaces",
+            "type": "array"
+          },
+          "ip_over_ib": {
+            "default": true,
+            "description": "Whether IP over InfiniBand is enabled for the partition.",
+            "title": "Ip Over Ib",
+            "type": "boolean"
+          },
+          "membership_type": {
+            "default": "full",
+            "description": "Default partition membership type for added members.",
+            "title": "Membership Type",
+            "type": "string"
+          },
+          "pkey": {
+            "description": "Partition key whose membership will be expanded.",
+            "title": "Pkey",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "pkey"
+        ],
+        "title": "IBPKeyMemberAddInput",
+        "type": "object"
+      },
+      "IBPKeyMemberDeleteInput": {
+        "description": "InfiniBand PKey Member Delete Workflow Input.\n\nProvide either ``interfaces`` (resolved to GUIDs via the DCIM) or\n``guids`` directly, but not both. Site and Overlay are resolved\nserver-side from ``host`` and ``pkey``.",
+        "properties": {
+          "guids": {
+            "default": [],
+            "description": "InfiniBand port GUIDs to remove directly from the partition.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Guids",
+            "type": "array"
+          },
+          "host": {
+            "description": "Hostname of the UFM server managing the InfiniBand fabric.",
+            "title": "Host",
+            "type": "string"
+          },
+          "interfaces": {
+            "default": [],
+            "description": "DCIM interfaces to resolve to InfiniBand port GUIDs.",
+            "items": {
+              "$ref": "#/components/schemas/InterfaceRef"
+            },
+            "title": "Interfaces",
+            "type": "array"
+          },
+          "pkey": {
+            "description": "Partition key whose members will be removed.",
+            "title": "Pkey",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "pkey"
+        ],
+        "title": "IBPKeyMemberDeleteInput",
+        "type": "object"
+      },
+      "IBPKeyMemberUpdateInput": {
+        "description": "InfiniBand PKey Member Update Workflow Input.\n\nSite and Overlay are resolved server-side from ``host`` and ``pkey``.",
+        "properties": {
+          "guid_memberships": {
+            "default": [],
+            "description": "Per-GUID membership types corresponding to the supplied GUIDs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Guid Memberships",
+            "type": "array"
+          },
+          "guids": {
+            "default": [],
+            "description": "InfiniBand port GUIDs that should belong to the partition.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Guids",
+            "type": "array"
+          },
+          "host": {
+            "description": "Hostname of the UFM server managing the InfiniBand fabric.",
+            "title": "Host",
+            "type": "string"
+          },
+          "interfaces": {
+            "default": [],
+            "description": "DCIM interfaces to resolve to InfiniBand port GUIDs.",
+            "items": {
+              "$ref": "#/components/schemas/InterfaceRef"
+            },
+            "title": "Interfaces",
+            "type": "array"
+          },
+          "ip_over_ib": {
+            "default": true,
+            "description": "IP over InfiniBand setting used when the partition does not already exist.",
+            "title": "Ip Over Ib",
+            "type": "boolean"
+          },
+          "membership_type": {
+            "default": "full",
+            "description": "Default partition membership type for updated members.",
+            "title": "Membership Type",
+            "type": "string"
+          },
+          "pkey": {
+            "description": "Partition key whose membership will be replaced.",
+            "title": "Pkey",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "pkey"
+        ],
+        "title": "IBPKeyMemberUpdateInput",
+        "type": "object"
+      },
+      "IBPortGuidDiscoveryInput": {
+        "description": "Input for the IB Port GUID Discovery workflow.",
+        "properties": {
+          "dry_run": {
+            "default": true,
+            "description": "Whether to report changes without updating the DCIM.",
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "switch_device_ids": {
+            "description": "Identifiers of the InfiniBand switches whose interfaces will be synchronized.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Switch Device Ids",
+            "type": "array"
+          },
+          "ufm_device_id": {
+            "description": "Identifier of the UFM device used to discover port GUIDs.",
+            "title": "Ufm Device Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ufm_device_id",
+          "switch_device_ids"
+        ],
+        "title": "IBPortGuidDiscoveryInput",
+        "type": "object"
+      },
+      "InfinibandCableValidationInput": {
+        "description": "IB Cable Validation Workflow Input Definition.",
+        "properties": {
+          "switch_device_ids": {
+            "description": "Identifiers of the InfiniBand switches to validate.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Switch Device Ids",
+            "type": "array"
+          },
+          "ufm_device_id": {
+            "description": "Identifier of the UFM device used to inspect the InfiniBand fabric.",
+            "title": "Ufm Device Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ufm_device_id",
+          "switch_device_ids"
+        ],
+        "title": "InfinibandCableValidationInput",
+        "type": "object"
+      },
+      "InfinibandGetUnhealthyPortsInput": {
+        "description": "Unhealthy Ports Validation Workflow Input Definition.",
+        "properties": {
+          "device_id": {
+            "description": "Identifier of the UFM device to inspect.",
+            "title": "Device Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id"
+        ],
+        "title": "InfinibandGetUnhealthyPortsInput",
+        "type": "object"
+      },
+      "InfinibandMlnxOSUpgradeInput": {
+        "description": "Infiniband Mellanox OS Upgrade Workflow Input Definition.",
+        "properties": {
+          "device_id": {
+            "description": "Identifier of the InfiniBand switch to upgrade.",
+            "title": "Device Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id"
+        ],
+        "title": "InfinibandMlnxOSUpgradeInput",
+        "type": "object"
+      },
+      "InterfaceRef": {
+        "description": "A device/interface name pair used to look up an interface in the DCIM.\n\n``membership`` is an optional per-port override (\"full\"/\"limited\"); when unset\nthe caller's workflow-level default is applied.",
+        "properties": {
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "interface": {
+            "title": "Interface",
+            "type": "string"
+          },
+          "membership": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Membership"
+          }
+        },
+        "required": [
+          "device",
+          "interface"
+        ],
+        "title": "InterfaceRef",
+        "type": "object"
+      },
+      "Location": {
+        "description": "Site data for dropdown population.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "location_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "Location",
+        "type": "object"
+      },
+      "MultiDeployInput": {
+        "description": "Multi-Deploy Workflow Input Definition.",
+        "properties": {
+          "commit_confirm": {
+            "default": true,
+            "description": "Whether to use commit-confirmed mode when the platform supports it.",
+            "title": "Commit Confirm",
+            "type": "boolean"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Location used to filter the selected network devices.",
+            "title": "Location"
+          },
+          "location_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the location identifier."
+          },
+          "max_batch_size": {
+            "default": 10,
+            "description": "Maximum number of devices included in each deployment batch.",
+            "title": "Max Batch Size",
+            "type": "integer"
+          },
+          "role": {
+            "description": "Device role used to select network devices for deployment.",
+            "title": "Role",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Device statuses used to filter the selected network devices.",
+            "title": "Status"
+          },
+          "tenant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tenant used to filter the selected network devices.",
+            "title": "Tenant"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "title": "MultiDeployInput",
+        "type": "object"
+      },
+      "NVLinkSwitchFirmwareUpgradeInput": {
+        "description": "NVLinkSwitch Firmware Upgrade Workflow Input Definition.",
+        "properties": {
+          "bundle_version": {
+            "description": "Target NVLink firmware bundle version.",
+            "title": "Bundle Version",
+            "type": "string"
+          },
+          "device_id": {
+            "description": "Identifier of the NVLink switch to upgrade.",
+            "title": "Device Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id",
+          "bundle_version"
+        ],
+        "title": "NVLinkSwitchFirmwareUpgradeInput",
+        "type": "object"
+      },
+      "NetworkDeviceData": {
+        "description": "Normalized network-device inventory and configuration intent.",
+        "properties": {
+          "backup_enabled": {
+            "default": false,
+            "title": "Backup Enabled",
+            "type": "boolean"
+          },
+          "deploy_enabled": {
+            "default": false,
+            "title": "Deploy Enabled",
+            "type": "boolean"
+          },
+          "device_type": {
+            "title": "Device Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/Platform"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "primary_ip4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Ip4"
+          },
+          "primary_ip6": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Ip6"
+          },
+          "rack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rack"
+          },
+          "render_enabled": {
+            "default": false,
+            "title": "Render Enabled",
+            "type": "boolean"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "site": {
+            "title": "Site",
+            "type": "string"
+          },
+          "ztp_enabled": {
+            "default": false,
+            "title": "Ztp Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role",
+          "site",
+          "device_type",
+          "platform",
+          "primary_ip4",
+          "primary_ip6"
+        ],
+        "title": "NetworkDeviceData",
+        "type": "object"
+      },
+      "Overlay": {
+        "description": "Overlay data for dropdown population.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "Overlay",
+        "type": "object"
+      },
+      "Platform": {
+        "description": "Network device platform types understood by the workflow services.",
+        "enum": [
+          "arista-eos",
+          "cumulus-linux",
+          "nv-os",
+          "mlnx-os",
+          "juniper-junos",
+          "ufm"
+        ],
+        "title": "Platform",
+        "type": "string"
+      },
+      "PortLLDPInfoInput": {
+        "description": "Input for Port LLDP Info Workflow.",
+        "properties": {
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Identifier of the network device to inspect.",
+            "title": "Device Id"
+          },
+          "interface": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Name of the local interface.",
+            "title": "Interface"
+          },
+          "remote_mac_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MAC address of the remote device to locate.",
+            "title": "Remote Mac Address"
+          }
+        },
+        "title": "PortLLDPInfoInput",
+        "type": "object"
+      },
+      "RBACConfigResponse": {
+        "description": "RBAC configuration status response.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "file_exists": {
+            "title": "File Exists",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "workflows": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/WorkflowRoles"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflows"
+          },
+          "workflows_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflows Count"
+          }
+        },
+        "required": [
+          "status",
+          "file_exists"
+        ],
+        "title": "RBACConfigResponse",
+        "type": "object"
+      },
+      "RedfishProvisioningInput": {
+        "description": "Input for Redfish provisioning workflow.",
+        "properties": {
+          "bmc_switch_roles": {
+            "description": "Switch roles used to discover BMC-connected network interfaces.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Bmc Switch Roles",
+            "type": "array"
+          },
+          "dpu_manufacturers": {
+            "default": [
+              "Mellanox Technologies",
+              "MLNX"
+            ],
+            "description": "DPU manufacturer names eligible for Redfish provisioning.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Dpu Manufacturers",
+            "type": "array"
+          },
+          "http_timeout_s": {
+            "default": 5,
+            "description": "Timeout in seconds for Redfish HTTP requests.",
+            "title": "Http Timeout S",
+            "type": "integer"
+          },
+          "ip_range_end": {
+            "description": "Last BMC IP address to scan.",
+            "title": "Ip Range End",
+            "type": "string"
+          },
+          "ip_range_start": {
+            "description": "First BMC IP address to scan.",
+            "title": "Ip Range Start",
+            "type": "string"
+          },
+          "port": {
+            "default": 443,
+            "description": "HTTPS port used to contact Redfish services.",
+            "title": "Port",
+            "type": "integer"
+          },
+          "site": {
+            "description": "Site containing the BMC network to provision.",
+            "title": "Site",
+            "type": "string"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
+          }
+        },
+        "required": [
+          "site",
+          "bmc_switch_roles",
+          "ip_range_start",
+          "ip_range_end"
+        ],
+        "title": "RedfishProvisioningInput",
+        "type": "object"
+      },
+      "ReprovisionInput": {
+        "description": "Reprovision Workflow Input Definition.",
+        "properties": {
+          "device_id": {
+            "description": "Identifier of the network device to reprovision.",
+            "title": "Device Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id"
+        ],
+        "title": "ReprovisionInput",
+        "type": "object"
+      },
+      "Review": {
+        "description": "Individual Review.",
+        "properties": {
+          "time": {
+            "title": "Time",
+            "type": "string"
+          },
+          "user": {
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user",
+          "time"
+        ],
+        "title": "Review",
+        "type": "object"
+      },
+      "Role": {
+        "description": "Role data for dropdown population.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "Role",
+        "type": "object"
+      },
+      "Secret": {
+        "description": "Secret data for dropdown population.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "Secret",
+        "type": "object"
+      },
+      "SiteBackupInput": {
+        "description": "Site Configuration Backup Workflow Input Definition.",
+        "properties": {
+          "backup_enabled_only": {
+            "default": true,
+            "description": "When true, only devices with backup enabled are included.",
+            "title": "Backup Enabled Only",
+            "type": "boolean"
+          },
+          "roles": {
+            "default": [],
+            "description": "Device roles used to filter the selected network devices.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "site": {
+            "description": "Site containing the network devices to back up.",
+            "minLength": 1,
+            "title": "Site",
+            "type": "string"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
+          },
+          "status": {
+            "default": [
+              "Active",
+              "Provisioned"
+            ],
+            "description": "Device statuses used to filter the selected network devices.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Status",
+            "type": "array"
+          },
+          "tenant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tenant used to filter the selected network devices.",
+            "title": "Tenant"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "User that requested the site backup.",
+            "title": "User"
+          },
+          "user_domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Domain of the user requesting the site backup.",
+            "title": "User Domain"
+          }
+        },
+        "required": [
+          "site"
+        ],
+        "title": "SiteBackupInput",
+        "type": "object"
+      },
+      "SiteCableValidationInput": {
+        "description": "Input for Site Cable Validation Workflow.",
+        "properties": {
+          "device_type_ids": {
+            "default": [],
+            "description": "Device type identifiers used to filter network devices.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Device Type Ids",
+            "type": "array"
+          },
+          "raise_for_invalid": {
+            "default": false,
+            "description": "Whether invalid cabling should fail the workflow.",
+            "title": "Raise For Invalid",
+            "type": "boolean"
+          },
+          "roles": {
+            "default": [],
+            "description": "Device roles used to filter the selected network devices.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "site": {
+            "description": "Site containing the network devices to validate.",
+            "title": "Site",
+            "type": "string"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
+          },
+          "status": {
+            "default": [
+              "Active",
+              "Provisioned"
+            ],
+            "description": "Device statuses used to filter the selected network devices.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Status",
+            "type": "array"
+          },
+          "tenant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tenant used to filter the selected network devices.",
+            "title": "Tenant"
+          }
+        },
+        "required": [
+          "site"
+        ],
+        "title": "SiteCableValidationInput",
+        "type": "object"
+      },
+      "SitePasswordRotationInput": {
+        "description": "Site Password Rotation Workflow Input Definition.",
+        "properties": {
+          "location": {
+            "description": "Location containing the devices to update.",
+            "minLength": 1,
+            "title": "Location",
+            "type": "string"
+          },
+          "location_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the location identifier."
+          },
+          "roles": {
+            "default": [],
+            "description": "Device roles used to filter the selected network devices.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "selected_secret": {
+            "description": "Name of the managed secret containing the replacement password.",
+            "title": "Selected Secret",
+            "type": "string"
+          },
+          "status": {
+            "default": [
+              "Active",
+              "Provisioned"
+            ],
+            "description": "Device statuses used to filter the selected network devices.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Status",
+            "type": "array"
+          },
+          "tenant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tenant used to filter the selected network devices.",
+            "title": "Tenant"
+          }
+        },
+        "required": [
+          "location",
+          "selected_secret"
+        ],
+        "title": "SitePasswordRotationInput",
+        "type": "object"
+      },
+      "SpXOverlayAssignmentInput": {
+        "description": "SpX Overlay Assignment Workflow Input Definition.",
+        "properties": {
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/components/schemas/NetworkDeviceData"
+              }
+            ],
+            "description": "Identifier or preloaded data for the target network device.",
+            "title": "Device"
+          },
+          "namespace_tag": {
+            "default": "spectrumx",
+            "description": "Tag identifying the namespace used for allocation.",
+            "title": "Namespace Tag",
+            "type": "string"
+          },
+          "overlay_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Identifier of the SpX overlay whose VRF will be assigned to the device and ports. Omit the overlay_id property or explicitly set it to null to remove the selected ports' current SpX assignment.",
+            "title": "Overlay ID"
+          },
+          "port_names": {
+            "description": "Names of the device interfaces to assign to the overlay.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Port Names",
+            "type": "array"
+          },
+          "site": {
+            "description": "Site containing the target network device.",
+            "title": "Site",
+            "type": "string"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
+          }
+        },
+        "required": [
+          "device",
+          "port_names",
+          "site"
+        ],
+        "title": "SpXOverlayAssignmentInput",
+        "type": "object"
+      },
+      "SpXOverlayCreationInput": {
+        "description": "SpX Overlay Creation Workflow Input Definition.",
+        "properties": {
+          "namespace_tag": {
+            "default": "spectrumx",
+            "description": "Tag identifying the namespace used for allocation.",
+            "title": "Namespace Tag",
+            "type": "string"
+          },
+          "overlay_id": {
+            "description": "Unique identifier for the SpX overlay. Used as an idempotency key \u2014 re-running with the same ID returns existing VRFs without creating new ones.",
+            "title": "Overlay ID",
+            "type": "string"
+          },
+          "rd_max": {
+            "default": 65000,
+            "description": "Upper bound of the route-distinguisher allocation range (0\u201365535). Must be greater than rd_min.",
+            "title": "RD Max",
+            "type": "integer"
+          },
+          "rd_min": {
+            "default": 60000,
+            "description": "Lower bound of the route-distinguisher allocation range (0\u201365535). The first available RD in [rd_min, rd_max] is allocated.",
+            "title": "RD Min",
+            "type": "integer"
+          },
+          "site": {
+            "description": "Site where the SpX overlay will be created.",
+            "title": "Site",
+            "type": "string"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
+          },
+          "tenant": {
+            "description": "Tenant that will own the SpX overlay.",
+            "title": "Tenant",
+            "type": "string"
+          }
+        },
+        "required": [
+          "site",
+          "overlay_id",
+          "tenant"
+        ],
+        "title": "SpXOverlayCreationInput",
+        "type": "object"
+      },
+      "SpXOverlayDeletionInput": {
+        "description": "SpX Overlay Deletion Workflow Input Definition.",
+        "properties": {
+          "namespace_tag": {
+            "default": "spectrumx",
+            "description": "Tag identifying the namespace used for allocation.",
+            "title": "Namespace Tag",
+            "type": "string"
+          },
+          "overlay_id": {
+            "description": "Identifier of the SpX overlay to delete.",
+            "title": "Overlay ID",
+            "type": "string"
+          },
+          "site": {
+            "description": "Site containing the SpX overlay to delete.",
+            "title": "Site",
+            "type": "string"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
+          }
+        },
+        "required": [
+          "site",
+          "overlay_id"
+        ],
+        "title": "SpXOverlayDeletionInput",
+        "type": "object"
+      },
+      "SpXOverlayTenantChangeInput": {
+        "description": "SpX Overlay Tenant Change Workflow Input Definition.",
+        "properties": {
+          "device_id": {
+            "description": "Identifier of the target network device.",
+            "title": "Device ID",
+            "type": "string"
+          },
+          "namespace_tag": {
+            "default": "spectrumx",
+            "description": "Tag identifying the namespace used for allocation.",
+            "title": "Namespace Tag",
+            "type": "string"
+          },
+          "overlay_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Identifier of the SpX overlay to assign and deploy tenant configuration for. Omit the overlay_id property or explicitly set it to null to remove the selected ports' current SpX assignment.",
+            "title": "Overlay ID"
+          },
+          "port_names": {
+            "description": "Names of the device interfaces to assign to the overlay.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Port Names",
+            "type": "array"
+          },
+          "site": {
+            "description": "Site containing the target network device.",
+            "title": "Site",
+            "type": "string"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
+          }
+        },
+        "required": [
+          "device_id",
+          "port_names",
+          "site"
+        ],
+        "title": "SpXOverlayTenantChangeInput",
+        "type": "object"
+      },
+      "Stage": {
+        "description": "Workflow Stage Model.",
+        "properties": {
+          "approval_threshold": {
+            "default": 0,
+            "title": "Approval Threshold",
+            "type": "integer"
+          },
+          "approvers": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Review"
+            },
+            "title": "Approvers",
+            "type": "array"
+          },
+          "child_workflows": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Child Workflows",
+            "type": "array"
+          },
+          "depends_on": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Depends On",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "execution_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Calculate the time spent executing the stage.",
+            "readOnly": true,
+            "title": "Execution Time"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "output": {
+            "title": "Output"
+          },
+          "rejecters": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Review"
+            },
+            "title": "Rejecters",
+            "type": "array"
+          },
+          "requires_approval": {
+            "title": "Requires Approval",
+            "type": "boolean"
+          },
+          "retry_count": {
+            "default": 0,
+            "title": "Retry Count",
+            "type": "integer"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/StateEnum"
+          },
+          "state_history": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/HistoryEntry"
+            },
+            "title": "State History",
+            "type": "array"
+          },
+          "traceback": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traceback"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "requires_approval",
+          "state",
+          "depends_on",
+          "retryable",
+          "traceback",
+          "execution_time"
+        ],
+        "title": "Stage",
+        "type": "object"
+      },
+      "StateEnum": {
+        "description": "Enum of states for a Stage.",
+        "enum": [
+          "NOT_STARTED",
+          "IN_PROGRESS",
+          "PENDING_APPROVAL",
+          "COMPLETE",
+          "UNREACHABLE",
+          "FAILED",
+          "REJECTED",
+          "APPROVED"
+        ],
+        "title": "StateEnum",
+        "type": "string"
+      },
+      "Status": {
+        "description": "Status data for dropdown population.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "Status",
+        "type": "object"
+      },
+      "SwitchOSUpgradeInput": {
+        "description": "Firmware Upgrade Workflow Input Definition.",
+        "properties": {
+          "device_id": {
+            "description": "Identifier of the network switch to upgrade.",
+            "title": "Device Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id"
+        ],
+        "title": "SwitchOSUpgradeInput",
+        "type": "object"
+      },
+      "Tag": {
+        "description": "Tag data for dropdown population.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "Tag",
+        "type": "object"
+      },
+      "Tenant": {
+        "description": "Tenant data for dropdown population.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "Tenant",
+        "type": "object"
+      },
+      "TriggerEnum": {
+        "description": "Enum of potential backup triggers.",
+        "enum": [
+          "SCHEDULED",
+          "SYSLOG",
+          "WORKFLOW",
+          "API"
+        ],
+        "title": "TriggerEnum",
+        "type": "string"
+      },
+      "ValidateHardwareInput": {
+        "description": "Validate Hardware Workflow Input.",
+        "properties": {
+          "device_type_ids": {
+            "default": [],
+            "description": "Device type identifiers used to filter network devices.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Device Type Ids",
+            "type": "array"
+          },
+          "raise_for_invalid": {
+            "default": false,
+            "description": "Whether invalid hardware should fail the workflow.",
+            "title": "Raise For Invalid",
+            "type": "boolean"
+          },
+          "roles": {
+            "default": [],
+            "description": "Device roles used to filter the selected network devices.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "site": {
+            "description": "Site used to select network devices for validation.",
+            "title": "Site",
+            "type": "string"
+          },
+          "site_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DCIMLocationType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DCIM location type for the site identifier."
+          },
+          "status": {
+            "default": [
+              "Active",
+              "Provisioned"
+            ],
+            "description": "Device statuses used to filter the selected network devices.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Status",
+            "type": "array"
+          },
+          "tenant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tenant used to filter the selected network devices.",
+            "title": "Tenant"
+          }
+        },
+        "required": [
+          "site"
+        ],
+        "title": "ValidateHardwareInput",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WhoamiResponse": {
+        "description": "Response shape for ``GET /whoami``.",
+        "properties": {
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "user": {
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user",
+          "roles"
+        ],
+        "title": "WhoamiResponse",
+        "type": "object"
+      },
+      "WorkflowDetailResponse": {
+        "description": "Workflow Detail Response.",
+        "properties": {
+          "close_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Time"
+          },
+          "failed_stage": {
+            "title": "Failed Stage",
+            "type": "boolean"
+          },
+          "href": {
+            "description": "Calculate URL to Temporal UI Workflow View.",
+            "readOnly": true,
+            "title": "Href",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "pending_approval": {
+            "title": "Pending Approval",
+            "type": "boolean"
+          },
+          "result": {
+            "title": "Result"
+          },
+          "search_attributes": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                {
+                  "items": {
+                    "type": "boolean"
+                  },
+                  "type": "array"
+                },
+                {
+                  "items": {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "title": "Search Attributes",
+            "type": "object"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/Stage"
+            },
+            "title": "Stages",
+            "type": "array"
+          },
+          "start_time": {
+            "format": "date-time",
+            "title": "Start Time",
+            "type": "string"
+          },
+          "started_by": {
+            "title": "Started By",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "workflow_input": {
+            "title": "Workflow Input"
+          },
+          "workflow_type": {
+            "title": "Workflow Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workflow_type",
+          "workflow_input",
+          "started_by",
+          "start_time",
+          "close_time",
+          "status",
+          "pending_approval",
+          "failed_stage",
+          "search_attributes",
+          "stages",
+          "result",
+          "href"
+        ],
+        "title": "WorkflowDetailResponse",
+        "type": "object"
+      },
+      "WorkflowListResponse": {
+        "description": "Workflow List Response Model.",
+        "properties": {
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Page Token"
+          },
+          "page_count": {
+            "title": "Page Count",
+            "type": "integer"
+          },
+          "total_count": {
+            "title": "Total Count",
+            "type": "integer"
+          },
+          "workflows": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowSummaryResponse"
+            },
+            "title": "Workflows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "workflows",
+          "next_page_token",
+          "total_count",
+          "page_count"
+        ],
+        "title": "WorkflowListResponse",
+        "type": "object"
+      },
+      "WorkflowMetadata": {
+        "description": "Workflow metadata.",
+        "properties": {
+          "cli_name": {
+            "title": "Cli Name",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "execute_roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Execute Roles",
+            "type": "array"
+          },
+          "input_class": {
+            "title": "Input Class",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace"
+          },
+          "read_roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Read Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "display_name",
+          "description",
+          "endpoint",
+          "namespace",
+          "cli_name",
+          "input_class",
+          "read_roles",
+          "execute_roles"
+        ],
+        "title": "WorkflowMetadata",
+        "type": "object"
+      },
+      "WorkflowMetadataResponse": {
+        "description": "Workflow metadata response.",
+        "properties": {
+          "workflows": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowMetadata"
+            },
+            "title": "Workflows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "workflows"
+        ],
+        "title": "WorkflowMetadataResponse",
+        "type": "object"
+      },
+      "WorkflowResponse": {
+        "description": "Workflow Response Model.",
+        "properties": {
+          "href": {
+            "description": "Calculate URL to Temporal UI Workflow View.",
+            "readOnly": true,
+            "title": "Href",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "href"
+        ],
+        "title": "WorkflowResponse",
+        "type": "object"
+      },
+      "WorkflowRoles": {
+        "description": "Roles for a workflow.",
+        "properties": {
+          "execute_roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Execute Roles",
+            "type": "array"
+          },
+          "read_roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Read Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "read_roles",
+          "execute_roles"
+        ],
+        "title": "WorkflowRoles",
+        "type": "object"
+      },
+      "WorkflowSummaryResponse": {
+        "description": "Workflow Summary Response for use in List API.",
+        "properties": {
+          "close_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Time"
+          },
+          "failed_stage": {
+            "title": "Failed Stage",
+            "type": "boolean"
+          },
+          "href": {
+            "description": "Calculate URL to Temporal UI Workflow View.",
+            "readOnly": true,
+            "title": "Href",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "pending_approval": {
+            "title": "Pending Approval",
+            "type": "boolean"
+          },
+          "search_attributes": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                {
+                  "items": {
+                    "type": "boolean"
+                  },
+                  "type": "array"
+                },
+                {
+                  "items": {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "title": "Search Attributes",
+            "type": "object"
+          },
+          "start_time": {
+            "format": "date-time",
+            "title": "Start Time",
+            "type": "string"
+          },
+          "started_by": {
+            "title": "Started By",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "workflow_input": {
+            "title": "Workflow Input"
+          },
+          "workflow_type": {
+            "title": "Workflow Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workflow_type",
+          "workflow_input",
+          "started_by",
+          "start_time",
+          "close_time",
+          "status",
+          "pending_approval",
+          "failed_stage",
+          "search_attributes",
+          "href"
+        ],
+        "title": "WorkflowSummaryResponse",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "bearerFormat": "JWT",
+        "description": "Bearer JWT used by CLI and machine clients on svc-* endpoints. Authentication is required by default, but deployments may disable it with [auth] required = false. Browser OIDC sessions, mTLS, SPIFFE identities, and trusted gateway identity headers may also satisfy authentication outside this generated client flow.",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Temporal Workflow API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/healthcheck": {
+      "get": {
+        "description": "Execute healthcheck.",
+        "operationId": "healthcheck_healthcheck_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "const": "OK",
+                  "title": "Response Healthcheck Healthcheck Get",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [],
+        "summary": "Healthcheck"
+      }
+    },
+    "/rbac-config-status": {
+      "get": {
+        "description": "Check the status of the RBAC configuration and return the mapping.",
+        "operationId": "rbac_config_status_rbac_config_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RBACConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "RBAC Config Status"
+      }
+    },
+    "/v1/codec/decode": {
+      "post": {
+        "description": "Decode (decompress) payloads for Temporal Web UI display.",
+        "operationId": "decode_v1_codec_decode_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Decode V1 Codec Decode Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [],
+        "summary": "Decode payloads",
+        "tags": [
+          "codec"
+        ]
+      }
+    },
+    "/v1/codec/encode": {
+      "post": {
+        "description": "Encode (compress) payloads for Temporal Web UI when editing.",
+        "operationId": "encode_v1_codec_encode_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Encode V1 Codec Encode Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [],
+        "summary": "Encode payloads",
+        "tags": [
+          "codec"
+        ]
+      }
+    },
+    "/v1/parameter/device": {
+      "get": {
+        "description": "Return a list of filtered devices.",
+        "operationId": "get_devices_v1_parameter_device_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "site",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Site"
+            }
+          },
+          {
+            "in": "query",
+            "name": "site_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/DCIMLocationType"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Site Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tenant",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device_type_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Device Type Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "manufacturer",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Manufacturer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "platform",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Platform"
+            }
+          },
+          {
+            "description": "Limit to NVIDIA Config Manager-managed devices",
+            "in": "query",
+            "name": "managed_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Limit to NVIDIA Config Manager-managed devices",
+              "title": "Managed Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Device"
+                  },
+                  "title": "Response Get Devices V1 Parameter Device Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Devices",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/parameter/device-id": {
+      "get": {
+        "description": "Convert device hostname to device ID.\n\nArgs:\n    device_name: The hostname/name of the device.\n\nReturns:\n    Device object with id and name.\n\nRaises:\n    HTTPException: If device not found or multiple devices match.",
+        "operationId": "get_device_id_by_name_v1_parameter_device_id_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "device_name",
+            "required": true,
+            "schema": {
+              "title": "Device Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Device"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Device ID by Name",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/parameter/device/{device_id}/interfaces": {
+      "get": {
+        "description": "Return the interfaces belonging to a device.",
+        "operationId": "get_device_interfaces_v1_parameter_device__device_id__interfaces_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeviceInterface"
+                  },
+                  "title": "Response Get Device Interfaces V1 Parameter Device  Device Id  Interfaces Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Device Interfaces",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/parameter/device/{device_id}/password_users": {
+      "get": {
+        "description": "Get available password users and their secret names for a device.\n\nArgs:\n    device_id: The UUID of the device.\n\nReturns:\n    List of password users with their provider-normalized secret names.",
+        "operationId": "get_device_password_users_v1_parameter_device__device_id__password_users_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Secret"
+                  },
+                  "title": "Response Get Device Password Users V1 Parameter Device  Device Id  Password Users Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Device Password Users",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/parameter/device/{device_id}/secret_types": {
+      "get": {
+        "description": "Get available secret types from the configured DCIM provider.\n\nArgs: device_id: The UUID of the device.\n\nReturns:\n    List of secret types plus versions from config context.",
+        "operationId": "get_device_users_with_versions_v1_parameter_device__device_id__secret_types_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Response Get Device Users With Versions V1 Parameter Device  Device Id  Secret Types Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Secret Types for Device",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/parameter/device/{device_id}/secrets": {
+      "get": {
+        "description": "Return a list of secrets available for a device.\n\nArgs:\n    device_id: The UUID of the device to fetch secrets from\n\nReturns:\n    List of secrets returned by the configured DCIM provider",
+        "operationId": "get_device_secrets_v1_parameter_device__device_id__secrets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Secret"
+                  },
+                  "title": "Response Get Device Secrets V1 Parameter Device  Device Id  Secrets Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Device Secrets",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/parameter/diagnostics/commands": {
+      "get": {
+        "description": "Return the diagnostics command catalog for the requested platform(s).\n\nPass one or more ``?platform=<slug>`` query params (e.g. ``cumulus-linux``).\nWhen no platform is given, commands from all platforms are returned.\nCommands that appear on multiple platforms are deduplicated by name.",
+        "operationId": "get_diagnostics_commands_v1_parameter_diagnostics_commands_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "platform",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Platform"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CommandEntry"
+                  },
+                  "title": "Response Get Diagnostics Commands V1 Parameter Diagnostics Commands Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Diagnostics Commands",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/parameter/location": {
+      "get": {
+        "description": "Return a list of NVIDIA Config Manager-managed sites.",
+        "operationId": "get_locations_v1_parameter_location_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "location_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Location Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Location"
+                  },
+                  "title": "Response Get Locations V1 Parameter Location Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Locations",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/parameter/namespace-tag": {
+      "get": {
+        "description": "Return the configured DCIM provider's namespace tag choices.",
+        "operationId": "get_namespace_tags_v1_parameter_namespace_tag_get",
+        "parameters": [
+          {
+            "description": "Limit to namespace tags at this location",
+            "in": "query",
+            "name": "location",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Limit to namespace tags at this location",
+              "title": "Location"
+            }
+          },
+          {
+            "description": "DCIM location type for the location identifier",
+            "in": "query",
+            "name": "location_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DCIMLocationType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "DCIM location type for the location identifier",
+              "title": "Location Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Tag"
+                  },
+                  "title": "Response Get Namespace Tags V1 Parameter Namespace Tag Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Namespace Tags",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/parameter/overlay": {
+      "get": {
+        "description": "Return overlays, optionally filtered by location and isolation type.",
+        "operationId": "get_overlays_v1_parameter_overlay_get",
+        "parameters": [
+          {
+            "description": "Limit to overlays at this location",
+            "in": "query",
+            "name": "location",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Limit to overlays at this location",
+              "title": "Location"
+            }
+          },
+          {
+            "description": "DCIM location type for the location identifier",
+            "in": "query",
+            "name": "location_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DCIMLocationType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "DCIM location type for the location identifier",
+              "title": "Location Type"
+            }
+          },
+          {
+            "description": "Limit to overlays with this isolation type",
+            "in": "query",
+            "name": "isolation_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Limit to overlays with this isolation type",
+              "title": "Isolation Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Overlay"
+                  },
+                  "title": "Response Get Overlays V1 Parameter Overlay Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Overlays",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/parameter/role": {
+      "get": {
+        "description": "Return a list of roles. Default: all. With managed_only=true: only those with managed devices.",
+        "operationId": "get_roles_v1_parameter_role_get",
+        "parameters": [
+          {
+            "description": "Limit to roles with managed devices",
+            "in": "query",
+            "name": "managed_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Limit to roles with managed devices",
+              "title": "Managed Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Role"
+                  },
+                  "title": "Response Get Roles V1 Parameter Role Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Roles",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/parameter/site": {
+      "get": {
+        "description": "Return a list of NVIDIA Config Manager-managed sites.",
+        "operationId": "get_sites_v1_parameter_site_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Location"
+                  },
+                  "title": "Response Get Sites V1 Parameter Site Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Sites",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/parameter/status": {
+      "get": {
+        "description": "Return a list of statuses. Optional content_type filters to that object type.",
+        "operationId": "get_statuses_v1_parameter_status_get",
+        "parameters": [
+          {
+            "description": "Filter by content type (e.g. dcim.device, circuits.circuit)",
+            "in": "query",
+            "name": "content_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by content type (e.g. dcim.device, circuits.circuit)",
+              "title": "Content Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Status"
+                  },
+                  "title": "Response Get Statuses V1 Parameter Status Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Statuses",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/parameter/tenant": {
+      "get": {
+        "description": "Return a list of tenants. Default: all. With managed_only=true: only those with managed devices.",
+        "operationId": "get_tenants_v1_parameter_tenant_get",
+        "parameters": [
+          {
+            "description": "Limit to tenants with managed devices",
+            "in": "query",
+            "name": "managed_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Limit to tenants with managed devices",
+              "title": "Managed Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Tenant"
+                  },
+                  "title": "Response Get Tenants V1 Parameter Tenant Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Tenants",
+        "tags": [
+          "parameters"
+        ]
+      }
+    },
+    "/v1/workflow/": {
+      "get": {
+        "description": "Return a filtered list of workflows.",
+        "operationId": "get_workflows_v1_workflow__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workflow_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workflow Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workflow_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Device Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Device Name"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Device Role"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device_platform",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Device Platform"
+            }
+          },
+          {
+            "in": "query",
+            "name": "site",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Site"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pending_approval",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pending Approval"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_time",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start Time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_time",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hide_completed",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Hide Completed",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "next_page_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Next Page Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Workflows",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/hello_world": {
+      "post": {
+        "description": "Simple hello world workflow for testing and demonstration",
+        "operationId": "helloworld_endpoint_v1_workflow_hello_world_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HelloWorldInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute HelloWorld",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/hello_world_approval": {
+      "post": {
+        "description": "Hello world workflow with approval step for testing staged workflows",
+        "operationId": "helloworldapproval_endpoint_v1_workflow_hello_world_approval_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HelloWorldInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute HelloWorldApproval",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/metadata": {
+      "get": {
+        "description": "Return registered workflow metadata and RBAC roles.",
+        "operationId": "get_workflow_metadata_v1_workflow_metadata_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowMetadataResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Workflow Metadata",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/backup": {
+      "post": {
+        "description": "Backup network device configuration to the Config Store and NVIDIA Config Manager plugin",
+        "operationId": "backupworkflow_endpoint_v1_workflow_ngc_backup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute BackupWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/config_diff": {
+      "post": {
+        "description": "Compare the intended configuration against the live device without applying any changes",
+        "operationId": "configdiffworkflow_endpoint_v1_workflow_ngc_config_diff_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigDiffInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute ConfigDiffWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/connected_host_metadata": {
+      "post": {
+        "description": "Discover and analyze connected hosts via MAC table and LLDP neighbor data",
+        "operationId": "connectedhostmetadataworkflow_endpoint_v1_workflow_ngc_connected_host_metadata_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectedHostWorkflowInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute ConnectedHostMetadataWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/cumulus_hardware_validation": {
+      "post": {
+        "description": "Validate hardware components (fans, PSUs, LEDs, voltage) across network devices",
+        "operationId": "validatehardwareworkflow_endpoint_v1_workflow_ngc_cumulus_hardware_validation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateHardwareInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute ValidateHardwareWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/deploy": {
+      "post": {
+        "description": "Deploy intended configuration to network device with approval workflow",
+        "operationId": "deployworkflow_endpoint_v1_workflow_ngc_deploy_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeployInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute DeployWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/device_cable_validation": {
+      "post": {
+        "description": "Validate cable connections for a specific device against intended topology",
+        "operationId": "devicecablevalidationworkflow_endpoint_v1_workflow_ngc_device_cable_validation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceCableValidationInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute DeviceCableValidationWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/device_password_rotation": {
+      "post": {
+        "description": "Rotate passwords on network devices with validation and approval workflow",
+        "operationId": "devicepasswordrotationworkflow_endpoint_v1_workflow_ngc_device_password_rotation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevicePasswordRotationInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute DevicePasswordRotationWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/diagnostics": {
+      "post": {
+        "description": "Run diagnostic commands against network devices and attach results to a ticketing issue",
+        "operationId": "diagnosticsworkflow_endpoint_v1_workflow_ngc_diagnostics_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiagnosticsWorkflowInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute DiagnosticsWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/ib_pkey_creation": {
+      "post": {
+        "description": "Create an InfiniBand PKey partition on UFM for multi-tenant isolation",
+        "operationId": "ibpkeycreationworkflow_endpoint_v1_workflow_ngc_ib_pkey_creation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IBPKeyCreationInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute IBPKeyCreationWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/ib_pkey_member_add": {
+      "post": {
+        "description": "Add device interfaces to an existing InfiniBand PKey partition",
+        "operationId": "ibpkeymemberaddworkflow_endpoint_v1_workflow_ngc_ib_pkey_member_add_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IBPKeyMemberAddInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute IBPKeyMemberAddWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/ib_pkey_member_delete": {
+      "post": {
+        "description": "Remove device interfaces from an existing InfiniBand PKey partition",
+        "operationId": "ibpkeymemberdeleteworkflow_endpoint_v1_workflow_ngc_ib_pkey_member_delete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IBPKeyMemberDeleteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute IBPKeyMemberDeleteWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/ib_pkey_member_update": {
+      "post": {
+        "description": "Reconcile InfiniBand PKey membership to a desired interface list",
+        "operationId": "ibpkeymemberupdateworkflow_endpoint_v1_workflow_ngc_ib_pkey_member_update_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IBPKeyMemberUpdateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute IBPKeyMemberUpdateWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/ib_port_guid_discovery": {
+      "post": {
+        "description": "Discover InfiniBand port GUIDs from UFM and sync them onto the matching DCIM interfaces.",
+        "operationId": "ibportguiddiscoveryworkflow_endpoint_v1_workflow_ngc_ib_port_guid_discovery_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IBPortGuidDiscoveryInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute IBPortGuidDiscoveryWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/infiniband_cable_validation": {
+      "post": {
+        "description": "Validate Infiniband cable connections against intended topology using UFM data",
+        "operationId": "infinibandcablevalidationworkflow_endpoint_v1_workflow_ngc_infiniband_cable_validation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InfinibandCableValidationInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute InfinibandCableValidationWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/infiniband_get_unhealthy_ports": {
+      "post": {
+        "description": "Validate and report unhealthy ports in Infiniband network fabric",
+        "operationId": "infinibandgetunhealthyportsworkflow_endpoint_v1_workflow_ngc_infiniband_get_unhealthy_ports_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InfinibandGetUnhealthyPortsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute InfinibandGetUnhealthyPortsWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/infiniband_mlnx_os_upgrade": {
+      "post": {
+        "description": "Upgrade MLNX-OS on Infiniband switches with validation and rollback capabilities",
+        "operationId": "infinibandmlnxosupgradeworkflow_endpoint_v1_workflow_ngc_infiniband_mlnx_os_upgrade_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InfinibandMlnxOSUpgradeInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute InfinibandMlnxOSUpgradeWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/multi_deploy": {
+      "post": {
+        "description": "Deploy configurations to multiple devices by role with batching and approval workflow",
+        "operationId": "multideployworkflow_endpoint_v1_workflow_ngc_multi_deploy_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MultiDeployInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute MultiDeployWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/nvlinkswitch_firmware_upgrade": {
+      "post": {
+        "description": "Upgrade firmware on NVLink switches with validation",
+        "operationId": "nvlinkswitchfirmwareupgradeworkflow_endpoint_v1_workflow_ngc_nvlinkswitch_firmware_upgrade_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NVLinkSwitchFirmwareUpgradeInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute NVLinkSwitchFirmwareUpgradeWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/port_lldp_info": {
+      "post": {
+        "description": "Gather LLDP neighbor data for network port analysis and troubleshooting",
+        "operationId": "portlldpinfoworkflow_endpoint_v1_workflow_ngc_port_lldp_info_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortLLDPInfoInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute PortLLDPInfoWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/redfish_provisioning": {
+      "post": {
+        "description": "Discover and provision Redfish-capable BMCs for server management",
+        "operationId": "redfishprovisioningworkflow_endpoint_v1_workflow_ngc_redfish_provisioning_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedfishProvisioningInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute RedfishProvisioningWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/reprovision": {
+      "post": {
+        "description": "Reprovision a network device using pre- and post-ZTP backups",
+        "operationId": "reprovisionworkflow_endpoint_v1_workflow_ngc_reprovision_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReprovisionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute ReprovisionWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/site_backup": {
+      "post": {
+        "description": "Back up running configurations for in-scope devices at a site to the Config Store",
+        "operationId": "sitebackupworkflow_endpoint_v1_workflow_ngc_site_backup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SiteBackupInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute SiteBackupWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/site_cable_validation": {
+      "post": {
+        "description": "Validate cable connections for all devices in a site against intended topology",
+        "operationId": "sitecablevalidationworkflow_endpoint_v1_workflow_ngc_site_cable_validation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SiteCableValidationInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute SiteCableValidationWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/site_password_rotation": {
+      "post": {
+        "description": "Rotate passwords across all devices in a site with coordinated deployment",
+        "operationId": "sitepasswordrotationworkflow_endpoint_v1_workflow_ngc_site_password_rotation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SitePasswordRotationInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute SitePasswordRotationWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/spx_overlay_assignment": {
+      "post": {
+        "description": "Change or remove a SpX Overlay/VRF assignment on device ports",
+        "operationId": "spxoverlayassignmentworkflow_endpoint_v1_workflow_ngc_spx_overlay_assignment_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpXOverlayAssignmentInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute SpXOverlayAssignmentWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/spx_overlay_creation": {
+      "post": {
+        "description": "Create a SpX Overlay with route distinguisher assignment and VRF/VXLAN provisioning",
+        "operationId": "spxoverlaycreationworkflow_endpoint_v1_workflow_ngc_spx_overlay_creation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpXOverlayCreationInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute SpXOverlayCreationWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/spx_overlay_deletion": {
+      "post": {
+        "description": "Delete a SpX Overlay and its associated VRFs/VXLANs with validation checks",
+        "operationId": "spxoverlaydeletionworkflow_endpoint_v1_workflow_ngc_spx_overlay_deletion_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpXOverlayDeletionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute SpXOverlayDeletionWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/spx_overlay_tenant_change": {
+      "post": {
+        "description": "Change or remove a SpX Overlay assignment and deploy tenant configuration",
+        "operationId": "spxoverlaytenantchangeworkflow_endpoint_v1_workflow_ngc_spx_overlay_tenant_change_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpXOverlayTenantChangeInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute SpXOverlayTenantChangeWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/ngc/switch_os_upgrade": {
+      "post": {
+        "description": "Upgrade network switch operating system with approval and validation workflow",
+        "operationId": "switchosupgradeworkflow_endpoint_v1_workflow_ngc_switch_os_upgrade_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchOSUpgradeInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute SwitchOSUpgradeWorkflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/types": {
+      "get": {
+        "description": "Return registered workflow type names.",
+        "operationId": "get_workflow_types_v1_workflow_types_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Response Get Workflow Types V1 Workflow Types Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Workflow Types",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/{workflow_id}": {
+      "get": {
+        "description": "Get workflow execution details.",
+        "operationId": "get_workflow_v1_workflow__workflow_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Workflow",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/{workflow_id}/approve/{stage_name}": {
+      "post": {
+        "description": "Send the approve signal to a workflow.",
+        "operationId": "approve_v1_workflow__workflow_id__approve__stage_name__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stage_name",
+            "required": true,
+            "schema": {
+              "title": "Stage Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Approve",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/{workflow_id}/reject/{stage_name}": {
+      "post": {
+        "description": "Send the reject signal to a workflow.",
+        "operationId": "reject_v1_workflow__workflow_id__reject__stage_name__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stage_name",
+            "required": true,
+            "schema": {
+              "title": "Stage Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Reject",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/{workflow_id}/retry/{stage_name}": {
+      "post": {
+        "description": "Send the retry signal for the given stage to a workflow.",
+        "operationId": "retry_v1_workflow__workflow_id__retry__stage_name__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stage_name",
+            "required": true,
+            "schema": {
+              "title": "Stage Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Retry",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/{workflow_id}/tech-support/{device_name}": {
+      "get": {
+        "description": "Download a tech-support bundle stored in Redis by the diagnostics workflow.",
+        "operationId": "download_tech_support_v1_workflow__workflow_id__tech_support__device_name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "device_name",
+            "required": true,
+            "schema": {
+              "title": "Device Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Download Tech Support",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/v1/workflow/{workflow_id}/terminate": {
+      "post": {
+        "description": "Terminate a running workflow.",
+        "operationId": "terminate_v1_workflow__workflow_id__terminate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Terminate",
+        "tags": [
+          "workflow"
+        ]
+      }
+    },
+    "/whoami": {
+      "get": {
+        "description": "Reflect the caller's identity as seen by this service.",
+        "operationId": "whoami_whoami_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhoamiResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Current User Info"
+      }
+    }
+  }
+}

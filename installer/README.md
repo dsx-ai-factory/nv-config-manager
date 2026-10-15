@@ -67,12 +67,16 @@ uv run nvcm-installer --help
 
 ```bash
 cd installer
-uv tool install .
+uv tool install --python 3.13 .
 nvcm-installer --help
 ```
 
 `nvcm-installer` is the short command name. The longer `nv-config-manager-installer`
 command remains available for compatibility and accepts the same subcommands and flags.
+
+The installer pins Python 3.13 in its own `.python-version` because it is a separate
+project from the repository root. The tool installation command explicitly selects
+the same version.
 
 ---
 
@@ -390,6 +394,24 @@ deploys its own in-cluster stack from `pre_helm_install` and points
 `dcim.server` at it. The Nautobot provider under
 `src/nv_config_manager_installer/providers/nautobot/` is the reference
 implementation.
+
+AIR topology files, mock-topology directories, job packages, and template-plugin
+directories must exist locally. For automatic setup, these inputs are checked
+before AIR is contacted and uploaded after cloud-init. Relative paths resolve
+from the invoking directory, then the running installer's checkout (`PROJECT_ROOT`),
+regardless of `config_manager_repo`. Use explicit paths for content elsewhere.
+Jobs must be directories with unique package names; the name `mock_topology` is
+reserved when the mock-topology job is enabled. Package names are preserved so
+imports and post-deploy job identifiers continue to work.
+
+`config_manager_repo` accepts a remote Git repository or a local Git checkout.
+Local uploads include tracked working-tree files and non-ignored new files,
+preserving unpublished changes while excluding ignored untracked configuration and
+build output. Automatic setup with a local checkout requires `wait_timeout > 0`
+so the repository can be uploaded after cloud-init.
+Repository symlinks must use relative targets within the checkout and point to
+content included in the upload. Nonportable links are rejected before AIR is
+contacted. Negative wait timeouts are rejected for all repository sources.
 
 #### 3. External Services
 

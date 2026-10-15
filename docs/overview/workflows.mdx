@@ -73,10 +73,10 @@ Config Manager supports multiple workflow categories visible in the Temporal UI:
 - `SitePasswordRotationWorkflow`
 - `SwitchOSUpgradeWorkflow`
 - `ValidateHardwareWorkflow`
-- `VpcAssignmentWorkflow`
-- `VpcCreationWorkflow`
-- `VpcDeletionWorkflow`
-- `VpcTenantChangeWorkflow`
+- `SpXOverlayAssignmentWorkflow`
+- `SpXOverlayCreationWorkflow`
+- `SpXOverlayDeletionWorkflow`
+- `SpXOverlayTenantChangeWorkflow`
 
 ## Workflow API Endpoints
 
@@ -119,10 +119,10 @@ Each built-in workflow has a concrete POST endpoint, for example `POST /v1/workf
 | `/site_cable_validation` | Execute SiteCableValidationWorkflow |
 | `/site_password_rotation` | Execute SitePasswordRotationWorkflow |
 | `/switch_os_upgrade` | Execute SwitchOSUpgradeWorkflow |
-| `/vpc-tenant-change` | Execute VpcTenantChangeWorkflow |
-| `/vpc_assignment` | Execute VpcAssignmentWorkflow |
-| `/vpc_creation` | Execute VpcCreationWorkflow |
-| `/vpc_deletion` | Execute VpcDeletionWorkflow |
+| `/spx_overlay_assignment` | Execute SpXOverlayAssignmentWorkflow |
+| `/spx_overlay_creation` | Execute SpXOverlayCreationWorkflow |
+| `/spx_overlay_deletion` | Execute SpXOverlayDeletionWorkflow |
+| `/spx_overlay_tenant_change` | Execute SpXOverlayTenantChangeWorkflow |
 
 ## Workflow CLI Commands
 

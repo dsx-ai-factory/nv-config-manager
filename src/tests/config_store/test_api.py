@@ -282,6 +282,83 @@ async def test_get_diff(client):
     assert data["from_version"] == 1
     assert data["to_version"] == 2
     assert "line 2 modified" in data["diff"]
+    assert data["diff_stats"] == {
+        "from_lines": 3,
+        "to_lines": 4,
+        "additions": 2,
+        "deletions": 1,
+    }
+    assert data["diff"] == (
+        "--- Version 1\n+++ Version 2\n@@ -1,3 +1,4 @@\n"
+        " line 1\n-line 2\n+line 2 modified\n line 3\n+line 4"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("old_content", "new_content", "additions", "deletions", "diff_lines"),
+    [
+        pytest.param(
+            "line 1\nold\nline 3\n",
+            "line 1\nnew\nline 3\n",
+            1,
+            1,
+            [" line 1", "-old", "+new", " line 3"],
+            id="single-line-replacement",
+        ),
+        pytest.param("line\n", "line\nadded\n", 1, 0, [" line", "+added"], id="addition"),
+        pytest.param("line\nremoved\n", "line\n", 0, 1, [" line", "-removed"], id="deletion"),
+        pytest.param("line\n", "line\n", 0, 0, [], id="unchanged"),
+        pytest.param(
+            "-- old\n", "++ new\n", 1, 1, ["--- old", "+++ new"], id="header-like-content"
+        ),
+        pytest.param(
+            "line\n\nold\n", "line\n\nnew\n", 1, 1, [" line", " ", "-old", "+new"], id="blank-line"
+        ),
+        pytest.param(
+            "line\r\nold\r\n",
+            "line\r\nnew\r\n",
+            1,
+            1,
+            [" line", "-old", "+new"],
+            id="crlf",
+        ),
+    ],
+)
+async def test_get_diff_counts_content_changes(
+    client, old_content, new_content, additions, deletions, diff_lines
+):
+    """Diff headers must not count as changes or introduce extra blank lines."""
+    device_uuid = str(uuid4())
+    url = f"/v1/config/{device_uuid}/config.txt"
+    versions = []
+    for content in (old_content, new_content):
+        response = await client.post(
+            url,
+            json={
+                "content": content,
+                "author": "test@example.com",
+                "commit_message": "Test version",
+            },
+        )
+        assert response.status_code == 201
+        versions.append(response.json()["version"])
+
+    response = await client.get(f"{url}/diff?from_version={versions[0]}&to_version={versions[1]}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["old_content"] == old_content
+    assert data["new_content"] == new_content
+    assert data["diff_stats"] == {
+        "from_lines": len(old_content.splitlines()),
+        "to_lines": len(new_content.splitlines()),
+        "additions": additions,
+        "deletions": deletions,
+    }
+    if diff_lines:
+        assert data["diff"].splitlines()[3:] == diff_lines
+    else:
+        assert data["diff"] == ""
 
 
 @pytest.mark.asyncio

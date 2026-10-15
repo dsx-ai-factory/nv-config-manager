@@ -33,7 +33,11 @@ from nv_config_manager.common.telemetry import (
 )
 from nv_config_manager.temporal.api import codec_server, parameter_v1, workflow_v1
 from nv_config_manager.temporal.api.audit import install_workflow_audit_logging
-from nv_config_manager.temporal.api.workflow_catalog import WORKFLOW_REGISTRY
+from nv_config_manager.temporal.api.workflow_catalog import (
+    WORKFLOW_FORM_CATALOG,
+    WORKFLOW_REGISTRY,
+    log_workflow_form_diagnostics,
+)
 from nv_config_manager.temporal.common.rbac_config import RBACConfig
 from nv_config_manager.temporal.runtime import configure_workflow_ui_runtime
 from nv_config_manager.temporal.telemetry import setup_telemetry
@@ -45,6 +49,7 @@ configure_workflow_ui_runtime()
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_API)
 
 log_workflow_registry(WORKFLOW_REGISTRY)
+log_workflow_form_diagnostics(WORKFLOW_FORM_CATALOG)
 
 rbac_config = RBACConfig()
 logger.info(

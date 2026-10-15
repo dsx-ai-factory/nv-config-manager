@@ -15,8 +15,10 @@
 """Network Device Backup Workflow Definition."""
 
 import asyncio
+from collections.abc import Mapping
 from datetime import timedelta
 from enum import StrEnum
+from typing import Annotated, ClassVar
 
 from pydantic import Field
 from temporalio import workflow
@@ -33,7 +35,9 @@ from nv_config_manager_workflows.stage import (
     StageWorkflowInput,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import FormExcluded, FormSchema, ServerOwned, device_field
 from nv_config_manager_workflows.workflow_references import DeviceReference
+from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.backup import (
@@ -62,8 +66,15 @@ with workflow.unsafe.imports_passed_through():
 
 
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
+UNATTENDED_TERMINATE_ON_FAILURE_PATCH_ID = "backup-unattended-terminate-on-failure-v1"
 
-__all__ = ["DEFAULT_ACTIVITY_RETRY_POLICY", "BackupInput", "BackupWorkflow", "TriggerEnum"]
+__all__ = [
+    "DEFAULT_ACTIVITY_RETRY_POLICY",
+    "UNATTENDED_TERMINATE_ON_FAILURE_PATCH_ID",
+    "BackupInput",
+    "BackupWorkflow",
+    "TriggerEnum",
+]
 
 
 class TriggerEnum(StrEnum):
@@ -75,22 +86,41 @@ class TriggerEnum(StrEnum):
     API = "API"
 
 
+UNATTENDED_TRIGGERS = frozenset({TriggerEnum.SCHEDULED, TriggerEnum.SYSLOG})
+
+
 class BackupInput(StageWorkflowInput):
     """Backup Workflow Input Definiton."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "device_id": {
+            **device_field(MANAGED_DEVICE_SOURCE, filters=("site", "tenant", "status")),
+            "ui:title": "Device",
+        },
+        "trigger": {"ui:widget": "hidden"},
+    }
+
+    terminate_on_failure: Annotated[bool, FormExcluded()] = Field(
+        default=False,
+        description="Terminate the workflow instead of waiting to retry a failed stage.",
+    )
     device_id: DeviceReference = Field(description="Identifier of the network device to back up.")
-    trigger: TriggerEnum = Field(description="Reason the backup workflow was started.")
-    user: str | None = Field(default=None, description="User that requested the backup.")
-    user_domain: str | None = Field(
+    trigger: Annotated[TriggerEnum, FormSchema(default=TriggerEnum.API)] = Field(
+        description="Reason the backup workflow was started."
+    )
+    user: Annotated[str | None, ServerOwned()] = Field(
+        default=None, description="User that requested the backup."
+    )
+    user_domain: Annotated[str | None, FormExcluded()] = Field(
         default=None, description="Domain of the user requesting the backup."
     )
-    workflow_id: str | None = Field(
+    workflow_id: Annotated[str | None, FormExcluded()] = Field(
         default=None, description="Identifier of the parent workflow, if any."
     )
-    intended_config_commit_id: str | None = Field(
+    intended_config_commit_id: Annotated[str | None, FormExcluded()] = Field(
         default=None, description="Config Store commit containing the intended configuration."
     )
-    suppress_drift_notification: bool = Field(
+    suppress_drift_notification: Annotated[bool, FormExcluded()] = Field(
         default=False,
         description="Suppress the Slack notification when configuration drift is detected.",
     )
@@ -102,12 +132,15 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
 
     # Workflow metadata
     workflow_name = "Configuration Backup"
+    workflow_group = "Configuration"
     workflow_description = (
         "Backup network device configuration to the Config Store and NVIDIA Config Manager plugin"
     )
     workflow_input_class = BackupInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/backup"
+    workflow_form_enabled = True
+    workflow_form_id = "backup"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
     workflow_required_activities = (
@@ -314,6 +347,14 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
             # therefore the user did not get set.
             raise ApplicationError("Missing user for backup attribution.")
         self.set_input(workflow_input)
+        if workflow_input.trigger in UNATTENDED_TRIGGERS and workflow.patched(
+            UNATTENDED_TERMINATE_ON_FAILURE_PATCH_ID
+        ):
+            # Nobody sends a retry signal to these runs. A run left waiting for one is
+            # closed by the server's execution timeout, which never evicts it from the
+            # worker's workflow cache, so unattended failures would accumulate in memory.
+            # Histories recorded before this patch keep the wait-for-retry path.
+            self.set_terminate_on_failure(True)
 
         # Execute load_running_configuration and check_drift in parallel
         load_config_output, drift_output = await asyncio.gather(

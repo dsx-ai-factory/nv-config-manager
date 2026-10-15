@@ -28,6 +28,7 @@ from nautobot.extras.models import StatusField
 
 from nautobot_app_overlays.choices import (
     ASSIGNABLE_CONTENT_TYPES,
+    GUIDLESS_ISOLATION_TYPES,
     IsolationTypeChoices,
     OverlayAssignmentRoleChoices,
     PKeyMembershipTypeChoices,
@@ -176,11 +177,7 @@ class OverlayAssignment(OrganizationalModel):
             if not self.guid:
                 raise ValidationError({"guid": "GUID is required for IB PKey overlay assignments."})
 
-        elif isolation_type in (
-            IsolationTypeChoices.VXLAN_EVPN,
-            IsolationTypeChoices.SPECTRUM_X_VRF,
-            IsolationTypeChoices.IB_MKEY,
-        ):
+        elif isolation_type in GUIDLESS_ISOLATION_TYPES:
             if self.guid:
                 raise ValidationError({"guid": f"GUID should not be set for {isolation_type} overlay assignments."})
             if self.membership_type:

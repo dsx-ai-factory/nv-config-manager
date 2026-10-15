@@ -14,8 +14,9 @@
 # limitations under the License.
 """Infiniband Cable Validation Workflow Definition."""
 
+from collections.abc import Mapping
 from datetime import timedelta
-from typing import Any
+from typing import Annotated, Any, ClassVar
 
 from py_markdown_table.markdown_table import markdown_table
 from pydantic import BaseModel, Field
@@ -30,6 +31,7 @@ from nv_config_manager_workflows.stage import (
     StageOutput,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import FormSchema, OptionSource, device_field
 from nv_config_manager_workflows.workflow_references import (
     DeviceReference,
     DeviceReferences,
@@ -70,10 +72,30 @@ DEFAULT_IB_SWITCH_ROLES = [
 class InfinibandCableValidationInput(BaseModel):
     """IB Cable Validation Workflow Input Definition."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "ufm_device_id": {
+            **device_field(
+                OptionSource("/v1/parameter/device", "name", "id", params={"platform": "UFM"}),
+                filters=("site",),
+                filter_scope="fabric-devices",
+                query_param="ufm_device_id",
+            ),
+            "ui:title": "Device",
+        },
+        "switch_device_ids": {
+            **device_field(
+                OptionSource("/v1/parameter/device", "name", "id", params={"platform": "MLNX-OS"}),
+                filters=("site",),
+                filter_scope="fabric-devices",
+            ),
+            "ui:title": "Device IDs",
+        },
+    }
+
     ufm_device_id: DeviceReference = Field(
         description="Identifier of the UFM device used to inspect the InfiniBand fabric."
     )
-    switch_device_ids: DeviceReferences = Field(
+    switch_device_ids: Annotated[DeviceReferences, FormSchema(min_items=1)] = Field(
         description="Identifiers of the InfiniBand switches to validate."
     )
 
@@ -97,12 +119,15 @@ class InfinibandCableValidationWorkflow(WorkflowMetadataMixin, StageMixin):
 
     # Workflow metadata
     workflow_name = "InfiniBand Cable Validation"
+    workflow_group = "InfiniBand"
     workflow_description = (
         "Validate Infiniband cable connections against intended topology using UFM data"
     )
     workflow_input_class = InfinibandCableValidationInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/infiniband_cable_validation"
+    workflow_form_enabled = True
+    workflow_form_id = "infiniband-cable-validation"
     workflow_namespace = "ngc"
     workflow_mcp_enabled = True
     workflow_required_activities = (

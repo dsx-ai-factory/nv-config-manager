@@ -80,6 +80,8 @@ RUN --mount=type=cache,id=nvcm-uv-cache,target=/root/.cache/uv \
     else \
         uv sync --frozen --no-dev --group integration-test --no-editable; \
     fi; \
+    # Some dependency wheels include Git metadata that is not needed at runtime.
+    find /code/nv-config-manager/.venv -name .git -prune -exec rm -rf '{}' +; \
     chmod -R a+rX /code/nv-config-manager/.venv /code/nv-config-manager/db /code/nv-config-manager/src
 
 # =============================================================================

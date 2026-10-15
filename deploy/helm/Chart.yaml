@@ -4,6 +4,7 @@ name: nv-config-manager
 description: Unified NVIDIA Config Manager platform deployment including all microservices and gateway
 type: application
 version: 1.3.0
+kubeVersion: ">=1.29.0-0"
 keywords:
   - nv-config-manager
   - gateway

@@ -14,7 +14,9 @@
 # limitations under the License.
 """Device Password Rotation Workflow Definition."""
 
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import ClassVar
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
@@ -29,7 +31,9 @@ from nv_config_manager_workflows.stage import (
     StateEnum,
     stage_executor,
 )
+from nv_config_manager_workflows.ui import OptionSource, api_options, device_field
 from nv_config_manager_workflows.workflow_references import DeviceReference
+from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.dcim import (
@@ -77,6 +81,24 @@ DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(
 class DevicePasswordRotationInput(BaseModel):
     """Device Password Rotation Workflow Input Definition."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "device_id": {
+            **device_field(MANAGED_DEVICE_SOURCE, filters=("site",)),
+            "ui:title": "Device",
+        },
+        "selected_secret": {
+            **api_options(
+                OptionSource(
+                    "/v1/parameter/device/{device_id}/password_users",
+                    "name",
+                    "name",
+                    clear_on_change=True,
+                )
+            ),
+            "ui:title": "Secret to Rotate",
+        },
+    }
+
     device_id: DeviceReference = Field(description="Identifier of the network device to update.")
     selected_secret: str = Field(
         description="Name of the managed secret containing the replacement password."
@@ -89,12 +111,15 @@ class DevicePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
 
     # Workflow metadata
     workflow_name = "Device Password Rotation"
+    workflow_group = "Lifecycle & Security"
     workflow_description = (
         "Rotate passwords on network devices with validation and approval workflow"
     )
     workflow_input_class = DevicePasswordRotationInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/device_password_rotation"
+    workflow_form_enabled = True
+    workflow_form_id = "device-password-rotation"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_network_device,

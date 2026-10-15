@@ -61,6 +61,7 @@ from nv_config_manager_workflows.schedulers.runtime import (
     configure_scheduler_runtime,
 )
 from nv_config_manager_workflows.schedulers.schedule_ids import schedule_id
+from nv_config_manager_workflows.ui import UI_SCHEMA_VERSION, capability_manifest, wire_schema
 
 SIBLING_DISTRIBUTIONS = {
     "nv-config-manager-clients",
@@ -145,6 +146,14 @@ def check_service_package_absent() -> None:
         assert error.name == "nv_config_manager", f"nv_config_manager is installed: {error}"
         return
     raise AssertionError("nv_config_manager is importable in the isolated environment")
+
+
+def check_form_contract() -> None:
+    """Load the packaged workflow form contract from the installed workflows wheel."""
+    assert (
+        wire_schema()["$id"] == f"urn:nvidia:nv-config-manager:workflow-form:v{UI_SCHEMA_VERSION}"
+    )
+    assert capability_manifest()["ui_schema_version"] == UI_SCHEMA_VERSION
 
 
 def import_all(package_name: str) -> int:
@@ -273,6 +282,8 @@ async def main() -> None:
     print(f"ok artifacts: workflows {workflows_version}, fixture {fixture_version}")
     check_service_package_absent()
     print("ok nv_config_manager is not importable")
+    check_form_contract()
+    print("ok loaded the packaged workflow form contract")
     imported = import_all("nv_config_manager_workflows") + import_all("nvcm_fixture_plugin")
     print(f"ok imported {imported} modules")
     registry = check_registry(workflows_version, fixture_version)

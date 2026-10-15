@@ -1,0 +1,94 @@
+{
+  "workflow": "ValidateHardwareWorkflow",
+  "input_model": "ValidateHardwareInput",
+  "scenarios": [
+    {
+      "name": "manual fill",
+      "legacy_url": "/workflows/cumulushardwarevalidationworkflow/form",
+      "new_url": "/workflows/new/cumulus-hardware-validation",
+      "legacy_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "roles": [
+          "cin-leaf",
+          "cin-spine"
+        ],
+        "status": [
+          "Active",
+          "Provisioned",
+          "Planned"
+        ],
+        "tenant": "TenantA",
+        "device_type_ids": [],
+        "raise_for_invalid": false
+      },
+      "generic_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "roles": [
+          "cin-leaf",
+          "cin-spine"
+        ],
+        "status": [
+          "Active",
+          "Provisioned",
+          "Planned"
+        ],
+        "tenant": "TenantA"
+      }
+    },
+    {
+      "name": "module site, defaults otherwise",
+      "legacy_url": "/workflows/cumulushardwarevalidationworkflow/form",
+      "new_url": "/workflows/new/cumulus-hardware-validation",
+      "legacy_payload": {
+        "site": "PDX01-POD1",
+        "site_type": "Module",
+        "roles": [],
+        "status": [
+          "Active",
+          "Provisioned"
+        ],
+        "device_type_ids": [],
+        "raise_for_invalid": false
+      },
+      "generic_payload": {
+        "site": "PDX01-POD1",
+        "site_type": "Module",
+        "status": [
+          "Active",
+          "Provisioned"
+        ]
+      }
+    },
+    {
+      "name": "prefill from URL",
+      "legacy_url": "/workflows/cumulushardwarevalidationworkflow/form?site=PDX01&role=cin-leaf&status=Active&tenant=TenantA",
+      "new_url": "/workflows/new/cumulus-hardware-validation?site=PDX01&role=cin-leaf&status=Active&tenant=TenantA",
+      "legacy_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "roles": [
+          "cin-leaf"
+        ],
+        "status": [
+          "Active"
+        ],
+        "tenant": "TenantA",
+        "device_type_ids": [],
+        "raise_for_invalid": false
+      },
+      "generic_payload": {
+        "site": "PDX01",
+        "site_type": "Site",
+        "roles": [
+          "cin-leaf"
+        ],
+        "status": [
+          "Active"
+        ],
+        "tenant": "TenantA"
+      }
+    }
+  ]
+}

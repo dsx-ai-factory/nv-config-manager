@@ -14,6 +14,8 @@
 # =============================================================================
 
 .artifact-paths: &artifact-paths
+  - ".gitlab/**/*"
+  - .gitlab-ci.yml
   - "build/**/*"
   - "components/**/*"
   - "db/**/*"
@@ -80,7 +82,7 @@ docker-build-main-amd64:
     # Trigger variables are untrusted until validation runs. Skip every
     # default-branch triggered pipeline so it cannot rebuild main as a side
     # effect; the dedicated promote rules select its narrow job set.
-    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa)$/)
+    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa|demo01)$/)
       when: never
     - if: $CI_COMMIT_TAG
       when: always
@@ -107,7 +109,7 @@ docker-build-main-arm64:
     - docker
   rules:
     # See docker-build-main-amd64: skip default-branch triggered pipelines.
-    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa)$/)
+    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa|demo01)$/)
       when: never
     - if: $CI_COMMIT_TAG
       when: always
@@ -143,7 +145,7 @@ docker-manifest-main:
       command: ["--tls=false"]
   rules:
     # See docker-build-main-amd64: skip default-branch triggered pipelines.
-    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa)$/)
+    - if: (($CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH) || (($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa|demo01)$/)
       when: never
     - if: $CI_COMMIT_TAG
       when: on_success
@@ -160,7 +162,7 @@ docker-manifest-main:
     DOCKER_TLS_CERTDIR: ""
     DOCKER_DRIVER: overlay2
   before_script:
-    - apk add -q make bash git
+    - apk add -q make bash git jq
     - |
       image_target_exports="$(bash .gitlab/ci/scripts/image_target_env.sh)" || exit $?
       eval "$image_target_exports"
@@ -172,3 +174,8 @@ docker-manifest-main:
     - echo "Creating multi-arch manifests (default branch/tag)..."
     - make docker-manifest-create VERSION_BASE=$CI_COMMIT_SHORT_SHA VERSION_FINAL=$CI_COMMIT_SHORT_SHA REGISTRY=${NVCM_IMAGE_REPOSITORY}
     - echo "✅ All multi-arch manifests created (amd64 + arm64)"
+    - bash .gitlab/ci/scripts/record_main_image_digests.sh
+  artifacts:
+    paths:
+      - digests.env
+    expire_in: 1 week

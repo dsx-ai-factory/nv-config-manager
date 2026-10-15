@@ -764,7 +764,10 @@ async def generate_config(
                     "severity": "DEBUG",
                 }
             ],
-            "hooks-libraries": [{"library": f"{hooks_path}/libdhcp_lease_cmds.so"}],
+            "hooks-libraries": [
+                {"library": f"{hooks_path}/libdhcp_lease_cmds.so"},
+                {"library": f"{hooks_path}/libdhcp_stat_cmds.so"},
+            ],
             "option-def": site_dhcp_options,
             "reservations-global": True,
             "reservations": [],

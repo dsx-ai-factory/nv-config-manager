@@ -58,8 +58,8 @@ pytestmark = [
 PODMONITOR_RESOURCE = "podmonitors.monitoring.coreos.com"
 
 # Set by templates/monitoring.yaml on the NATS PodMonitor and by the
-# nautobot-nats labels helper on the NATS pod/deployment.
-NATS_COMPONENT_SELECTOR = "app.kubernetes.io/component=nautobot-nats"
+# nautobot-nats labels helper on the NATS deployment.
+NATS_COMPONENT_SELECTOR = "app.kubernetes.io/component=nats"
 
 # Contract asserted below — must match templates/nautobot.yaml (sidecar) and
 # templates/monitoring.yaml (PodMonitor endpoint).

@@ -38,20 +38,27 @@ jobs:
       go_tag: ${{ steps.version.outputs.go_tag }}
       rc_tag: ${{ steps.version.outputs.rc_tag }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Require repository admin
         env:
           GH_TOKEN: ${{ github.token }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           set -euo pipefail
-          permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${GITHUB_ACTOR}/permission" --jq .permission)"
-          if [ "$permission" != "admin" ]; then
-            echo "Only repository admins may create release tags. ${GITHUB_ACTOR} has ${permission} permission."
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Run this workflow from main; select the release source using its inputs."
             exit 1
           fi
+          for actor in "$GITHUB_ACTOR" "$TRIGGERING_ACTOR"; do
+            permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${actor}/permission" --jq .permission)"
+            if [ "$permission" != "admin" ]; then
+              echo "Only repository admins may create release tags. ${actor} has ${permission} permission."
+              exit 1
+            fi
+          done
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Resolve source commit
         id: resolve
@@ -208,11 +215,30 @@ jobs:
     runs-on: linux-amd64-cpu4
     environment: release-tagging
     permissions:
-      contents: write
+      contents: read
     steps:
+      - name: Require repository admin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Run this workflow from main; select the release source using its inputs."
+            exit 1
+          fi
+          for actor in "$GITHUB_ACTOR" "$TRIGGERING_ACTOR"; do
+            permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${actor}/permission" --jq .permission)"
+            if [ "$permission" != "admin" ]; then
+              echo "Only repository admins may create release tags. ${actor} has ${permission} permission."
+              exit 1
+            fi
+          done
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Create and push RC tag
         env:
@@ -220,9 +246,13 @@ jobs:
           GO_TAG: ${{ needs.validate.outputs.go_tag }}
           RC_TAG: ${{ needs.validate.outputs.rc_tag }}
           SOURCE_REF: ${{ inputs.source_ref }}
-          TAG_PUSH_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN || github.token }}
+          RELEASE_TAG_SSH_KEY: ${{ secrets.RELEASE_TAG_SSH_KEY }}
         run: |
           set -euo pipefail
+          if [ -z "$RELEASE_TAG_SSH_KEY" ]; then
+            echo "Configure RELEASE_TAG_SSH_KEY on the release-tagging environment."
+            exit 1
+          fi
           git fetch --force --prune --tags origin '+refs/heads/*:refs/remotes/origin/*'
 
           if git rev-parse --verify "origin/${SOURCE_REF}^{commit}" >/dev/null 2>&1; then
@@ -245,12 +275,22 @@ jobs:
             exit 1
           fi
 
+          umask 077
+          ssh_dir="$(mktemp -d "$RUNNER_TEMP/release-ssh.XXXXXX")"
+          trap 'rm -rf "$ssh_dir"' EXIT
+          printf '%s\n' "$RELEASE_TAG_SSH_KEY" > "$ssh_dir/key"
+          curl --fail --silent --show-error https://api.github.com/meta \
+            | jq -er '.ssh_keys[] | "github.com \(.)"' > "$ssh_dir/known_hosts"
+          printf -v GIT_SSH_COMMAND 'ssh -i %q -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=%q' \
+            "$ssh_dir/key" "$ssh_dir/known_hosts"
+          export GIT_SSH_COMMAND
+          git remote set-url --push origin "git@github.com:${GITHUB_REPOSITORY}.git"
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$RC_TAG" "$COMMIT" -m "Release candidate ${RC_TAG}"
           git tag -a "$GO_TAG" "$COMMIT" -m "Go bindings release candidate ${RC_TAG}"
 
-          git remote set-url origin "https://x-access-token:${TAG_PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push --atomic origin "refs/tags/${RC_TAG}" "refs/tags/${GO_TAG}"
 
           echo "Created ${RC_TAG} and ${GO_TAG} at ${COMMIT}."

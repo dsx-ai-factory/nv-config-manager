@@ -422,6 +422,20 @@ class TestLoadTags:
 
 
 class TestLoadCustomFields:
+    def test_bundled_custom_fields_define_device_alias(self):
+        mod = _import_module()
+        data_path = Path(mod.__file__).resolve().parents[1] / "data" / "custom_fields.yaml"
+
+        custom_fields = {field["key"]: field for field in yaml.safe_load(data_path.read_text())}
+
+        assert custom_fields["alias"]["label"] == "Alias"
+        assert custom_fields["alias"]["type"] == "text"
+        assert custom_fields["alias"]["description"] == (
+            "Optional host alias used by Connected Host Metadata workflows."
+        )
+        assert custom_fields["alias"]["content_types"] == ["dcim.device"]
+        assert "all" in custom_fields["alias"]["deployment_types"]
+
     def test_creates_custom_field(self, tmp_path):
         from django.contrib.contenttypes.models import ContentType
         from nautobot.extras.models import CustomField

@@ -37,7 +37,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version: "1.26.6"
+          go-version: "1.26.9"
       - name: Sorted list check (keep-sorted)
         run: make sort-check
       - run: uv sync --frozen
@@ -266,13 +266,13 @@ jobs:
         uses: *setup_proxy_cache
       - uses: &actions_setup_go actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version: "1.26.6"
+          go-version: "1.26.9"
           cache-dependency-path: components/nats-ready/go.sum
       - name: Verify go.mod is tidy
         working-directory: components/nats-ready
         run: |
           go_version="$(go env GOVERSION)"
-          test "${go_version}" = "go1.26.6"
+          test "${go_version}" = "go1.26.9"
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 
@@ -333,6 +333,8 @@ jobs:
             echo "ERROR: Helm render tests were skipped; helm and chart dependencies must be available"
             exit 1
           fi
+      - name: GitLab promotion shared-values tests
+        run: uv run python .gitlab/ci/scripts/tests/shared_values_test.py
       - run: helm lint deploy/helm/ --values deploy/helm/values-ci.yaml
       - run: helm template test deploy/helm/ --values deploy/helm/values-ci.yaml >/tmp/nvcm-helm.yaml
       - name: CNPG PodMonitor ownership render
@@ -684,7 +686,9 @@ jobs:
           node-version: "24"
       - run: node --test .github/scripts/*.test.js
       - name: GitLab promotion authorization tests
-        run: .gitlab/ci/scripts/tests/validate_promote_request_test.sh
+        run: |
+          .gitlab/ci/scripts/tests/validate_promote_request_test.sh
+          .gitlab/ci/scripts/tests/main_promotion_test.sh
 
   ui-lint:
     name: UI Lint
@@ -743,6 +747,7 @@ jobs:
           restore-keys: |
             ui-next-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}-
       - run: npm ci --prefer-offline
+      - run: npm run test:unit
       - run: npm run build
       - run: npm run test:e2e:ci
       - uses: *upload_artifact

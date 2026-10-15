@@ -20,14 +20,13 @@ import WorkflowTable from "./workflow-table";
 
 import { fetcher } from "@/lib/fetcher";
 import useSWR from "swr";
-import useSWRImmutable from "swr/immutable";
 import { useRuntimeConfig } from "@/config/runtime";
 import { sanitizeUrl } from "@/lib/utils";
 import WorkflowErrorPage from "@/components/loading/error";
 import { getErrorConfig, TokenError } from "@/lib/errors";
+import useWorkflowCatalog from "@/hooks/useWorkflowCatalog";
 import { useState, useEffect } from "react";
 import WorkflowsListSkeleton from "./loading";
-import { WorkflowMetadataResponse } from "@/types/data-table.types";
 
 // Force dynamic rendering since we need runtime config
 export const dynamic = 'force-dynamic';
@@ -38,13 +37,10 @@ export default function WorkflowsPage() {
   const apiURL = config?.workflowApiUrl;
 
   const {
-    data: workflowMetadata,
-    error: workflowMetadataError,
-    isLoading: workflowMetadataIsLoading,
-  } = useSWRImmutable<WorkflowMetadataResponse>(
-    apiURL ? sanitizeUrl(`${apiURL}/v1/workflow/metadata`) : null,
-    fetcher
-  );
+    catalog: workflowCatalog,
+    error: workflowCatalogError,
+    isLoaded: workflowCatalogIsLoaded,
+  } = useWorkflowCatalog();
 
   const { error } = useSWR(
     shouldFetch && apiURL ? sanitizeUrl(`${apiURL}/healthcheck`) : null,
@@ -71,11 +67,11 @@ export default function WorkflowsPage() {
     }
   }, []);
 
-  if (workflowMetadataError) {
+  if (workflowCatalogError) {
     return (
       <WorkflowErrorPage
-        error={workflowMetadataError}
-        errorConfig={getErrorConfig(workflowMetadataError)}
+        error={workflowCatalogError}
+        errorConfig={getErrorConfig(workflowCatalogError)}
         reset={function (): void {
           globalThis.location.reload();
         }}
@@ -84,13 +80,13 @@ export default function WorkflowsPage() {
   }
   
   // Show loading while config is loading or data is being fetched
-  if (!apiURL || workflowMetadataIsLoading || !workflowMetadata) {
+  if (!workflowCatalogIsLoaded) {
     return <WorkflowsListSkeleton />;
   }
 
   return (
     <WorkflowTable
-      workflowMetadata={workflowMetadata.workflows}
+      workflowCatalog={workflowCatalog}
     />
   );
 }

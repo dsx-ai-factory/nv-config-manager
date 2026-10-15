@@ -16,9 +16,16 @@
 
 from nv_config_manager_workflows.workflows.backup import (
     DEFAULT_ACTIVITY_RETRY_POLICY,
+    UNATTENDED_TERMINATE_ON_FAILURE_PATCH_ID,
     BackupInput,
     BackupWorkflow,
     TriggerEnum,
 )
 
-__all__ = ["DEFAULT_ACTIVITY_RETRY_POLICY", "BackupInput", "BackupWorkflow", "TriggerEnum"]
+__all__ = [
+    "DEFAULT_ACTIVITY_RETRY_POLICY",
+    "UNATTENDED_TERMINATE_ON_FAILURE_PATCH_ID",
+    "BackupInput",
+    "BackupWorkflow",
+    "TriggerEnum",
+]
