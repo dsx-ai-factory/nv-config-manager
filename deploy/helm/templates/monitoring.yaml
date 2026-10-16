@@ -74,7 +74,7 @@
     "root" .
     "name" $ztpName
     "component" "network-ztp"
-    "scheme" "https"
+    "scheme" $probeScheme
     "target" (printf "%s://%s/healthcheck" $probeScheme (tpl .Values.networkZtp.gateway.hostname .))) }}
 {{- end }}
 
