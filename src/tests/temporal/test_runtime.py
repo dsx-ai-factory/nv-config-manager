@@ -122,14 +122,13 @@ def test_device_service_adapter_uses_configured_connection_factory(
     device_data = _device_data()
     connection = Mock(spec=WorkflowNetworkConnection)
     from_device_data = mocker.patch.object(
-        service_runtime.NetworkConnection,
+        service_runtime,
         "from_device_data",
         return_value=connection,
     )
 
     assert service_runtime._device_connection(device_data) is connection
     from_device_data.assert_called_once_with(device_data)
-    assert issubclass(service_runtime.NetworkConnection, WorkflowNetworkConnection)
 
 
 def test_ufm_service_adapter_uses_configured_client_factory(mocker: MockerFixture) -> None:
@@ -213,7 +212,7 @@ def test_device_and_ufm_selection_remains_lazy_at_runtime_startup(
     connection = Mock(spec=WorkflowNetworkConnection)
     ufm = Mock(spec=WorkflowUFMClient)
     from_device_data = mocker.patch.object(
-        service_runtime.NetworkConnection,
+        service_runtime,
         "from_device_data",
         return_value=connection,
     )
@@ -237,7 +236,7 @@ def test_installed_device_and_ufm_factories_resolve_each_access(
     connections = [Mock(spec=WorkflowNetworkConnection), Mock(spec=WorkflowNetworkConnection)]
     ufm_clients = [Mock(spec=WorkflowUFMClient), Mock(spec=WorkflowUFMClient)]
     from_device_data = mocker.patch.object(
-        service_runtime.NetworkConnection,
+        service_runtime,
         "from_device_data",
         side_effect=connections,
     )

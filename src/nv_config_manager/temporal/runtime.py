@@ -53,7 +53,7 @@ from nv_config_manager.temporal.client.connection import (
     client_connect_options,
     temporal_address,
 )
-from nv_config_manager.temporal.client.device.base import NetworkConnection
+from nv_config_manager.temporal.client.device.factory import from_device_data
 from nv_config_manager.temporal.client.redfish import (
     get_config_manager_connection,
     get_default_connection,
@@ -152,7 +152,7 @@ def _dcim_client() -> DCIMClient:
 
 def _device_connection(device_data: NetworkDeviceData) -> WorkflowNetworkConnection:
     """Create a device connection through the service configuration adapter."""
-    return NetworkConnection.from_device_data(device_data)
+    return from_device_data(device_data)
 
 
 def _redfish_connection(
