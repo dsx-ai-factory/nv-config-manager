@@ -16,7 +16,7 @@ Before running a backup, confirm the following are in place:
 
 - **Device exists in Nautobot** with a primary IPv4, platform, and any required config contexts. The workflow looks the device up by Nautobot UUID before doing anything else.
 - **Device is reachable** from Config Manager over the management network, and credentials for the device are present in the secrets store. The workflow uses NVUE to pull the running configuration on Cumulus Linux devices.
-- **Intended configuration is available** for the device — that is, the [Render Service](../../render/index.mdx) has produced a rendered config in the Config Store. Drift detection compares the running config against this rendered output. If no intended config exists yet, drift detection will fail.
+- **Intended configuration is available** for the device — that is, the [Render Service](../../render/index.mdx) has produced a rendered config in the Config Store. Drift detection compares the running config against this rendered output. If no intended config exists yet, drift detection will fail, unless rendering is disabled for the device (see [Drift detection behavior](#drift-detection-behavior)).
 - **Backup path is configured** on the device record. The workflow writes the snapshot to the `backup_path` field on the device's Nautobot data; without it, the persist stage cannot record where the backup landed.
 - **User attribution is present.** Backups invoked through the API carry the requesting user automatically; backups invoked from another workflow forward the originating user. The workflow rejects requests with no user attached.
 
@@ -70,6 +70,8 @@ Drift is detected by diffing the device's running configuration against the inte
 - **Child of a Deploy or Multi-Deploy workflow.** The parent passes its `intended_config_commit_id` so the backup knows exactly what it just applied. The check_drift stage skips the diff entirely and records that commit as the deployed configuration. This prevents the post-deploy snapshot from being reported as drift against itself.
 
 - **Child of a Reprovision workflow.** No `intended_config_commit_id` is supplied, so drift detection runs normally. Immediately after ZTP, the device should be on the latest rendered config and the diff is expected to be empty; a non-empty diff here points to a render-vs-device mismatch worth investigating.
+
+- **Rendering disabled.** A device with backups enabled and rendering disabled has no intended config to compare against, so the check_drift stage skips the drift check and the backup is persisted without a deployed commit ID. This applies to direct, scheduled and site backups alike. A device with rendering enabled and no intended config still fails the drift check.
 
 If drift detection finds no diff and the call was direct, the workflow updates the recorded deployed commit ID to the current intended config commit so the device history stays in sync with the latest known-good render.
 
