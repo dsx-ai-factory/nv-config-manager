@@ -991,11 +991,17 @@ When workflow commands or Temporal payloads may be affected, also run:
 uv run pytest packages/workflows/tests/workflows/replay
 ```
 
-When changing the plugin contract or package boundaries, also run
-`make test-workflow-wheels`. It builds the workflows and fixture-plugin wheels,
-installs them into a clean virtual environment without the service package, and
-runs the fixture plugin's workflows and scheduler on a local Temporal server. It
-needs network access for PyPI and, on first use, the Temporal dev server
+CI runs the complete package suite through `make test-workflow-package`. That
+target installs the workflows package non-editably with only its declared
+runtime and test dependencies, verifies that the service package is absent,
+and writes `packages/workflows/coverage.xml` for Sonar.
+
+When changing the plugin contract or built artifacts, also run
+`make test-workflow-wheels`. It builds the workflows source distribution and
+wheel plus the fixture-plugin wheel, installs the wheels into a clean virtual
+environment without the service package, and runs the fixture plugin's
+workflows and scheduler on a local Temporal server. Both package-isolation
+targets need network access for PyPI and, on first use, the Temporal dev server
 download.
 
 See the repository [contribution guide](../../CONTRIBUTING.md) for the broader

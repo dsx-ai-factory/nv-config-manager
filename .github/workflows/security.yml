@@ -49,12 +49,10 @@ jobs:
           printf 'base=%s\nhead=%s\nempty=%s\n' "$base" "$SCAN_HEAD" "$empty" >> "$GITHUB_OUTPUT"
       - name: Scan for secrets
         if: steps.secret-scan-range.outputs.empty != 'true'
-        uses: trufflesecurity/trufflehog@bcfcf73aaf4759d4dadc2783177c245a02792318 # v3.97.0
-        with:
-          version: 3.97.0
-          base: ${{ steps.secret-scan-range.outputs.base }}
-          head: ${{ steps.secret-scan-range.outputs.head }}
-          extra_args: --results=verified,unknown
+        env:
+          SCAN_BASE: ${{ steps.secret-scan-range.outputs.base }}
+          SCAN_HEAD: ${{ steps.secret-scan-range.outputs.head }}
+        run: .github/scripts/run-trufflehog
 
   codeql:
     name: CodeQL (${{ matrix.language }})

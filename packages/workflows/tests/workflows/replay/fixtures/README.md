@@ -25,13 +25,18 @@ serialized-argument coverage for UFM port retrieval and IB GUID discovery.
 
 ## Configuration-lifecycle fixtures
 
-The six deployment histories were captured from successful local Temporal
-workflow executions after the configuration-lifecycle activity boundary was
+The deployment histories were captured from local Temporal workflow
+executions after the configuration-lifecycle activity boundary was
 established. They are fixed compatibility fixtures and must not be regenerated
 solely because a Python module path changes.
 
 - `backup.json`: running and intended configuration loading, candidate
   diff, backup persistence, and Config Manager metadata recording.
+- `backup_without_render.json`: a backed-up device with rendering disabled.
+  The drift check is skipped and the backup is persisted.
+- `backup_without_render_pre_change.json`: the same device before
+  `backup-skip-drift-check-without-render-v1`. `check_drift` failed on the
+  missing intended configuration and the run waited for a retry signal.
 - `config_diff.json`: read-only intended configuration diff.
 - `deploy.json`: intended configuration loading, approved candidate
   application, and backup child-workflow scheduling.

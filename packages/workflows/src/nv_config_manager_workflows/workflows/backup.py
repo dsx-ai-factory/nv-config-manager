@@ -67,6 +67,7 @@ with workflow.unsafe.imports_passed_through():
 
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 UNATTENDED_TERMINATE_ON_FAILURE_PATCH_ID = "backup-unattended-terminate-on-failure-v1"
+BACKUP_WITHOUT_RENDER_PATCH_ID = "backup-skip-drift-check-without-render-v1"
 
 __all__ = [
     "DEFAULT_ACTIVITY_RETRY_POLICY",
@@ -222,7 +223,7 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
     class CheckDriftStageOutput(StageOutput):
         """Check Drift Stage Output."""
 
-        commit_id: str
+        commit_id: str | None
         diff: str
         has_drift: bool
 
@@ -244,6 +245,18 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
+
+        if (
+            result.device.backup_enabled
+            and not result.device.render_enabled
+            and workflow.patched(BACKUP_WITHOUT_RENDER_PATCH_ID)
+        ):
+            return BackupWorkflow.CheckDriftStageOutput(
+                commit_id=None,
+                diff="",
+                has_drift=False,
+                display="Rendering is disabled for this device, so the drift check was skipped.",
+            )
 
         # Load intended configuration
         content, commit_id, url = await workflow.execute_activity(

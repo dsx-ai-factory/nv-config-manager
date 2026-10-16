@@ -158,10 +158,10 @@ def test_collect_tech_support_stores_raw_bytes_and_reports_heartbeats(
     assert TECH_SUPPORT_BUNDLE_TTL == timedelta(hours=24)
     connection.close.assert_called_once_with()
     assert heartbeats.call_args_list == [
-        call(f"Generating cl-support bundle on {device.name} (21s elapsed)..."),
+        call(f"Generating tech-support bundle on {device.name} (21s elapsed)..."),
         call(
             f"Bundle stored in Redis on {device.name} ({len(content)} bytes, 45s total). "
-            f"Key: {key}\n\ncl-support output:\ncl-support output"
+            f"Key: {key}\n\ntech-support output:\ncl-support output"
         ),
     ]
 

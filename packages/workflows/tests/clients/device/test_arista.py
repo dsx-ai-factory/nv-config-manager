@@ -13,11 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import io
+import json
+import tarfile
 from typing import cast
 from unittest.mock import MagicMock, call
 
+import pyeapi.eapilib
 import pytest
 
+from nv_config_manager_workflows.clients.device import arista
 from nv_config_manager_workflows.clients.device.arista import AristaConnection
 from nv_config_manager_workflows.clients.device.base import COMMIT_CONFIRM_ROLLBACK_SECONDS
 from nv_config_manager_workflows.clients.device.exceptions import (
@@ -251,3 +256,203 @@ def test_get_interface_connections_combines_eapi_lldp_and_link_state() -> None:
     assert output.neighbors["Ethernet1"].device_name == "spine-1"
     assert output.neighbors["Ethernet1"].name == "Ethernet51"
     assert output.link_states == {"Ethernet1": True, "Ethernet2": False}
+
+
+def _eapi_node(*results: object) -> MagicMock:
+    """Mock an eAPI node whose successive enable() calls return each result."""
+    node = MagicMock()
+    node.enable.side_effect = [
+        result if isinstance(result, BaseException) else [{"result": result}] for result in results
+    ]
+    return node
+
+
+def test_get_running_image_returns_eos_version() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node({"version": "4.34.3M", "modelName": "CCS-720XP-48ZC2-F"})
+
+    assert conn.get_running_image() == "4.34.3M"
+    conn._node.enable.assert_called_once_with("show version")
+
+
+def test_get_running_image_strips_engineering_build() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node({"version": "4.34.3M-44102239.4343M (engineering build)"})
+
+    assert conn.get_running_image() == "4.34.3M"
+
+
+def test_get_running_image_raises_when_version_missing() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node({"modelName": "cEOSLab"})
+
+    with pytest.raises(
+        NetworkDeviceException, match="No EOS version reported by 192.0.2.1"
+    ) as error:
+        conn.get_running_image()
+    assert error.value.non_retryable
+
+
+def test_get_tech_support_bundle_packs_report_as_gzipped_tarball() -> None:
+    conn = _arista_connection()
+    conn._node = MagicMock()
+    conn._node.enable.return_value = [{"result": {"output": "------ show version ------\n"}}]
+    heartbeat = MagicMock()
+
+    content, summary = conn.get_tech_support_bundle(heartbeat)
+
+    conn._node.enable.assert_called_once_with("show tech-support", encoding="text")
+    heartbeat.assert_called()
+    with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as tar:
+        assert tar.getnames() == ["show-tech-support.txt"]
+        report = tar.extractfile("show-tech-support.txt")
+        assert report is not None
+        assert report.read() == b"------ show version ------\n"
+    assert summary.startswith("show tech-support collected from 192.0.2.1: 27 bytes")
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pyeapi.eapilib.CommandError(1002, "invalid command"),
+        pyeapi.eapilib.ConnectionError("https", "timed out"),
+    ],
+    ids=["command-error", "connection-error"],
+)
+def test_get_tech_support_bundle_wraps_eapi_errors(failure: Exception) -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(failure)
+
+    with pytest.raises(NetworkDeviceException, match="show tech-support failed on 192.0.2.1"):
+        conn.get_tech_support_bundle()
+
+
+def test_get_tech_support_bundle_extends_the_eapi_timeout_for_the_report() -> None:
+    conn = _arista_connection()
+    conn._node = MagicMock()
+    conn._node.connection.transport.timeout = 300
+    timeouts_seen = []
+
+    def enable(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+        timeouts_seen.append(conn._node.connection.transport.timeout)
+        return [{"result": {"output": "report\n"}}]
+
+    conn._node.enable.side_effect = enable
+
+    conn.get_tech_support_bundle()
+
+    assert timeouts_seen == [arista._TECH_SUPPORT_TIMEOUT_SECONDS]
+    assert conn._node.connection.transport.timeout == 300
+
+
+def test_get_tech_support_bundle_reports_a_timeout() -> None:
+    conn = _arista_connection()
+    timed_out = pyeapi.eapilib.ConnectionError("https", "Socket error during eAPI connection")
+    timed_out.__context__ = TimeoutError("timed out")
+    conn._node = _eapi_node(timed_out)
+
+    with pytest.raises(NetworkDeviceException, match="show tech-support timed out on 192.0.2.1"):
+        conn.get_tech_support_bundle()
+
+
+def test_get_tech_support_bundle_rejects_a_response_without_output() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node({"messages": []})
+
+    with pytest.raises(
+        NetworkDeviceException, match="show tech-support returned no output on 192.0.2.1"
+    ):
+        conn.get_tech_support_bundle()
+
+
+def test_diag_platform_environment_reports_each_missing_sensor_group() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(
+        {"fanTraySlots": []},
+        pyeapi.eapilib.CommandError(1002, "not supported on this hardware platform"),
+        {"powerSupplies": {}},
+    )
+
+    environment = conn.diag_get_platform_environment()
+
+    assert environment == {
+        "cooling": {"fanTraySlots": []},
+        "temperature": {"error": "No temperature data available on this device"},
+        "power": {"powerSupplies": {}},
+    }
+    assert [c.args[0] for c in conn._node.enable.call_args_list] == [
+        "show system environment cooling",
+        "show system environment temperature",
+        "show system environment power",
+    ]
+
+
+def test_diag_platform_transceiver_returns_eos_transceiver_data() -> None:
+    conn = _arista_connection()
+    transceivers = {"interfaces": {"Ethernet1": {"temperature": 31.2, "voltage": 3.29}}}
+    conn._node = _eapi_node(transceivers)
+
+    assert conn.diag_get_platform_transceiver() == transceivers
+    conn._node.enable.assert_called_once_with("show interfaces transceiver", encoding="json")
+
+
+def test_diag_platform_transceiver_reports_unavailable_data() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(pyeapi.eapilib.CommandError(1002, "not supported"))
+
+    assert conn.diag_get_platform_transceiver() == {
+        "error": "Transceiver data not available on this device"
+    }
+
+
+def test_diag_interface_counters_combines_traffic_and_error_counters() -> None:
+    conn = _arista_connection()
+    conn._node = MagicMock()
+    conn._node.enable.return_value = [
+        {"result": {"interfaces": {"Ethernet1": {"inOctets": 10}}}},
+        {"result": {"interfaceErrorCounters": {"Ethernet1": {"fcsErrors": 0}}}},
+    ]
+
+    counters = conn.diag_get_interface_counters()
+
+    conn._node.enable.assert_called_once_with(
+        ["show interfaces counters", "show interfaces counters errors"], encoding="json"
+    )
+    assert counters == {
+        "counters": {"interfaces": {"Ethernet1": {"inOctets": 10}}},
+        "errors": {"interfaceErrorCounters": {"Ethernet1": {"fcsErrors": 0}}},
+    }
+
+
+def test_diag_interface_mac_keeps_only_interfaces_with_addresses() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(
+        {
+            "interfaces": {
+                "Ethernet1": {
+                    "physicalAddress": "00:1c:73:00:00:01",
+                    "burnedInAddress": "00:1c:73:00:00:01",
+                    "mtu": 9214,
+                },
+                "Management1": {"physicalAddress": "00:1c:73:00:00:99"},
+                "Loopback0": {"mtu": 65535},
+            }
+        }
+    )
+
+    assert conn.diag_get_interface_mac() == {
+        "Ethernet1": {
+            "physicalAddress": "00:1c:73:00:00:01",
+            "burnedInAddress": "00:1c:73:00:00:01",
+        },
+        "Management1": {"physicalAddress": "00:1c:73:00:00:99"},
+    }
+
+
+def test_run_diagnostic_command_serializes_new_arista_command() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(pyeapi.eapilib.CommandError(1002, "not supported"))
+
+    output = conn.run_diagnostic_command("show_platform_transceiver")
+
+    assert json.loads(output) == {"error": "Transceiver data not available on this device"}

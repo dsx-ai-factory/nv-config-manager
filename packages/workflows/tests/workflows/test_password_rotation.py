@@ -20,9 +20,6 @@ from datetime import timedelta
 
 import pytest
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
-from nv_config_manager_dcim_nautobot_2x.workflow_models import (
-    network_device_from_nautobot_graphql,
-)
 from pydantic import ValidationError
 from temporalio import activity, workflow
 from temporalio.testing import WorkflowEnvironment
@@ -54,24 +51,18 @@ from nv_config_manager_workflows.workflows.site_password_rotation import (
     SitePasswordRotationWorkflow,
 )
 
-TEST_DEVICE_DATA = {
-    "id": "device-1-uuid",
-    "name": "rno1-tor-001",
-    "role": {"name": "TAN-Leaf"},
-    "location": {"location_type": {"name": "Site"}, "name": "rno1"},
-    "device_type": {"model": "SN2010"},
-    "platform": {"name": "Cumulus Linux"},
-    "primary_ip4": {"host": "10.1.1.1"},
-    "primary_ip6": None,
-    "rack": {"name": "a01"},
-    "position": 1,
-    "configmanagerdevicestatus": {
-        "render_enabled": True,
-        "deploy_enabled": True,
-        "backup_enabled": True,
-        "ztp_enabled": True,
-    },
-    "config_context": {
+TEST_DEVICE = NetworkDeviceData(
+    id="device-1-uuid",
+    name="rno1-tor-001",
+    rack="a01",
+    position=1,
+    role="tan-leaf",
+    site="rno1",
+    device_type="sn2010",
+    platform=Platform.CUMULUS_LINUX,
+    primary_ip4="10.1.1.1",
+    primary_ip6=None,
+    intent={
         "password_mappings": {
             "cumulus": {
                 "password": "root_password",
@@ -80,7 +71,11 @@ TEST_DEVICE_DATA = {
             }
         }
     },
-}
+    render_enabled=True,
+    deploy_enabled=True,
+    backup_enabled=True,
+    ztp_enabled=True,
+)
 
 
 def _device() -> NetworkDeviceData:
@@ -227,7 +222,7 @@ class TestPasswordRotationResultData:
 
     def test_password_rotation_result_data_success(self) -> None:
         """Test successful password rotation result."""
-        device = network_device_from_nautobot_graphql(TEST_DEVICE_DATA)
+        device = TEST_DEVICE.model_copy(deep=True)
         result = PasswordRotationResultData(
             device=device,
             success=True,
@@ -241,7 +236,7 @@ class TestPasswordRotationResultData:
 
     def test_password_rotation_result_data_failure(self) -> None:
         """Test failed password rotation result."""
-        device = network_device_from_nautobot_graphql(TEST_DEVICE_DATA)
+        device = TEST_DEVICE.model_copy(deep=True)
         result = PasswordRotationResultData(
             device=device,
             success=False,
