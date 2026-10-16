@@ -28,16 +28,17 @@ jobs:
           persist-credentials: false
       - name: Setup proxy cache
         uses: &setup_proxy_cache nv-gha-runners/setup-proxy-cache@14229018fe157c83e03c008f27d183d8e99bc67c
-      - uses: &actions_setup_python actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - uses: &actions_setup_python actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: &setup_uv astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - uses: &setup_uv astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
       - name: Setup Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        uses: &actions_setup_go actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.9"
+          cache: false
       - name: Sorted list check (keep-sorted)
         run: make sort-check
       - run: uv sync --frozen
@@ -171,7 +172,7 @@ jobs:
         run: |
           uv sync --frozen
           uv run pytest tests/ -n auto --cov=nv_config_manager_auth --cov=nv_config_manager_jobs --cov-report=xml:coverage.xml --cov-report=term
-      - uses: &upload_artifact actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: &upload_artifact actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: python-test-artifacts
@@ -291,7 +292,7 @@ jobs:
           persist-credentials: false
       - name: Setup proxy cache
         uses: *setup_proxy_cache
-      - uses: &actions_setup_go actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: *actions_setup_go
         with:
           go-version: "1.26.9"
           cache-dependency-path: components/nats-ready/go.sum
@@ -708,7 +709,7 @@ jobs:
       - uses: *actions_checkout
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
       - run: node --test .github/scripts/*.test.js
@@ -736,7 +737,7 @@ jobs:
       - name: Setup proxy cache
         uses: *setup_proxy_cache
       - name: Cache npm
-        uses: &actions_cache actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        uses: &actions_cache actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
           key: ui-npm-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}
