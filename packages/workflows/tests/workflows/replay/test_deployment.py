@@ -46,6 +46,8 @@ _DEPLOYMENT_WORKFLOWS = [
     "history_filename",
     [
         "backup.json",
+        "backup_without_render.json",
+        "backup_without_render_pre_change.json",
         "config_diff.json",
         "deploy.json",
         "infiniband_mlnx_os_upgrade.json",
