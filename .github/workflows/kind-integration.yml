@@ -57,7 +57,7 @@ jobs:
       NV_CONFIG_MANAGER_HOSTNAME: config-manager.local
       TEST_PATH: ${{ inputs.test_path || 'src/tests/integration/' }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: &actions_checkout actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         timeout-minutes: 5
         with:
           persist-credentials: false
@@ -439,7 +439,7 @@ jobs:
       # The slash-command dispatcher uses GITHUB_TOKEN, so a follow-on
       # workflow_run event is not reliable. Report from the dispatched workflow
       # instead, using the same approved pull-request/* SHA that Kind tested.
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: *actions_checkout
         timeout-minutes: 5
         with:
           ref: ${{ github.sha }}
