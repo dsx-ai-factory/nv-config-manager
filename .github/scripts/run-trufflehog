@@ -12,7 +12,7 @@ readonly filtered_file="${results_dir}/filtered.jsonl"
 readonly allowlist_file=".github/trufflehog-allowlist.json"
 trap 'rm -rf -- "${results_dir}"' EXIT
 
-scan_args=(git file:///tmp/ --json --no-update --results=verified,unknown)
+scan_args=(git file:///repo/ --json --no-update --results=verified,unknown)
 if [[ -n "${SCAN_BASE:-}" ]]; then
   scan_args+=(--since-commit "${SCAN_BASE}")
 fi
@@ -22,7 +22,7 @@ fi
 
 # Keep candidate credentials out of job logs. Scanner/runtime failures fail
 # immediately; findings are evaluated after the immutable-location allowlist.
-docker run --rm -v "${PWD}:/tmp:ro" -w /tmp "${image}" \
+docker run --rm -v "${PWD}:/repo:ro" -w /repo "${image}" \
   "${scan_args[@]}" >"${results_file}"
 
 jq --compact-output --slurpfile allowlist "${allowlist_file}" '
