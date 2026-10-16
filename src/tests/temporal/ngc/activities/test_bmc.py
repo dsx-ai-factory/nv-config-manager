@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""BMC Activity Test Suite."""
+"""Service credential and HTTP integration tests for BMC and Redfish."""
 
 import base64
 import copy
@@ -38,23 +38,17 @@ from nv_config_manager.temporal.common.mixins.device import (
     InterfaceData,
 )
 from nv_config_manager.temporal.ngc.activities.bmc import (
-    DiscoverHostsInput,
-    DiscoverHostsOutput,
     GetDpuDetailsActivityInput,
     GetDpuDetailsActivityOutput,
     GetServerDetailsActivityInput,
     GetServerDetailsActivityOutput,
-    PopulateRedfishMacsInput,
-    PopulateRedfishMacsOutput,
     RedfishHostInput,
     RedfishHostOutput,
     UpdateDpuDataActivityInput,
     UpdateDpuDataActivityOutput,
-    discover_redfish_hosts,
     factory_reset_bmc,
     get_dpu_details,
     get_server_details,
-    populate_redfish_macs,
     power_on_host,
     set_redfish_password,
     update_dpu_data,
@@ -63,24 +57,20 @@ from tests.temporal.ngc.activities.test_bmc_data import (
     BLUEFIELD_CHASSIS,
     BLUEFIELD_FACTORY_RESET_RESPONSE,
     BLUEFIELD_PASSWORD_RESPONSE,
-    BLUEFIELD_REDFISH_BASE,
     BLUEFIELD_SYS_INFO,
     BLUEFIELD_SYSTEM_INFO,
     BLUEFIELD_UNAUTHORIZED_RESPONSE,
     DELL_NETWORK_ADAPTER_DETAILS,
     DELL_NETWORK_ADAPTERS,
     DELL_NETWORK_FUNCTION_DETAIL,
-    DELL_REDFISH_BASE,
     DELL_SYSTEM_INFO,
     DELL_UNAUTHORIZED_RESPONSE,
     LENOVO_NETWORK_ADAPTER_DETAILS,
     LENOVO_NETWORK_ADAPTERS,
     LENOVO_PASSWORD_RESPONSE,
     LENOVO_PORT_DETAILS,
-    LENOVO_REDFISH_BASE,
     LENOVO_SYSTEM_INFO,
     LENOVO_UNAUTHORIZED_RESPONSE,
-    TEST_ARP_TABLES,
     TEST_DPU_DEVICES,
     TEST_REDFISH_DPUS,
     TEST_SERVERS,
@@ -90,163 +80,6 @@ from tests.temporal.ngc.activities.test_bmc_data import (
 def bmc_http_auth(username, password) -> dict[str, str]:
     encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
     return {"Authorization": f"Basic {encoded}"}
-
-
-@pytest.mark.asyncio
-async def test_discover_redfish_hosts(aioresponses):
-    aioresponses.get("https://127.0.0.1:443/redfish/v1/", payload=LENOVO_REDFISH_BASE)
-    aioresponses.get(
-        "https://127.0.0.2:443/redfish/v1/",
-        status=404,
-        payload={"error": "not found"},
-    )
-    aioresponses.get(
-        "https://127.0.0.3:443/redfish/v1/",
-        payload=BLUEFIELD_REDFISH_BASE,
-    )
-    aioresponses.get(
-        "https://127.0.0.4:443/redfish/v1/",
-        payload=BLUEFIELD_REDFISH_BASE,
-    )
-    aioresponses.get(
-        "https://127.0.0.6:443/redfish/v1/",
-        payload=LENOVO_REDFISH_BASE,
-    )
-    aioresponses.get(
-        "https://127.0.0.7:443/redfish/v1/",
-        payload=BLUEFIELD_REDFISH_BASE,
-    )
-    aioresponses.get(
-        "https://127.0.0.10:443/redfish/v1/",
-        payload=BLUEFIELD_REDFISH_BASE,
-    )
-    aioresponses.get(
-        "https://127.0.0.11:443/redfish/v1/",
-        payload=DELL_REDFISH_BASE,
-    )
-
-    activity_input = DiscoverHostsInput(
-        ip_range_start="127.0.0.1",
-        ip_range_end="127.0.0.12",
-        ips_excluded=["127.0.0.3"],
-        port=443,
-    )
-    result = await discover_redfish_hosts(activity_input)
-    assert result == DiscoverHostsOutput(
-        hosts=[
-            RedfishHost(address="127.0.0.1", port=443, vendor=RedfishVendor.LENOVO, mac=None),
-            RedfishHost(address="127.0.0.4", port=443, vendor=RedfishVendor.BLUEFIELD, mac=None),
-            RedfishHost(address="127.0.0.6", port=443, vendor=RedfishVendor.LENOVO, mac=None),
-            RedfishHost(address="127.0.0.7", port=443, vendor=RedfishVendor.BLUEFIELD, mac=None),
-            RedfishHost(address="127.0.0.10", port=443, vendor=RedfishVendor.BLUEFIELD, mac=None),
-            RedfishHost(address="127.0.0.11", port=443, vendor=RedfishVendor.DELL, mac=None),
-        ]
-    )
-
-
-@pytest.mark.asyncio
-async def test_discover_redfish_hosts_incorrect_range():
-    activity_input = DiscoverHostsInput(
-        ip_range_start="127.0.0.10",
-        ip_range_end="127.0.0.0",
-        ips_excluded=[],
-        port=443,
-    )
-    with pytest.raises(ApplicationError) as error:
-        await discover_redfish_hosts(activity_input)
-
-    assert error.type is ApplicationError
-    assert error.value.args[0] == "End IP 127.0.0.0 is lower or equal to start IP 127.0.0.10"
-
-
-@pytest.mark.asyncio
-async def test_discover_redfish_hosts_no_addresses():
-    result = await discover_redfish_hosts(
-        DiscoverHostsInput(
-            ip_range_start="127.0.0.0",
-            ip_range_end="127.0.0.2",
-            ips_excluded=["127.0.0.0", "127.0.0.1"],
-            port=443,
-        )
-    )
-    assert result.hosts == []
-
-
-@pytest.mark.asyncio
-async def test_populate_redfish_macs():
-    result = await populate_redfish_macs(
-        PopulateRedfishMacsInput(
-            arp_tables=TEST_ARP_TABLES,
-            hosts=[
-                RedfishHost(address="127.0.0.1", port=443, vendor=RedfishVendor.LENOVO, mac=None),
-                RedfishHost(
-                    address="127.0.0.4",
-                    port=443,
-                    vendor=RedfishVendor.BLUEFIELD,
-                    mac=None,
-                ),
-                RedfishHost(address="127.0.0.6", port=443, vendor=RedfishVendor.LENOVO, mac=None),
-                RedfishHost(
-                    address="127.0.0.7",
-                    port=443,
-                    vendor=RedfishVendor.BLUEFIELD,
-                    mac=None,
-                ),
-                RedfishHost(
-                    address="127.0.0.10",
-                    port=443,
-                    vendor=RedfishVendor.BLUEFIELD,
-                    mac=None,
-                ),
-                RedfishHost(
-                    address="127.0.0.11",
-                    port=443,
-                    vendor=RedfishVendor.DELL,
-                    mac=None,
-                ),
-            ],
-        )
-    )
-    assert result == PopulateRedfishMacsOutput(
-        hosts=[
-            RedfishHost(
-                address="127.0.0.1",
-                port=443,
-                vendor=RedfishVendor.LENOVO,
-                mac="C8-4B-D6-7A-E9-E2",
-            ),
-            RedfishHost(
-                address="127.0.0.4",
-                port=443,
-                vendor=RedfishVendor.BLUEFIELD,
-                mac="38-7C-76-8D-6F-13",
-            ),
-            RedfishHost(
-                address="127.0.0.6",
-                port=443,
-                vendor=RedfishVendor.LENOVO,
-                mac="C8-4B-D6-7A-28-F2",
-            ),
-            RedfishHost(
-                address="127.0.0.7",
-                port=443,
-                vendor=RedfishVendor.BLUEFIELD,
-                mac="D0-8E-79-F8-12-44",
-            ),
-            RedfishHost(
-                address="127.0.0.10",
-                port=443,
-                vendor=RedfishVendor.BLUEFIELD,
-                mac=None,
-            ),
-            RedfishHost(
-                address="127.0.0.11",
-                port=443,
-                vendor=RedfishVendor.DELL,
-                mac="C8-4B-26-7B-39-C2",
-            ),
-        ]
-    )
 
 
 @responses.activate

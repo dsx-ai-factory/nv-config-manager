@@ -54,6 +54,7 @@ class MCPSettings:
     max_response_bytes: int
     dcim_provider_name: str = DEFAULT_DCIM_PROVIDER
     nautobot_mcp_enabled: bool = False
+    use_internal_endpoints: bool = True
 
     @classmethod
     def from_config(cls, config: ConfigParser | None = None) -> MCPSettings:
@@ -97,6 +98,7 @@ class MCPSettings:
             max_response_bytes=_get_int(config, "mcp", "max_response_bytes", 100_000),
             dcim_provider_name=dcim_provider_name,
             nautobot_mcp_enabled=nautobot_mcp_enabled,
+            use_internal_endpoints=use_internal,
         )
 
 

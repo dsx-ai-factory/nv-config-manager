@@ -303,6 +303,107 @@ async def test_get_render_data_rejects_missing_required_interface_type():
         await client.get_render_data(RenderDataRequest(device_id="device-id"))
 
 
+def _cabled_interface(name: str, peer: dict) -> dict:
+    """Return a leaf port cabled to ``peer``, a direct or module-bay connection."""
+    return {
+        "name": name,
+        "type": "400gbase-x-qsfpdd",
+        "enabled": True,
+        "connected_interface": {"name": "swp1", "vrf": None, "ip_addresses": [], **peer},
+    }
+
+
+def _spine(device_id: str) -> dict:
+    return {"id": device_id, "name": device_id, "role": {"name": "Spine"}, "tags": []}
+
+
+def _render_payload(interfaces: list[dict]) -> dict:
+    return {
+        "data": {
+            "device": {
+                "id": "device-id",
+                "name": "leaf-1",
+                "platform": {"name": "Cumulus Linux"},
+                "role": {"name": "Leaf"},
+                "device_type": {"model": "SN5600"},
+                "tags": [],
+                "interfaces": interfaces,
+                "config_context": {},
+                "location": {
+                    "name": "Site A",
+                    "location_type": {"name": "Site"},
+                    "parent": None,
+                },
+            }
+        }
+    }
+
+
+_SITE_A = {"data": {"locations": [{"name": "Site A", "location_type": {"name": "Site"}}]}}
+
+
+@pytest.mark.asyncio
+async def test_get_render_data_reads_peer_contexts_once_per_device():
+    """Every port to the same neighbor shares one context read, module bays included."""
+    client = _client()
+    client.graphql_query = AsyncMock(
+        side_effect=[
+            _render_payload(
+                [
+                    _cabled_interface("swp1", {"device": _spine("spine-1")}),
+                    _cabled_interface("swp2", {"device": _spine("spine-1")}),
+                    _cabled_interface(
+                        "swp3",
+                        {
+                            "device": None,
+                            "module": {"parent_module_bay": {"parent_device": _spine("spine-2")}},
+                        },
+                    ),
+                ]
+            ),
+            {
+                "data": {
+                    "devices": [
+                        {"id": "spine-1", "config_context": {"bgp": {"asn": 65101}}},
+                        {"id": "spine-2", "config_context": {"bgp": {"asn": 65102}}},
+                    ]
+                }
+            },
+            _SITE_A,
+        ]
+    )
+
+    render_data = await client.get_render_data(RenderDataRequest(device_id="device-id"))
+
+    peers = [interface.connected_interface.device for interface in render_data.device.interfaces]
+    assert [(peer.name, peer.routing_asn) for peer in peers] == [
+        ("spine-1", "65101"),
+        ("spine-1", "65101"),
+        ("spine-2", "65102"),
+    ]
+    contexts_call = client.graphql_query.await_args_list[1]
+    assert contexts_call.args[0].operation_name == "ListDeviceContexts"
+    assert contexts_call.args[1] == {"ids": ["spine-1", "spine-2"]}
+
+
+@pytest.mark.asyncio
+async def test_get_render_data_rejects_a_peer_without_a_context():
+    """A neighbor missing from the context read would render without its BGP data."""
+    client = _client()
+    client.graphql_query = AsyncMock(
+        side_effect=[
+            _render_payload([_cabled_interface("swp1", {"device": _spine("spine-1")})]),
+            {"data": {"devices": []}},
+        ]
+    )
+
+    with pytest.raises(
+        DCIMInvalidDataError,
+        match="no configuration context for 1 of 1 connected devices of device-id",
+    ):
+        await client.get_render_data(RenderDataRequest(device_id="device-id"))
+
+
 @pytest.mark.asyncio
 async def test_render_state_operations_map_to_normalized_models():
     """Provider-normalized state hides Nautobot query and REST details."""

@@ -1,0 +1,46 @@
+{
+  "workflow": "IBPortGuidDiscoveryWorkflow",
+  "input_model": "IBPortGuidDiscoveryInput",
+  "scenarios": [
+    {
+      "name": "manual fill, dry run",
+      "legacy_url": "/workflows/ibportguiddiscoveryworkflow/form",
+      "new_url": "/workflows/new/ib-port-guid-discovery",
+      "legacy_payload": {
+        "ufm_device_id": "32fdefda-df59-4285-9d6e-a1f220906a8d",
+        "switch_device_ids": [
+          "67a4c2d6-0b61-4c90-a7b8-3042d9c26815",
+          "9d5b1b2f-7c85-4696-8aa5-f56e02397a06"
+        ],
+        "dry_run": true
+      },
+      "generic_payload": {
+        "ufm_device_id": "32fdefda-df59-4285-9d6e-a1f220906a8d",
+        "switch_device_ids": [
+          "67a4c2d6-0b61-4c90-a7b8-3042d9c26815",
+          "9d5b1b2f-7c85-4696-8aa5-f56e02397a06"
+        ],
+        "dry_run": true
+      }
+    },
+    {
+      "name": "manual fill, dry run off",
+      "legacy_url": "/workflows/ibportguiddiscoveryworkflow/form",
+      "new_url": "/workflows/new/ib-port-guid-discovery",
+      "legacy_payload": {
+        "ufm_device_id": "2ec651a7-2a1c-4a27-bac7-b0a06f8ef49c",
+        "switch_device_ids": [
+          "ecb8db8a-d099-4654-83d9-d8a46c597fe9"
+        ],
+        "dry_run": false
+      },
+      "generic_payload": {
+        "ufm_device_id": "2ec651a7-2a1c-4a27-bac7-b0a06f8ef49c",
+        "switch_device_ids": [
+          "ecb8db8a-d099-4654-83d9-d8a46c597fe9"
+        ],
+        "dry_run": false
+      }
+    }
+  ]
+}

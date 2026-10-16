@@ -125,7 +125,7 @@ infrastructure:
 Re-run:
 
 ```bash
-uv run nvcm-installer init nv-config-manager-install.yaml
+uv run nvcm-installer init --config nv-config-manager-install.yaml
 uv run nvcm-installer deploy nv-config-manager-install.yaml
 ```
 
@@ -136,23 +136,39 @@ The installer computes the SHA256, writes the image into `{platform}/{version}/{
 If the PVC is NFS-backed and the API is not reachable, you can write the image straight into the mount and update `manifest.json` by hand:
 
 1. Copy the file to `{nfs-root}/{platform}/{version}/{filename}`.
-1. Use the SHA256 published by the image's download source (e.g. `enterprise.nvidia.com`) — not one computed from the local copy — so the manifest matches what the vendor shipped.
-1. Edit `manifest.json` at the PVC root, adding (or updating) an entry:
+1. Obtain the SHA256 published by the image's download source, such as `enterprise.nvidia.com`.
+1. Compute the copied file's SHA256 and compare it with the published value:
+
+   ```bash
+   sha256sum {nfs-root}/{platform}/{version}/{filename}
+   ```
+
+   Do not update the manifest unless the values match. If they differ, remove
+   the copied file and repeat the download or copy.
+1. Edit `manifest.json` at the PVC root. If an entry already has the same
+   `platform` and `version`, replace that entry. When the filename changes, do
+   not append a second entry; remove the existing entry before adding the new
+   one. Use the verified, vendor-published SHA256:
 
    ```json
    {
-     "platform": "cumulus-linux",
-     "version": "5.14.0",
-     "filename": "cumulus-linux-5.14.0-mlx-amd64.bin",
-     "path": "cumulus-linux/5.14.0/cumulus-linux-5.14.0-mlx-amd64.bin",
-     "sha256": "7c0a9f...",
-     "tags": { "firmware-image": "" }
+     "images": [
+       {
+         "platform": "cumulus-linux",
+         "version": "5.14.0",
+         "filename": "cumulus-linux-5.14.0-mlx-amd64.bin",
+         "path": "cumulus-linux/5.14.0/cumulus-linux-5.14.0-mlx-amd64.bin",
+         "sha256": "7c0a9f...",
+         "tags": { "firmware-image": "" }
+       }
+     ]
    }
    ```
 
 The `tags.firmware-image` field is what marks this file as the OS image for the directory. Omit it for supporting files.
 
-Reach for this approach only when the API path is unavailable. The API and the installer keep the manifest consistent for you; hand edits are easy to get wrong.
+Use this approach only when the API is unavailable. The API and installer keep
+the manifest consistent and avoid errors from manual edits.
 
 ## Verify the upload
 
@@ -162,11 +178,16 @@ List what is currently on the server for a platform / version:
 curl -s "https://ztp.example.com/v1/files/cumulus-linux/5.14.0/" | jq .
 ```
 
-Confirm the checksum the server recorded matches the file you uploaded:
+Confirm the checksum reported by the server matches the verified,
+vendor-published checksum recorded in the manifest:
 
 ```bash
 curl -s "https://ztp.example.com/v1/files/cumulus-linux/5.14.0/cumulus-linux-5.14.0-mlx-amd64.bin/checksum" | jq -r .checksum
 ```
+
+This endpoint returns the checksum from `manifest.json`; it does not hash the
+stored file. The local checksum comparison in the manual copy procedure is
+therefore required.
 
 For a global view, `GET /v1/files/` lists every file with metadata and tags.
 

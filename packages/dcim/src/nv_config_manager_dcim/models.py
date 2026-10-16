@@ -17,9 +17,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from enum import StrEnum
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, model_validator
 
 from nv_config_manager_dcim.errors import DCIMInvalidDataError
 
@@ -89,6 +90,67 @@ class DCIMSelection(DCIMModel):
 
     id: str
     name: str
+    location_type: str | None = None
+
+
+class DCIMLocationReference(DCIMModel):
+    """A provider-owned location identifier with an optional location type."""
+
+    id: str
+    location_type: str | None = None
+
+    def __str__(self) -> str:
+        """Retain legacy identifier formatting in logs and display text."""
+        return self.id
+
+
+def _normalize_isolated_location_reference(value: Any) -> Any:
+    """Serialize location references loaded under an isolated runtime.
+
+    Temporal's workflow sandbox can load this model with a distinct class
+    identity from the activity-side model. Pydantic otherwise rejects that
+    value even though it has the same module, class name, and fields.
+    """
+    value_type = type(value)
+    if (
+        value_type.__module__ == DCIMLocationReference.__module__
+        and value_type.__name__ == DCIMLocationReference.__name__
+    ):
+        model_dump = getattr(value, "model_dump", None)
+        if callable(model_dump):
+            return model_dump()
+    return value
+
+
+type DCIMLocationIdentifier = Annotated[
+    str | DCIMLocationReference,
+    BeforeValidator(_normalize_isolated_location_reference),
+]
+"""A typed location reference or a legacy bare provider identifier."""
+
+type DCIMLocationType = str
+"""A provider-defined discriminator for a location identifier namespace."""
+
+
+def dcim_location_id(location: DCIMLocationIdentifier) -> str:
+    """Return the provider identifier from a typed or legacy location reference."""
+    return location.id if isinstance(location, DCIMLocationReference) else location
+
+
+def dcim_location_type(location: DCIMLocationIdentifier) -> str | None:
+    """Return the location type from a typed location reference."""
+    return location.location_type if isinstance(location, DCIMLocationReference) else None
+
+
+def dcim_location_reference(
+    location_id: str, location_type: str | None = None
+) -> DCIMLocationIdentifier:
+    """Build a typed reference when a location type is available."""
+    return (
+        DCIMLocationReference(id=location_id, location_type=location_type)
+        if location_type
+        else location_id
+    )
 
 
 class DCIMDeviceSelection(DCIMModel):
@@ -102,7 +164,7 @@ class DCIMDeviceSelection(DCIMModel):
 class DCIMDeviceSelectionFilter(DCIMModel):
     """Provider-neutral device constraints used to populate workflow forms."""
 
-    sites: tuple[str, ...] = ()
+    sites: tuple[DCIMLocationIdentifier, ...] = ()
     statuses: tuple[str, ...] = ()
     roles: tuple[str, ...] = ()
     tenants: tuple[str, ...] = ()
@@ -206,7 +268,7 @@ class HostMetadata(DCIMModel):
 
     device_id: str
     name: str
-    tenant: str
+    tenant: str | None
     alias: str | None
     interfaces: tuple[HostInterfaceMetadata, ...] = ()
 
@@ -243,6 +305,23 @@ class IntendedInterfaceNeighbor(DCIMModel):
     connected_interface_name: str | None = None
     connected_interface_mac: str | None = None
     connected_device: IntendedNeighborDevice | None = None
+
+
+class CableStatus(StrEnum):
+    """Provider-neutral cable-validation states persisted to a DCIM."""
+
+    CONNECTED = "Connected"
+    DISCONNECTED = "Disconnected"
+    INVALID = "Invalid"
+
+
+class CableStatusUpdate(DCIMModel):
+    """Request to update the cable attached to one device interface."""
+
+    device_id: str
+    interface_name: str
+    status: CableStatus
+    workflow_id: str
 
 
 class IBNeighbor(DCIMModel):
@@ -305,6 +384,7 @@ class IBHostSite(DCIMModel):
     device_primary_ip: str | None
     site_id: str
     site_name: str
+    site_type: DCIMLocationType | None = None
 
 
 class IBPKeyContext(DCIMModel):

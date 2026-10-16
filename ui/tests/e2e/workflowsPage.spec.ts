@@ -211,6 +211,47 @@ test.describe("Workflows Page", () => {
     );
   });
 
+  test("shows terminal status instead of stale stage state", async ({ page }) => {
+    await page.unroute(/.*\/v1\/workflow\/?(\?.*)?$/);
+    await page.route(/.*\/v1\/workflow\/?(\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        json: {
+          workflows: [
+            {
+              id: "terminated-pending-approval-workflow",
+              workflow_type: "DeployWorkflow",
+              workflow_input: {},
+              started_by: "operator",
+              start_time: "2026-08-09T19:05:18Z",
+              close_time: "2026-08-09T19:06:18Z",
+              status: "TERMINATED",
+              pending_approval: true,
+              failed_stage: false,
+              search_attributes: {
+                User: ["operator"],
+              },
+              href: "https://temporal.example.com/terminated-workflow",
+            },
+          ],
+          next_page_token: null,
+          total_count: 1,
+          page_count: 1,
+        },
+      });
+    });
+
+    await page.goto("/workflows");
+
+    const workflowRow = page.locator("tbody tr").first();
+    await expect(
+      workflowRow.getByText("Terminated", { exact: true })
+    ).toBeVisible();
+    await expect(
+      workflowRow.getByText("Pending Approval", { exact: true })
+    ).toHaveCount(0);
+  });
+
   test("shows user roles and disables workflows the user cannot execute", async ({
     page,
   }) => {
@@ -634,6 +675,76 @@ test.describe("Workflows Page", () => {
         ),
       )
       .toBe(true);
+  });
+
+  test("offers every eligible catalog workflow type with no executions", async ({
+    page,
+  }) => {
+    const catalogEntry = (
+      name: string,
+      displayName: string,
+      extra: Record<string, unknown> = {}
+    ) => ({
+      name,
+      display_name: displayName,
+      description: `${displayName} workflow`,
+      endpoint: `/${name.toLowerCase()}`,
+      namespace: "ngc",
+      cli_name: name.toLowerCase(),
+      input_class: `${name}Input`,
+      read_roles: ["all"],
+      execute_roles: ["all"],
+      ...extra,
+    });
+    await page.unroute("**/v1/workflow/metadata?include=form");
+    await page.route("**/v1/workflow/metadata?include=form", (route) =>
+      route.fulfill({
+        status: 200,
+        json: {
+          workflows: [
+            catalogEntry("DeployWorkflow", "Configuration Deploy"),
+            catalogEntry("AcmeFabricAuditWorkflow", "Acme Fabric Audit"),
+            catalogEntry("RetiredWorkflow", "Retired Workflow"),
+          ],
+        },
+      })
+    );
+    await page.unroute(/.*\/v1\/workflow\/?(\?.*)?$/);
+    await page.route(/.*\/v1\/workflow\/?(\?.*)?$/, (route) =>
+      route.fulfill({
+        status: 200,
+        json: {
+          workflows: [],
+          next_page_token: null,
+          total_count: 0,
+          page_count: 0,
+        },
+      })
+    );
+
+    await page.goto("/workflows");
+    await expect(page.getByText("No results.")).toBeVisible();
+
+    const workflowTypeFilter = page
+      .locator("thead")
+      .getByRole("cell", { name: /Workflow Type/ })
+      .getByRole("combobox");
+    await workflowTypeFilter.click();
+    await expect(page.getByRole("option")).toHaveText([
+      "All",
+      "Configuration Deploy",
+      "Acme Fabric Audit",
+      "Retired Workflow",
+    ]);
+
+    const filteredRequest = page.waitForRequest(
+      (request) =>
+        new URL(request.url()).searchParams.get("workflow_type") ===
+        "AcmeFabricAuditWorkflow"
+    );
+    await page.getByRole("option", { name: "Acme Fabric Audit" }).click();
+    await filteredRequest;
+    await expect(workflowTypeFilter).toContainText("Acme Fabric Audit");
   });
 
   test("persists the selected row count", async ({ page }) => {

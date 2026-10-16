@@ -167,7 +167,7 @@ run_final_validator() (
     export CI_JOB_TOKEN=job-token CI_API_V4_URL="${TEST_CI_API_V4_URL:-https://gitlab.example/api/v4}" CI_PROJECT_ID=7
     export NVCM_MIRROR_API_TOKEN=read-token
     export NVCM_PROMOTE_PR=123 NVCM_PROMOTE_PR_SHA="$pr_sha"
-    export NVCM_PROMOTE_BUILD_PIPELINE_ID=100 NVCM_PROMOTE_ENV=test
+    export NVCM_PROMOTE_BUILD_PIPELINE_ID=100 NVCM_PROMOTE_ENV="${TEST_PROMOTE_ENV:-test}"
     export NVCM_PROMOTE_SOURCE_PIPELINE_ID=200
     export NVCM_PROMOTE_SOURCE_REF=main NVCM_PROMOTE_SOURCE_SHA="$main_sha"
     export MOCK_BRIDGE_NAME="${TEST_BRIDGE_NAME:-promote-to-test}"
@@ -199,6 +199,7 @@ run_source_validator
 TEST_AMBIGUOUS_BUILD_REFS=true run_source_validator
 TEST_REF=main run_source_validator
 run_final_validator
+TEST_PROMOTE_ENV=kiwi-qa TEST_BRIDGE_NAME=promote-to-kiwi-qa run_final_validator
 TEST_ARTIFACT_DIRECT=true run_final_validator
 TEST_CI_API_V4_URL=http://gitlab.example/api/v4 assert_source_rejected "CI_API_V4_URL must use HTTPS"
 TEST_CURRENT_SOURCE=web assert_source_rejected "pipeline source 'web' is not a push webhook trigger"

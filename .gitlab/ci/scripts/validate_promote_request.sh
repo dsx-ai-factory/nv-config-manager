@@ -68,7 +68,7 @@ done
     || fail "source SHA is not a full lowercase Git SHA"
 
 case "$NVCM_PROMOTE_ENV" in
-    test|test01) ;;
+    test|test01|kiwi-qa) ;;
     *) fail "unsupported target environment '${NVCM_PROMOTE_ENV}'" ;;
 esac
 [[ "$NVCM_PROMOTE_SOURCE_REF" == "$default_branch" ]] \

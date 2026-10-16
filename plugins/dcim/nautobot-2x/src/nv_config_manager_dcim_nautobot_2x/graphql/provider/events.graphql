@@ -33,6 +33,17 @@ query ListVRFAffectedDevices($id: ID) {
   }
 }
 
+query FindSwitchesByVLAN($id: [String]) {
+  vlans(id: $id) {
+    interfaces_as_tagged {
+      device { id }
+    }
+    interfaces_as_untagged {
+      device { id }
+    }
+  }
+}
+
 query ListIPAddressAffectedDevices($id: ID) {
   ip_address(id: $id) {
     interfaces { device { ...DeviceRenderStatus } }

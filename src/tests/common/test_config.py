@@ -18,7 +18,10 @@ import os
 from configparser import ConfigParser
 from unittest.mock import patch
 
+import pytest
+
 from nv_config_manager.common.config import (
+    SpiffeJwtUnavailableError,
     _read_spiffe_jwt,
     clear_config_cache,
     dcim_client,
@@ -142,7 +145,7 @@ class TestGetInternalAuthHeaders:
 
     def test_explicit_service_name(self):
         """Test with explicitly provided service name."""
-        with patch("nv_config_manager.common.config.load_config", return_value=ConfigParser()):
+        with patch("nv_config_manager.common.config.http.load_config", return_value=ConfigParser()):
             headers = get_internal_auth_headers(service_name="my-service")
         assert headers == {
             "X-Auth-Request-Email": "my-service",
@@ -152,7 +155,7 @@ class TestGetInternalAuthHeaders:
 
     def test_custom_group(self):
         """Test with custom group."""
-        with patch("nv_config_manager.common.config.load_config", return_value=ConfigParser()):
+        with patch("nv_config_manager.common.config.http.load_config", return_value=ConfigParser()):
             headers = get_internal_auth_headers(service_name="my-service", group="admin")
         assert headers == {
             "X-Auth-Request-Email": "my-service",
@@ -164,7 +167,7 @@ class TestGetInternalAuthHeaders:
         """Test fallback to HOSTNAME environment variable."""
         with (
             patch.dict(os.environ, {"HOSTNAME": "nv-config-manager-render-api-5f8d9c7b6-abc12"}),
-            patch("nv_config_manager.common.config.load_config", return_value=ConfigParser()),
+            patch("nv_config_manager.common.config.http.load_config", return_value=ConfigParser()),
         ):
             headers = get_internal_auth_headers()
             assert headers["X-Auth-Request-Email"] == "nv-config-manager-render-api-5f8d9c7b6-abc12"
@@ -176,7 +179,7 @@ class TestGetInternalAuthHeaders:
         env = {k: v for k, v in os.environ.items() if k != "HOSTNAME"}
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("nv_config_manager.common.config.load_config", return_value=ConfigParser()),
+            patch("nv_config_manager.common.config.http.load_config", return_value=ConfigParser()),
         ):
             headers = get_internal_auth_headers()
             assert headers["X-Auth-Request-Email"] == "internal-service"
@@ -187,7 +190,7 @@ class TestGetInternalAuthHeaders:
         """Test that explicit service_name overrides HOSTNAME."""
         with (
             patch.dict(os.environ, {"HOSTNAME": "nv-config-manager-ztp-abc123-xyz99"}),
-            patch("nv_config_manager.common.config.load_config", return_value=ConfigParser()),
+            patch("nv_config_manager.common.config.http.load_config", return_value=ConfigParser()),
         ):
             headers = get_internal_auth_headers(service_name="explicit-service")
             assert headers["X-Auth-Request-Email"] == "explicit-service"
@@ -202,7 +205,7 @@ class TestSpiffeJwtAuth:
         jwt_file.write_text("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.test.sig")
 
         cp = _config_with_spiffe_path(str(jwt_file))
-        with patch("nv_config_manager.common.config.load_config", return_value=cp):
+        with patch("nv_config_manager.common.config.http.load_config", return_value=cp):
             headers = get_internal_auth_headers()
 
         assert headers == {
@@ -215,50 +218,39 @@ class TestSpiffeJwtAuth:
         jwt_file.write_text("eyJ0b2tlbi5zcGlmZmU")
 
         cp = _config_with_spiffe_path(str(jwt_file))
-        with patch("nv_config_manager.common.config.load_config", return_value=cp):
+        with patch("nv_config_manager.common.config.http.load_config", return_value=cp):
             headers = get_internal_auth_headers(service_name="my-service")
 
         assert "Authorization" in headers
         assert "X-Auth-Request-Email" not in headers
 
-    def test_spiffe_jwt_empty_file_falls_back(self, tmp_path):
-        """An empty JWT file should fall back to X-Auth-Request-* headers."""
+    @pytest.mark.parametrize("content", ["", "   \n  "])
+    def test_spiffe_jwt_blank_file_raises(self, tmp_path, content):
+        """A blank JWT file must not downgrade to X-Auth-Request-* headers."""
         jwt_file = tmp_path / "jwt-svid"
-        jwt_file.write_text("")
+        jwt_file.write_text(content)
 
         cp = _config_with_spiffe_path(str(jwt_file))
-        with patch("nv_config_manager.common.config.load_config", return_value=cp):
-            headers = get_internal_auth_headers(service_name="my-service")
+        with (
+            patch("nv_config_manager.common.config.http.load_config", return_value=cp),
+            pytest.raises(SpiffeJwtUnavailableError, match=str(jwt_file)),
+        ):
+            get_internal_auth_headers(service_name="my-service")
 
-        assert "X-Auth-Request-Email" in headers
-        assert "Authorization" not in headers
-
-    def test_spiffe_jwt_whitespace_only_falls_back(self, tmp_path):
-        """A whitespace-only JWT file should fall back."""
-        jwt_file = tmp_path / "jwt-svid"
-        jwt_file.write_text("   \n  ")
-
-        cp = _config_with_spiffe_path(str(jwt_file))
-        with patch("nv_config_manager.common.config.load_config", return_value=cp):
-            headers = get_internal_auth_headers(service_name="my-service")
-
-        assert "X-Auth-Request-Email" in headers
-        assert "Authorization" not in headers
-
-    def test_spiffe_jwt_missing_file_falls_back(self, tmp_path):
-        """A missing JWT file should fall back gracefully."""
+    def test_spiffe_jwt_missing_file_raises(self, tmp_path):
+        """A missing JWT file must not downgrade to X-Auth-Request-* headers."""
         missing_path = str(tmp_path / "nonexistent" / "jwt-svid")
 
         cp = _config_with_spiffe_path(missing_path)
-        with patch("nv_config_manager.common.config.load_config", return_value=cp):
-            headers = get_internal_auth_headers(service_name="my-service")
-
-        assert "X-Auth-Request-Email" in headers
-        assert "Authorization" not in headers
+        with (
+            patch("nv_config_manager.common.config.http.load_config", return_value=cp),
+            pytest.raises(SpiffeJwtUnavailableError, match=missing_path),
+        ):
+            get_internal_auth_headers(service_name="my-service")
 
     def test_spiffe_jwt_not_configured_falls_back(self):
         """When [auth.spiffe] jwt_svid_path is missing, fall back to X-Auth-Request-*."""
-        with patch("nv_config_manager.common.config.load_config", return_value=ConfigParser()):
+        with patch("nv_config_manager.common.config.http.load_config", return_value=ConfigParser()):
             headers = get_internal_auth_headers(service_name="my-service")
 
         assert "X-Auth-Request-Email" in headers
@@ -270,7 +262,7 @@ class TestSpiffeJwtAuth:
         jwt_file.write_text("token-v1")
 
         cp = _config_with_spiffe_path(str(jwt_file))
-        with patch("nv_config_manager.common.config.load_config", return_value=cp):
+        with patch("nv_config_manager.common.config.http.load_config", return_value=cp):
             h1 = get_internal_auth_headers()
             assert h1["Authorization"] == "Bearer token-v1"
 
@@ -284,12 +276,12 @@ class TestSpiffeJwtAuth:
         jwt_file.write_text("  eyJhbGciOiJSUzI1NiJ9.payload.sig  \n")
 
         cp = _config_with_spiffe_path(str(jwt_file))
-        with patch("nv_config_manager.common.config.load_config", return_value=cp):
+        with patch("nv_config_manager.common.config.http.load_config", return_value=cp):
             token = _read_spiffe_jwt()
 
         assert token == "eyJhbGciOiJSUzI1NiJ9.payload.sig"
 
     def test_read_spiffe_jwt_returns_none_when_unset(self):
         """_read_spiffe_jwt returns None when no section is configured."""
-        with patch("nv_config_manager.common.config.load_config", return_value=ConfigParser()):
+        with patch("nv_config_manager.common.config.http.load_config", return_value=ConfigParser()):
             assert _read_spiffe_jwt() is None

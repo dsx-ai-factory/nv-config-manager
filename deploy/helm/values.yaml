@@ -52,6 +52,10 @@ dcim:
   displayName: ""
   # true, false, a CA bundle path, or empty to inherit Nautobot's legacy value.
   verify: ""
+  # Optional DCIM request timeout in seconds; 0 keeps the provider's built-in
+  # default (30s for nautobot-2x). Raise it per cell for slow GraphQL queries,
+  # but stay below the DCIM ingress read timeout or the gateway 504s first.
+  timeout: 0
   cacheRefreshInterval: 0
   cacheTtl: 0
   # Kubernetes secret used by secrets.method=kubernetes. ESO and Vault Agent
@@ -556,6 +560,10 @@ externalServices:
   # NATS Configuration
   nats:
     # Server URL
+    # External password/JWT auth requires tls:// or wss://. Native tls://
+    # requires handshake_first: true in the external server's tls block.
+    # WSS encrypts the WebSocket handshake before any NATS messages.
+    # See docs/render/render-service.mdx (External NATS administration).
     server: "nats://nats:4222"
     # Username for password auth
     user: "nv-config-manager"
@@ -608,6 +616,13 @@ externalServices:
     port: 6379
     db: 0
     lockDb: 0
+    # Redis database for the bundled Nautobot's Django cache. The default, 1,
+    # is Nautobot's upstream cache database. Every Nautobot web pod start runs
+    # `nautobot-server post_upgrade`, which clears this cache with FLUSHDB and
+    # deletes every key in the database. On a shared external Redis, pick a
+    # database nothing else uses. Must differ from db and lockDb, and must not
+    # be 0 (Nautobot's Celery broker).
+    nautobotCacheDb: 1
     ssl: false
     passwordAuth: true
     socketTimeout: 5
@@ -982,6 +997,19 @@ gateway:
       endpoint: ""
       samplingRate: 0.1
 # =============================================================================
+# Inbound Service Authentication
+# =============================================================================
+auth:
+  # Trust X-Auth-Request-* identity headers on inbound requests.
+  # null (default): trusted unless SPIFFE is enabled with authMode jwt. Then
+  # internal callers present a JWT-SVID, users present the bearer token
+  # oauth2-proxy forwards, and any in-cluster caller could forge the headers.
+  # OIDC alone or authMode mtls leaves them trusted, because internal callers
+  # have no other credential. Set true or false to override. Also governs the ssl-client-cert header.
+  # Listeners exposed without the gateway (ZTP http-lb, DHCP healthcheck) never
+  # trust these headers, whatever this is set to.
+  acceptRequestHeaders: null
+# =============================================================================
 # OIDC Configuration
 # =============================================================================
 oidc:
@@ -1016,7 +1044,7 @@ oidc:
     insecureAllowUnverifiedEmail: false
     image:
       repository: quay.io/oauth2-proxy/oauth2-proxy
-      tag: v7.15.4
+      tag: v7.15.5
       pullPolicy: IfNotPresent
     resources:
       requests:
@@ -1078,11 +1106,12 @@ ui:
     hostname: "{{ .Values.gateway.baseHostname }}"
     # Optional: restrict access to specific groups (Azure AD group UUIDs)
     allowedGroups: []
-    # Static file bypass - no JWT auth on assets (faster load, fewer refreshes)
-    # UI is OIDC-only; static file auth bypass removed
+    # The UI is OIDC-only except for its health endpoint, which the
+    # blackbox probe must reach without a login redirect.
     authBypass:
-      enabled: false
-      pathRegex: ""
+      enabled: true
+      paths:
+        - /api/health
   # Resource limits
   resources:
     requests:
@@ -1243,8 +1272,11 @@ renderService:
     prometheus:
       # Prometheus/Mimir server address
       serverAddress: ""
-      # Namespace label to filter NATS metrics (prevents cross-environment matching)
+      # Namespace label to filter NATS metrics. When namespaces repeat across
+      # clusters in a shared backend, also set natsMetricsLabels.
       natsMetricsNamespace: ""
+      # Additional exact-match labels to scope NATS metrics.
+      natsMetricsLabels: {}
       # Ignore null values from Prometheus (prevents scale-to-zero issues when no data)
       ignoreNullValues: "true"
       # Skip TLS verification (only for testing, not recommended for production)
@@ -1626,10 +1658,10 @@ networkDhcp:
     api:
       requests:
         cpu: 200m
-        memory: 128Mi
+        memory: 256Mi
       limits:
         cpu: 200m
-        memory: 128Mi
+        memory: 256Mi
     confgen:
       requests:
         cpu: 100m
@@ -1685,11 +1717,12 @@ temporal:
       hostname: "temporal.{{ .Values.gateway.baseHostname }}"
       # Optional: restrict access to specific groups
       allowedGroups: []
-      # Static file bypass - no JWT auth on assets (faster load, fewer refreshes)
-      # Temporal Web is OIDC-only; static file auth bypass removed
+      # Temporal Web is OIDC-only except for its health endpoint, which the
+      # blackbox probe must reach without a login redirect.
       authBypass:
-        enabled: false
-        pathRegex: ""
+        enabled: true
+        paths:
+          - /healthz
   # Temporal Web UI deployed with the project-owned Temporal server.
   devUi:
     replicas: 2
@@ -1851,10 +1884,24 @@ temporal:
   # matchLabels:
   # app.kubernetes.io/component: nv-config-manager-worker
 
-  # Scheduler (for automatic backup scheduling; currently available only with
-  # the built-in Nautobot provider)
+  # Scheduler (for automatic backup scheduling and plugin-contributed schedulers).
+  # By default only the built-in backup scheduler is enabled, and it is deployed
+  # only with the built-in Nautobot provider (see requiresDcimProvider below).
+  # The Deployment renders only when at least one scheduler is selected.
   scheduler:
     enabled: true
+    # Scheduler identity -> settings (see docs/temporal/temporal-deployment.mdx).
+    #   enabled: true or false (required)
+    #   requiresDcimProvider: deploy only when dcim.provider matches; null means
+    #     any provider (use enabled: false to turn a scheduler off)
+    # Escape the dots in an identity with --set, for example:
+    #   --set 'temporal.scheduler.schedulers.builtin\.backup.enabled=false'
+    schedulers:
+      # Built-in device backup scheduling. Deployed only when dcim.provider matches
+      # requiresDcimProvider; set it to another provider name to run it there.
+      builtin.backup:
+        enabled: true
+        requiresDcimProvider: nautobot-2x
     resources:
       requests:
         cpu: 200m
@@ -2849,6 +2896,12 @@ nautobot:
       paths:
         - /logout/
         - /api/
+    # Health endpoint reachable without a login redirect or Authorization
+    # header, so the blackbox probe reaches Nautobot instead of the login page.
+    healthBypass:
+      enabled: true
+      paths:
+        - /health
   # Ingress (optional, for direct access)
   ingress:
     enabled: false

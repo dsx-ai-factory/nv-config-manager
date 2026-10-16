@@ -22,11 +22,16 @@ Check that committed specs are current:
 make openapi-check
 ```
 
-Regenerate the specifications and all committed Go clients together:
+Regenerate the specifications and all committed Go and Python clients together:
 
 ```bash
 make api-generate
 ```
+
+The public Python SDK and convenience wrappers live in `packages/clients`.
+To regenerate only Python bindings from committed specifications, run
+`make python-bindings`. Edit generation behavior in
+`scripts/generate_python_bindings.py`, never in generated modules.
 
 The specifications describe bearer JWT authentication as the default for CLI and machine clients.
 Explicit health, readiness, metrics, and Temporal codec routes are public. ZTP device routes also

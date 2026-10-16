@@ -108,6 +108,19 @@ Workload ServiceAccount (Vault K8s/JWT auth binds to this identity; must match V
 {{- end }}
 
 {{/*
+max_bytes that nats-ready applies to bundled NATS streams. Runtime services
+use the same value when they re-create a missing stream, so the two agree.
+The nats-ready binary embeds 20 GiB; the nats CLI path uses streamMaxBytes.
+*/}}
+{{- define "nv-config-manager.localStreamMaxBytes" -}}
+{{- if .Values.nautobotNats.natsReady.useNatsCli -}}
+{{- .Values.nautobotNats.natsReady.streamMaxBytes | default 104857600 | int64 -}}
+{{- else -}}
+21474836480
+{{- end -}}
+{{- end -}}
+
+{{/*
 Deployment rollout strategy.
 Pass root and, optionally, strategy. Global strategy wins when set so local
 overrides can switch every Deployment to Recreate in one place.
@@ -475,6 +488,8 @@ Usage: {{ include "nv-config-manager.authSidecar.inboundPort" . }}
 SPIFFE client sidecar -- spiffe-helper only (no envoy).
 Used by caller pods (consumers, workers, refresh jobs) that need to present
 JWT-SVIDs when calling API services but don't receive inbound requests.
+Pass "native" true to render it as a native sidecar (an initContainer with
+restartPolicy: Always) so Jobs can still complete.
 Usage: {{- include "nv-config-manager.spiffeClientSidecar" (dict "root" .) | nindent 8 }}
 */}}
 {{- define "nv-config-manager.spiffeClientSidecar" -}}
@@ -483,6 +498,9 @@ Usage: {{- include "nv-config-manager.spiffeClientSidecar" (dict "root" .) | nin
 - name: spiffe-helper
   image: {{ (index $spiffe "helper" | default dict).image.repository | default "ghcr.io/spiffe/spiffe-helper" }}:{{ (index $spiffe "helper" | default dict).image.tag | default "0.8.0" }}
   imagePullPolicy: {{ (index $spiffe "helper" | default dict).image.pullPolicy | default "IfNotPresent" }}
+  {{- if .native }}
+  restartPolicy: Always
+  {{- end }}
   args:
     - -config
     - /etc/spiffe-helper/helper.conf
@@ -573,6 +591,26 @@ false
 {{- end -}}
 
 {{/*
+Return "true" or "false" for [auth] accept_request_headers.
+An explicit auth.acceptRequestHeaders wins; otherwise headers stop being
+trusted only when SPIFFE JWT-SVIDs are enabled. Internal callers have no other
+credential: with OIDC alone or spiffe.authMode mtls they still send the
+identity headers.
+Usage: accept_request_headers = {{ include "nv-config-manager.acceptRequestHeaders" . }}
+*/}}
+{{- define "nv-config-manager.acceptRequestHeaders" -}}
+{{- $configured := (.Values.auth | default dict).acceptRequestHeaders -}}
+{{- $spiffe := .Values.spiffe | default dict -}}
+{{- if kindIs "bool" $configured -}}
+{{ $configured }}
+{{- else if and (eq (index $spiffe "enabled") true) (eq (index $spiffe "authMode" | default "jwt") "jwt") -}}
+false
+{{- else -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
 Auth INI sections for nv-config-manager.ini (replaces env-var–based auth config).
 Generates [auth], [auth.jwt.*], and [auth.spiffe] sections.
 Usage: {{ include "nv-config-manager.authIniSections" . }}
@@ -583,7 +621,7 @@ Usage: {{ include "nv-config-manager.authIniSections" . }}
 # -----------------------------------------------------------------
 [auth]
 required = {{ include "nv-config-manager.authRequired" . }}
-accept_request_headers = true
+accept_request_headers = {{ include "nv-config-manager.acceptRequestHeaders" . }}
 {{- if .Values.oidc.enabled }}
 cookie_name = {{ .Values.oidc.cookieName | default "NVConfigManagerAccessToken" }}
 {{- end }}
@@ -819,6 +857,54 @@ Usage: {{ include "nv-config-manager.waitForRedis" . | nindent 6 }}
 {{- end -}}
 
 {{/*
+Wait-for-SPIFFE-JWT init container
+Blocks until spiffe-helper has written the JWT-SVID. Must follow a native
+spiffeClientSidecar; without a token, internal clients fall back to
+X-Auth-Request-* headers, which services with allowed_groups reject.
+Usage: {{- include "nv-config-manager.waitForSpiffeJwt" . | nindent 6 }}
+*/}}
+{{- define "nv-config-manager.waitForSpiffeJwt" -}}
+{{- $spiffe := .Values.spiffe | default dict }}
+{{- if and (index $spiffe "enabled") (eq (index $spiffe "authMode" | default "jwt") "jwt") }}
+- name: wait-for-spiffe-jwt
+  image: "{{ .Values.global.images.busybox.repository }}:{{ .Values.global.images.busybox.tag }}"
+  imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
+  command:
+    - sh
+    - -c
+    - |
+      echo "Waiting for JWT-SVID at /var/run/secrets/spiffe/jwt-svid..."
+      for i in $(seq 1 90); do
+        if [ -s /var/run/secrets/spiffe/jwt-svid ]; then
+          echo "JWT-SVID is ready!"
+          exit 0
+        fi
+        sleep 2
+      done
+      echo "Timed out waiting for JWT-SVID" >&2
+      exit 1
+  securityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: true
+    runAsUser: 65534
+    capabilities:
+      drop:
+        - ALL
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 50m
+      memory: 32Mi
+  volumeMounts:
+    - name: spiffe-jwt-svid
+      mountPath: /var/run/secrets/spiffe
+      readOnly: true
+{{- end }}
+{{- end -}}
+
+{{/*
 Wait-for-NATS init container
 Waits for NATS service to be available via health check endpoint.
 Usage: {{ include "nv-config-manager.waitForNats" . | nindent 6 }}
@@ -1014,20 +1100,25 @@ Usage: {{ include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
   args:
   - |
     set -e
-    echo "Installing build dependencies..."
-    pip install --quiet hatchling
     echo "Installing template plugins from {{ .Values.renderService.templatePlugins.mountPath }}..."
     for plugin_dir in {{ .Values.renderService.templatePlugins.mountPath }}/*; do
       if [ ! -d "$plugin_dir" ]; then
         continue
       fi
       if ls "$plugin_dir"/wheels/*.whl >/dev/null 2>&1; then
-        echo "Installing plugin wheel(s): $plugin_dir/wheels"
-        pip install --target=/opt/plugins --no-deps "$plugin_dir"/wheels/*.whl
+        echo "Installing offline plugin wheel(s): $plugin_dir/wheels"
+        pip install --no-index --target=/opt/plugins --no-deps "$plugin_dir"/wheels/*.whl
+      elif ls "$plugin_dir"/dist/*.whl >/dev/null 2>&1; then
+        echo "Installing offline plugin wheel(s): $plugin_dir/dist"
+        pip install --no-index --target=/opt/plugins --no-deps "$plugin_dir"/dist/*.whl
       elif [ -f "$plugin_dir/source/pyproject.toml" ]; then
+        echo "Installing build dependencies..."
+        pip install --quiet hatchling
         echo "Installing plugin source: $plugin_dir/source"
         pip install --target=/opt/plugins --no-deps "$plugin_dir/source"
       elif [ -f "$plugin_dir/pyproject.toml" ]; then
+        echo "Installing build dependencies..."
+        pip install --quiet hatchling
         echo "Installing plugin source: $plugin_dir"
         pip install --target=/opt/plugins --no-deps "$plugin_dir"
       fi

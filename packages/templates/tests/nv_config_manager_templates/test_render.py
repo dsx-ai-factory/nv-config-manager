@@ -169,3 +169,54 @@ def test_renderer_exposes_plugin_extension_data(public_leaf_data, public_locatio
     )
 
     assert renderer.render("extension-test.j2", render_data) == "True"
+
+
+@pytest.mark.parametrize(
+    ("firmware_version", "expected_command"),
+    [
+        (
+            "5.16.1",
+            "retry_command nv action fetch system file-path /tmp/startup.yaml",
+        ),
+        (
+            "5.14.0",
+            "retry_command curl",
+        ),
+    ],
+)
+def test_cumulus_sftp_startup_download_uses_default_vrf_without_eth0_address(
+    public_leaf_data,
+    public_location_data,
+    firmware_version: str,
+    expected_command: str,
+) -> None:
+    """Rendered SFTP commands use the front-panel default VRF when eth0 is unaddressed."""
+    interfaces = tuple(
+        interface.model_copy(update={"addresses": ()})
+        if interface.name.lower() == "eth0"
+        else interface
+        for interface in public_leaf_data.interfaces
+    )
+    device = public_leaf_data.model_copy(
+        update={
+            "interfaces": interfaces,
+            "firmware": public_leaf_data.firmware.model_copy(
+                update={"desired_version": firmware_version}
+            ),
+        }
+    )
+    render_data = RenderData(device=device, location=public_location_data)
+    renderer = Renderer(enable_plugins=False)
+    template = next(
+        path for path in renderer.list_entrypoints(device) if path.endswith("/boot-script.j2")
+    )
+
+    boot_script = renderer.render(template, render_data)
+
+    assert expected_command in boot_script
+    assert "/device/c9e574df-2295-4258-b5b2-16247b6e3aa7/startup.yaml" in boot_script
+    if firmware_version == "5.16.1":
+        assert "file-permissions 600 \\\n  vrf default" in boot_script
+    else:
+        assert "ip vrf exec default" not in boot_script
+        assert "touch /tmp/startup.yaml\nchmod 600 /tmp/startup.yaml" in boot_script

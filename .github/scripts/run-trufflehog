@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -euo pipefail
+
+# Same 3.97.0 image used by the existing action, pinned to its manifest digest.
+readonly image="ghcr.io/trufflesecurity/trufflehog:3.97.0@sha256:ff4c95e9df7d645daf2140e3ca1039031c63106268d5fbb25feb43ceca1bcc33"
+readonly results_dir="$(mktemp -d "${RUNNER_TEMP:?}/trufflehog.XXXXXX")"
+readonly results_file="${results_dir}/results.jsonl"
+readonly filtered_file="${results_dir}/filtered.jsonl"
+readonly allowlist_file=".github/trufflehog-allowlist.json"
+trap 'rm -rf -- "${results_dir}"' EXIT
+
+scan_args=(git file:///tmp/ --json --no-update --results=verified,unknown)
+if [[ -n "${SCAN_BASE:-}" ]]; then
+  scan_args+=(--since-commit "${SCAN_BASE}")
+fi
+if [[ -n "${SCAN_HEAD:-}" ]]; then
+  scan_args+=(--branch "${SCAN_HEAD}")
+fi
+
+# Keep candidate credentials out of job logs. Scanner/runtime failures fail
+# immediately; findings are evaluated after the immutable-location allowlist.
+docker run --rm -v "${PWD}:/tmp:ro" -w /tmp "${image}" \
+  "${scan_args[@]}" >"${results_file}"
+
+jq --compact-output --slurpfile allowlist "${allowlist_file}" '
+  . as $result
+  | ($result.SourceMetadata.Data.Git // {}) as $git
+  | select(
+      ($result.Verified == false and any(
+        $allowlist[0][];
+        .detector == $result.DetectorName
+          and .commit == $git.commit
+          and .file == $git.file
+          and .line == $git.line
+      )) | not
+    )
+  | {DetectorName, Verified, Git: {commit: $git.commit, file: $git.file, line: $git.line}}
+' "${results_file}" >"${filtered_file}"
+
+finding_count="$(jq --slurp 'length' "${filtered_file}")"
+if [[ "${finding_count}" -eq 0 ]]; then
+  echo "TruffleHog found no non-allowlisted verified or unknown secrets."
+  exit 0
+fi
+
+# Escape workflow-command metadata and omit all candidate credential fields.
+jq --raw-output '
+  def escape: tostring | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A") | gsub(":"; "%3A") | gsub(","; "%2C");
+  .Git as $git
+  | "::error file=\($git.file | escape),line=\($git.line | escape),title=TruffleHog::Found \(.Verified | if . then "verified" else "unverified" end) \(.DetectorName | escape) result"
+' "${filtered_file}"
+echo "TruffleHog found ${finding_count} non-allowlisted verified or unknown secret(s)." >&2
+exit 183

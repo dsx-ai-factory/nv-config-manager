@@ -14,7 +14,7 @@
 # limitations under the License.
 """Dynamic API endpoint generation from workflow metadata."""
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request
@@ -24,14 +24,16 @@ from temporalio.exceptions import ApplicationError
 from nv_config_manager.common.auth import get_sso_user
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
+from nv_config_manager.temporal.api.workflow_catalog import WORKFLOW_API_CATALOG
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
-from nv_config_manager.temporal.common.rbac_config import RBACConfig
-from nv_config_manager.temporal.hello_world.workflows import (
-    REGISTERED_WORKFLOWS as HELLO_WORLD_WORKFLOWS,
-)
-from nv_config_manager.temporal.ngc.workflows import REGISTERED_WORKFLOWS as NGC_WORKFLOWS
+from nv_config_manager_workflows.ui.form.projection import injectable_server_owned_fields
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_API)
+
+
+def _validation_error_detail(message: str) -> list[dict[str, Any]]:
+    """Return an ``HTTPValidationError``-compatible body detail without echoing input."""
+    return [{"type": "value_error", "loc": ["body"], "msg": message}]
 
 
 class WorkflowResponse(BaseModel):
@@ -60,6 +62,7 @@ def create_workflow_endpoint(
     workflow_class: type, input_class: type[BaseModel], endpoint_path: str
 ) -> Callable[..., Awaitable[WorkflowResponse]]:
     """Create a FastAPI endpoint function for a workflow."""
+    owned_fields = injectable_server_owned_fields(input_class)
 
     async def workflow_endpoint(
         body: input_class,  # type: ignore
@@ -71,22 +74,33 @@ def create_workflow_endpoint(
                 "start_workflow function not set. Call set_start_workflow_function() first."
             )
 
-        # Auto-populate user fields from request auth data if they exist and are None
-        user = getattr(request.state, "user", None) or get_sso_user(request)
+        inject_user = "user" in owned_fields or (
+            hasattr(body, "user") and not body.user  # type: ignore[attr-defined]
+        )
+        inject_user_domain = "user_domain" in owned_fields or (
+            hasattr(body, "user_domain") and not body.user_domain  # type: ignore[attr-defined]
+        )
 
-        # Auto-populate common user fields if they exist in the input model and are None
-        if hasattr(body, "user") and not body.user:  # type: ignore[attr-defined]
-            body.user = user  # type: ignore[attr-defined]
+        if inject_user or inject_user_domain:
+            user = getattr(request.state, "user", None) or get_sso_user(request)
 
-        if hasattr(body, "user_domain") and not body.user_domain:  # type: ignore[attr-defined]
-            # Extract domain from user email or default to nvidia.com
-            # TODO: add a default user domain to INI file for external customers
-            body.user_domain = user.split("@")[1] if "@" in user else "nvidia.com"  # type: ignore[attr-defined]
+            # Explicitly server-owned fields are always authoritative. Unmarked
+            # legacy fields retain the previous falsey-value fallback behavior.
+            if inject_user:
+                body.user = user  # type: ignore[attr-defined]
+
+            if inject_user_domain:
+                # Extract domain from user email or default to nvidia.com
+                # TODO: add a default user domain to INI file for external customers
+                body.user_domain = user.split("@")[1] if "@" in user else "nvidia.com"  # type: ignore[attr-defined]
 
         try:
             body = await cast(type[WorkflowMetadataMixin], workflow_class).canonicalize_input(body)
         except ApplicationError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
+            raise HTTPException(
+                status_code=422,
+                detail=_validation_error_detail(str(error)),
+            ) from error
 
         workflow_id = await start_workflow(request, workflow_class, body)
         return WorkflowResponse(id=workflow_id)
@@ -105,12 +119,13 @@ def create_workflow_endpoint(
     return workflow_endpoint
 
 
-def register_dynamic_endpoints(router: APIRouter) -> None:
+def register_dynamic_endpoints(
+    router: APIRouter,
+    workflows: Sequence[type] | None = None,
+) -> None:
     """Register all workflow endpoints dynamically based on metadata."""
     registered_count = 0
-
-    # Process all registered workflows
-    all_workflows = NGC_WORKFLOWS + HELLO_WORLD_WORKFLOWS
+    all_workflows = WORKFLOW_API_CATALOG if workflows is None else workflows
 
     for workflow_class in all_workflows:
         try:
@@ -121,8 +136,7 @@ def register_dynamic_endpoints(router: APIRouter) -> None:
                 )
                 continue
 
-            # Cast to WorkflowMetadataMixin type for mypy
-            metadata_workflow = cast(type[WorkflowMetadataMixin], workflow_class)
+            metadata_workflow = workflow_class
 
             # Check if workflow has complete metadata
             if not metadata_workflow.has_complete_metadata():
@@ -165,42 +179,3 @@ def register_dynamic_endpoints(router: APIRouter) -> None:
             continue
 
     logger.info(f"Successfully registered {registered_count} dynamic workflow endpoints")
-
-
-def get_registered_workflows_info(*, include_rbac: bool = False) -> dict[str, dict[str, Any]]:
-    """Get information about all registered workflows with metadata."""
-    workflows_info: dict[str, dict[str, Any]] = {}
-    rbac_config = RBACConfig() if include_rbac else None
-
-    all_workflows = NGC_WORKFLOWS + HELLO_WORLD_WORKFLOWS
-
-    for workflow_class in all_workflows:
-        if issubclass(workflow_class, WorkflowMetadataMixin):
-            # Cast to WorkflowMetadataMixin type for mypy
-            metadata_workflow = cast(type[WorkflowMetadataMixin], workflow_class)
-
-            if metadata_workflow.has_complete_metadata():
-                input_class = metadata_workflow.get_workflow_input_class()
-                workflow_roles = (
-                    rbac_config.get_workflow_roles(workflow_class.__name__)
-                    if rbac_config is not None
-                    else None
-                )
-                workflows_info[workflow_class.__name__] = {
-                    "name": workflow_class.__name__,
-                    "display_name": metadata_workflow.get_workflow_name(),
-                    "endpoint": metadata_workflow.get_workflow_api_endpoint(),
-                    "input_class": input_class.__name__ if input_class else "Unknown",
-                    "description": metadata_workflow.get_workflow_description(),
-                    "namespace": metadata_workflow.get_workflow_namespace(),
-                    "cli_name": metadata_workflow.get_workflow_cli_name(),
-                }
-                if include_rbac:
-                    workflows_info[workflow_class.__name__]["read_roles"] = sorted(
-                        workflow_roles["read_roles"] if workflow_roles else []
-                    )
-                    workflows_info[workflow_class.__name__]["execute_roles"] = sorted(
-                        workflow_roles["execute_roles"] if workflow_roles else []
-                    )
-
-    return workflows_info

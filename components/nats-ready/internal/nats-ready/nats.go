@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -84,14 +85,19 @@ func NewRunner(config *NatsReadyConfig) (Runner, error) {
 	config.nvConfigManagerNATSConfigBytes = nvConfigManagerStreamConfigJSON
 	logger := log.With().
 		Str("component", "nats-ready").
-		Str("address", config.Address).
+		Str("address", RedactAddress(config.Address)).
 		Logger()
 
 	nc, err := nats.Connect(config.Address)
 	if err != nil {
+		// url.Error embeds the full input URL, credentials included.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			return nil, fmt.Errorf("invalid NATS address %s: %w", RedactAddress(config.Address), urlErr.Err)
+		}
 		return nil, err
 	}
-	logger.Info().Str("address", config.Address).Msg("Connected to NATS server")
+	logger.Info().Msg("Connected to NATS server")
 
 	js, err := jetstream.New(nc)
 	if err != nil {
@@ -136,7 +142,7 @@ func (n *natsReady) Run() error {
 
 	ctx := context.Background()
 
-	n.log.Info().Str("address", n.config.Address).Msg("Starting NATS readiness check")
+	n.log.Info().Msg("Starting NATS readiness check")
 	n.log.Info().Msgf("Using Nautobot NATS config: \n%s\n", string(n.config.nautobotNATSConfigBytes))
 	n.log.Info().Msgf("Using NVIDIA Config Manager NATS config: \n%s\n", string(n.config.nvConfigManagerNATSConfigBytes))
 

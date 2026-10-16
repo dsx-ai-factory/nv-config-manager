@@ -21,6 +21,8 @@ from configparser import ConfigParser
 from datetime import UTC, datetime
 from typing import Any
 
+from nv_config_manager_infrastructure.redis import async_result
+
 from nv_config_manager.common.client import RedisClient
 from nv_config_manager.common.config import dcim_cache_ttl, dcim_client, load_config, redis_client
 from nv_config_manager.common.log import LogCategory, get_logger
@@ -335,7 +337,9 @@ class DeviceCacheService:
         """
         try:
             return bool(
-                await self.redis_client.redis.sismember(self.ACTIVE_SET_KEY, str(device_uuid))
+                await async_result(
+                    self.redis_client.redis.sismember(self.ACTIVE_SET_KEY, str(device_uuid))
+                )
             )
         except Exception as e:
             logger.error("Failed to check active status for %s: %s", device_uuid, e)
@@ -348,7 +352,7 @@ class DeviceCacheService:
             Device identifiers currently active in nv-config-manager
         """
         try:
-            members = await self.redis_client.redis.smembers(self.ACTIVE_SET_KEY)
+            members = await async_result(self.redis_client.redis.smembers(self.ACTIVE_SET_KEY))
             return {m.decode() if isinstance(m, bytes) else m for m in members}
         except Exception as e:
             logger.error("Failed to get active device set: %s", e)
@@ -410,7 +414,7 @@ class DeviceCacheService:
             await self.redis_client.hdel(self.DEVICE_INDEX_KEY, metadata.name)
 
         try:
-            await self.redis_client.redis.srem(self.ACTIVE_SET_KEY, str(device_uuid))
+            await async_result(self.redis_client.redis.srem(self.ACTIVE_SET_KEY, str(device_uuid)))
         except Exception as e:
             logger.error("Failed to remove %s from active set: %s", device_uuid, e)
 

@@ -70,6 +70,19 @@ Project maintainers who do not follow or enforce the Code of Conduct in good
 faith may face temporary or permanent repercussions as determined by others
 members of the project's leadership.
 
+### Response and Scope
+
+The project team's target is to acknowledge reports within five business days
+and provide an initial status update within ten business days. These are
+best-effort targets, not guaranteed resolution times. Complex investigations may
+take longer; reporters may request a status update through the same private
+contact. Do not post confidential incident details in public issues.
+
+Ordinary technical disagreements, feature priorities, and bug reports belong in
+the issue tracker unless they involve conduct covered by this policy. Private
+activity unrelated to the project and without project representation falls
+outside the scope described above. Security vulnerabilities follow SECURITY.md.
+
 ## Attribution
 
 This Code of Conduct is adapted from the [Contributor Covenant][homepage], version 1.4,

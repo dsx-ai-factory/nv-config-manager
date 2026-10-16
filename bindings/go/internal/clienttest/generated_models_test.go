@@ -20,6 +20,7 @@ import (
 	"github.com/nvidia/nv-config-manager/bindings/go/config-store"
 	"github.com/nvidia/nv-config-manager/bindings/go/dhcp"
 	"github.com/nvidia/nv-config-manager/bindings/go/render"
+	"github.com/nvidia/nv-config-manager/bindings/go/temporal"
 	"github.com/nvidia/nv-config-manager/bindings/go/ztp"
 )
 
@@ -87,6 +88,38 @@ func TestGeneratedModelsRejectNullForRequiredFields(t *testing.T) {
 	}
 }
 
+func TestGeneratedWorkflowFormUiSchemaPreservesFieldEntries(t *testing.T) {
+	const payload = `{
+		"ui:globalOptions":{"hideSchemaDescriptions":true},
+		"device_id":{"ui:field":"device"}
+	}`
+
+	var schema temporal.WorkflowFormUiSchema
+	if err := json.Unmarshal([]byte(payload), &schema); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	globalOptions := schema.GetUiGlobalOptions()
+	if !globalOptions.GetHideSchemaDescriptions() {
+		t.Fatal("typed ui:globalOptions were not decoded")
+	}
+	field, ok := schema.AdditionalProperties["device_id"].(map[string]interface{})
+	if !ok || field["ui:field"] != "device" {
+		t.Fatalf("device_id field entry was not decoded: %#v", field)
+	}
+
+	encoded, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	var roundTrip map[string]interface{}
+	if err := json.Unmarshal(encoded, &roundTrip); err != nil {
+		t.Fatalf("decode round-trip JSON: %v", err)
+	}
+	if _, ok := roundTrip["device_id"]; !ok {
+		t.Fatalf("device_id field entry was not preserved: %s", encoded)
+	}
+}
+
 func TestGeneratedDhcpIpVersionUsesExportedNames(t *testing.T) {
 	if dhcp.V4 != dhcp.IpVersion(4) {
 		t.Fatalf("dhcp.V4 = %d, want 4", dhcp.V4)
@@ -146,5 +179,21 @@ func TestGeneratedUnionRejectsNullAndEmptyValue(t *testing.T) {
 	}
 	if _, err := json.Marshal(configstore.LocationInner{}); err == nil {
 		t.Fatal("json.Marshal() accepted an empty non-nullable union")
+	}
+}
+
+func TestGeneratedLocationFieldsRetainStringContract(t *testing.T) {
+	input := temporal.NewSiteCableValidationInput("42")
+	input.SetSiteType("Site")
+
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(encoded), `"site":"42"`) {
+		t.Fatalf("site is not encoded as a string: %s", encoded)
+	}
+	if !strings.Contains(string(encoded), `"site_type":"Site"`) {
+		t.Fatalf("site_type is not encoded: %s", encoded)
 	}
 }

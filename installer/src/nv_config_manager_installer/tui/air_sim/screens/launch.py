@@ -38,6 +38,7 @@ from textual.widgets import Button, Input, Label, Static, Tab, Tabs
 from textual.worker import Worker, WorkerState, get_current_worker
 
 from nv_config_manager_installer.air_sim.constants import (
+    CONFIG_MANAGER_HOSTNAME,
     CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
     DEFAULT_AIR_FRONTEND_URL,
     DEFAULT_AIR_INTERNAL_FRONTEND_URL,
@@ -96,7 +97,7 @@ _ZTP_SKIP_KEYWORDS = ("health", "metrics", "readiness", "livez")
 _STREAM_HINTS = {
     "deploy": "Deploy output streams here. The complete log is also written to the path above.",
     "dhcp": "DHCP events appear here after install completes.",
-    "ztp": "ZTP request events appear here after install completes.",
+    "ztp": "ZTP HTTP and SFTP request events appear here after install completes.",
     "access": "Direct SSH appears here after SSH is ready. Browser access appears after the provider is ready.",
 }
 _TAB_TO_STREAM = {
@@ -120,6 +121,7 @@ class AirProviderStatus:
     display_name: str
     web_pod_prefix: str
     access_url: str
+    access_display_name: str | None = None
     dependent_pod_prefixes: tuple[str, ...] = ()
     excluded_web_pod_prefixes: tuple[str, ...] = ()
 
@@ -138,7 +140,8 @@ class AirProviderStatus:
 DEFAULT_PROVIDER_STATUS = AirProviderStatus(
     display_name="Nautobot",
     web_pod_prefix=CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
-    access_url="https://nautobot.nvcm.air",
+    access_url=f"https://{CONFIG_MANAGER_HOSTNAME}",
+    access_display_name="Config Manager",
     dependent_pod_prefixes=(
         "nv-config-manager-nautobot-celery",
         "nv-config-manager-nautobot-celery-beat",
@@ -213,11 +216,17 @@ def _is_interesting_dhcp_line(line: str) -> bool:
 
 
 def _is_interesting_ztp_line(line: str) -> bool:
-    """Return true for ZTP access/API lines, excluding health/readiness noise."""
+    """Return true for ZTP HTTP or SFTP activity, excluding health/readiness noise."""
     lowered = line.lower()
     if any(keyword in lowered for keyword in _ZTP_SKIP_KEYWORDS):
         return False
-    return " /v1/" in line or "/v1/" in line or "error" in lowered or "failed" in lowered
+    return (
+        "/v1/" in line
+        or "request for path:" in lowered
+        or "opening range-backed object storage file:" in lowered
+        or "error" in lowered
+        or "failed" in lowered
+    )
 
 
 def _is_ready_pod(pod: dict[str, str]) -> bool:
@@ -1539,7 +1548,9 @@ class LaunchScreen(Container):
             proxy,
             self._ssh_cmd_text,
             provider_ready=provider_ready,
-            provider_name=self._provider_status.display_name,
+            provider_name=(
+                self._provider_status.access_display_name or self._provider_status.display_name
+            ),
             id="proxy-access",
         )
         self.query_one("#stream-viewer", _StreamTabsWidget).set_access_widget(widget)

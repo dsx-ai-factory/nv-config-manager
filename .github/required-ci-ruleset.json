@@ -1,0 +1,101 @@
+{
+  "name": "Required CI for main",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "~DEFAULT_BRANCH"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "Python Lint And Types",
+            "integration_id": 15368
+          },
+          {
+            "context": "Nautobot Overlays Lint And Build",
+            "integration_id": 15368
+          },
+          {
+            "context": "Nautobot NV Config Manager Lint And Build",
+            "integration_id": 15368
+          },
+          {
+            "context": "SPDX Headers",
+            "integration_id": 15368
+          },
+          {
+            "context": "Python Tests",
+            "integration_id": 15368
+          },
+          {
+            "context": "Installer Tests",
+            "integration_id": 15368
+          },
+          {
+            "context": "Network Template Tests",
+            "integration_id": 15368
+          },
+          {
+            "context": "Go Module Check",
+            "integration_id": 15368
+          },
+          {
+            "context": "Helm Lint And Template",
+            "integration_id": 15368
+          },
+          {
+            "context": "OpenAPI And Go Bindings Check",
+            "integration_id": 15368
+          },
+          {
+            "context": "GitHub Automation Tests",
+            "integration_id": 15368
+          },
+          {
+            "context": "UI Lint",
+            "integration_id": 15368
+          },
+          {
+            "context": "UI Build And E2E",
+            "integration_id": 15368
+          },
+          {
+            "context": "TruffleHog",
+            "integration_id": 15368
+          },
+          {
+            "context": "CodeQL (actions)",
+            "integration_id": 15368
+          },
+          {
+            "context": "CodeQL (go)",
+            "integration_id": 15368
+          },
+          {
+            "context": "CodeQL (javascript-typescript)",
+            "integration_id": 15368
+          },
+          {
+            "context": "CodeQL (python)",
+            "integration_id": 15368
+          },
+          {
+            "context": "DCO",
+            "integration_id": 1861
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -14,10 +14,7 @@
 # limitations under the License.
 """Temporal helpers built on provider-neutral DCIM inventory models."""
 
-from nv_config_manager_dcim.workflow_models import (
-    DeviceData,
-    NetworkDeviceData,
-)
+from nv_config_manager_dcim.workflow_models import DeviceData
 
 from nv_config_manager_workflows.mixins.base import BaseMixin
 from nv_config_manager_workflows.search_attributes import (
@@ -42,6 +39,11 @@ class DeviceMixin(BaseMixin):
             SITE_SEARCH_ATTRIBUTE: [device.site],
             DEVICE_NAME_SEARCH_ATTRIBUTE: [device.name],
         }
-        if isinstance(device, NetworkDeviceData):
-            attributes[DEVICE_PLATFORM_SEARCH_ATTRIBUTE] = [device.platform]
+        # Pydantic model classes can have distinct identities when a workflow
+        # sandbox reloads their defining module. Use the provider-neutral
+        # model's structural discriminator so equivalent network-device
+        # payloads retain their platform search attribute across the boundary.
+        platform = getattr(device, "platform", None)
+        if platform is not None:
+            attributes[DEVICE_PLATFORM_SEARCH_ATTRIBUTE] = [platform]
         upsert_missing_search_attributes(attributes)

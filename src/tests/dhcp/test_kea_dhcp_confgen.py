@@ -42,8 +42,29 @@ class MockNautobotClient(NautobotClient):
     async def graphql_query(self, query, variables=None):
         if "auto_dhcp_subnets" in query:
             path = os.path.join(_THIS_DIR, "resources/auto_dhcp_subnets.json")
-        elif "dhcp_contexts" in query:
-            path = os.path.join(_THIS_DIR, "resources/dhcp_contexts.json")
+        elif "dhcp_subnet_gateways" in query:
+            path = os.path.join(_THIS_DIR, "resources/auto_dhcp_subnets.json")
+        elif "dhcp_context_device_ids" in query or "dhcp_device_contexts" in query:
+            with open(os.path.join(_THIS_DIR, "resources/dhcp_contexts.json")) as f:
+                entries = json.load(f)["data"]["config_manager_devices"]
+            if "dhcp_context_device_ids" in query:
+                return {
+                    "data": {
+                        "config_manager_devices": [
+                            {"device": {"id": entry["device"]["id"]}} for entry in entries
+                        ]
+                    }
+                }
+            requested_ids = set((variables or {}).get("ids", []))
+            return {
+                "data": {
+                    "devices": [
+                        entry["device"]
+                        for entry in entries
+                        if entry["device"]["id"] in requested_ids
+                    ]
+                }
+            }
         elif "static_data" in query:
             path = os.path.join(_THIS_DIR, "resources/static_data.json")
         elif "site_dhcp_options" in query:
@@ -418,11 +439,21 @@ class MockNautobotClientWithMissingGateway(MockNautobotClient):
                             "id": "prefix-no-gateway",
                             "prefix": "10.240.128.0/27",
                             "ip_version": 4,
-                            "rel_prefix_to_gateway": None,  # No gateway set
                         }
                     ],
                     "pool_ips": [],
                     "reserved_ips": [],
+                }
+            }
+        if "dhcp_subnet_gateways" in query:
+            return {
+                "data": {
+                    "prefixes": [
+                        {
+                            "id": "prefix-no-gateway",
+                            "rel_prefix_to_gateway": None,
+                        }
+                    ]
                 }
             }
         # Delegate other queries to parent
@@ -1095,6 +1126,8 @@ class MockErrorCasesClient(MockNautobotClient):
             }
 
         if "auto_dhcp_subnets" in query:
+            path = os.path.join(_THIS_DIR, "resources/auto_dhcp_subnets_errors.json")
+        elif "dhcp_subnet_gateways" in query:
             path = os.path.join(_THIS_DIR, "resources/auto_dhcp_subnets_errors.json")
         elif "dhcp_contexts" in query:
             path = os.path.join(_THIS_DIR, "resources/dhcp_contexts_errors.json")

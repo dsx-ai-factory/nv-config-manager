@@ -30,25 +30,31 @@ jobs:
       tags_exist: ${{ steps.resolve.outputs.tags_exist }}
       target_tag: ${{ steps.resolve.outputs.target_tag }}
     steps:
+      - name: Require repository admin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Run this workflow from main; select the release source using its inputs."
+            exit 1
+          fi
+          for actor in "$GITHUB_ACTOR" "$TRIGGERING_ACTOR"; do
+            permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${actor}/permission" --jq .permission)"
+            if [ "$permission" != "admin" ]; then
+              echo "Only repository admins may promote release tags. ${actor} has ${permission} permission."
+              exit 1
+            fi
+          done
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Require repository admin
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${GITHUB_ACTOR}/permission" --jq .permission)"
-          if [ "$permission" != "admin" ]; then
-            echo "Only repository admins may promote release tags. ${GITHUB_ACTOR} has ${permission} permission."
-            exit 1
-          fi
-
       - name: Resolve promotion
         id: resolve
         env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SOURCE_RC_TAG: ${{ inputs.source_rc_tag }}
           INPUT_TARGET_TAG: ${{ inputs.target_tag }}
         run: |
@@ -111,11 +117,6 @@ jobs:
             exit 1
           fi
 
-          if ! git merge-base --is-ancestor "$commit" "origin/${DEFAULT_BRANCH}"; then
-            echo "Source RC commit ${commit} is not reachable from origin/${DEFAULT_BRANCH}."
-            exit 1
-          fi
-
           if ! git show "${commit}:CHANGELOG.md" \
             | .github/scripts/extract-release-notes "$target_tag" >/dev/null; then
             echo "Finalize the ${target_tag} section in CHANGELOG.md before promotion."
@@ -155,9 +156,28 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Require repository admin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Run this workflow from main; select the release source using its inputs."
+            exit 1
+          fi
+          for actor in "$GITHUB_ACTOR" "$TRIGGERING_ACTOR"; do
+            permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${actor}/permission" --jq .permission)"
+            if [ "$permission" != "admin" ]; then
+              echo "Only repository admins may promote release tags. ${actor} has ${permission} permission."
+              exit 1
+            fi
+          done
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Create and push stable tags
         if: needs.validate.outputs.tags_exist != 'true'
@@ -166,17 +186,31 @@ jobs:
           GO_TARGET_TAG: ${{ needs.validate.outputs.go_target_tag }}
           SOURCE_RC_TAG: ${{ needs.validate.outputs.source_rc_tag }}
           TARGET_TAG: ${{ needs.validate.outputs.target_tag }}
-          TAG_PUSH_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN || github.token }}
+          RELEASE_TAG_SSH_KEY: ${{ secrets.RELEASE_TAG_SSH_KEY }}
         run: |
           set -euo pipefail
+          if [ -z "$RELEASE_TAG_SSH_KEY" ]; then
+            echo "Configure RELEASE_TAG_SSH_KEY on the release-tagging environment."
+            exit 1
+          fi
           git fetch --force --prune --tags origin '+refs/heads/*:refs/remotes/origin/*'
+
+          umask 077
+          ssh_dir="$(mktemp -d "$RUNNER_TEMP/release-ssh.XXXXXX")"
+          trap 'rm -rf "$ssh_dir"' EXIT
+          printf '%s\n' "$RELEASE_TAG_SSH_KEY" > "$ssh_dir/key"
+          curl --fail --silent --show-error https://api.github.com/meta \
+            | jq -er '.ssh_keys[] | "github.com \(.)"' > "$ssh_dir/known_hosts"
+          printf -v GIT_SSH_COMMAND 'ssh -i %q -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=%q' \
+            "$ssh_dir/key" "$ssh_dir/known_hosts"
+          export GIT_SSH_COMMAND
+          git remote set-url --push origin "git@github.com:${GITHUB_REPOSITORY}.git"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$TARGET_TAG" "$COMMIT" -m "Promote ${SOURCE_RC_TAG} to ${TARGET_TAG}"
           git tag -a "$GO_TARGET_TAG" "$COMMIT" -m "Promote Go bindings to ${TARGET_TAG}"
 
-          git remote set-url origin "https://x-access-token:${TAG_PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push --atomic origin "refs/tags/${TARGET_TAG}" "refs/tags/${GO_TARGET_TAG}"
 
           echo "Promoted ${SOURCE_RC_TAG} to ${TARGET_TAG} and created ${GO_TARGET_TAG} at ${COMMIT}."
@@ -184,7 +218,7 @@ jobs:
       - name: Publish GitHub Release
         env:
           COMMIT: ${{ needs.validate.outputs.commit }}
-          GH_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
           TARGET_TAG: ${{ needs.validate.outputs.target_tag }}
         run: |
           set -euo pipefail

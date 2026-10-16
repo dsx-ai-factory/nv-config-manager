@@ -31,20 +31,14 @@ from nv_config_manager.common.client import RenderClient, TemporalClient, ZTPCli
         (RenderClient, "http://render-service:9000"),
     ],
 )
-async def test_retry_client_does_not_own_shared_connector(client_cls, base_url):
-    """Per-request sessions must not close the client-level connector."""
+async def test_client_owns_generated_connection_pool(client_cls, base_url):
+    """The wrapper owns one generated transport pool for its full lifetime."""
     client = client_cls(base_url=base_url)
-
-    try:
-        with patch("nv_config_manager.common.client._mixins.RetryClient") as retry_client:
-            client._new_session()
-
-        retry_client.assert_called_once()
-        kwargs = retry_client.call_args.kwargs
-        assert kwargs["connector"] is client.connector
-        assert kwargs["connector_owner"] is False
-    finally:
-        await client.connector.close()
+    async with client:
+        pool = client.api_client.rest_client.pool_manager
+        client._ensure_transport()
+        assert client.api_client.rest_client.pool_manager is pool
+    assert pool._client.closed
 
 
 class TestZTPClientInternalAuth:
@@ -160,6 +154,7 @@ class TestTemporalClientInternalAuth:
             base_url="http://temporal-api:9000",
             user_domain="nvidia.com",
             headers=headers,
+            allow_insecure_auth=True,
         )
         assert client.base_url == "http://temporal-api:9000"
         assert client._headers == headers
@@ -207,7 +202,8 @@ class TestTemporalClientInternalAuth:
             base_url="http://temporal-api:9000",
             user_domain="nvidia.com",
             headers=headers,
+            allow_insecure_auth=True,
         )
         async with client:
-            assert client._session is not None
-            assert client._session._default_headers is not None
+            assert client.api_client.rest_client.pool_manager is not None
+            assert client._resolve_headers() == headers

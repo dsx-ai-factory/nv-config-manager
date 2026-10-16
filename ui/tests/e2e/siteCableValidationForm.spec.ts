@@ -14,7 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { expect, type Page } from "@playwright/test";
+
+/**
+ * The legacy page always sent `device_type_ids: []` and `raise_for_invalid: false`. The
+ * RJSF form does not submit model inputs it does not project, and the server fills in
+ * the same defaults (see `fixtures/form-parity/sitecablevalidationworkflow.json`), so
+ * the payload assertions below no longer list them. Its wording comes from the server's
+ * `ui_schema`.
+ */
+import { expect, type Page, type Request } from "@playwright/test";
 import {
   SITES_LIST,
   ROLES_LIST,
@@ -22,13 +30,16 @@ import {
   TENANT_LIST,
   FORBIDDEN_SITE_ID,
 } from "@/mocks/data";
+import { mockServerCatalogAndUser } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT } from "./shared/utils";
+
+const FORM_PATH = "/workflows/new/site-cable-validation";
 
 const statusSelectButton = (page: Page) =>
   page
     .getByText("Device Status", { exact: true })
     .locator("..")
-    .getByRole("button", { name: /\. Open options$/ });
+    .getByRole("combobox", { name: /\. Open options$/ });
 
 const openSelectDialog = (page: Page) =>
   page.locator('[role="dialog"][data-state="open"]');
@@ -38,9 +49,16 @@ const openStatusSelect = async (page: Page) => {
   await expect(openSelectDialog(page)).toBeVisible({ timeout: TEST_TIMEOUT });
 };
 
+/** Query of an option request as sorted `[name, value]` pairs (repeats kept). */
+const queryOf = (request: Request) =>
+  [...new URL(request.url()).searchParams.entries()].sort(
+    ([a, x], [b, y]) => a.localeCompare(b) || x.localeCompare(y)
+  );
+
 test.describe("Site Cable Validation Form", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/workflows/sitecablevalidationworkflow/form");
+    await mockServerCatalogAndUser(page, ["reader", "executor"]);
+    await page.goto(FORM_PATH);
   });
 
   test("renders form with correct title", async ({ page }) => {
@@ -50,11 +68,103 @@ test.describe("Site Cable Validation Form", () => {
     await expect(title).toBeVisible({ timeout: TEST_TIMEOUT });
   });
 
+  test("shows the legacy fields in order and loads the legacy option lists", async ({
+    page,
+  }) => {
+    const optionRequests: Request[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname.startsWith("/v1/parameter/")) {
+        optionRequests.push(request);
+      }
+    });
+    await page.goto(FORM_PATH);
+
+    await expect(page.locator("form label")).toHaveText([
+      "Site",
+      "Roles",
+      "Device Status",
+      "Tenant",
+    ]);
+    await expect(page.locator("form p")).toHaveCount(0);
+    for (const placeholder of [
+      "Select a Site...",
+      "Select Roles...",
+      "Select a Tenant...",
+    ]) {
+      await expect(
+        page.getByRole("combobox", { name: placeholder })
+      ).toBeVisible();
+    }
+    await expect(
+      page.getByRole("combobox", {
+        name: `${STATUS_LIST.active}, ${STATUS_LIST.provisioned}. Open options`,
+      })
+    ).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expect
+      .poll(() =>
+        [
+          ...new Set(
+            optionRequests.map((request) =>
+              JSON.stringify([
+                new URL(request.url()).pathname,
+                queryOf(request),
+              ])
+            )
+          ),
+        ]
+          .sort()
+          .map((request) => JSON.parse(request))
+      )
+      .toEqual([
+        [
+          "/v1/parameter/location",
+          [
+            ["location_type", "Module"],
+            ["location_type", "Site"],
+          ],
+        ],
+        ["/v1/parameter/role", [["managed_only", "true"]]],
+        ["/v1/parameter/status", [["content_type", "dcim.device"]]],
+        ["/v1/parameter/tenant", [["managed_only", "true"]]],
+      ]);
+  });
+
+  test("submits the location type for colliding DCIM location IDs", async ({
+    page,
+  }) => {
+    await page.route("**/v1/parameter/location*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        json: [
+          { id: "42", name: "SJC01", location_type: "Site" },
+          { id: "42", name: "Module 1", location_type: "Module" },
+        ],
+      });
+    });
+    await page.goto(FORM_PATH);
+
+    await page.locator("form").getByRole("combobox", { name: "Site" }).click();
+    await page
+      .getByRole("dialog")
+      .getByText("Module 1", { exact: true })
+      .click();
+
+    const requestPromise = page.waitForRequest((request) =>
+      request.url().includes("/v1/workflow/ngc/site_cable_validation")
+    );
+    await page.getByRole("button", { name: "Submit" }).click();
+
+    const request = await requestPromise;
+    const requestData = JSON.parse((await request.postData()) || "{}");
+    expect(requestData.site).toBe("42");
+    expect(requestData.site_type).toBe("Module");
+  });
+
   test("displays validation errors for empty submission", async ({ page }) => {
     await page.getByRole("button", { name: "Submit" }).click();
 
     // Check for all required field validations
-    await expect(page.getByText("Site is required")).toBeVisible({
+    await expect(page.locator("form p")).toHaveText(["Site is required"], {
       timeout: TEST_TIMEOUT,
     });
     await expect(page.getByText("Roles is required")).not.toBeVisible({
@@ -80,7 +190,7 @@ test.describe("Site Cable Validation Form", () => {
 
     // Navigate with all URL parameters
     await page.goto(
-      "/workflows/sitecablevalidationworkflow/form" +
+      FORM_PATH +
         `?site=${SITES_LIST.pdx01}` +
         `&role=${ROLES_LIST.leaf}` +
         `&status=${STATUS_LIST.active}` +
@@ -89,27 +199,23 @@ test.describe("Site Cable Validation Form", () => {
 
     // Verify all fields are pre-populated
     await expect(
-      page.getByRole("button", {
+      page.getByRole("combobox", {
         name: `${SITES_LIST.pdx01}. Open options`,
-        exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
     await expect(
-      page.getByRole("button", {
+      page.getByRole("combobox", {
         name: `${ROLES_LIST.leaf}. Open options`,
-        exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
     await expect(
-      page.getByRole("button", {
+      page.getByRole("combobox", {
         name: `${STATUS_LIST.active}. Open options`,
-        exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
     await expect(
-      page.getByRole("button", {
+      page.getByRole("combobox", {
         name: `${TENANT_LIST.tenant_a}. Open options`,
-        exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
 
@@ -126,8 +232,6 @@ test.describe("Site Cable Validation Form", () => {
       roles: [ROLES_LIST.leaf],
       status: [STATUS_LIST.active],
       tenant: TENANT_LIST.tenant_a,
-      device_type_ids: [],
-      raise_for_invalid: false,
     });
 
     // Wait for navigation to confirm submission completed
@@ -146,7 +250,7 @@ test.describe("Site Cable Validation Form", () => {
 
     // Navigate with initial URL parameters
     await page.goto(
-      "/workflows/sitecablevalidationworkflow/form" +
+      FORM_PATH +
         `?site=${SITES_LIST.pdx01}` +
         `&role=${ROLES_LIST.leaf}` +
         `&status=${STATUS_LIST.active}` +
@@ -155,14 +259,13 @@ test.describe("Site Cable Validation Form", () => {
 
     // Verify initial values are pre-populated
     await expect(
-      page.getByRole("button", {
+      page.getByRole("combobox", {
         name: `${SITES_LIST.pdx01}. Open options`,
-        exact: true,
       })
     ).toBeVisible({ timeout: TEST_TIMEOUT });
 
     // Change the site
-    await page.getByRole("button", { name: SITES_LIST.pdx01 }).click();
+    await page.getByRole("combobox", { name: SITES_LIST.pdx01 }).click();
     await page.getByRole("dialog").getByText(SITES_LIST.rno1).click();
     // Click outside to close any dropdown that might be open
     await page
@@ -171,7 +274,7 @@ test.describe("Site Cable Validation Form", () => {
 
     // Add another role
     await page
-      .getByRole("button", { name: `${ROLES_LIST.leaf}. Open options` })
+      .getByRole("combobox", { name: `${ROLES_LIST.leaf}. Open options` })
       .click();
     await page.getByRole("dialog").getByText(ROLES_LIST.spine).click();
     // Click outside to close any dropdown that might be open
@@ -180,7 +283,7 @@ test.describe("Site Cable Validation Form", () => {
       .click();
 
     // Change the tenant
-    await page.getByRole("button", { name: TENANT_LIST.tenant_a }).click();
+    await page.getByRole("combobox", { name: TENANT_LIST.tenant_a }).click();
     await page.getByRole("dialog").getByText(TENANT_LIST.ngc).click();
     // Click outside to close any dropdown that might be open
     await page
@@ -200,8 +303,6 @@ test.describe("Site Cable Validation Form", () => {
       roles: [ROLES_LIST.leaf, ROLES_LIST.spine],
       status: [STATUS_LIST.active],
       tenant: TENANT_LIST.ngc,
-      device_type_ids: [],
-      raise_for_invalid: false,
     });
 
     // Wait for navigation to confirm submission completed
@@ -214,7 +315,7 @@ test.describe("Site Cable Validation Form", () => {
     page,
   }) => {
     // Test multiple selections for Roles
-    await page.locator("form").getByRole("button", { name: "Roles" }).click();
+    await page.locator("form").getByRole("combobox", { name: "Roles" }).click();
     await page.getByRole("dialog").getByText(ROLES_LIST.leaf).click();
     await page.getByRole("dialog").getByText(ROLES_LIST.spine).click();
     // Click outside to close any dropdown that might be open
@@ -258,14 +359,14 @@ test.describe("Site Cable Validation Form", () => {
       return request.url().includes("/v1/workflow/ngc/site_cable_validation");
     });
 
-    await page.getByRole("button", { name: "Site" }).click();
+    await page.getByRole("combobox", { name: "Site" }).click();
     await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
     // Click outside to close any dropdown that might be open
     await page
       .getByRole("heading", { name: "New Site Cable Validation Workflow" })
       .click();
 
-    await page.locator("form").getByRole("button", { name: "Roles" }).click();
+    await page.locator("form").getByRole("combobox", { name: "Roles" }).click();
     await page.getByRole("dialog").getByText(ROLES_LIST.leaf).click();
     await page.getByRole("dialog").getByText(ROLES_LIST.spine).click();
     // Click outside to close any dropdown that might be open
@@ -280,7 +381,7 @@ test.describe("Site Cable Validation Form", () => {
       .getByRole("heading", { name: "New Site Cable Validation Workflow" })
       .click();
 
-    await page.getByRole("button", { name: "Tenant" }).click();
+    await page.getByRole("combobox", { name: "Tenant" }).click();
     await page.getByRole("dialog").getByText(TENANT_LIST.tenant_a).click();
     // Click outside to close any dropdown that might be open
     await page
@@ -302,8 +403,6 @@ test.describe("Site Cable Validation Form", () => {
         STATUS_LIST.planned,
       ],
       tenant: TENANT_LIST.tenant_a,
-      device_type_ids: [],
-      raise_for_invalid: false,
     });
 
     // Wait for navigation to confirm submission completed with a 30-second timeout
@@ -312,12 +411,87 @@ test.describe("Site Cable Validation Form", () => {
     ).toBeVisible({ timeout: TEST_TIMEOUT });
   });
 
+  test("requires at least one Device Status", async ({ page }) => {
+    const posts: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        request.url().includes("/v1/workflow/ngc/site_cable_validation")
+      ) {
+        posts.push(request.url());
+      }
+    });
+
+    await page.getByRole("combobox", { name: "Site" }).click();
+    await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
+    await page
+      .getByRole("heading", { name: "New Site Cable Validation Workflow" })
+      .click();
+
+    await page
+      .getByRole("button", { name: `Remove ${STATUS_LIST.active}` })
+      .click();
+    await page
+      .getByRole("button", { name: `Remove ${STATUS_LIST.provisioned}` })
+      .click();
+
+    await page.getByRole("button", { name: "Submit" }).click();
+    await expect(
+      page.getByText("At least 1 Device Status is required")
+    ).toBeVisible();
+    expect(posts).toEqual([]);
+
+    await page
+      .getByRole("combobox", { name: "Select Device Status..." })
+      .click();
+    await openSelectDialog(page)
+      .getByRole("option", { name: STATUS_LIST.planned, exact: true })
+      .click();
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByText("At least 1 Device Status is required")
+    ).toHaveCount(0);
+  });
+
+  test("shows FastAPI 422 errors on the field and a string detail form-level", async ({
+    page,
+  }) => {
+    let reply: unknown = [
+      {
+        type: "value_error",
+        loc: ["body", "roles", 0],
+        msg: "Value error, unknown role",
+      },
+    ];
+    await page.route("**/v1/workflow/ngc/site_cable_validation", (route) =>
+      route.fulfill({ status: 422, json: { detail: reply } })
+    );
+    await page.goto(
+      `${FORM_PATH}?site=${SITES_LIST.pdx01}&role=${ROLES_LIST.leaf}`
+    );
+    await expect(
+      page.getByRole("combobox", { name: `${ROLES_LIST.leaf}. Open options` })
+    ).toBeVisible({ timeout: TEST_TIMEOUT });
+
+    await page.getByRole("button", { name: "Submit" }).click();
+    await expect(
+      page.getByText("Item 1: Value error, unknown role")
+    ).toBeVisible();
+
+    reply = "Site PDX01 has no cabling plan";
+    await page.getByRole("button", { name: "Submit" }).click();
+    await expect(
+      page
+        .getByTestId("form-errors")
+    ).toContainText("Site PDX01 has no cabling plan");
+  });
+
   test(`disables form during submission`, async ({ page }) => {
-    let markSubmissionStarted: () => void;
+    let markSubmissionStarted!: () => void;
     const submissionStarted = new Promise<void>((resolve) => {
       markSubmissionStarted = resolve;
     });
-    let releaseSubmission: () => void;
+    let releaseSubmission!: () => void;
     const submissionReleased = new Promise<void>((resolve) => {
       releaseSubmission = resolve;
     });
@@ -330,14 +504,14 @@ test.describe("Site Cable Validation Form", () => {
       }
     );
 
-    await page.getByRole("button", { name: "Site" }).click();
+    await page.getByRole("combobox", { name: "Site" }).click();
     await page.getByRole("dialog").getByText(SITES_LIST.pdx01).click();
     // Click outside to close any dropdown that might be open
     await page
       .getByRole("heading", { name: "New Site Cable Validation Workflow" })
       .click();
 
-    await page.locator("form").getByRole("button", { name: "Roles" }).click();
+    await page.locator("form").getByRole("combobox", { name: "Roles" }).click();
     await page.getByRole("dialog").getByText(ROLES_LIST.leaf).click();
     await page.getByRole("dialog").getByText(ROLES_LIST.spine).click();
     // Click outside to close any dropdown that might be open
@@ -352,7 +526,7 @@ test.describe("Site Cable Validation Form", () => {
       .getByRole("heading", { name: "New Site Cable Validation Workflow" })
       .click();
 
-    await page.getByRole("button", { name: "Tenant" }).click();
+    await page.getByRole("combobox", { name: "Tenant" }).click();
     await page.getByRole("dialog").getByText(TENANT_LIST.tenant_a).click();
     // Click outside to close any dropdown that might be open
     await page
@@ -363,9 +537,8 @@ test.describe("Site Cable Validation Form", () => {
     await submissionStarted;
 
     await expect(
-      page.getByRole("button", {
+      page.getByRole("combobox", {
         name: `${SITES_LIST.pdx01}. Open options`,
-        exact: true,
       })
     ).toBeDisabled();
     await expect(
@@ -384,9 +557,8 @@ test.describe("Site Cable Validation Form", () => {
       page.getByRole("button", { name: `Remove ${STATUS_LIST.planned}` })
     ).toBeDisabled();
     await expect(
-      page.getByRole("button", {
+      page.getByRole("combobox", {
         name: `${TENANT_LIST.tenant_a}. Open options`,
-        exact: true,
       })
     ).toBeDisabled();
     await expect(
@@ -403,17 +575,17 @@ test.describe("Site Cable Validation Form", () => {
     page,
   }) => {
     // Fill form with forbidden site
-    await page.getByRole("button", { name: "Site" }).click();
+    await page.getByRole("combobox", { name: "Site" }).click();
     await page.getByRole("dialog").getByText(FORBIDDEN_SITE_ID).click();
 
     // Fill other required fields
-    await page.locator("form").getByRole("button", { name: "Roles" }).click();
+    await page.locator("form").getByRole("combobox", { name: "Roles" }).click();
     await page.getByRole("dialog").getByText(ROLES_LIST.leaf).click();
     await page
       .getByRole("heading", { name: "New Site Cable Validation Workflow" })
       .click();
 
-    await page.getByRole("button", { name: "Tenant" }).click();
+    await page.getByRole("combobox", { name: "Tenant" }).click();
     await page.getByRole("dialog").getByText(TENANT_LIST.tenant_a).click();
 
     await page.getByRole("button", { name: "Submit" }).click();
@@ -426,7 +598,12 @@ test.describe("Site Cable Validation Form", () => {
       hasText: "Forbidden: You do not have permission to run this workflow",
     });
 
-    await expect(errorTitle).toBeVisible({ timeout: TEST_TIMEOUT });
-    await expect(errorMessage).toBeVisible({ timeout: TEST_TIMEOUT });
+    await expect(errorTitle).toHaveText("Workflow Failed", {
+      timeout: TEST_TIMEOUT,
+    });
+    await expect(errorMessage).toHaveText(
+      "Forbidden: You do not have permission to run this workflow",
+      { timeout: TEST_TIMEOUT }
+    );
   });
 });

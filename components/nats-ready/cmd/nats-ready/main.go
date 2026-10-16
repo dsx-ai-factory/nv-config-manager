@@ -39,7 +39,7 @@ func main() {
 	address := flag.String("address", "nats://localhost:4222", "NATS server address")
 	flag.Parse()
 
-	logger.Info().Str("address", *address).Msg("NATS server address")
+	logger.Info().Str("address", natsready.RedactAddress(*address)).Msg("NATS server address")
 
 	natsReady, err := natsready.NewRunner(&natsready.NatsReadyConfig{
 		Address: *address,

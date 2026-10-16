@@ -23,6 +23,7 @@ import platform
 import re
 import select
 import shlex
+import signal
 import subprocess
 import threading
 import time
@@ -731,6 +732,10 @@ class AirSimulationManager:
         "StrictHostKeyChecking=no",
         "-o",
         "UserKnownHostsFile=/dev/null",
+        "-o",
+        "PreferredAuthentications=password",
+        "-o",
+        "PasswordAuthentication=yes",
         "-o",
         "LogLevel=ERROR",
     ]
@@ -1929,7 +1934,7 @@ class AirSimulationManager:
         tail: int = 200,
         since: str = "30m",
     ) -> dict[str, list[str]]:
-        """Return recent DHCP and ZTP log lines without opening streaming tails."""
+        """Return recent DHCP, ZTP HTTP, and ZTP SFTP logs without streaming tails."""
         ssh_base = self._ssh_cmd(host, port)
         kube = "KUBECONFIG=/home/nvcm/.kube/config"
         commands = {
@@ -1950,6 +1955,11 @@ class AirSimulationManager:
                     f"sudo {kube} kubectl logs -n {namespace}"
                     f" deployment/{CONFIG_MANAGER_ZTP_DEPLOYMENT}"
                     f" -c http-lb --tail={tail} --since={since} 2>/dev/null"
+                ),
+                (
+                    f"sudo {kube} kubectl logs -n {namespace}"
+                    f" deployment/{CONFIG_MANAGER_ZTP_DEPLOYMENT}"
+                    f" -c sftp --tail={tail} --since={since} 2>/dev/null"
                 ),
             ),
         }
@@ -2014,6 +2024,12 @@ class AirSimulationManager:
             f" -c http-lb -n {CONFIG_MANAGER_NAMESPACE} 2>&1"
             " | grep --line-buffered -v health"
         )
+        ztp_sftp_cmd = (
+            "sudo KUBECONFIG=/home/nvcm/.kube/config"
+            f" kubectl logs -f deployment/{CONFIG_MANAGER_ZTP_DEPLOYMENT}"
+            f" -c sftp -n {CONFIG_MANAGER_NAMESPACE} 2>&1"
+            " | grep --line-buffered -v health"
+        )
 
         outer_stop = stop_event
         stop_event = threading.Event()
@@ -2054,10 +2070,18 @@ class AirSimulationManager:
                 text=True,
             )
             procs.append(ztp_proc)
+            ztp_sftp_proc = subprocess.Popen(
+                [*ssh_base, ztp_sftp_cmd],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            procs.append(ztp_sftp_proc)
 
             fds = {
                 dhcp_proc.stdout: "DHCP",
                 ztp_proc.stdout: "ZTP",
+                ztp_sftp_proc.stdout: "ZTP",
             }
             last_prov = -1
             while fds:
@@ -2093,6 +2117,26 @@ class AirSimulationManager:
                     p.terminate()
                     p.wait(timeout=5)
 
+    @staticmethod
+    def _stop_cloud_init_tail(proc: subprocess.Popen[str]) -> None:
+        """Stop and reap the log stream without changing the setup result."""
+        try:
+            # sshpass wraps ssh; stop both so ssh cannot keep the pipe open.
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(proc.pid, sig)
+                except ProcessLookupError:
+                    pass
+                try:
+                    proc.wait(timeout=5)
+                    break
+                except subprocess.TimeoutExpired:
+                    if sig == signal.SIGKILL:
+                        LOG.warning("Cloud-init log stream did not exit after being killed.")
+        finally:
+            if proc.stdout is not None:
+                proc.stdout.close()
+
     def wait_for_cloud_init(
         self,
         host: str,
@@ -2124,22 +2168,33 @@ class AirSimulationManager:
         LOG.info(f"Waiting for SSH to become reachable on {host}:{port}...")
         start = time.monotonic()
         while time.monotonic() < deadline:
+            failure_reason = ""
             try:
                 result = subprocess.run(
                     [*ssh_base, "true"],
                     capture_output=True,
+                    text=True,
                     timeout=10,
                 )
                 if result.returncode == 0:
                     elapsed = int(time.monotonic() - start)
                     LOG.info(f"SSH is reachable (after {elapsed}s)")
                     break
+                failure_reason = (
+                    result.stderr.strip().splitlines()[-1] if result.stderr.strip() else ""
+                )
+                failure_reason = _ANSI_ESCAPE.sub("", failure_reason)
+                failure_reason = failure_reason.replace(self._require_ssh_password(), "<redacted>")[
+                    :300
+                ]
+                if not failure_reason:
+                    failure_reason = f"ssh exited with status {result.returncode}"
             except subprocess.TimeoutExpired:
-                pass
+                failure_reason = "SSH probe timed out after 10 seconds"
 
             elapsed = int(time.monotonic() - start)
             if elapsed % 30 < 10:
-                LOG.info(f"  [{elapsed}s] Still waiting for SSH...")
+                LOG.info(f"  [{elapsed}s] Still waiting for SSH: {failure_reason}")
             time.sleep(10)
         else:
             LOG.warning("Timed out waiting for SSH. Log in manually to check status.")
@@ -2149,12 +2204,14 @@ class AirSimulationManager:
         LOG.info("Tailing cloud-init output ...")
         LOG.info("(Ctrl+C to stop tailing and continue)\n")
 
+        proc: subprocess.Popen[str] | None = None
         try:
             proc = subprocess.Popen(
                 [*ssh_base, "sudo", "tail", "-n", "+1", "-f", "/var/log/cloud-init-output.log"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 text=True,
+                start_new_session=True,
             )
 
             assert proc.stdout is not None
@@ -2170,7 +2227,6 @@ class AirSimulationManager:
                             "Log tail ended unexpectedly. SSH session "
                             "may have dropped -- check the server manually."
                         )
-                        proc.wait(timeout=5)
                         return False
 
                     line = line.rstrip("\n")
@@ -2178,50 +2234,72 @@ class AirSimulationManager:
 
                     if self._SETUP_COMPLETE_MARKER in line:
                         LOG.info("\nCloud-init setup finished successfully.")
-                        proc.terminate()
-                        proc.wait(timeout=5)
                         return True
 
                 now = time.monotonic()
+                if now >= deadline:
+                    break
                 if now - last_status_check < 10:
                     continue
                 last_status_check = now
 
-                status = subprocess.run(
-                    [*ssh_base, "cloud-init", "status", "--long"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
+                try:
+                    status = subprocess.run(
+                        [*ssh_base, "cloud-init", "status", "--long"],
+                        capture_output=True,
+                        text=True,
+                        timeout=min(10, deadline - now),
+                    )
+                except subprocess.TimeoutExpired:
+                    # The exception's command includes the SSH password; do not log it.
+                    LOG.warning("Cloud-init status check timed out; retrying until setup deadline.")
+                    continue
                 status_text = f"{status.stdout}\n{status.stderr}".strip()
                 if "status: error" in status_text or "extended_status: error" in status_text:
                     LOG.warning("Cloud-init reported an error:\n%s", status_text)
-                    proc.terminate()
-                    proc.wait(timeout=5)
                     return False
 
                 if "status: done" in status_text:
+                    # TextIOWrapper can buffer log lines that select() no longer sees.
+                    # Check the files directly before declaring a missing marker.
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    try:
+                        marker = subprocess.run(
+                            [
+                                *ssh_base,
+                                "sudo grep -Fq -- "
+                                f"{shlex.quote(self._SETUP_COMPLETE_MARKER)} "
+                                "/var/log/nvcm-setup.log /var/log/cloud-init-output.log",
+                            ],
+                            capture_output=True,
+                            text=True,
+                            timeout=min(10, remaining),
+                        )
+                    except subprocess.TimeoutExpired:
+                        LOG.warning("Setup marker check timed out; retrying until setup deadline.")
+                        continue
+                    if marker.returncode == 0:
+                        LOG.info("\nCloud-init setup finished successfully.")
+                        return True
                     done_seen_at = done_seen_at or now
                     if now - done_seen_at > 5:
                         LOG.warning(
                             "Cloud-init completed without the setup-complete marker. "
                             "Check /var/log/nvcm-setup.log on the server."
                         )
-                        proc.terminate()
-                        proc.wait(timeout=5)
                         return False
 
             LOG.warning("\nTimed out waiting for setup to complete. Check the server manually.")
-            proc.terminate()
-            proc.wait(timeout=5)
             return False
 
         except KeyboardInterrupt:
             LOG.info("\nTailing interrupted. Setup may still be running on the server.")
-            if proc.poll() is None:
-                proc.terminate()
-                proc.wait(timeout=5)
             return False
+        finally:
+            if proc is not None:
+                self._stop_cloud_init_tail(proc)
 
     def start_simulation(self, simulation_id: str, wait: bool = True) -> None:
         """Start a simulation and optionally wait for it to load.

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "docker:pinDigests"],
+  "automerge": false,
+  "dependencyDashboard": true,
+  "prConcurrentLimit": 5,
+  "schedule": ["before 7am on monday"],
+  "timezone": "America/Denver",
+  "packageRules": [
+    {
+      "description": "Temporal persistence upgrades require a coordinated migration; keep versions manual.",
+      "matchPackageNames": ["temporalio/server", "temporalio/admin-tools"],
+      "matchUpdateTypes": ["major", "minor", "patch"],
+      "enabled": false
+    },
+    {
+      "description": "The Nautobot test stage consumes an image built in this repository.",
+      "matchPackageNames": ["nv-config-manager-nautobot"],
+      "enabled": false
+    }
+  ]
+}

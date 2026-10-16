@@ -43,6 +43,14 @@ class NautobotRenderEventClient(Protocol):
     async def get_render_enabled_devices_for_vrf(self, vrf_id: str) -> list[str]:
         """Resolve managed devices affected by a Nautobot VRF."""
 
+    async def find_switches_by_vlan(self, vlan_id: str) -> list[str]:
+        """Find switches with an interface assigned to a Nautobot VLAN."""
+
+    async def get_relationship_source_record(
+        self, association: Mapping[str, Any]
+    ) -> tuple[str, Mapping[str, Any]] | None:
+        """Resolve a relationship association to its supported source record."""
+
     async def get_render_enabled_devices_for_ip_address(self, ip_address_id: str) -> list[str]:
         """Resolve managed devices affected by a Nautobot IP address."""
 
@@ -147,6 +155,11 @@ async def frontport(event: DCIMChangeEvent, client: DCIMClient) -> tuple[RenderE
 
 async def cable(event: DCIMChangeEvent, client: DCIMClient) -> tuple[RenderEventRequest, ...]:
     """Handle a ``dcim.cable`` event, including compact termination references."""
+    # Nautobot cable terminations are immutable: changing an endpoint requires
+    # deleting and recreating the cable. Updates can therefore only affect
+    # non-topological fields and do not require a configuration render.
+    if event.operation not in {"create", "delete"}:
+        return ()
     record = _record(event)
     termination_a = record.get("termination_a")
     termination_b = record.get("termination_b")
@@ -230,6 +243,45 @@ async def vrf(event: DCIMChangeEvent, client: DCIMClient) -> tuple[RenderEventRe
         _id(record.get("id"), "VRF id")
     )
     return _requests(event, device_ids)
+
+
+async def vlan(event: DCIMChangeEvent, client: DCIMClient) -> tuple[RenderEventRequest, ...]:
+    """Handle an ``ipam.vlan`` event."""
+    nautobot_client = _nautobot_client(client)
+    # Nautobot clears interface associations before publishing a VLAN delete, so
+    # only a full managed-device fan-out guarantees that no required render is missed.
+    if event.operation == "delete":
+        device_ids = await nautobot_client.get_render_enabled_devices_matching({})
+        return _requests(event, device_ids)
+    record = _record(event)
+    vlan_id = _id(record.get("id"), "VLAN id")
+    device_ids = await nautobot_client.find_switches_by_vlan(vlan_id)
+    return _requests(event, device_ids)
+
+
+async def relationshipassociation(
+    event: DCIMChangeEvent, client: DCIMClient
+) -> tuple[RenderEventRequest, ...]:
+    """Handle a relationship change through its source model's event logic."""
+    nautobot_client = _nautobot_client(client)
+    source = await nautobot_client.get_relationship_source_record(_record(event))
+    if source is None:
+        return ()
+    source_type, source_record = source
+    handler = _HANDLERS.get(source_type)
+    if handler is None or handler is relationshipassociation:
+        return ()
+    source_event = event.model_copy(
+        update={
+            "operation": "update",
+            "object_type": source_type,
+            "object_id": _id(source_record.get("id"), "relationship source id"),
+            "record": dict(source_record),
+            "changed_fields": (),
+        }
+    )
+    source_requests = await handler(source_event, client)
+    return _requests(event, (request.device_id for request in source_requests))
 
 
 async def prefix(event: DCIMChangeEvent, client: DCIMClient) -> tuple[RenderEventRequest, ...]:
@@ -335,7 +387,9 @@ _HANDLERS = {
     "dcim.cablepath": cablepath,
     "dcim.deviceredundancygroup": deviceredundancygroup,
     "extras.configcontext": configcontext,
+    "extras.relationshipassociation": relationshipassociation,
     "ipam.vrf": vrf,
+    "ipam.vlan": vlan,
     "ipam.prefix": prefix,
     "ipam.ipaddress": ipaddress,
     "nautobot_bgp_models.autonomoussystem": autonomoussystem,

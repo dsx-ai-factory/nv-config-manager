@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
-from typing import Any, Self
+from typing import Any, Self, TypedDict
 from uuid import UUID
 
 from nv_config_manager_dcim.api import (
@@ -34,9 +34,11 @@ from nv_config_manager_dcim.errors import (
     DCIMProviderConfigurationError,
 )
 from nv_config_manager_dcim.models import (
+    CableStatusUpdate,
     DCIMChangeEvent,
     DCIMDeviceSelection,
     DCIMDeviceSelectionFilter,
+    DCIMLocationIdentifier,
     DCIMSelection,
     DeviceMetadata,
     IntendedConfigurationUpdate,
@@ -45,6 +47,7 @@ from nv_config_manager_dcim.models import (
     RenderDeviceStatus,
     RenderTemplateVersion,
     ZTPDevice,
+    dcim_location_id,
 )
 from nv_config_manager_dcim.render import RenderData, RenderDataExtension, RenderDataRequest
 
@@ -73,9 +76,15 @@ _MANAGED_DEVICES_QUERY = load_graphql_query(
 _VRF_AFFECTED_DEVICES_QUERY = load_graphql_query(
     "provider/events.graphql", "ListVRFAffectedDevices"
 )
+_FIND_SWITCHES_BY_VLAN_QUERY = load_graphql_query("provider/events.graphql", "FindSwitchesByVLAN")
 _IP_ADDRESS_AFFECTED_DEVICES_QUERY = load_graphql_query(
     "provider/events.graphql", "ListIPAddressAffectedDevices"
 )
+
+_RELATIONSHIP_SOURCE_PATHS = {
+    "ipam.prefix": "ipam/prefixes",
+    "ipam.vlan": "ipam/vlans",
+}
 _AUTONOMOUS_SYSTEM_AFFECTED_DEVICES_QUERY = load_graphql_query(
     "provider/events.graphql", "ListAutonomousSystemAffectedDevices"
 )
@@ -111,10 +120,11 @@ _MANAGED_DEVICE_METADATA_QUERY = load_graphql_query(
     "provider/devices.graphql", "ListManagedDeviceMetadata"
 )
 _DEVICE_SERIAL_QUERY = load_graphql_query("provider/devices.graphql", "GetDeviceSerial")
+_DEVICE_CONTEXTS_QUERY = load_graphql_query("provider/devices.graphql", "ListDeviceContexts")
 _RENDER_DATA_QUERY = load_graphql_query("query_config_data_by_device_id_v2.graphql")
 _LOCATION_DATA_QUERY = load_graphql_query("query_location_data.graphql")
 
-_NAUTOBOT_CONNECTION_KEYS = ("server", "token", "public_url", "verify")
+_NAUTOBOT_CONNECTION_KEYS = ("server", "token", "public_url", "verify", "timeout")
 _INTENDED_CONFIGURATION_PATH = "plugins/nv-config-manager/intendedconfig/"
 
 
@@ -122,6 +132,24 @@ def _is_existing_intended_configuration_error(error: NautobotException) -> bool:
     """Return whether Nautobot rejected a create for its one-per-device record."""
     message = str(error)
     return "returned 400" in message and "Intended Config Settings with this Device id" in message
+
+
+def _render_peer_devices(device: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Return every cabled peer device record in a render payload, by reference."""
+    peers: list[dict[str, Any]] = []
+    for interface in device.get("interfaces") or ():
+        if not isinstance(interface, Mapping):
+            continue
+        peer = interface.get("connected_interface")
+        if not isinstance(peer, Mapping):
+            continue
+        if isinstance(peer_device := peer.get("device"), dict):
+            peers.append(peer_device)
+        module = peer.get("module")
+        bay = module.get("parent_module_bay") if isinstance(module, Mapping) else None
+        if isinstance(bay, Mapping) and isinstance(parent := bay.get("parent_device"), dict):
+            peers.append(parent)
+    return peers
 
 
 def _parse_verify(value: object) -> bool | str:
@@ -141,6 +169,28 @@ def _parse_verify(value: object) -> bool | str:
     return normalized
 
 
+def _parse_timeout(value: object) -> int | None:
+    """Normalize the optional request budget, or ``None`` to keep the client default."""
+    if isinstance(value, bool):
+        raise DCIMProviderConfigurationError('DCIM provider "nautobot-2x" timeout must be a number')
+    if isinstance(value, int):
+        timeout = value
+    else:
+        if value is None or not (normalized := str(value).strip()):
+            return None
+        try:
+            timeout = int(normalized)
+        except ValueError as exc:
+            raise DCIMProviderConfigurationError(
+                f'DCIM provider "nautobot-2x" timeout must be a number, got {normalized!r}'
+            ) from exc
+    if timeout <= 0:
+        raise DCIMProviderConfigurationError(
+            f'DCIM provider "nautobot-2x" timeout must be positive, got {timeout}'
+        )
+    return timeout
+
+
 def _is_canonical_uuid(value: str) -> bool:
     """Return whether a value is a canonical UUID string."""
     try:
@@ -158,7 +208,17 @@ def _tag_names(tags: object) -> tuple[str, ...]:
     )
 
 
-def _nautobot_connection_settings(settings: ProviderSettings) -> dict[str, str | bool]:
+class _NautobotConnection(TypedDict):
+    """Normalized Nautobot connection settings."""
+
+    server: str
+    token: str
+    public_url: str
+    verify: bool | str
+    timeout: int | None
+
+
+def _nautobot_connection_settings(settings: ProviderSettings) -> _NautobotConnection:
     """Validate and normalize explicit Nautobot provider settings."""
     values = {key: settings.get(key) for key in _NAUTOBOT_CONNECTION_KEYS}
     missing = [key for key in ("server", "token") if not str(values[key] or "").strip()]
@@ -171,6 +231,7 @@ def _nautobot_connection_settings(settings: ProviderSettings) -> dict[str, str |
         "token": str(values["token"]),
         "public_url": str(values["public_url"]) if values["public_url"] else "",
         "verify": _parse_verify(values["verify"]),
+        "timeout": _parse_timeout(values["timeout"]),
     }
 
 
@@ -217,12 +278,19 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         token: str,
         verify: bool | str = True,
         public_url: str | None = None,
+        timeout: int | None = None,
         headers: dict[str, str] | Callable[[], dict[str, str]] | None = None,
     ) -> None:
         """Initialize the reference client with its user-facing base URL."""
         NautobotWorkflowClient.__init__(
             self,
-            {"server": nautobot_url, "token": token, "verify": verify, "headers": headers},
+            {
+                "server": nautobot_url,
+                "token": token,
+                "verify": verify,
+                "timeout": timeout,
+                "headers": headers,
+            },
         )
         self._public_url = (public_url or nautobot_url).rstrip("/")
 
@@ -231,10 +299,11 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         """Create the reference client from explicit provider settings."""
         connection_config = _nautobot_connection_settings(settings)
         return cls(
-            nautobot_url=str(connection_config["server"]),
-            token=str(connection_config["token"]),
+            nautobot_url=connection_config["server"],
+            token=connection_config["token"],
             verify=connection_config["verify"],
-            public_url=str(connection_config["public_url"]) or None,
+            public_url=connection_config["public_url"] or None,
+            timeout=connection_config["timeout"],
         )
 
     @staticmethod
@@ -247,16 +316,19 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         """Return whether a location identifier is a canonical Nautobot UUID."""
         return _is_canonical_uuid(value)
 
-    async def get_location_metadata(self, location_id: str) -> DCIMSelection | None:
+    async def get_location_metadata(self, location: DCIMLocationIdentifier) -> DCIMSelection | None:
         """Return normalized metadata for one location UUID."""
+        location_id = dcim_location_id(location)
         result = await self.graphql_query(_LOCATION_BY_ID_QUERY, {"id": location_id})
         if result.get("errors"):
             message = result["errors"][0].get("message", "Invalid location query")
             raise DCIMInvalidDataError(str(message))
-        location = (result.get("data") or {}).get("location")
-        if location is None:
+        location_data = (result.get("data") or {}).get("location")
+        if location_data is None:
             return None
-        selections = self._parameter_selections([location], "location")
+        selections = self._parameter_selections(
+            [location_data], "location", include_location_type=True
+        )
         return selections[0]
 
     async def get_device_metadata(self, device_id: str) -> DeviceMetadata | None:
@@ -331,7 +403,9 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         return normalized
 
     @staticmethod
-    def _parameter_selections(data: object, label: str) -> list[DCIMSelection]:
+    def _parameter_selections(
+        data: object, label: str, *, include_location_type: bool = False
+    ) -> list[DCIMSelection]:
         """Validate a provider list response and normalize its form options."""
         if not isinstance(data, list):
             raise DCIMInvalidDataError(f"Nautobot returned invalid {label} data")
@@ -343,7 +417,22 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 or not isinstance(item.get("name"), str)
             ):
                 raise DCIMInvalidDataError(f"Nautobot returned invalid {label} data")
-            selections.append(DCIMSelection(id=item["id"], name=item["name"]))
+            location_type_name: str | None = None
+            if include_location_type:
+                location_type = item.get("location_type")
+                if location_type is not None:
+                    if not isinstance(location_type, dict) or not isinstance(
+                        location_type.get("name"), str
+                    ):
+                        raise DCIMInvalidDataError(f"Nautobot returned invalid {label} data")
+                    location_type_name = location_type["name"]
+            selections.append(
+                DCIMSelection(
+                    id=item["id"],
+                    name=item["name"],
+                    location_type=location_type_name,
+                )
+            )
         return selections
 
     async def list_locations(self, location_types: tuple[str, ...] = ()) -> list[DCIMSelection]:
@@ -352,7 +441,11 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             _PARAMETER_LOCATIONS_QUERY,
             {"location_types": list(location_types) or None},
         )
-        return self._parameter_selections((result.get("data") or {}).get("locations"), "location")
+        return self._parameter_selections(
+            (result.get("data") or {}).get("locations"),
+            "location",
+            include_location_type=True,
+        )
 
     async def _list_managed_choices(self, field: str) -> list[DCIMSelection]:
         """Collect distinct managed-device tenant or role choices across all pages."""
@@ -396,9 +489,14 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         result = await self.graphql_query(_PARAMETER_ROLES_QUERY)
         return self._parameter_selections((result.get("data") or {}).get("roles"), "role")
 
-    async def list_namespace_tags(self, location: str | None = None) -> list[str]:
+    async def list_namespace_tags(
+        self, location: DCIMLocationIdentifier | None = None
+    ) -> list[str]:
         """Return the distinct namespace tag names at an optional location."""
-        result = await self.graphql_query(_PARAMETER_NAMESPACE_TAGS_QUERY, {"location": location})
+        result = await self.graphql_query(
+            _PARAMETER_NAMESPACE_TAGS_QUERY,
+            {"location": dcim_location_id(location) if location is not None else None},
+        )
         namespaces = (result.get("data") or {}).get("namespaces")
         if not isinstance(namespaces, list):
             raise DCIMInvalidDataError("Nautobot returned invalid namespace tag data")
@@ -415,12 +513,15 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         return sorted(tags)
 
     async def list_overlays(
-        self, location: str | None = None, isolation_type: str | None = None
+        self,
+        location: DCIMLocationIdentifier | None = None,
+        isolation_type: str | None = None,
     ) -> list[DCIMSelection]:
         """Return overlay form choices using the Nautobot overlays plugin."""
+        location_id = dcim_location_id(location) if location is not None else None
         params = {
             key: value
-            for key, value in {"location": location, "isolation_type": isolation_type}.items()
+            for key, value in {"location": location_id, "isolation_type": isolation_type}.items()
             if value
         }
         overlays = await self.get_all("plugins/overlays/overlays/", params=params)
@@ -440,7 +541,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         """Return device choices matching the normalized workflow form filters."""
         variables: dict[str, list[str] | bool] = {}
         field_values = {
-            "site": filters.sites,
+            "site": tuple(dcim_location_id(site) for site in filters.sites),
             "status": filters.statuses,
             "role": filters.roles,
             "tenant": filters.tenants,
@@ -583,7 +684,10 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             _DEVICE_SERIAL_QUERY,
             variables={"id": device_id},
         )
-        serial = result.get("data", {}).get("device", {}).get("serial")
+        device = result.get("data", {}).get("device")
+        if device is None:
+            raise DCIMNotFoundError(f"No DCIM device data found for {device_id}.")
+        serial = device.get("serial")
         if not serial:
             raise DCIMNotFoundError(f"No serial found in DCIM for {device_id}.")
         return str(serial)
@@ -599,6 +703,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             _RENDER_DATA_QUERY,
             {"id": device_id, "id_str": device_id},
         )
+        await self._attach_peer_contexts(device_id, device_data)
         try:
             location = device_data["data"]["device"]["location"]
             while location["location_type"]["name"] != "Site":
@@ -642,6 +747,38 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             plugin_data[name] = RenderDataExtension(schema=schema, version=1, data=data)
 
         return render_data.model_copy(update={"plugin_data": plugin_data})
+
+    async def _attach_peer_contexts(self, device_id: str, device_data: dict[str, Any]) -> None:
+        """Fill in each cabled peer's config context from one top-level read.
+
+        The render query selects only peer ids: nested under an interface,
+        Nautobot resolves config context once per interface, while a top-level
+        ``devices`` read annotates every requested device in one query.
+        """
+        device = (device_data.get("data") or {}).get("device")
+        if not isinstance(device, Mapping):
+            return
+        peers = _render_peer_devices(device)
+        if not peers:
+            return
+        peer_ids = {peer.get("id") for peer in peers}
+        if not all(isinstance(peer_id, str) and peer_id for peer_id in peer_ids):
+            raise DCIMInvalidDataError(
+                f"Nautobot returned a connected device without an id for {device_id}"
+            )
+
+        result = await self.graphql_query(_DEVICE_CONTEXTS_QUERY, {"ids": sorted(peer_ids)})
+        contexts: dict[str, object] = {}
+        for record in (result.get("data") or {}).get("devices") or ():
+            if isinstance(record, Mapping) and isinstance(record.get("id"), str):
+                contexts[record["id"]] = record.get("config_context")
+        if missing := peer_ids - contexts.keys():
+            raise DCIMInvalidDataError(
+                f"Nautobot returned no configuration context for {len(missing)} of "
+                f"{len(peer_ids)} connected devices of {device_id}"
+            )
+        for peer in peers:
+            peer["config_context"] = contexts[peer["id"]]
 
     async def get_render_device_status(self, device_id: str) -> RenderDeviceStatus | None:
         """Return the managed-device status needed before queueing a render."""
@@ -705,6 +842,90 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             {"template_version": template_version},
         )
 
+    async def update_cable_status(self, update: CableStatusUpdate) -> None:
+        """Update the cable attached to a Nautobot device interface."""
+        try:
+            response = await self.get(
+                "dcim/interfaces/",
+                params={"device_id": [update.device_id], "name": update.interface_name},
+            )
+            interfaces = response.get("results") if isinstance(response, Mapping) else None
+            if not isinstance(interfaces, list):
+                raise DCIMInvalidDataError("Nautobot returned invalid interface lookup data")
+            if not interfaces:
+                raise DCIMNotFoundError(
+                    f"No interface named '{update.interface_name}' found on device "
+                    f"'{update.device_id}'"
+                )
+            if len(interfaces) > 1:
+                raise DCIMConflictError(
+                    f"Multiple interfaces named '{update.interface_name}' found on device "
+                    f"'{update.device_id}'"
+                )
+
+            interface = interfaces[0]
+            cable_reference = interface.get("cable") if isinstance(interface, Mapping) else None
+            if not isinstance(cable_reference, Mapping) or not cable_reference.get("id"):
+                raise DCIMNotFoundError(
+                    f"Interface '{update.interface_name}' on device '{update.device_id}' "
+                    "has no cable"
+                )
+
+            cable_id = str(cable_reference["id"])
+            cable = await self.get(f"dcim/cables/{cable_id}/", params={"depth": 1})
+            if not isinstance(cable, Mapping):
+                raise DCIMInvalidDataError("Nautobot returned invalid cable data")
+            current_status = cable.get("status")
+            current_status_name = (
+                current_status.get("name")
+                if isinstance(current_status, Mapping)
+                else current_status
+            )
+            if current_status_name == update.status.value:
+                return
+
+            await self.patch(
+                f"dcim/cables/{cable_id}/",
+                {"status": update.status.value},
+            )
+
+            note = (
+                f"Cable validation workflow {update.workflow_id} "
+                f"set status to {update.status.value}."
+            )
+            notes_response = await self.get(
+                "extras/notes/",
+                params={
+                    "assigned_object_type": "dcim.cable",
+                    "assigned_object_id": cable_id,
+                    "note": note,
+                },
+            )
+            notes = notes_response.get("results") if isinstance(notes_response, Mapping) else None
+            if not isinstance(notes, list):
+                raise DCIMInvalidDataError("Nautobot returned invalid cable note data")
+            if not notes:
+                await self.post(
+                    "extras/notes/",
+                    {
+                        "assigned_object_type": "dcim.cable",
+                        "assigned_object_id": cable_id,
+                        "note": note,
+                    },
+                )
+        except NautobotException as exc:
+            message = (
+                f"Unable to update cable status for interface '{update.interface_name}' "
+                f"on device '{update.device_id}'"
+            )
+            if exc.status_code == 404:
+                raise DCIMNotFoundError(message) from exc
+            if exc.status_code == 409:
+                raise DCIMConflictError(message) from exc
+            if exc.status_code == 400:
+                raise DCIMInvalidDataError(message) from exc
+            raise
+
     async def get_render_enabled_devices_matching(self, filters: Mapping[str, Any]) -> list[str]:
         """Resolve Nautobot-managed devices matching a provider event filter."""
         result = await self.graphql_query(_MANAGED_DEVICES_QUERY, dict(filters))
@@ -715,6 +936,38 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         result = await self.graphql_query(_VRF_AFFECTED_DEVICES_QUERY, {"id": vrf_id})
         devices = result.get("data", {}).get("vrf", {}).get("devices", [])
         return _render_enabled_ids(devices)
+
+    async def find_switches_by_vlan(self, vlan_id: str) -> list[str]:
+        """Find switches with a tagged or untagged interface on a VLAN."""
+        result = await self.graphql_query(_FIND_SWITCHES_BY_VLAN_QUERY, {"id": [vlan_id]})
+        device_ids: set[str] = set()
+        for vlan in result.get("data", {}).get("vlans", []):
+            for field in ("interfaces_as_tagged", "interfaces_as_untagged"):
+                for interface in vlan.get(field, []):
+                    device = interface.get("device") or {}
+                    device_id = device.get("id")
+                    if device_id:
+                        device_ids.add(device_id)
+        return sorted(device_ids)
+
+    async def get_relationship_source_record(
+        self, association: Mapping[str, Any]
+    ) -> tuple[str, Mapping[str, Any]] | None:
+        """Return a supported source record for a relationship association."""
+        source_type = association.get("source_type")
+        if not isinstance(source_type, str):
+            raise DCIMInvalidDataError(
+                "Nautobot relationship-association event is missing its source type"
+            )
+        source_path = _RELATIONSHIP_SOURCE_PATHS.get(source_type)
+        if source_path is None:
+            return None
+        source_id = association.get("source_id")
+        if not source_id:
+            raise DCIMInvalidDataError(
+                "Nautobot relationship-association event is missing its source id"
+            )
+        return source_type, await self.get(f"{source_path}/{source_id}/")
 
     async def get_render_enabled_devices_for_ip_address(self, ip_address_id: str) -> list[str]:
         """Resolve Nautobot-managed devices affected by an IP-address event."""
@@ -825,10 +1078,11 @@ class NautobotProvider:
         """Create the optional Nautobot MCP adapter with caller auth."""
         connection_config = _nautobot_connection_settings(settings)
         return NautobotDCIMClient(
-            nautobot_url=str(connection_config["server"]),
+            nautobot_url=connection_config["server"],
             token="",
             verify=connection_config["verify"],
-            public_url=str(connection_config["public_url"]) or None,
+            public_url=connection_config["public_url"] or None,
+            timeout=connection_config["timeout"],
             headers=headers,
         )
 

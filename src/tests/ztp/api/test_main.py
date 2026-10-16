@@ -57,6 +57,21 @@ def test_healthcheck_is_async():
     assert inspect.iscoroutinefunction(healthcheck)
 
 
+@pytest.mark.parametrize("exists", [True, False])
+def test_file_head_checks_metadata_without_downloading(client, exists):
+    storage = AsyncMock()
+    storage.__aenter__.return_value = storage
+    if not exists:
+        storage.get_object_metadata.side_effect = S3NotFoundException("missing")
+    with patch("nv_config_manager.ztp.api.files_v1.get_storage_client", return_value=storage):
+        response = client.head("/v1/files/platform/1.0/image.bin", headers=SSO_HEADERS)
+    assert response.status_code == (200 if exists else 404)
+    assert response.content == b""
+    storage.get_object_metadata.assert_awaited_once_with("platform", "1.0", "image.bin")
+    storage.get_object.assert_not_called()
+    storage.__aexit__.assert_awaited_once()
+
+
 def test_docs(client):
     """Verify Swagger Doc endpoint."""
     rsp = client.get("/docs")
@@ -109,6 +124,55 @@ def test_device_v1_bootscript(
     ):
         rsp = client.get(f"/v1/device/{uuid4()}/boot-script")
         assert rsp.status_code == 404
+
+
+@patch("nv_config_manager.ztp.api.device_v1.Request.client")
+def test_device_v1_anonymous_reads_dcim_once(mock_request_client, mock_device_data, client):
+    """The IP allowlist check and the handler share a single DCIM read."""
+    mock_request_client.host = "testclient"
+    mock_device_data["data"]["config_manager_device"]["device"]["interfaces"] = [
+        {"ip_addresses": [{"host": "testclient"}]}
+    ]
+
+    with patch(
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+        return_value=mock_device_data,
+    ) as mock_query:
+        with patch(
+            "nv_config_manager.ztp.device.DeviceData.load_file",
+            new_callable=AsyncMock,
+            return_value="boot-script content",
+        ):
+            rsp = client.get(f"/v1/device/{uuid4()}/boot-script")
+
+    assert rsp.status_code == 200
+    assert mock_query.call_count == 1
+
+
+@patch("nv_config_manager.ztp.api.device_v1.Request.client")
+def test_device_v1_anonymous_allowlist_does_not_mutate_device(
+    mock_request_client, mock_device_data, client
+):
+    """The loopback entry is added to a copy, not to the shared device data."""
+    mock_request_client.host = "testclient"
+    mock_device_data["data"]["config_manager_device"]["device"]["interfaces"] = [
+        {"ip_addresses": [{"host": "testclient"}]}
+    ]
+    seen = []
+
+    async def _capture(self, filename):
+        seen.append(list(self.addresses))
+        return "boot-script content"
+
+    with patch(
+        "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+        return_value=mock_device_data,
+    ):
+        with patch("nv_config_manager.ztp.device.DeviceData.load_file", _capture):
+            rsp = client.get(f"/v1/device/{uuid4()}/boot-script")
+
+    assert rsp.status_code == 200
+    assert seen == [["testclient"]]
 
 
 @patch("nv_config_manager.ztp.api.device_v1.Request.client")
@@ -417,8 +481,40 @@ def test_device_v1_provisioned_auth_disabled_bypasses_ip_check(
                     mock_temporal_client.invoke_backup_workflow.assert_called_once()
 
 
+@pytest.mark.parametrize(
+    ("expected_serial", "observed_serial", "status_code"),
+    [
+        ("MT2531J01M8G", "MT2531J01M8G", 200),
+        ("MT2531J01M8G", "mt2531j01m8g", 200),
+        ("MT2531J01M8G", "PART-MT2531J01M8G", 200),
+        ("PART-MT2531J01M8G", "MT2531J01M8G", 200),
+        ("MT2531J01M8G", "1M8G", 200),
+        ("1M8G", "MT2531J01M8G", 200),
+        ("1M8G", "1M8G", 200),
+        ("MT2531J01M8G", " MT2531J01M8G ", 200),
+        (" MT2531J01M8G ", "MT2531J01M8G", 200),
+        ("MT2531J01M8G", "", 400),
+        ("MT2531J01M8G", "G", 400),
+        ("MT2531J01M8G", "M8G", 400),
+        ("MT2531J01M8G", " M8G ", 400),
+        ("MT2531J01M8G", "       G", 400),
+        ("MT2531J01M8G", "        ", 400),
+        ("MT2531J01M8G", "INVALID_SERIAL_001", 400),
+        ("", "MT2531J01M8G", 400),
+        ("G", "MT2531J01M8G", 400),
+        ("M8G", "MT2531J01M8G", 400),
+        (" M8G ", "MT2531J01M8G", 400),
+        ("       G", "MT2531J01M8G", 400),
+        ("        ", "MT2531J01M8G", 400),
+        ("", "", 400),
+        ("G", "G", 400),
+        ("M8G", "M8G", 400),
+    ],
+)
 @patch("nv_config_manager.ztp.api.device_v1.Request.client")
-def test_device_v1_validate_serial(mock_request_client, mock_device_data, client):
+def test_device_v1_validate_serial(
+    mock_request_client, mock_device_data, client, expected_serial, observed_serial, status_code
+):
     mock_request_client.host = "testclient"
     mock_device_data["data"]["config_manager_device"]["device"]["interfaces"] = [
         {"ip_addresses": [{"host": "testclient"}]}
@@ -430,27 +526,26 @@ def test_device_v1_validate_serial(mock_request_client, mock_device_data, client
     ):
         with patch(
             "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.get_device_serial",
-            return_value="expected_serial",
+            return_value=expected_serial,
         ):
-            rsp = client.post(
-                f"/v1/device/{uuid4()}/validate_serial",
-                json={"serial": "expected_serial"},
-            )
-            assert rsp.status_code == 200
-
             device_uuid = str(uuid4())
             with patch("nv_config_manager.ztp.api.device_v1.logger") as mock_logger:
                 rsp = client.post(
                     f"/v1/device/{device_uuid}/validate_serial",
-                    json={"serial": "invalid_serial"},
+                    json={"serial": observed_serial},
                 )
-            assert rsp.status_code == 400
-            mock_logger.error.assert_called_once_with(
-                "Serial number mismatch observed on device %s, expected: %s, observed: %s.",
-                device_uuid,
-                "expected_serial",
-                "invalid_serial",
-            )
+            assert rsp.status_code == status_code
+            if status_code == 200:
+                assert rsp.json() == "OK"
+                mock_logger.error.assert_not_called()
+            else:
+                assert rsp.json()["detail"] == "Serial number does not match device in the DCIM."
+                mock_logger.error.assert_called_once_with(
+                    "Serial number mismatch observed on device %s, expected: %s, observed: %s.",
+                    device_uuid,
+                    expected_serial,
+                    observed_serial,
+                )
 
 
 def test_v1_firmware(client):
@@ -852,3 +947,30 @@ def test_v1_files_list_all(client):
         rsp = client.get("/v1/files/", headers=SSO_HEADERS)
         assert rsp.status_code == 200
         assert rsp.json() == expected_rsp_json
+
+
+@pytest.mark.parametrize(
+    ("auth_required", "headers"),
+    [(True, {}), (True, SSO_HEADERS), (False, {})],
+    ids=["anonymous", "sso", "auth-disabled"],
+)
+def test_device_v1_validate_serial_missing_device(client, auth_required, headers):
+    """Real serial lookup maps Nautobot's null device response to HTTP 404."""
+    device_id = "00000000-0000-0000-0000-000000000000"
+    with (
+        patch("nv_config_manager.common.auth._auth_config", AuthConfig(required=auth_required)),
+        patch(
+            "nv_config_manager_dcim_nautobot_2x.provider.NautobotDCIMClient.graphql_query",
+            new_callable=AsyncMock,
+            return_value={"data": {"device": None, "config_manager_device": None}},
+        ) as mock_query,
+    ):
+        rsp = client.post(
+            f"/v1/device/{device_id}/validate_serial",
+            json={"serial": "MT2531J01M8G"},
+            headers=headers,
+        )
+
+    assert rsp.status_code == 404
+    assert rsp.json() == {"detail": f"No DCIM device data found for {device_id}."}
+    mock_query.assert_awaited_once()

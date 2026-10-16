@@ -35,7 +35,7 @@ from nv_config_manager_workflows.registration.contract import (
     workflow_class_name,
     workflow_cli_name,
     workflow_declared_name,
-    workflow_has_complete_metadata,
+    workflow_form_enabled,
     workflow_has_definition,
     workflow_is_dynamic,
     workflow_mcp_enabled,
@@ -48,8 +48,20 @@ from nv_config_manager_workflows.registration.errors import (
     WorkflowConflictError,
     WorkflowRegistrationError,
     WorkflowRequiredActivityError,
+    WorkflowSchedulerAbstractError,
+    WorkflowSchedulerConstructorError,
+    WorkflowSchedulerDuplicateIdentityError,
+    WorkflowSchedulerIdentityError,
+    WorkflowSchedulerRunArgumentsError,
+    WorkflowSchedulerRunError,
+    WorkflowSchedulerRunNotAsyncError,
 )
 from nv_config_manager_workflows.registration.scheduler import WorkflowScheduler
+from nv_config_manager_workflows.scheduler_identity import (
+    BACKUP_SCHEDULE_PREFIX,
+    SCHEDULER_IDENTITY_PATTERN,
+    SCHEDULER_IDENTITY_SEGMENT_PATTERN,
+)
 from nv_config_manager_workflows.stage import StageMixin
 
 REQUIRED_WORKFLOW_BASES = (StageMixin, WorkflowMetadataMixin)
@@ -109,6 +121,24 @@ def validate_plugins(plugins: Mapping[str, WorkflowPluginDescriptor]) -> None:
     _require_declared_activities(workflows, activities)
 
 
+def validate_workflow_catalog(
+    workflows: Sequence[type],
+    *,
+    activities: Sequence[Callable[..., Any]] = (),
+) -> None:
+    """Validate an arbitrary workflow and activity catalog as one plugin.
+
+    The catalog is checked with the same rules as a plugin descriptor during a
+    registry build, so naming conflicts and missing required activities raise.
+    """
+    runtime_catalog = WorkflowPluginDescriptor(
+        name="runtime-catalog",
+        workflows=workflows,
+        activities=activities,
+    )
+    validate_plugins({runtime_catalog.name: runtime_catalog})
+
+
 def validate_workflow_bases(workflows: Sequence[type]) -> None:
     """Require every workflow in a concrete runtime catalog to use the shared bases."""
     for workflow in workflows:
@@ -125,7 +155,9 @@ def _require_valid_metadata(workflows: list[_OwnedWorkflow]) -> None:
         )
         _require_input_class(owned.item, label)
         _require_bool_api_flag(owned.item, label)
+        _require_bool_form_flag(owned.item, label)
         _require_bool_mcp_flag(owned.item, label)
+        _require_text(getattr(owned.item, "workflow_group", None), "workflow_group", label)
         _require_activity_names_wellformed(owned.item, label)
         _require_endpoint_wellformed(owned.item, label)
         _require_metadata_for_exposed_surfaces(owned.item, label)
@@ -172,17 +204,33 @@ def _require_named_activities(activities: list[_OwnedActivity]) -> None:
 
 
 def _require_scheduler_contracts(schedulers: list[_OwnedScheduler]) -> None:
-    """Require schedulers to expose an asynchronous no-argument runner."""
+    """Require stable identities and an asynchronous no-argument runner."""
+    identities: dict[str, _OwnedScheduler] = {}
     for owned in schedulers:
-        label = _label(owned, "Scheduler")
+        identity = _require_scheduler_identity(owned)
+        if previous := identities.get(identity):
+            raise WorkflowSchedulerDuplicateIdentityError(
+                f'Duplicate scheduler identity "{identity}" declared by '
+                f"{_label(previous, 'Scheduler')} and {_label(owned, 'Scheduler')}"
+            )
+        identities[identity] = owned
+        label = f'{_label(owned, "Scheduler")} with identity "{identity}"'
+
         if inspect.isabstract(owned.item):
-            raise WorkflowRegistrationError(f"{label} is abstract and cannot be constructed")
+            raise WorkflowSchedulerAbstractError(f"{label} is abstract and cannot be constructed")
+
+        try:
+            inspect.signature(owned.item).bind()
+        except (TypeError, ValueError):
+            raise WorkflowSchedulerConstructorError(
+                f"{label} cannot be constructed without arguments"
+            ) from None
 
         run = getattr(owned.item, "run", None)
         if run is None:
-            raise WorkflowRegistrationError(f"{label} does not declare run()")
+            raise WorkflowSchedulerRunError(f"{label} does not declare run()")
         if not inspect.iscoroutinefunction(run):
-            raise WorkflowRegistrationError(f"{label} declares run(), which is not async")
+            raise WorkflowSchedulerRunNotAsyncError(f"{label} declares run(), which is not async")
 
         run_descriptor = inspect.getattr_static(owned.item, "run")
         implicit_arguments = (
@@ -191,9 +239,51 @@ def _require_scheduler_contracts(schedulers: list[_OwnedScheduler]) -> None:
         try:
             inspect.signature(run).bind(*implicit_arguments)
         except (TypeError, ValueError):
-            raise WorkflowRegistrationError(
+            raise WorkflowSchedulerRunArgumentsError(
                 f"{label} declares run(), which cannot be called without arguments"
             ) from None
+
+
+def _require_scheduler_identity(owned: _OwnedScheduler) -> str:
+    """Return a scheduler's validated, class-level stable identity.
+
+    Identities are namespaced by the contributing plugin, as
+    ``<plugin-name>.<scheduler>``, so plugins cannot collide with each other or
+    claim the reserved ``builtin.`` namespace. Plugin names starting with
+    ``backup-`` are reserved too, because their schedule IDs would start like
+    built-in backup schedule IDs (``backup-<device-id>``).
+    """
+    identity = inspect.getattr_static(owned.item, "scheduler_identity", None)
+    label = _label(owned, "Scheduler")
+    if not isinstance(identity, str):
+        raise WorkflowSchedulerIdentityError(
+            f"{label} must declare scheduler_identity as a class-level string"
+        )
+    if SCHEDULER_IDENTITY_SEGMENT_PATTERN.fullmatch(owned.plugin) is None:
+        raise WorkflowSchedulerIdentityError(
+            f'{label} cannot be namespaced by plugin name "{owned.plugin}"; a plugin that '
+            "contributes schedulers must be named with lowercase letters, digits, underscores, "
+            "or hyphens, starting with a letter"
+        )
+    if owned.plugin.startswith(BACKUP_SCHEDULE_PREFIX):
+        raise WorkflowSchedulerIdentityError(
+            f'{label} cannot be namespaced by plugin name "{owned.plugin}"; the '
+            f'"{BACKUP_SCHEDULE_PREFIX}" prefix is reserved for built-in backup schedule IDs, '
+            "so a plugin that contributes schedulers must not start its name with it"
+        )
+    if SCHEDULER_IDENTITY_PATTERN.fullmatch(identity) is None:
+        raise WorkflowSchedulerIdentityError(
+            f"{label} declares scheduler_identity {identity!r}, which must have the form "
+            f'"{owned.plugin}.<name>": two or more dot-separated segments that each start with '
+            "a lowercase letter and contain only lowercase letters, digits, underscores, or "
+            "hyphens"
+        )
+    if not identity.startswith(f"{owned.plugin}."):
+        raise WorkflowSchedulerIdentityError(
+            f"{label} declares scheduler_identity {identity!r}, which must start with its "
+            f'plugin name: "{owned.plugin}.<name>"'
+        )
+    return identity
 
 
 def _dynamic_rejection[ItemT](owned: _Owned[ItemT], kind: str, decorator: str) -> str:
@@ -237,6 +327,15 @@ def _require_bool_api_flag(workflow: type[WorkflowMetadataMixin], label: str) ->
         )
 
 
+def _require_bool_form_flag(workflow: type[WorkflowMetadataMixin], label: str) -> None:
+    """Reject a browser-form opt-in that is not a bool."""
+    form_enabled = getattr(workflow, "workflow_form_enabled", False)
+    if not isinstance(form_enabled, bool):
+        raise WorkflowRegistrationError(
+            f"{label} declares workflow_form_enabled {form_enabled!r}, which is not a bool"
+        )
+
+
 def _require_bool_mcp_flag(workflow: type[WorkflowMetadataMixin], label: str) -> None:
     """Reject an MCP opt-in that is not a bool."""
     mcp_enabled = getattr(workflow, "workflow_mcp_enabled", False)
@@ -267,23 +366,27 @@ def _require_endpoint_wellformed(workflow: type[WorkflowMetadataMixin], label: s
 def _require_metadata_for_exposed_surfaces(
     workflow: type[WorkflowMetadataMixin], label: str
 ) -> None:
-    """Require the full metadata set from workflows the API or MCP exposes."""
+    """Require API exposure and full metadata for forms and MCP tools."""
 
     api_enabled = workflow_api_enabled(workflow)
+    form_enabled = workflow_form_enabled(workflow)
     mcp_enabled = workflow_mcp_enabled(workflow)
-    if not api_enabled and not mcp_enabled:
-        return
 
     if mcp_enabled and not api_enabled:
         raise WorkflowRegistrationError(f"{label} enables MCP but does not enable API")
-
-    if workflow_has_complete_metadata(workflow):
+    if form_enabled and not api_enabled:
+        raise WorkflowRegistrationError(f"{label} enables a form but does not enable API")
+    if not api_enabled:
         return
 
-    missing = ", ".join(missing_metadata_attributes(workflow)) or "required metadata"
+    missing = missing_metadata_attributes(workflow)
+    if not missing:
+        return
+
+    names = ", ".join(missing)
     if mcp_enabled:
-        raise WorkflowRegistrationError(f"{label} enables MCP but is missing {missing}")
-    raise WorkflowRegistrationError(f"{label} enables API but is missing {missing}")
+        raise WorkflowRegistrationError(f"{label} enables MCP but is missing {names}")
+    raise WorkflowRegistrationError(f"{label} enables API but is missing {names}")
 
 
 def _require_cli_name(workflow: type[WorkflowMetadataMixin], label: str) -> None:

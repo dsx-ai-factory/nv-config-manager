@@ -34,6 +34,8 @@ async def example_activity() -> None: ...
 
 
 class ExampleScheduler:
+    scheduler_identity = "example.scheduler"
+
     async def run(self) -> None: ...
 
 
@@ -109,10 +111,19 @@ class TestCatalogs:
                 {"name": "example", "activities": ["collect_facts"]}
             )
 
-    @pytest.mark.parametrize("scheduler", [ExampleScheduler(), MissingRunScheduler, object()])
-    def test_a_scheduler_must_be_a_class_with_run(self, scheduler: object) -> None:
+    @pytest.mark.parametrize("scheduler", [ExampleScheduler(), object()])
+    def test_a_scheduler_must_be_a_class(self, scheduler: object) -> None:
         with pytest.raises(ValidationError):
             WorkflowPluginDescriptor.model_validate({"name": "example", "schedulers": [scheduler]})
+
+    def test_lifecycle_validation_is_deferred_until_registry_build(self) -> None:
+        descriptor = WorkflowPluginDescriptor(
+            name="example",
+            # Deliberately invalid: lifecycle checks run at registry build, not here.
+            schedulers=[MissingRunScheduler],  # type: ignore[list-item]
+        )
+
+        assert descriptor.schedulers == (MissingRunScheduler,)
 
     def test_the_plugin_cannot_mutate_its_scheduler_catalog(self) -> None:
         declared = [ExampleScheduler]

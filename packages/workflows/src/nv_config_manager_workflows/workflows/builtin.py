@@ -1,0 +1,113 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Canonical catalog of built-in NVIDIA Config Manager workflows."""
+
+from nv_config_manager_workflows.workflows.backup import BackupWorkflow
+from nv_config_manager_workflows.workflows.bmc import RedfishProvisioningWorkflow
+from nv_config_manager_workflows.workflows.cable_validation import (
+    DeviceCableValidationWorkflow,
+    SiteCableValidationWorkflow,
+)
+from nv_config_manager_workflows.workflows.config_diff import ConfigDiffWorkflow
+from nv_config_manager_workflows.workflows.connected_host import ConnectedHostMetadataWorkflow
+from nv_config_manager_workflows.workflows.cumulus_hardware_validation import (
+    ValidateHardwareWorkflow,
+)
+from nv_config_manager_workflows.workflows.deploy import DeployWorkflow, TenantDeployWorkflow
+from nv_config_manager_workflows.workflows.device_password_rotation import (
+    DevicePasswordRotationWorkflow,
+)
+from nv_config_manager_workflows.workflows.diagnostics import DiagnosticsWorkflow
+from nv_config_manager_workflows.workflows.hello_world import HelloWorld, HelloWorldApproval
+from nv_config_manager_workflows.workflows.ib_pkey_creation import IBPKeyCreationWorkflow
+from nv_config_manager_workflows.workflows.ib_pkey_member_add import IBPKeyMemberAddWorkflow
+from nv_config_manager_workflows.workflows.ib_pkey_member_delete import (
+    IBPKeyMemberDeleteWorkflow,
+)
+from nv_config_manager_workflows.workflows.ib_pkey_member_update import (
+    IBPKeyMemberUpdateWorkflow,
+)
+from nv_config_manager_workflows.workflows.ib_port_guid_discovery import (
+    IBPortGuidDiscoveryWorkflow,
+)
+from nv_config_manager_workflows.workflows.infiniband_cable_validation import (
+    InfinibandCableValidationWorkflow,
+)
+from nv_config_manager_workflows.workflows.infiniband_get_unhealthy_ports import (
+    InfinibandGetUnhealthyPortsWorkflow,
+)
+from nv_config_manager_workflows.workflows.infiniband_mlnx_os_upgrade import (
+    InfinibandMlnxOSUpgradeWorkflow,
+)
+from nv_config_manager_workflows.workflows.lldp import PortLLDPInfoWorkflow
+from nv_config_manager_workflows.workflows.multi_deploy import (
+    BatchDeployWorkflow,
+    MultiDeployWorkflow,
+)
+from nv_config_manager_workflows.workflows.nvlinkswitch_firmware_upgrade import (
+    NVLinkSwitchFirmwareUpgradeWorkflow,
+)
+from nv_config_manager_workflows.workflows.os_upgrade import SwitchOSUpgradeWorkflow
+from nv_config_manager_workflows.workflows.reprovision import ReprovisionWorkflow
+from nv_config_manager_workflows.workflows.site_backup import SiteBackupWorkflow
+from nv_config_manager_workflows.workflows.site_password_rotation import (
+    SitePasswordRotationWorkflow,
+)
+from nv_config_manager_workflows.workflows.spx_overlay import (
+    SpXOverlayAssignmentWorkflow,
+    SpXOverlayCreationWorkflow,
+    SpXOverlayDeletionWorkflow,
+    SpXOverlayTenantChangeWorkflow,
+)
+
+BUILTIN_WORKFLOWS = (
+    # keep-sorted start
+    BackupWorkflow,
+    BatchDeployWorkflow,
+    ConfigDiffWorkflow,
+    ConnectedHostMetadataWorkflow,
+    DeployWorkflow,
+    DeviceCableValidationWorkflow,
+    DevicePasswordRotationWorkflow,
+    DiagnosticsWorkflow,
+    HelloWorld,
+    HelloWorldApproval,
+    IBPKeyCreationWorkflow,
+    IBPKeyMemberAddWorkflow,
+    IBPKeyMemberDeleteWorkflow,
+    IBPKeyMemberUpdateWorkflow,
+    IBPortGuidDiscoveryWorkflow,
+    InfinibandCableValidationWorkflow,
+    InfinibandGetUnhealthyPortsWorkflow,
+    InfinibandMlnxOSUpgradeWorkflow,
+    MultiDeployWorkflow,
+    NVLinkSwitchFirmwareUpgradeWorkflow,
+    PortLLDPInfoWorkflow,
+    RedfishProvisioningWorkflow,
+    ReprovisionWorkflow,
+    SiteBackupWorkflow,
+    SiteCableValidationWorkflow,
+    SitePasswordRotationWorkflow,
+    SpXOverlayAssignmentWorkflow,
+    SpXOverlayCreationWorkflow,
+    SpXOverlayDeletionWorkflow,
+    SpXOverlayTenantChangeWorkflow,
+    SwitchOSUpgradeWorkflow,
+    TenantDeployWorkflow,
+    ValidateHardwareWorkflow,
+    # keep-sorted end
+)
+
+__all__ = ["BUILTIN_WORKFLOWS"]

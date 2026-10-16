@@ -1,0 +1,180 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""A plugin discovered through its entry point appears consistently in every registry consumer."""
+
+import sys
+
+import click
+import pytest
+from fastapi import APIRouter
+from nvcm_fixture_plugin.schedulers import FixtureHeartbeatScheduler
+from nvcm_fixture_plugin.workflows import FixtureApiOnlyWorkflow, FixtureEchoWorkflow, FixtureInput
+
+from nv_config_manager.mcp.workflows import discover_mcp_workflows
+from nv_config_manager.temporal import cli as temporal_cli
+from nv_config_manager.temporal.api.dynamic_endpoints import register_dynamic_endpoints
+from nv_config_manager.temporal.worker import main as worker_main
+from nv_config_manager.temporal.workflow_registry import build_workflow_registry
+from nv_config_manager_workflows.registration import (
+    PluginInfo,
+    WorkflowRegistry,
+    registry_manifest,
+)
+from nv_config_manager_workflows.registration.contract import activity_name
+from nv_config_manager_workflows.registration.descriptor import UNKNOWN_PLUGIN_VERSION
+from nv_config_manager_workflows.registration.form_catalog import WorkflowFormCatalog
+from nv_config_manager_workflows.registration.form_validation import validate_plugin_forms
+
+FIXTURE_PLUGIN = "nvcm-fixture"
+FIXTURE_WORKFLOWS = (FixtureEchoWorkflow, FixtureApiOnlyWorkflow)
+
+
+@pytest.fixture
+def registry(fixture_plugin_installed: None) -> WorkflowRegistry:
+    """Build the service registry from the installed and fixture plugin entry points."""
+    return build_workflow_registry()
+
+
+def test_worker_registers_the_plugin_workflows_and_activity(
+    registry: WorkflowRegistry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("NVCM_ENABLE_LOCAL_TEST_WORKFLOWS", raising=False)
+
+    workflows = worker_main._registered_workflows(registry)
+
+    assert [workflows.count(workflow) for workflow in FIXTURE_WORKFLOWS] == [1, 1]
+    activity_names = [activity_name(activity) for activity in registry.all_activities]
+    assert activity_names.count("nvcm_fixture_echo") == 1
+
+
+def test_execution_and_candidate_form_catalogs_do_not_import_provider_code(
+    fixture_plugin_installed: None,
+) -> None:
+    sys.modules.pop("nvcm_fixture_plugin.form_options", None)
+
+    registry = build_workflow_registry()
+    WorkflowFormCatalog.build(registry)
+
+    assert "nvcm_fixture_plugin.form_options" not in sys.modules
+
+
+def test_api_routes_include_the_plugin_workflows_once(registry: WorkflowRegistry) -> None:
+    router = APIRouter(prefix="/workflow")
+
+    register_dynamic_endpoints(router, workflows=registry.api_workflows)
+
+    route_paths = [route.path for route in router.routes]
+    assert route_paths.count("/workflow/fixture/echo") == 1
+    assert route_paths.count("/workflow/fixture/api-only") == 1
+
+
+def test_cli_registers_the_plugin_workflow_commands(registry: WorkflowRegistry) -> None:
+    discovery = temporal_cli.WorkflowDiscovery(registry.api_workflows)
+    group = click.Group()
+
+    temporal_cli.register_workflow_commands(group, discovery.workflows)
+
+    assert {
+        name: (discovery.workflows[name].workflow_class, discovery.workflows[name].namespace)
+        for name in ("fixture-echo", "fixture-api-only")
+    } == {
+        "fixture-echo": (FixtureEchoWorkflow, "fixture"),
+        "fixture-api-only": (FixtureApiOnlyWorkflow, "fixture"),
+    }
+    assert {"fixture-echo", "fixture-api-only"} <= set(group.commands)
+
+
+def test_mcp_exposes_only_the_mcp_enabled_plugin_workflow(registry: WorkflowRegistry) -> None:
+    tools = discover_mcp_workflows(registry.mcp_workflows)
+
+    plugin_tools = [
+        (tool.tool_name, tool.endpoint)
+        for tool in tools
+        if tool.workflow_name in {workflow.__name__ for workflow in FIXTURE_WORKFLOWS}
+    ]
+    assert plugin_tools == [("run_echo", "/fixture/echo")]
+
+
+def test_the_plugin_form_is_validated_as_a_third_party_form(registry: WorkflowRegistry) -> None:
+    assert [registry.owner(workflow) for workflow in FIXTURE_WORKFLOWS] == [FIXTURE_PLUGIN] * 2
+    form_catalog = WorkflowFormCatalog.build(registry)
+    assert not set(FIXTURE_WORKFLOWS) & set(form_catalog.diagnostics)
+
+    form = form_catalog.forms[FixtureEchoWorkflow]
+
+    assert form["requires"] == [
+        "core-field.api-options.enriched.v1",
+        "core-field.api-options.v1",
+    ]
+    assert form["ui_schema"]["message"]["ui:field"] == "apiOptions"
+    assert form["ui_schema"]["message"]["ui:options"]["source"] == {
+        "endpoint": "/v1/workflow/fixture-echo/form-options/fixture-messages",
+        "label_key": "label",
+        "value_key": "value",
+        "params": {"prefix": "fixture"},
+        "response": "options-v1",
+    }
+    assert form["schema"]["properties"]["message"]["maxLength"] == 100
+    assert "maxLength" not in FixtureInput.model_json_schema()["properties"]["message"]
+    assert [
+        (provider.workflow, provider.source, provider.endpoint)
+        for provider in form_catalog.providers
+        if provider.plugin == FIXTURE_PLUGIN
+    ] == [
+        (
+            FixtureEchoWorkflow,
+            "fixture-messages",
+            "/v1/workflow/fixture-echo/form-options/fixture-messages",
+        ),
+        (
+            FixtureApiOnlyWorkflow,
+            "fixture-messages",
+            "/v1/workflow/fixture-api-only/form-options/fixture-messages",
+        ),
+    ]
+
+
+def test_plugin_forms_and_provider_targets_validate_offline(
+    fixture_plugin_installed: None,
+) -> None:
+    report = validate_plugin_forms(FIXTURE_PLUGIN)
+
+    assert report.plugin == FIXTURE_PLUGIN
+    assert report.workflow_count == 2
+    assert report.form_count == 2
+    assert report.provider_count == 2
+    assert report.warnings == ()
+
+
+def test_scheduler_registration_keeps_plugin_provenance(registry: WorkflowRegistry) -> None:
+    assert [
+        (registration.plugin, registration.identity, registration.scheduler)
+        for registration in registry.scheduler_registrations
+        if registration.plugin == FIXTURE_PLUGIN
+    ] == [(FIXTURE_PLUGIN, "nvcm-fixture.heartbeat", FixtureHeartbeatScheduler)]
+
+
+def test_manifest_lists_the_plugin(registry: WorkflowRegistry) -> None:
+    assert (
+        PluginInfo(
+            FIXTURE_PLUGIN,
+            UNKNOWN_PLUGIN_VERSION,
+            workflow_count=2,
+            activity_count=1,
+            scheduler_count=1,
+        )
+        in registry_manifest(registry).plugins
+    )

@@ -1,0 +1,54 @@
+{
+  "workflow": "IBPKeyCreationWorkflow",
+  "input_model": "IBPKeyCreationInput",
+  "scenarios": [
+    {
+      "name": "manual host only",
+      "legacy_url": "/workflows/ibpkeycreationworkflow/form",
+      "new_url": "/workflows/new/ib-pkey-creation",
+      "legacy_payload": {
+        "host": "ufm-1.lab"
+      },
+      "generic_payload": {
+        "host": "ufm-1.lab"
+      }
+    },
+    {
+      "name": "manual host and pkey, with surrounding spaces",
+      "legacy_url": "/workflows/ibpkeycreationworkflow/form",
+      "new_url": "/workflows/new/ib-pkey-creation",
+      "legacy_payload": {
+        "host": "ufm-1.lab",
+        "pkey": "0x8001"
+      },
+      "generic_payload": {
+        "host": "ufm-1.lab",
+        "pkey": "0x8001"
+      }
+    },
+    {
+      "name": "blank pkey is omitted",
+      "legacy_url": "/workflows/ibpkeycreationworkflow/form",
+      "new_url": "/workflows/new/ib-pkey-creation",
+      "legacy_payload": {
+        "host": "ufm-1.lab"
+      },
+      "generic_payload": {
+        "host": "ufm-1.lab"
+      }
+    },
+    {
+      "name": "prefill from URL",
+      "legacy_url": "/workflows/ibpkeycreationworkflow/form?host=ufm.example.com&pkey=0x0100",
+      "new_url": "/workflows/new/ib-pkey-creation?host=ufm.example.com&pkey=0x0100",
+      "legacy_payload": {
+        "host": "ufm.example.com",
+        "pkey": "0x0100"
+      },
+      "generic_payload": {
+        "host": "ufm.example.com",
+        "pkey": "0x0100"
+      }
+    }
+  ]
+}

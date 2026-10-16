@@ -26,6 +26,7 @@ For all security-related concerns, please visit NVIDIA's Product Security portal
 
 | Version | Supported |
 |---------|-----------|
+| 1.3.x   | Yes       |
 | 1.2.x   | Yes       |
 | < 1.2   | No        |
 
@@ -57,6 +58,13 @@ The primary trust boundary is the cluster network.
   verification is intentionally disabled for device management connections.
   Bootstrapping valid certificates onto network hardware is a future ZTP
   roadmap item.
+- **Sensitive Cumulus ZTP downloads default to SFTP.** The built-in Cumulus
+  boot script retrieves rendered `startup.yaml` through the
+  source-IP-authorized SFTP service and stages it mode `0600`. HTTP and HTTPS
+  configuration endpoints remain available for compatibility, but the default
+  template does not retrieve plaintext configuration secrets over HTTP. The
+  HTTP bootstrap script contains the salted `sha512-crypt` verifier for its
+  temporary breakglass account, not the plaintext breakglass password.
 
 ### Authentication Layers
 

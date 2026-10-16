@@ -29,6 +29,8 @@ type ValidateHardwareInput struct {
 	Roles []string `json:"roles,omitempty"`
 	// Site used to select network devices for validation.
 	Site string `json:"site"`
+	// DCIM location type for the site identifier.
+	SiteType NullableString `json:"site_type,omitempty"`
 	// Device statuses used to filter the selected network devices.
 	Status []string `json:"status,omitempty"`
 	// Tenant used to filter the selected network devices.
@@ -182,6 +184,51 @@ func (o *ValidateHardwareInput) SetSite(v string) {
 	o.Site = v
 }
 
+// GetSiteType returns the SiteType field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *ValidateHardwareInput) GetSiteType() string {
+	if o == nil || IsNil(o.SiteType.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.SiteType.Get()
+}
+
+// GetSiteTypeOk returns a tuple with the SiteType field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+
+func (o *ValidateHardwareInput) GetSiteTypeOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.SiteType.Get(), o.SiteType.IsSet()
+}
+
+// HasSiteType returns a boolean if a field has been set.
+func (o *ValidateHardwareInput) HasSiteType() bool {
+	if o != nil && o.SiteType.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetSiteType gets a reference to the given NullableString and assigns it to the SiteType field.
+func (o *ValidateHardwareInput) SetSiteType(v string) {
+	o.SiteType.Set(&v)
+}
+
+// SetSiteTypeNil sets the value for SiteType to be an explicit nil
+func (o *ValidateHardwareInput) SetSiteTypeNil() {
+	o.SiteType.Set(nil)
+}
+
+// UnsetSiteType ensures that no value is present for SiteType, not even an explicit nil
+func (o *ValidateHardwareInput) UnsetSiteType() {
+	o.SiteType.Unset()
+}
+
 // GetStatus returns the Status field value if set, zero value otherwise.
 func (o *ValidateHardwareInput) GetStatus() []string {
 	if o == nil || IsNil(o.Status) {
@@ -280,6 +327,9 @@ func (o ValidateHardwareInput) ToMap() (map[string]interface{}, error) {
 		toSerialize["roles"] = o.Roles
 	}
 	toSerialize["site"] = o.Site
+	if o.SiteType.IsSet() {
+		toSerialize["site_type"] = o.SiteType.Get()
+	}
 	if !IsNil(o.Status) {
 		toSerialize["status"] = o.Status
 	}

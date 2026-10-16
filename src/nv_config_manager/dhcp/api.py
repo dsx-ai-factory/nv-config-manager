@@ -35,7 +35,7 @@ from prometheus_fastapi_instrumentator import metrics as instrumentator_metrics
 from pydantic import IPvAnyAddress, IPvAnyNetwork
 
 from nv_config_manager.common.auth import install_identity_probe
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.common.telemetry import (
     group_fastapi_status_codes,
@@ -143,7 +143,7 @@ async def _fetch_summary_sources(
     """Fetch summary sources and drain every task before returning or raising."""
     config, statistics = await _gather_requests(
         client.get_config(ip_version),
-        client.get_statistics(ip_version),
+        client.get_lease_statistics(ip_version),
     )
     return config, statistics
 

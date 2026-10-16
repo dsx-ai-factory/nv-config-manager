@@ -226,8 +226,8 @@ query ($id: ID!, $id_str: String) {
           ...ip_data
         }
         device {
+          id
           name
-          config_context
           tenant {
             name
           }
@@ -255,7 +255,6 @@ query ($id: ID!, $id_str: String) {
             parent_device {
               id
               name
-              config_context
               tenant {
                 name
               }

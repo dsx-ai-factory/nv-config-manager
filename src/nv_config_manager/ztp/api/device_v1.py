@@ -32,6 +32,8 @@ logger = get_logger(__name__, category=LogCategory.ZTP_API)
 
 router = APIRouter(prefix="/device", tags=["device"], responses={404: {"description": "Not found"}})
 
+MIN_SERIAL_LENGTH = 4
+
 
 async def _get_device_data(device_uuid: str) -> DeviceData:
     """Load ZTP device data through the selected DCIM provider."""
@@ -39,26 +41,31 @@ async def _get_device_data(device_uuid: str) -> DeviceData:
         return DeviceData.from_dcim(await client.get_ztp_device(device_uuid))
 
 
-async def _authorize_request(request: Request, device_uuid: str) -> None:
+async def _authorize_request(request: Request, device_uuid: str) -> DeviceData | None:
+    """Authorize the request, returning the device data if the IP check loaded it.
+
+    Only the anonymous path needs to read the device, so the other paths return
+    ``None`` and leave the fetch to whoever actually needs the data.
+    """
     # This endpoint has sensitive content, check if coming from the
     # device associated with this configuration
 
     if not auth_required():
-        return
+        return None
 
     identity = await require_sso_or_device(request)
     if identity is not None and identity.source != "anonymous":
         # Request came in through SSO, mTLS, SPIFFE, or JWT/OIDC — the
         # shared auth layer has validated it, so no further IP check needed.
-        return
+        return None
 
     try:
         device_data = await _get_device_data(device_uuid)
     except DCIMNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    allowed_addresses = device_data.addresses
-    allowed_addresses.append("127.0.0.1")
+    # Copy rather than append: the caller reuses this device data.
+    allowed_addresses = [*device_data.addresses, "127.0.0.1"]
 
     if request.client is None:
         raise HTTPException(status_code=403, detail="Unable to determine client IP address.")
@@ -80,6 +87,16 @@ async def _authorize_request(request: Request, device_uuid: str) -> None:
             ),
         )
 
+    return device_data
+
+
+async def _authorized_device_data(request: Request, device_uuid: str) -> DeviceData:
+    """Authorize the request and return its device data, reading the DCIM once."""
+    device_data = await _authorize_request(request, device_uuid)
+    if device_data is None:
+        device_data = await _get_device_data(device_uuid)
+    return device_data
+
 
 @router.get("/{device_uuid}/boot-script", response_class=PlainTextResponse)
 async def load_bootscript(device_uuid: str, request: Request) -> PlainTextResponse:
@@ -92,9 +109,8 @@ async def load_configuration(
     device_uuid: str, configlet: str, request: Request
 ) -> PlainTextResponse:
     """Load the specified configuration file for the given DCIM device ID."""
-    await _authorize_request(request, device_uuid)
     try:
-        device_data = await _get_device_data(device_uuid)
+        device_data = await _authorized_device_data(request, device_uuid)
         content = await device_data.load_file(configlet)
         return PlainTextResponse(content)
     except (DCIMNotFoundError, ConfigStoreFileNotFound) as exc:
@@ -111,9 +127,8 @@ async def load_configuration(
 @router.get("/{device_uuid}/firmware", response_class=StreamingResponse)
 async def load_firmware(device_uuid: str, request: Request) -> StreamingResponse:
     """Load the firmware for the given device."""
-    await _authorize_request(request, device_uuid)
     try:
-        device_data = await _get_device_data(device_uuid)
+        device_data = await _authorized_device_data(request, device_uuid)
         if device_data.platform is None or device_data.version is None:
             raise HTTPException(status_code=404, detail="Device firware data not found")
     except DCIMNotFoundError as exc:
@@ -135,9 +150,8 @@ async def load_firmware(device_uuid: str, request: Request) -> StreamingResponse
 @router.get("/{device_uuid}/firmware/checksum")
 async def load_firmware_checksum(device_uuid: str, request: Request) -> ChecksumResponse:
     """Load the firmware checksum for the given device."""
-    await _authorize_request(request, device_uuid)
     try:
-        device_data = await _get_device_data(device_uuid)
+        device_data = await _authorized_device_data(request, device_uuid)
         if device_data.platform is None or device_data.version is None:
             raise HTTPException(status_code=404, detail="Device firware data not found")
     except DCIMNotFoundError as exc:
@@ -177,15 +191,21 @@ class ValidateSerialBody(BaseModel):
 
 
 def _compare_serials(expected: str, observed: str) -> bool:
+    expected = expected.strip().lower()
+    observed = observed.strip().lower()
+    # Require enough identifying characters on both sides of a suffix match.
+    if len(expected) < MIN_SERIAL_LENGTH or len(observed) < MIN_SERIAL_LENGTH:
+        return False
+
     # Some devices may report part number and serial in the CID field
     # in the DHCP request in which case we'll have to update nautobot
     # with the extended serial data for DHCP to work
     # We've also seen some devices that may be reporting the serial
     # as the part number + serial within the OS but not in the CID field
     # so we'll allow comparisons both directions to avoid conflicts
-    if observed.lower().endswith(expected.lower()):
+    if observed.endswith(expected):
         return True
-    if expected.lower().endswith(observed.lower()):
+    if expected.endswith(observed):
         return True
     return False
 

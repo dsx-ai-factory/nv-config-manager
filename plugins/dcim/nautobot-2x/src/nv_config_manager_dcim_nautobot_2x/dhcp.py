@@ -47,6 +47,29 @@ def _get_gateway_ip(
     return str(prefix.network_address + 1)
 
 
+def _join_prefix_gateways(
+    prefixes: list[dict[str, Any]], gateway_entries: list[dict[str, Any]]
+) -> None:
+    """Join separately queried gateway relationships into prefix entries."""
+    gateways: dict[str, dict[str, Any] | None] = {}
+    for entry in gateway_entries:
+        prefix_id = entry.get("id")
+        if not isinstance(prefix_id, str):
+            raise DHCPDataError("Nautobot returned a gateway without a valid prefix ID")
+        if prefix_id in gateways:
+            raise DHCPDataError(f"Nautobot returned duplicate gateway data for prefix {prefix_id}")
+        gateways[prefix_id] = entry.get("rel_prefix_to_gateway")
+
+    requested_ids = {entry["id"] for entry in prefixes}
+    if set(gateways) != requested_ids:
+        raise DHCPDataError(
+            "Nautobot returned gateway data for "
+            f"{len(gateways)} of {len(requested_ids)} DHCP prefixes"
+        )
+    for prefix_entry in prefixes:
+        prefix_entry["rel_prefix_to_gateway"] = gateways[prefix_entry["id"]]
+
+
 def _build_interface_entry(iface: dict[str, Any]) -> dict[str, Any]:
     """Build common option-candidate or reservation fields."""
     return {
@@ -197,14 +220,37 @@ class NautobotDHCPOperations:
         self, is_aggregate_managed: bool | None = None
     ) -> dict[str, dict[str, object]]:
         """Compatibility hook returning DHCP contexts from Nautobot GraphQL."""
-        response = await self.graphql_query(
-            load_graphql_query("provider/dhcp.graphql", "dhcp_contexts"),
+        device_response = await self.graphql_query(
+            load_graphql_query("provider/dhcp.graphql", "dhcp_context_device_ids"),
             {"is_aggregate_managed": is_aggregate_managed},
         )
-        return {
-            entry["device"]["id"]: entry["device"]["config_context"]
-            for entry in response["data"]["config_manager_devices"]
-        }
+        entries = device_response["data"].get("config_manager_devices", [])
+        device_ids = [entry["device"]["id"] for entry in entries if entry.get("device")]
+        requested_ids = set(device_ids)
+        if len(requested_ids) != len(device_ids):
+            raise DHCPDataError("Nautobot returned duplicate DHCP context device IDs")
+        if not device_ids:
+            return {}
+
+        context_response = await self.graphql_query(
+            load_graphql_query("provider/dhcp.graphql", "dhcp_device_contexts"),
+            {"ids": device_ids},
+        )
+        devices = context_response["data"].get("devices", [])
+        contexts: dict[str, dict[str, object]] = {}
+        for device in devices:
+            device_id = device.get("id")
+            context = device.get("config_context")
+            if not isinstance(device_id, str) or not isinstance(context, dict):
+                raise DHCPDataError("Nautobot returned invalid DHCP device context data")
+            contexts[device_id] = context
+
+        if set(contexts) != requested_ids:
+            raise DHCPDataError(
+                "Nautobot returned DHCP contexts for "
+                f"{len(contexts)} of {len(requested_ids)} eligible devices"
+            )
+        return contexts
 
     async def load_static_data(self) -> list[dict[str, object]]:
         """Compatibility hook returning static DHCP contexts."""
@@ -223,12 +269,18 @@ class NautobotDHCPOperations:
         prefixes = response["data"].get("prefixes", [])
         if not prefixes:
             return []
+        family_prefixes = [entry for entry in prefixes if entry["ip_version"] == family]
+        if not family_prefixes:
+            return []
+        gateway_response = await self.graphql_query(
+            load_graphql_query("provider/dhcp.graphql", "dhcp_subnet_gateways"),
+            {"ids": [entry["id"] for entry in family_prefixes]},
+        )
+        _join_prefix_gateways(family_prefixes, gateway_response["data"].get("prefixes", []))
         all_pool_ips = response["data"].get("pool_ips", [])
         all_reserved_ips = response["data"].get("reserved_ips", [])
         subnets: list[dict[str, object]] = []
-        for prefix_entry in prefixes:
-            if prefix_entry["ip_version"] != family:
-                continue
+        for prefix_entry in family_prefixes:
             prefix = ipaddress.ip_network(prefix_entry["prefix"])
             gateway_ip = _get_gateway_ip(prefix_entry, prefix)
             pool_ips, option_candidates = _get_pool_ips_and_candidates(
