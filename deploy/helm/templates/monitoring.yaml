@@ -206,9 +206,8 @@
   monitoring endpoint. Set monitoring.probes.nats.target when the exporter
   cannot resolve cluster-local service names.
 */}}
-{{- $natsBundled := or .Values.nautobotNats.enabled .Values.externalServices.nats.local }}
 {{- $natsProbe := .Values.monitoring.probes.nats | default dict }}
-{{- if and .Values.monitoring.probes .Values.monitoring.probes.enabled .Values.monitoring.probes.blackboxExporterUrl $natsBundled ($natsProbe.enabled | default false) }}
+{{- if include "nv-config-manager.natsProbeEnabled" . }}
 {{ include "nv-config-manager.blackboxProbe" (dict
     "root" .
     "name" $natsName

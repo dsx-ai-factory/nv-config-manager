@@ -3087,7 +3087,9 @@ monitoring:
     jobNamePrefix: ""
     # Bundled NATS (nautobotNats.enabled or externalServices.nats.local) has
     # no gateway route, so its probe targets the in-cluster monitoring
-    # endpoint (`http://<release>-nats.<namespace>.svc:8222/healthz`).
+    # endpoint (`http://<release>-nats.<namespace>.svc:8222/healthz`). The
+    # namespace-isolation NetworkPolicy opens 8222 only to
+    # monitoring.prometheus.namespace, where the exporter must run.
     nats:
       enabled: true
       # Override when the blackbox exporter runs outside the cluster and

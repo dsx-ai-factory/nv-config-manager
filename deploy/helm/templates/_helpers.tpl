@@ -1795,6 +1795,20 @@ labels:
 {{- end -}}
 
 {{/*
+Yields "true" when the bundled NATS blackbox Probe is rendered. The
+namespace-isolation NetworkPolicy uses the same condition to open the NATS
+monitoring port to the exporter.
+*/}}
+{{- define "nv-config-manager.natsProbeEnabled" -}}
+{{- $probes := .Values.monitoring.probes | default dict -}}
+{{- $nats := $probes.nats | default dict -}}
+{{- $bundled := or .Values.nautobotNats.enabled .Values.externalServices.nats.local -}}
+{{- if and .Values.monitoring.enabled $probes.enabled $probes.blackboxExporterUrl $bundled ($nats.enabled | default false) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
 Blackbox Probe CR for a single target URL.
 
 The job label is `<monitoring.probes.jobNamePrefix><name>-probe`, so site
