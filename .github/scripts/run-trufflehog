@@ -12,7 +12,7 @@ readonly filtered_file="${results_dir}/filtered.jsonl"
 readonly allowlist_file=".github/trufflehog-allowlist.json"
 trap 'rm -rf -- "${results_dir}"' EXIT
 
-scan_args=(git file:///repo/ --json --no-update --results=verified,unknown)
+scan_args=(git file:///repo/ --json --no-update --fail-on-scan-errors --results=verified,unknown)
 if [[ -n "${SCAN_BASE:-}" ]]; then
   scan_args+=(--since-commit "${SCAN_BASE}")
 fi
