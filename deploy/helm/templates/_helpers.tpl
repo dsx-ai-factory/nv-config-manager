@@ -144,6 +144,25 @@ strategy:
 {{- end }}
 {{- end }}
 
+{{/*
+preStop drain delay for a container that serves traffic through the gateway or
+a LoadBalancer Service. Deleting a pod marks its endpoints terminating and sends
+SIGTERM at the same moment, so without a delay the container can stop listening
+before the gateway and load balancers have stopped routing to it. Every
+container on the request path needs it, not only the one a probe targets: a
+dependency that exits first fails the requests still arriving.
+Rendered only from Kubernetes 1.30, where the native sleep action is on by
+default; older API servers drop the field without an error.
+Indents itself so that nothing at all is rendered when disabled.
+Usage: {{- include "nv-config-manager.preStopDrain" (dict "root" . "indent" 8) }}
+*/}}
+{{- define "nv-config-manager.preStopDrain" -}}
+{{- $seconds := .root.Values.global.preStopSleepSeconds | default 0 | int -}}
+{{- if and (gt $seconds 0) (semverCompare ">=1.30.0-0" .root.Capabilities.KubeVersion.Version) -}}
+{{- printf "lifecycle:\n  preStop:\n    sleep:\n      seconds: %d" $seconds | nindent (int .indent) -}}
+{{- end -}}
+{{- end -}}
+
 {{/* HTTPRoute parent reference for chart-managed or shared Gateways. */}}
 {{- define "nv-config-manager.gatewayParentRef" -}}
 - name: {{ .Values.gateway.name }}

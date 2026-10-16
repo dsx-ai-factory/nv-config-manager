@@ -18,6 +18,13 @@
     {{- fail (printf "externalServices.redis.nautobotCacheDb (%d) must differ from externalServices.redis.db and lockDb: nautobot-server post_upgrade flushes the Nautobot cache database" $cacheDb) -}}
   {{- end -}}
 {{- end -}}
+{{- $preStopSleep := .Values.global.preStopSleepSeconds | default 0 -}}
+{{- if not (regexMatch "^(0|[1-9][0-9]*)$" (toString $preStopSleep)) -}}
+  {{- fail (printf "global.preStopSleepSeconds must be a non-negative whole number of seconds, got %q" (toString $preStopSleep)) -}}
+{{- end -}}
+{{- if gt (int $preStopSleep) 20 -}}
+  {{- fail (printf "global.preStopSleepSeconds (%d) must be at most 20: it counts against the 30s termination grace period, and the application needs the rest to shut down" (int $preStopSleep)) -}}
+{{- end -}}
 {{- if not (has $gatewayType (list "envoyGateway" "kgateway")) -}}
   {{- fail (printf "ingress.type must be one of envoyGateway or kgateway, got %q" $gatewayType) -}}
 {{- end -}}

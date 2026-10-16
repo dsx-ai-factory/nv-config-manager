@@ -116,6 +116,19 @@ global:
   # Default image pull policy for infrastructure images (redis, nats, busybox)
   # Set to "Always" for local development to pick up newer images
   imagePullPolicy: IfNotPresent
+  # Seconds a traffic-serving container keeps running after its pod is deleted,
+  # before it receives SIGTERM. Kubernetes stops routing to a terminating pod and
+  # signals it at the same time, and the gateway and load balancers learn of the
+  # change a moment later. Without the delay, requests in that gap meet a closed
+  # listener or a dependency that has already exited, such as Kea behind the
+  # DHCP API. The gateway retry only recovers the refused connections; the delay
+  # avoids both. Applied to the gateway- and LoadBalancer-facing containers only,
+  # and only on Kubernetes 1.30 or later. 0 disables it.
+  #
+  # Must stay below the 30s termination grace period, with room left for the
+  # application's own shutdown. Raise it if a LoadBalancer takes longer than
+  # this to stop sending new connections to a deregistering pod.
+  preStopSleepSeconds: 10
   # ---------------------------------------------------------------------------
   # Container Images
   # ---------------------------------------------------------------------------

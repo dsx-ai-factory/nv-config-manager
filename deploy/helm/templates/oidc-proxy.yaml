@@ -144,6 +144,7 @@ spec:
       - name: {{ $proxy.name }}
         image: "{{ $.Values.oidc.proxy.image.repository }}:{{ $.Values.oidc.proxy.image.tag }}"
         imagePullPolicy: {{ $.Values.oidc.proxy.image.pullPolicy | default "IfNotPresent" }}
+        {{- include "nv-config-manager.preStopDrain" (dict "root" $ "indent" 8) }}
         args:
         - --config=/etc/oauth2-proxy/{{ $proxy.name }}.cfg
         env:

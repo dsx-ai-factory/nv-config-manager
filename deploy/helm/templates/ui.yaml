@@ -46,6 +46,7 @@ spec:
       - name: ui
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManagerUi) }}"
         imagePullPolicy: {{ .Values.global.images.nvConfigManagerUi.pullPolicy }}
+        {{- include "nv-config-manager.preStopDrain" (dict "root" . "indent" 8) }}
         command: ["node", "server.js"]
         env:
         # Application version (matches image tag - git tag/semver)
