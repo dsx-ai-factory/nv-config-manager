@@ -326,8 +326,9 @@ async def get_diff(
         to_content = decompress_content(to_config.content)
 
         # Generate unified diff
-        from_lines = from_content.splitlines(keepends=True)
-        to_lines = to_content.splitlines(keepends=True)
+        # Join diff lines once, without carrying content line terminators into the output.
+        from_lines = from_content.splitlines()
+        to_lines = to_content.splitlines()
 
         diff = list(
             difflib.unified_diff(
@@ -354,8 +355,9 @@ async def get_diff(
             diff_stats={
                 "from_lines": len(from_lines),
                 "to_lines": len(to_lines),
-                "additions": sum(1 for line in diff if line.startswith("+")),
-                "deletions": sum(1 for line in diff if line.startswith("-")),
+                # The first two entries are version headers, not content changes.
+                "additions": sum(1 for line in diff[2:] if line.startswith("+")),
+                "deletions": sum(1 for line in diff[2:] if line.startswith("-")),
             },
             device=device_metadata,
         )

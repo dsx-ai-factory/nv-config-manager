@@ -19,6 +19,7 @@ import os
 
 from nv_config_manager_templates.version import TemplateVersion
 
+from nv_config_manager.common.config import is_aggregate_environment
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import dcim_client_session
 from nv_config_manager.render.lock import create_lock
@@ -34,7 +35,9 @@ async def load_stale_renders(desired_version: TemplateVersion | str) -> list[str
     desired_template_version = TemplateVersion.parse(desired_version)
     async with dcim_client_session() as dcim_client:
         enabled_device_ids = set(
-            await dcim_client.get_render_enabled_device_ids(is_aggregate_managed=None)
+            await dcim_client.get_render_enabled_device_ids(
+                is_aggregate_managed=is_aggregate_environment()
+            )
         )
         if not enabled_device_ids:
             return []

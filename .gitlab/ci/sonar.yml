@@ -17,6 +17,9 @@ sonar-scanner:
     - job: test-main-network-templates
       optional: true
       artifacts: true
+    - job: test-main-workflows
+      optional: true
+      artifacts: true
     - job: test-main-installer
       optional: true
       artifacts: true
@@ -41,6 +44,7 @@ sonar-scanner:
           coverage.xml \
           components/nautobot/coverage.xml \
           packages/templates/coverage.xml \
+          packages/workflows/coverage.xml \
           installer/coverage.xml; do
           if [ ! -s "$report" ]; then
             echo "Missing required Sonar coverage report: $report" >&2

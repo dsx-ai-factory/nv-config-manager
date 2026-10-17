@@ -64,6 +64,11 @@ class WorkflowRegistry:
     api_workflows: list[type[WorkflowMetadataMixin]] = field(default_factory=list)
     mcp_workflows: list[type[WorkflowMetadataMixin]] = field(default_factory=list)
     plugin_diagnostics: list[PluginInfo] = field(default_factory=list)
+    workflow_owners: dict[type[WorkflowMetadataMixin], str] = field(default_factory=dict)
+
+    def owner(self, workflow: type[WorkflowMetadataMixin]) -> str:
+        """Return the plugin that canonically owns a workflow: its first contributor."""
+        return self.workflow_owners[workflow]
 
     @classmethod
     def build(cls, plugins: Mapping[str, WorkflowPluginDescriptor] | None = None) -> Self:
@@ -95,6 +100,11 @@ class WorkflowRegistry:
                 workflow for descriptor in ordered.values() for workflow in descriptor.workflows
             )
         ]
+        workflow_owners: dict[type[WorkflowMetadataMixin], str] = {}
+        for plugin_name, descriptor in ordered.items():
+            for workflow in descriptor.workflows:
+                workflow_owners.setdefault(cast(type[WorkflowMetadataMixin], workflow), plugin_name)
+        api_workflows = [w for w in all_workflows if workflow_api_enabled(w)]
         all_activities = list(dict.fromkeys(a for d in ordered.values() for a in d.activities))
         scheduler_registrations = tuple(
             SchedulerRegistration(
@@ -112,7 +122,7 @@ class WorkflowRegistry:
             all_activities=all_activities,
             all_schedulers=all_schedulers,
             scheduler_registrations=scheduler_registrations,
-            api_workflows=[w for w in all_workflows if workflow_api_enabled(w)],
+            api_workflows=api_workflows,
             mcp_workflows=[w for w in all_workflows if workflow_mcp_enabled(w)],
             plugin_diagnostics=[
                 PluginInfo(
@@ -124,4 +134,5 @@ class WorkflowRegistry:
                 )
                 for descriptor in ordered.values()
             ],
+            workflow_owners=workflow_owners,
         )

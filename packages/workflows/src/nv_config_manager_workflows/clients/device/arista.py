@@ -16,9 +16,14 @@
 
 from __future__ import annotations
 
+import gzip
+import io
 import re
 import ssl
 import sys
+import tarfile
+import time
+from collections.abc import Callable
 from typing import cast
 from uuid import uuid4
 
@@ -47,6 +52,13 @@ from nv_config_manager_workflows.clients.device.models import (
 from nv_config_manager_workflows.clients.device.settings import DeviceConnectionSettings
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
+
+# Lab and engineering builds append the build to the release:
+# "4.34.3M-44102239.4343M (engineering build)" is release 4.34.3M.
+_ENGINEERING_BUILD = re.compile(r"-\d+\.\w+\s+\(engineering build\)$")
+
+# Below the 600 s tech-support activity timeout.
+_TECH_SUPPORT_TIMEOUT_SECONDS = 540
 
 
 class AristaConnection(NetworkConnection):
@@ -271,7 +283,7 @@ class AristaConnection(NetworkConnection):
             if not self._diff_eq(diff, approved_diff):
                 raise DiffChangedException("Diff has changed since approval, aborting.")
             if commit_confirm:
-                # commit timer HH:MM:SS = roll back unless confirmed; commit applies
+                # commit timer HH:MM:SS = roll back unless confirmed
                 m, s = divmod(COMMIT_CONFIRM_ROLLBACK_SECONDS, 60)
                 h, m = divmod(m, 60)
                 timer_str = f"{h:02d}:{m:02d}:{s:02d}"
@@ -279,7 +291,6 @@ class AristaConnection(NetworkConnection):
                     [
                         f"configure session {self._session_id}",
                         f"commit timer {timer_str}",
-                        "commit",
                     ]
                 )
                 # Confirm (make permanent); from exec: configure session <name> commit
@@ -308,6 +319,86 @@ class AristaConnection(NetworkConnection):
         """Get the device uptime in seconds."""
         response = self._node.enable("show uptime")
         return int(response[0]["result"]["upTime"])
+
+    def get_running_image(self) -> str:
+        """Get the running EOS release, for example ``4.34.3M``.
+
+        Lab and engineering builds report the build after the release; only the
+        release is returned, so it compares equal to the image store's version.
+        """
+        try:
+            version = str(self._node.enable("show version")[0]["result"]["version"])
+        except (KeyError, IndexError) as error:
+            raise NetworkDeviceException(
+                f"No EOS version reported by {self._host}", non_retryable=True
+            ) from error
+        return _ENGINEERING_BUILD.sub("", version)
+
+    def get_tech_support_bundle(
+        self, heartbeat_fn: Callable[[], None] | None = None
+    ) -> tuple[bytes, str]:
+        """Collect ``show tech-support`` and return it as a gzipped tarball.
+
+        EOS produces the report as command output, so it is read over eAPI and
+        packed in memory; nothing is written to the device. The tarball keeps the
+        format the tech-support download and ticket attachment expect.
+
+        heartbeat_fn, if provided, is called every ~15 s while EOS generates the
+        report, keeping the Temporal heartbeat window satisfied.
+
+        Returns:
+            (gzipped tarball bytes, one-line summary of the collection)
+        """
+        start = time.monotonic()
+        transport = self._node.connection.transport
+        default_timeout = transport.timeout
+        stop_hb, hb = self._start_heartbeat_thread(heartbeat_fn)
+        if heartbeat_fn:
+            try:
+                heartbeat_fn()
+            except Exception:
+                pass
+        transport.timeout = _TECH_SUPPORT_TIMEOUT_SECONDS
+        try:
+            response = self._node.enable("show tech-support", encoding="text")
+        except pyeapi.eapilib.ConnectionError as exc:
+            if isinstance(exc.__context__, TimeoutError):
+                elapsed = time.monotonic() - start
+                logger.warning("show tech-support on %s timed out after %.0fs", self._host, elapsed)
+                raise NetworkDeviceException(
+                    f"show tech-support timed out on {self._host} after {elapsed:.0f}s"
+                ) from exc
+            raise NetworkDeviceException(f"show tech-support failed on {self._host}") from exc
+        except pyeapi.eapilib.CommandError as exc:
+            raise NetworkDeviceException(f"show tech-support failed on {self._host}") from exc
+        finally:
+            transport.timeout = default_timeout
+            stop_hb.set()
+            hb.join(timeout=2)
+
+        try:
+            report = cast(str, response[0]["result"]["output"]).encode()
+        except (KeyError, IndexError, TypeError) as exc:
+            raise NetworkDeviceException(
+                f"show tech-support returned no output on {self._host}"
+            ) from exc
+        member = tarfile.TarInfo("show-tech-support.txt")
+        member.size = len(report)
+        member.mtime = int(time.time())
+        bundle = io.BytesIO()
+        # The constructors, not tarfile.open(): the package boundary test rejects any call
+        # named open, and nothing here touches a file.
+        with (
+            gzip.GzipFile(fileobj=bundle, mode="wb") as compressed,
+            tarfile.TarFile(fileobj=compressed, mode="w") as tar,
+        ):
+            tar.addfile(member, io.BytesIO(report))
+
+        summary = (
+            f"show tech-support collected from {self._host}: {len(report)} bytes "
+            f"in {time.monotonic() - start:.0f}s"
+        )
+        return bundle.getvalue(), summary
 
     # ------------------------------------------------------------------
     # Diagnostic commands — all via eAPI JSON-RPC (HTTPS port 443).
@@ -420,3 +511,41 @@ class AristaConnection(NetworkConnection):
             return self._node.enable("show vrrp", encoding="json")[0]["result"]
         except pyeapi.eapilib.CommandError:
             return {"error": "VRRP not configured on this device"}
+
+    def diag_get_platform_environment(self) -> object:
+        # Each sensor group is queried on its own so a platform without one
+        # (virtual EOS has no sensors) reports that group instead of failing.
+        sections = {
+            "cooling": "show system environment cooling",
+            "temperature": "show system environment temperature",
+            "power": "show system environment power",
+        }
+        environment: dict[str, object] = {}
+        for section, command in sections.items():
+            try:
+                environment[section] = self._node.enable(command, encoding="json")[0]["result"]
+            except pyeapi.eapilib.CommandError:
+                environment[section] = {"error": f"No {section} data available on this device"}
+        return environment
+
+    def diag_get_platform_transceiver(self) -> object:
+        try:
+            return self._node.enable("show interfaces transceiver", encoding="json")[0]["result"]
+        except pyeapi.eapilib.CommandError:
+            return {"error": "Transceiver data not available on this device"}
+
+    def diag_get_interface_counters(self) -> object:
+        counters, errors = self._node.enable(
+            ["show interfaces counters", "show interfaces counters errors"], encoding="json"
+        )
+        return {"counters": counters["result"], "errors": errors["result"]}
+
+    def diag_get_interface_mac(self) -> object:
+        interfaces = self._node.enable("show interfaces", encoding="json")[0]["result"][
+            "interfaces"
+        ]
+        return {
+            name: {key: data[key] for key in ("physicalAddress", "burnedInAddress") if key in data}
+            for name, data in interfaces.items()
+            if "physicalAddress" in data or "burnedInAddress" in data
+        }

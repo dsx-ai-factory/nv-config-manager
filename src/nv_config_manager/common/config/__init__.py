@@ -51,6 +51,7 @@ from nv_config_manager.common.config.environment import (  # noqa: F401
     is_local_environment,
 )
 from nv_config_manager.common.config.http import (  # noqa: F401
+    SpiffeJwtUnavailableError,
     _read_spiffe_jwt,
     get_internal_auth_headers,
     get_mtls_cert_paths,

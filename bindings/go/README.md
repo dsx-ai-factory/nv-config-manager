@@ -37,4 +37,8 @@ make api-generate
 
 Generation requires Docker; the command uses a version-and-digest-pinned OpenAPI Generator image.
 
+The Temporal `WorkflowFormUiSchema` model exposes `AdditionalProperties` for form entries keyed by
+workflow input field. These dynamic entries are part of that schema; generated models do not enable
+additional properties globally.
+
 Do not edit generated service directories by hand.

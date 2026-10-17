@@ -132,6 +132,7 @@ class RedfishProvisioningWorkflow(WorkflowMetadataMixin, StageMixin, ArchiveMixi
     workflow_input_class = RedfishProvisioningInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/redfish_provisioning"
+    workflow_form_enabled = False
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_network_devices,

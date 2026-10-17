@@ -113,6 +113,12 @@ It queries the selected DCIM provider for devices with a stale `template_version
 and renders those devices directly with bounded concurrency. Each update uses the
 device's Redis-backed render lock.
 
+The updater selects only render-enabled devices whose aggregate-management flag
+matches the environment. Every deployment also enforces ownership when a render
+executes: aggregate deployments reject non-aggregate-managed devices, and
+non-aggregate deployments reject aggregate-managed devices. Manual requests
+outside that scope return 403; queued requests are skipped without writing configs.
+
 **Version tracking**: A successful render records the
 `nv_config_manager_templates` version through the selected DCIM provider. The
 next template-updater job skips devices that already have the current version.

@@ -2237,16 +2237,23 @@ class AirSimulationManager:
                         return True
 
                 now = time.monotonic()
+                if now >= deadline:
+                    break
                 if now - last_status_check < 10:
                     continue
                 last_status_check = now
 
-                status = subprocess.run(
-                    [*ssh_base, "cloud-init", "status", "--long"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
+                try:
+                    status = subprocess.run(
+                        [*ssh_base, "cloud-init", "status", "--long"],
+                        capture_output=True,
+                        text=True,
+                        timeout=min(10, deadline - now),
+                    )
+                except subprocess.TimeoutExpired:
+                    # The exception's command includes the SSH password; do not log it.
+                    LOG.warning("Cloud-init status check timed out; retrying until setup deadline.")
+                    continue
                 status_text = f"{status.stdout}\n{status.stderr}".strip()
                 if "status: error" in status_text or "extended_status: error" in status_text:
                     LOG.warning("Cloud-init reported an error:\n%s", status_text)
@@ -2255,21 +2262,26 @@ class AirSimulationManager:
                 if "status: done" in status_text:
                     # TextIOWrapper can buffer log lines that select() no longer sees.
                     # Check the files directly before declaring a missing marker.
-                    marker = subprocess.run(
-                        [
-                            *ssh_base,
-                            "sudo grep -Fq -- "
-                            f"{shlex.quote(self._SETUP_COMPLETE_MARKER)} "
-                            "/var/log/nvcm-setup.log /var/log/cloud-init-output.log",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                    )
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    try:
+                        marker = subprocess.run(
+                            [
+                                *ssh_base,
+                                "sudo grep -Fq -- "
+                                f"{shlex.quote(self._SETUP_COMPLETE_MARKER)} "
+                                "/var/log/nvcm-setup.log /var/log/cloud-init-output.log",
+                            ],
+                            capture_output=True,
+                            text=True,
+                            timeout=min(10, remaining),
+                        )
+                    except subprocess.TimeoutExpired:
+                        LOG.warning("Setup marker check timed out; retrying until setup deadline.")
+                        continue
                     if marker.returncode == 0:
                         LOG.info("\nCloud-init setup finished successfully.")
-                        proc.terminate()
-                        proc.wait(timeout=5)
                         return True
                     done_seen_at = done_seen_at or now
                     if now - done_seen_at > 5:

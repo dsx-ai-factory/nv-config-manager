@@ -1,1 +1,6 @@
 src/tests/temporal/**/workflows/fixtures/*.json linguist-generated=true
+src/tests/temporal/api/fixtures/*.json linguist-generated=true
+src/tests/mcp/fixtures/*.json linguist-generated=true
+packages/workflows/tests/fixtures/input_schema*.json linguist-generated=true
+ui/tests/*/fixtures/**/*.json linguist-generated=true
+ui/src/lib/workflow-form-*.json linguist-generated=true

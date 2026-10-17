@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from pytest_mock import MockerFixture
 from temporalio import workflow
 
-from nv_config_manager.temporal.api import dynamic_endpoints, workflow_v1
+from nv_config_manager.temporal.api import workflow_catalog, workflow_v1
 from nv_config_manager.temporal.api.dynamic_endpoints import register_dynamic_endpoints
 from nv_config_manager.temporal.api.workflow_catalog import WORKFLOW_REGISTRY
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
@@ -32,6 +32,7 @@ from nv_config_manager_workflows.registration.builtin import (
 )
 from nv_config_manager_workflows.registration.descriptor import WorkflowPluginDescriptor
 from nv_config_manager_workflows.registration.errors import WorkflowConflictError
+from nv_config_manager_workflows.registration.form_catalog import WorkflowFormCatalog
 from nv_config_manager_workflows.registration.registry import WorkflowRegistry
 from nv_config_manager_workflows.stage import StageMixin
 
@@ -47,6 +48,8 @@ class _VisiblePluginWorkflow(WorkflowMetadataMixin, StageMixin):
     workflow_input_class = _PluginInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/plugin/visible"
+    workflow_form_enabled = True
+    workflow_form_id = "visible-plugin"
     workflow_namespace = "plugin"
 
     @workflow.run
@@ -132,15 +135,20 @@ async def test_metadata_includes_plugin_api_workflows_once_and_types_include_all
     registry = _plugin_registry()
     mocker.patch.object(workflow_v1, "WORKFLOW_API_CATALOG", tuple(registry.api_workflows))
     mocker.patch.object(workflow_v1, "WORKFLOW_TYPE_CATALOG", tuple(registry.all_workflows))
+    mocker.patch.object(
+        workflow_v1,
+        "WORKFLOW_FORM_CATALOG",
+        WorkflowFormCatalog.build(registry),
+    )
     rbac = MagicMock()
     rbac.get_workflow_roles.side_effect = lambda workflow_name: {
         "read_roles": {"reader", workflow_name},
         "execute_roles": {"executor", workflow_name},
     }
-    mocker.patch.object(dynamic_endpoints, "RBACConfig", return_value=rbac)
+    mocker.patch.object(workflow_catalog, "RBACConfig", return_value=rbac)
 
     workflow_types = await workflow_v1.get_workflow_types()
-    metadata = await workflow_v1.get_workflow_metadata()
+    metadata = await workflow_v1.get_workflow_metadata(include="form")
     metadata_names = [item.name for item in metadata.workflows]
 
     assert workflow_types.count(_VisiblePluginWorkflow.__name__) == 1
@@ -150,6 +158,8 @@ async def test_metadata_includes_plugin_api_workflows_once_and_types_include_all
     assert workflow_types.count(_HiddenPluginWorkflow.__name__) == 1
     visible = metadata.workflows[metadata_names.index(_VisiblePluginWorkflow.__name__)]
     assert visible.endpoint == "/plugin/visible"
+    assert visible.form_id == "visible-plugin"
     assert visible.read_roles == [_VisiblePluginWorkflow.__name__, "reader"]
     assert visible.execute_roles == [_VisiblePluginWorkflow.__name__, "executor"]
+    assert visible.has_form is True
     rbac.get_workflow_roles.assert_any_call(_VisiblePluginWorkflow.__name__)
