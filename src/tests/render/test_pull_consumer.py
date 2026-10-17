@@ -27,6 +27,7 @@ from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 from nats.js.errors import NotFoundError
 from redis.asyncio.lock import Lock as AsyncRedisLock
 
+from nv_config_manager.common.nats_admin import CONSUMER_MAX_DELIVER
 from nv_config_manager.render.events.util import DeviceNotEnabledError
 from nv_config_manager.render.pull_consumer import (
     CONSUMER_ACK_PENDING,
@@ -495,6 +496,54 @@ async def test_pull_device_change_consumer_lock_failure(mock_dispatcher, mock_lo
     mock_msg.nak.assert_called_once_with(delay=5)
     # Lock release should NOT be called since acquire failed
     mock_lock.release.assert_not_awaited()
+
+
+def _last_delivery_msg(data: dict[str, str]) -> AsyncMock:
+    """Return a message on the delivery after which JetStream stops redelivering."""
+    msg = AsyncMock(spec=Msg)
+    msg.data = json.dumps(data).encode()
+    msg.metadata = MagicMock(num_delivered=CONSUMER_MAX_DELIVER)
+    return msg
+
+
+@pytest.mark.asyncio
+async def test_last_delivery_that_never_wins_the_lock_frees_its_claim(
+    mock_dispatcher, mock_lock, custom_ini
+):
+    """A message dropped at max_deliver must not keep suppressing later changes."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = _last_delivery_msg({"device_id": "test-device", "queue_claim": "claim-1"})
+    mock_lock.acquire.return_value = False
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock
+    ) as mock_clear_queued:
+        await consumer.message_handler(mock_msg)
+
+    mock_clear_queued.assert_awaited_once_with("test-device", token="claim-1")
+    mock_msg.term.assert_awaited_once()
+    mock_msg.nak.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_last_delivery_that_fails_frees_its_claim(mock_dispatcher, mock_lock, custom_ini):
+    """A render that fails on its final delivery releases the slot instead of nacking."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = _last_delivery_msg({"device_id": "test-device", "queue_claim": "claim-1"})
+    mock_lock.acquire.return_value = True
+    mock_dispatcher.nautobot_change_dispatch = AsyncMock(side_effect=Exception("boom"))
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock
+    ) as mock_clear_queued:
+        await consumer.message_handler(mock_msg)
+
+    mock_clear_queued.assert_awaited_once_with("test-device", token="claim-1")
+    mock_msg.term.assert_awaited_once()
+    mock_msg.nak.assert_not_awaited()
+    mock_lock.release.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -239,6 +239,18 @@ class PullConsumer:
             self.logger.error("Error nacking message: %s", str(e))
             raise
 
+    async def term(self, msg: Msg) -> None:
+        """Stop redelivery of a message with resilient error handling."""
+        try:
+            await msg.term()
+        except nats.errors.NoRespondersError:
+            self.logger.warning(
+                "No responders available for term (likely during shutdown), ignoring"
+            )
+        except Exception as e:
+            self.logger.error("Error terminating message: %s", str(e))
+            raise
+
     async def main(self) -> None:
         """Connect to NATS and start the pull consumer loop."""
 
@@ -675,6 +687,9 @@ class PullDeviceChangeConsumer(PullConsumer):
         lock = await create_lock(device_id, blocking=False)
         acquired = await lock.acquire()
         if not acquired:
+            if _is_last_delivery(msg):
+                await self._give_up(msg, device_id, claim, "it never won the device lock")
+                return
             self.logger.info("Another process owns the lock for %s, nacking.", device_id)
             await self.nak(msg, delay=5)
             return
@@ -692,14 +707,42 @@ class PullDeviceChangeConsumer(PullConsumer):
             await self.ack(msg)
         except Exception as e:
             self.logger.error("Error processing device change message: %s", data, exc_info=e)
-            # Leave the dedup slot claimed: the render is still pending until a
-            # redelivery completes it.
-            await self.nak(msg)
+            if _is_last_delivery(msg):
+                await self._give_up(msg, device_id, claim, "every delivery failed")
+            else:
+                # Leave the dedup slot claimed: the render is still pending until a
+                # redelivery completes it.
+                await self.nak(msg)
         finally:
             try:
                 await lock.release()
             except Exception as e:
                 self.logger.error("Error releasing lock for %s", device_id, exc_info=e)
+
+    async def _give_up(self, msg: Msg, device_id: str, claim: str | None, reason: str) -> None:
+        """Drop a message JetStream will not redeliver, and free its dedup slot.
+
+        Once max_deliver is reached JetStream stops redelivering, so a claim left
+        in place would suppress every later change for the device until it expired.
+        """
+        self.logger.error(
+            "Giving up on render for %s after %d deliveries: %s",
+            device_id,
+            CONSUMER_MAX_DELIVER,
+            reason,
+        )
+        await clear_queued(device_id, token=claim)
+        await self.term(msg)
+
+
+def _is_last_delivery(msg: Msg) -> bool:
+    """Return whether JetStream will not deliver this message again."""
+    try:
+        delivered = msg.metadata.num_delivered
+    except Exception:  # pylint: disable=broad-exception-caught
+        # Not a JetStream message, so there is no delivery limit to reach.
+        return False
+    return isinstance(delivered, int) and delivered >= CONSUMER_MAX_DELIVER
 
 
 def start_liveness_server(consumer: PullConsumer, port: int = 8001) -> ThreadingHTTPServer:
