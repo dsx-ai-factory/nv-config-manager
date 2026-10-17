@@ -36,6 +36,7 @@ from pydantic import IPvAnyAddress, IPvAnyNetwork
 
 from nv_config_manager.common.auth import install_identity_probe
 from nv_config_manager.common.config.loader import load_config
+from nv_config_manager.common.config_watch import restart_on_config_change
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.common.telemetry import (
     group_fastapi_status_codes,
@@ -324,6 +325,7 @@ def main() -> None:
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to bind to")
     args = parser.parse_args()
 
+    restart_on_config_change()
     uvicorn.run(
         "nv_config_manager.dhcp.api:app",
         host=args.host,

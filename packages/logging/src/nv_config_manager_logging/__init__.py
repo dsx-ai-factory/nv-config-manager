@@ -54,6 +54,7 @@ class LogCategory:
     AUTH = "auth"
     NATS = "nats"
     CACHE = "cache"
+    CONFIG = "config"
 
 
 # =============================================================================

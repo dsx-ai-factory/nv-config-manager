@@ -16,6 +16,7 @@
 
 import asyncio
 
+from nv_config_manager.common.config_watch import restart_on_config_change
 from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
 from nv_config_manager.temporal.runtime import (
     build_builtin_scheduler_runtime,
@@ -44,6 +45,7 @@ logger = get_logger(__name__, category=LogCategory.TEMPORAL_WORKFLOW)
 def main() -> None:
     """Run all discovered schedulers with service-provided capabilities."""
     configure_logging(service="temporal-scheduler")
+    restart_on_config_change()
     setup_telemetry("nv-config-manager-temporal-scheduler")
     configure_workflow_runtime()
     configure_scheduler_runtime(build_scheduler_runtime())
