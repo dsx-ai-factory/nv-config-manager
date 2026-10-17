@@ -31,7 +31,12 @@ import signal
 import threading
 from configparser import ConfigParser
 
-from nv_config_manager.common.ini import config_path, file_digest, loaded_config_snapshot
+from nv_config_manager.common.ini import (
+    config_path,
+    file_digest,
+    loaded_config_snapshot,
+    read_config_snapshot,
+)
 from nv_config_manager.common.log import LogCategory, get_logger
 
 logger = get_logger(__name__, category=LogCategory.CONFIG)
@@ -155,9 +160,13 @@ def restart_on_config_change(
         return False
 
     path = config_path()
+    # A service that has not loaded the INI yet reads it after this returns, so
+    # the baseline has to be taken here rather than on the watch thread, which
+    # could run after that load and adopt a newer file as its starting point.
+    baseline = loaded_config_snapshot(path) or read_config_snapshot(path)
     threading.Thread(
         target=_watch,
-        args=(path, poll_interval, max_jitter, threading.Event(), loaded_config_snapshot(path)),
+        args=(path, poll_interval, max_jitter, threading.Event(), baseline),
         name="config-watch",
         daemon=True,
     ).start()

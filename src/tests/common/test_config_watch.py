@@ -277,6 +277,31 @@ def test_restart_baselines_on_the_loaded_snapshot(
     assert captured["args"][4] == (digest, ORIGINAL)
 
 
+def test_restart_baselines_before_the_service_loads(
+    ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a loaded snapshot, the baseline is the file as it was at the call."""
+    monkeypatch.setenv("NV_CONFIG_MANAGER_INI", str(ini))
+    clear_config_cache()
+    captured: dict[str, tuple[object, ...]] = {}
+
+    class _Thread:
+        def __init__(self, *_args: object, **kwargs: object) -> None:
+            captured["args"] = kwargs["args"]  # type: ignore[assignment]
+
+        def start(self) -> None:
+            ini.write_text(ROTATED)
+
+    monkeypatch.setattr(config_watch.threading, "Thread", _Thread)
+    try:
+        assert restart_on_config_change() is True
+    finally:
+        if config_watch._watch_started.locked():
+            config_watch._watch_started.release()
+
+    assert captured["args"][4] == (hashlib.sha256(ORIGINAL.encode()).hexdigest(), ORIGINAL)
+
+
 def test_changed_keys_does_not_leak_the_values() -> None:
     """The file holds credentials, so only names may be logged."""
     reported = " ".join(changed_keys(ORIGINAL, ROTATED))
