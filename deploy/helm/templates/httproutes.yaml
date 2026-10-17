@@ -126,10 +126,9 @@ through.
 {{- define "nv-config-manager.browserSafeMethodRule" }}
 {{- $root := $.root }}
 {{- if include "nv-config-manager.browserSafeMethodRetryEnabled" $root }}
-{{- $sm := $root.Values.gateway.retry.safeMethods }}
 - name: {{ include "nv-config-manager.browserSafeMethodRuleName" $root }}
   matches:
-  {{- range ($sm.methods | default (list "GET" "HEAD")) }}
+  {{- range (list "GET" "HEAD") }}
   - path:
       type: PathPrefix
       value: /

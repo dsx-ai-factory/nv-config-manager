@@ -17,37 +17,31 @@ retry:
        only when the key is genuinely absent, which is what makes a partial
        gateway.retry override work. */}}
   numRetries: {{ dig "numRetries" 2 $r | int }}
-  {{- /* `default` is deliberate here, unlike numRetries above. An empty
-       triggers list would render `triggers:` as null, and Envoy would fall
-       back to its own retryOn default, which retries 5xx - exactly what the
-       narrow list below exists to avoid. Falling back to the safe pair beats
-       silently widening what gets replayed. Set enabled: false to opt out. */}}
-  {{- $triggers := ($r.triggers | default (list "connect-failure" "refused-stream")) }}
-  {{- if .statusCodes }}
-  {{- /* Not optional. Envoy ignores retriable_status_codes unless retry_on
-       contains retriable-status-codes, and Envoy Gateway builds retry_on from
-       these triggers verbatim rather than inferring it from httpStatusCodes.
-       Without this the status codes below would render, validate, and do
-       nothing. */}}
-  {{- $triggers = append $triggers "retriable-status-codes" | uniq }}
-  {{- end }}
   retryOn:
+    {{- /* Not configurable on purpose. Both transport triggers mean the request
+         never reached a backend, so replaying it cannot apply a write twice.
+         5xx is excluded because the backend may already have committed, and
+         reset because it can arrive after the request was sent. Leaving
+         retryOn unset is not an option either: Envoy's default retries 5xx. */}}
     triggers:
-      {{- range $triggers }}
-      - {{ . | quote }}
+      - "connect-failure"
+      - "refused-stream"
+      {{- if .statusCodes }}
+      {{- /* Not optional. Envoy ignores retriable_status_codes unless retry_on
+           contains this, and Envoy Gateway builds retry_on from these triggers
+           verbatim rather than inferring it from httpStatusCodes. */}}
+      - "retriable-status-codes"
       {{- end }}
     {{- if .statusCodes }}
-    {{- /* Only reached from the method-matched rule below, never from a policy
+    {{- /* Only reached from the method-matched rules below, never from a policy
          that covers every method. */}}
     httpStatusCodes:
-      {{- range (dig "safeMethods" "httpStatusCodes" (list 502) $r) }}
-      - {{ . | int }}
-      {{- end }}
+      - 502
     {{- end }}
   perRetry:
     backOff:
-      baseInterval: {{ dig "backOff" "baseInterval" "100ms" $r | quote }}
-      maxInterval: {{ dig "backOff" "maxInterval" "1s" $r | quote }}
+      baseInterval: "100ms"
+      maxInterval: "1s"
 {{- end -}}
 {{- end }}
 {{- if and .Values.gateway.enabled (eq (include "nv-config-manager.gatewayControllerType" .) "envoyGateway") }}

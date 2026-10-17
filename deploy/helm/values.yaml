@@ -929,31 +929,19 @@ gateway:
   # accepting connections a moment before the gateway stops routing to it.
   # Envoy Gateway only; kgateway TrafficPolicy has a separate retry schema and
   # is not covered here.
+  # Only connection failures and refused streams are retried, both of which mean
+  # the request never reached a backend, so a write is never applied twice. The
+  # triggers and backoff (100ms base, 1s cap) are fixed in the template.
   retry:
     enabled: true
     # Total attempts is numRetries + 1.
     numRetries: 2
-    # Deliberately narrow. Both triggers mean the request never reached a
-    # backend, so replaying it cannot apply a write twice. Excluded on purpose:
-    # 5xx/retriable-status-codes, where the backend may have already committed,
-    # and reset, which can arrive after the request was sent.
-    triggers:
-      - connect-failure
-      - refused-stream
-    backOff:
-      baseInterval: 100ms
-      maxInterval: 1s
-    # Adds a status-code retry for the 502 the OIDC browser proxy returns when
-    # it cannot reach a backend. Restricted to methods that are safe to replay,
-    # because a 502 cannot be distinguished from a write that already committed.
-    # Only takes effect when oidc.enabled puts the proxy in the request path.
+    # Also retries the 502 the OIDC browser proxy returns when it cannot reach
+    # a backend, for GET and HEAD only, because a 502 cannot be distinguished
+    # from a write that already committed. Only takes effect when oidc.enabled
+    # puts the proxy in the request path.
     safeMethods:
       enabled: true
-      methods:
-        - GET
-        - HEAD
-      httpStatusCodes:
-        - 502
   # CORS configuration
   cors:
     enabled: true
