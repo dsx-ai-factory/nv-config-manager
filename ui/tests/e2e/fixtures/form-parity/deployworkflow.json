@@ -1,0 +1,84 @@
+{
+  "workflow": "DeployWorkflow",
+  "input_model": "DeployInput",
+  "scenarios": [
+    {
+      "name": "manual fill",
+      "legacy_url": "/workflows/deployworkflow/form",
+      "new_url": "/workflows/new/deploy",
+      "legacy_payload": {
+        "device_id": "e9243d67-dad0-4f4b-9f6d-9cc977ff0023",
+        "commit_confirm": true
+      },
+      "generic_payload": {
+        "device_id": "e9243d67-dad0-4f4b-9f6d-9cc977ff0023",
+        "commit_confirm": true
+      }
+    },
+    {
+      "name": "manual fill with filters, commit-confirm off",
+      "legacy_url": "/workflows/deployworkflow/form",
+      "new_url": "/workflows/new/deploy",
+      "legacy_payload": {
+        "device_id": "cb60e17a-b426-471f-a5c5-255f45368e7c",
+        "commit_confirm": false
+      },
+      "generic_payload": {
+        "device_id": "cb60e17a-b426-471f-a5c5-255f45368e7c",
+        "commit_confirm": false
+      }
+    },
+    {
+      "name": "Nautobot device link",
+      "legacy_url": "/workflows/deployworkflow/form?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023",
+      "new_url": "/workflows/new/deploy?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023",
+      "legacy_payload": {
+        "device_id": "e9243d67-dad0-4f4b-9f6d-9cc977ff0023",
+        "commit_confirm": true
+      },
+      "generic_payload": {
+        "device_id": "e9243d67-dad0-4f4b-9f6d-9cc977ff0023",
+        "commit_confirm": true
+      }
+    },
+    {
+      "name": "prefill with tenant and status filters",
+      "legacy_url": "/workflows/deployworkflow/form?site=PDX01&device-id=cb60e17a-b426-471f-a5c5-255f45368e7c&tenant=TenantA&status=Provisioned",
+      "new_url": "/workflows/new/deploy?site=PDX01&device-id=cb60e17a-b426-471f-a5c5-255f45368e7c&tenant=TenantA&status=Provisioned",
+      "legacy_payload": {
+        "device_id": "cb60e17a-b426-471f-a5c5-255f45368e7c",
+        "commit_confirm": true
+      },
+      "generic_payload": {
+        "device_id": "cb60e17a-b426-471f-a5c5-255f45368e7c",
+        "commit_confirm": true
+      }
+    },
+    {
+      "name": "repeated device-id takes the first",
+      "legacy_url": "/workflows/deployworkflow/form?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&device-id=0158d65b-4124-4987-93d5-10a0aff77d61",
+      "new_url": "/workflows/new/deploy?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023&device-id=0158d65b-4124-4987-93d5-10a0aff77d61",
+      "legacy_payload": {
+        "device_id": "e9243d67-dad0-4f4b-9f6d-9cc977ff0023",
+        "commit_confirm": true
+      },
+      "generic_payload": {
+        "device_id": "e9243d67-dad0-4f4b-9f6d-9cc977ff0023",
+        "commit_confirm": true
+      }
+    },
+    {
+      "name": "prefill, then a different site and device",
+      "legacy_url": "/workflows/deployworkflow/form?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023",
+      "new_url": "/workflows/new/deploy?site=PDX01&device-id=e9243d67-dad0-4f4b-9f6d-9cc977ff0023",
+      "legacy_payload": {
+        "device_id": "ca22595f-7044-46d1-b760-63cac2f947b3",
+        "commit_confirm": true
+      },
+      "generic_payload": {
+        "device_id": "ca22595f-7044-46d1-b760-63cac2f947b3",
+        "commit_confirm": true
+      }
+    }
+  ]
+}

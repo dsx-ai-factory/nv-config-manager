@@ -108,7 +108,7 @@ class HostData(BaseModel):
 
     interfaces: list[HostInterface]
     name: str
-    tenant: str
+    tenant: str | None
     device_id: str
     url: str
     alias: str | None = None

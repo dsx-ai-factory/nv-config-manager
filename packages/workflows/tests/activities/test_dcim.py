@@ -359,13 +359,14 @@ async def test_inventory_queries_preserve_provider_neutral_filters() -> None:
     }
 
 
-async def test_host_metadata_queries_preserve_mac_format_alias_and_urls() -> None:
+@pytest.mark.parametrize("tenant", ["tenant-1", None])
+async def test_host_metadata_queries_preserve_mac_format_alias_and_urls(tenant: str | None) -> None:
     """Host correlation output retains formatting and by-name empty interfaces."""
     client = _activity_client()
     host = HostMetadata(
         device_id="host-1",
         name="compute-1",
-        tenant="tenant-1",
+        tenant=tenant,
         alias="compute-alias",
         interfaces=(HostInterfaceMetadata(name="eth0", mac_address="001122334455"),),
     )
@@ -379,7 +380,7 @@ async def test_host_metadata_queries_preserve_mac_format_alias_and_urls() -> Non
     assert by_mac[0].model_dump() == {
         "interfaces": [{"name": "eth0", "mac": "00-11-22-33-44-55"}],
         "name": "compute-1",
-        "tenant": "tenant-1",
+        "tenant": tenant,
         "device_id": "host-1",
         "url": "https://dcim/host-1",
         "alias": "compute-alias",

@@ -519,9 +519,10 @@ def _client_whoami_script(kind: str, base_url: str, *, authenticated: bool) -> s
     """
     headers_expr = "get_internal_auth_headers" if authenticated else "{}"
     if kind == "temporal":
+        # These in-cluster HTTP fixtures use the production internal-client opt-in.
         body = (
             f"    c = TemporalClient(base_url={base_url!r}, "
-            f"user_domain='nvidia.com', headers={headers_expr})\n"
+            f"user_domain='nvidia.com', headers={headers_expr}, allow_insecure_auth=True)\n"
             "    async with c:\n"
             "        return await c.whoami()\n"
         )

@@ -8,8 +8,72 @@ version before the selected release candidate is promoted.
 
 ## Unreleased
 
+### Added
+
+- Added `GET /v1/workflow/{form_id}/form`, keyed by each form-enabled workflow's
+  explicit, stable `workflow_form_id`, which returns a version 1 form envelope:
+  a form projection of its input schema (`schema`), a
+  validated RJSF `ui_schema`, `ui_schema_version`, the UI capabilities the form
+  `requires`.
+- Added the opt-in `GET /v1/workflow/metadata?include=form` representation with
+  each workflow's launcher `group`, stable `form_id`, and `has_form` status. The
+  request without `include=form` retains its previous response shape for
+  compatibility with existing generated clients.
+- Workflow plugins can declare launcher forms on their input models with an
+  `rjsf_ui_schema` class variable, the `api_options`, `device_field`, and
+  `location_field` core-field helpers, the `variant_rows` composite row helper,
+  and the `ServerOwned`, `FormExcluded`, and `FormSchema` field markers from
+  `nv_config_manager_workflows.ui`. See the workflows package README.
+- Form declarations can preserve mutually exclusive input modes and numeric
+  cross-field checks with `exclusiveGroups` and `fieldComparisons`; shipped
+  multi-select links may retain a server-owned legacy query separator.
+- The workflow API validates form declarations in a form catalog separate from
+  the execution registry. An invalid built-in form fails API startup and CI form
+  validation without preventing Temporal workers, schedulers, MCP, or the CLI
+  from starting. An invalid third-party plugin form keeps the workflow and its
+  execution endpoint available: `/form` returns HTTP 503 with error code
+  `workflow_form_unavailable`, and the launcher shows a generic unavailable
+  message. The sanitized validation detail remains available in API startup
+  logs, the form catalog, and the plugin-validation CLI.
+
+### Changed
+
+- Workflow launcher forms are rendered with RJSF from the `/form` envelope.
+  The UI shows a "needs a newer UI" state for a form version or capability it
+  does not support, instead of rendering a partial form. Existing workflow
+  request schema shapes and Pydantic validation rules are unchanged: form
+  declarations do not change API request models, MCP tool schemas, or the
+  corresponding generated-client models.
+- Deploy the workflow API before the UI when upgrading to the schema-driven
+  browser forms. A new UI paired with an older API intentionally disables
+  browser form links and shows an API-upgrade message without probing form
+  endpoints; API and CLI workflow execution remain available.
+- The workflow HTTP API now treats fields marked `ServerOwned` as authoritative
+  request identity: it replaces submitted `user` values with values derived
+  from the authenticated request. Built-in backup inputs keep `user_domain`
+  `FormExcluded`: the API preserves a non-empty caller value and derives the
+  legacy fallback when the value is missing, null, or empty. The Port LLDP Info
+  endpoint also rejects incomplete or mixed lookup methods, and the SpX Overlay
+  Creation endpoint rejects a route-distinguisher range unless
+  `rd_min < rd_max`. These checks run after request-model validation and before
+  a workflow starts; they do not change the request schema or Temporal replay
+  deserialization.
+- Canonicalization failures from workflow HTTP endpoints now return HTTP 422
+  responses using the documented FastAPI `HTTPValidationError` envelope. The
+  `detail` value is a validation-error list rather than the previous string.
+
 ### Fixed
 
+- Services with tracing enabled no longer leak memory on every outbound aiohttp
+  session. With no OpenTelemetry meter provider configured, the aiohttp
+  instrumentation registered a new meter on the global proxy provider for each
+  `ClientSession`, and the proxy provider never releases them. The DHCP API
+  opens a session for every healthcheck, so it grew about 20MiB a day and was
+  OOM-killed every one to three days. The HTTP client instrumentors now use a
+  no-op meter provider.
+- The DHCP `api` container's default memory request and limit
+  (`networkDhcp.resources.api`) go from 128Mi to 256Mi. A fresh pod already
+  used about 105Mi of the old limit.
 - Render consumers on bundled NATS now re-create their stream when it is
   missing, instead of retrying `stream not found` until restarted. A NATS pod
   rescheduled after nats-box started came back without JetStream state, and

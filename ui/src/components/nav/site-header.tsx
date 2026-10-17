@@ -16,12 +16,11 @@
  * limitations under the License.
  */
 import Link from "next/link";
-import useSWRImmutable from "swr/immutable";
 
 import { siteConfig } from "@/config/site";
 import { MainNav } from "@/components/nav";
 import { ThemeToggle } from "@/components/theme";
-import { useState } from "react";
+import { Fragment, useId, useMemo, useState } from "react";
 import { LogOut, PlusIcon, UserCircle } from "lucide-react";
 import {
   Popover,
@@ -36,78 +35,95 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import useWhoami from "@/hooks/useWhoami";
 import { useRuntimeConfig } from "@/config/runtime";
-import { fetcher } from "@/lib/fetcher";
-import { cn, sanitizeUrl } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import useWorkflowCatalog from "@/hooks/useWorkflowCatalog";
+import { preloadWorkflowForm } from "@/hooks/useWorkflowForm";
 import {
-  WorkflowMetadata,
-  WorkflowMetadataResponse,
-} from "@/types/data-table.types";
+  buildWorkflowLauncherItems,
+  getWorkflowExecutePermission,
+  groupWorkflowLauncherItems,
+  type WorkflowLauncherItem,
+} from "@/lib/workflow-launcher";
 
-type WhoamiResponse = {
-  user: string;
-  roles: string[];
-};
+const WorkflowLauncherEntry = ({
+  isUnauthorized,
+  item,
+  onSelect,
+  userRoles,
+  workflowApiUrl,
+}: {
+  isUnauthorized: boolean;
+  item: WorkflowLauncherItem;
+  onSelect: () => void;
+  userRoles: ReadonlySet<string>;
+  workflowApiUrl: string | undefined;
+}) => {
+  const reasonId = useId();
+  const permission = getWorkflowExecutePermission(
+    item.metadata,
+    userRoles,
+    isUnauthorized
+  );
 
-const workflowMetadataByName = (
-  workflows: WorkflowMetadata[] | undefined
-): Map<string, WorkflowMetadata> => {
-  return new Map(workflows?.map((workflow) => [workflow.name, workflow]) ?? []);
-};
-
-const canExecuteWorkflow = (
-  metadata: WorkflowMetadata | undefined,
-  userRoles: Set<string>
-): boolean => {
-  if (!metadata) {
-    return false;
-  }
-
-  if (metadata.execute_roles.includes("all")) {
-    return true;
-  }
-
-  return metadata.execute_roles.some((role) => userRoles.has(role));
-};
-
-const getDisabledWorkflowReason = (
-  metadata: WorkflowMetadata | undefined,
-  isUnauthorized: boolean
-): string => {
-  if (isUnauthorized) {
-    return "Unauthorized";
-  }
-
-  if (!metadata) {
-    return "Workflow metadata is unavailable.";
-  }
-
-  const executeRoles = metadata.execute_roles;
-  if (executeRoles.length === 0) {
-    return "Required execute roles are not configured.";
-  }
-
-  return `Required execute roles: ${executeRoles.join(", ")}`;
+  return permission.allowed ? (
+    <Link
+      href={item.href}
+      className="flex rounded-sm border-none px-3 py-2 hover:border-none hover:bg-accent hover:text-accent-foreground"
+      onClick={onSelect}
+      prefetch={false}
+      onNavigate={() => {
+        const formId = item.metadata?.form_id;
+        if (workflowApiUrl && formId) {
+          void preloadWorkflowForm(workflowApiUrl, formId);
+        }
+      }}
+    >
+      {item.display_name}
+    </Link>
+  ) : (
+    <TooltipProvider delayDuration={0}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            aria-describedby={reasonId}
+            aria-disabled="true"
+            className={cn(
+              "flex w-full cursor-not-allowed rounded-sm border-none bg-transparent px-3 py-2 text-left opacity-50",
+              "hover:border-none hover:bg-accent hover:text-accent-foreground"
+            )}
+            type="button"
+          >
+            {item.display_name}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="left">
+          <p>{permission.reason}</p>
+        </TooltipContent>
+        <span className="sr-only" id={reasonId}>
+          {permission.reason}
+        </span>
+      </Tooltip>
+    </TooltipProvider>
+  );
 };
 
 const NewWorkflowChooser = () => {
   const [isOpen, setIsOpen] = useState(false);
   const { config } = useRuntimeConfig();
-  const apiURL = config?.workflowApiUrl;
-  const { data: workflowMetadata } = useSWRImmutable<WorkflowMetadataResponse>(
-    apiURL ? sanitizeUrl(`${apiURL}/v1/workflow/metadata`) : null,
-    fetcher
+  const workflowApiUrl = config?.workflowApiUrl;
+  const { catalog } = useWorkflowCatalog();
+  const { isUnauthorized, userRoles } = useWhoami();
+  const sections = useMemo(
+    () =>
+      groupWorkflowLauncherItems(
+        buildWorkflowLauncherItems(catalog, siteConfig.workflowOverrides)
+      ),
+    [catalog]
   );
-  const { data: userInfo, error: whoamiError } =
-    useSWRImmutable<WhoamiResponse>(
-      apiURL ? sanitizeUrl(`${apiURL}/whoami`) : null,
-      fetcher
-    );
 
-  const metadataByName = workflowMetadataByName(workflowMetadata?.workflows);
-  const isUnauthorized = Boolean(whoamiError);
-  const userRoles = new Set(isUnauthorized ? [] : (userInfo?.roles ?? []));
-  const workflowForms = siteConfig.workflows.filter((item) => item.enabled);
+  const showSectionHeadings = sections.length > 1;
 
   return (
     <div className="relative inline-block text-left">
@@ -124,48 +140,25 @@ const NewWorkflowChooser = () => {
         </PopoverTrigger>
 
         <PopoverContent align="end" className="max-h-[70vh] overflow-y-auto">
-          {workflowForms.map((item) => {
-            const metadata = metadataByName.get(item.workflowName);
-            const workflowTitle = metadata?.display_name ?? item.title;
-            const hasPermission =
-              !isUnauthorized && canExecuteWorkflow(metadata, userRoles);
-            const isEnabled = hasPermission;
-            const disabledReason = getDisabledWorkflowReason(
-              metadata,
-              isUnauthorized
-            );
-
-            return isEnabled ? (
-              <Link
-                key={item.slug}
-                href={`/workflows/${item.slug}/form`}
-                className="flex rounded-sm border-none px-3 py-2 hover:border-none hover:bg-accent hover:text-accent-foreground"
-                onClick={() => setIsOpen(false)}
-              >
-                {workflowTitle}
-              </Link>
-            ) : (
-              <TooltipProvider delayDuration={0} key={item.slug}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      aria-disabled="true"
-                      className={cn(
-                        "flex w-full cursor-not-allowed rounded-sm border-none bg-transparent px-3 py-2 text-left opacity-50",
-                        "hover:border-none hover:bg-accent hover:text-accent-foreground"
-                      )}
-                      type="button"
-                    >
-                      {workflowTitle}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="left">
-                    <p>{disabledReason}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            );
-          })}
+          {sections.map((section) => (
+            <Fragment key={section.group}>
+              {showSectionHeadings && (
+                <div className="px-3 pb-1 pt-2 text-xs font-medium text-muted-foreground">
+                  {section.group}
+                </div>
+              )}
+              {section.items.map((item) => (
+                <WorkflowLauncherEntry
+                  isUnauthorized={isUnauthorized}
+                  item={item}
+                  key={item.name}
+                  onSelect={() => setIsOpen(false)}
+                  userRoles={userRoles}
+                  workflowApiUrl={workflowApiUrl}
+                />
+              ))}
+            </Fragment>
+          ))}
         </PopoverContent>
       </Popover>
     </div>
@@ -173,14 +166,7 @@ const NewWorkflowChooser = () => {
 };
 
 const UserRolesMenu = () => {
-  const { config } = useRuntimeConfig();
-  const apiURL = config?.workflowApiUrl;
-  const { data: userInfo, error } = useSWRImmutable<WhoamiResponse>(
-    apiURL ? sanitizeUrl(`${apiURL}/whoami`) : null,
-    fetcher
-  );
-
-  const isUnauthorized = Boolean(error);
+  const { userInfo, isUnauthorized } = useWhoami();
   const username = isUnauthorized
     ? "Unauthorized"
     : userInfo?.user ?? "Unknown user";

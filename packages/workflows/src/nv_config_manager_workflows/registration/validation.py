@@ -35,6 +35,7 @@ from nv_config_manager_workflows.registration.contract import (
     workflow_class_name,
     workflow_cli_name,
     workflow_declared_name,
+    workflow_form_enabled,
     workflow_has_definition,
     workflow_is_dynamic,
     workflow_mcp_enabled,
@@ -154,7 +155,9 @@ def _require_valid_metadata(workflows: list[_OwnedWorkflow]) -> None:
         )
         _require_input_class(owned.item, label)
         _require_bool_api_flag(owned.item, label)
+        _require_bool_form_flag(owned.item, label)
         _require_bool_mcp_flag(owned.item, label)
+        _require_text(getattr(owned.item, "workflow_group", None), "workflow_group", label)
         _require_activity_names_wellformed(owned.item, label)
         _require_endpoint_wellformed(owned.item, label)
         _require_metadata_for_exposed_surfaces(owned.item, label)
@@ -324,6 +327,15 @@ def _require_bool_api_flag(workflow: type[WorkflowMetadataMixin], label: str) ->
         )
 
 
+def _require_bool_form_flag(workflow: type[WorkflowMetadataMixin], label: str) -> None:
+    """Reject a browser-form opt-in that is not a bool."""
+    form_enabled = getattr(workflow, "workflow_form_enabled", False)
+    if not isinstance(form_enabled, bool):
+        raise WorkflowRegistrationError(
+            f"{label} declares workflow_form_enabled {form_enabled!r}, which is not a bool"
+        )
+
+
 def _require_bool_mcp_flag(workflow: type[WorkflowMetadataMixin], label: str) -> None:
     """Reject an MCP opt-in that is not a bool."""
     mcp_enabled = getattr(workflow, "workflow_mcp_enabled", False)
@@ -354,15 +366,18 @@ def _require_endpoint_wellformed(workflow: type[WorkflowMetadataMixin], label: s
 def _require_metadata_for_exposed_surfaces(
     workflow: type[WorkflowMetadataMixin], label: str
 ) -> None:
-    """Require the full metadata set from workflows the API or MCP exposes."""
+    """Require API exposure and full metadata for forms and MCP tools."""
 
     api_enabled = workflow_api_enabled(workflow)
+    form_enabled = workflow_form_enabled(workflow)
     mcp_enabled = workflow_mcp_enabled(workflow)
-    if not api_enabled and not mcp_enabled:
-        return
 
     if mcp_enabled and not api_enabled:
         raise WorkflowRegistrationError(f"{label} enables MCP but does not enable API")
+    if form_enabled and not api_enabled:
+        raise WorkflowRegistrationError(f"{label} enables a form but does not enable API")
+    if not api_enabled:
+        return
 
     missing = missing_metadata_attributes(workflow)
     if not missing:

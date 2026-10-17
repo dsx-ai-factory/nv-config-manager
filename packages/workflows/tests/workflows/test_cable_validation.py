@@ -31,18 +31,17 @@ from temporalio.exceptions import ApplicationError, ChildWorkflowError
 from temporalio.worker import Worker
 
 from .cable_validation_data import (
-    DEVICE_CONNECTION_DATA_INVALID,
     DEVICE_CONNECTION_DATA_MAC_TABLE,
     DEVICE_CONNECTION_DATA_MAC_TABLE_INVALID,
     DEVICE_CONNECTION_DATA_MAC_VALIDATION,
     DEVICE_CONNECTION_DATA_VALID,
+    INVALID_NETWORK_DEVICE,
+    MAC_VALIDATION_NETWORK_DEVICE,
+    VALID_NETWORK_DEVICES,
 )
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_dcim.workflow_models import InterfaceData, NetworkDeviceData, Platform
-    from nv_config_manager_dcim_nautobot_2x.workflow_models import (
-        network_device_from_nautobot_graphql,
-    )
 
     from nv_config_manager_workflows.activities.cable_validation import (
         CableStatus,
@@ -390,9 +389,9 @@ async def mock_get_network_devices(
 ) -> GetNetworkDevicesOutput:
     return GetNetworkDevicesOutput(
         devices=[
-            network_device_from_nautobot_graphql(device)
-            for device in DEVICE_CONNECTION_DATA_VALID.values()
-            if device["location"]["name"] == activity_input.site
+            device.model_copy(deep=True)
+            for device in VALID_NETWORK_DEVICES.values()
+            if device.site == activity_input.site
         ]
     )
 
@@ -404,9 +403,9 @@ async def mock_get_network_devices_hostname_mismatch(
     assert isinstance(activity_input.site, str)
     return GetNetworkDevicesOutput(
         devices=[
-            network_device_from_nautobot_graphql(device)
-            for device in DEVICE_CONNECTION_DATA_VALID.values()
-            if device["location"]["name"] == activity_input.site
+            device.model_copy(deep=True)
+            for device in VALID_NETWORK_DEVICES.values()
+            if device.site == activity_input.site
         ]
         + [
             NetworkDeviceData(
@@ -779,8 +778,7 @@ def mock_validate_hostname_mismatch(
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_execute_device_cable_validation_workflow_dpu_mac_offset(_: Any, env: Any) -> None:
+async def test_execute_device_cable_validation_workflow_dpu_mac_offset(env: Any) -> None:
     """Test DPU MAC offset validation where actual MAC is expected MAC + 0x10."""
 
     @activity.defn(name="get_device_actual_neighbors")
@@ -870,10 +868,8 @@ async def test_execute_device_cable_validation_workflow_dpu_mac_offset(_: Any, e
         activity_executor=ThreadPoolExecutor(5),
     ):
         workflow_input = DeviceCableValidationInput(
-            device=network_device_from_nautobot_graphql(
-                DEVICE_CONNECTION_DATA_INVALID["mock_device1"]
-            ),
-            device_id=DEVICE_CONNECTION_DATA_INVALID["mock_device1"]["id"],
+            device=INVALID_NETWORK_DEVICE.model_copy(deep=True),
+            device_id=INVALID_NETWORK_DEVICE.id,
         )
         assert workflow_input.device is not None
         workflow_id = str(uuid.uuid4())
@@ -923,9 +919,7 @@ async def test_execute_device_cable_validation_workflow_dpu_mac_offset(_: Any, e
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager_workflows.activities.cable_validation.activities.get_dcim_client")
-@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_cable_validation_workflow_all_valid(_: Any, mock_nb_client: Any, env: Any) -> None:
+async def test_cable_validation_workflow_all_valid(env: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -995,8 +989,7 @@ EXPECTED_CABLE_TABLE = (
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_cable_validation_workflow_some_invalid(_: Any, env: Any) -> None:
+async def test_cable_validation_workflow_some_invalid(env: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -1035,8 +1028,8 @@ async def test_cable_validation_workflow_some_invalid(_: Any, env: Any) -> None:
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_cable_validation_workflow_hostname_mismatch(_: Any, env: Any) -> None:
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", new=lambda: float(0))
+async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -1977,8 +1970,7 @@ async def test_cable_validation_workflow_hostname_mismatch(_: Any, env: Any) -> 
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_execute_device_cable_validation_workflow_valid(_: Any, env: Any) -> None:
+async def test_execute_device_cable_validation_workflow_valid(env: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -1999,10 +1991,8 @@ async def test_execute_device_cable_validation_workflow_valid(_: Any, env: Any) 
         activity_executor=ThreadPoolExecutor(5),
     ):
         workflow_input = DeviceCableValidationInput(
-            device=network_device_from_nautobot_graphql(
-                DEVICE_CONNECTION_DATA_INVALID["mock_device1"]
-            ),
-            device_id=DEVICE_CONNECTION_DATA_INVALID["mock_device1"]["id"],
+            device=INVALID_NETWORK_DEVICE.model_copy(deep=True),
+            device_id=INVALID_NETWORK_DEVICE.id,
         )
         assert workflow_input.device is not None
 
@@ -2058,10 +2048,8 @@ async def test_execute_device_cable_validation_workflow_valid(_: Any, env: Any) 
         )
 
         workflow_input = DeviceCableValidationInput(
-            device=network_device_from_nautobot_graphql(
-                DEVICE_CONNECTION_DATA_VALID["MOCK-LEAF-04"]
-            ),
-            device_id=DEVICE_CONNECTION_DATA_VALID["MOCK-LEAF-04"]["id"],
+            device=VALID_NETWORK_DEVICES["MOCK-LEAF-04"].model_copy(deep=True),
+            device_id=VALID_NETWORK_DEVICES["MOCK-LEAF-04"].id,
         )
         assert workflow_input.device is not None
         workflow_id = str(uuid.uuid4())
@@ -2330,10 +2318,8 @@ async def test_execute_device_cable_validation_workflow_invalid(env: Any) -> Non
         activity_executor=ThreadPoolExecutor(5),
     ):
         workflow_input = DeviceCableValidationInput(
-            device=network_device_from_nautobot_graphql(
-                DEVICE_CONNECTION_DATA_INVALID["mock_device1"]
-            ),
-            device_id=DEVICE_CONNECTION_DATA_INVALID["mock_device1"]["id"],
+            device=INVALID_NETWORK_DEVICE.model_copy(deep=True),
+            device_id=INVALID_NETWORK_DEVICE.id,
         )
         assert workflow_input.device is not None
         workflow_id = str(uuid.uuid4())
@@ -2486,9 +2472,7 @@ async def test_execute_device_cable_validation_workflow_invalid(env: Any) -> Non
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_device_cable_validation_workflow_mac_validation_all_valid(
-    _: Any,
     env: Any,
 ) -> None:
     # Test 4 healthy scenarios:
@@ -2627,10 +2611,8 @@ async def test_execute_device_cable_validation_workflow_mac_validation_all_valid
         activity_executor=ThreadPoolExecutor(5),
     ):
         workflow_input = DeviceCableValidationInput(
-            device=network_device_from_nautobot_graphql(
-                DEVICE_CONNECTION_DATA_MAC_VALIDATION["MOCK-IPMITOR-01"]
-            ),
-            device_id=DEVICE_CONNECTION_DATA_MAC_VALIDATION["MOCK-IPMITOR-01"]["id"],
+            device=MAC_VALIDATION_NETWORK_DEVICE.model_copy(deep=True),
+            device_id=MAC_VALIDATION_NETWORK_DEVICE.id,
         )
         assert workflow_input.device is not None
         workflow_id = str(uuid.uuid4())
@@ -2683,8 +2665,7 @@ async def test_execute_device_cable_validation_workflow_mac_validation_all_valid
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_execute_device_cable_validation_workflow_hostname_mismatch(_: Any, env: Any) -> None:
+async def test_execute_device_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -2703,10 +2684,8 @@ async def test_execute_device_cable_validation_workflow_hostname_mismatch(_: Any
         activity_executor=ThreadPoolExecutor(2),
     ):
         workflow_input = DeviceCableValidationInput(
-            device=network_device_from_nautobot_graphql(
-                DEVICE_CONNECTION_DATA_MAC_VALIDATION["MOCK-IPMITOR-01"]
-            ),
-            device_id=DEVICE_CONNECTION_DATA_MAC_VALIDATION["MOCK-IPMITOR-01"]["id"],
+            device=MAC_VALIDATION_NETWORK_DEVICE.model_copy(deep=True),
+            device_id=MAC_VALIDATION_NETWORK_DEVICE.id,
         )
         workflow_id = str(uuid.uuid4())
 
@@ -2732,8 +2711,7 @@ async def test_execute_device_cable_validation_workflow_hostname_mismatch(_: Any
 
 
 @pytest.mark.asyncio
-@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
-async def test_site_cable_validation_no_devices_found(_: Any, env: Any) -> None:
+async def test_site_cable_validation_no_devices_found(env: Any) -> None:
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,

@@ -64,11 +64,11 @@ def run_diagnostic_commands(activity_input: RunDiagnosticsInput) -> RunDiagnosti
 
 @activity.defn
 def collect_tech_support_bundle(activity_input: TechSupportInput) -> TechSupportOutput:
-    """Collect a cl-support bundle from a device and store its bytes in Redis.
+    """Collect a tech-support bundle from a device and store its bytes in Redis.
 
     Sync activity — runs in the ThreadPoolExecutor so activity.heartbeat() is
     reliably delivered from the thread. The heartbeat_fn callback is called:
-      - during quiet stretches of cl-support output (every ~20 s of silence)
+      - during quiet stretches of tech-support output (every ~20 s of silence)
       - during the SFTP download on each received chunk (rate-limited to 10 s)
     This keeps the 60-second heartbeat window well-satisfied throughout.
 
@@ -85,7 +85,9 @@ def collect_tech_support_bundle(activity_input: TechSupportInput) -> TechSupport
 
     def _heartbeat() -> None:
         elapsed = int(time.monotonic() - start)
-        activity.heartbeat(f"Generating cl-support bundle on {device_name} ({elapsed}s elapsed)...")
+        activity.heartbeat(
+            f"Generating tech-support bundle on {device_name} ({elapsed}s elapsed)..."
+        )
 
     with closing(get_device_connection(activity_input.device_data)) as connection:
         content, cl_support_log = connection.get_tech_support_bundle(_heartbeat)
@@ -106,7 +108,7 @@ def collect_tech_support_bundle(activity_input: TechSupportInput) -> TechSupport
     activity.heartbeat(
         f"Bundle stored in Redis on {device_name} ({len(content)} bytes, "
         f"{int(time.monotonic() - start)}s total). Key: {redis_key}\n\n"
-        f"cl-support output:\n{cl_support_log}"
+        f"tech-support output:\n{cl_support_log}"
     )
     return TechSupportOutput(
         device_name=device_name,

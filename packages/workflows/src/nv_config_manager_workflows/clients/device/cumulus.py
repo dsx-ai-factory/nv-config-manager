@@ -16,11 +16,9 @@
 
 from __future__ import annotations
 
-import contextvars
 import json
 import logging
 import re
-import threading
 import time
 from collections.abc import Callable
 from copy import deepcopy
@@ -843,29 +841,6 @@ class CumulusConnection(NetworkConnection):
                 strip_command=False,
             )
             return str(output)
-
-    def _start_heartbeat_thread(
-        self, heartbeat_fn: Callable[[], None] | None
-    ) -> tuple[threading.Event, threading.Thread]:
-        """Start a background thread that calls heartbeat_fn every 15 s.
-
-        Copies the current contextvars context so that activity.heartbeat()
-        works from the thread (threading.Thread does not inherit contextvars).
-        """
-        stop_event = threading.Event()
-
-        def _beat() -> None:
-            while not stop_event.wait(15):
-                if heartbeat_fn:
-                    try:
-                        heartbeat_fn()
-                    except Exception:
-                        pass
-
-        ctx = contextvars.copy_context()
-        thread = threading.Thread(target=ctx.run, args=(_beat,), daemon=True)
-        thread.start()
-        return stop_event, thread
 
     def _sftp_download(
         self,

@@ -29,7 +29,7 @@ dependencies = [
     "pynacl>=1.6.2",
     # Security: Fix urllib3 decompression chain vulnerabilities (GHSA-gm62-xv2j-4w53, GHSA-2xpw-w6gg-jr37, GHSA-38jv-5279-wg99)
     # Security: Fix urllib3 vulnerabilities (CVE-2026-44431, CVE-2026-44432)
-    "urllib3>=2.7.0",
+    "urllib3>=2.8.0",
     # Security: Fix GitPython vulnerability (GHSA-mv93-w799-cj2w)
     "gitpython>=3.1.62",
     # Security: Fix vulnerable OpenSSL bundled in cryptography wheels (GHSA-537c-gmf6-5ccf)
@@ -44,7 +44,7 @@ dependencies = [
     "sqlparse>=0.6.0",
     # Multi-provider JWT validation (external IdPs, Azure AD, SPIFFE JWT-SVIDs)
     # cryptography is already a transitive dep of nautobot but pin for JWKS key support
-    "PyJWT[crypto]>=2.13.0",
+    "PyJWT[crypto]>=2.14.0",
 ]
 
 [dependency-groups]

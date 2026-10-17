@@ -82,6 +82,15 @@ def use_internal_endpoint(section: str, config: ConfigParser | None = None) -> b
     return config[section].getboolean("use_internal_endpoint", fallback=False)
 
 
+class SpiffeJwtUnavailableError(RuntimeError):
+    """Raised when SPIFFE is configured but no JWT-SVID can be read."""
+
+
+def _spiffe_jwt_path() -> str:
+    """Return ``[auth.spiffe] jwt_svid_path``, or an empty string if unset."""
+    return load_config().get("auth.spiffe", "jwt_svid_path", fallback="")
+
+
 def _read_spiffe_jwt() -> str | None:
     """Read the current JWT-SVID from the file written by spiffe-helper.
 
@@ -89,8 +98,7 @@ def _read_spiffe_jwt() -> str | None:
     Returns the raw JWT string, or None if SPIFFE is not configured or
     the file is unavailable.
     """
-    config = load_config()
-    jwt_path = config.get("auth.spiffe", "jwt_svid_path", fallback="")
+    jwt_path = _spiffe_jwt_path()
     if not jwt_path:
         return None
     try:
@@ -110,7 +118,9 @@ def get_internal_auth_headers(
     When SPIFFE is configured (``[auth.spiffe] jwt_svid_path`` is set),
     reads the JWT-SVID from disk and returns an ``Authorization: Bearer``
     header.  The receiving service validates the JWT against the Workload
-    API trust bundle.
+    API trust bundle.  If the JWT-SVID cannot be read, raises
+    :class:`SpiffeJwtUnavailableError` rather than downgrading to
+    identity headers, which any in-cluster caller could forge.
 
     When SPIFFE is not configured, falls back to ``X-Auth-Request-*``
     headers for environments that trust the caller's identity headers
@@ -128,9 +138,19 @@ def get_internal_auth_headers(
 
     Returns:
         Dict of auth headers to include in HTTP requests
+
+    Raises:
+        SpiffeJwtUnavailableError: SPIFFE is configured but the JWT-SVID
+            file is missing, unreadable, or empty.
     """
-    jwt = _read_spiffe_jwt()
-    if jwt:
+    jwt_path = _spiffe_jwt_path()
+    if jwt_path:
+        jwt = _read_spiffe_jwt()
+        if not jwt:
+            raise SpiffeJwtUnavailableError(
+                f"SPIFFE is configured but no JWT-SVID is available at {jwt_path}; "
+                "check that spiffe-helper runs in this pod and the token volume is mounted."
+            )
         return {"Authorization": f"Bearer {jwt}"}
 
     if service_name:

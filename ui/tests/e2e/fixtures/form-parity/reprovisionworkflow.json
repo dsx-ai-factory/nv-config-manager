@@ -1,0 +1,39 @@
+{
+  "workflow": "ReprovisionWorkflow",
+  "input_model": "ReprovisionInput",
+  "scenarios": [
+    {
+      "name": "manual site and device",
+      "legacy_url": "/workflows/reprovisionworkflow/form",
+      "new_url": "/workflows/new/reprovision",
+      "legacy_payload": {
+        "device_id": "cb60e17a-b426-471f-a5c5-255f45368e7c"
+      },
+      "generic_payload": {
+        "device_id": "cb60e17a-b426-471f-a5c5-255f45368e7c"
+      }
+    },
+    {
+      "name": "manual fill narrowed by tenant",
+      "legacy_url": "/workflows/reprovisionworkflow/form",
+      "new_url": "/workflows/new/reprovision",
+      "legacy_payload": {
+        "device_id": "cb60e17a-b426-471f-a5c5-255f45368e7c"
+      },
+      "generic_payload": {
+        "device_id": "cb60e17a-b426-471f-a5c5-255f45368e7c"
+      }
+    },
+    {
+      "name": "Nautobot device link",
+      "legacy_url": "/workflows/reprovisionworkflow/form?site=PDX01&device-id=cb60e17a-b426-471f-a5c5-255f45368e7c&tenant=TenantA",
+      "new_url": "/workflows/new/reprovision?site=PDX01&device-id=cb60e17a-b426-471f-a5c5-255f45368e7c&tenant=TenantA",
+      "legacy_payload": {
+        "device_id": "cb60e17a-b426-471f-a5c5-255f45368e7c"
+      },
+      "generic_payload": {
+        "device_id": "cb60e17a-b426-471f-a5c5-255f45368e7c"
+      }
+    }
+  ]
+}

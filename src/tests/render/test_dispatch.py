@@ -21,6 +21,7 @@ import pytest
 
 from nv_config_manager.dcim import DCIMChangeEvent, RenderEventRequest
 from nv_config_manager.render.dispatch import EventDispatcher
+from nv_config_manager.render.exceptions import RenderScopeMismatch
 
 
 class SyntheticRenderEventProvider:
@@ -134,3 +135,21 @@ async def test_nautobot_change_dispatch(mock_render):
     await dispatcher.nautobot_change_dispatch(message)
 
     mock_render.assert_called_once_with("device-1", "test commit message", "test")
+
+
+@patch("nv_config_manager.render.dispatch.execute_render", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_queued_device_outside_aggregate_scope_is_skipped(mock_render):
+    """Old queue entries for another cell are consumed without render failures."""
+    dispatcher = EventDispatcher(SyntheticRenderEventProvider())
+    mock_render.side_effect = RenderScopeMismatch("Device is not aggregate-managed")
+    message = {
+        "device_id": "device-1",
+        "commit_message": "message",
+        "user": "test",
+        "@timestamp": "2025-08-13T20:00:30Z",
+    }
+    with patch.object(dispatcher, "logger") as logger:
+        await dispatcher.nautobot_change_dispatch(message)
+    logger.info.assert_called_once()
+    logger.exception.assert_not_called()

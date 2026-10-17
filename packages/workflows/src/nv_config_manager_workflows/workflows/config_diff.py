@@ -14,18 +14,21 @@
 # limitations under the License.
 """Read-only configuration diff workflow."""
 
+from collections.abc import Mapping
 from datetime import timedelta
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.ui import FormExcluded, device_field
 from nv_config_manager_workflows.workflow_references import (
     DEVICE_REFERENCE,
     DeviceReference,
 )
+from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.dcim import (
@@ -63,8 +66,15 @@ __all__ = [
 class ConfigDiffInput(BaseModel):
     """Config Diff Workflow input."""
 
+    rjsf_ui_schema: ClassVar[Mapping[str, object]] = {
+        "device_id": {
+            **device_field(MANAGED_DEVICE_SOURCE, filters=("site", "tenant", "status")),
+            "ui:title": "Device",
+        },
+    }
+
     device_id: DeviceReference = Field(description="Identifier of the network device to compare.")
-    device: Annotated[NetworkDeviceData | None, DEVICE_REFERENCE] = Field(
+    device: Annotated[NetworkDeviceData | None, DEVICE_REFERENCE, FormExcluded()] = Field(
         default=None,
         description=CONFIG_DIFF_DEVICE_DESCRIPTION,
     )
@@ -82,12 +92,15 @@ class ConfigDiffWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archive
     """Read-only diff of intended configuration against the live device."""
 
     workflow_name = "Configuration Diff"
+    workflow_group = "Configuration"
     workflow_description = (
         "Compare the intended configuration against the live device without applying any changes"
     )
     workflow_input_class = ConfigDiffInput
     workflow_api_enabled = True
     workflow_api_endpoint = "/ngc/config_diff"
+    workflow_form_enabled = True
+    workflow_form_id = "config-diff"
     workflow_namespace = "ngc"
     workflow_required_activities = (
         get_network_device,

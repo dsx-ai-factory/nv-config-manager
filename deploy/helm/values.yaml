@@ -997,6 +997,19 @@ gateway:
       endpoint: ""
       samplingRate: 0.1
 # =============================================================================
+# Inbound Service Authentication
+# =============================================================================
+auth:
+  # Trust X-Auth-Request-* identity headers on inbound requests.
+  # null (default): trusted unless SPIFFE is enabled with authMode jwt. Then
+  # internal callers present a JWT-SVID, users present the bearer token
+  # oauth2-proxy forwards, and any in-cluster caller could forge the headers.
+  # OIDC alone or authMode mtls leaves them trusted, because internal callers
+  # have no other credential. Set true or false to override. Also governs the ssl-client-cert header.
+  # Listeners exposed without the gateway (ZTP http-lb, DHCP healthcheck) never
+  # trust these headers, whatever this is set to.
+  acceptRequestHeaders: null
+# =============================================================================
 # OIDC Configuration
 # =============================================================================
 oidc:
@@ -1093,11 +1106,12 @@ ui:
     hostname: "{{ .Values.gateway.baseHostname }}"
     # Optional: restrict access to specific groups (Azure AD group UUIDs)
     allowedGroups: []
-    # Static file bypass - no JWT auth on assets (faster load, fewer refreshes)
-    # UI is OIDC-only; static file auth bypass removed
+    # The UI is OIDC-only except for its health endpoint, which the
+    # blackbox probe must reach without a login redirect.
     authBypass:
-      enabled: false
-      pathRegex: ""
+      enabled: true
+      paths:
+        - /api/health
   # Resource limits
   resources:
     requests:
@@ -1644,10 +1658,10 @@ networkDhcp:
     api:
       requests:
         cpu: 200m
-        memory: 128Mi
+        memory: 256Mi
       limits:
         cpu: 200m
-        memory: 128Mi
+        memory: 256Mi
     confgen:
       requests:
         cpu: 100m
@@ -1703,11 +1717,12 @@ temporal:
       hostname: "temporal.{{ .Values.gateway.baseHostname }}"
       # Optional: restrict access to specific groups
       allowedGroups: []
-      # Static file bypass - no JWT auth on assets (faster load, fewer refreshes)
-      # Temporal Web is OIDC-only; static file auth bypass removed
+      # Temporal Web is OIDC-only except for its health endpoint, which the
+      # blackbox probe must reach without a login redirect.
       authBypass:
-        enabled: false
-        pathRegex: ""
+        enabled: true
+        paths:
+          - /healthz
   # Temporal Web UI deployed with the project-owned Temporal server.
   devUi:
     replicas: 2
@@ -2881,6 +2896,12 @@ nautobot:
       paths:
         - /logout/
         - /api/
+    # Health endpoint reachable without a login redirect or Authorization
+    # header, so the blackbox probe reaches Nautobot instead of the login page.
+    healthBypass:
+      enabled: true
+      paths:
+        - /health
   # Ingress (optional, for direct access)
   ingress:
     enabled: false

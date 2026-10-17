@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+import contextvars
 import json
+import threading
 from collections.abc import Callable
 from typing import Any, Self
 
@@ -113,6 +115,29 @@ class NetworkConnection:
         raise NetworkDeviceException(
             f"All passwords failed for {self._username}@{self._host} after {len(passwords)} attempt(s)"
         ) from last_error
+
+    def _start_heartbeat_thread(
+        self, heartbeat_fn: Callable[[], None] | None
+    ) -> tuple[threading.Event, threading.Thread]:
+        """Start a background thread that calls heartbeat_fn every 15 s.
+
+        Copies the current contextvars context so that activity.heartbeat()
+        works from the thread (threading.Thread does not inherit contextvars).
+        """
+        stop_event = threading.Event()
+
+        def _beat() -> None:
+            while not stop_event.wait(15):
+                if heartbeat_fn:
+                    try:
+                        heartbeat_fn()
+                    except Exception:
+                        pass
+
+        ctx = contextvars.copy_context()
+        thread = threading.Thread(target=ctx.run, args=(_beat,), daemon=True)
+        thread.start()
+        return stop_event, thread
 
     def get_running_configuration(self) -> str:
         """Load the running configuration for a given device."""
@@ -365,7 +390,7 @@ class NetworkConnection:
         """Generate and retrieve a full platform tech-support bundle.
 
         Returns:
-            A tuple of (raw bundle bytes, full cl-support command output text).
+            A tuple of (raw bundle bytes, the collection output or a one-line summary).
         """
         raise NotImplementedError()
 

@@ -108,7 +108,7 @@ npm install
 Validation commands:
 
 ```bash
-uv run pytest
+make test
 uv run ruff check src/
 uv run mypy src/
 uv run ruff format src/
@@ -234,7 +234,8 @@ make local-status             # Show pods, services, and gateway state
 make local-logs               # Tail deployment logs
 make port-forward             # Forward Nautobot and Temporal UI locally
 make docker-build             # Build all local container images
-make test                     # Run Python tests
+make test                     # Run root and isolated workflow package tests
+make test-root                # Run root project tests only
 make lint                     # Run Python linters and type checks
 make openapi                  # Regenerate OpenAPI specs
 make openapi-check            # Check OpenAPI specs are current
@@ -337,13 +338,30 @@ Shared structured logging is available independently through the
 [logging package](packages/logging/README.md).
 
 ```bash
-make test
-make test-cov
+make install                 # Install Python dependencies
+make dev                     # Install with development dependencies
+make test                    # Run root and isolated workflow package tests
+make test-root               # Run root project tests only
+make test-cov                # Run root project tests with coverage in parallel
+make test-integration        # Run integration tests against a running cluster
+make test-nautobot-plugin    # Run the vendored Nautobot plugin's Django suite
+make test-workflow-package   # Test a non-editable, isolated workflow package install
+make test-workflow-wheels    # Test built workflow artifacts and the fixture plugin
+make lint                    # Run linters
+make format                  # Format code
+```
+
+`make test` includes `make test-workflow-package`, which creates a temporary,
+non-editable package environment. The package-isolation targets may require
+network access for Python dependencies and, on first use, the Temporal
+development server download.
+
+Run an individual service suite directly when a narrower check is sufficient:
+
+```bash
 uv run pytest src/tests/ztp/
 uv run pytest src/tests/temporal/
 uv run pytest src/tests/render/
-make lint
-make format
 ```
 
 Integration tests require a running deployment:
