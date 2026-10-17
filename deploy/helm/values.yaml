@@ -922,6 +922,26 @@ gateway:
     maxConnectionDuration: 0s
     # TCP connect timeout - time to establish connection to backend
     connectTimeout: 10s
+  # Retry policy for requests the gateway never managed to hand to a backend.
+  # Envoy does not retry at all unless this is set, so a single refused
+  # connection reaches the client as a 503. That is most likely while endpoints
+  # are churning - a rollout, or an autoscaler scaling in - where a pod stops
+  # accepting connections a moment before the gateway stops routing to it.
+  # Envoy Gateway only; kgateway TrafficPolicy has a separate retry schema and
+  # is not covered here.
+  # Only connection failures and refused streams are retried, both of which mean
+  # the request never reached a backend, so a write is never applied twice. The
+  # triggers and backoff (100ms base, 1s cap) are fixed in the template.
+  retry:
+    enabled: true
+    # Total attempts is numRetries + 1.
+    numRetries: 2
+    # Also retries the 502 the OIDC browser proxy returns when it cannot reach
+    # a backend, for GET and HEAD only, because a 502 cannot be distinguished
+    # from a write that already committed. Only takes effect when oidc.enabled
+    # puts the proxy in the request path.
+    safeMethods:
+      enabled: true
   # CORS configuration
   cors:
     enabled: true

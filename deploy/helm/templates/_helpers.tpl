@@ -1306,6 +1306,27 @@ cannot collapse monitors for different releases or clusters onto one name.
 {{- end }}
 
 {{/*
+Name of the method-matched rule on the browser HTTPRoutes. Shared so the rule
+and the BackendTrafficPolicy that targets it by sectionName cannot drift apart.
+*/}}
+{{- define "nv-config-manager.browserSafeMethodRuleName" -}}
+safe-methods
+{{- end }}
+
+{{/*
+True when the browser routes should carry a separate method-matched rule for
+the safe-method retry. Requires oauth2-proxy to actually be in the request
+path, and Envoy Gateway, since the retry rides on a BackendTrafficPolicy.
+*/}}
+{{- define "nv-config-manager.browserSafeMethodRetryEnabled" -}}
+{{- $r := .Values.gateway.retry | default dict -}}
+{{- $sm := $r.safeMethods | default dict -}}
+{{- if and .Values.oidc.enabled $r.enabled $sm.enabled (eq (include "nv-config-manager.gatewayControllerType" .) "envoyGateway") -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
 Address of the Prometheus this release deploys, for KEDA's render-autoscaling
 trigger -- empty unless that in-cluster Prometheus is actually what KEDA will
 query.
