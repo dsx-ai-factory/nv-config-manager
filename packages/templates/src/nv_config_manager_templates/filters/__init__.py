@@ -17,3 +17,12 @@
 
 class FilterException(Exception):
     """Exception to be thrown when bad input is supplied to a filter."""
+
+
+class DeviceNotRenderableError(FilterException):
+    """Raised when a device lacks the data needed to select any template set.
+
+    Distinct from FilterException so callers can treat it as "nothing to render
+    yet" rather than a render defect. Subclasses FilterException so existing
+    handlers keep working unchanged.
+    """

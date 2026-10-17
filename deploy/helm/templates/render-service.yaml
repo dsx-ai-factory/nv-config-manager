@@ -222,6 +222,15 @@ spec:
         ports:
         - name: metrics
           containerPort: 8000
+        - name: health
+          containerPort: 8001
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8001
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          failureThreshold: 4
         resources:
           {{- toYaml .Values.renderService.consumers.nautobot.resources | nindent 10 }}
         volumeMounts:
@@ -333,6 +342,15 @@ spec:
         ports:
         - name: metrics
           containerPort: 8000
+        - name: health
+          containerPort: 8001
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8001
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          failureThreshold: 4
         resources:
           {{- toYaml .Values.renderService.consumers.device.resources | nindent 10 }}
         volumeMounts:

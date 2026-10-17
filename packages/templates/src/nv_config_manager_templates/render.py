@@ -41,7 +41,7 @@ import nv_config_manager_templates.filters.device as device_filters
 import nv_config_manager_templates.filters.ip as ip_filters
 import nv_config_manager_templates.filters.location as location_filters
 import nv_config_manager_templates.filters.vault as vault_filters
-from nv_config_manager_templates.filters import FilterException
+from nv_config_manager_templates.filters import DeviceNotRenderableError, FilterException
 
 # Modify this constant as new filter modules are implemented
 FILTER_MODULES = [
@@ -270,7 +270,15 @@ class Renderer:
         """List all entrypoint templates for the given device."""
         platform = self._normalize_string(device_filters.platform(device_data))
         role = self._normalize_string(device_filters.role(device_data))
-        fwver = device_filters.desired_firmware(device_data)
+        try:
+            fwver = device_filters.desired_firmware(device_data)
+        except DeviceNotRenderableError as exc:
+            # The firmware version is only a path component here, so a device
+            # without one matches no entrypoints. Report that as an empty set
+            # rather than failing the whole render: a device awaiting firmware
+            # assignment is a normal state, not a defect.
+            logger.info("No entrypoints for %s/%s: %s", platform, role, exc)
+            return []
 
         path = f"{platform}/{role}/{fwver}/entrypoint/"
         return [
