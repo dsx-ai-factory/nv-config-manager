@@ -145,12 +145,15 @@ strategy:
 {{- end }}
 
 {{/*
-preStop drain delay for a container that serves traffic through the gateway or
-a LoadBalancer Service. Deleting a pod marks its endpoints terminating and sends
-SIGTERM at the same moment, so without a delay the container can stop listening
-before the gateway and load balancers have stopped routing to it. Every
-container on the request path needs it, not only the one a probe targets: a
-dependency that exits first fails the requests still arriving.
+preStop drain delay for a container whose shutdown the gateway retry cannot hide.
+Deleting a pod marks its endpoints terminating and sends SIGTERM at the same
+moment, so without a delay the container can stop serving before routing has
+caught up. The retry only recovers a refused connection between Envoy and the
+pod. It does not see traffic from a LoadBalancer Service, a write that oauth2-proxy
+answers with a 502 because the app behind it is gone, or an error from a
+container whose in-pod dependency exited first. Every container on such a
+request path needs the delay, not only the one a probe targets. oauth2-proxy
+itself does not: Envoy connects to it directly, so the retry covers it.
 Rendered only from Kubernetes 1.30, where the native sleep action is on by
 default; older API servers drop the field without an error.
 Indents itself so that nothing at all is rendered when disabled.

@@ -14,11 +14,12 @@
 # limitations under the License.
 """Helm rendering contracts for the preStop drain delay.
 
-Every container that serves traffic through the gateway or a LoadBalancer
-Service must keep running briefly after its pod is deleted, so the gateway and
-load balancers stop routing to it before it stops listening. That includes the
-dependencies on the request path, such as Kea behind the DHCP API, and must not
-reach workloads that nothing routes to.
+A container must keep running briefly after its pod is deleted wherever the
+gateway retry cannot hide its shutdown: traffic from a LoadBalancer Service,
+writes that oauth2-proxy answers with a 502 once the app behind it is gone, and
+pods where an in-pod dependency such as Kea can exit before the container in
+front of it. oauth2-proxy itself is excluded, because Envoy connects to it
+directly and retries the refused connection, as are workloads nothing routes to.
 """
 
 from __future__ import annotations
@@ -42,24 +43,11 @@ _BASE_SET_ARGS = (
     "oidc.clientId=placeholder-client",
     "networkZtp.ingress.nlb.dns_name=ztp.example.invalid",
 )
-_OIDC_PROXY_PORTS = (
-    "callback",
-    "ui",
-    "render",
-    "ztp",
-    "dhcp",
-    "workflow",
-    "temporal",
-    "nautobot",
-    "config-store",
-    "mcp",
-)
 _DRAINED = {
     "config-store-api": {"api"},
     "dhcp": {"kea", "healthcheck", "api"},
     "mcp": {"api"},
     "nautobot": {"nautobot", "nginx"},
-    "oidc-proxy": set(_OIDC_PROXY_PORTS),
     "render-api": {"api"},
     "temporal-api": {"api"},
     "temporal-web": {f"{_PREFIX}temporal-web"},
@@ -68,7 +56,11 @@ _DRAINED = {
 }
 
 
-def _helm_command(*set_args: str, kube_version: str | None = None) -> list[str]:
+def _helm_command(
+    *set_args: str,
+    set_string_args: tuple[str, ...] = (),
+    kube_version: str | None = None,
+) -> list[str]:
     """Build a full-chart template command from the required CI values."""
     if shutil.which("helm") is None:
         pytest.skip("helm binary not available")
@@ -87,6 +79,8 @@ def _helm_command(*set_args: str, kube_version: str | None = None) -> list[str]:
     ]
     for pair in (*_BASE_SET_ARGS, *set_args):
         command += ["--set", pair]
+    for pair in set_string_args:
+        command += ["--set-string", pair]
     return command
 
 
@@ -106,9 +100,14 @@ def _render(*set_args: str, kube_version: str | None = None) -> list[dict[str, A
     return [document for document in yaml.load_all(io.StringIO(result.stdout)) if document]
 
 
-def _render_failure(*set_args: str) -> str:
+def _render_failure(*set_args: str, set_string_args: tuple[str, ...] = ()) -> str:
     """Render the chart and return helm's error output."""
-    result = subprocess.run(_helm_command(*set_args), capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        _helm_command(*set_args, set_string_args=set_string_args),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert result.returncode != 0, "helm template unexpectedly succeeded"
     return result.stderr
 
@@ -149,6 +148,13 @@ def test_zero_disables_the_drain_delay() -> None:
     assert not any(hooks.values())
 
 
+def test_absent_value_disables_the_drain_delay() -> None:
+    # Helm deletes a key set to null, so this is also what an explicit null means.
+    hooks = _prestop_by_container(_render("global.preStopSleepSeconds=null"))
+
+    assert not any(hooks.values())
+
+
 def test_drain_delay_is_omitted_before_kubernetes_1_30() -> None:
     # The native sleep action is off by default on 1.29, and the API server
     # silently drops it, so rendering it there would only hide the gap.
@@ -163,8 +169,14 @@ def test_drain_delay_must_leave_room_in_the_grace_period() -> None:
     assert "global.preStopSleepSeconds (21) must be at most 20" in stderr
 
 
-@pytest.mark.parametrize("value", ["-1", "abc", "1.5"])
+@pytest.mark.parametrize("value", ["-1", "abc", "1.5", "false"])
 def test_drain_delay_must_be_whole_seconds(value: str) -> None:
     stderr = _render_failure(f"global.preStopSleepSeconds={value}")
+
+    assert "global.preStopSleepSeconds must be a non-negative whole number of seconds" in stderr
+
+
+def test_empty_drain_delay_is_rejected_rather_than_treated_as_zero() -> None:
+    stderr = _render_failure(set_string_args=("global.preStopSleepSeconds=",))
 
     assert "global.preStopSleepSeconds must be a non-negative whole number of seconds" in stderr

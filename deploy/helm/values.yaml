@@ -121,9 +121,10 @@ global:
   # signals it at the same time, and the gateway and load balancers learn of the
   # change a moment later. Without the delay, requests in that gap meet a closed
   # listener or a dependency that has already exited, such as Kea behind the
-  # DHCP API. The gateway retry only recovers the refused connections; the delay
-  # avoids both. Applied to the gateway- and LoadBalancer-facing containers only,
-  # and only on Kubernetes 1.30 or later. 0 disables it.
+  # DHCP API. The gateway retry recovers only a refused connection between Envoy
+  # and the pod: not LoadBalancer traffic, not a write that oauth2-proxy answers
+  # with a 502, and not an in-pod dependency failing first. Applied to the
+  # containers on those paths, and only on Kubernetes 1.30 or later. 0 disables it.
   #
   # Must stay below the 30s termination grace period, with room left for the
   # application's own shutdown. Raise it if a LoadBalancer takes longer than
