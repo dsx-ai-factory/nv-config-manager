@@ -158,11 +158,12 @@ spec:
   it cannot be told apart from a write that already committed -- so it is
   retried only on the method-matched rule, reached here by sectionName.
 
-  The timeouts are restated rather than inherited: a policy targeting a route
-  rule is the most specific one, so it replaces the Gateway- and route-level
-  policies for that rule instead of merging with them. ZTP is separate because
-  its uploads run on far longer timeouts than the global default, and the rule
-  would otherwise be silently downgraded to that default.
+  The timeouts are restated rather than inherited, despite the mergeType below.
+  Merging is against the Gateway-level policy, which only exists with
+  gateway.create, so a BYO-gateway install has nothing to inherit from. And it
+  is the Gateway policy rather than a sibling route-level one, so the ZTP upload
+  route would inherit the global default instead of its own far longer timeouts.
+  That is why ZTP gets a second policy below rather than sharing this one.
   ----------------------------------------------------------------------- */}}
 {{- if include "nv-config-manager.browserSafeMethodRetryEnabled" . }}
 {{- $ruleName := include "nv-config-manager.browserSafeMethodRuleName" . }}
@@ -209,6 +210,9 @@ spec:
     name: {{ . }}
     sectionName: {{ $ruleName }}
   {{- end }}
+  # Without this, this policy would replace the Gateway-level one for these
+  # rules and take its rateLimit with it, on most of the browser traffic.
+  mergeType: StrategicMerge
   timeout:
     http:
       requestTimeout: {{ .Values.gateway.timeout.requestTimeout | default "300s" }}
@@ -234,6 +238,8 @@ spec:
     kind: HTTPRoute
     name: {{ $ztpName }}
     sectionName: {{ $ruleName }}
+  # As above: keep the Gateway policy's rateLimit on this rule.
+  mergeType: StrategicMerge
   timeout:
     http:
       requestTimeout: {{ .Values.networkZtp.upload.timeout | default "3600s" }}
