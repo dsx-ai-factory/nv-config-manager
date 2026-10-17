@@ -26,6 +26,7 @@ from nv_config_manager.common.config import load_config, nats_archive_config
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.temporal.api.workflow_v1 import WorkflowDetailResponse, get_client
 from nv_config_manager.temporal.client.nats import NatsConsumer
+from nv_config_manager.temporal.common.secret_redaction import redact_secrets_in_data
 from nv_config_manager.temporal.telemetry import setup_telemetry
 
 config = load_config()
@@ -73,7 +74,9 @@ async def handle_archive_msg(msg: Msg) -> None:
     temporal_client = await get_client()
     workflow_handle = temporal_client.get_workflow_handle(data["workflow_id"])
     workflow_response = await WorkflowDetailResponse.from_handle(workflow_handle)
-    workflow_details = workflow_response.model_dump(mode="json")
+    # Stage outputs carry raw device diffs; archive backends are readable by a wider
+    # audience than the devices, so secret values must never leave this process.
+    workflow_details = redact_secrets_in_data(workflow_response.model_dump(mode="json"))
 
     logging.debug("Response from temporal API: %s", workflow_details)
 
