@@ -112,11 +112,30 @@ def get_dcim_provider(config: ConfigParser | None = None) -> Any:
     return get_sdk_dcim_provider(configured_dcim_provider_name(config))
 
 
+def _nautobot_spiffe_headers() -> dict[str, str] | None:
+    """Return a SPIFFE bearer header when a JWT-SVID can be read.
+
+    ``None`` keeps the Nautobot API token. The SVID is read on each call
+    because spiffe-helper refreshes the file in place.
+    """
+    # Lazy import: common.config imports this module while it is loading.
+    from nv_config_manager.common.config.http import spiffe_authorization_headers
+
+    return spiffe_authorization_headers()
+
+
 def create_dcim_client(config: ConfigParser | None = None) -> DCIMClient:
-    """Create one broad client using the service's INI configuration."""
+    """Create one broad client using the service's INI configuration.
+
+    The built-in Nautobot provider sends ``Authorization: Bearer <jwt-svid>``
+    when a SPIFFE JWT is readable, and the configured API token otherwise.
+    """
     config = _resolved_config(config)
     name = configured_dcim_provider_name(config)
-    return create_sdk_dcim_client(name, provider_settings(config, name))
+    settings: dict[str, Any] = dict(provider_settings(config, name))
+    if name == DEFAULT_DCIM_PROVIDER:
+        settings["headers"] = _nautobot_spiffe_headers
+    return create_sdk_dcim_client(name, settings)
 
 
 def create_nautobot_mcp_client(

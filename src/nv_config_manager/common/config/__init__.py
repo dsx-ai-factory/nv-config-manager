@@ -57,6 +57,7 @@ from nv_config_manager.common.config.http import (  # noqa: F401
     get_mtls_cert_paths,
     get_service_url,
     parse_verify_param,
+    spiffe_authorization_headers,
     use_internal_endpoint,
 )
 from nv_config_manager.common.config.loader import (  # noqa: F401

@@ -160,7 +160,7 @@ class NautobotClient:
         token: str = "",
         verify: bool | str = True,
         timeout: int | None = None,
-        headers: dict[str, str] | Callable[[], dict[str, str]] | None = None,
+        headers: dict[str, str] | Callable[[], dict[str, str] | None] | None = None,
     ) -> None:
         """Initialize the Nautobot client.
 
@@ -171,7 +171,8 @@ class NautobotClient:
             timeout: Default request timeout in seconds. ``None`` uses
                 :data:`DEFAULT_TIMEOUT`.
             headers: Static dict or callable returning fresh headers per-request.
-                If set, these headers take precedence over token auth.
+                A returned dict takes precedence over token auth. A callable
+                that returns ``None`` leaves token auth in place.
         """
         self.nautobot_url = nautobot_url.rstrip("/") + "/"
         self.token = token
@@ -237,12 +238,19 @@ class NautobotClient:
         return self._session
 
     def _resolve_headers(self) -> dict[str, str] | None:
-        """Return auth headers for the current request/session."""
+        """Return auth headers for the current request.
+
+        A static header dict, including an empty one, replaces token auth.
+        A callable that returns ``None`` means no alternate credential is
+        available, so the API token is used instead.
+        """
         headers = self._headers
         if isinstance(headers, dict):
             return cast(dict[str, str], headers)
         if headers is not None:
-            return headers()
+            resolved = headers()
+            if resolved is not None:
+                return resolved
         if self.token:
             return {"Authorization": f"Token {self.token}"}
         return None
