@@ -380,10 +380,32 @@ async def test_pull_device_change_consumer_success(mock_dispatcher, mock_lock, c
         mock_dispatcher.nautobot_change_dispatch = AsyncMock()
         await consumer.message_handler(mock_msg)
 
-    mock_clear_queued.assert_awaited_once_with("test-device")
+    mock_clear_queued.assert_awaited_once_with("test-device", token=None)
     mock_msg.ack.assert_called_once()
     mock_dispatcher.nautobot_change_dispatch.assert_called_once_with({"device_id": "test-device"})
     mock_lock.release.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_pull_device_change_consumer_releases_only_its_own_claim(
+    mock_dispatcher, mock_lock, custom_ini
+):
+    """The consumer releases the dedup slot with the claim its message was published under."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_msg.ack = AsyncMock()
+    mock_lock.acquire.return_value = True
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock
+    ) as mock_clear_queued:
+        mock_dispatcher.nautobot_change_dispatch = AsyncMock()
+        await consumer.message_handler(mock_msg)
+
+    mock_clear_queued.assert_awaited_once_with("test-device", token="claim-1")
+    mock_msg.ack.assert_called_once()
 
 
 @pytest.mark.asyncio

@@ -20,6 +20,7 @@ import asyncio
 import inspect
 import json
 import logging
+import uuid
 from typing import TYPE_CHECKING
 
 import nats.js
@@ -52,6 +53,16 @@ class DeviceNotEnabledError(Exception):
 # before the render runs, the next change re-publishes the same device and the
 # queue amplifies by one copy per change.
 QUEUED_FLAG_TTL_SECONDS = 3600
+
+# Message field carrying the token of the queue claim that published it.
+QUEUE_CLAIM_FIELD = "queue_claim"
+
+_CLEAR_OWN_CLAIM_SCRIPT = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+end
+return 0
+"""
 
 
 def _get_queue_redis_client() -> RedisClient | None:
@@ -90,24 +101,32 @@ async def mark_queued(device_uuid: str, client: RedisClient | None = None) -> No
             await _close_queue_redis_client(client)
 
 
-async def claim_queued(device_uuid: str, client: RedisClient | None = None) -> bool:
+async def claim_queued(device_uuid: str, client: RedisClient | None = None) -> str | None:
     """Atomically claim the render queue slot for a device.
 
-    Returns True when the caller won the claim and should publish, False when a
-    render is already queued. Separate ``exists`` and ``setex`` calls let
-    concurrent producers both observe an unset flag and both publish, so the
-    check and the set have to happen in one ``SET NX EX``.
+    Returns a token unique to this claim when the caller won it and should
+    publish, or None when a render is already queued. Separate ``exists`` and
+    ``setex`` calls let concurrent producers both observe an unset flag and both
+    publish, so the check and the set have to happen in one ``SET NX EX``.
+
+    The token travels with the published message so that only the claim's own
+    message can release it. A claim can expire while its message is still
+    queued, and without the token that late message would delete the newer
+    claim and reopen the slot to duplicates.
     """
+    token = uuid.uuid4().hex
     owned_client = client is None
     client = client or _get_queue_redis_client()
     if client is None:
         # Local environment, never dedup
-        return True
+        return token
 
     try:
         queue_key = f"{device_uuid}_queued"
-        claimed = await client.redis.set(queue_key, b"1", ex=QUEUED_FLAG_TTL_SECONDS, nx=True)
-        return bool(claimed)
+        claimed = await client.redis.set(
+            queue_key, token.encode(), ex=QUEUED_FLAG_TTL_SECONDS, nx=True
+        )
+        return token if claimed else None
     finally:
         if owned_client:
             await _close_queue_redis_client(client)
@@ -129,8 +148,16 @@ async def is_queued(device_uuid: str, client: RedisClient | None = None) -> bool
             await _close_queue_redis_client(client)
 
 
-async def clear_queued(device_uuid: str, client: RedisClient | None = None) -> None:
-    """Clear the queued flag for a device."""
+async def clear_queued(
+    device_uuid: str,
+    client: RedisClient | None = None,
+    token: str | None = None,
+) -> None:
+    """Clear the queued flag for a device.
+
+    With a token, the flag is cleared only while it still holds that claim.
+    Messages published before claims carried a token clear it unconditionally.
+    """
     owned_client = client is None
     client = client or _get_queue_redis_client()
     if client is None:
@@ -139,7 +166,12 @@ async def clear_queued(device_uuid: str, client: RedisClient | None = None) -> N
 
     try:
         queue_key = f"{device_uuid}_queued"
-        await client.delete(queue_key)
+        if token is None:
+            await client.delete(queue_key)
+        else:
+            result = client.redis.eval(_CLEAR_OWN_CLAIM_SCRIPT, 1, queue_key, token.encode())
+            if inspect.isawaitable(result):
+                await result
     finally:
         if owned_client:
             await _close_queue_redis_client(client)
@@ -179,10 +211,12 @@ async def _process_single_device_enqueue(
     Returns:
         None if successful, dict with error details if failed
     """
+    claim: str | None = None
     try:
         # Claim before the Nautobot lookup so that concurrent producers collapse
         # to a single publish per device rather than one publish per change.
-        if not await claim_queued(device_uuid, queue_client):
+        claim = await claim_queued(device_uuid, queue_client)
+        if claim is None:
             logger.info(
                 "Device %s already has a pending render, skipping duplicate queue request",
                 device_uuid,
@@ -190,7 +224,7 @@ async def _process_single_device_enqueue(
             return None
 
         if not await should_run(device_uuid, dcim_client):
-            await clear_queued(device_uuid, queue_client)
+            await clear_queued(device_uuid, queue_client, token=claim)
             return {
                 "device_uuid": device_uuid,
                 "error": f"{device_uuid} is not enabled for configuration renders.",
@@ -202,6 +236,7 @@ async def _process_single_device_enqueue(
             "commit_message": commit_message,
             "user": user,
             "@timestamp": timestamp,
+            QUEUE_CLAIM_FIELD: claim,
         }
 
         stream, subject = nats_render_change_config()
@@ -215,8 +250,9 @@ async def _process_single_device_enqueue(
         return None  # Success case
 
     except Exception as exc:
-        # Clear the queued flag if we set it but publishing failed
-        await clear_queued(device_uuid, queue_client)
+        # Release the claim if we won it but publishing failed
+        if claim is not None:
+            await clear_queued(device_uuid, queue_client, token=claim)
         error_msg = str(exc)
         logger.warning(f"Failed to queue device {device_uuid}: {error_msg}")
         return {"device_uuid": device_uuid, "error": error_msg}
