@@ -61,7 +61,11 @@ from nv_config_manager.common.nats_admin import (
 )
 from nv_config_manager.dcim import normalize_dcim_event
 from nv_config_manager.render.dispatch import EventDispatcher
-from nv_config_manager.render.events.util import DeviceNotEnabledError, clear_queued
+from nv_config_manager.render.events.util import (
+    QUEUE_CLAIM_FIELD,
+    DeviceNotEnabledError,
+    clear_queued,
+)
 from nv_config_manager.render.exceptions import RenderException
 from nv_config_manager.render.lock import create_lock
 
@@ -666,6 +670,7 @@ class PullDeviceChangeConsumer(PullConsumer):
         """Process a device change triggered render."""
         data = json.loads(msg.data.decode())
         device_id = data["device_id"]
+        claim = data.get(QUEUE_CLAIM_FIELD)
 
         lock = await create_lock(device_id, blocking=False)
         acquired = await lock.acquire()
@@ -679,11 +684,11 @@ class PullDeviceChangeConsumer(PullConsumer):
             # Release the dedup slot only once the render is finished. Clearing
             # at lock acquisition reopens it for the whole duration of the
             # render, so a change arriving mid-render enqueues a duplicate.
-            await clear_queued(device_id)
+            await clear_queued(device_id, token=claim)
             await self.ack(msg)
         except RenderException:
             # No need to redeliver render exceptions, they won't succeed on retry
-            await clear_queued(device_id)
+            await clear_queued(device_id, token=claim)
             await self.ack(msg)
         except Exception as e:
             self.logger.error("Error processing device change message: %s", data, exc_info=e)

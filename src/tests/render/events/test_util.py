@@ -14,13 +14,15 @@
 # limitations under the License.
 """Tests for provider-backed render event utility functions."""
 
+import json
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
 from nv_config_manager.dcim import RenderDeviceStatus
 from nv_config_manager.render.events.util import (
+    QUEUE_CLAIM_FIELD,
     QUEUED_FLAG_TTL_SECONDS,
     DeviceNotEnabledError,
     claim_queued,
@@ -122,10 +124,15 @@ is_aggregate_environment=false
 
         # The claim is a single atomic SET NX EX, not a separate check and set
         redis.redis.set.assert_awaited_once_with(
-            "test-device_queued", b"1", ex=QUEUED_FLAG_TTL_SECONDS, nx=True
+            "test-device_queued", ANY, ex=QUEUED_FLAG_TTL_SECONDS, nx=True
         )
+        stored_token = redis.redis.set.call_args.args[1]
 
-    mock_nats_connection.jetstream.return_value.publish.assert_awaited_once()
+    publish = mock_nats_connection.jetstream.return_value.publish
+    publish.assert_awaited_once()
+    # The message carries the claim it was published under, so only it can release the slot
+    payload = json.loads(publish.call_args.kwargs["payload"])
+    assert payload[QUEUE_CLAIM_FIELD].encode() == stored_token
     mock_dcim_client.get_render_device_status.assert_awaited_once_with("test-device")
 
 
@@ -160,6 +167,7 @@ is_aggregate_environment=false
     with patch("nv_config_manager.render.events.util._get_queue_redis_client") as redis_getter:
         redis = MagicMock()
         redis.redis.set = AsyncMock(return_value=True)  # Claim won
+        redis.redis.eval = AsyncMock(return_value=1)
         redis.delete = AsyncMock()
         redis_getter.return_value = redis
 
@@ -167,10 +175,13 @@ is_aggregate_environment=false
             await queue_render("test-device", "message", "user", "2024-01-16T21:46:05Z")
 
         redis.redis.set.assert_awaited_once_with(
-            "test-device_queued", b"1", ex=QUEUED_FLAG_TTL_SECONDS, nx=True
+            "test-device_queued", ANY, ex=QUEUED_FLAG_TTL_SECONDS, nx=True
         )
+        stored_token = redis.redis.set.call_args.args[1]
 
-    redis.delete.assert_awaited_once_with("test-device_queued")
+    # Only the claim this producer won is released
+    redis.redis.eval.assert_awaited_once_with(ANY, 1, "test-device_queued", stored_token)
+    redis.delete.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -201,11 +212,41 @@ async def test_claim_queued_is_atomic_and_exclusive():
         redis.redis.set = AsyncMock(return_value=True)
         redis_getter.return_value = redis
 
-        assert await claim_queued("device") is True
+        token = await claim_queued("device")
+        assert token
         redis.redis.set.assert_awaited_once_with(
-            "device_queued", b"1", ex=QUEUED_FLAG_TTL_SECONDS, nx=True
+            "device_queued", token.encode(), ex=QUEUED_FLAG_TTL_SECONDS, nx=True
         )
 
         # A second caller loses the claim while the flag is held
         redis.redis.set = AsyncMock(return_value=None)
-        assert await claim_queued("device") is False
+        assert await claim_queued("device") is None
+
+
+@pytest.mark.asyncio
+async def test_each_claim_gets_its_own_token():
+    """Two claims of one device, such as before and after an expiry, are distinguishable."""
+    with patch("nv_config_manager.render.events.util._get_queue_redis_client") as redis_getter:
+        redis = MagicMock()
+        redis.redis.set = AsyncMock(return_value=True)
+        redis_getter.return_value = redis
+
+        assert await claim_queued("device") != await claim_queued("device")
+
+
+@pytest.mark.asyncio
+async def test_clear_with_a_token_only_deletes_that_claim():
+    """A late message must not release a newer claim on the same device."""
+    with patch("nv_config_manager.render.events.util._get_queue_redis_client") as redis_getter:
+        redis = MagicMock()
+        redis.redis.eval = AsyncMock(return_value=0)
+        redis.delete = AsyncMock()
+        redis_getter.return_value = redis
+
+        await clear_queued("device", token="older-claim")
+
+    redis.redis.eval.assert_awaited_once()
+    script, numkeys, key, token = redis.redis.eval.call_args.args
+    assert "GET" in script and "DEL" in script
+    assert (numkeys, key, token) == (1, "device_queued", b"older-claim")
+    redis.delete.assert_not_awaited()
