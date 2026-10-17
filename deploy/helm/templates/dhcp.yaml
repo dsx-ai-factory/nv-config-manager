@@ -243,7 +243,9 @@ spec:
         resources:
           {{- toYaml .Values.networkDhcp.resources.confgen | nindent 10 }}
         volumeMounts:
-        {{- include "nv-config-manager.vaultAgent.configManagerIniFileMountEtcVault" . | nindent 8 }}
+        # Directory mount, not subPath: a subPath file is frozen at container
+        # start and never receives Secret updates.
+        {{- include "nv-config-manager.vaultAgent.configManagerSecretsDirEtcVault" . | nindent 8 }}
         {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
       {{- /* SPIFFE helper sidecar for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar" (dict "root" . "serviceName" "network-dhcp") | nindent 6 }}
@@ -332,7 +334,9 @@ spec:
         resources:
           {{- toYaml .Values.networkDhcp.resources.confgen | nindent 10 }}
         volumeMounts:
-        {{- include "nv-config-manager.vaultAgent.configManagerIniFileMountEtcVault" . | nindent 8 }}
+        # Directory mount, not subPath: a subPath file is frozen at container
+        # start and never receives Secret updates.
+        {{- include "nv-config-manager.vaultAgent.configManagerSecretsDirEtcVault" . | nindent 8 }}
         {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if .Values.spiffe.enabled }}
         - name: spiffe-jwt-svid
