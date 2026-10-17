@@ -84,6 +84,10 @@ async def handle_archive_msg(msg: Msg) -> None:
         logging.exception("Discarding unreadable archive message")
         await msg.term()
         return
+    if not isinstance(data, dict):
+        logging.error("Discarding archive message whose payload is not a JSON object")
+        await msg.term()
+        return
     logging.info("Received archive event: %s", data)
     if not data.get("workflow_id"):
         logging.error("No workflow ID in archive message: %s", data)

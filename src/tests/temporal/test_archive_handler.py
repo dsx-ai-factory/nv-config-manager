@@ -117,6 +117,18 @@ async def test_unreadable_message_is_discarded() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [b"[]", b'"workflow"', b"42", b"null"])
+async def test_non_object_payload_is_discarded(payload: bytes) -> None:
+    """Valid JSON that is not an object cannot name a workflow and is never retried."""
+    msg = _msg(payload=payload)
+    with patch.object(archive_main, "_archive_workflow", new_callable=AsyncMock) as archive:
+        await handle_archive_msg(msg)
+
+    archive.assert_not_awaited()
+    assert _settled(msg) == ["term"]
+
+
+@pytest.mark.asyncio
 async def test_event_without_workflow_id_is_acked() -> None:
     """An event that names no workflow has nothing to archive."""
     msg = _msg(payload=json.dumps({"publish_time": "2026-10-11T00:00:00+00:00"}).encode())
