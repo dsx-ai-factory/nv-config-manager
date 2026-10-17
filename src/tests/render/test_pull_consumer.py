@@ -15,6 +15,8 @@
 """Tests for the NATS pull consumer module."""
 
 import json
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -25,9 +27,11 @@ from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 from nats.js.errors import NotFoundError
 from redis.asyncio.lock import Lock as AsyncRedisLock
 
+from nv_config_manager.common.nats_admin import CONSUMER_MAX_DELIVER
 from nv_config_manager.render.events.util import DeviceNotEnabledError
 from nv_config_manager.render.pull_consumer import (
     CONSUMER_ACK_PENDING,
+    CONSUMER_ACK_WAIT_SECONDS,
     CONSUMER_PENDING,
     CONSUMER_REDELIVERED,
     CONSUMER_WAITING,
@@ -35,6 +39,7 @@ from nv_config_manager.render.pull_consumer import (
     PullDCIMConsumer,
     PullDeviceChangeConsumer,
     PullNautobotConsumer,
+    start_liveness_server,
 )
 
 # Test NATS configuration - mock credentials for testing only
@@ -136,6 +141,69 @@ async def test_pull_consumer_can_process_message(custom_ini):
 
     # Default implementation should always return True
     assert await consumer.can_process_message() is True
+
+
+def test_liveness_fails_once_fetches_stop_completing(custom_ini):
+    """A consumer that cannot complete a fetch must report itself unhealthy."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(
+        stream="test_stream",
+        subject="test_subject",
+        queue_suffix="test_queue",
+    )
+
+    live, _ = consumer.liveness()
+    assert live is True
+
+    # A wedged connection leaves the retry loop running but never completes a
+    # fetch, which is the only state that distinguishes it from an idle queue.
+    consumer._last_successful_fetch -= consumer.liveness_timeout + 1
+    live, detail = consumer.liveness()
+    assert live is False
+    assert "no successful fetch" in detail
+
+    # A fetch that returns no messages still proves the connection works
+    consumer._record_successful_fetch()
+    live, _ = consumer.liveness()
+    assert live is True
+
+
+def test_liveness_budget_outlasts_one_slow_message(custom_ini):
+    """A render that is slow but working must not be mistaken for a wedged loop."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(
+        stream="test_stream",
+        subject="test_subject",
+        queue_suffix="test_queue",
+    )
+
+    # The clock is only stamped between fetches, so a single message occupies the
+    # loop for its whole render. A budget below the ack wait would restart the pod
+    # mid-render, and the redelivery would be just as slow.
+    assert consumer.liveness_timeout > CONSUMER_ACK_WAIT_SECONDS
+
+
+def test_liveness_endpoint_returns_503_when_wedged(custom_ini):
+    """The probe endpoint has to fail closed so Kubernetes restarts the pod."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(
+        stream="test_stream",
+        subject="test_subject",
+        queue_suffix="test_queue",
+    )
+    server = start_liveness_server(consumer, port=0)
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/healthz"
+        with urllib.request.urlopen(url, timeout=5) as response:
+            assert response.status == 200
+
+        consumer._last_successful_fetch -= consumer.liveness_timeout + 1
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            urllib.request.urlopen(url, timeout=5)
+        assert excinfo.value.code == 503
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_render_consumer_metrics_are_labeled_by_fixed_consumer(custom_ini, monkeypatch):
@@ -380,10 +448,32 @@ async def test_pull_device_change_consumer_success(mock_dispatcher, mock_lock, c
         mock_dispatcher.nautobot_change_dispatch = AsyncMock()
         await consumer.message_handler(mock_msg)
 
-    mock_clear_queued.assert_awaited_once_with("test-device")
+    mock_clear_queued.assert_awaited_once_with("test-device", token=None)
     mock_msg.ack.assert_called_once()
     mock_dispatcher.nautobot_change_dispatch.assert_called_once_with({"device_id": "test-device"})
     mock_lock.release.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_pull_device_change_consumer_releases_only_its_own_claim(
+    mock_dispatcher, mock_lock, custom_ini
+):
+    """The consumer releases the dedup slot with the claim its message was published under."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_msg.ack = AsyncMock()
+    mock_lock.acquire.return_value = True
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock
+    ) as mock_clear_queued:
+        mock_dispatcher.nautobot_change_dispatch = AsyncMock()
+        await consumer.message_handler(mock_msg)
+
+    mock_clear_queued.assert_awaited_once_with("test-device", token="claim-1")
+    mock_msg.ack.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -406,6 +496,54 @@ async def test_pull_device_change_consumer_lock_failure(mock_dispatcher, mock_lo
     mock_msg.nak.assert_called_once_with(delay=5)
     # Lock release should NOT be called since acquire failed
     mock_lock.release.assert_not_awaited()
+
+
+def _last_delivery_msg(data: dict[str, str]) -> AsyncMock:
+    """Return a message on the delivery after which JetStream stops redelivering."""
+    msg = AsyncMock(spec=Msg)
+    msg.data = json.dumps(data).encode()
+    msg.metadata = MagicMock(num_delivered=CONSUMER_MAX_DELIVER)
+    return msg
+
+
+@pytest.mark.asyncio
+async def test_last_delivery_that_never_wins_the_lock_frees_its_claim(
+    mock_dispatcher, mock_lock, custom_ini
+):
+    """A message dropped at max_deliver must not keep suppressing later changes."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = _last_delivery_msg({"device_id": "test-device", "queue_claim": "claim-1"})
+    mock_lock.acquire.return_value = False
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock
+    ) as mock_clear_queued:
+        await consumer.message_handler(mock_msg)
+
+    mock_clear_queued.assert_awaited_once_with("test-device", token="claim-1")
+    mock_msg.term.assert_awaited_once()
+    mock_msg.nak.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_last_delivery_that_fails_frees_its_claim(mock_dispatcher, mock_lock, custom_ini):
+    """A render that fails on its final delivery releases the slot instead of nacking."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = _last_delivery_msg({"device_id": "test-device", "queue_claim": "claim-1"})
+    mock_lock.acquire.return_value = True
+    mock_dispatcher.nautobot_change_dispatch = AsyncMock(side_effect=Exception("boom"))
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock
+    ) as mock_clear_queued:
+        await consumer.message_handler(mock_msg)
+
+    mock_clear_queued.assert_awaited_once_with("test-device", token="claim-1")
+    mock_msg.term.assert_awaited_once()
+    mock_msg.nak.assert_not_awaited()
+    mock_lock.release.assert_awaited_once()
 
 
 @pytest.mark.asyncio
