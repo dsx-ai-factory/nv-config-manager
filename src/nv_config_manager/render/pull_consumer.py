@@ -639,16 +639,21 @@ class PullDeviceChangeConsumer(PullConsumer):
             await self.nak(msg, delay=5)
             return
         try:
-            # Clear the queued flag only after successfully acquiring the lock
-            await clear_queued(device_id)
             # Dispatch is now async, so we can await it directly
             await self.dispatcher.nautobot_change_dispatch(data)
+            # Release the dedup slot only once the render is finished. Clearing
+            # at lock acquisition reopens it for the whole duration of the
+            # render, so a change arriving mid-render enqueues a duplicate.
+            await clear_queued(device_id)
             await self.ack(msg)
         except RenderException:
             # No need to redeliver render exceptions, they won't succeed on retry
+            await clear_queued(device_id)
             await self.ack(msg)
         except Exception as e:
             self.logger.error("Error processing device change message: %s", data, exc_info=e)
+            # Leave the dedup slot claimed: the render is still pending until a
+            # redelivery completes it.
             await self.nak(msg)
         finally:
             try:
