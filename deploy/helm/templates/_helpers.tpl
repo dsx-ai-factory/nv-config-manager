@@ -1795,15 +1795,38 @@ labels:
 {{- end -}}
 
 {{/*
-Yields "true" when the bundled NATS blackbox Probe is rendered. The
-namespace-isolation NetworkPolicy uses the same condition to open the NATS
-monitoring port to the exporter.
+Yields the rendered hostname of the bundled NATS /healthz HTTPRoute, or
+nothing when the route is not rendered.
+*/}}
+{{- define "nv-config-manager.natsHealthHostname" -}}
+{{- $bundled := or .Values.nautobotNats.enabled .Values.externalServices.nats.local -}}
+{{- $route := (.Values.nautobotNats.gateway | default dict).healthRoute | default dict -}}
+{{- if and $bundled .Values.gateway.enabled $route.enabled $route.hostname -}}
+{{- tpl $route.hostname . -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Yields "true" when the bundled NATS blackbox Probe is rendered.
 */}}
 {{- define "nv-config-manager.natsProbeEnabled" -}}
 {{- $probes := .Values.monitoring.probes | default dict -}}
 {{- $nats := $probes.nats | default dict -}}
 {{- $bundled := or .Values.nautobotNats.enabled .Values.externalServices.nats.local -}}
 {{- if and .Values.monitoring.enabled $probes.enabled $probes.blackboxExporterUrl $bundled ($nats.enabled | default false) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Yields "true" when the NATS Probe targets the in-cluster monitoring endpoint
+rather than an explicit target or the gateway health route. The
+namespace-isolation NetworkPolicy uses it to open the NATS monitoring port to
+the exporter.
+*/}}
+{{- define "nv-config-manager.natsProbeInCluster" -}}
+{{- $nats := (.Values.monitoring.probes | default dict).nats | default dict -}}
+{{- if and (include "nv-config-manager.natsProbeEnabled" .) (not $nats.target) (not (include "nv-config-manager.natsHealthHostname" .)) -}}
 true
 {{- end -}}
 {{- end -}}

@@ -2983,6 +2983,14 @@ nautobotNats:
     maxFile: 10G # Max file storage (increase for production or use nats-ready binary)
   # Max payload size (8MB)
   maxPayload: 8388608
+  # Gateway route for the NATS health check, so a blackbox exporter outside the
+  # cluster can probe NATS (monitoring.probes.nats). Only an exact GET /healthz
+  # is routed; the rest of the monitoring port (varz, connz, jsz) and the client
+  # port stay cluster-internal. Requires gateway.enabled.
+  gateway:
+    healthRoute:
+      enabled: true
+      hostname: "nats-health.{{ .Values.gateway.baseHostname }}"
   # Prometheus metrics exporter (prometheus-nats-exporter sidecar).
   # Off by default (zero blast radius). When enabled, a sidecar polls the NATS
   # monitoring endpoint (:8222) and re-exposes nats_* Prometheus metrics on the
@@ -3085,15 +3093,15 @@ monitoring:
     # per-environment when probes need to match a site-specific alerting /
     # dashboard regex.
     jobNamePrefix: ""
-    # Bundled NATS (nautobotNats.enabled or externalServices.nats.local) has
-    # no gateway route, so its probe targets the in-cluster monitoring
-    # endpoint (`http://<release>-nats.<namespace>.svc:8222/healthz`). The
-    # namespace-isolation NetworkPolicy opens 8222 only to
-    # monitoring.prometheus.namespace, where the exporter must run.
+    # Bundled NATS (nautobotNats.enabled or externalServices.nats.local) is
+    # probed at `/healthz` on nautobotNats.gateway.healthRoute.hostname when
+    # that route is rendered. Otherwise the probe targets the in-cluster
+    # monitoring endpoint (`http://<release>-nats.<namespace>.svc:8222/healthz`),
+    # and the namespace-isolation NetworkPolicy opens 8222 only to
+    # monitoring.prometheus.namespace, where the exporter must then run.
     nats:
       enabled: true
-      # Override when the blackbox exporter runs outside the cluster and
-      # cannot resolve cluster-local service names.
+      # Explicit target URL; overrides both defaults above.
       target: ""
   # PodMonitors: each PodMonitor is enabled when podMonitors.enabled AND the
   # target service is enabled. CNPG scrapes also require podMonitors.cnpg.enabled

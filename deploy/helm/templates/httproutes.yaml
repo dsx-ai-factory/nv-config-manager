@@ -635,4 +635,34 @@ spec:
     {{- include "nv-config-manager.browserBackendRefs" (dict "root" . "backendName" $mcpName "backendPort" 9000 "proxyPort" 9108) | nindent 4 }}
 {{- end }}
 
+# Bundled NATS health HTTPRoute (unauthenticated, exact GET /healthz only)
+{{- with include "nv-config-manager.natsHealthHostname" . }}
+{{- $natsName := include "nv-config-manager.componentName" (dict "root" $ "component" "nats") }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $natsName }}-health
+  namespace: {{ $.Values.global.namespace }}
+  {{- include "nv-config-manager.httpRoutePolicyLabels" (dict "root" $) | nindent 2 }}
+  annotations:
+    nv-config-manager.nvidia.com/no-auth: "true"
+spec:
+  parentRefs:
+  {{- include "nv-config-manager.gatewayParentRef" $ | nindent 2 }}
+  hostnames:
+  - {{ . | quote }}
+  rules:
+  {{- /* Exact match: the monitoring port also serves varz, connz and jsz. */}}
+  - matches:
+    - path:
+        type: Exact
+        value: /healthz
+      method: GET
+    {{- include "nv-config-manager.stripIdentityHeaders" $ | nindent 4 }}
+    backendRefs:
+    - name: {{ $natsName }}
+      port: 8222
+{{- end }}
+
 {{- end }}
