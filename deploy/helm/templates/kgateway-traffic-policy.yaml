@@ -40,6 +40,28 @@ spec:
     streamIdle: {{ .Values.networkZtp.upload.idleTimeout | default "300s" }}
 {{- end }}
 
+{{- if include "nv-config-manager.natsWebsocketHostname" . }}
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: {{ include "nv-config-manager.componentName" (dict "root" . "component" "stream-timeouts") }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+spec:
+  # Long-lived NATS client connections: no request timeout, and an idle timeout
+  # longer than the NATS ping interval.
+  targetSelectors:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    matchLabels:
+      nv-config-manager.nvidia.com/timeout-profile: stream
+  timeouts:
+    request: "0s"
+    streamIdle: {{ .Values.nautobotNats.gateway.websocket.idleTimeout | default "300s" }}
+{{- end }}
+
 ---
 apiVersion: gateway.kgateway.dev/v1alpha1
 kind: BackendConfigPolicy

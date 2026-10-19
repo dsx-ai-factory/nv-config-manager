@@ -80,6 +80,17 @@ not need to package or maintain a second NATS chart. Set
 `externalServices.nats.local=false` only when the installation supplies a
 separately managed NATS service.
 
+An event publisher in the release namespace connects to the bundled NATS
+service directly. A publisher outside the cluster needs
+`nautobotNats.gateway.websocket.enabled=true`. The chart then serves the NATS
+client protocol over WebSocket and routes `wss://nats.<baseHostname>`
+(`nautobotNats.gateway.hostname`) to it through the gateway, which terminates
+TLS. The publisher authenticates with the same NATS account passwords as
+in-cluster clients. Connections have no request timeout and close after
+`nautobotNats.gateway.websocket.idleTimeout` (default 300s) without traffic,
+which is longer than the default NATS ping interval. Enabling WebSocket
+access changes the NATS configuration, which restarts NATS.
+
 ## Implement the factory and client
 
 The provider factory has two required methods: `validate_settings()` and

@@ -95,4 +95,29 @@ spec:
       connectTimeout: {{ .Values.gateway.timeout.connectTimeout | default "10s" }}
 {{- end }}
 {{- end }}
+{{- if include "nv-config-manager.natsWebsocketHostname" . }}
+{{- $natsName := include "nv-config-manager.componentName" (dict "root" . "component" "nats") }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: {{ $natsName }}-websocket-policy
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+spec:
+  # Long-lived NATS client connections: no request timeout, and an idle timeout
+  # longer than the NATS ping interval.
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: {{ $natsName }}-websocket
+  timeout:
+    http:
+      requestTimeout: "0s"
+      connectionIdleTimeout: {{ .Values.nautobotNats.gateway.websocket.idleTimeout | default "300s" }}
+      maxConnectionDuration: "0s"
+    tcp:
+      connectTimeout: {{ .Values.gateway.timeout.connectTimeout | default "10s" }}
+{{- end }}
 {{- end }}

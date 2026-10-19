@@ -2983,16 +2983,31 @@ nautobotNats:
     maxFile: 10G # Max file storage (increase for production or use nats-ready binary)
   # Max payload size (8MB)
   maxPayload: 8388608
-  # Gateway route for the NATS health check, so a blackbox exporter outside the
-  # cluster can probe NATS. Rendered only when the NATS Probe is
-  # (monitoring.probes.enabled, a blackboxExporterUrl and
-  # monitoring.probes.nats.enabled) without an explicit monitoring.probes.nats.target,
-  # and gateway.enabled. Only an exact GET /healthz is routed; the rest of the
-  # monitoring port (varz, connz, jsz) and the client port stay cluster-internal.
+  # Gateway access to bundled NATS on one hostname. Requires gateway.enabled.
+  # The two paths are gated separately because they expose different things;
+  # the native client port (4222) and the rest of the monitoring port (varz,
+  # connz, jsz) are never routed.
   gateway:
+    hostname: "nats.{{ .Values.gateway.baseHostname }}"
+    # Unauthenticated exact GET /healthz from the monitoring port, so a blackbox
+    # exporter outside the cluster can probe NATS. Rendered only when the NATS
+    # Probe is (monitoring.probes.enabled, a blackboxExporterUrl and
+    # monitoring.probes.nats.enabled) without an explicit
+    # monitoring.probes.nats.target.
     healthRoute:
       enabled: true
-      hostname: "nats-health.{{ .Values.gateway.baseHostname }}"
+    # NATS client protocol over WebSocket, so publishers outside the cluster
+    # (for example an external DCIM provider's event publisher) can connect with
+    # wss://<hostname> and the same account passwords as in-cluster clients.
+    # TLS terminates at the gateway. Enabling this changes the NATS config, which
+    # restarts NATS.
+    websocket:
+      enabled: false
+      port: 8080
+      # No request timeout: client connections are long-lived. The idle timeout
+      # must exceed the NATS ping interval (2m by default) so idle but healthy
+      # connections are not cut.
+      idleTimeout: 300s
   # Prometheus metrics exporter (prometheus-nats-exporter sidecar).
   # Off by default (zero blast radius). When enabled, a sidecar polls the NATS
   # monitoring endpoint (:8222) and re-exposes nats_* Prometheus metrics on the
@@ -3096,7 +3111,7 @@ monitoring:
     # dashboard regex.
     jobNamePrefix: ""
     # Bundled NATS (nautobotNats.enabled or externalServices.nats.local) is
-    # probed at `/healthz` on nautobotNats.gateway.healthRoute.hostname when
+    # probed at `/healthz` on nautobotNats.gateway.hostname when
     # that route is rendered. Otherwise the probe targets the in-cluster
     # monitoring endpoint (`http://<release>-nats.<namespace>.svc:8222/healthz`),
     # and the namespace-isolation NetworkPolicy opens 8222 only to

@@ -635,9 +635,10 @@ spec:
     {{- include "nv-config-manager.browserBackendRefs" (dict "root" . "backendName" $mcpName "backendPort" 9000 "proxyPort" 9108) | nindent 4 }}
 {{- end }}
 
+{{- $natsName := include "nv-config-manager.componentName" (dict "root" . "component" "nats") }}
+
 # Bundled NATS health HTTPRoute (unauthenticated, exact GET /healthz only)
 {{- with include "nv-config-manager.natsHealthHostname" . }}
-{{- $natsName := include "nv-config-manager.componentName" (dict "root" $ "component" "nats") }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -663,6 +664,31 @@ spec:
     backendRefs:
     - name: {{ $natsName }}
       port: 8222
+{{- end }}
+
+# Bundled NATS WebSocket HTTPRoute (NATS client protocol; NATS authenticates)
+{{- with include "nv-config-manager.natsWebsocketHostname" . }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $natsName }}-websocket
+  namespace: {{ $.Values.global.namespace }}
+  {{- include "nv-config-manager.httpRoutePolicyLabels" (dict "root" $ "timeoutProfile" "stream") | nindent 2 }}
+spec:
+  parentRefs:
+  {{- include "nv-config-manager.gatewayParentRef" $ | nindent 2 }}
+  hostnames:
+  - {{ . | quote }}
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    {{- include "nv-config-manager.stripIdentityHeaders" $ | nindent 4 }}
+    backendRefs:
+    - name: {{ $natsName }}
+      port: {{ $.Values.nautobotNats.gateway.websocket.port | default 8080 }}
 {{- end }}
 
 {{- end }}
