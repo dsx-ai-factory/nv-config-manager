@@ -120,6 +120,59 @@ kubectl get httproute -n <config-manager-namespace>
 kubectl describe httproute -n <config-manager-namespace> <route-name>
 ```
 
+## Gateway retries
+
+With Envoy Gateway or kgateway, `gateway.retry` makes the gateway retry requests that never
+reached a backend: a refused connection or a refused HTTP/2 stream. These are
+most likely while pods are rolling or scaling in, and replaying them cannot
+apply a write twice. It is on by default:
+
+```yaml
+gateway:
+  retry:
+    enabled: true
+    numRetries: 2 # total attempts is numRetries + 1
+    safeMethods:
+      enabled: true
+```
+
+With `oidc.enabled`, browser routes are served through the OIDC proxy, so a
+backend that has gone away surfaces as a `502` from the proxy rather than a
+refused connection. `safeMethods` adds a rule named `safe-methods` to each
+browser route that matches only `GET` and `HEAD`, and a policy on that rule
+(a `BackendTrafficPolicy` or a kgateway `TrafficPolicy`) that also retries
+`502`. Other methods keep the connection-level
+retry only, because a `502` cannot be told apart from a write that already
+committed.
+
+The proxy also answers `502` when the backend is slower than its upstream
+timeout, so a slow `GET` or `HEAD` can take up to `numRetries + 1` proxy
+timeouts before the client sees the error. `gateway.timeout.requestTimeout`
+still bounds the request as a whole, retries included.
+
+### With an existing Gateway
+
+On kgateway, the retry is attached to every route through route-level
+`TrafficPolicy` resources, so `gateway.create: false` does not change which
+routes are retried.
+
+On Envoy Gateway with `gateway.create: false`, the chart does not create the
+Gateway-level `BackendTrafficPolicy` that carries the retry for most routes. In
+that mode:
+
+- Most routes are not retried, including `svc-*` API routes and browser writes.
+- The ZTP upload routes are retried, because they carry their own policy for
+  the longer upload timeouts.
+- With `oidc.enabled`, browser `GET` and `HEAD` requests are retried, and the
+  chart's `gateway.timeout.*` values apply to them. If the platform Gateway has
+  its own `BackendTrafficPolicy`, the chart's policy is merged over it for
+  those requests, so the chart's timeouts take precedence there and its other
+  settings, such as rate limits, are kept.
+
+To keep the platform Gateway's own settings for browser reads, set
+`gateway.retry.safeMethods.enabled: false`. To disable retries entirely, set
+`gateway.retry.enabled: false`.
+
 ## Upgrading an Argo CD deployment
 
 This guidance applies when upgrading to Config Manager 1.3.1 or later. That
