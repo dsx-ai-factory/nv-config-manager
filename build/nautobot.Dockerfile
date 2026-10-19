@@ -78,7 +78,7 @@ RUN mkdir -p /opt/nautobot/static \
 # =============================================================================
 # Runtime stage - NVIDIA distroless Python
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/python:3.11-v4.1.4@sha256:377041587967c3d0c96d8d8027a0b39b7f4ae122d7a1f9180b177efd41faca3c
+FROM nvcr.io/nvidia/distroless/python:3.11-v4.1.7@sha256:cdc63692c7f11fc8c80b148a8901dfe0c87c02d922c590859ed5caf28c863276
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
