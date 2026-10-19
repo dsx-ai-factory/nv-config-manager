@@ -1796,12 +1796,14 @@ labels:
 
 {{/*
 Yields the rendered hostname of the bundled NATS /healthz HTTPRoute, or
-nothing when the route is not rendered.
+nothing when the route is not rendered. The route exists only for the NATS
+Probe, so it renders only when that Probe is rendered and has no explicit
+target.
 */}}
 {{- define "nv-config-manager.natsHealthHostname" -}}
-{{- $bundled := or .Values.nautobotNats.enabled .Values.externalServices.nats.local -}}
 {{- $route := (.Values.nautobotNats.gateway | default dict).healthRoute | default dict -}}
-{{- if and $bundled .Values.gateway.enabled $route.enabled $route.hostname -}}
+{{- $nats := (.Values.monitoring.probes | default dict).nats | default dict -}}
+{{- if and (include "nv-config-manager.natsProbeEnabled" .) (not $nats.target) .Values.gateway.enabled $route.enabled $route.hostname -}}
 {{- tpl $route.hostname . -}}
 {{- end -}}
 {{- end -}}

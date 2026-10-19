@@ -2984,9 +2984,11 @@ nautobotNats:
   # Max payload size (8MB)
   maxPayload: 8388608
   # Gateway route for the NATS health check, so a blackbox exporter outside the
-  # cluster can probe NATS (monitoring.probes.nats). Only an exact GET /healthz
-  # is routed; the rest of the monitoring port (varz, connz, jsz) and the client
-  # port stay cluster-internal. Requires gateway.enabled.
+  # cluster can probe NATS. Rendered only when the NATS Probe is
+  # (monitoring.probes.enabled, a blackboxExporterUrl and
+  # monitoring.probes.nats.enabled) without an explicit monitoring.probes.nats.target,
+  # and gateway.enabled. Only an exact GET /healthz is routed; the rest of the
+  # monitoring port (varz, connz, jsz) and the client port stay cluster-internal.
   gateway:
     healthRoute:
       enabled: true

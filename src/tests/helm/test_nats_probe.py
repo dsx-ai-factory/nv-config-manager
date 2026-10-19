@@ -115,10 +115,26 @@ def test_probe_falls_back_to_in_cluster_without_route() -> None:
     assert _monitor_port_open_to_prometheus(docs)
 
 
-def test_explicit_target_overrides_route() -> None:
+def test_explicit_target_replaces_route() -> None:
     docs = _render("monitoring.probes.nats.target=http://nats.example/healthz")
     assert _nats_probe_target(docs) == "http://nats.example/healthz"
+    assert _health_route(docs) is None
     assert not _monitor_port_open_to_prometheus(docs)
+
+
+@pytest.mark.parametrize(
+    "set_arg",
+    [
+        "monitoring.probes.nats.enabled=false",
+        "monitoring.probes.enabled=false",
+        "monitoring.probes.blackboxExporterUrl=",
+        "monitoring.enabled=false",
+    ],
+)
+def test_no_route_without_nats_probe(set_arg: str) -> None:
+    docs = _render(set_arg)
+    assert _nats_probe_target(docs) is None
+    assert _health_route(docs) is None
 
 
 def test_no_route_or_probe_without_bundled_nats() -> None:
