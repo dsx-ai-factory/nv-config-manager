@@ -145,10 +145,10 @@ browser route that matches only `GET` and `HEAD`, and a policy on that rule
 retry only, because a `502` cannot be told apart from a write that already
 committed.
 
-The proxy also answers `502` when the backend is slower than its upstream
-timeout, so a slow `GET` or `HEAD` can take up to `numRetries + 1` proxy
-timeouts before the client sees the error. `gateway.timeout.requestTimeout`
-still bounds the request as a whole, retries included.
+The OIDC proxy's upstream timeout is set to the route's gateway timeout:
+`gateway.timeout.requestTimeout`, or `networkZtp.upload.timeout` for ZTP. A
+backend that is too slow is therefore ended by the gateway with a `504`, which
+is not retried, rather than by the proxy with a `502`, which would be.
 
 ### With an existing Gateway
 
