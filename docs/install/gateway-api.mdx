@@ -154,7 +154,9 @@ is not retried, rather than by the proxy with a `502`, which would be.
 With `gateway.create: false`, the chart does not create the Gateway-level
 `BackendTrafficPolicy` that carries the retry for most routes. In that mode:
 
-- Most routes are not retried, including `svc-*` API routes and browser writes.
+- The chart retries nothing on most routes, including `svc-*` API routes and
+  browser writes. Any retry configured by the platform Gateway's own policy
+  still applies to them.
 - The ZTP upload routes are retried, because they carry their own policy for
   the longer upload timeouts.
 - With `oidc.enabled`, browser `GET` and `HEAD` requests are retried, and the
@@ -164,8 +166,10 @@ With `gateway.create: false`, the chart does not create the Gateway-level
   settings, such as rate limits, are kept.
 
 To keep the platform Gateway's own settings for browser reads, set
-`gateway.retry.safeMethods.enabled: false`. To disable retries entirely, set
-`gateway.retry.enabled: false`.
+`gateway.retry.safeMethods.enabled: false`. To disable the chart's retries
+entirely, set `gateway.retry.enabled: false`. Neither setting changes retries
+configured by the platform Gateway's own policy; change that policy to disable
+them.
 
 ## Upgrading an Argo CD deployment
 
