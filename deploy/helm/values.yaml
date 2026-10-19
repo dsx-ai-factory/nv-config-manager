@@ -932,6 +932,8 @@ gateway:
   # Only connection failures and refused streams are retried, both of which mean
   # the request never reached a backend, so a write is never applied twice. The
   # triggers and backoff (100ms base, 1s cap) are fixed in the template.
+  # With gateway.create=false there is no Gateway-level policy to carry this, so
+  # only the ZTP upload routes and the safeMethods rules below are retried.
   retry:
     enabled: true
     # Total attempts is numRetries + 1.
