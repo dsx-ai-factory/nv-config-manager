@@ -74,7 +74,7 @@ DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(
     non_retryable_error_types=["FirmwareUpgradeException"],
 )
 
-SUPPORTED_PLATFORMS = [Platform.CUMULUS_LINUX, Platform.JUNIPER_JUNOS, Platform.CISCO_IOS_XR]
+SUPPORTED_PLATFORMS = [Platform.CUMULUS_LINUX, Platform.JUNIPER_JUNOS]
 
 __all__ = [
     "DEFAULT_ACTIVITY_RETRY_POLICY",

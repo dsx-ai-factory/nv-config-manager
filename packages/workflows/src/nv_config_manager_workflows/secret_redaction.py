@@ -36,7 +36,7 @@ def redact_junos_secrets(config_text: str) -> str:
 # ``key-string password 7 ...``, ``key 7 ...``) and as the SNMP community name
 # itself. The keyword, type and structure stay readable; only the value goes.
 _IOSXR_TYPED_SECRET_RE = re.compile(
-    r"^(?P<lead>[ \t]*[+-]?[ \t]*)"
+    r"^(?P<lead>[ \t]*[+-]?[ \t]*(?:username[ \t]+\S+[ \t]+)?)"
     r"(?P<kw>secret|password|key-string(?:[ \t]+password)?|key|shared-secret(?:[ \t]+key)?)"
     r"[ \t]+(?P<type>\d+)[ \t]+\S+",
     re.MULTILINE,

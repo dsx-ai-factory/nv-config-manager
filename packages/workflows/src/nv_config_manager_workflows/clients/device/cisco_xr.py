@@ -732,10 +732,6 @@ class CiscoIosXrConnection(NetworkConnection):
     # Rollback to a numbered commit (``rollback configuration last <n>``).
     # ------------------------------------------------------------------
 
-    def get_rollback_diff(self, rollback_id: int = 1) -> str:
-        """Return what ``rollback configuration last <n>`` would change."""
-        return self._show(f"show configuration rollback changes last {int(rollback_id)}")
-
     def rollback_configuration(self, rollback_id: int = 1, *, commit_confirm: bool = True) -> None:
         """Roll back the last ``rollback_id`` commits.
 
@@ -759,8 +755,9 @@ class CiscoIosXrConnection(NetworkConnection):
         The NETCONF session usually ends while the router acts on it; that is success,
         as it is for the Junos zeroize.
         """
+        session = self._get_session()  # a failure to connect or log in is not ZTP success
         try:
-            self._get_session().action(_ZTP_NS, "ztp-initiate", read_timeout=60)
+            session.action(_ZTP_NS, "ztp-initiate", read_timeout=60)
         except NetworkDeviceException as error:
             if error.non_retryable:
                 raise  # the router refused the action

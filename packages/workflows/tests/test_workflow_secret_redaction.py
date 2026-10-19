@@ -110,6 +110,17 @@ def test_redact_iosxr_secrets_hides_values_and_keeps_structure() -> None:
     assert "hostname r1\n" in result
 
 
+def test_redact_iosxr_secrets_redacts_one_line_username_secrets() -> None:
+    text = "username admin secret 10 $6$salt$hashvalue\n+username ops password 7 0822455D0A16\n"
+
+    result = redact_iosxr_secrets(text)
+
+    assert "hashvalue" not in result
+    assert "0822455D0A16" not in result
+    assert "username admin secret 10 <redacted>\n" in result
+    assert "+username ops password 7 <redacted>\n" in result
+
+
 def test_redact_iosxr_secrets_redacts_diff_lines_with_markers() -> None:
     diff = "-   secret 10 $6$old$aaaa\n+   secret 10 $6$new$bbbb\n"
 

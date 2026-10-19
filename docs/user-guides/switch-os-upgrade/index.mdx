@@ -4,7 +4,7 @@ sidebar-title: Switch OS Upgrade
 position: 10
 ---
 
-The Switch OS Upgrade workflow upgrades a single Cumulus Linux, Juniper Junos or Cisco IOS XR switch to a new firmware version. It compares the device's current firmware intent with the target assigned to its location, pauses for a human to approve the upgrade, backs up the current configuration, updates device-context state, drives the factory-reset + ZTP cycle, and validates that the device came back on the right version. Multiple short-circuit paths exit safely when no work is required.
+The Switch OS Upgrade workflow upgrades a single Cumulus Linux or Juniper Junos switch to a new firmware version. It compares the device's current firmware intent with the target assigned to its location, pauses for a human to approve the upgrade, backs up the current configuration, updates device-context state, drives the factory-reset + ZTP cycle, and validates that the device came back on the right version. Multiple short-circuit paths exit safely when no work is required.
 
 <Note>
 The workflow uses the selected DCIM provider's normalized firmware-intent and
@@ -24,10 +24,9 @@ Before running, complete the pre-work that drives the upgrade. The workflow does
 Also confirm:
 
 - **Device exists in Nautobot** with a current intended configuration in the [Config Store](../../config-store/index.mdx).
-- **Device is on a supported platform** — Cumulus Linux, Juniper Junos or Cisco IOS XR. NV-OS (NVLink) is rejected at runtime; use [NVLink Switch Firmware Upgrade](../nvlink-switch-firmware-upgrade/index.mdx) instead.
+- **Device is on a supported platform** — Cumulus Linux or Juniper Junos. Cisco IOS XR and NV-OS (NVLink) are rejected at runtime; for NVLink switches use [NVLink Switch Firmware Upgrade](../nvlink-switch-firmware-upgrade/index.mdx) instead.
 - **Firmware image is uploaded** to the ZTP service for the target OS version and the device's platform. See [Upload Images to the ZTP Server](../../network-ztp/upload-images.mdx) for the upload procedure.
 - **Juniper Junos:** operator- or plugin-supplied templates must render `full-config` into the intended config store. After factory reset the device fetches that file and the firmware image through DHCP option 43 (HTTP). There is no bundled Junos template tree.
-- **Cisco IOS XR:** not supported yet. ZTP initiation uses the router's `ztp-initiate` action, but installing a new image needs either a ZTP script that runs `install` or the router's `install-replace` action, and Config Manager does neither for XR.
 - **Device is reachable** and credentials are current. The upgrade flow drives image install over the management network and waits for the device to ZTP back into a reachable state.
 - **Approval to take the device offline.** The upgrade triggers a reboot — plan a maintenance window appropriate for the device's role in the fabric.
 
@@ -68,7 +67,7 @@ The workflow runs four stages in order. Only `approve_upgrade` requires approval
 
 1. **`perform_upgrade` — Install the image and wait for the device to come back.**
 
-   Factory-resets the device so that it reboots and pulls the image from the ZTP service. Cumulus uses NVUE factory-default; Junos uses `request system zeroize`; IOS XR uses the `ztp-initiate` action (the image install is not supported yet). Two long-poll activities then wait for the device to converge:
+   Factory-resets the device so that it reboots and pulls the image from the ZTP service. Cumulus uses NVUE factory-default; Junos uses `request system zeroize`. Two long-poll activities then wait for the device to converge:
 
    - `poll_image` — 35-minute timeout (30 + 5 buffer), 3-minute heartbeat. If the post-reboot image does not match the intended firmware, raises `ApplicationError`.
    - `poll_ztp_status` — 15-minute activity timeout. If the device does not report successful ZTP before the activity times out, the activity is retried according to the workflow retry policy.

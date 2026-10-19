@@ -4,7 +4,7 @@ sidebar-title: Cisco IOS XR
 position: 20
 ---
 
-Config Manager manages Cisco IOS XR routers over NETCONF (SSH subsystem, port 830). IOS XR supports most of what Juniper Junos supports (rescue configuration and OS image installation are not available yet, see Limits): [Configuration Backup](../configuration-backup/index.mdx), [Site Configuration Backup](../site-configuration-backup/index.mdx), [Configuration Deploy](../configuration-deploy/index.mdx), [Multi-Device Deploy](../multi-deploy/index.mdx), [Cable Validation](../cable-validation/index.mdx), [Switch OS Upgrade](../switch-os-upgrade/index.mdx) (ZTP based), [Device Password Rotation](../device-password-rotation/index.mdx), [Site Password Rotation](../site-password-rotation/index.mdx), a diagnostics catalog, and ZTP DHCP options. Hardware validation is Cumulus-only.
+Config Manager manages Cisco IOS XR routers over NETCONF (SSH subsystem, port 830). IOS XR supports most of what Juniper Junos supports (rescue configuration and OS image installation are not available yet, see Limits): [Configuration Backup](../configuration-backup/index.mdx), [Site Configuration Backup](../site-configuration-backup/index.mdx), [Configuration Deploy](../configuration-deploy/index.mdx), [Multi-Device Deploy](../multi-deploy/index.mdx), [Cable Validation](../cable-validation/index.mdx), [Device Password Rotation](../device-password-rotation/index.mdx), [Site Password Rotation](../site-password-rotation/index.mdx), a diagnostics catalog, and ZTP DHCP options. Hardware validation is Cumulus-only.
 
 ## Prerequisites
 
@@ -63,7 +63,7 @@ Both `snmp_communities` and `macsec_key_chains` must exist on the device (an emp
 
 - Partial configuration is not supported; supply the full desired state.
 - The Diagnostics workflow offers version, interfaces, LLDP neighbors and ARP table for IOS XR. The route table and BGP summary are not available yet.
-- Rescue configuration is not supported for IOS XR: the router has copy and delete actions but none that reads or loads a file. Numbered rollback and ZTP initiation use the router's YANG actions; rollback commits at once and has no timer.
-- Switch OS upgrade does not work for IOS XR yet: it needs an image install, which Config Manager does not do for XR.
+- Rescue configuration and the rollback diff are not supported for IOS XR: the router has copy and delete actions but none that reads or loads a file. Numbered rollback and ZTP initiation use the router's YANG actions; rollback commits at once and has no timer.
+- [Switch OS Upgrade](../switch-os-upgrade/index.mdx) rejects IOS XR devices: it needs an image install, which Config Manager does not do for XR yet.
 - Secret values are redacted in backups and drift displays. The Deploy approval diff shows what will be sent, so treat it as sensitive. The intended configuration in the Config Store contains the rendered secret values.
 - Not modelled: tunable-optics wavelength (the render stops), LSP attributes such as priorities and bandwidth, IPv6 SNMP client lists, and more than one MACsec key per chain.

@@ -11,7 +11,7 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-
+# limitations under the License.
 """Tests for the Cisco IOS XR connection using a fake session (no router)."""
 
 from __future__ import annotations
@@ -489,13 +489,19 @@ def test_partial_apply_is_rejected_before_any_read() -> None:
 # --- rollback and unsupported operations ------------------------------------------
 
 
-def test_rollback_and_rollback_diff() -> None:
-    session = FakeSession({"show configuration rollback changes last 2": "diff text"})
+def test_rollback_configuration_rolls_back_the_last_commits() -> None:
+    session = FakeSession()
     connection, _ = _connection(session)
 
-    assert connection.get_rollback_diff(2) == "diff text"
     connection.rollback_configuration(2)
     assert session.rollbacks == ["last 2"]
+
+
+def test_rollback_diff_is_not_supported_over_netconf() -> None:
+    connection, _ = _connection(FakeSession())
+
+    with pytest.raises(NotImplementedError):
+        connection.get_rollback_diff(2)
 
 
 def test_rescue_is_not_supported_over_netconf() -> None:
@@ -531,6 +537,16 @@ def test_execute_ztp_treats_a_dropped_session_as_success() -> None:
     connection.execute_ztp()
 
     assert session.closed
+
+
+def test_execute_ztp_fails_when_the_session_cannot_be_opened() -> None:
+    connection, _ = _connection(FakeSession())
+    connection._open_session = MagicMock(  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+        side_effect=NetworkDeviceException("All passwords failed")
+    )
+
+    with pytest.raises(NetworkDeviceException, match="All passwords failed"):
+        connection.execute_ztp()
 
 
 def test_execute_ztp_reports_a_refused_action() -> None:
