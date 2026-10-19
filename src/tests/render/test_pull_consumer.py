@@ -410,6 +410,33 @@ async def test_pull_device_change_consumer_releases_only_its_own_claim(
 
 
 @pytest.mark.asyncio
+async def test_claim_is_released_before_the_render_reads_device_state(
+    mock_dispatcher, mock_lock, custom_ini
+):
+    """A change landing mid-render must be able to queue a render of its own."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_lock.acquire.return_value = True
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock
+    ) as mock_clear_queued:
+
+        async def dispatch(_data):
+            # Holding the claim here would make a concurrent producer drop the
+            # newer change as a duplicate of this render.
+            mock_clear_queued.assert_awaited_once_with("test-device", token="claim-1")
+
+        mock_dispatcher.nautobot_change_dispatch = AsyncMock(side_effect=dispatch)
+        await consumer.message_handler(mock_msg)
+
+    mock_dispatcher.nautobot_change_dispatch.assert_awaited_once()
+    mock_msg.ack.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_pull_device_change_consumer_lock_failure(mock_dispatcher, mock_lock, custom_ini):
     """Test PullDeviceChangeConsumer when lock cannot be acquired."""
     custom_ini(TEST_NATS_CONFIG)
@@ -460,8 +487,8 @@ async def test_last_delivery_that_never_wins_the_lock_frees_its_claim(
 
 
 @pytest.mark.asyncio
-async def test_last_delivery_that_fails_frees_its_claim(mock_dispatcher, mock_lock, custom_ini):
-    """A render that fails on its final delivery releases the slot instead of nacking."""
+async def test_last_delivery_that_fails_is_terminated(mock_dispatcher, mock_lock, custom_ini):
+    """A render that fails on its final delivery is terminated instead of nacked."""
     custom_ini(TEST_NATS_CONFIG)
     consumer = PullDeviceChangeConsumer()
     mock_msg = _last_delivery_msg({"device_id": "test-device", "queue_claim": "claim-1"})
@@ -473,10 +500,35 @@ async def test_last_delivery_that_fails_frees_its_claim(mock_dispatcher, mock_lo
     ) as mock_clear_queued:
         await consumer.message_handler(mock_msg)
 
-    mock_clear_queued.assert_awaited_once_with("test-device", token="claim-1")
+    for call in mock_clear_queued.await_args_list:
+        assert call.args == ("test-device",)
+        assert call.kwargs == {"token": "claim-1"}
     mock_msg.term.assert_awaited_once()
     mock_msg.nak.assert_not_awaited()
     mock_lock.release.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_giving_up_terminates_even_if_the_claim_cannot_be_released(
+    mock_dispatcher, mock_lock, custom_ini
+):
+    """A Redis failure while releasing the claim must not leave the message redelivering."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = _last_delivery_msg({"device_id": "test-device", "queue_claim": "claim-1"})
+    mock_lock.acquire.return_value = False
+
+    with (
+        patch(
+            "nv_config_manager.render.pull_consumer.clear_queued",
+            new_callable=AsyncMock,
+            side_effect=ConnectionError("redis down"),
+        ),
+        pytest.raises(ConnectionError),
+    ):
+        await consumer.message_handler(mock_msg)
+
+    mock_msg.term.assert_awaited_once()
 
 
 @pytest.mark.asyncio

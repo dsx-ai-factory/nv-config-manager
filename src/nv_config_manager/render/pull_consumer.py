@@ -659,24 +659,22 @@ class PullDeviceChangeConsumer(PullConsumer):
             await self.nak(msg, delay=5)
             return
         try:
+            # Release the dedup slot before the render reads any device state. A
+            # change that lands after the read needs a render of its own, and
+            # holding the slot until the render finished would drop it as a
+            # duplicate. At most one more message per device can queue meanwhile.
+            await clear_queued(device_id, token=claim)
             # Dispatch is now async, so we can await it directly
             await self.dispatcher.nautobot_change_dispatch(data)
-            # Release the dedup slot only once the render is finished. Clearing
-            # at lock acquisition reopens it for the whole duration of the
-            # render, so a change arriving mid-render enqueues a duplicate.
-            await clear_queued(device_id, token=claim)
             await self.ack(msg)
         except RenderException:
             # No need to redeliver render exceptions, they won't succeed on retry
-            await clear_queued(device_id, token=claim)
             await self.ack(msg)
         except Exception as e:
             self.logger.error("Error processing device change message: %s", data, exc_info=e)
             if _is_last_delivery(msg):
                 await self._give_up(msg, device_id, claim, "every delivery failed")
             else:
-                # Leave the dedup slot claimed: the render is still pending until a
-                # redelivery completes it.
                 await self.nak(msg)
         finally:
             try:
@@ -696,8 +694,10 @@ class PullDeviceChangeConsumer(PullConsumer):
             CONSUMER_MAX_DELIVER,
             reason,
         )
-        await clear_queued(device_id, token=claim)
-        await self.term(msg)
+        try:
+            await clear_queued(device_id, token=claim)
+        finally:
+            await self.term(msg)
 
 
 def _is_last_delivery(msg: Msg) -> bool:
