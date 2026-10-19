@@ -3105,6 +3105,16 @@ monitoring:
     # per-environment when probes need to match a site-specific alerting /
     # dashboard regex.
     jobNamePrefix: ""
+    # Bundled NATS (nautobotNats.enabled or externalServices.nats.local) has
+    # no gateway route, so its probe targets the in-cluster monitoring
+    # endpoint (`http://<release>-nats.<namespace>.svc:8222/healthz`). The
+    # namespace-isolation NetworkPolicy opens 8222 only to
+    # monitoring.prometheus.namespace, where the exporter must run.
+    nats:
+      enabled: true
+      # Override when the blackbox exporter runs outside the cluster and
+      # cannot resolve cluster-local service names.
+      target: ""
   # PodMonitors: each PodMonitor is enabled when podMonitors.enabled AND the
   # target service is enabled. CNPG scrapes also require podMonitors.cnpg.enabled
   # (and cnpg.enabled + each cluster's enabled flag).

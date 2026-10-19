@@ -1816,6 +1816,60 @@ labels:
 {{- end -}}
 
 {{/*
+Yields "true" when the bundled NATS blackbox Probe is rendered. The
+namespace-isolation NetworkPolicy uses the same condition to open the NATS
+monitoring port to the exporter.
+*/}}
+{{- define "nv-config-manager.natsProbeEnabled" -}}
+{{- $probes := .Values.monitoring.probes | default dict -}}
+{{- $nats := $probes.nats | default dict -}}
+{{- $bundled := or .Values.nautobotNats.enabled .Values.externalServices.nats.local -}}
+{{- if and .Values.monitoring.enabled $probes.enabled $probes.blackboxExporterUrl $bundled ($nats.enabled | default false) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Blackbox Probe CR for a single target URL.
+
+The job label is `<monitoring.probes.jobNamePrefix><name>-probe`, so site
+alerting regexes keyed on the job prefix match every Probe the chart renders.
+
+Params:
+  root      - chart root context
+  name      - Probe metadata.name (also the job name stem)
+  component - app.kubernetes.io/component label
+  scheme    - scheme Prometheus uses to reach the blackbox exporter
+  target    - full URL the exporter probes
+*/}}
+{{- define "nv-config-manager.blackboxProbe" -}}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: {{ .name }}
+  namespace: {{ .root.Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" .root | nindent 4 }}
+    app.kubernetes.io/component: {{ .component }}
+    {{- with .root.Values.global.customLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  interval: 30s
+  module: http_2xx
+  jobName: {{ .root.Values.monitoring.probes.jobNamePrefix | default "" }}{{ .name }}-probe
+  prober:
+    scheme: {{ .scheme }}
+    url: {{ .root.Values.monitoring.probes.blackboxExporterUrl }}
+  targets:
+    staticConfig:
+      {{- include "nv-config-manager.probeStaticConfigLabels" .root | nindent 6 }}
+      static:
+      - {{ .target }}
+{{- end -}}
+
+{{/*
 =============================================================================
 Security Context Helpers
 =============================================================================
