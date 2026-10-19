@@ -552,3 +552,52 @@ async def test_intended_interface_neighbors_are_provider_owned():
     assert interfaces[0].connected_interface_name == "swp2"
     assert interfaces[0].connected_device and interfaces[0].connected_device.name == "leaf-2"
     assert client.graphql_query.await_args.args[1] == {"device_id": "device-id"}
+
+
+@pytest.mark.asyncio
+async def test_intended_interface_neighbors_resolve_parent_bay_chassis():
+    """A line card installed in a chassis DeviceBay reports the chassis, not itself."""
+    client = _client()
+    client.graphql_query = AsyncMock(
+        return_value={
+            "data": {
+                "interfaces": [
+                    {
+                        "name": "swp1",
+                        "tags": [],
+                        "connected_interface": {
+                            "name": "C1/1/L1",
+                            "mac_address": "00:11:22:33:44:55",
+                            "device": {
+                                "name": "chassis-01-C11U11-pcie1",
+                                "serial": "linecard-serial",
+                                "position": None,
+                                "role": None,
+                                "rack": None,
+                                "parent_bay": {
+                                    "device": {
+                                        "name": "chassis-01-C11U11",
+                                        "serial": "chassis-serial",
+                                        "position": 11,
+                                        "role": {"name": "GPU"},
+                                        "rack": {"name": "rack-1"},
+                                    }
+                                },
+                            },
+                        },
+                    }
+                ]
+            }
+        }
+    )
+
+    interfaces = await client.get_intended_interface_neighbors("device-id")
+
+    assert len(interfaces) == 1
+    connected_device = interfaces[0].connected_device
+    assert connected_device is not None
+    assert connected_device.name == "chassis-01-C11U11"
+    assert connected_device.serial == "chassis-serial"
+    assert connected_device.role == "GPU"
+    assert connected_device.rack == "rack-1"
+    assert connected_device.position == 11

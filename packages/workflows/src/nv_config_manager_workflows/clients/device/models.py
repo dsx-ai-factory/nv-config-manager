@@ -147,6 +147,8 @@ class InterfaceNeighborData(BaseModel):
     device_position: int | None = None
     link_up: bool | None = None
     ts_info: str | None = None
+    port_description: str | None = None
+    label: str | None = None
 
     @staticmethod
     def from_graphql(data: dict[str, Any]) -> InterfaceNeighborData:
@@ -154,11 +156,15 @@ class InterfaceNeighborData(BaseModel):
         if not data["connected_interface"]:
             return InterfaceNeighborData()
 
-        device = (
-            data["connected_interface"]["device"]
-            if data["connected_interface"].get("device")
-            else data["connected_interface"]["module"]["device"]
-        )
+        device = data["connected_interface"].get("device")
+        if device:
+            parent_bay = device.get("parent_bay")
+            if parent_bay and parent_bay.get("device"):
+                # Line card installed in a chassis DeviceBay: the chassis, not
+                # the line card, is what the neighbor actually reports as itself.
+                device = parent_bay["device"]
+        else:
+            device = data["connected_interface"]["module"]["device"]
         role = device["role"]
         if role:
             role = role["name"].lower().replace(" ", "-")

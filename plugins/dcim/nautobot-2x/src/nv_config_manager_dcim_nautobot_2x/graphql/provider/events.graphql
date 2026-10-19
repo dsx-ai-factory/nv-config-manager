@@ -87,6 +87,19 @@ query GetIntendedInterfaceNeighbors($device_id: String) {
         role {
           name
         }
+        parent_bay {
+          device {
+            name
+            rack {
+              name
+            }
+            position
+            serial
+            role {
+              name
+            }
+          }
+        }
       }
       module {
         device {

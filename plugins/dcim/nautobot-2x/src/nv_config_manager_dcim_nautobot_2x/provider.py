@@ -370,7 +370,13 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 )
                 continue
             device = connected_interface.get("device")
-            if not isinstance(device, dict):
+            if isinstance(device, dict):
+                parent_bay = device.get("parent_bay")
+                if isinstance(parent_bay, dict) and isinstance(parent_bay.get("device"), dict):
+                    # Line card installed in a chassis DeviceBay: the chassis, not
+                    # the line card, is what the neighbor actually reports as itself.
+                    device = parent_bay["device"]
+            else:
                 module = connected_interface.get("module")
                 device = module.get("device") if isinstance(module, dict) else None
             if not isinstance(device, dict) or not isinstance(device.get("name"), str):
