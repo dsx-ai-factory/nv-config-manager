@@ -52,6 +52,7 @@ from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.dhcp.redis import RedisClient
 
 async def main():
+    'Read or publish desired state without copying live Kea credentials.'
     payload = json.load(sys.stdin)
     client = RedisClient.from_config(load_config())
     try:
@@ -321,21 +322,69 @@ def _wait_for_kea_subnet(namespace: str, pod: str, subnet: str, *, present: bool
 
 
 @contextmanager
-def _temporary_kea_dhcp4_config(
-    namespace: str, pod: str, dhcp4: dict[str, Any], subnet: str
-) -> Iterator[None]:
-    """Seed desired state so drift reconciliation preserves the scale fixture."""
-    original = _kea_desired_config(namespace, pod)
-    assert original is not None
-    scaled = deepcopy(original)
-    scaled["Dhcp4"] = dhcp4
+def _paused_dhcp_refresh(namespace: str) -> Iterator[None]:
+    """Stop the Kind refresh writer and restore its original replica count."""
+
+    def kubectl(*args: str) -> str:
+        """Run bounded cluster-control commands without exposing config payloads."""
+        result = subprocess.run(
+            ["kubectl", "-n", namespace, *args, "--request-timeout=15s"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            pytest.fail(f"DHCP refresh control command failed: {result.stderr.strip()}")
+        return result.stdout
+
+    deployments = json.loads(
+        kubectl(
+            "get",
+            "deployments",
+            "-l",
+            "app.kubernetes.io/component=network-dhcp-refresh",
+            "-o",
+            "json",
+        )
+    )["items"]
+    if len(deployments) != 1:
+        pytest.fail("Expected exactly one DHCP refresh deployment in the Kind namespace")
+    deployment = deployments[0]
+    name = deployment["metadata"]["name"]
+    replicas = deployment["spec"].get("replicas", 1)
+    labels = deployment["spec"]["selector"]["matchLabels"]
+    selector = ",".join(f"{key}={value}" for key, value in sorted(labels.items()))
     try:
-        _kea_desired_config(namespace, pod, scaled)
-        _wait_for_kea_subnet(namespace, pod, subnet, present=True)
+        kubectl("scale", f"deployment/{name}", "--replicas=0")
+        deadline = time.monotonic() + 60
+        while json.loads(kubectl("get", "pods", "-l", selector, "-o", "json"))["items"]:
+            if time.monotonic() >= deadline:
+                pytest.fail("DHCP refresh pods did not stop before scale-fixture setup")
+            time.sleep(1)
         yield
     finally:
-        _kea_desired_config(namespace, pod, original)
-        _wait_for_kea_subnet(namespace, pod, subnet, present=False)
+        kubectl("scale", f"deployment/{name}", f"--replicas={replicas}")
+
+
+@contextmanager
+def _temporary_kea_dhcp4_config(
+    namespace: str, pod: str, count: int
+) -> Iterator[tuple[dict[str, Any], str]]:
+    """Seed desired state so drift reconciliation preserves the scale fixture."""
+    with _paused_dhcp_refresh(namespace):
+        original = _kea_desired_config(namespace, pod)
+        assert original is not None
+        dhcp4, subnet = _scaled_dhcp4_config(original["Dhcp4"], count)
+        scaled = deepcopy(original)
+        scaled["Dhcp4"] = dhcp4
+        try:
+            _kea_desired_config(namespace, pod, scaled)
+            _wait_for_kea_subnet(namespace, pod, subnet, present=True)
+            yield dhcp4, subnet
+        finally:
+            _kea_desired_config(namespace, pod, original)
+            _wait_for_kea_subnet(namespace, pod, subnet, present=False)
 
 
 def _scaled_dhcp4_config(
@@ -838,21 +887,14 @@ class TestDHCPAPI:
 
         self._wait_for_dhcp_data(dhcp_api_url, dhcp_client)
         dhcp_pod = _get_dhcp_pod(config_manager_namespace)
-        dhcp4 = _get_kea_dhcp4_config(config_manager_namespace, dhcp_pod)
-
-        scaled_dhcp4, scale_subnet = _scaled_dhcp4_config(
-            dhcp4,
-            DHCP_SCALE_CONFIG_RECORD_COUNT,
-        )
-        scale_config = scaled_dhcp4["subnet4"][-1]
-        seeded_reservation_names = {
-            reservation["hostname"] for reservation in scale_config["reservations"]
-        }
-        seeded_pools = {pool["pool"] for pool in scale_config["pools"]}
-
         with _temporary_kea_dhcp4_config(
-            config_manager_namespace, dhcp_pod, scaled_dhcp4, scale_subnet
-        ):
+            config_manager_namespace, dhcp_pod, DHCP_SCALE_CONFIG_RECORD_COUNT
+        ) as (scaled_dhcp4, scale_subnet):
+            scale_config = scaled_dhcp4["subnet4"][-1]
+            seeded_reservation_names = {
+                reservation["hostname"] for reservation in scale_config["reservations"]
+            }
+            seeded_pools = {pool["pool"] for pool in scale_config["pools"]}
             reservation_pages, reservation_total = _fetch_exact_collection_pages(
                 dhcp_api_url,
                 dhcp_client,
