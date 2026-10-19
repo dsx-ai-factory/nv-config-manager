@@ -22,6 +22,8 @@ import ipaddress
 import json
 import subprocess
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from copy import deepcopy
 from itertools import islice
 from typing import Any, cast
@@ -40,6 +42,28 @@ DHCP_POLL_INTERVAL = 10  # seconds
 DHCP_SCALE_LEASE_COUNT = 201
 DHCP_SCALE_CONFIG_RECORD_COUNT = 201
 DHCP_SCALE_PAGE_SIZE = 100
+
+_KEA_CACHE_SCRIPT = """
+import asyncio
+import json
+import sys
+
+from nv_config_manager.common.config.loader import load_config
+from nv_config_manager.dhcp.redis import RedisClient
+
+async def main():
+    payload = json.load(sys.stdin)
+    client = RedisClient.from_config(load_config())
+    try:
+        if "config" in payload:
+            await client.persist_kea_config(4, payload["config"])
+        else:
+            json.dump(await client.load_kea_config(4), sys.stdout)
+    finally:
+        await client.close()
+
+asyncio.run(main())
+"""
 
 _KEA_BATCH_SCRIPT = """
 import json
@@ -247,25 +271,71 @@ def _fetch_exact_collection_pages(
     pytest.fail(f"DHCP {resource} pagination did not finish within 100 pages")
 
 
-def _set_kea_dhcp4_config(
+def _kea_desired_config(
     namespace: str,
     pod: str,
-    dhcp4: dict[str, Any],
-) -> None:
-    """Apply an ephemeral DHCPv4 configuration through Kea's control agent."""
-    responses = _run_kea_commands(
-        namespace,
-        pod,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Read or publish the desired config consumed by the Kind sync sidecar."""
+    result = subprocess.run(
         [
-            {
-                "command": "config-set",
-                "service": ["dhcp4"],
-                "arguments": {"Dhcp4": dhcp4},
-            }
+            "kubectl",
+            "exec",
+            "-i",
+            "-n",
+            namespace,
+            pod,
+            "-c",
+            "api",
+            "--",
+            "python",
+            "-c",
+            _KEA_CACHE_SCRIPT,
         ],
+        capture_output=True,
+        check=False,
+        input=json.dumps({"config": config} if config is not None else {}),
+        text=True,
+        timeout=30,
     )
-    if len(responses) != 1 or len(responses[0]) != 1 or responses[0][0].get("result") != 0:
-        pytest.fail(f"Failed to apply Kea scale configuration: {responses}")
+    if result.returncode != 0:
+        pytest.fail("Failed to read or publish the desired Kea scale configuration")
+    if config is not None:
+        return None
+    payload = json.loads(result.stdout)
+    if not isinstance(payload, dict) or not isinstance(payload.get("Dhcp4"), dict):
+        pytest.fail("No desired DHCPv4 configuration found in Redis")
+    return payload
+
+
+def _wait_for_kea_subnet(namespace: str, pod: str, subnet: str, *, present: bool) -> None:
+    """Wait for reconciliation before reading pages or finishing cleanup."""
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        config = _get_kea_dhcp4_config(namespace, pod)
+        found = any(item.get("subnet") == subnet for item in config.get("subnet4", []))
+        if found == present:
+            return
+        time.sleep(1)
+    pytest.fail(f"Kea did not reconcile scale subnet {subnet} (expected present={present})")
+
+
+@contextmanager
+def _temporary_kea_dhcp4_config(
+    namespace: str, pod: str, dhcp4: dict[str, Any], subnet: str
+) -> Iterator[None]:
+    """Seed desired state so drift reconciliation preserves the scale fixture."""
+    original = _kea_desired_config(namespace, pod)
+    assert original is not None
+    scaled = deepcopy(original)
+    scaled["Dhcp4"] = dhcp4
+    try:
+        _kea_desired_config(namespace, pod, scaled)
+        _wait_for_kea_subnet(namespace, pod, subnet, present=True)
+        yield
+    finally:
+        _kea_desired_config(namespace, pod, original)
+        _wait_for_kea_subnet(namespace, pod, subnet, present=False)
 
 
 def _scaled_dhcp4_config(
@@ -770,7 +840,6 @@ class TestDHCPAPI:
         dhcp_pod = _get_dhcp_pod(config_manager_namespace)
         dhcp4 = _get_kea_dhcp4_config(config_manager_namespace, dhcp_pod)
 
-        original_dhcp4 = deepcopy(dhcp4)
         scaled_dhcp4, scale_subnet = _scaled_dhcp4_config(
             dhcp4,
             DHCP_SCALE_CONFIG_RECORD_COUNT,
@@ -781,9 +850,9 @@ class TestDHCPAPI:
         }
         seeded_pools = {pool["pool"] for pool in scale_config["pools"]}
 
-        try:
-            _set_kea_dhcp4_config(config_manager_namespace, dhcp_pod, scaled_dhcp4)
-
+        with _temporary_kea_dhcp4_config(
+            config_manager_namespace, dhcp_pod, scaled_dhcp4, scale_subnet
+        ):
             reservation_pages, reservation_total = _fetch_exact_collection_pages(
                 dhcp_api_url,
                 dhcp_client,
@@ -896,8 +965,6 @@ class TestDHCPAPI:
                 f"pools in {scale_subnet} across {len(reservation_pages)} and "
                 f"{len(pool_pages)} pages"
             )
-        finally:
-            _set_kea_dhcp4_config(config_manager_namespace, dhcp_pod, original_dhcp4)
 
     # SMN roles use DHCP pools on /31 subnets, not reservations
     SMN_ROLES = {"SMN-Core", "SMN-Spine", "SMN-Leaf", "SMN-Aggleaf", "SMN-ZTPLeaf"}
