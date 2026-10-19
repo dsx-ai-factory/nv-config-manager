@@ -33,6 +33,7 @@ from nats.js.api import AckPolicy, ConsumerConfig, ConsumerInfo, DeliverPolicy
 from nats.js.errors import FetchTimeoutError, NotFoundError
 from nv_config_manager_infrastructure.nats import DEFAULT_NATS_API_PREFIX
 from prometheus_client import Gauge, start_http_server
+from redis.asyncio.lock import Lock as AsyncRedisLock
 
 from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.config.nats import (
@@ -62,12 +63,18 @@ from nv_config_manager.render.events.util import (
     clear_queued,
 )
 from nv_config_manager.render.exceptions import RenderException
-from nv_config_manager.render.lock import create_lock
+from nv_config_manager.render.lock import _FakeLock, create_lock
 
 configure_logging(service="render")
 
 # JetStream error code for "stream not found".
 STREAM_NOT_FOUND_ERR_CODE = 10059
+
+# The device lock expires on its own, so a render that outlives it is renewed
+# periodically. Otherwise a follow-up message for the same device could take
+# the expired lock and render concurrently with the one still running.
+DEVICE_LOCK_TIMEOUT_SECONDS = 180
+DEVICE_LOCK_RENEW_INTERVAL_SECONDS = DEVICE_LOCK_TIMEOUT_SECONDS / 3
 
 CONSUMER_METRIC_LABELS = ["consumer_name", "stream_name", "namespace"]
 CONSUMER_PENDING = Gauge(
@@ -649,7 +656,7 @@ class PullDeviceChangeConsumer(PullConsumer):
         device_id = data["device_id"]
         claim = data.get(QUEUE_CLAIM_FIELD)
 
-        lock = await create_lock(device_id, blocking=False)
+        lock = await create_lock(device_id, timeout=DEVICE_LOCK_TIMEOUT_SECONDS, blocking=False)
         acquired = await lock.acquire()
         if not acquired:
             if _is_last_delivery(msg):
@@ -658,6 +665,7 @@ class PullDeviceChangeConsumer(PullConsumer):
             self.logger.info("Another process owns the lock for %s, nacking.", device_id)
             await self.nak(msg, delay=5)
             return
+        renewal = asyncio.create_task(self._renew_lock(lock, device_id))
         try:
             # Release the dedup slot before the render reads any device state. A
             # change that lands after the read needs a render of its own, and
@@ -677,10 +685,25 @@ class PullDeviceChangeConsumer(PullConsumer):
             else:
                 await self.nak(msg)
         finally:
+            renewal.cancel()
             try:
                 await lock.release()
             except Exception as e:
                 self.logger.error("Error releasing lock for %s", device_id, exc_info=e)
+
+    async def _renew_lock(self, lock: AsyncRedisLock | _FakeLock, device_id: str) -> None:
+        """Keep the device lock alive until the render holding it finishes."""
+        while True:
+            await asyncio.sleep(DEVICE_LOCK_RENEW_INTERVAL_SECONDS)
+            try:
+                await lock.reacquire()
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                self.logger.error(
+                    "Could not renew the render lock for %s; another render may start",
+                    device_id,
+                    exc_info=e,
+                )
+                return
 
     async def _give_up(self, msg: Msg, device_id: str, claim: str | None, reason: str) -> None:
         """Drop a message JetStream will not redeliver, and free its dedup slot.

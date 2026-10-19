@@ -14,7 +14,9 @@
 # limitations under the License.
 """Tests for the NATS pull consumer module."""
 
+import asyncio
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -81,6 +83,7 @@ def mock_lock():
         mock_lock_instance = MagicMock(spec=AsyncRedisLock)
         mock_lock_instance.acquire = AsyncMock(return_value=True)
         mock_lock_instance.release = AsyncMock(return_value=True)
+        mock_lock_instance.reacquire = AsyncMock(return_value=True)
         # create_lock is now async, so we need an AsyncMock
         mock.return_value = mock_lock_instance
         yield mock_lock_instance
@@ -411,8 +414,8 @@ async def test_pull_device_change_consumer_releases_only_its_own_claim(
 
 @pytest.mark.asyncio
 async def test_claim_is_released_before_the_render_reads_device_state(
-    mock_dispatcher, mock_lock, custom_ini
-):
+    mock_dispatcher: MagicMock, mock_lock: MagicMock, custom_ini: Callable[[str], None]
+) -> None:
     """A change landing mid-render must be able to queue a render of its own."""
     custom_ini(TEST_NATS_CONFIG)
     consumer = PullDeviceChangeConsumer()
@@ -424,7 +427,7 @@ async def test_claim_is_released_before_the_render_reads_device_state(
         "nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock
     ) as mock_clear_queued:
 
-        async def dispatch(_data):
+        async def dispatch(_data: dict[str, str]) -> None:
             # Holding the claim here would make a concurrent producer drop the
             # newer change as a duplicate of this render.
             mock_clear_queued.assert_awaited_once_with("test-device", token="claim-1")
@@ -434,6 +437,35 @@ async def test_claim_is_released_before_the_render_reads_device_state(
 
     mock_dispatcher.nautobot_change_dispatch.assert_awaited_once()
     mock_msg.ack.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_device_lock_is_renewed_for_a_render_that_outlives_it(
+    mock_dispatcher: MagicMock, mock_lock: MagicMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A long render keeps its lock so a follow-up cannot render the device concurrently."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_lock.acquire.return_value = True
+
+    async def slow_render(_data: dict[str, str]) -> None:
+        await asyncio.sleep(0.05)
+
+    mock_dispatcher.nautobot_change_dispatch = AsyncMock(side_effect=slow_render)
+    with (
+        patch("nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock),
+        patch("nv_config_manager.render.pull_consumer.DEVICE_LOCK_RENEW_INTERVAL_SECONDS", 0.01),
+    ):
+        await consumer.message_handler(mock_msg)
+        renewals = mock_lock.reacquire.await_count
+        await asyncio.sleep(0.03)
+
+    assert renewals >= 1
+    # Renewal stops with the render, so the lock is not held past release.
+    assert mock_lock.reacquire.await_count == renewals
+    mock_lock.release.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -487,7 +519,9 @@ async def test_last_delivery_that_never_wins_the_lock_frees_its_claim(
 
 
 @pytest.mark.asyncio
-async def test_last_delivery_that_fails_is_terminated(mock_dispatcher, mock_lock, custom_ini):
+async def test_last_delivery_that_fails_is_terminated(
+    mock_dispatcher: MagicMock, mock_lock: MagicMock, custom_ini: Callable[[str], None]
+) -> None:
     """A render that fails on its final delivery is terminated instead of nacked."""
     custom_ini(TEST_NATS_CONFIG)
     consumer = PullDeviceChangeConsumer()
@@ -510,8 +544,8 @@ async def test_last_delivery_that_fails_is_terminated(mock_dispatcher, mock_lock
 
 @pytest.mark.asyncio
 async def test_giving_up_terminates_even_if_the_claim_cannot_be_released(
-    mock_dispatcher, mock_lock, custom_ini
-):
+    mock_dispatcher: MagicMock, mock_lock: MagicMock, custom_ini: Callable[[str], None]
+) -> None:
     """A Redis failure while releasing the claim must not leave the message redelivering."""
     custom_ini(TEST_NATS_CONFIG)
     consumer = PullDeviceChangeConsumer()
