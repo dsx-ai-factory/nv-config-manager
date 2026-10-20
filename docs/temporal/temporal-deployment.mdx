@@ -16,6 +16,47 @@ The installer controls Temporal deployment through `nv-config-manager-install.ya
 - `rbac`: configures workflow read and execute roles.
 - `infrastructure`: configures TLS, gateway, storage, and optional observability.
 
+## Workflow RBAC Overrides in Helm
+
+Shared Helm values can define the existing `rbac.workflows` list. A cell can
+inherit that list and change individual workflows with `rbac.workflowOverrides`,
+a mapping keyed by workflow name:
+
+```yaml
+rbac:
+  workflowOverrides:
+    ValidateHardwareWorkflow:
+      execute_roles:
+        - site-validators
+    DiagnosticsWorkflow:
+      read_roles:
+        - site-readers
+      execute_roles:
+        - site-operators
+    DeployWorkflow:
+      enabled: false
+```
+
+Omitted workflows and role fields inherit their shared settings. An explicit
+`read_roles` or `execute_roles` list replaces that field's entire list; roles are
+not appended. Set a role list to `[]` to remove its grants, or `enabled: false`
+to omit the workflow from the rendered RBAC configuration. A new workflow name
+adds an entry; its omitted role lists default to `[]`. Overrides do not change
+`admin_roles` or grant access to other services.
+
+Multiple values files merge `workflowOverrides` by workflow name and field.
+Keep the base `rbac.workflows` in the shared overlay and only exceptions in each
+cell. Setting `rbac.workflows` in a cell still replaces the shared list, as it
+did before this option was introduced. The chart resolves overrides into the
+existing runtime list and updates the API and worker rollout checksums when the
+effective policy changes. Unknown override fields and invalid role lists fail
+chart rendering.
+
+These are Helm values, distinct from the installer's
+`rbac.workflow_overrides` list. Existing executions retain their recorded
+read and execute roles; changing the configuration does not rewrite their
+authorization metadata.
+
 ## Temporal Images
 
 The managed Temporal deployment uses three independently scoped distroless

@@ -20,7 +20,7 @@ Temporal RBAC ConfigMap data
 */}}
 {{- define "nv-config-manager.configmap.temporal-rbac" -}}
 rbac.yaml: |
-{{- toYaml .Values.rbac | nindent 2 }}
+{{- include "nv-config-manager.temporalRbac" . | nindent 2 }}
 {{- end -}}
 
 {{/*
