@@ -392,6 +392,11 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                         if connected_interface.get("name") is not None
                         else None
                     ),
+                    connected_interface_label=(
+                        str(connected_interface["label"])
+                        if connected_interface.get("label") is not None
+                        else None
+                    ),
                     connected_interface_mac=(
                         str(connected_interface["mac_address"])
                         if connected_interface.get("mac_address") is not None

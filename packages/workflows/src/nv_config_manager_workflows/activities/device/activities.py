@@ -50,6 +50,7 @@ async def get_device_intended_neighbors(
         neighbors={
             interface.name: InterfaceNeighborData(
                 name=interface.connected_interface_name,
+                label=interface.connected_interface_label,
                 macs=(
                     [str(netaddr.EUI(interface.connected_interface_mac))]
                     if interface.connected_interface_mac

@@ -211,6 +211,34 @@ def _check_lldp_validity(
     )
 
 
+def _check_port_description_validity(
+    intended_interface: str,
+    intended_neighbor: InterfaceNeighborData,
+    actual: DeviceNeighborData,
+) -> bool:
+    """Check if actual LLDP port description matches the intended device and interface."""
+    if intended_interface not in actual.neighbors:
+        return False
+
+    intended_interface_name = intended_neighbor.label or intended_neighbor.name
+    if not intended_neighbor.device_name or not intended_interface_name:
+        return False
+
+    actual_neighbor = actual.neighbors[intended_interface]
+    if not actual_neighbor.port_description:
+        return False
+
+    parts = actual_neighbor.port_description.split()
+    if len(parts) != 2:
+        return False
+
+    device_name, interface_name = parts
+    return (
+        device_name.lower() == intended_neighbor.device_name.lower()
+        and interface_name.lower() == intended_interface_name.lower()
+    )
+
+
 def _check_mac_validity(
     intended_interface: str,
     intended_neighbor: InterfaceNeighborData,
@@ -286,9 +314,12 @@ def _process_intended_interface(
     # Check LLDP and MAC validity
     lldp_valid = _check_lldp_validity(intended_interface, intended_neighbor, actual)
     mac_valid = _check_mac_validity(intended_interface, intended_neighbor, mac_table, arp_table)
+    port_description_valid = _check_port_description_validity(
+        intended_interface, intended_neighbor, actual
+    )
 
-    # If either is valid, the cable is valid
-    if mac_valid or lldp_valid:
+    # If any is valid, the cable is valid
+    if mac_valid or lldp_valid or port_description_valid:
         return None, CableStatus.CONNECTED
 
     # Build error data
@@ -793,6 +824,7 @@ __all__ = [
     "_check_link_state",
     "_check_lldp_validity",
     "_check_mac_validity",
+    "_check_port_description_validity",
     "_check_standard_lldp_match",
     "_classify_issue",
     "_display_or_macs",

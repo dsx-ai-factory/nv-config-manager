@@ -303,6 +303,7 @@ class IntendedInterfaceNeighbor(DCIMModel):
     name: str
     tags: tuple[str, ...] = ()
     connected_interface_name: str | None = None
+    connected_interface_label: str | None = None
     connected_interface_mac: str | None = None
     connected_device: IntendedNeighborDevice | None = None
 

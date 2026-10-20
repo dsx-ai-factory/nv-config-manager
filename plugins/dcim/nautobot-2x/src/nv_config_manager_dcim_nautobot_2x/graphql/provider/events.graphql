@@ -76,6 +76,7 @@ query GetIntendedInterfaceNeighbors($device_id: String) {
     }
     connected_interface {
       name
+      label
       mac_address
       device {
         name
