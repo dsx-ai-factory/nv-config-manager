@@ -933,7 +933,7 @@ gateway:
   # Applies under both gateway controllers. On Envoy Gateway with
   # gateway.create=false there is no Gateway-level policy to carry this, so only
   # the ZTP upload routes and the safeMethods rules below are retried; kgateway
-  # attaches it to every route either way.
+  # attaches it to every route the chart renders either way.
   retry:
     enabled: true
     # Total attempts is numRetries + 1.

@@ -152,9 +152,9 @@ is not retried, rather than by the proxy with a `502`, which would be.
 
 ### With an existing Gateway
 
-On kgateway, the retry is attached to every route through route-level
-`TrafficPolicy` resources, so `gateway.create: false` does not change which
-routes are retried.
+On kgateway, the retry is attached to every route the chart renders through
+route-level `TrafficPolicy` resources, so `gateway.create: false` does not change
+which routes are retried. Other routes on a shared Gateway are not affected.
 
 On Envoy Gateway with `gateway.create: false`, the chart does not create the
 Gateway-level `BackendTrafficPolicy` that carries the retry for most routes. In
