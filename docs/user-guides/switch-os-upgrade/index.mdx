@@ -63,7 +63,7 @@ The workflow runs four stages in order. Only `approve_upgrade` requires approval
 
 1. **`update_device_configuration` — Refresh device context for the upgrade.**
 
-   Calls `validate_rendered_image_change` (6-minute start-to-close timeout, 2-minute heartbeat) to ensure upgrade artifacts match the target, and updates Config Manager's internal state to track the new firmware. Cumulus checks `VERSION_ID=` in the rendered `boot-script`. Junos and IOS XR check that the image is on the ZTP server and that `full-config` exists in the intended config store.
+   Calls `validate_rendered_image_change` (6-minute start-to-close timeout, 2-minute heartbeat) to ensure upgrade artifacts match the target, and updates Config Manager's internal state to track the new firmware. Cumulus checks `VERSION_ID=` in the rendered `boot-script`. Junos checks that the image is on the ZTP server and that `full-config` exists in the intended config store.
 
 1. **`perform_upgrade` — Install the image and wait for the device to come back.**
 

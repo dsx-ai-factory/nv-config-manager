@@ -26,7 +26,6 @@ from nv_config_manager_workflows.activities.os.helpers import (
     check_ztp_success,
     mellanox_connection,
     validate_cumulus_boot_script_image,
-    validate_iosxr_upgrade_artifacts,
     validate_juniper_upgrade_artifacts,
 )
 from nv_config_manager_workflows.activities.os.models import (
@@ -333,6 +332,4 @@ async def validate_rendered_image_change(
         return await validate_cumulus_boot_script_image(activity_input)
     if platform == Platform.JUNIPER_JUNOS:
         return await validate_juniper_upgrade_artifacts(activity_input)
-    if platform == Platform.CISCO_IOS_XR:
-        return await validate_iosxr_upgrade_artifacts(activity_input)
     raise NotImplementedError(f"Platform {platform} not supported")
