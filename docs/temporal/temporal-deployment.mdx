@@ -16,6 +16,28 @@ The installer controls Temporal deployment through `nv-config-manager-install.ya
 - `rbac`: configures workflow read and execute roles.
 - `infrastructure`: configures TLS, gateway, storage, and optional observability.
 
+### Workflow attribution domain
+
+Authenticated email identities supply their own domain for new workflow
+attribution. When an authenticated identity is a short username or service
+name, configure an optional deployment default:
+
+```yaml
+global:
+  defaultUserDomain: example.com
+```
+
+The setting is used for backend workflow attribution; it is not a UI display
+setting. The chart writes it to `[temporal].user_domain` in the unified
+`nv-config-manager.ini` and passes it to the Temporal API, worker, and Render
+workloads as `NV_CONFIG_MANAGER_DOMAIN`. For deployments that do not use this
+Helm chart, set the INI value for Temporal clients and
+`NV_CONFIG_MANAGER_DOMAIN` for those processes. If it is unset, the Workflow
+API leaves nullable `user_domain` fields as `None` and rejects unresolved
+non-nullable fields with `422`.
+Explicit caller-owned domain values are preserved, while fields declared
+`ServerOwned` are always replaced by authenticated attribution.
+
 ## Temporal Images
 
 The managed Temporal deployment uses three independently scoped distroless

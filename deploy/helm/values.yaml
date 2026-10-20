@@ -87,6 +87,9 @@ global:
   baseDomain: config-manager.example.com
   # Environment identifier (dev, test, staging, agg-prod, etc.)
   environment: dev
+  # Optional fallback domain for server-generated attribution identities. This
+  # does not affect service hostnames; configure those with gateway.baseHostname.
+  defaultUserDomain: ""
   # Whether this is an aggregate deployment
   aggregate: false
   # Kubernetes namespace for all services

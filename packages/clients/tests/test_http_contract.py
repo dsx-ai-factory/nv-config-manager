@@ -223,6 +223,13 @@ def test_temporal_auth_headers_require_https() -> None:
         )
 
 
+def test_temporal_mcp_client_has_vendor_neutral_domain_default() -> None:
+    """Caller-scoped clients do not manufacture a vendor domain."""
+    client = TemporalClient.for_mcp("https://temporal.example.test", headers={})
+
+    assert client.user_domain is None
+
+
 async def test_render_retry_and_payload(server: Server) -> None:
     server.responses = [
         (409, {"detail": "busy"}),
@@ -259,7 +266,18 @@ async def test_dhcp_and_temporal_operations(server: Server) -> None:
     assert server.requests[2]["path"] == "/v1/workflow/wf%2Fid"
     assert server.requests[3]["path"] == "/v1/workflow/ngc/backup"
     assert server.requests[3]["body"]["device_id"] == "device"
+    assert server.requests[3]["body"]["user_domain"] == "example.com"
     assert server.requests[4]["body"] == {"custom": "value"}
+
+
+async def test_temporal_backup_can_defer_domain_resolution(server: Server) -> None:
+    """An unconfigured client sends null for the API to resolve from authentication."""
+    server.responses = [(200, {"id": "backup"})]
+
+    async with TemporalClient(server.url) as temporal:
+        assert await temporal.invoke_backup_workflow("device") == "backup"
+
+    assert server.requests[0]["body"]["user_domain"] is None
 
 
 async def test_generated_ztp_download_preserves_binary_content(server: Server) -> None:

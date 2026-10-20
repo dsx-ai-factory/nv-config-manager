@@ -400,6 +400,10 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- with .Values.global.defaultUserDomain }}
+        - name: NV_CONFIG_MANAGER_DOMAIN
+          value: {{ . | quote }}
+        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- if .Values.localDev.enableLocalTestWorkflows }}
@@ -508,6 +512,10 @@ spec:
           value: "temporal.api"
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- with .Values.global.defaultUserDomain }}
+        - name: NV_CONFIG_MANAGER_DOMAIN
+          value: {{ . | quote }}
+        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}

@@ -53,9 +53,9 @@ class TemporalClient(_TemporalClient):
         # Get user_domain from specified section or temporal section
         domain_section = user_domain_section or section
         if domain_section in config:
-            user_domain = config[domain_section].get(user_domain_key, "nvidia.com")
+            user_domain = config[domain_section].get(user_domain_key, "").strip() or None
         else:
-            user_domain = "nvidia.com"
+            user_domain = None
 
         if use_internal:
             return cls(
