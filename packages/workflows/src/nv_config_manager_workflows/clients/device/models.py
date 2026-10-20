@@ -149,6 +149,7 @@ class InterfaceNeighborData(BaseModel):
     ts_info: str | None = None
     port_description: str | None = None
     label: str | None = None
+    chassis_name: str | None = None
 
     @staticmethod
     def from_graphql(data: dict[str, Any]) -> InterfaceNeighborData:
@@ -157,12 +158,15 @@ class InterfaceNeighborData(BaseModel):
             return InterfaceNeighborData()
 
         device = data["connected_interface"].get("device")
+        chassis_name = None
         if device:
             parent_bay = device.get("parent_bay")
             if parent_bay and parent_bay.get("device"):
-                # Line card installed in a chassis DeviceBay: the chassis, not
-                # the line card, is what the neighbor actually reports as itself.
-                device = parent_bay["device"]
+                # Line card installed in a chassis DeviceBay: hyper-reach port
+                # descriptions report the chassis hostname, not the line card's
+                # own name, so surface it as an alias without losing the line
+                # card's own identity (name, role) used by other validations.
+                chassis_name = parent_bay["device"].get("name")
         else:
             device = data["connected_interface"]["module"]["device"]
         role = device["role"]
@@ -186,6 +190,7 @@ class InterfaceNeighborData(BaseModel):
             device_role=role,
             device_rack=rack,
             device_position=device.get("position"),
+            chassis_name=chassis_name,
         )
 
     @staticmethod

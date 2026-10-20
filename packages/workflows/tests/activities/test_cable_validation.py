@@ -207,6 +207,42 @@ class TestPortDescriptionValidity:
 
         assert "swp1" in result.interfaces
 
+    @pytest.mark.asyncio
+    async def test_port_description_matches_chassis_alias_over_device_name(self) -> None:
+        """A line card's chassis alias, not its own device name, matches the port description."""
+        intended = DeviceNeighborData(
+            neighbors={
+                "swp1": InterfaceNeighborData(
+                    label="C1-2-L1",
+                    device_name="MOCK-GPU-TRAY-01-pcie1",
+                    chassis_name="MOCK-GPU-TRAY-01",
+                    device_role="gpu",
+                )
+            },
+        )
+        actual = DeviceNeighborData(
+            neighbors={
+                "swp1": InterfaceNeighborData(
+                    name="A56p0",
+                    device_name="mock-dpu-node",
+                    port_description="MOCK-GPU-TRAY-01 C1-2-L1",
+                )
+            },
+            link_states={"swp1": True},
+        )
+
+        result = await validate_device_neighbors(
+            ValidateDeviceNeighborsInput(
+                device=self.TEST_DEVICE,
+                intended=intended,
+                actual=actual,
+                mac_table=DeviceMacTable(),
+                arp_table=DeviceArpTable(),
+            )
+        )
+
+        assert result.interfaces == {}
+
 
 @pytest.mark.asyncio
 async def test_update_cable_statuses_is_noop_for_unsupported_provider(

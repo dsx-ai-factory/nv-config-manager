@@ -295,6 +295,7 @@ class IntendedNeighborDevice(DCIMModel):
     role: str | None = None
     rack: str | None = None
     position: int | None = None
+    chassis_name: str | None = None
 
 
 class IntendedInterfaceNeighbor(DCIMModel):

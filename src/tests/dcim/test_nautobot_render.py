@@ -556,7 +556,9 @@ async def test_intended_interface_neighbors_are_provider_owned():
 
 @pytest.mark.asyncio
 async def test_intended_interface_neighbors_resolve_parent_bay_chassis() -> None:
-    """A line card installed in a chassis DeviceBay reports the chassis, not itself."""
+    """A line card installed in a chassis DeviceBay keeps its own identity and role,
+    with the chassis surfaced separately as a hyper-reach port-description alias.
+    """
     client = _client()
     client.graphql_query = AsyncMock(
         return_value={
@@ -596,8 +598,9 @@ async def test_intended_interface_neighbors_resolve_parent_bay_chassis() -> None
     assert len(interfaces) == 1
     connected_device = interfaces[0].connected_device
     assert connected_device is not None
-    assert connected_device.name == "chassis-01-C11U11"
-    assert connected_device.serial == "chassis-serial"
-    assert connected_device.role == "GPU"
-    assert connected_device.rack == "rack-1"
-    assert connected_device.position == 11
+    assert connected_device.name == "chassis-01-C11U11-pcie1"
+    assert connected_device.serial == "linecard-serial"
+    assert connected_device.role is None
+    assert connected_device.rack is None
+    assert connected_device.position is None
+    assert connected_device.chassis_name == "chassis-01-C11U11"

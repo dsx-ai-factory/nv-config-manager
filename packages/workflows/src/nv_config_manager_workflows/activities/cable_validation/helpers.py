@@ -221,7 +221,8 @@ def _check_port_description_validity(
         return False
 
     intended_interface_name = intended_neighbor.label or intended_neighbor.name
-    if not intended_neighbor.device_name or not intended_interface_name:
+    intended_device_name = intended_neighbor.chassis_name or intended_neighbor.device_name
+    if not intended_device_name or not intended_interface_name:
         return False
 
     actual_neighbor = actual.neighbors[intended_interface]
@@ -234,7 +235,7 @@ def _check_port_description_validity(
 
     device_name, interface_name = parts
     return (
-        device_name.lower() == intended_neighbor.device_name.lower()
+        device_name.lower() == intended_device_name.lower()
         and interface_name.lower() == intended_interface_name.lower()
     )
 

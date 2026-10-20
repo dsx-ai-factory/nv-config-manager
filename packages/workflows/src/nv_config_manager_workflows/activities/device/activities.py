@@ -61,6 +61,7 @@ async def get_device_intended_neighbors(
                 device_role=(device.role.lower().replace(" ", "-") if device.role else None),
                 device_rack=device.rack,
                 device_position=device.position,
+                chassis_name=device.chassis_name,
             )
             for interface in interfaces
             if (device := interface.connected_device)
