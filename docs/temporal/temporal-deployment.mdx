@@ -11,10 +11,61 @@ Temporal is deployed as part of the Config Manager Helm release. Use the [standa
 The installer controls Temporal deployment through `nv-config-manager-install.yaml` and generated Helm values:
 
 - `services.temporal`: enables the Temporal API, workers, and related deployment resources.
+- `temporal.history_replicas`: optionally overrides the managed History service pod count.
+- `temporal.num_history_shards`: optionally overrides the persisted History shard count.
 - `cluster.hostname`: drives public workflow API and Temporal Web hostnames.
 - `secrets`: provides database, auth, and integration secrets.
 - `rbac`: configures workflow read and execute roles.
 - `infrastructure`: configures TLS, gateway, storage, and optional observability.
+
+## History Shards and Replicas
+
+In `nv-config-manager-install.yaml`, leave the Temporal sizing values unset or
+set them to `0` to use the deployment size profile and chart defaults. Set
+positive values to configure a new managed Temporal cluster explicitly:
+
+```yaml
+services:
+  temporal: true
+temporal:
+  history_replicas: 16
+  num_history_shards: 128
+```
+
+The installer maps `temporal.num_history_shards` to
+`temporal.numHistoryShards`, which initializes the persisted History shard
+count when Temporal creates the cluster. Legacy deployments that leave
+`temporal.numHistoryShards` unset initialize that count from the then-current
+`temporal.services.history.replicas` value.
+
+Before scaling History replicas, confirm the existing persisted shard count and
+set `temporal.numHistoryShards` (or the installer
+`temporal.num_history_shards`) to that value. Pinning the value does not modify
+an initialized cluster; it keeps the declared configuration aligned with the
+persisted count. If the shard count itself must change, follow an approved
+shard migration procedure instead.
+
+The installer maps `temporal.history_replicas` to the Helm value
+`temporal.services.history.replicas`. This controls the number of History
+service pods. After the shard count is pinned, these replicas can be adjusted
+as load changes. The equivalent direct Helm override is:
+
+```yaml
+temporal:
+  numHistoryShards: 128
+  services:
+    history:
+      replicas: 16
+```
+
+<Warning>
+Temporal ignores changes to `temporal.numHistoryShards` after the cluster's
+first run and continues using the original persisted shard count. Changing only
+the Helm or installer value does not re-shard an initialized cluster. Temporal
+does not provide an in-place re-sharding command; do not attempt to work around
+this by editing cluster metadata or restoring the database under a different
+shard count.
+</Warning>
 
 ## Temporal Images
 

@@ -62,6 +62,7 @@ from nv_config_manager_installer.schema import (
     SSOProvider,
     TemplatePath,
     TemplatePluginsConfig,
+    TemporalDeploymentConfig,
     VaultConfig,
     VaultPathConfig,
     VaultPathsConfig,
@@ -345,6 +346,59 @@ class TestGenerateHelmValues:
         assert values["temporal"]["client"]["namespace"] == "network-automation"
         assert values["cnpg"]["temporal"]["enabled"] is False
         assert values["cnpg"]["temporalVisibility"]["enabled"] is False
+
+    def test_temporal_deployment_defaults_do_not_override_chart_values(self):
+        temporal = _gen(_make_config())["temporal"]
+
+        assert "numHistoryShards" not in temporal
+        assert "services" not in temporal
+
+    def test_temporal_deployment_maps_history_replicas_and_shards(self):
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(
+                history_replicas=16,
+                num_history_shards=128,
+            )
+        )
+
+        temporal = _gen(config)["temporal"]
+
+        assert temporal["services"]["history"]["replicas"] == 16
+        assert temporal["numHistoryShards"] == 128
+
+    def test_temporal_deployment_maps_only_history_replicas(self):
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(history_replicas=8),
+        )
+
+        temporal = _gen(config)["temporal"]
+
+        assert temporal["services"]["history"]["replicas"] == 8
+        assert "numHistoryShards" not in temporal
+
+    def test_temporal_deployment_maps_only_history_shards(self):
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(num_history_shards=64),
+        )
+
+        temporal = _gen(config)["temporal"]
+
+        assert temporal["numHistoryShards"] == 64
+        assert "services" not in temporal
+
+    def test_temporal_deployment_overrides_size_profile(self):
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(
+                history_replicas=8,
+                num_history_shards=64,
+            )
+        )
+
+        temporal = _gen(config, complete=True)["temporal"]
+
+        assert temporal["services"]["history"]["replicas"] == 8
+        assert temporal["services"]["history"]["resources"]["requests"]["memory"] == "256Mi"
+        assert temporal["numHistoryShards"] == 64
 
     def test_network_policy(self):
         values = _gen(_make_config())

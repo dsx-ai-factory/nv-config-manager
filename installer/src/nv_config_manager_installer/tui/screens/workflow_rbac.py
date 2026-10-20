@@ -22,6 +22,7 @@ from textual.widgets import Button, Input, Label, Select
 
 from nv_config_manager_installer.schema import (
     NVConfigManagerInstallConfig,
+    TemporalDeploymentConfig,
     WorkflowRBACOverride,
     get_known_workflows,
 )
@@ -87,9 +88,44 @@ class WorkflowsScreen(Container):
 
     def compose(self) -> ComposeResult:
         rbac = self._config.rbac
+        temporal = self._config.temporal
 
         yield Label("Workflows", classes="section-title")
         yield Label("─" * 40, classes="section-divider")
+        yield Label("Managed Temporal Server", classes="section-title")
+        with Container(id="temporal-server-fields"):
+            yield Label(
+                "Leave these fields blank to use the deployment size profile and chart defaults."
+            )
+            with Horizontal(classes="compact-field-row"):
+                with Vertical(classes="compact-field"):
+                    yield Label("History Replicas", classes="field-label-compact")
+                    yield Input(
+                        value=str(temporal.history_replicas) if temporal.history_replicas else "",
+                        placeholder="deployment default",
+                        type="integer",
+                        restrict=r"[0-9]*",
+                        id="temporal-history-replicas",
+                    )
+                with Vertical(classes="compact-field"):
+                    yield Label("History Shards", classes="field-label-compact")
+                    yield Input(
+                        value=str(temporal.num_history_shards)
+                        if temporal.num_history_shards
+                        else "",
+                        placeholder="inherits History replicas",
+                        type="integer",
+                        restrict=r"[0-9]*",
+                        id="temporal-history-shards",
+                    )
+            yield Label(
+                "Warning: Blank History Shards follows History Replicas. For an initialized "
+                "cluster, pin the current shard count before changing replicas.",
+                id="temporal-history-shards-warning",
+            )
+
+        yield Label("")
+        yield Label("Workflow Authorization", classes="section-title")
         yield Label(
             "Configure Temporal workflow authorization. All known workflows "
             "receive the default roles unless explicitly overridden below.",
@@ -130,7 +166,24 @@ class WorkflowsScreen(Container):
         yield Vertical(id="rbac-overrides-list")
 
     def on_mount(self) -> None:
+        self._update_temporal_visibility()
         self._rebuild_overrides()
+
+    def _managed_temporal_enabled(self) -> bool:
+        return (
+            self._config.services.temporal and not self._config.external_services.temporal.address
+        )
+
+    def _update_temporal_visibility(self) -> None:
+        self.query_one("#temporal-server-fields").display = self._managed_temporal_enabled()
+
+    def _optional_int(self, widget_id: str) -> int:
+        input_widget = self.query_one(widget_id, Input)
+        value = input_widget.value.strip()
+        if value and not value.isdecimal():
+            input_widget.value = ""
+            return 0
+        return int(value) if value else 0
 
     def _available_workflow_options(self) -> list[tuple[str, str]]:
         overridden = {o.name for o in self._config.rbac.workflow_overrides}
@@ -181,6 +234,13 @@ class WorkflowsScreen(Container):
         self._rebuild_overrides()
 
     def _collect_all(self) -> None:
+        if self._managed_temporal_enabled():
+            self._config.temporal = TemporalDeploymentConfig(
+                history_replicas=self._optional_int("#temporal-history-replicas"),
+                num_history_shards=self._optional_int("#temporal-history-shards"),
+            )
+        else:
+            self._config.temporal = TemporalDeploymentConfig()
         self._config.rbac.admin_roles = _parse_roles(
             self.query_one("#rbac-admin-roles", Input).value
         )
@@ -195,12 +255,22 @@ class WorkflowsScreen(Container):
 
     def write_to_config(self, config: NVConfigManagerInstallConfig) -> None:
         self._collect_all()
+        config.temporal = self._config.temporal.model_copy(deep=True)
         config.rbac = self._config.rbac.model_copy(deep=True)
 
     def sync_from_config(self, config: NVConfigManagerInstallConfig) -> None:
         self._config = config
         rbac = config.rbac
         try:
+            self.query_one("#temporal-history-replicas", Input).value = (
+                str(config.temporal.history_replicas) if config.temporal.history_replicas else ""
+            )
+            self.query_one("#temporal-history-shards", Input).value = (
+                str(config.temporal.num_history_shards)
+                if config.temporal.num_history_shards
+                else ""
+            )
+            self._update_temporal_visibility()
             self.query_one("#rbac-admin-roles", Input).value = ", ".join(rbac.admin_roles)
             self.query_one("#rbac-default-read", Input).value = ", ".join(rbac.default_read_roles)
             self.query_one("#rbac-default-exec", Input).value = ", ".join(
