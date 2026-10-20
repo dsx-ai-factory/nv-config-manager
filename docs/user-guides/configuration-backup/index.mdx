@@ -68,6 +68,10 @@ are exhausted instead of waiting for a manual retry signal. API and child
 workflow invocations retain interactive retry behavior unless the caller sets
 `terminate_on_failure: true`.
 
+Runs started before this change retain their previous wait-for-retry behavior
+unless `terminate_on_failure` was explicitly enabled. Upgrading workers does
+not change that behavior for existing runs.
+
 For an interactive failure, use the [workflow lifecycle controls](../workflow-lifecycle/index.mdx)
 to retry the failed stage after correcting the cause. For an unattended
 failure, inspect the failed run and start a new backup after correcting it.
