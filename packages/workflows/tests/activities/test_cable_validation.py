@@ -139,6 +139,7 @@ class TestPortDescriptionValidity:
 
     @pytest.mark.asyncio
     async def test_matching_port_description_is_valid(self) -> None:
+        """A port description matching the intended chassis and lane is a valid cable."""
         intended = DeviceNeighborData(
             neighbors={
                 "swp1": InterfaceNeighborData(
@@ -173,6 +174,7 @@ class TestPortDescriptionValidity:
 
     @pytest.mark.asyncio
     async def test_mismatched_port_description_is_invalid(self) -> None:
+        """A port description naming a different device is an invalid cable."""
         intended = DeviceNeighborData(
             neighbors={
                 "swp1": InterfaceNeighborData(
