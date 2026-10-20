@@ -169,6 +169,20 @@ model before it starts an execution. Fields marked `ServerOwned`, such as
 even when the caller submits another value. Unmarked legacy `user` and
 `user_domain` fields are filled only when their submitted values are empty.
 
+The API resolves an empty, declared `user_domain` in this order:
+
+1. A usable domain from the full authenticated identity.
+1. The deployment default in `NV_CONFIG_MANAGER_DOMAIN`.
+1. `None` when neither source supplies a domain and the input field is nullable;
+   otherwise, the request is rejected with `422`.
+
+The endpoint determines nullability from the declared `user_domain` annotation.
+Plugin validators must not reject `None` when that annotation permits it; use a
+non-nullable annotation when a workflow requires a resolved domain. A non-empty
+caller-owned `user_domain` is preserved, and undeclared extra fields remain
+caller-owned. Domain resolution happens before workflow submission; it does not
+run during Temporal workflow replay.
+
 The endpoint then awaits `workflow_class.canonicalize_input(body)`. This hook
 can normalize or reject an HTTP submission without changing the input model
 used to deserialize existing Temporal histories. An `ApplicationError` from the

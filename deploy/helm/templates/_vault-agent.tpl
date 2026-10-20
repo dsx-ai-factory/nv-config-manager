@@ -434,6 +434,7 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           api_url = https://{{ tpl $root.Values.temporal.gateway.api.hostname $root }}
           temporal_ui_url = https://{{ tpl $root.Values.temporal.gateway.devUi.hostname $root }}
           ui_url = https://{{ $root.Values.gateway.baseHostname }}
+          user_domain = {{ $root.Values.global.defaultUserDomain }}
           # Set to true for internal cluster communication (uses api_service)
           # Set to false for external mTLS communication (uses api_url)
           use_internal_endpoint = {{ $root.Values.temporal.client.useInternalEndpoint | default true }}
