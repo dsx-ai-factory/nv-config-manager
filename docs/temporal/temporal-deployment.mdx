@@ -94,7 +94,9 @@ Three init containers run in order:
 
 1. A copy container per plugin image puts its wheels into a shared volume.
 2. `install-workflow-plugins` installs them with `pip install --no-index --no-deps` into `/opt/workflow-plugins`, which the process adds to `PYTHONPATH`.
-3. `verify-workflow-plugins` runs in the service image. It fails the pod before the main container starts when a wheel shadows a package in the service image, when no wheel declares an `nv_config_manager.workflows` entry point, when the service image predates plugin support, or when the registry cannot load a declared plugin.
+3. `verify-workflow-plugins` runs in the service image. It fails the pod before the main container starts when a wheel shadows a package or top-level module in the service image, when no wheel declares an `nv_config_manager.workflows` entry point, when the service image predates plugin support, or when the registry cannot load a declared plugin. It also sees `/opt/dcim-providers` when `dcim.providerPackages` is enabled.
+
+All three init containers run as a non-root user with all capabilities dropped.
 
 Include a wheel only for the plugin and for dependencies the service image lacks. Packages that ship in the service image, such as `nv-config-manager-workflows`, must not appear in the plugin image, or the verify step rejects them.
 

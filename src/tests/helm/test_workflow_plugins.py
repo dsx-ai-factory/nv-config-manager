@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import importlib.machinery
 import io
 import shutil
 import subprocess
@@ -276,11 +277,84 @@ def test_verify_step_rejects_a_wheel_that_shadows_a_service_package(tmp_path: Pa
 def test_verify_step_rejects_wheels_without_a_workflow_entry_point(tmp_path: Path) -> None:
     deployment = _render(*_ENABLE)["worker"]
     _write_dist(tmp_path, "acme-helpers")
+    # Install metadata and scripts are not importable modules.
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "acme_helpers-1.0.0.data").mkdir()
 
     result = _run_verify_script(deployment, tmp_path)
 
     assert result.returncode != 0
     assert "No nv_config_manager.workflows entry point found" in result.stderr
+
+
+def _write_service_module_shadow(plugin_dir: Path, kind: str) -> None:
+    """Create a top-level module named after a service module."""
+    if kind == "package":
+        (plugin_dir / "pydantic").mkdir()
+    elif kind == "source module":
+        (plugin_dir / "pydantic.py").write_text("")
+    else:
+        extension_suffix = importlib.machinery.EXTENSION_SUFFIXES[0]
+        (plugin_dir / f"pydantic{extension_suffix}").write_bytes(b"")
+
+
+@pytest.mark.parametrize("kind", ["package", "source module", "extension module"])
+def test_verify_step_rejects_a_module_that_shadows_a_service_module(
+    tmp_path: Path, kind: str
+) -> None:
+    deployment = _render(*_ENABLE)["worker"]
+    # The distribution name differs, so only the module check can catch it.
+    _write_dist(tmp_path, "acme-helpers")
+    _write_service_module_shadow(tmp_path, kind)
+
+    result = _run_verify_script(deployment, tmp_path)
+
+    assert result.returncode != 0
+    assert "shadow packages in the service image: pydantic" in result.stderr
+
+
+def _security_context(container: dict[str, Any]) -> dict[str, Any]:
+    return container["securityContext"]
+
+
+@pytest.mark.parametrize("label", sorted(_REGISTRY_PROCESSES))
+def test_every_workflow_plugin_init_container_drops_privileges(label: str) -> None:
+    deployment = _render(*_ENABLE, *_SECOND_PLUGIN)[label]
+    init_containers = _init_containers(deployment)
+    plugin_containers = [
+        container for name, container in init_containers.items() if "workflow-plugin" in name
+    ]
+
+    assert len(plugin_containers) == 4
+    for container in plugin_containers:
+        context = _security_context(container)
+        assert context["allowPrivilegeEscalation"] is False, container["name"]
+        assert context["runAsNonRoot"] is True, container["name"]
+        assert context["capabilities"] == {"drop": ["ALL"]}, container["name"]
+
+
+@pytest.mark.parametrize("label", sorted(_REGISTRY_PROCESSES))
+def test_verify_step_sees_dcim_providers_but_not_workflow_plugins_on_pythonpath(
+    label: str,
+) -> None:
+    deployment = _render(*_ENABLE, *_DCIM_ENABLE)[label]
+    verify = _init_containers(deployment)["verify-workflow-plugins"]
+
+    assert verify["env"] == [{"name": "PYTHONPATH", "value": "/opt/dcim-providers:${PYTHONPATH:-}"}]
+    mounts = {mount["name"]: mount for mount in verify["volumeMounts"]}
+    assert mounts["dcim-provider-packages-installed"]["mountPath"] == "/opt/dcim-providers"
+    assert mounts["dcim-provider-packages-installed"]["readOnly"] is True
+
+
+@pytest.mark.parametrize("label", sorted(_REGISTRY_PROCESSES))
+def test_verify_step_has_no_environment_without_dcim_providers(label: str) -> None:
+    deployment = _render(*_ENABLE)[label]
+    verify = _init_containers(deployment)["verify-workflow-plugins"]
+
+    assert "env" not in verify
+    assert "dcim-provider-packages-installed" not in {
+        mount["name"] for mount in verify["volumeMounts"]
+    }
 
 
 _RBAC_VALUES = ("values-rbac-open.yaml",)

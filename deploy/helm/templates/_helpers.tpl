@@ -1290,6 +1290,7 @@ plugin cannot shadow a package that ships in the service image.
   volumeMounts:
   - name: workflow-plugins-source
     mountPath: /opt/workflow-plugin-packages
+  {{- include "nv-config-manager.containerSecurityContext" $ | nindent 2 }}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -1317,31 +1318,60 @@ plugin cannot shadow a package that ships in the service image.
     readOnly: true
   - name: workflow-plugins-installed
     mountPath: /opt/workflow-plugins
+  {{- include "nv-config-manager.containerSecurityContext" . | nindent 2 }}
 # Runs in the service image so the checks see the packages the plugin must not shadow.
 - name: verify-workflow-plugins
   image: {{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}
   imagePullPolicy: {{ .Values.global.images.nvConfigManager.pullPolicy }}
   command: ["python", "-c"]
+  {{- if .Values.dcim.providerPackages.enabled }}
+  env:
+  {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 2 }}
+  {{- end }}
   args:
   - |
+    import importlib.machinery
     import importlib.metadata as md
     import sys
     from pathlib import Path
 
     PLUGIN_DIR = Path("/opt/workflow-plugins")
+    MODULE_SUFFIXES = sorted(
+        [".py", *importlib.machinery.EXTENSION_SUFFIXES], key=len, reverse=True
+    )
 
 
     def canonical(name):
         return name.lower().replace("_", "-").replace(".", "-")
 
 
+    def top_level_modules(directory):
+        names = set()
+        for entry in directory.iterdir():
+            name = entry.name
+            if name == "bin" or name == "__pycache__":
+                continue
+            if name.endswith((".dist-info", ".data", ".egg-info")):
+                continue
+            if entry.is_dir():
+                names.add(name)
+                continue
+            for suffix in MODULE_SUFFIXES:
+                if name.endswith(suffix):
+                    names.add(name[: -len(suffix)])
+                    break
+        return names
+
+
     plugin_dists = list(md.distributions(path=[str(PLUGIN_DIR)]))
     base_names = {canonical(dist.metadata["Name"]) for dist in md.distributions()}
-    shadowed = sorted(
+    shadowed = {
         canonical(dist.metadata["Name"])
         for dist in plugin_dists
         if canonical(dist.metadata["Name"]) in base_names
-    )
+    }
+    shadowed |= top_level_modules(PLUGIN_DIR) & set(md.packages_distributions())
+    shadowed = sorted(shadowed)
     if shadowed:
         sys.exit(
             "Workflow plugin wheels shadow packages in the service image: "
@@ -1380,6 +1410,8 @@ plugin cannot shadow a package that ships in the service image.
   - name: workflow-plugins-installed
     mountPath: /opt/workflow-plugins
     readOnly: true
+  {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 2 }}
+  {{- include "nv-config-manager.containerSecurityContext" . | nindent 2 }}
 {{- end }}
 {{- end -}}
 
