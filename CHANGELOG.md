@@ -10,6 +10,11 @@ version before the selected release candidate is promoted.
 
 ### Added
 
+- Added `temporal.workflowPlugins` Helm values that install workflow plugin
+  wheels from plugin images into the Temporal worker, workflow API, scheduler
+  host, and MCP pods. Plugins no longer require a rebuilt service image. A
+  verify init container rejects wheels that shadow service packages, and
+  `temporal.workflowPlugins.rbac` appends plugin rows to `rbac.workflows`.
 - Added `GET /v1/workflow/{form_id}/form`, keyed by each form-enabled workflow's
   explicit, stable `workflow_form_id`, which returns a version 1 form envelope:
   a form projection of its input schema (`schema`), a

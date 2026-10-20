@@ -1255,6 +1255,170 @@ wheels must be present under /plugin-wheels.
 {{- end -}}
 
 {{/*
+=============================================================================
+Workflow Plugin Helpers
+=============================================================================
+Workflow plugins are installed into an isolated shared volume for every
+process that builds the workflow registry: Temporal worker, API, scheduler
+host, and MCP. Each plugin image carries the plugin wheel, and any wheel the
+base image lacks, under /plugin-wheels. Wheels install with --no-deps so a
+plugin cannot shadow a package that ships in the service image.
+=============================================================================
+*/}}
+
+{{- define "nv-config-manager.copyWorkflowPluginImages" -}}
+{{- if .Values.temporal.workflowPlugins.enabled -}}
+{{- if not .Values.temporal.workflowPlugins.images -}}
+{{- fail "temporal.workflowPlugins.images is required when temporal.workflowPlugins.enabled is true" -}}
+{{- end -}}
+{{- range .Values.temporal.workflowPlugins.images }}
+{{- $name := required "temporal.workflowPlugins.images[].name is required" .name | lower | replace "_" "-" | trunc 45 | trimSuffix "-" }}
+- name: copy-workflow-plugin-{{ $name }}
+  image: {{ required "temporal.workflowPlugins.images[].image is required" .image }}
+  imagePullPolicy: {{ .pullPolicy | default "IfNotPresent" }}
+  command: ["/bin/sh", "-c"]
+  args:
+  - |
+    set -e
+    if ! ls /plugin-wheels/*.whl >/dev/null 2>&1; then
+      echo "Workflow plugin image does not contain /plugin-wheels/*.whl" >&2
+      exit 1
+    fi
+    target="/opt/workflow-plugin-packages/{{ $name }}/wheels"
+    mkdir -p "$target"
+    cp -R /plugin-wheels/. "$target/"
+  volumeMounts:
+  - name: workflow-plugins-source
+    mountPath: /opt/workflow-plugin-packages
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nv-config-manager.installWorkflowPlugins" -}}
+{{- if .Values.temporal.workflowPlugins.enabled }}
+- name: install-workflow-plugins
+  image: {{ .Values.temporal.workflowPlugins.installerImage | default "python:3.13-bookworm" }}
+  imagePullPolicy: IfNotPresent
+  command: ["/bin/sh", "-c"]
+  args:
+  - |
+    set -e
+    for package_dir in /opt/workflow-plugin-packages/*; do
+      if [ ! -d "$package_dir/wheels" ]; then
+        continue
+      fi
+      echo "Installing offline workflow plugin wheels from $package_dir/wheels"
+      pip install --no-index --no-deps --target=/opt/workflow-plugins "$package_dir"/wheels/*.whl
+    done
+    test -d /opt/workflow-plugins
+  volumeMounts:
+  - name: workflow-plugins-source
+    mountPath: /opt/workflow-plugin-packages
+    readOnly: true
+  - name: workflow-plugins-installed
+    mountPath: /opt/workflow-plugins
+# Runs in the service image so the checks see the packages the plugin must not shadow.
+- name: verify-workflow-plugins
+  image: {{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}
+  imagePullPolicy: {{ .Values.global.images.nvConfigManager.pullPolicy }}
+  command: ["python", "-c"]
+  args:
+  - |
+    import importlib.metadata as md
+    import sys
+    from pathlib import Path
+
+    PLUGIN_DIR = Path("/opt/workflow-plugins")
+
+
+    def canonical(name):
+        return name.lower().replace("_", "-").replace(".", "-")
+
+
+    plugin_dists = list(md.distributions(path=[str(PLUGIN_DIR)]))
+    base_names = {canonical(dist.metadata["Name"]) for dist in md.distributions()}
+    shadowed = sorted(
+        canonical(dist.metadata["Name"])
+        for dist in plugin_dists
+        if canonical(dist.metadata["Name"]) in base_names
+    )
+    if shadowed:
+        sys.exit(
+            "Workflow plugin wheels shadow packages in the service image: "
+            + ", ".join(shadowed)
+            + ". Remove them from the plugin image."
+        )
+
+    declared = [
+        entry_point.name
+        for dist in plugin_dists
+        for entry_point in dist.entry_points
+        if entry_point.group == "nv_config_manager.workflows"
+    ]
+    if not declared:
+        sys.exit(
+            "No nv_config_manager.workflows entry point found in the plugin wheels. "
+            "Check that the plugin image holds the plugin wheel under /plugin-wheels."
+        )
+
+    try:
+        from nv_config_manager_workflows.registration import WorkflowRegistry
+    except ImportError as error:
+        sys.exit(
+            "The service image has no workflow plugin support. "
+            f"Workflow plugins require NVCM 1.4.0 or later: {error}"
+        )
+
+    sys.path.insert(0, str(PLUGIN_DIR))
+    registry = WorkflowRegistry.build()
+    loaded = sorted(diagnostic.name for diagnostic in registry.plugin_diagnostics)
+    missing = sorted(set(declared) - set(loaded))
+    if missing:
+        sys.exit(f"Workflow plugins declared but not loaded: {', '.join(missing)}")
+    print("Workflow plugins verified: " + ", ".join(loaded))
+  volumeMounts:
+  - name: workflow-plugins-installed
+    mountPath: /opt/workflow-plugins
+    readOnly: true
+{{- end }}
+{{- end -}}
+
+{{- define "nv-config-manager.workflowPluginVolumes" -}}
+{{- if .Values.temporal.workflowPlugins.enabled }}
+- name: workflow-plugins-source
+  emptyDir: {}
+- name: workflow-plugins-installed
+  emptyDir: {}
+{{- end }}
+{{- end -}}
+
+{{- define "nv-config-manager.workflowPluginVolumeMount" -}}
+{{- if .Values.temporal.workflowPlugins.enabled }}
+- name: workflow-plugins-installed
+  mountPath: /opt/workflow-plugins
+  readOnly: true
+{{- end }}
+{{- end -}}
+
+{{/*
+PYTHONPATH for processes that load DCIM providers and workflow plugins.
+Both helpers would otherwise emit a PYTHONPATH entry of their own.
+*/}}
+{{- define "nv-config-manager.workflowPythonPath" -}}
+{{- $paths := list -}}
+{{- if .Values.dcim.providerPackages.enabled -}}
+{{- $paths = append $paths "/opt/dcim-providers" -}}
+{{- end -}}
+{{- if .Values.temporal.workflowPlugins.enabled -}}
+{{- $paths = append $paths "/opt/workflow-plugins" -}}
+{{- end -}}
+{{- if $paths }}
+- name: PYTHONPATH
+  value: "{{ join ":" $paths }}:${PYTHONPATH:-}"
+{{- end -}}
+{{- end -}}
+
+{{/*
 Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 If release name contains chart name it will be used as a full name.
