@@ -122,7 +122,7 @@ kubectl describe httproute -n <config-manager-namespace> <route-name>
 
 ## Gateway retries
 
-With Envoy Gateway, `gateway.retry` makes the gateway retry requests that never
+With Envoy Gateway or kgateway, `gateway.retry` makes the gateway retry requests that never
 reached a backend: a refused connection or a refused HTTP/2 stream. These are
 most likely while pods are rolling or scaling in, and replaying them cannot
 apply a write twice. It is on by default:
@@ -139,8 +139,9 @@ gateway:
 With `oidc.enabled`, browser routes are served through the OIDC proxy, so a
 backend that has gone away surfaces as a `502` from the proxy rather than a
 refused connection. `safeMethods` adds a rule named `safe-methods` to each
-browser route that matches only `GET` and `HEAD`, and a `BackendTrafficPolicy`
-on that rule that also retries `502`. Other methods keep the connection-level
+browser route that matches only `GET` and `HEAD`, and a policy on that rule
+(a `BackendTrafficPolicy` or a kgateway `TrafficPolicy`) that also retries
+`502`. Other methods keep the connection-level
 retry only, because a `502` cannot be told apart from a write that already
 committed.
 
@@ -151,8 +152,13 @@ is not retried, rather than by the proxy with a `502`, which would be.
 
 ### With an existing Gateway
 
-With `gateway.create: false`, the chart does not create the Gateway-level
-`BackendTrafficPolicy` that carries the retry for most routes. In that mode:
+On kgateway, the retry is attached to every route the chart renders through
+route-level `TrafficPolicy` resources, so `gateway.create: false` does not change
+which routes are retried. Other routes on a shared Gateway are not affected.
+
+On Envoy Gateway with `gateway.create: false`, the chart does not create the
+Gateway-level `BackendTrafficPolicy` that carries the retry for most routes. In
+that mode:
 
 - The chart retries nothing on most routes, including `svc-*` API routes and
   browser writes. Any retry configured by the platform Gateway's own policy
