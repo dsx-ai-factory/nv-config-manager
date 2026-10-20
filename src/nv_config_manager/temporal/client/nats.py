@@ -63,6 +63,7 @@ class NatsConsumer(BaseNatsConsumer):
         subject: str,
         queue_suffix: str,
         handler: Callable[[Msg], Awaitable[None]],
+        manual_ack: bool = False,
     ) -> None:
         """Initialize the consumer from config."""
         super().__init__(
@@ -70,5 +71,6 @@ class NatsConsumer(BaseNatsConsumer):
             subject=subject,
             queue_suffix=queue_suffix,
             handler=handler,
+            manual_ack=manual_ack,
             **nats_consumer_settings(queue_suffix=queue_suffix),
         )

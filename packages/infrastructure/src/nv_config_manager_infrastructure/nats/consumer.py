@@ -28,8 +28,9 @@ from nats.js.errors import NotFoundError
 from nv_config_manager_logging import LogCategory, get_logger
 
 from nv_config_manager_infrastructure.nats.admin import (
+    ARCHIVE_CONSUMER_MAX_ACK_PENDING,
+    ARCHIVE_CONSUMER_MAX_DELIVER,
     CONSUMER_ACK_WAIT_SECONDS,
-    CONSUMER_MAX_DELIVER,
     is_nats_permissions_error,
 )
 from nv_config_manager_infrastructure.nats.client import NatsClient
@@ -48,15 +49,21 @@ class NatsConsumer(NatsClient):
         handler: Callable[[Msg], Awaitable[None]],
         durable_name: str | None = None,
         deliver_subject: str | None = None,
+        manual_ack: bool = False,
         **kwargs: Any,
     ) -> None:
-        """Initialize the stream, subject, durable, and message handler."""
+        """Initialize the stream, subject, durable, and message handler.
+
+        With ``manual_ack`` the handler must ack, nak, or term every message itself;
+        otherwise each message is acked once the handler returns.
+        """
         super().__init__(**kwargs)
         self.stream = stream
         self.subject = subject
         self.queue_suffix = queue_suffix
         self.durable_name = durable_name
         self.deliver_subject = deliver_subject
+        self.manual_ack = manual_ack
         self.handler = handler
         self._loop: asyncio.AbstractEventLoop | None = None
 
@@ -100,6 +107,7 @@ class NatsConsumer(NatsClient):
                 consumer=durable,
                 config=consumer_info.config,
                 cb=self.handler,
+                manual_ack=self.manual_ack,
             )
             logger.info(
                 "Subscribed to subject %s on stream %s with queue %s",
@@ -123,7 +131,8 @@ class NatsConsumer(NatsClient):
             deliver_policy=DeliverPolicy.NEW,
             ack_policy=AckPolicy.EXPLICIT,
             ack_wait=CONSUMER_ACK_WAIT_SECONDS,
-            max_deliver=CONSUMER_MAX_DELIVER,
+            max_deliver=ARCHIVE_CONSUMER_MAX_DELIVER,
+            max_ack_pending=ARCHIVE_CONSUMER_MAX_ACK_PENDING,
             filter_subject=self.subject,
             deliver_subject=self.deliver_subject,
             deliver_group=durable,
@@ -167,6 +176,7 @@ class NatsConsumer(NatsClient):
             "ack_policy",
             "ack_wait",
             "max_deliver",
+            "max_ack_pending",
             "deliver_subject",
             "deliver_group",
         ):
@@ -184,14 +194,16 @@ class NatsConsumer(NatsClient):
                 "NATS denied an operation for consumer %s on stream %s. Ask the NATS "
                 "administrator to grant publish access to %s and %s, or provision that "
                 "durable with filter_subject=%r, deliver_policy='new', ack_policy='explicit', "
-                "ack_wait=%ss, max_deliver=%s, deliver_subject=%r, and deliver_group=%r.",
+                "ack_wait=%ss, max_deliver=%s, max_ack_pending=%s, deliver_subject=%r, and "
+                "deliver_group=%r.",
                 durable,
                 self.stream,
                 f"{self.api_prefix}.CONSUMER.INFO.{self.stream}.{durable}",
                 f"{self.api_prefix}.CONSUMER.DURABLE.CREATE.{self.stream}.{durable}",
                 self.subject,
                 CONSUMER_ACK_WAIT_SECONDS,
-                CONSUMER_MAX_DELIVER,
+                ARCHIVE_CONSUMER_MAX_DELIVER,
+                ARCHIVE_CONSUMER_MAX_ACK_PENDING,
                 self.deliver_subject,
                 durable,
             )
