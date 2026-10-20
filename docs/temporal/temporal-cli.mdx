@@ -73,7 +73,8 @@ Use either `--hostname` directly:
 ```bash
 uv run workflow-cli backup \
   -H config-manager.example.com \
-  --device-name switch001.example.com
+  --device-name switch001.example.com \
+  --trigger API
 ```
 
 Or target an environment under a shared domain:
@@ -82,7 +83,8 @@ Or target an environment under a shared domain:
 uv run workflow-cli backup \
   -e qa \
   -d config-manager.example.com \
-  --device-name switch001.example.com
+  --device-name switch001.example.com \
+  --trigger API
 ```
 
 ## Discovery
@@ -102,7 +104,11 @@ uv run workflow-cli deploy --help
 uv run workflow-cli validate-hardware --help
 ```
 
-The current CLI includes utility commands such as `login`, `logout`, `auth-status`, `list-workflows`, and `examples`. Workflow commands are generated from registered workflow metadata, for example `backup`, `deploy`, `multi-deploy`, `reprovision`, `site-cable-validation`, `validate-hardware`, `switch-os-upgrade`, and the InfiniBand, NVLink, Redfish, VPC, and password-rotation workflows.
+The current CLI includes utility commands such as `login`, `logout`, `auth-status`, `list-workflows`, and `examples`. Workflow commands are generated from registered workflow metadata, for example `backup`, `config-diff`, `diagnostics`, `deploy`, `multi-deploy`, `reprovision`, `site-cable-validation`, `validate-hardware`, `switch-os-upgrade`, and the InfiniBand, NVLink, Redfish, Spectrum-X overlay, and password-rotation workflows.
+
+`BatchDeployWorkflow` and `TenantDeployWorkflow` are internal child workflows.
+They appear in the registered Temporal types but do not have standalone HTTP
+endpoints or generated CLI commands. Start `multi-deploy` or `deploy` instead.
 
 ## Device Workflows
 
@@ -112,12 +118,14 @@ For workflows with a `device_id` input, the CLI also adds `--device-name`. When 
 # Backup using device hostname.
 uv run workflow-cli backup \
   -H config-manager.example.com \
-  --device-name switch001.example.com
+  --device-name switch001.example.com \
+  --trigger API
 
 # Backup using device UUID.
 uv run workflow-cli backup \
   -H config-manager.example.com \
-  --device-id 12345678-1234-1234-1234-123456789abc
+  --device-id 12345678-1234-1234-1234-123456789abc \
+  --trigger API
 
 # Deploy intended configuration. commit_confirm is a boolean option.
 uv run workflow-cli deploy \
@@ -136,18 +144,21 @@ uv run workflow-cli switch-os-upgrade \
   --device-name switch001.example.com
 ```
 
+`BackupInput.trigger` is required by the API; use `--trigger API` for an
+ad-hoc CLI backup. Set `--terminate-on-failure true` if the run should fail after
+activity retries instead of waiting for a manual stage-retry signal.
+
 Do not pass both `--device-name` and `--device-id`. The CLI requires exactly one for workflows that need a device UUID.
 
 ## Site and Multi-Device Workflows
 
-List parameters are passed as comma-separated strings. Boolean parameters take explicit values such as `true` or `false`.
+For direct list fields, pass comma-separated values explicitly; use `""` for an empty list. Omitted list defaults can be serialized as literal strings. Nullable lists such as `multi-deploy --status` are not converted to arrays; use the UI or API for that filter. Boolean parameters take explicit values such as `true` or `false`.
 
 ```bash
-# Multi-device deploy by role, optionally filtered by status and tenant.
+# Multi-device deploy by role and tenant, without a status filter.
 uv run workflow-cli multi-deploy \
   -H config-manager.example.com \
   --role leaf-switch \
-  --status active,maintenance \
   --tenant tenant01 \
   --max-batch-size 10 \
   --commit-confirm true
@@ -157,6 +168,7 @@ uv run workflow-cli site-cable-validation \
   -H config-manager.example.com \
   --site datacenter01 \
   --roles leaf-switch,spine-switch \
+  --device-type-ids "" \
   --status active \
   --raise-for-invalid true
 
@@ -166,7 +178,25 @@ uv run workflow-cli validate-hardware \
   --site datacenter01 \
   --tenant tenant01 \
   --roles leaf-switch,spine-switch \
+  --device-type-ids "" \
+  --status Active,Provisioned \
   --raise-for-invalid true
+```
+
+To apply a multi-deploy status filter, submit an array through the workflow API:
+
+```http
+POST /v1/workflow/ngc/multi_deploy
+Authorization: Bearer <access-token>
+Content-Type: application/json
+
+{
+  "role": "leaf-switch",
+  "status": ["active", "maintenance"],
+  "tenant": "tenant01",
+  "max_batch_size": 10,
+  "commit_confirm": true
+}
 ```
 
 ## Verbose Output

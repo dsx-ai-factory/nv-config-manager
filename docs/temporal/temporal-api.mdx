@@ -6,7 +6,7 @@ position: 10
 
 ## Overview
 
-The dynamic API endpoint generation system automatically creates FastAPI endpoints from workflow metadata. This creates a single source of truth for workflow definitions and provides excellent maintainability.
+The workflow API creates FastAPI endpoints from the validated workflow registry. Workflow classes define the execution endpoint, input model, and optional browser form contract.
 
 ## System Components
 
@@ -20,6 +20,8 @@ The `WorkflowMetadataMixin` allows workflows to define their API metadata direct
 - `workflow_api_enabled`: Set to `True` to expose the workflow through the API
 - `workflow_api_endpoint`: API endpoint path
 - `workflow_namespace`: Workflow namespace
+- `workflow_group`: Launcher group
+- `workflow_form_enabled` and `workflow_form_id`: Optional browser form and its stable public identifier
 
 ### Dynamic API Generator
 
@@ -141,75 +143,43 @@ def register_dynamic_endpoints(router: APIRouter, workflows: Sequence[type] | No
 graph TD
     A[Workflow Class] --> B[WorkflowMetadataMixin]
     B --> C[Metadata Attributes]
-    C --> D[Dynamic Endpoint Generator]
+    C --> R[Validated Workflow Registry]
+    R --> W[API-enabled Workflow Set]
+    W --> D[Dynamic Endpoint Generator]
+    W --> F[CLI Command Generator]
     D --> E[FastAPI Router]
-    D --> F[CLI Command Generator]
-    D --> G[OpenAPI Documentation]
+    E --> G[OpenAPI Documentation]
 ```
 
 ### Components
 
 #### WorkflowMetadataMixin (`packages/workflows/src/nv_config_manager_workflows/metadata/mixin.py`)
 
-```python
-class WorkflowMetadataMixin:
-    """Mixin for defining workflow metadata."""
+The package defines the metadata attributes and their accessors. A registered
+API workflow must supply a name, description, input model, and endpoint.
+Browser forms are a separate opt-in contract; an API-enabled workflow does not
+need a form. The package also supplies the async `canonicalize_input` hook for
+HTTP-boundary validation.
 
-    workflow_name: str | None = None
-    workflow_description: str | None = None
-    workflow_input_class: type[BaseModel] | None = None
-    workflow_api_enabled: bool = False
-    workflow_api_endpoint: str | None = None
-    workflow_namespace: str | None = None
+#### Request Identity and Validation
 
-    @classmethod
-    def get_workflow_description(cls) -> str:
-        """Get the workflow description."""
-        return cls.workflow_description or cls.__doc__.strip().split('\n')[0]
+`create_workflow_endpoint` validates the request body with the workflow's input
+model before it starts an execution. Fields marked `ServerOwned`, such as
+`BackupInput.user`, are replaced with identity from the authenticated request,
+even when the caller submits another value. Unmarked legacy `user` and
+`user_domain` fields are filled only when their submitted values are empty.
 
-    @classmethod
-    def has_complete_metadata(cls) -> bool:
-        """Check if the workflow has complete API metadata defined."""
-        return (
-            cls.workflow_name is not None
-            and cls.workflow_description is not None
-            and cls.workflow_input_class is not None
-            and cls.workflow_api_endpoint is not None
-        )
-```
+The endpoint then awaits `workflow_class.canonicalize_input(body)`. This hook
+can normalize or reject an HTTP submission without changing the input model
+used to deserialize existing Temporal histories. An `ApplicationError` from the
+hook returns HTTP 422 with the `HTTPValidationError` envelope: `detail` is a
+list of validation errors. It does not start a workflow.
 
-#### Dynamic Endpoint Generator (`src/nv_config_manager/temporal/api/dynamic_endpoints.py`)
-
-```python
-def create_workflow_endpoint(workflow_class: Type, input_class: Type[BaseModel], endpoint_path: str):
-    """Create a FastAPI endpoint function for a workflow."""
-
-    async def workflow_endpoint(body: BaseModel, request: Request) -> WorkflowResponse:
-        """Execute the workflow with provided parameters."""
-        if start_workflow is None:
-            raise RuntimeError("start_workflow function not set.")
-
-        # Auto-populate user fields from request auth data
-        user = getattr(request.state, 'user', 'unknown')
-        if hasattr(body, 'user') and not body.user:
-            body.user = user
-        if hasattr(body, 'user_domain') and not body.user_domain:
-            body.user_domain = user.split("@")[1] if "@" in user else "nvidia.com"
-
-        workflow_id = await start_workflow(request, workflow_class, body)
-        return WorkflowResponse(id=workflow_id)
-
-    # Set function metadata for FastAPI
-    workflow_endpoint.__name__ = f"{workflow_class.__name__.lower()}_endpoint"
-    workflow_endpoint.__doc__ = f"Execute the {workflow_class.__name__} workflow."
-    workflow_endpoint.__annotations__ = {
-        'body': input_class,
-        'request': Request,
-        'return': WorkflowResponse
-    }
-
-    return workflow_endpoint
-```
+The built-in Port LLDP Info workflow requires exactly one complete lookup
+method, and Spectrum-X overlay creation requires `rd_min < rd_max`. Browser
+checks do not replace these API checks. Direct Temporal callers bypass this
+HTTP hook. The [workflow forms contract](https://github.com/dsx-ai-factory/nv-config-manager/blob/main/packages/workflows/README.md#workflow-forms)
+describes field markers and plugin forms.
 
 #### Registration System
 
@@ -297,7 +267,7 @@ A workflow shipped in its own distribution belongs in that plugin's
 `WorkflowPluginDescriptor` instead; see
 [Registering a workflow plugin](https://github.com/dsx-ai-factory/nv-config-manager/blob/main/packages/workflows/README.md#registering-a-workflow-plugin).
 
-### That's It
+### Result
 
 The workflow is now automatically:
 
@@ -310,7 +280,7 @@ The workflow is now automatically:
 
 ### List Workflow Executions
 
-```bash
+```http
 GET /v1/workflow/
 ```
 
@@ -320,7 +290,7 @@ Returns workflow execution summaries. Query parameters such as `workflow_type`,
 
 ### Get Registered Workflow Types
 
-```bash
+```http
 GET /v1/workflow/types
 ```
 
@@ -330,7 +300,7 @@ the set of workflows the API can start.
 
 ### Get Workflow Metadata
 
-```bash
+```http
 GET /v1/workflow/metadata
 ```
 
@@ -359,7 +329,7 @@ configuration; the example above shows the default open configuration.
 
 Request form-discovery metadata explicitly when building a workflow launcher:
 
-```bash
+```http
 GET /v1/workflow/metadata?include=form
 ```
 
@@ -394,19 +364,34 @@ def test_dynamic_endpoint_generation():
 
 ### Integration Tests
 
+Use fixtures that provide an authenticated test client and mock the DCIM and
+Temporal dependencies. A client-supplied certificate header does not establish
+an authenticated identity.
+
 ```python
-def test_backup_workflow_endpoint():
-    """Test the dynamically generated backup endpoint."""
+def test_backup_workflow_endpoint(client, access_token):
+    """Test the backup endpoint with authenticated test fixtures."""
     response = client.post(
         "/v1/workflow/ngc/backup",
-        json={"device_id": "test-device-id"},
-        headers={"ssl-client-cert": test_cert}
+        json={
+            "device_id": "12345678-1234-1234-1234-123456789abc",
+            "trigger": "API",
+        },
+        headers={"Authorization": f"Bearer {access_token}"}
     )
     assert response.status_code == 200
     assert "id" in response.json()
     assert "href" in response.json()
 ```
 
-## Summary
+## Browser Form Discovery
 
-The dynamic API system provides a clean, maintainable approach to workflow management. By defining metadata directly in workflow classes, the system automatically generates consistent APIs, CLI commands, and documentation. This approach scales well as new workflows are added and ensures consistency across all interfaces.
+A form-enabled workflow declares a stable `workflow_form_id`. Use that ID with
+`GET /v1/workflow/{form_id}/form` to retrieve its `schema`, `ui_schema`,
+`ui_schema_version`, and required UI capabilities. The form projection leaves
+execution request models and Temporal payloads unchanged.
+
+A missing or disabled form returns HTTP 404. An invalid third-party form
+returns HTTP 503 with `workflow_form_unavailable`, while its execution endpoint
+remains available. Invalid built-in forms stop API startup. Upgrade the API
+before the UI using the [browser-form upgrade order](../install/index.mdx#upgrade-order-for-browser-workflow-forms).
