@@ -391,7 +391,9 @@ A form-enabled workflow declares a stable `workflow_form_id`. Use that ID with
 `ui_schema_version`, and required UI capabilities. The form projection leaves
 execution request models and Temporal payloads unchanged.
 
-A missing or disabled form returns HTTP 404. An invalid third-party form
+A missing or disabled form returns HTTP 404. A `form_id` that does not match
+the required lowercase kebab-case format returns HTTP 422 with the
+`HTTPValidationError` envelope. An invalid third-party form
 returns HTTP 503 with `workflow_form_unavailable`, while its execution endpoint
 remains available. Invalid built-in forms stop API startup. Upgrade the API
 before the UI using the [browser-form upgrade order](../install/index.mdx#upgrade-order-for-browser-workflow-forms).

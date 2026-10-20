@@ -154,6 +154,10 @@ Do not pass both `--device-name` and `--device-id`. The CLI requires exactly one
 
 For direct list fields, pass comma-separated values explicitly; use `""` for an empty list. Omitted list defaults can be serialized as literal strings. Nullable lists such as `multi-deploy --status` are not converted to arrays; use the UI or API for that filter. Boolean parameters take explicit values such as `true` or `false`.
 
+For status filters, use the `name` values returned by
+`GET /v1/parameter/status?content_type=dcim.device`. The bundled Nautobot
+provider matches status names case-sensitively.
+
 ```bash
 # Multi-device deploy by role and tenant, without a status filter.
 uv run workflow-cli multi-deploy \
@@ -169,7 +173,7 @@ uv run workflow-cli site-cable-validation \
   --site datacenter01 \
   --roles leaf-switch,spine-switch \
   --device-type-ids "" \
-  --status active \
+  --status Active \
   --raise-for-invalid true
 
 # Hardware validation. The current command name is validate-hardware.
@@ -192,7 +196,7 @@ Content-Type: application/json
 
 {
   "role": "leaf-switch",
-  "status": ["active", "maintenance"],
+  "status": ["Active", "Provisioned"],
   "tenant": "tenant01",
   "max_batch_size": 10,
   "commit_confirm": true

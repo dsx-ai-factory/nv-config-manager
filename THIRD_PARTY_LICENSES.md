@@ -82,6 +82,7 @@ The following Python packages are dependencies of NVIDIA Config Manager. See `py
 | mkdocs | BSD-2-Clause | https://github.com/mkdocs/mkdocs |
 | certifi | MPL-2.0 | https://github.com/certifi/python-certifi |
 | jsonschema | MIT | https://github.com/python-jsonschema/jsonschema |
+| graphql-core | MIT | https://github.com/graphql-python/graphql-core |
 | mcp | MIT | https://github.com/modelcontextprotocol/python-sdk |
 | python-dateutil | Apache-2.0/BSD-3-Clause | https://github.com/dateutil/dateutil |
 | typing-extensions | PSF-2.0 | https://github.com/python/typing_extensions |

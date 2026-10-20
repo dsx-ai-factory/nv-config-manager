@@ -17,13 +17,13 @@ Before running a backup, confirm the following are in place:
 - **Device exists in the configured DCIM** with a primary IPv4, platform, and the access and configuration data required by that platform. The workflow resolves the provider's device identifier before connecting. With Nautobot, this is the device UUID.
 - **Device is reachable** from Config Manager over the management network, and credentials for the device are present in the secrets store. The workflow uses NVUE to pull the running configuration on Cumulus Linux devices.
 - **Intended configuration is available** for the device — that is, the [Render Service](../../render/index.mdx) has produced a rendered config in the Config Store. Drift detection compares the running config against this rendered output. If no intended config exists yet, drift detection will fail, unless rendering is disabled for the device (see [Drift detection behavior](#drift-detection-behavior)).
-- **Backup path is configured** in the device data supplied by the DCIM provider. The workflow writes the snapshot to the Config Store and records its metadata through the provider.
+- **Device ID and platform are available** from the DCIM provider. Config Manager derives the backup path from the device ID and the platform's configuration filename, writes the snapshot to the Config Store, and records its metadata through the provider.
 - **User attribution is present.** Backups invoked through the API carry the requesting user automatically; backups invoked from another workflow forward the originating user. The workflow rejects requests with no user attached.
 
 ## Running the workflow
 
 1. Navigate to the Config Manager URL for your environment.
-1. Open the workflow launcher and select **Configuration Backup**.
+1. In the Config Manager UI, click New workflow (+) in the upper-right corner and select Configuration Backup.
 1. Fill in the form using the field reference below and submit.
 
 The workflow form takes the following inputs:
