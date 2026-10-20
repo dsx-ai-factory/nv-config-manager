@@ -75,6 +75,59 @@ class TestNVConfigManagerInstallConfig:
         assert config.dcim.provider == "nautobot-2x"
         assert config.infrastructure.monitoring.redis_metrics_enabled is False
 
+    def test_cluster_custom_labels_roundtrip(self, tmp_path: Path):
+        path = tmp_path / "config.yaml"
+        config = NVConfigManagerInstallConfig(
+            cluster=ClusterConfig(
+                custom_labels={
+                    "production": "true",
+                    "nvidia.com/include_in_slo": "",
+                }
+            )
+        )
+
+        config.to_yaml(path)
+        loaded = NVConfigManagerInstallConfig.from_yaml(path)
+
+        assert loaded.cluster.custom_labels == {
+            "production": "true",
+            "nvidia.com/include_in_slo": "",
+        }
+        assert yaml.safe_load(path.read_text())["cluster"]["custom_labels"] == {
+            "production": "true",
+            "nvidia.com/include_in_slo": "",
+        }
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "-production",
+            "Production!",
+            f"{'a' * 64}",
+            f"{'a' * 254}/production",
+            "nvidia.com/",
+        ],
+    )
+    def test_cluster_custom_labels_reject_invalid_keys(self, key: str):
+        with pytest.raises(ValueError, match="invalid Kubernetes label key"):
+            ClusterConfig(custom_labels={key: "true"})
+
+    @pytest.mark.parametrize("value", ["-production", "production!", f"{'a' * 64}"])
+    def test_cluster_custom_labels_reject_invalid_values(self, value: str):
+        with pytest.raises(ValueError, match="invalid Kubernetes label value"):
+            ClusterConfig(custom_labels={"production": value})
+
+    def test_cluster_custom_labels_validate_assignment(self):
+        cluster = ClusterConfig()
+
+        with pytest.raises(ValueError, match="invalid Kubernetes label key"):
+            cluster.custom_labels = {"invalid key": "true"}
+
+    def test_yaml_omits_empty_cluster_custom_labels(self):
+        data = yaml.safe_load(NVConfigManagerInstallConfig().to_yaml_str())
+
+        assert "custom_labels" not in data["cluster"]
+
     def test_external_temporal_mtls_requires_address_and_secret(self):
         with pytest.raises(ValueError, match="requires an address"):
             ExternalTemporalConfig(auth_method=TemporalAuthMethod.MTLS)

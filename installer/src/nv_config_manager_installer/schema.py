@@ -31,6 +31,8 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _KUBERNETES_NAMESPACE_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
+_KUBERNETES_LABEL_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$")
+_KUBERNETES_DNS_LABEL_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -109,6 +111,8 @@ class ImageSource(StrEnum):
 class ClusterConfig(BaseModel):
     """Cluster-level deployment settings."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     hostname: str = ""
     environment: str = "local"
     namespace: str = "nv-config-manager"
@@ -117,6 +121,35 @@ class ClusterConfig(BaseModel):
     airgapped: bool = False
     mock_devices: bool = False
     size: DeploySize = DeploySize.SMALL
+    custom_labels: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("custom_labels")
+    @classmethod
+    def validate_custom_labels(cls, labels: dict[str, str]) -> dict[str, str]:
+        """Require Kubernetes-compatible label keys and values."""
+        for key, value in labels.items():
+            if not _is_kubernetes_label_key(key):
+                raise ValueError(f"invalid Kubernetes label key: {key!r}")
+            if value and (len(value) > 63 or _KUBERNETES_LABEL_NAME_RE.fullmatch(value) is None):
+                raise ValueError(f"invalid Kubernetes label value for {key!r}: {value!r}")
+        return labels
+
+
+def _is_kubernetes_label_key(key: str) -> bool:
+    """Return whether *key* follows Kubernetes label-key syntax."""
+    if "/" not in key:
+        return len(key) <= 63 and _KUBERNETES_LABEL_NAME_RE.fullmatch(key) is not None
+
+    prefix, name = key.split("/", 1)
+    if (
+        not prefix
+        or len(prefix) > 253
+        or not name
+        or len(name) > 63
+        or _KUBERNETES_LABEL_NAME_RE.fullmatch(name) is None
+    ):
+        return False
+    return all(_KUBERNETES_DNS_LABEL_RE.fullmatch(part) is not None for part in prefix.split("."))
 
 
 class VaultAuth(BaseModel):
@@ -1125,6 +1158,9 @@ class NVConfigManagerInstallConfig(BaseModel):
 
 def _prune_inactive_sections(data: dict[str, Any]) -> None:
     """Remove values from conditional sections that are not currently active."""
+    cluster = _as_dict(data.get("cluster"))
+    if not cluster.get("custom_labels"):
+        cluster.pop("custom_labels", None)
     secrets = _as_dict(data.get("secrets"))
     _prune_secrets(secrets, data)
     _prune_git_tokens(data, secrets.get("method", SecretsMethod.KUBERNETES.value))

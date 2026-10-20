@@ -21,7 +21,7 @@ from unittest.mock import Mock, patch
 import pytest
 from textual.app import ComposeResult
 from textual.containers import Container
-from textual.widgets import Input, Label, RadioButton
+from textual.widgets import Button, Input, Label, RadioButton
 
 from nv_config_manager_installer.deployer import Deployer, DeployOptions, DeployStep
 from nv_config_manager_installer.schema import (
@@ -292,6 +292,103 @@ async def test_sites_collected_from_cluster():
         assert len(app.config.sites) == 2
         assert app.config.sites[0].name == "dc01"
         assert app.config.sites[1].name == "dc02"
+
+
+@pytest.mark.asyncio
+async def test_cluster_custom_labels_sync_and_collect():
+    config = NVConfigManagerInstallConfig(
+        cluster=ClusterConfig(custom_labels={"production": "true", "include_in_slo": "true"})
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        app.switch_section("cluster")
+        await pilot.pause()
+        screen = app._screens["cluster"]
+
+        assert screen.query_one("#custom-label-0-key", Input).value == "production"
+        assert screen.query_one("#custom-label-0-value", Input).value == "true"
+        screen.query_one("#custom-label-1-value", Input).value = "false"
+        screen.write_to_config(config)
+
+        assert config.cluster.custom_labels == {
+            "production": "true",
+            "include_in_slo": "false",
+        }
+
+        replacement = NVConfigManagerInstallConfig(
+            cluster=ClusterConfig(custom_labels={"nvidia.com/environment": "prod"})
+        )
+        screen.sync_from_config(replacement)
+        await pilot.pause()
+
+        assert screen.query_one("#custom-label-0-key", Input).value == "nvidia.com/environment"
+        assert screen.query_one("#custom-label-0-value", Input).value == "prod"
+        assert not screen.query("#custom-label-1-key")
+
+
+@pytest.mark.asyncio
+async def test_cluster_custom_labels_add_and_remove():
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        app.switch_section("cluster")
+        await pilot.pause()
+        screen = app._screens["cluster"]
+
+        screen.query_one("#add-custom-label", Button).press()
+        await pilot.pause()
+        screen.query_one("#custom-label-0-key", Input).value = "production"
+        screen.query_one("#custom-label-0-value", Input).value = "true"
+        screen.write_to_config(config)
+        assert config.cluster.custom_labels == {"production": "true"}
+
+        screen.query_one("#custom-label-0-remove", Button).press()
+        await pilot.pause()
+        assert not screen.query("#custom-label-0-key")
+        screen.write_to_config(config)
+        assert config.cluster.custom_labels == {}
+
+
+@pytest.mark.asyncio
+async def test_invalid_custom_label_blocks_navigation():
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        screen = app._screens["cluster"]
+        screen.query_one("#add-custom-label", Button).press()
+        await pilot.pause()
+        screen.query_one("#custom-label-0-key", Input).value = "invalid key"
+        screen.query_one("#custom-label-0-value", Input).value = "true"
+
+        app.switch_section("services")
+
+        assert app.active_section == "cluster"
+        assert config.cluster.custom_labels == {}
+
+
+@pytest.mark.asyncio
+async def test_duplicate_custom_label_blocks_save(tmp_path):
+    config = NVConfigManagerInstallConfig(
+        cluster=ClusterConfig(custom_labels={"production": "true", "include_in_slo": "true"})
+    )
+    config_path = tmp_path / "nv-config-manager-install.yaml"
+    app = NVConfigManagerInstallerApp(config=config, config_path=config_path)
+
+    async with app.run_test() as pilot:
+        screen = app._screens["cluster"]
+        screen.query_one("#custom-label-1-key", Input).value = "production"
+        await pilot.pause()
+
+        app.action_save()
+
+        assert not config_path.exists()
+        assert config.cluster.custom_labels == {
+            "production": "true",
+            "include_in_slo": "true",
+        }
 
 
 @pytest.mark.asyncio
