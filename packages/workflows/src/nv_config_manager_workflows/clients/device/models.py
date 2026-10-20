@@ -213,6 +213,7 @@ class InterfaceNeighborData(BaseModel):
                 if is_mac_address(data[device]["port"]["name"])
                 else data[device]["port"]["name"]
             ),
+            port_description=data[device]["port"].get("description") or None,
         )
 
 

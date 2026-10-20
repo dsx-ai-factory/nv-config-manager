@@ -555,7 +555,7 @@ async def test_intended_interface_neighbors_are_provider_owned():
 
 
 @pytest.mark.asyncio
-async def test_intended_interface_neighbors_resolve_parent_bay_chassis():
+async def test_intended_interface_neighbors_resolve_parent_bay_chassis() -> None:
     """A line card installed in a chassis DeviceBay reports the chassis, not itself."""
     client = _client()
     client.graphql_query = AsyncMock(
