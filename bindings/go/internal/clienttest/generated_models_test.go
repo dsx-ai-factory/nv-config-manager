@@ -17,11 +17,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nvidia/nv-config-manager/bindings/go/config-store"
-	"github.com/nvidia/nv-config-manager/bindings/go/dhcp"
-	"github.com/nvidia/nv-config-manager/bindings/go/render"
-	"github.com/nvidia/nv-config-manager/bindings/go/temporal"
-	"github.com/nvidia/nv-config-manager/bindings/go/ztp"
+	"github.com/dsx-ai-factory/nv-config-manager/bindings/go/config-store"
+	"github.com/dsx-ai-factory/nv-config-manager/bindings/go/dhcp"
+	"github.com/dsx-ai-factory/nv-config-manager/bindings/go/render"
+	"github.com/dsx-ai-factory/nv-config-manager/bindings/go/temporal"
+	"github.com/dsx-ai-factory/nv-config-manager/bindings/go/ztp"
 )
 
 func TestGeneratedDeviceCableValidationInputDocumentsDevice(t *testing.T) {

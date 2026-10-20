@@ -4,7 +4,7 @@ sidebar-title: Configuration Backup
 position: 10
 ---
 
-The Configuration Backup workflow pulls the running configuration off a network device, compares it against the intended configuration that Config Manager would deploy, and persists the snapshot to the [Config Store](../../config-store/index.mdx). It is the canonical way to capture a known-good record of what a device is actually running, and the primary mechanism Config Manager uses to detect configuration drift between the device and Nautobot.
+The Configuration Backup workflow pulls the running configuration from a network device, compares it against the intended configuration that Config Manager would deploy, and persists the snapshot to the [Config Store](../../config-store/index.mdx). It captures what a device is running and detects drift from the rendered intent supplied by the configured DCIM provider. Nautobot is the bundled provider.
 
 For a site-wide snapshot, use [Site Configuration Backup](../site-configuration-backup/index.mdx) to back up every in-scope device in parallel.
 
@@ -14,16 +14,16 @@ The workflow runs directly from the Config Manager UI for ad-hoc backups, on a s
 
 Before running a backup, confirm the following are in place:
 
-- **Device exists in Nautobot** with a primary IPv4, platform, and any required config contexts. The workflow looks the device up by Nautobot UUID before doing anything else.
+- **Device exists in the configured DCIM** with a primary IPv4, platform, and the access and configuration data required by that platform. The workflow resolves the provider's device identifier before connecting. With Nautobot, this is the device UUID.
 - **Device is reachable** from Config Manager over the management network, and credentials for the device are present in the secrets store. The workflow uses NVUE to pull the running configuration on Cumulus Linux devices.
 - **Intended configuration is available** for the device — that is, the [Render Service](../../render/index.mdx) has produced a rendered config in the Config Store. Drift detection compares the running config against this rendered output. If no intended config exists yet, drift detection will fail.
-- **Backup path is configured** on the device record. The workflow writes the snapshot to the `backup_path` field on the device's Nautobot data; without it, the persist stage cannot record where the backup landed.
+- **Device ID and platform are available** from the DCIM provider. Config Manager derives the backup path from the device ID and the platform's configuration filename, writes the snapshot to the Config Store, and records its metadata through the provider.
 - **User attribution is present.** Backups invoked through the API carry the requesting user automatically; backups invoked from another workflow forward the originating user. The workflow rejects requests with no user attached.
 
 ## Running the workflow
 
 1. Navigate to the Config Manager URL for your environment.
-1. Click the **+** in the top right and select **BackupWorkflow**.
+1. In the Config Manager UI, click New workflow (+) in the upper-right corner and select Configuration Backup.
 1. Fill in the form using the field reference below and submit.
 
 The workflow form takes the following inputs:
@@ -31,7 +31,7 @@ The workflow form takes the following inputs:
 | Field | Description | Required |
 | :---- | :---------- | :------- |
 | **Site** | The site whose device you want to back up. Drives the device list below. | Yes |
-| **Tenant** | Optional Nautobot tenant filter to narrow the device list. | No |
+| **Tenant** | Optional DCIM tenant filter to narrow the device list. | No |
 | **Status** | Optional device-status filter to narrow the device list (for example, `Provisioned`). | No |
 | **Device** | The target device. The list is filtered by the selections above. | Yes |
 
@@ -43,29 +43,44 @@ The workflow defines three stages. The first two run in parallel; the third depe
 
 1. **`load_running_configuration` — Pull the running config from the device.**
 
-   Fetches the device record from Nautobot, attaches device search attributes to the workflow for observability, and then calls the `load_running_configuration` activity to read the device's running configuration. The activity has a 5-minute start-to-close timeout and retries up to 3 times on transient errors.
+   Fetches the device record from the configured DCIM, attaches device search attributes to the workflow for observability, and then calls the `load_running_configuration` activity to read the device's running configuration. The activity has a 5-minute start-to-close timeout and allows at most 3 total attempts (including the initial attempt) on transient errors.
 
-   The full running configuration is included in the stage output so it is visible on the workflow status page.
+   The captured configuration is included in the stage output so it is visible on the workflow status page.
 
 1. **`check_drift` — Compare running vs. intended configuration.**
 
    If the caller already supplied an `intended_config_commit_id`, the stage short-circuits and reports no drift — this is the path Deploy workflows take, because they just applied the intended config and do not want their own change flagged.
 
-   Otherwise, the stage loads the intended configuration for the device from the Config Store and runs `perform_candidate_diff` to compare it against what is on the device. The diff output is included in the stage display, and the commit ID of the intended configuration is recorded so the persist stage can mark the backup as matching that commit. The diff activities have a 1-minute timeout and retry up to 3 times.
+   Otherwise, the stage loads the intended configuration for the device from the Config Store and runs `perform_candidate_diff` to compare it against what is on the device. The diff output is included in the stage display, and the commit ID of the intended configuration is recorded so the persist stage can mark the backup as matching that commit. The diff activities have a 1-minute timeout and allow at most 3 total attempts (including the initial attempt).
 
 1. **`persist_backup` — Write the snapshot to the Config Store and record it on the device.**
 
-   Persists the running configuration to the Config Store with a commit message of the form `Backup trigger: <TRIGGER> User: <user>`, then records the backup against the device via the Config Manager plugin. The plugin record links the backup to the originating workflow ID, the Config Store commit ID, the device's `backup_path`, and (when known) the deployed intended-config commit ID, so the device's history can show "this is the running config as of commit X, while the deployed intended config was commit Y."
+   Persists the running configuration to the Config Store with a commit message of the form `Backup trigger: <TRIGGER> User: <user>`, then records the backup metadata through the configured DCIM provider. The record includes the originating workflow ID, Config Store commit ID, backup filename derived from the device's `backup_path`, and (when known) deployed intended-config commit ID. The bundled Nautobot provider stores this in the Config Manager plugin, with the filename in the record's `path` field.
 
-   The stage returns a `changed` flag indicating whether the new backup differs from the previous one on record. Each activity has a 1-minute timeout and retries up to 3 times.
+   The stage returns a `changed` flag indicating whether the new backup differs from the previous one on record. Each activity has a 1-minute timeout and allows at most 3 total attempts (including the initial attempt).
 
 After all three stages complete, the workflow archives its results and returns the `changed` flag from the persist stage.
+
+### Failure and Retry Behavior
+
+Backups with a `SCHEDULED` or `SYSLOG` trigger fail after their activity retries
+are exhausted instead of waiting for a manual retry signal. API and child
+workflow invocations retain interactive retry behavior unless the caller sets
+`terminate_on_failure: true`.
+
+Runs started before this change retain their previous wait-for-retry behavior
+unless `terminate_on_failure` was explicitly enabled. Upgrading workers does
+not change that behavior for existing runs.
+
+For an interactive failure, use the [workflow lifecycle controls](../workflow-lifecycle/index.mdx)
+to retry the failed stage after correcting the cause. For an unattended
+failure, inspect the failed run and start a new backup after correcting it.
 
 ## Drift detection behavior
 
 Drift is detected by diffing the device's running configuration against the intended configuration the Render Service most recently produced for that device. Behavior depends on how the workflow was invoked:
 
-- **Direct invocation (API or scheduled).** `intended_config_commit_id` is empty, so the workflow loads the latest intended config from the Config Store, diffs it against the running config, and sets `has_drift` based on whether the diff is non-empty. When drift is detected, a Slack message is posted alerting that drift was found on the device and linking to the workflow run.
+- **Direct invocation (API or scheduled).** `intended_config_commit_id` is empty, so the workflow loads the latest intended config from the Config Store, diffs it against the running config, and sets `has_drift` based on whether the diff is non-empty. When drift is detected, a Slack message links to the workflow run unless the caller sets `suppress_drift_notification: true`.
 
 - **Child of a Deploy or Multi-Deploy workflow.** The parent passes its `intended_config_commit_id` so the backup knows exactly what it just applied. The check_drift stage skips the diff entirely and records that commit as the deployed configuration. This prevents the post-deploy snapshot from being reported as drift against itself.
 
@@ -81,7 +96,7 @@ Confirm the backup succeeded by checking the following:
 
 - **Config Store commit** is present at the device's `backup_path` with a commit message of `Backup trigger: <TRIGGER> User: <user>`. Open the commit in the Config Store to confirm it matches what the device is running.
 
-- **Backup record** is visible on the device's Config Manager Info tab in Nautobot, with the new commit ID and a timestamp matching the workflow run. The `changed` flag tells you whether this backup differs from the previous record.
+- **Backup record** is available through the DCIM provider. With Nautobot, open the device's Config Manager Info tab and check the new commit ID and timestamp. The `changed` flag tells you whether this backup differs from the previous record.
 
 - **No spurious drift alert.** Drift posts a Slack message when detected outside of a Deploy run. If the alert fires and you expect the device to be in sync, treat it as a real drift event — see [Common issues](#common-issues) below.
 
@@ -105,11 +120,11 @@ The device is unreachable or credentials are wrong. Confirm the management IP is
 
 **Drift stage fails loading the intended configuration.**
 
-No rendered config exists for the device. Trigger a render by making a no-op change to the device's config context in Nautobot, or call the render service API directly; see [Render Service](../../render/index.mdx). Once a render lands in the Config Store, re-run the backup.
+Confirm that the [Render Service](../../render/index.mdx) has produced an intended configuration in the Config Store. Trigger a render if it is missing, then retry the interactive stage or start a new unattended backup.
 
 **`persist_backup` fails to write to the Config Store.**
 
-Usually a Config Store auth or path issue. Confirm the device's `backup_path` is populated in Nautobot and that the Config Store credentials in the Config Manager cell are current.
+Usually a Config Store auth or path issue. The device's `backup_path` is computed from its ID and configuration filename; it is not a field to populate in Nautobot. Check the activity error for the failed write and confirm that the Config Store credentials in the Config Manager cell are current.
 
 ## Related guides
 
