@@ -17,7 +17,7 @@ import io
 import json
 import tarfile
 from typing import cast
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock, call, patch
 
 import pyeapi.eapilib
 import pytest
@@ -456,3 +456,166 @@ def test_run_diagnostic_command_serializes_new_arista_command() -> None:
     output = conn.run_diagnostic_command("show_platform_transceiver")
 
     assert json.loads(output) == {"error": "Transceiver data not available on this device"}
+
+
+# ---------------------------------------------------------------------------
+# Password fallback: pyeapi authenticates per request, so a rotated password
+# first shows up as a 401 on the first command.
+# ---------------------------------------------------------------------------
+
+
+class _FakeEapiConnection:
+    """An eAPI transport that accepts exactly one password."""
+
+    def __init__(self, accepted: str, first: str) -> None:
+        self.accepted = accepted
+        self.password = first
+        self.authentications: list[tuple[str, str]] = []
+        self.executed: list[list[object]] = []
+
+    def authentication(self, username: str, password: str) -> None:
+        self.authentications.append((username, password))
+        self.password = password
+
+    def execute(
+        self, commands: list[object], encoding: str, **_kwargs: object
+    ) -> dict[str, object]:
+        self.executed.append(commands)
+        if self.password != self.accepted:
+            raise pyeapi.eapilib.ConnectionError("eapi", "Unauthorized. Unauthorized")
+        return {"result": [{}, {"hostname": "leaf1"}]}
+
+
+def _fallback_node(
+    connection: _FakeEapiConnection, *others: str
+) -> tuple[arista._PasswordFallbackNode, list[str]]:
+    """Return the node and the list of passwords it reports as working."""
+    remembered: list[str] = []
+    node = arista._PasswordFallbackNode(
+        connection,
+        host="192.0.2.1",
+        username="svc",
+        passwords=lambda: list(others),
+        on_password=remembered.append,
+        enablepwd=connection.password,
+    )
+    return node, remembered
+
+
+def test_fallback_node_retries_a_rejected_request_with_the_other_passwords() -> None:
+    connection = _FakeEapiConnection(accepted="r1", first="r2")
+    node, remembered = _fallback_node(connection, "r1")
+
+    result = node.enable("show hostname")
+
+    assert result[0]["result"] == {"hostname": "leaf1"}
+    assert connection.authentications == [("svc", "r1")]
+    assert remembered == ["r1"]
+    # The enable password follows the login password.
+    assert connection.executed[-1][0] == {"cmd": "enable", "input": "r1"}
+
+
+def test_fallback_node_restores_the_original_password_when_every_password_is_rejected() -> None:
+    connection = _FakeEapiConnection(accepted="r9", first="r2")
+    node, remembered = _fallback_node(connection, "r1", "r0")
+
+    with pytest.raises(NetworkDeviceException, match="rejected every known password for svc"):
+        node.enable("show hostname")
+    # Each candidate once, then the original password is put back.
+    assert [password for _, password in connection.authentications] == ["r1", "r0", "r2"]
+    assert connection.password == "r2"
+    assert remembered == []
+
+
+def test_fallback_node_tries_the_other_passwords_once_per_session() -> None:
+    """Each failed login counts towards a lockout, so a failed pass is not repeated."""
+    connection = _FakeEapiConnection(accepted="r9", first="r2")
+    node, _ = _fallback_node(connection, "r1", "r0")
+    with pytest.raises(NetworkDeviceException):
+        node.enable("show hostname")
+    authentications, requests = len(connection.authentications), len(connection.executed)
+
+    with pytest.raises(NetworkDeviceException, match="other known passwords already failed"):
+        node.enable("show hostname")
+    assert len(connection.authentications) == authentications
+    assert len(connection.executed) == requests + 1
+
+
+def test_fallback_node_warns_when_another_password_works() -> None:
+    connection = _FakeEapiConnection(accepted="r1", first="r2")
+    node, _ = _fallback_node(connection, "r1")
+
+    with patch.object(arista, "logger") as logger:
+        node.enable("show hostname")
+    logger.warning.assert_called_once()
+    assert "192.0.2.1" in logger.warning.call_args.args
+
+
+def test_fallback_node_leaves_other_connection_errors_alone() -> None:
+    connection = _FakeEapiConnection(accepted="r2", first="r2")
+    node, _ = _fallback_node(connection, "r1")
+
+    with (
+        patch.object(
+            connection,
+            "execute",
+            side_effect=pyeapi.eapilib.ConnectionError("eapi", "unable to connect to eAPI"),
+        ),
+        pytest.raises(pyeapi.eapilib.ConnectionError, match="unable to connect"),
+    ):
+        node.enable("show hostname")
+    assert connection.authentications == []
+
+
+def test_fallback_node_puts_the_original_password_back_when_a_retry_fails_otherwise() -> None:
+    connection = _FakeEapiConnection(accepted="r1", first="r2")
+    node, remembered = _fallback_node(connection, "r1")
+    errors = [
+        pyeapi.eapilib.ConnectionError("eapi", "Unauthorized. Unauthorized"),
+        pyeapi.eapilib.ConnectionError("eapi", "timed out"),
+    ]
+
+    with (
+        patch.object(connection, "execute", side_effect=errors),
+        pytest.raises(pyeapi.eapilib.ConnectionError, match="timed out"),
+    ):
+        node.enable("show hostname")
+    assert connection.password == "r2"
+    assert remembered == []
+
+    # The fallback is not spent, so the next 401 still tries the other password.
+    node.enable("show hostname")
+    assert remembered == ["r1"]
+
+
+def test_fallback_node_keeps_a_password_that_eapi_accepted_for_a_failed_command() -> None:
+    connection = _FakeEapiConnection(accepted="r1", first="r2")
+    node, remembered = _fallback_node(connection, "r1")
+    errors = [
+        pyeapi.eapilib.ConnectionError("eapi", "Unauthorized. Unauthorized"),
+        pyeapi.eapilib.CommandError(1002, "CLI command 2 of 2 'show hostnme' failed"),
+    ]
+
+    with (
+        patch.object(connection, "execute", side_effect=errors),
+        pytest.raises(pyeapi.eapilib.CommandError),
+    ):
+        node.enable("show hostnme")
+    assert connection.password == "r1"
+    assert remembered == ["r1"]
+
+
+def test_connect_starts_with_the_newest_password_and_keeps_the_rest_for_fallback() -> None:
+    conn = AristaConnection.__new__(AristaConnection)
+    conn._host, conn._port, conn._username = "192.0.2.1", 443, "svc"
+    conn._passwords_to_try, conn._working_password = ["r2", "r1"], None
+    connection = _FakeEapiConnection(accepted="r1", first="r2")
+    with patch.object(arista.pyeapi, "connect", return_value=connection) as connect:
+        node = conn._connect()
+
+    assert connect.call_args.kwargs["password"] == "r2"
+    assert isinstance(node, arista._PasswordFallbackNode)
+    assert conn._working_password == "r2"
+    assert conn._other_passwords() == ["r1"]
+    node.enable("show hostname")  # falls back to r1 ...
+    assert conn._working_password == "r1"  # ... which is remembered for later connections
