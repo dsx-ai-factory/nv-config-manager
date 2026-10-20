@@ -1,4 +1,4 @@
-module github.com/nvidia/nv-config-manager/components/nats-ready
+module github.com/dsx-ai-factory/nv-config-manager/components/nats-ready
 
 go 1.26.0
 
