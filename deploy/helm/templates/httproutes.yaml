@@ -637,23 +637,45 @@ spec:
 
 {{- $natsName := include "nv-config-manager.componentName" (dict "root" . "component" "nats") }}
 
-# Bundled NATS health HTTPRoute (unauthenticated, exact GET /healthz only)
-{{- with include "nv-config-manager.natsHealthHostname" . }}
+# Bundled NATS HTTPRoute: unauthenticated exact GET /healthz for the Probe,
+# and the NATS client protocol over WebSocket (NATS authenticates).
+{{- with include "nv-config-manager.natsRouteHostname" . }}
+{{- $hostname := . }}
+{{- $httpsListener := include "nv-config-manager.natsHttpsListener" $ }}
+{{- $health := include "nv-config-manager.natsHealthHostname" $ }}
+{{- $websocket := include "nv-config-manager.natsWebsocketHostname" $ }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: {{ $natsName }}-health
+  name: {{ $natsName }}
   namespace: {{ $.Values.global.namespace }}
-  {{- include "nv-config-manager.httpRoutePolicyLabels" (dict "root" $) | nindent 2 }}
+  {{- include "nv-config-manager.httpRoutePolicyLabels" (dict "root" $ "timeoutProfile" (ternary "stream" "default" (not (empty $websocket)))) | nindent 2 }}
   annotations:
     nv-config-manager.nvidia.com/no-auth: "true"
 spec:
   parentRefs:
+  {{- if $httpsListener }}
+  - name: {{ $.Values.gateway.name }}
+    namespace: {{ $.Values.gateway.namespace | default $.Values.global.namespace }}
+    sectionName: {{ $httpsListener }}
+  {{- else }}
   {{- include "nv-config-manager.gatewayParentRef" $ | nindent 2 }}
+  {{- end }}
   hostnames:
-  - {{ . | quote }}
+  - {{ $hostname | quote }}
   rules:
+  {{- if $websocket }}
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    {{- include "nv-config-manager.stripIdentityHeaders" $ | nindent 4 }}
+    backendRefs:
+    - name: {{ $natsName }}
+      port: {{ $.Values.nautobotNats.gateway.websocket.port | default 8080 }}
+  {{- end }}
+  {{- if $health }}
   {{- /* Exact match: the monitoring port also serves varz, connz and jsz. */}}
   - matches:
     - path:
@@ -664,31 +686,39 @@ spec:
     backendRefs:
     - name: {{ $natsName }}
       port: 8222
-{{- end }}
-
-# Bundled NATS WebSocket HTTPRoute (NATS client protocol; NATS authenticates)
-{{- with include "nv-config-manager.natsWebsocketHostname" . }}
+  {{- end }}
+{{- if $httpsListener }}
+{{- range $.Values.gateway.listeners | default list }}
+{{- if eq .protocol "HTTP" }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: {{ $natsName }}-websocket
+  name: {{ $natsName }}-redirect-{{ .name }}
   namespace: {{ $.Values.global.namespace }}
-  {{- include "nv-config-manager.httpRoutePolicyLabels" (dict "root" $ "timeoutProfile" "stream") | nindent 2 }}
+  {{- include "nv-config-manager.httpRoutePolicyLabels" (dict "root" $) | nindent 2 }}
+  annotations:
+    nv-config-manager.nvidia.com/no-auth: "true"
 spec:
   parentRefs:
-  {{- include "nv-config-manager.gatewayParentRef" $ | nindent 2 }}
+  - name: {{ $.Values.gateway.name }}
+    namespace: {{ $.Values.gateway.namespace | default $.Values.global.namespace }}
+    sectionName: {{ .name }}
   hostnames:
-  - {{ . | quote }}
+  - {{ $hostname | quote }}
   rules:
   - matches:
     - path:
         type: PathPrefix
         value: /
-    {{- include "nv-config-manager.stripIdentityHeaders" $ | nindent 4 }}
-    backendRefs:
-    - name: {{ $natsName }}
-      port: {{ $.Values.nautobotNats.gateway.websocket.port | default 8080 }}
+    filters:
+    - type: RequestRedirect
+      requestRedirect:
+        scheme: https
+        statusCode: 301
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{- end }}

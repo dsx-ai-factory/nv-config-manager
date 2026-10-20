@@ -1841,6 +1841,32 @@ the route is not rendered.
 {{- end -}}
 
 {{/*
+Yields the hostname of the bundled NATS HTTPRoute when it has at least one
+rule (health or WebSocket), or nothing.
+*/}}
+{{- define "nv-config-manager.natsRouteHostname" -}}
+{{- include "nv-config-manager.natsHealthHostname" . | default (include "nv-config-manager.natsWebsocketHostname" .) -}}
+{{- end -}}
+
+{{/*
+Yields the name of the chart-created Gateway's first HTTPS listener, or
+nothing. The NATS route attaches only to that listener so NATS credentials
+never cross plain HTTP; a shared Gateway (gateway.create=false) or an explicit
+gateway.sectionName keeps the usual parentRef.
+*/}}
+{{- define "nv-config-manager.natsHttpsListener" -}}
+{{- if and .Values.gateway.create (not .Values.gateway.sectionName) -}}
+{{- $names := list -}}
+{{- range .Values.gateway.listeners | default list -}}
+{{- if eq .protocol "HTTPS" -}}
+{{- $names = append $names .name -}}
+{{- end -}}
+{{- end -}}
+{{- first $names | default "" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Yields "true" when the bundled NATS blackbox Probe is rendered.
 */}}
 {{- define "nv-config-manager.natsProbeEnabled" -}}

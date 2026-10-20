@@ -60,6 +60,28 @@ spec:
   timeouts:
     request: "0s"
     streamIdle: {{ .Values.nautobotNats.gateway.websocket.idleTimeout | default "300s" }}
+{{- if .Values.gateway.create }}
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: ListenerPolicy
+metadata:
+  name: {{ include "nv-config-manager.componentName" (dict "root" . "component" "websocket-upgrades") }}
+  namespace: {{ .Values.gateway.namespace | default .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+spec:
+  # kgateway rejects WebSocket upgrades with 403 unless the listener enables
+  # them. Through v2.3, a TrafficPolicy cannot enable upgrades per route.
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: {{ .Values.gateway.name }}
+  default:
+    httpSettings:
+      upgradeConfig:
+        enabledUpgrades:
+        - websocket
+{{- end }}
 {{- end }}
 
 ---

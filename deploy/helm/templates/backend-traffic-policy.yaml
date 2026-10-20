@@ -107,11 +107,12 @@ metadata:
     {{- include "nv-config-manager.labels" . | nindent 4 }}
 spec:
   # Long-lived NATS client connections: no request timeout, and an idle timeout
-  # longer than the NATS ping interval.
+  # longer than the NATS ping interval. Without this the Gateway-wide policy's
+  # request timeout cuts every WebSocket connection.
   targetRef:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
-    name: {{ $natsName }}-websocket
+    name: {{ $natsName }}
   timeout:
     http:
       requestTimeout: "0s"
