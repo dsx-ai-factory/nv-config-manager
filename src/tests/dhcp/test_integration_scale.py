@@ -25,12 +25,12 @@ import pytest
 from tests.integration import test_dhcp as scale
 
 
-@pytest.mark.parametrize("failure", [None, "publish", "wait", "body", "restore"])
+@pytest.mark.parametrize("failure", [None, "baseline", "publish", "wait", "body", "restore"])
 def test_scale_fixture_restores_desired_config_on_success_and_failure(monkeypatch, failure):
     """Keep credentials out of desired state and resume refresh after cleanup."""
     original = {"Dhcp4": {"subnet4": [{"subnet": "192.0.2.0/24"}]}, "Logging": {"loggers": []}}
     snapshot = deepcopy(original)
-    state = {"desired": original, "paused": False}
+    state = {"desired": original, "paused": False, "baseline_ready": False}
     observed = []
 
     @contextmanager
@@ -51,6 +51,7 @@ def test_scale_fixture_restores_desired_config_on_success_and_failure(monkeypatc
         assert "lease-database" not in config["Dhcp4"]
         seeded = len(config["Dhcp4"]["subnet4"]) > 1
         if seeded:
+            assert state["baseline_ready"], "Published before the stale subnet disappeared"
             assert config["Dhcp4"]["subnet4"][0] == snapshot["Dhcp4"]["subnet4"][0]
             assert len(config["Dhcp4"]["subnet4"][-1]["reservations"]) == 201
             if failure == "publish":
@@ -69,6 +70,10 @@ def test_scale_fixture_restores_desired_config_on_success_and_failure(monkeypatc
                 raise RuntimeError("reconciliation failed")
         else:
             assert state["desired"] == snapshot
+            if not state["baseline_ready"]:
+                state["baseline_ready"] = True
+                if failure == "baseline":
+                    raise RuntimeError("baseline reconciliation failed")
         observed.append(present)
 
     monkeypatch.setattr(scale, "_paused_dhcp_refresh", paused_refresh)
@@ -95,6 +100,8 @@ def test_scale_fixture_restores_desired_config_on_success_and_failure(monkeypatc
         assert observed[-2] is False
     assert original == snapshot
     assert observed[-1] == "resume"
+    if failure is None:
+        assert observed == [False, True, False, "resume"]
     assert not state["paused"]
 
 

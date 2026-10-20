@@ -51,7 +51,7 @@ import sys
 from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.dhcp.redis import RedisClient
 
-async def main():
+async def main() -> None:
     'Read or publish desired state without copying live Kea credentials.'
     payload = json.load(sys.stdin)
     client = RedisClient.from_config(load_config())
@@ -379,6 +379,10 @@ def _temporary_kea_dhcp4_config(
         scaled = deepcopy(original)
         scaled["Dhcp4"] = dhcp4
         try:
+            # An interrupted run may have restored Redis before Kea caught up.
+            # Observe the baseline first so stale fixture data cannot satisfy
+            # the presence check for this run.
+            _wait_for_kea_subnet(namespace, pod, subnet, present=False)
             _kea_desired_config(namespace, pod, scaled)
             _wait_for_kea_subnet(namespace, pod, subnet, present=True)
             yield dhcp4, subnet
