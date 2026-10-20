@@ -109,6 +109,20 @@ def _read_spiffe_jwt() -> str | None:
         return None
 
 
+def spiffe_authorization_headers() -> dict[str, str] | None:
+    """Return ``Authorization: Bearer`` headers when a JWT-SVID can be read.
+
+    Returns ``None`` when SPIFFE is not configured or the SVID file is
+    missing, empty, or unreadable. Unlike :func:`get_internal_auth_headers`,
+    this does not raise and does not substitute ``X-Auth-Request-*`` headers,
+    so a caller that already has another credential can keep using it.
+    """
+    jwt = _read_spiffe_jwt()
+    if not jwt:
+        return None
+    return {"Authorization": f"Bearer {jwt}"}
+
+
 def get_internal_auth_headers(
     service_name: str | None = None,
     group: str = "nv-config-manager",

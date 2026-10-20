@@ -279,7 +279,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         verify: bool | str = True,
         public_url: str | None = None,
         timeout: int | None = None,
-        headers: dict[str, str] | Callable[[], dict[str, str]] | None = None,
+        headers: dict[str, str] | Callable[[], dict[str, str] | None] | None = None,
     ) -> None:
         """Initialize the reference client with its user-facing base URL."""
         NautobotWorkflowClient.__init__(
@@ -298,12 +298,19 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
     def from_settings(cls, settings: ProviderSettings) -> Self:
         """Create the reference client from explicit provider settings."""
         connection_config = _nautobot_connection_settings(settings)
+        raw_headers = settings.get("headers")
+        headers: dict[str, str] | Callable[[], dict[str, str] | None] | None
+        if isinstance(raw_headers, dict) or callable(raw_headers):
+            headers = raw_headers
+        else:
+            headers = None
         return cls(
             nautobot_url=connection_config["server"],
             token=connection_config["token"],
             verify=connection_config["verify"],
             public_url=connection_config["public_url"] or None,
             timeout=connection_config["timeout"],
+            headers=headers,
         )
 
     @staticmethod
