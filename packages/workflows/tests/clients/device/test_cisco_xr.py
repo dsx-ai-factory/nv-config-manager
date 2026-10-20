@@ -43,7 +43,7 @@ from .iosxr_fixtures import HOST, INTENDED, RUNNING, USERNAME
 
 _REPLY = '<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"><data>{}</data></rpc-reply>'
 
-# Shapes read from a lab router's operational models (discovery D17), trimmed to what the parsers use.
+# Shapes read from a lab router's operational models, trimmed to what the parsers use.
 VERSION_XML = _REPLY.format(
     '<install xmlns="http://cisco.com/ns/yang/Cisco-IOS-XR-install-oper"><version>'
     "<package><name>IOS-XR</name><version>26.4.1.03I</version><built-by>swtools</built-by></package>"
@@ -642,7 +642,7 @@ def test_open_session_reports_all_passwords_failed_and_unreachable_hosts() -> No
     connection._netconf_connect = MagicMock(side_effect=SSHError("connection refused"))  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
     with pytest.raises(NetworkDeviceException, match="Cannot open a NETCONF session") as excinfo:
         connection._open_session()
-    assert "live runbook" in str(excinfo.value)
+    assert "user guide" in str(excinfo.value)
 
 
 @pytest.mark.parametrize("missing", [":candidate", ":confirmed-commit"])

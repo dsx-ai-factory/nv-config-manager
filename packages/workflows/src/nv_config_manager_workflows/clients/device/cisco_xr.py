@@ -19,13 +19,64 @@ live in :class:`CiscoIosXrConnection`. The router is reached only through the
 small :class:`IosXrSession` protocol; :class:`NetconfIosXrSession` is its
 NETCONF implementation.
 
+How NVCM uses NETCONF
+---------------------
 Configuration stays CLI text, the form the Config Store keeps and the templates
-render. NETCONF supplies the session, the candidate datastore lock, the
-confirmed commit with its timer, the confirming commit and discard. The CLI
-text and the operational ``show`` commands travel inside NETCONF RPCs whose
-element names are the constants in the "CLI over NETCONF" block below. Those
-names are UNVERIFIED against a real router (live runbook, discovery D15): this
-is the one place to change if the router speaks a different wrapper.
+render. It travels in the single string leaf ``cli`` of the YANG module
+``Cisco-IOS-XR-cli-cfg`` (namespace ``http://cisco.com/ns/yang/Cisco-IOS-XR-cli-cfg``).
+IOS XR has no "run this show command" RPC, so everything else uses YANG.
+
+Session: an SSH login to the ``netconf`` subsystem on port 830, with the
+``iosxr`` ncclient device profile. The router must advertise ``:candidate`` and
+``:confirmed-commit``; otherwise the connection is refused. Passwords are tried
+in turn.
+
+Backup and drift (read-only):
+  ``<get-config><source><running/></source>`` with the filter
+  ``<cli xmlns=".../Cisco-IOS-XR-cli-cfg"/>``. The reply's ``cli`` leaf is the whole
+  running configuration as CLI text. Nothing is locked or loaded.
+
+Deploy diff (read-only): the running configuration is read as above and compared
+with the intended configuration here, on the Config Manager side. The router is
+not asked to compute the diff.
+
+Deploy (``commit_candidate_config``), after the diff is approved and the access
+guard passes. The diff is turned into CLI commands (``no <line>`` for lines to
+remove, the new lines to add), not the whole configuration. Then, in one session:
+
+  1. ``<lock>`` the ``candidate`` datastore.
+  2. ``<discard-changes>`` so the candidate starts equal to the running configuration.
+  3. ``<edit-config>`` on ``candidate`` with ``default-operation=merge`` and the
+     commands as the text of the ``cli`` leaf. A syntax error comes back as an
+     ``rpc-error`` and the candidate is discarded, so the router is unchanged.
+  4. ``<commit>``: with the commit timer, ``<commit><confirmed/>
+     <confirm-timeout>N</confirm-timeout></commit>`` (N seconds), which keeps the
+     candidate lock; without it, a plain ``<commit/>`` followed by ``<unlock>``.
+
+With the commit timer, NVCM then proves the change is safe before keeping it:
+a second NETCONF session logs in (the account and management path survived), the
+running configuration is read again and must equal the intended configuration, and
+only then a confirming ``<commit/>`` is sent from the first session, followed by
+``<unlock>``. If any check fails nothing is confirmed, and the router rolls back
+on its own when the timer expires.
+
+Operational data (diagnostics, link state, uptime): ``<get>`` with narrow
+subtree filters on the router's operational models: ``Cisco-IOS-XR-install-oper``
+(version), ``Cisco-IOS-XR-shellutil-oper`` (uptime), ``Cisco-IOS-XR-ethernet-lldp-oper``
+(LLDP neighbors), ``Cisco-IOS-XR-pfi-im-cmd-oper`` (interface link state) and
+``Cisco-IOS-XR-ipv4-arp-oper`` (ARP table).
+
+Actions, sent as RPCs from the router's ``-act`` YANG modules:
+  ``Cisco-IOS-XR-cfgmgr-rollback-act`` ``roll-back-configuration-last`` (input
+  ``count``) and ``roll-back-configuration-to`` (input ``commit-id``), which commit
+  at once with no timer; and ``Cisco-IOS-XR-ztp-act`` ``ztp-initiate``.
+
+Checked on a router running IOS XR 26.4.1: reading and loading the ``cli`` leaf,
+the operational filters, the confirmed commit with its timer, and the confirming
+commit. Not yet run on a router: the numbered rollback and ``ztp-initiate``
+actions, whose names and inputs were read from the router's YANG modules. The
+namespaces and element names are the constants below, the one place to change if
+another release differs.
 """
 
 from __future__ import annotations
@@ -75,7 +126,7 @@ _TRANSPORT_ERRORS = (TransportError, RPCError, TimeoutExpiredError, OSError)
 
 _NETCONF_PORT = 830  # IANA NETCONF-over-SSH port (RFC 6242)
 
-# --- CLI text over NETCONF (verified on a lab router, discovery D15) --------------
+# --- CLI text over NETCONF (checked on a lab router running IOS XR 26.4.1) ---------
 # The router's Cisco-IOS-XR-cli-cfg YANG module is one top-level string leaf, ``cli``
 # ("a set of CLI config commands"). Reading it with get-config returns the running
 # configuration as CLI text; writing it with edit-config loads CLI commands into the
@@ -90,7 +141,7 @@ _UNSUPPORTED_TAGS = ("operation-not-supported", "unknown-element", "unknown-name
 
 _HOSTNAME_RE = re.compile(r"^hostname\s+(?P<name>\S+)\s*$", re.MULTILINE)
 
-# --- Operational data through YANG (discovery D17, shapes read from a lab router) ---
+# --- Operational data through YANG (reply shapes read from a lab router running 26.4.1) ---
 # IOS XR has no "run this show command" RPC, so every read NVCM needs is a <get> on an
 # operational model with a narrow subtree filter (whole containers are megabytes).
 _FILTER_VERSION = (
@@ -248,7 +299,7 @@ class NetconfIosXrSession:
     def _unsupported(self, what: str, error: RPCError) -> NetworkDeviceException:
         return NetworkDeviceException(
             f"The router rejected the {what} request ({_rpc_message(error)}). "
-            "It may not accept CLI text over NETCONF (live runbook, discovery D15).",
+            "This release may not accept CLI text through the Cisco-IOS-XR-cli-cfg 'cli' leaf.",
             non_retryable=True,
         )
 
@@ -256,7 +307,7 @@ class NetconfIosXrSession:
     def _no_netconf_path(command: str) -> NetworkDeviceException:
         return NetworkDeviceException(
             f"'{command}' has no NETCONF path yet: the router has no CLI exec RPC, so this "
-            "needs its YANG operational model (discovery D17).",
+            "needs its YANG operational model.",
             non_retryable=True,
         )
 
@@ -423,9 +474,8 @@ class NetconfIosXrSession:
 class CiscoIosXrConnection(NetworkConnection):
     """Cisco IOS XR device connection."""
 
-    # ``commit confirmed`` is given in seconds. Whether this release reads the
-    # bare number as seconds or minutes is checked on the router (live runbook,
-    # discovery D4) before the first push; this is the one constant to change.
+    # ``commit confirmed`` is given in seconds (checked on 26.4.1: a 30 s timer with
+    # no confirming commit rolled back by itself); this is the one constant to change.
     _COMMIT_CONFIRM_SECONDS = COMMIT_CONFIRM_ROLLBACK_SECONDS
 
     # The diff runs under a 60 s activity timeout; keep the read well below it.
@@ -479,7 +529,7 @@ class CiscoIosXrConnection(NetworkConnection):
                     logger.debug("close after missing capabilities failed", exc_info=True)
                 raise NetworkDeviceException(
                     f"{self._host} does not advertise NETCONF capabilities {missing}. "
-                    "Check 'netconf-yang agent ssh' and the release (live runbook, step 8b).",
+                    "Check 'netconf-yang agent ssh' and the release (see the Cisco IOS XR user guide).",
                     non_retryable=True,
                 )
             return NetconfIosXrSession(session)
@@ -491,7 +541,7 @@ class CiscoIosXrConnection(NetworkConnection):
         except _TRANSPORT_ERRORS as error:
             raise NetworkDeviceException(
                 f"Cannot open a NETCONF session to {self._host}:{self._port}: {error}. "
-                "Is NETCONF enabled on the router (live runbook, step 8b)?"
+                "Is NETCONF enabled on the router (see the Cisco IOS XR user guide)?"
             ) from error
         return session
 
@@ -746,7 +796,7 @@ class CiscoIosXrConnection(NetworkConnection):
             raise NetworkDeviceException(f"Failed to roll back on {self._host}: {error}") from error
 
     # ------------------------------------------------------------------
-    # ZTP (``Cisco-IOS-XR-ztp-act`` ``ztp-initiate``). NOT run on a router yet.
+    # ZTP (``Cisco-IOS-XR-ztp-act`` ``ztp-initiate``). Not yet run on a router.
     # ------------------------------------------------------------------
 
     def execute_ztp(self) -> None:
@@ -772,7 +822,7 @@ class CiscoIosXrConnection(NetworkConnection):
     # ------------------------------------------------------------------
     # Not supported over NETCONF (the base class raises NotImplementedError): rescue
     # configuration. It needs a file on the router to be read back and loaded, and there is
-    # a copy and a delete action but no read or load action. See the plan, section 4.9.
+    # a copy and a delete action but no read or load action.
     # ------------------------------------------------------------------
 
     # ------------------------------------------------------------------

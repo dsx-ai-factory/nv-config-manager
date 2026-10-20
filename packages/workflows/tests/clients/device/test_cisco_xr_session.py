@@ -88,11 +88,11 @@ def test_show_running_config_maps_rpc_and_transport_errors() -> None:
         session.show("show running-config")
 
 
-def test_an_unsupported_cli_leaf_is_a_non_retryable_error_pointing_at_d15() -> None:
+def test_an_unsupported_cli_leaf_is_a_non_retryable_error_names_the_cli_leaf() -> None:
     session, manager = _session()
     manager.get_config.side_effect = _RpcError("unknown element", tag="unknown-element")
 
-    with pytest.raises(NetworkDeviceException, match="D15") as raised:
+    with pytest.raises(NetworkDeviceException, match="cli-cfg") as raised:
         session.show("show running-config")
 
     assert raised.value.non_retryable
@@ -102,7 +102,7 @@ def test_an_unsupported_cli_leaf_is_a_non_retryable_error_pointing_at_d15() -> N
 def test_other_show_commands_have_no_netconf_path_yet(command: str) -> None:
     session, manager = _session()
 
-    with pytest.raises(NetworkDeviceException, match="D17") as raised:
+    with pytest.raises(NetworkDeviceException, match="no NETCONF path") as raised:
         session.show(command)
 
     assert raised.value.non_retryable

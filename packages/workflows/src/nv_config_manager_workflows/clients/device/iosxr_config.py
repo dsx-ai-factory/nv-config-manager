@@ -58,8 +58,7 @@ _GROUP_HEADER_RE = re.compile(r"^group\s+\S+$")
 _BANNER_RE = re.compile(r"^banner\s+\S+\s+(\S)(.*)$")
 
 # Leaf commands whose value is replaced by simply entering the new value; they
-# need no ``no <old value>`` first. Verified against the XR CLI on the lab
-# routers before the first push (see the live runbook).
+# need no ``no <old value>`` first. Verified against the XR CLI on lab routers.
 SINGLETON_KEYWORDS = frozenset(
     {
         "description",
