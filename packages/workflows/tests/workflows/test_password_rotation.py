@@ -31,13 +31,17 @@ from nv_config_manager_workflows.activities.dcim import (
     GetNetworkDevicesInput,
     GetNetworkDevicesOutput,
 )
-from nv_config_manager_workflows.activities.deploy import DiffActivityInput
+from nv_config_manager_workflows.activities.deploy import (
+    ConfigApplyActivityInput,
+    DiffActivityInput,
+)
 from nv_config_manager_workflows.activities.device_password_rotation import (
     GetPasswordMappingsInput,
     GetPasswordMappingsOutput,
     ValidatePlatformSupportInput,
     ValidatePlatformSupportOutput,
     format_password_rotation_results,
+    validate_password_diff,
 )
 from nv_config_manager_workflows.activities.nats import PublishNatsInput
 from nv_config_manager_workflows.workflows.backup import BackupInput
@@ -133,6 +137,36 @@ async def mock_perform_candidate_diff(_activity_input: DiffActivityInput) -> str
     return ""
 
 
+EOS_PASSWORD_DIFF = """--- system:/running-config
++++ session:/8f1c-session-config
+@@ -12,7 +12,7 @@
+ no aaa root
+ !
+-username admin privilege 15 role network-admin secret sha512 $6$salt$oldhash
++username admin privilege 15 role network-admin secret sha512 $6$salt$newhash
+ !"""
+
+
+@activity.defn(name="validate_platform_support")
+async def mock_validate_platform_support_eos(
+    _activity_input: ValidatePlatformSupportInput,
+) -> ValidatePlatformSupportOutput:
+    return ValidatePlatformSupportOutput(normalized_platform="eos")
+
+
+@activity.defn(name="perform_candidate_diff")
+async def mock_perform_candidate_diff_eos(_activity_input: DiffActivityInput) -> str:
+    return EOS_PASSWORD_DIFF
+
+
+applied_diffs: list[str] = []
+
+
+@activity.defn(name="apply_approved_configuration")
+async def mock_apply_approved_configuration(activity_input: ConfigApplyActivityInput) -> None:
+    applied_diffs.append(activity_input.approved_diff)
+
+
 @activity.defn(name="get_ui_base_url")
 async def mock_get_ui_base_url() -> str:
     return "https://workflow.example.test"
@@ -179,6 +213,47 @@ async def test_device_password_rotation_no_diff_path(env: WorkflowEnvironment) -
         )
 
         assert await handle.result() is False
+
+
+@pytest.mark.asyncio
+async def test_device_password_rotation_eos_diff_is_auto_approved_and_applied(
+    env: WorkflowEnvironment,
+) -> None:
+    """An EOS session diff that only swaps the user's hash is applied without approval."""
+    applied_diffs.clear()
+    task_queue = str(uuid.uuid4())
+    async with Worker(
+        env.client,
+        task_queue=task_queue,
+        workflows=[DevicePasswordRotationWorkflow, MockBackupWorkflow],
+        activities=[
+            mock_get_network_device,
+            mock_load_intended_configuration,
+            mock_validate_platform_support_eos,
+            mock_get_password_mappings,
+            mock_perform_candidate_diff_eos,
+            validate_password_diff,  # the real validator, on the real EOS diff shape
+            mock_apply_approved_configuration,
+            mock_get_ui_base_url,
+            mock_publish_nats,
+        ],
+        activity_executor=ThreadPoolExecutor(2),
+    ):
+        handle = await env.client.start_workflow(
+            DevicePasswordRotationWorkflow.run,
+            DevicePasswordRotationInput(device_id="device-1", selected_secret="admin"),
+            id=str(uuid.uuid4()),
+            task_queue=task_queue,
+            run_timeout=timedelta(minutes=2),
+        )
+
+        assert await handle.result() is True
+        stages = {stage["name"]: stage for stage in await handle.query("stages")}
+
+    # The device is given the exact diff the validator approved, hashes included.
+    assert applied_diffs == [EOS_PASSWORD_DIFF]
+    assert stages["perform_configuration_diff"]["requires_approval"] is False
+    assert stages["apply_configuration"]["state"] == "COMPLETE"
 
 
 @pytest.mark.asyncio

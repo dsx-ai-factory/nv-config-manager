@@ -191,6 +191,32 @@ class TestTemporalClientInternalAuth:
         assert client.base_url == "https://external-temporal.example.com"
         assert client._headers is None
 
+    def test_from_config_has_vendor_neutral_domain_fallback(self):
+        """A hand-written INI without a domain does not assume a vendor domain."""
+        config = ConfigParser()
+        config.add_section("temporal")
+        config.set("temporal", "api_service", "http://internal-temporal:9000")
+        config.set("temporal", "api_url", "https://external-temporal.example.com")
+        config.set("temporal", "use_internal_endpoint", "true")
+
+        client = TemporalClient.from_config(config)
+
+        assert client.user_domain is None
+
+    def test_from_config_can_retain_service_specific_domain(self):
+        """Explicit callers can continue selecting a service-specific domain section."""
+        config = ConfigParser()
+        config.add_section("temporal")
+        config.set("temporal", "api_service", "http://internal-temporal:9000")
+        config.set("temporal", "api_url", "https://external-temporal.example.com")
+        config.set("temporal", "use_internal_endpoint", "true")
+        config.add_section("ztp")
+        config.set("ztp", "user_domain", "test.platform.example.com")
+
+        client = TemporalClient.from_config(config, user_domain_section="ztp")
+
+        assert client.user_domain == "test.platform.example.com"
+
     @pytest.mark.asyncio
     async def test_session_includes_headers(self):
         """Test that async context manager creates session with headers."""

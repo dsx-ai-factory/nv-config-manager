@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Helm rendering contracts for the provider-neutral scheduler host."""
+"""Helm rendering contracts for scheduler and attribution workloads."""
 
 from __future__ import annotations
 
@@ -26,8 +26,20 @@ import pytest
 from ruamel.yaml import YAML
 
 _CHART_DIR = Path(__file__).resolve().parents[3] / "deploy" / "helm"
-_TEMPLATE = "templates/temporal.yaml"
+_TEMPORAL_TEMPLATE = "templates/temporal.yaml"
+_RENDER_TEMPLATE = "templates/render-service.yaml"
+_VAULT_SECRETS_TEMPLATE = "templates/vault-secrets.yaml"
+_KUBERNETES_SECRETS_TEMPLATE = "templates/kubernetes-secrets.yaml"
+_VAULT_AGENT_CONFIGMAP_TEMPLATE = "templates/vault-agent-configmap.yaml"
 _SCHEDULER_DEPLOYMENT = "test-nv-config-manager-temporal-scheduler"
+_ATTRIBUTION_WORKLOADS = (
+    ("Deployment", "test-nv-config-manager-temporal-api", "api"),
+    ("Deployment", "test-nv-config-manager-temporal-nv-config-manager-worker", "worker"),
+    ("Deployment", "test-nv-config-manager-render-api", "api"),
+    ("Deployment", "test-nv-config-manager-render-consumer-nautobot", "consumer"),
+    ("Deployment", "test-nv-config-manager-render-consumer-device", "consumer"),
+    ("Job", "test-nv-config-manager-render-template-updater", "template-updater"),
+)
 _NON_NAUTOBOT = (
     "secrets.method=kubernetes",
     "dcim.provider=fixture",
@@ -47,6 +59,7 @@ def _helm_command(
     *set_args: str,
     set_string_args: tuple[str, ...] = (),
     extra_values: tuple[str, ...] = (),
+    templates: tuple[str, ...] = (_TEMPORAL_TEMPLATE,),
 ) -> list[str]:
     """Build the scheduler template command from the required CI values."""
     if shutil.which("helm") is None:
@@ -61,9 +74,9 @@ def _helm_command(
         str(_CHART_DIR),
         "--values",
         str(_CHART_DIR / "values-ci.yaml"),
-        "--show-only",
-        _TEMPLATE,
     ]
+    for template in templates:
+        command += ["--show-only", template]
     for values_file in extra_values:
         command += ["--values", str(_CHART_DIR / values_file)]
     for pair in set_args:
@@ -77,10 +90,16 @@ def _render(
     *set_args: str,
     set_string_args: tuple[str, ...] = (),
     extra_values: tuple[str, ...] = (),
+    templates: tuple[str, ...] = (_TEMPORAL_TEMPLATE,),
 ) -> str:
-    """Render the Temporal template and fail on template regressions."""
+    """Render selected templates and fail on template regressions."""
     result = subprocess.run(
-        _helm_command(*set_args, set_string_args=set_string_args, extra_values=extra_values),
+        _helm_command(
+            *set_args,
+            set_string_args=set_string_args,
+            extra_values=extra_values,
+            templates=templates,
+        ),
         capture_output=True,
         text=True,
         check=False,
@@ -117,6 +136,20 @@ def _scheduler_deployment(rendered: str) -> dict[str, Any] | None:
         ):
             return document
     return None
+
+
+def _workload_container(
+    rendered: str, kind: str, workload_name: str, container_name: str
+) -> dict[str, Any]:
+    """Return one container from a named rendered workload."""
+    for document in _documents(rendered):
+        if document.get("kind") == kind and document["metadata"]["name"] == workload_name:
+            return next(
+                container
+                for container in document["spec"]["template"]["spec"]["containers"]
+                if container["name"] == container_name
+            )
+    raise AssertionError(f"{kind} {workload_name} was not rendered")
 
 
 def _scheduler_container(deployment: dict[str, Any]) -> dict[str, Any]:
@@ -157,6 +190,43 @@ def test_nautobot_renders_backup_scheduler_deployment() -> None:
     scheduler = _scheduler_container(deployment)
     assert scheduler["command"] == ["nv-config-manager-temporal-scheduler"]
     assert _environment(scheduler)["NVCM_ENABLED_SCHEDULERS"] == "builtin.backup"
+
+
+def test_default_user_domain_is_shared_by_attribution_workloads() -> None:
+    rendered = _render(
+        set_string_args=("global.defaultUserDomain=ci.example.com",),
+        templates=(_TEMPORAL_TEMPLATE, _RENDER_TEMPLATE),
+    )
+
+    for kind, workload, container in _ATTRIBUTION_WORKLOADS:
+        environment = _environment(_workload_container(rendered, kind, workload, container))
+        assert environment["NV_CONFIG_MANAGER_DOMAIN"] == "ci.example.com"
+
+
+def test_unset_user_domain_is_not_injected() -> None:
+    rendered = _render(templates=(_TEMPORAL_TEMPLATE, _RENDER_TEMPLATE))
+
+    for kind, workload, container in _ATTRIBUTION_WORKLOADS:
+        environment = _environment(_workload_container(rendered, kind, workload, container))
+        assert "NV_CONFIG_MANAGER_DOMAIN" not in environment
+
+
+@pytest.mark.parametrize(
+    ("secret_method", "template"),
+    [
+        ("eso", _VAULT_SECRETS_TEMPLATE),
+        ("kubernetes", _KUBERNETES_SECRETS_TEMPLATE),
+        ("vault-agent", _VAULT_AGENT_CONFIGMAP_TEMPLATE),
+    ],
+)
+def test_default_user_domain_is_written_to_unified_ini(secret_method: str, template: str) -> None:
+    rendered = _render(
+        f"secrets.method={secret_method}",
+        set_string_args=("global.defaultUserDomain=ci.example.com",),
+        templates=(template,),
+    )
+
+    assert "user_domain = ci.example.com" in rendered
 
 
 def test_scheduler_keeps_the_shared_deployment_strategy() -> None:

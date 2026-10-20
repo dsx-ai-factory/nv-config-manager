@@ -666,10 +666,16 @@ in that deployment's runtime `/openapi.json`, because the project cannot know
 which plugins another installation will have. Workflow form IDs and provider
 slugs use lowercase kebab-case. Both form part of the
 public URL. Workflow form IDs are globally unique; provider slugs are unique
-within their workflow. Treat both as stable API identifiers. Adding an optional
-query field is compatible; renaming or changing a field, or adding a required
-field, requires a new provider slug such as `fabric-profiles-v2` while the old
-version remains available for the compatibility window.
+within their workflow. Treat both as stable API identifiers. Keep existing
+query fields and response semantics backward compatible while clients migrate.
+
+For a breaking query change, introduce a new slug such as `fabric-profiles-v2`.
+The API registers routes only for providers referenced by a current form;
+retaining an unused declaration does not keep its old URL available. Before
+promising a compatibility window, verify that both URLs are registered and
+that the old URL still accepts an old client's query. If both versions cannot
+remain referenced, retain the backward-compatible contract until old clients
+are retired, or coordinate a cutover with those clients.
 
 Validate an installed plugin before deployment:
 

@@ -897,16 +897,16 @@ async def test_execute_device_cable_validation_workflow_dpu_mac_offset(env: Any)
             == f"```{workflow_input.device.name}```"
         )
         assert stages_dict["get_device_intended_neighbors"]["output"]["display"] == (
-            "|name|       macs      |device_name| device_serial |  device_role  |device_rack|device_position|link_up|ts_info|\n"
-            "|----|-----------------|-----------|---------------|---------------|-----------|---------------|-------|-------|\n"
-            "|eth0|00-00-00-00-00-09| mock_dpu1 |MOCKSERIAL_DPU1|tenant-a-device|    a01    |       1       |  None |  None |\n"
-            "|eth0|00-00-00-00-00-19| mock_dpu2 |MOCKSERIAL_DPU2|tenant-a-device|    a01    |       2       |  None |  None |"
+            "|name|       macs      |device_name| device_serial |  device_role  |device_rack|device_position|link_up|ts_info|port_description|label|chassis_name|\n"
+            "|----|-----------------|-----------|---------------|---------------|-----------|---------------|-------|-------|----------------|-----|------------|\n"
+            "|eth0|00-00-00-00-00-09| mock_dpu1 |MOCKSERIAL_DPU1|tenant-a-device|    a01    |       1       |  None |  None |      None      | None|    None    |\n"
+            "|eth0|00-00-00-00-00-19| mock_dpu2 |MOCKSERIAL_DPU2|tenant-a-device|    a01    |       2       |  None |  None |      None      | None|    None    |"
         )
         assert stages_dict["get_device_actual_neighbors"]["output"]["display"] == (
-            "|       name      |macs|   device_name   | device_serial |  device_role  |device_rack|device_position|link_up|ts_info|\n"
-            "|-----------------|----|-----------------|---------------|---------------|-----------|---------------|-------|-------|\n"
-            "|00-00-00-00-00-19|    |    mock_dpu1    |MOCKSERIAL_DPU1|tenant-a-device|    a01    |       1       |  None |  None |\n"
-            "|       eth0      |    |00-00-00-00-00-29|MOCKSERIAL_DPU2|tenant-a-device|    a01    |       2       |  None |  None |"
+            "|       name      |macs|   device_name   | device_serial |  device_role  |device_rack|device_position|link_up|ts_info|port_description|label|chassis_name|\n"
+            "|-----------------|----|-----------------|---------------|---------------|-----------|---------------|-------|-------|----------------|-----|------------|\n"
+            "|00-00-00-00-00-19|    |    mock_dpu1    |MOCKSERIAL_DPU1|tenant-a-device|    a01    |       1       |  None |  None |      None      | None|    None    |\n"
+            "|       eth0      |    |00-00-00-00-00-29|MOCKSERIAL_DPU2|tenant-a-device|    a01    |       2       |  None |  None |      None      | None|    None    |"
         )
         assert (
             stages_dict["get_device_mac_table"]["output"]["display"]
@@ -1356,6 +1356,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["00-00-00-00-00-03"],
                                         "name": "Server BMC",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "MOCK_DEVICE2",
@@ -1367,6 +1370,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["00-00-00-00-00-02"],
                                         "name": "swp0",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                                 "swp1": {
@@ -1380,6 +1386,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["08-8F-C3-A6-8A-9D"],
                                         "name": "swp2",
                                         "ts_info": "Cable is unplugged.",
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "mock_server1",
@@ -1391,6 +1400,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["08-8F-C3-A6-8A-9D"],
                                         "name": "Server BMC",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                                 "swp23": {
@@ -1404,6 +1416,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": [],
                                         "name": None,
                                         "ts_info": "Cable is unplugged.",
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "mock_server2",
@@ -1415,6 +1430,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["08-8F-C3-A6-8A-9F"],
                                         "name": "MOCKSERVER2",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                             },
@@ -1459,6 +1477,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         ],
                                         "name": "DPU BMC",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "mock_dpu1",
@@ -1470,6 +1491,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["00-00-00-00-00-09"],
                                         "name": "DPU BMC",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                                 "swp10": {
@@ -1483,6 +1507,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": [],
                                         "name": None,
                                         "ts_info": "Cable is unplugged.",
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "mock_server1",
@@ -1494,6 +1521,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["08-8F-C3-A6-8A-9D"],
                                         "name": "Server BMC",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                             },
@@ -1535,6 +1565,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": [],
                                         "name": None,
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "mock_device2",
@@ -1546,6 +1579,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["00-00-00-00-00-02"],
                                         "name": "swp6",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                                 "swp1": {
@@ -1559,6 +1595,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["00-00-00-00-00-04"],
                                         "name": "swp7",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": None,
                                 },
@@ -1573,6 +1612,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": [],
                                         "name": "swp9",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "mock_device1",
@@ -1584,6 +1626,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["00-00-00-00-00-DE"],
                                         "name": "swp8",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                                 "swp6": {
@@ -1597,6 +1642,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": [],
                                         "name": "00:00:00:00:a3:42",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "mock_device1",
@@ -1608,6 +1656,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["00-00-00-00-00-DE"],
                                         "name": "swp8",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                             },
@@ -1680,6 +1731,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["00-00-00-00-00-03"],
                                         "name": "Server BMC",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "MOCK_DEVICE2",
@@ -1691,6 +1745,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["00-00-00-00-00-02"],
                                         "name": "swp0",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                                 "swp1": {
@@ -1704,6 +1761,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["08-8F-C3-A6-8A-9D"],
                                         "name": "swp2",
                                         "ts_info": "Cable is unplugged.",
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "mock_server1",
@@ -1715,6 +1775,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["08-8F-C3-A6-8A-9D"],
                                         "name": "Server BMC",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                                 "swp23": {
@@ -1728,6 +1791,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": [],
                                         "name": None,
                                         "ts_info": "Cable is unplugged.",
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "mock_server2",
@@ -1739,6 +1805,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["08-8F-C3-A6-8A-9F"],
                                         "name": "MOCKSERVER2",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                             },
@@ -1783,6 +1852,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         ],
                                         "name": "DPU BMC",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "mock_dpu1",
@@ -1794,6 +1866,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["00-00-00-00-00-09"],
                                         "name": "DPU BMC",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                                 "swp10": {
@@ -1807,6 +1882,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": [],
                                         "name": None,
                                         "ts_info": "Cable is unplugged.",
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "mock_server1",
@@ -1818,6 +1896,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["08-8F-C3-A6-8A-9D"],
                                         "name": "Server BMC",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                             },
@@ -1859,6 +1940,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": [],
                                         "name": None,
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "mock_device2",
@@ -1870,6 +1954,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["00-00-00-00-00-02"],
                                         "name": "swp6",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                                 "swp1": {
@@ -1883,6 +1970,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["00-00-00-00-00-04"],
                                         "name": "swp7",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": None,
                                 },
@@ -1897,6 +1987,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": [],
                                         "name": "swp9",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "mock_device1",
@@ -1908,6 +2001,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["00-00-00-00-00-DE"],
                                         "name": "swp8",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                                 "swp6": {
@@ -1921,6 +2017,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": [],
                                         "name": "00:00:00:00:a3:42",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                     "intended": {
                                         "device_name": "mock_device1",
@@ -1932,6 +2031,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
                                         "macs": ["00-00-00-00-00-DE"],
                                         "name": "swp8",
                                         "ts_info": None,
+                                        "port_description": None,
+                                        "label": None,
+                                        "chassis_name": None,
                                     },
                                 },
                             },
@@ -2020,20 +2122,20 @@ async def test_execute_device_cable_validation_workflow_valid(env: Any) -> None:
             == f"```{workflow_input.device.name}```"
         )
         assert stages_dict["get_device_intended_neighbors"]["output"]["display"] == (
-            "|    name   |       macs      | device_name|device_serial|  device_role  |device_rack|device_position|link_up|ts_info|\n"
-            "|-----------|-----------------|------------|-------------|---------------|-----------|---------------|-------|-------|\n"
-            "|    swp0   |                 |mock_device2| MOCKSERIAL2 |tenant-a-device|    a01    |       2       |  None |  None |\n"
-            "|    swp1   |00-00-00-00-00-02|mock_device2| MOCKSERIAL2 |tenant-a-device|    a01    |       2       |  None |  None |\n"
-            "|Ethernet1/1|00-00-00-00-00-03|mock_device3| MOCKSERIAL3 |tenant-a-device|    a01    |       3       |  None |  None |\n"
-            "|Ethernet1/2|00-00-00-00-00-03|mock_device3| MOCKSERIAL3 |tenant-a-device|    a01    |       3       |  None |  None |"
+            "|    name   |       macs      | device_name|device_serial|  device_role  |device_rack|device_position|link_up|ts_info|port_description|label|chassis_name|\n"
+            "|-----------|-----------------|------------|-------------|---------------|-----------|---------------|-------|-------|----------------|-----|------------|\n"
+            "|    swp0   |                 |mock_device2| MOCKSERIAL2 |tenant-a-device|    a01    |       2       |  None |  None |      None      | None|    None    |\n"
+            "|    swp1   |00-00-00-00-00-02|mock_device2| MOCKSERIAL2 |tenant-a-device|    a01    |       2       |  None |  None |      None      | None|    None    |\n"
+            "|Ethernet1/1|00-00-00-00-00-03|mock_device3| MOCKSERIAL3 |tenant-a-device|    a01    |       3       |  None |  None |      None      | None|    None    |\n"
+            "|Ethernet1/2|00-00-00-00-00-03|mock_device3| MOCKSERIAL3 |tenant-a-device|    a01    |       3       |  None |  None |      None      | None|    None    |"
         )
         assert stages_dict["get_device_actual_neighbors"]["output"]["display"] == (
-            "|    name   |       macs      | device_name|device_serial|  device_role  |device_rack|device_position|link_up|ts_info|\n"
-            "|-----------|-----------------|------------|-------------|---------------|-----------|---------------|-------|-------|\n"
-            "|    swp0   |                 |mock_device2|     None    |tenant-a-device|    None   |      None     |  None |  None |\n"
-            "|    swp1   |00-00-00-00-00-02|mock_device2|     None    |tenant-a-device|    None   |      None     |  None |  None |\n"
-            "|Ethernet1/1|                 |mock_device3|     None    |tenant-a-device|    None   |      None     |  None |  None |\n"
-            "|Ethernet1/2|00-00-00-00-00-03|mock_device3|     None    |tenant-a-device|    None   |      None     |  None |  None |"
+            "|    name   |       macs      | device_name|device_serial|  device_role  |device_rack|device_position|link_up|ts_info|port_description|label|chassis_name|\n"
+            "|-----------|-----------------|------------|-------------|---------------|-----------|---------------|-------|-------|----------------|-----|------------|\n"
+            "|    swp0   |                 |mock_device2|     None    |tenant-a-device|    None   |      None     |  None |  None |      None      | None|    None    |\n"
+            "|    swp1   |00-00-00-00-00-02|mock_device2|     None    |tenant-a-device|    None   |      None     |  None |  None |      None      | None|    None    |\n"
+            "|Ethernet1/1|                 |mock_device3|     None    |tenant-a-device|    None   |      None     |  None |  None |      None      | None|    None    |\n"
+            "|Ethernet1/2|00-00-00-00-00-03|mock_device3|     None    |tenant-a-device|    None   |      None     |  None |  None |      None      | None|    None    |"
         )
         assert stages_dict["get_device_mac_table"]["output"]["display"] == (
             "|       mac       |interface|  age  |vlan|\n"
@@ -2076,9 +2178,9 @@ async def test_execute_device_cable_validation_workflow_valid(env: Any) -> None:
             == f"```{workflow_input.device.name}```"
         )
         assert stages_dict["get_device_intended_neighbors"]["output"]["display"] == (
-            "|name|       macs      |  device_name |device_serial|  device_role  |device_rack|device_position|link_up|ts_info|\n"
-            "|----|-----------------|--------------|-------------|---------------|-----------|---------------|-------|-------|\n"
-            "|eth1|00-00-00-00-00-44|MOCK-Server-04| MOCKSERIAL4 |tenant-a-device|    b01    |       4       |  None |  None |"
+            "|name|       macs      |  device_name |device_serial|  device_role  |device_rack|device_position|link_up|ts_info|port_description|label|chassis_name|\n"
+            "|----|-----------------|--------------|-------------|---------------|-----------|---------------|-------|-------|----------------|-----|------------|\n"
+            "|eth1|00-00-00-00-00-44|MOCK-Server-04| MOCKSERIAL4 |tenant-a-device|    b01    |       4       |  None |  None |      None      | None|    None    |"
         )
         assert stages_dict["get_device_actual_neighbors"]["output"]["display"] == (
             "No actual neighbors found."
@@ -2445,21 +2547,21 @@ async def test_execute_device_cable_validation_workflow_invalid(env: Any) -> Non
             == f"```{workflow_input.device.name}```"
         )
         assert stages_dict["get_device_intended_neighbors"]["output"]["display"] == (
-            "|   name   |       macs      | device_name|device_serial|  device_role  |device_rack|device_position|link_up|ts_info|\n"
-            "|----------|-----------------|------------|-------------|---------------|-----------|---------------|-------|-------|\n"
-            "|Server BMC|00-00-00-00-00-11|mock_server0| MOCKSERIAL0 |tenant-a-device|    b01    |       0       |  None |  None |\n"
-            "|Server BMC|00-00-00-00-00-22|mock_server1| MOCKSERIAL1 |tenant-a-device|    b01    |       1       |  None |  None |\n"
-            "|   eth0   |00-00-00-00-00-33|mock_server2| MOCKSERIAL2 |tenant-a-device|    b01    |       2       |  None |  None |\n"
-            "|Server BMC|00-00-00-00-00-44|mock_server4| MOCKSERIAL4 |tenant-a-device|    b01    |       4       |  None |  None |\n"
-            "|   eth0   |00-00-00-00-00-55|mock_server5| MOCKSERIAL5 |tenant-a-device|    b01    |       5       |  None |  None |\n"
-            "|   eth0   |00-00-00-00-00-66|mock_server6| MOCKSERIAL6 |tenant-a-device|    b01    |       6       |  None |  None |\n"
-            "|   eth0   |00-00-00-00-00-77|mock_server7| MOCKSERIAL7 |tenant-a-device|    b01    |       7       |  None |  None |"
+            "|   name   |       macs      | device_name|device_serial|  device_role  |device_rack|device_position|link_up|ts_info|port_description|label|chassis_name|\n"
+            "|----------|-----------------|------------|-------------|---------------|-----------|---------------|-------|-------|----------------|-----|------------|\n"
+            "|Server BMC|00-00-00-00-00-11|mock_server0| MOCKSERIAL0 |tenant-a-device|    b01    |       0       |  None |  None |      None      | None|    None    |\n"
+            "|Server BMC|00-00-00-00-00-22|mock_server1| MOCKSERIAL1 |tenant-a-device|    b01    |       1       |  None |  None |      None      | None|    None    |\n"
+            "|   eth0   |00-00-00-00-00-33|mock_server2| MOCKSERIAL2 |tenant-a-device|    b01    |       2       |  None |  None |      None      | None|    None    |\n"
+            "|Server BMC|00-00-00-00-00-44|mock_server4| MOCKSERIAL4 |tenant-a-device|    b01    |       4       |  None |  None |      None      | None|    None    |\n"
+            "|   eth0   |00-00-00-00-00-55|mock_server5| MOCKSERIAL5 |tenant-a-device|    b01    |       5       |  None |  None |      None      | None|    None    |\n"
+            "|   eth0   |00-00-00-00-00-66|mock_server6| MOCKSERIAL6 |tenant-a-device|    b01    |       6       |  None |  None |      None      | None|    None    |\n"
+            "|   eth0   |00-00-00-00-00-77|mock_server7| MOCKSERIAL7 |tenant-a-device|    b01    |       7       |  None |  None |      None      | None|    None    |"
         )
         assert stages_dict["get_device_actual_neighbors"]["output"]["display"] == (
-            "|name|       macs      | device_name|device_serial|  device_role  |device_rack|device_position|link_up|ts_info|\n"
-            "|----|-----------------|------------|-------------|---------------|-----------|---------------|-------|-------|\n"
-            "|eth0|00-00-00-00-00-33|mock_server2| MOCKSERIAL2 |tenant-a-device|    b01    |       2       |  None |  None |\n"
-            "|eth0|00-00-00-00-00-44|mock_server3| MOCKSERIAL3 |tenant-a-device|    b01    |       3       |  None |  None |"
+            "|name|       macs      | device_name|device_serial|  device_role  |device_rack|device_position|link_up|ts_info|port_description|label|chassis_name|\n"
+            "|----|-----------------|------------|-------------|---------------|-----------|---------------|-------|-------|----------------|-----|------------|\n"
+            "|eth0|00-00-00-00-00-33|mock_server2| MOCKSERIAL2 |tenant-a-device|    b01    |       2       |  None |  None |      None      | None|    None    |\n"
+            "|eth0|00-00-00-00-00-44|mock_server3| MOCKSERIAL3 |tenant-a-device|    b01    |       3       |  None |  None |      None      | None|    None    |"
         )
         assert stages_dict["get_device_mac_table"]["output"]["display"] == (
             "|       mac       |interface|age|vlan|\n"
@@ -2639,19 +2741,19 @@ async def test_execute_device_cable_validation_workflow_mac_validation_all_valid
             == f"```{workflow_input.device.name}```"
         )
         assert stages_dict["get_device_intended_neighbors"]["output"]["display"] == (
-            "|   name   |       macs      | device_name|device_serial|  device_role  |device_rack|device_position|link_up|ts_info|\n"
-            "|----------|-----------------|------------|-------------|---------------|-----------|---------------|-------|-------|\n"
-            "|Server BMC|00-00-00-00-00-22|mock_server1| MOCKSERIAL1 |tenant-a-device|    b01    |       1       |  None |  None |\n"
-            "|   eth0   |00-00-00-00-00-33|mock_server2| MOCKSERIAL2 |tenant-a-device|    b01    |       2       |  None |  None |\n"
-            "|   eth0   |00-00-00-00-00-44|mock_server4| MOCKSERIAL4 |tenant-a-device|    b01    |       4       |  None |  None |\n"
-            "|   eth0   |00-00-00-00-00-55|mock_server5| MOCKSERIAL5 |tenant-a-device|    b01    |       5       |  None |  None |"
+            "|   name   |       macs      | device_name|device_serial|  device_role  |device_rack|device_position|link_up|ts_info|port_description|label|chassis_name|\n"
+            "|----------|-----------------|------------|-------------|---------------|-----------|---------------|-------|-------|----------------|-----|------------|\n"
+            "|Server BMC|00-00-00-00-00-22|mock_server1| MOCKSERIAL1 |tenant-a-device|    b01    |       1       |  None |  None |      None      | None|    None    |\n"
+            "|   eth0   |00-00-00-00-00-33|mock_server2| MOCKSERIAL2 |tenant-a-device|    b01    |       2       |  None |  None |      None      | None|    None    |\n"
+            "|   eth0   |00-00-00-00-00-44|mock_server4| MOCKSERIAL4 |tenant-a-device|    b01    |       4       |  None |  None |      None      | None|    None    |\n"
+            "|   eth0   |00-00-00-00-00-55|mock_server5| MOCKSERIAL5 |tenant-a-device|    b01    |       5       |  None |  None |      None      | None|    None    |"
         )
         assert stages_dict["get_device_actual_neighbors"]["output"]["display"] == (
-            "|       name      |       macs      |   device_name   |device_serial|  device_role  |device_rack|device_position|link_up|ts_info|\n"
-            "|-----------------|-----------------|-----------------|-------------|---------------|-----------|---------------|-------|-------|\n"
-            "|       eth0      |00-00-00-00-00-33|   mock_server2  | MOCKSERIAL2 |tenant-a-device|    b01    |       2       |  None |  None |\n"
-            "|00-00-00-00-00-44|                 |   mock_server4  | MOCKSERIAL4 |tenant-a-device|    b01    |       4       |  None |  None |\n"
-            "|       eth0      |                 |00-00-00-00-00-55| MOCKSERIAL5 |tenant-a-device|    b01    |       5       |  None |  None |"
+            "|       name      |       macs      |   device_name   |device_serial|  device_role  |device_rack|device_position|link_up|ts_info|port_description|label|chassis_name|\n"
+            "|-----------------|-----------------|-----------------|-------------|---------------|-----------|---------------|-------|-------|----------------|-----|------------|\n"
+            "|       eth0      |00-00-00-00-00-33|   mock_server2  | MOCKSERIAL2 |tenant-a-device|    b01    |       2       |  None |  None |      None      | None|    None    |\n"
+            "|00-00-00-00-00-44|                 |   mock_server4  | MOCKSERIAL4 |tenant-a-device|    b01    |       4       |  None |  None |      None      | None|    None    |\n"
+            "|       eth0      |                 |00-00-00-00-00-55| MOCKSERIAL5 |tenant-a-device|    b01    |       5       |  None |  None |      None      | None|    None    |"
         )
         assert stages_dict["get_device_mac_table"]["output"]["display"] == (
             "|       mac       |interface|age|vlan|\n"
