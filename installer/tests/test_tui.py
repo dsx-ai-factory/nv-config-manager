@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -295,7 +296,7 @@ async def test_sites_collected_from_cluster():
 
 
 @pytest.mark.asyncio
-async def test_cluster_custom_labels_sync_and_collect():
+async def test_cluster_custom_labels_sync_and_collect() -> None:
     config = NVConfigManagerInstallConfig(
         cluster=ClusterConfig(custom_labels={"production": "true", "include_in_slo": "true"})
     )
@@ -328,7 +329,7 @@ async def test_cluster_custom_labels_sync_and_collect():
 
 
 @pytest.mark.asyncio
-async def test_cluster_custom_labels_add_and_remove():
+async def test_cluster_custom_labels_add_and_remove() -> None:
     config = NVConfigManagerInstallConfig()
     app = NVConfigManagerInstallerApp(config=config)
 
@@ -352,7 +353,7 @@ async def test_cluster_custom_labels_add_and_remove():
 
 
 @pytest.mark.asyncio
-async def test_invalid_custom_label_blocks_navigation():
+async def test_invalid_custom_label_blocks_navigation() -> None:
     config = NVConfigManagerInstallConfig()
     app = NVConfigManagerInstallerApp(config=config)
 
@@ -370,7 +371,7 @@ async def test_invalid_custom_label_blocks_navigation():
 
 
 @pytest.mark.asyncio
-async def test_duplicate_custom_label_blocks_save(tmp_path):
+async def test_duplicate_custom_label_blocks_save(tmp_path: Path) -> None:
     config = NVConfigManagerInstallConfig(
         cluster=ClusterConfig(custom_labels={"production": "true", "include_in_slo": "true"})
     )

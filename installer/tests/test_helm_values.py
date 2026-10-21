@@ -131,7 +131,7 @@ class TestGenerateHelmValues:
         assert ext["postgres"]["configStore"]["host"] == "cluster-config-store-rw"
         assert values["mcp"]["enabled"] is True
 
-    def test_custom_labels_are_emitted_under_global(self):
+    def test_custom_labels_are_emitted_under_global(self) -> None:
         values = _gen(
             _make_config(
                 cluster=ClusterConfig(
@@ -150,7 +150,7 @@ class TestGenerateHelmValues:
             "include_in_slo": "true",
         }
 
-    def test_empty_custom_labels_are_omitted_from_global(self):
+    def test_empty_custom_labels_are_omitted_from_global(self) -> None:
         values = _gen(_make_config())
 
         assert "customLabels" not in values["global"]

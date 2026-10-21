@@ -75,7 +75,7 @@ class TestNVConfigManagerInstallConfig:
         assert config.dcim.provider == "nautobot-2x"
         assert config.infrastructure.monitoring.redis_metrics_enabled is False
 
-    def test_cluster_custom_labels_roundtrip(self, tmp_path: Path):
+    def test_cluster_custom_labels_roundtrip(self, tmp_path: Path) -> None:
         path = tmp_path / "config.yaml"
         config = NVConfigManagerInstallConfig(
             cluster=ClusterConfig(
@@ -108,22 +108,22 @@ class TestNVConfigManagerInstallConfig:
             "nvidia.com/",
         ],
     )
-    def test_cluster_custom_labels_reject_invalid_keys(self, key: str):
+    def test_cluster_custom_labels_reject_invalid_keys(self, key: str) -> None:
         with pytest.raises(ValueError, match="invalid Kubernetes label key"):
             ClusterConfig(custom_labels={key: "true"})
 
     @pytest.mark.parametrize("value", ["-production", "production!", f"{'a' * 64}"])
-    def test_cluster_custom_labels_reject_invalid_values(self, value: str):
+    def test_cluster_custom_labels_reject_invalid_values(self, value: str) -> None:
         with pytest.raises(ValueError, match="invalid Kubernetes label value"):
             ClusterConfig(custom_labels={"production": value})
 
-    def test_cluster_custom_labels_validate_assignment(self):
+    def test_cluster_custom_labels_validate_assignment(self) -> None:
         cluster = ClusterConfig()
 
         with pytest.raises(ValueError, match="invalid Kubernetes label key"):
             cluster.custom_labels = {"invalid key": "true"}
 
-    def test_yaml_omits_empty_cluster_custom_labels(self):
+    def test_yaml_omits_empty_cluster_custom_labels(self) -> None:
         data = yaml.safe_load(NVConfigManagerInstallConfig().to_yaml_str())
 
         assert "custom_labels" not in data["cluster"]
