@@ -442,6 +442,7 @@ class SimOrchestrator:
         manager.ensure_temporal_search_attributes(host, port)
 
     def _run_impl(self) -> tuple[str, int]:
+        """Build, configure, and start the simulation before deploying Config Manager."""
         cfg = self._cfg
         upload_sources = (
             cfg.auto_configure and bool(cfg.config_manager_repo) and cfg.wait_timeout > 0

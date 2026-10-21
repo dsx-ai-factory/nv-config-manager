@@ -340,6 +340,7 @@ def test_managed_devices_template_allows_devices_without_platform() -> None:
 
 
 def test_air_superpod_hyperreach_labels_are_loaded_into_nautobot() -> None:
+    """Preserve HyperReach lane labels when rendering Nautobot interface data."""
     host = _load_device(
         MOCK_TOPOLOGY_CONTEXT / "air_superpod" / "devices" / "su02-hyperreach-host.json"
     )

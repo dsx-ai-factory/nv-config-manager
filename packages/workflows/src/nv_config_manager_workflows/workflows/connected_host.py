@@ -77,6 +77,13 @@ __all__ = [
 ]
 
 
+def _metadata_markdown(value: str | None) -> str:
+    """Keep metadata inside one table cell while preserving the stored value."""
+    if not value:
+        return "--"
+    return " ".join(value.splitlines()).replace("\\", "\\\\").replace("|", r"\|")
+
+
 def interface_sort_key(interface_name: str) -> tuple[str, list[int]]:
     """
     Create a sort key for interface names that handles various vendor formats.
@@ -279,13 +286,12 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
                 "Neighbor Interface": neighbor.name or "--",
                 **(
                     {
-                        "Intended Interface Label": (
+                        "Intended Interface Label": _metadata_markdown(
                             intended.label
                             if (intended := intended_neighbor_data.neighbors.get(interface))
-                            and intended.label
-                            else "--"
+                            else None
                         ),
-                        "LLDP Port Description": neighbor.port_description or "--",
+                        "LLDP Port Description": _metadata_markdown(neighbor.port_description),
                     }
                     if include_lane_metadata
                     else {}
@@ -471,8 +477,10 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
                 "Connected Interface": row.connected_interface or "--",
                 **(
                     {
-                        "Intended Interface Label": row.intended_interface_label or "--",
-                        "LLDP Port Description": row.lldp_port_description or "--",
+                        "Intended Interface Label": _metadata_markdown(
+                            row.intended_interface_label
+                        ),
+                        "LLDP Port Description": _metadata_markdown(row.lldp_port_description),
                     }
                     if stage_input.include_lane_metadata
                     else {}

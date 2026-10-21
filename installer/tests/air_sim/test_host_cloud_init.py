@@ -26,6 +26,7 @@ from nv_config_manager_installer.air_sim.topology import AirTopologyBuilder
 
 
 def _host() -> DeviceInfo:
+    """Return an LLDP fixture with separate bootstrap and data interfaces."""
     return DeviceInfo(
         name="gpu-tray",
         platform="Ubuntu",
@@ -39,6 +40,7 @@ def _host() -> DeviceInfo:
 
 
 def test_persistent_lldp_fixture_uses_mac_matching_and_separate_bootstrap() -> None:
+    """Keep host naming and LLDP settings persistent without enabling data-port DHCP."""
     config = yaml.safe_load(generate_lldp_host_cloud_init(_host()))
     files = {entry["path"]: entry for entry in config["write_files"]}
     network = yaml.safe_load(files["/etc/netplan/90-nvcm-lldp.yaml"]["content"])
@@ -61,6 +63,7 @@ def test_persistent_lldp_fixture_uses_mac_matching_and_separate_bootstrap() -> N
 
 @pytest.mark.parametrize("bad_description", ["", "one-token", "one two three", "a\nb", 'a "b"'])
 def test_invalid_port_description_is_rejected(bad_description: str) -> None:
+    """Reject descriptions that cannot represent the fixture's two-token identity."""
     host = _host()
     host.air_config["lldp"]["eth1"]["port_description"] = bad_description
     with pytest.raises(ValueError, match="two-token"):
@@ -68,6 +71,7 @@ def test_invalid_port_description_is_rejected(bad_description: str) -> None:
 
 
 def test_unconfigured_hosts_are_unchanged_and_missing_macs_fail() -> None:
+    """Require explicit LLDP opt-in and MACs for deterministic interface matching."""
     host = _host()
     host.air_config = {}
     assert generate_lldp_host_cloud_init(host) is None
@@ -78,6 +82,7 @@ def test_unconfigured_hosts_are_unchanged_and_missing_macs_fail() -> None:
 
 
 def test_superpod_hyperreach_fixture_keeps_spx_hosts_and_ports_separate(tmp_path: Path) -> None:
+    """Verify unique MACs and labeled HyperReach links without changing SpX cabling."""
     design = build_site_design_from_mock_context("air_superpod", "demo")
     path = tmp_path / "topology.yaml"
     path.write_text(yaml.safe_dump(design))

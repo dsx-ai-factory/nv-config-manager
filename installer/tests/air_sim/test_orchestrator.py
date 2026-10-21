@@ -66,6 +66,7 @@ def test_resolve_topology_prefers_direct_path() -> None:
 def test_superpod_lldp_is_attached_before_boot_without_touching_spx_hosts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, invalid_network: str | None
 ) -> None:
+    """Attach LLDP boot configuration only to valid fixture hosts before startup."""
     design = build_site_design_from_mock_context("air_superpod", "demo")
     if invalid_network == "missing-exit":
         for interface in design["interfaces"]:

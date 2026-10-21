@@ -217,14 +217,25 @@ async def mock_get_host_data_by_names(device_names: list[str]) -> Any:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("port_description", ["gpu-tray C1-2-L1", "different-tray WRONG-LANE"])
+@pytest.mark.parametrize(
+    ("intended_label", "port_description", "label_display", "description_display"),
+    [
+        ("C1-2-L1", "gpu-tray C1-2-L1", "C1-2-L1", "gpu-tray C1-2-L1"),
+        ("C1-2-L1", "different-tray WRONG-LANE", "C1-2-L1", "different-tray WRONG-LANE"),
+        ("C1|2\r\nL1", "gpu|tray\r\nC1\n2\rL1", r"C1\|2 L1", r"gpu\|tray C1 2 L1"),
+        (r"C1\|2", r"gpu\|tray C1", r"C1\\\|2", r"gpu\\\|tray C1"),
+    ],
+)
 @pytest.mark.parametrize("intended_lookup_fails", [False, True])
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow(
     mock_time: Any,
     mock_nats_client: Any,
     env: Any,
+    intended_label: str,
     port_description: str,
+    label_display: str,
+    description_display: str,
     intended_lookup_fails: bool,
 ) -> None:
     """Preserve discovery and observed descriptions when optional labels are unavailable."""
@@ -236,6 +247,15 @@ async def test_execute_workflow(
         neighbors.neighbors["swp52"].port_description = port_description
         return neighbors
 
+    @activity.defn(name="get_device_intended_neighbors")
+    async def intended_neighbors_with_label(device: NetworkDeviceData) -> DeviceNeighborData:
+        """Supply raw labels or fail the optional enrichment lookup."""
+        if intended_lookup_fails:
+            return await mock_get_device_intended_neighbors_unavailable(device)
+        neighbors = await mock_get_device_intended_neighbors(device)
+        neighbors.neighbors["swp52"].label = intended_label
+        return neighbors
+
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -245,11 +265,7 @@ async def test_execute_workflow(
             mock_get_network_device,
             mock_get_device_mac_table,
             neighbors_with_description,
-            (
-                mock_get_device_intended_neighbors_unavailable
-                if intended_lookup_fails
-                else mock_get_device_intended_neighbors
-            ),
+            intended_neighbors_with_label,
             mock_get_host_data_by_macs,
             mock_get_host_data_by_names,
             publish_nats,
@@ -331,13 +347,13 @@ async def test_execute_workflow(
             "|swp51|[mock_neighbor4](mock_nb_url)|mock_neighbor4|--|Ethernet1/2|--|--|--|--|--|"
             in result_stripped
         )
-        expected_label = None if intended_lookup_fails else "C1-2-L1"
+        expected_label = None if intended_lookup_fails else intended_label
         intended_neighbors = neighbors_stage["output"]["intended_neighbor_data"]["neighbors"]
         if intended_lookup_fails:
             assert intended_neighbors == {}
         else:
             assert intended_neighbors["swp52"]["label"] == expected_label
-        assert port_description in neighbors_stage["output"]["display"]
+        assert description_display in neighbors_stage["output"]["display"]
         host_rows = {
             row["device_interface"]: row for row in host_data_stage["output"]["host_table"]
         }
@@ -347,6 +363,16 @@ async def test_execute_workflow(
         assert host_rows["swp0"]["intended_interface_label"] is None
         assert host_rows["swp0"]["lldp_port_description"] is None
         assert "swp53" not in host_rows  # Intended-only ports do not become discovery results.
+        expected_display = (
+            f"|{('--' if intended_lookup_fails else label_display).replace(' ', '')}"
+            f"|{description_display.replace(' ', '')}|"
+        )
+        assert expected_display in neighbors_display_stripped
+        assert expected_display in result_stripped
+        assert len(neighbors_stage["output"]["display"].splitlines()) == (
+            2 + len(neighbors_stage["output"]["neighbor_data"]["neighbors"])
+        )
+        assert len(result.splitlines()) == 2 + len(host_rows)
 
         expected_search_attributes = {
             "DeviceID": ["mock_device_uuid"],
