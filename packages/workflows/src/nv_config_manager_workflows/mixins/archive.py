@@ -56,13 +56,23 @@ class ArchiveMixin(BaseMixin):
     workflow_required_activities: Sequence[RequiredActivity] = (PUBLISH_NATS_ACTIVITY_NAME,)
 
     async def archive_results(self) -> None:
-        """Publish the workflow result through the registered NATS activity."""
-        await workflow.execute_activity(
-            PUBLISH_NATS_ACTIVITY_NAME,
-            {
-                "subject": None,
-                "message": WorkflowResultLog.from_workflow_info(workflow.info()).model_dump_json(),
-            },
-            schedule_to_close_timeout=timedelta(minutes=1),
-            retry_policy=RetryPolicy(maximum_attempts=1),
-        )
+        """Publish the workflow result; a broker failure must not fail the run."""
+        try:
+            await workflow.execute_activity(
+                PUBLISH_NATS_ACTIVITY_NAME,
+                {
+                    "subject": None,
+                    "message": WorkflowResultLog.from_workflow_info(
+                        workflow.info()
+                    ).model_dump_json(),
+                },
+                schedule_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except Exception:  # noqa: BLE001 - a lost notification must not fail the finished run
+            # The run has already finished its work by the time results are
+            # published, so a broker problem must not turn it into a failure.
+            workflow.logger.warning(
+                "Failed to publish the result for %s; consumers will not see this run",
+                workflow.info().workflow_id,
+            )

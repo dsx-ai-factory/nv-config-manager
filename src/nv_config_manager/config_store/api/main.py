@@ -25,6 +25,7 @@ from prometheus_fastapi_instrumentator import metrics as instrumentator_metrics
 
 from nv_config_manager.common.auth import install_identity_probe
 from nv_config_manager.common.config import dcim_client
+from nv_config_manager.common.config_watch import restart_on_config_change
 from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
 from nv_config_manager.common.telemetry import (
     group_fastapi_status_codes,
@@ -127,6 +128,7 @@ install_identity_probe(app)
 
 def main() -> None:
     """CLI entrypoint for Config Store API."""
+    restart_on_config_change()
 
     uvicorn.run(
         "nv_config_manager.config_store.api.main:app",
