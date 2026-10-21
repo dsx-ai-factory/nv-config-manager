@@ -123,6 +123,55 @@ def normalize_config(text: str) -> str:
     return "\n".join(kept) + ("\n" if kept else "")
 
 
+def replacement_text(text: str) -> str:
+    """Return ``text`` as the configuration the router replaces its own with.
+
+    Unlike :func:`normalize_config` this keeps the ``!`` block separators and the
+    closing ``end``: the router parses the text as CLI input, and ``show
+    running-config`` output in this form is accepted back unchanged. Only the lines
+    that are not part of a configuration (clock line, ``Building configuration...``,
+    ``Current configuration``, ``!!`` comments), carriage returns and trailing blanks
+    are removed.
+    """
+    kept: list[str] = []
+    for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = raw.rstrip()
+        stripped = line.strip()
+        if not stripped or stripped.startswith("!!"):
+            continue
+        if any(pattern.match(stripped) for pattern in _NOISE_LINE_RES[:-1]):
+            continue
+        kept.append(line)
+    if not kept or kept[-1] != "end":
+        kept.append("end")
+    return "\n".join(kept) + "\n"
+
+
+def parse_router_diff(raw: str) -> tuple[str, int]:
+    """Turn the router's ``get-cli-config-diff`` reply into (diff text, ignored lines).
+
+    The router prints ``!!`` header lines, the changed lines marked ``+`` and ``-``
+    with the unchanged lines around them, and a closing ``end``. The headers and the
+    ``end`` are dropped. Lines marked ``#`` are dropped and counted: a diff of an
+    unchanged configuration can still carry them (one prefix-set was listed twice on a
+    lab router with no other difference) and their meaning is not documented. The diff
+    is empty when no line is marked ``+`` or ``-``.
+    """
+    kept: list[str] = []
+    ignored = 0
+    for raw_line in raw.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = raw_line.rstrip()
+        if not line.strip() or line.startswith("!!") or line == "end":
+            continue
+        if line.startswith("#"):
+            ignored += 1
+            continue
+        kept.append(line)
+    if not any(line.startswith(("+", "-")) for line in kept):
+        return "", ignored
+    return "\n".join(kept) + "\n", ignored
+
+
 # ---------------------------------------------------------------------------
 # Tree.
 # ---------------------------------------------------------------------------

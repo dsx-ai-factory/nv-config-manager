@@ -23,6 +23,8 @@ from ncclient.transport.errors import SSHError  # type: ignore[import-untyped]
 
 from nv_config_manager_workflows.clients.device.cisco_xr import (
     _CLI_CFG_NS,
+    _DIFF_NS,
+    _NETCONF_BASE_NS,
     NetconfIosXrSession,
 )
 from nv_config_manager_workflows.clients.device.exceptions import (
@@ -30,7 +32,8 @@ from nv_config_manager_workflows.clients.device.exceptions import (
     NetworkDeviceException,
 )
 
-COMMANDS = ["interface Loopback0", "description x", "exit"]
+TEXT = "hostname xr-router-1\ninterface Loopback0\n description x\n!\nend\n"
+DIFF = "!! IOS XR Configuration 26.4.1\n+  interface Loopback0\nend\n"
 
 
 class _RpcError(RPCError):  # type: ignore[misc]
@@ -58,9 +61,16 @@ def _running_reply(text: str) -> MagicMock:
     return reply
 
 
+def _diff_reply(text: str) -> str:
+    reply = etree.Element("rpc-reply")
+    etree.SubElement(reply, f"{{{_DIFF_NS}}}response", nsmap={None: _DIFF_NS}).text = text
+    return str(etree.tostring(reply, encoding="unicode"))
+
+
 def _session() -> tuple[NetconfIosXrSession, MagicMock]:
     manager = MagicMock()
     manager.timeout = 30
+    manager.dispatch.return_value.xml = _diff_reply(DIFF)
     return NetconfIosXrSession(manager), manager
 
 
@@ -136,49 +146,89 @@ def test_get_maps_rpc_and_transport_errors() -> None:
         session.get("<x/>")
 
 
-def test_apply_with_timer_locks_loads_and_commits_confirmed_in_seconds() -> None:
+def test_load_replacement_locks_copies_the_text_onto_the_candidate_and_returns_the_diff() -> None:
     session, manager = _session()
 
-    session.apply_commands(COMMANDS, confirm_seconds=300)
+    diff = session.load_replacement(TEXT, timeout=45)
 
+    assert diff == DIFF
     manager.lock.assert_called_once_with("candidate")
-    kwargs = manager.edit_config.call_args.kwargs
+    manager.discard_changes.assert_called_once_with()
+    kwargs = manager.copy_config.call_args.kwargs
     assert kwargs["target"] == "candidate"
-    config = etree.fromstring(kwargs["config"])
-    assert config.find(f"{{{_CLI_CFG_NS}}}cli").text == "\n".join(COMMANDS)
-    manager.commit.assert_called_once_with(confirmed=True, timeout="300")
-    # the trial commit keeps the lock so the same session confirms it
+    source = etree.fromstring(kwargs["source"])
+    assert source.tag == f"{{{_NETCONF_BASE_NS}}}source"
+    leaf = source.find(f"{{{_NETCONF_BASE_NS}}}config").find(f"{{{_CLI_CFG_NS}}}cli")
+    assert leaf.text == TEXT
+    # the diff is the router's get-cli-config-diff action
+    assert manager.dispatch.call_args.args[0].tag == f"{{{_DIFF_NS}}}get-cli-config-diff"
+    # the candidate stays locked and loaded for the commit
     manager.unlock.assert_not_called()
+    manager.edit_config.assert_not_called()
 
 
-def test_apply_without_timer_commits_plainly_and_releases_the_lock() -> None:
+def test_the_copy_runs_under_the_given_timeout_and_the_session_timeout_is_restored() -> None:
+    session, manager = _session()
+    seen: list[float] = []
+    manager.copy_config.side_effect = lambda **_: seen.append(manager.timeout)
+
+    session.load_replacement(TEXT, timeout=45)
+
+    assert seen == [45]
+    assert manager.timeout == 30
+
+
+def test_candidate_diff_returns_the_diff_and_leaves_nothing_loaded() -> None:
     session, manager = _session()
 
-    session.apply_commands(COMMANDS, confirm_seconds=None)
-
-    manager.commit.assert_called_once_with()
-    manager.unlock.assert_called_once_with("candidate")
-
-
-def test_a_rejected_configuration_is_discarded_and_never_committed() -> None:
-    session, manager = _session()
-    manager.edit_config.side_effect = _RpcError("Invalid input detected at '^' marker")
-
-    with pytest.raises(ConfigSyntaxException, match="Invalid input"):
-        session.apply_commands(COMMANDS, confirm_seconds=300)
+    assert session.candidate_diff(TEXT, timeout=45) == DIFF
 
     manager.commit.assert_not_called()
     manager.discard_changes.assert_called()
     manager.unlock.assert_called_once_with("candidate")
 
 
-def test_a_failed_commit_is_discarded_and_reported() -> None:
+def test_a_rejected_configuration_is_discarded_and_never_committed() -> None:
     session, manager = _session()
-    manager.commit.side_effect = _RpcError("Failed to commit one or more configuration items")
+    manager.copy_config.side_effect = _RpcError("Invalid input detected at '^' marker")
 
-    with pytest.raises(NetworkDeviceException, match="Commit failed"):
-        session.apply_commands(COMMANDS, confirm_seconds=300)
+    with pytest.raises(ConfigSyntaxException, match="Invalid input"):
+        session.load_replacement(TEXT, timeout=45)
 
+    manager.commit.assert_not_called()
+    manager.discard_changes.assert_called()
+    manager.unlock.assert_called_once_with("candidate")
+
+
+def test_a_router_that_rejects_copy_config_is_a_non_retryable_error_naming_the_cli_leaf() -> None:
+    session, manager = _session()
+    manager.copy_config.side_effect = _RpcError("not supported", tag="operation-not-supported")
+
+    with pytest.raises(NetworkDeviceException, match="cli") as raised:
+        session.load_replacement(TEXT, timeout=45)
+
+    assert raised.value.non_retryable
+    manager.unlock.assert_called_once_with("candidate")
+
+
+def test_a_failed_diff_action_discards_and_unlocks() -> None:
+    session, manager = _session()
+    manager.dispatch.side_effect = _RpcError("diff failed")
+
+    with pytest.raises(NetworkDeviceException, match="get-cli-config-diff"):
+        session.load_replacement(TEXT, timeout=45)
+
+    manager.unlock.assert_called_once_with("candidate")
+
+
+def test_a_dropped_session_during_the_copy_is_a_retryable_error_and_cleans_up() -> None:
+    session, manager = _session()
+    manager.copy_config.side_effect = SSHError("session dropped")
+
+    with pytest.raises(NetworkDeviceException, match="Failed to load") as raised:
+        session.load_replacement(TEXT, timeout=45)
+
+    assert not raised.value.non_retryable
     manager.unlock.assert_called_once_with("candidate")
 
 
@@ -187,9 +237,60 @@ def test_a_locked_candidate_is_a_clear_error_and_loads_nothing() -> None:
     manager.lock.side_effect = _RpcError("lock-denied", tag="lock-denied")
 
     with pytest.raises(NetworkDeviceException, match="lock"):
-        session.apply_commands(COMMANDS, confirm_seconds=300)
+        session.load_replacement(TEXT, timeout=45)
 
-    manager.edit_config.assert_not_called()
+    manager.copy_config.assert_not_called()
+
+
+def test_commit_with_timer_commits_confirmed_in_seconds_and_keeps_the_lock() -> None:
+    session, manager = _session()
+
+    session.commit(confirm_seconds=300, timeout=120)
+
+    manager.commit.assert_called_once_with(confirmed=True, timeout="300")
+    # the trial commit keeps the lock so the same session confirms it
+    manager.unlock.assert_not_called()
+
+
+def test_commit_without_timer_commits_plainly_and_releases_the_lock() -> None:
+    session, manager = _session()
+
+    session.commit(confirm_seconds=None, timeout=120)
+
+    manager.commit.assert_called_once_with()
+    manager.unlock.assert_called_once_with("candidate")
+
+
+def test_a_failed_commit_is_discarded_and_reported() -> None:
+    session, manager = _session()
+    manager.commit.side_effect = _RpcError("Failed to commit one or more configuration items")
+
+    with pytest.raises(NetworkDeviceException, match="Commit failed"):
+        session.commit(confirm_seconds=300, timeout=120)
+
+    manager.unlock.assert_called_once_with("candidate")
+    assert manager.timeout == 30
+
+
+def test_remaining_diff_copies_again_and_keeps_the_lock_for_the_confirm() -> None:
+    session, manager = _session()
+
+    assert session.remaining_diff(TEXT, timeout=120) == DIFF
+
+    manager.copy_config.assert_called_once()
+    manager.discard_changes.assert_called_once_with()
+    manager.unlock.assert_not_called()
+
+
+def test_discard_releases_the_lock_and_never_raises() -> None:
+    session, manager = _session()
+    manager.discard_changes.side_effect = SSHError("gone")
+    manager.unlock.side_effect = SSHError("gone")
+
+    session.discard()
+
+    manager.discard_changes.assert_called_once_with()
+    manager.unlock.assert_called_once_with("candidate")
 
 
 def test_confirm_sends_a_confirming_commit_and_releases_the_lock() -> None:

@@ -456,3 +456,54 @@ def test_prefix_set_entries_compare_in_the_routers_text_order_without_regard_to_
 
 def test_prefix_sets_with_different_members_still_differ() -> None:
     assert _diff("prefix-set P\n  10.0.0.0/8\nend-set\n", "prefix-set P\n  10.0.0.0/9\nend-set\n")
+
+
+# --- text sent for a router-side replace and the router's diff -----------------------
+
+
+def test_replacement_text_keeps_separators_and_drops_noise_lines() -> None:
+    text = xr.replacement_text(RUNNING)
+
+    assert "Building configuration" not in text
+    assert "Mon Oct 11" not in text
+    assert "!\n" in text
+    assert "hostname xr-router-1\n" in text
+    assert text.endswith("\nend\n")
+
+
+def test_replacement_text_adds_one_closing_end() -> None:
+    assert xr.replacement_text("hostname a\n") == "hostname a\nend\n"
+    assert xr.replacement_text("hostname a\nend\n") == "hostname a\nend\n"
+    assert xr.replacement_text("hostname a\r\n!\r\n") == "hostname a\n!\nend\n"
+
+
+def test_router_diff_of_an_unchanged_configuration_is_empty() -> None:
+    raw = "!! Building configuration...\n!! IOS XR Configuration 26.4.1.03I\nend\n"
+
+    assert xr.parse_router_diff(raw) == ("", 0)
+
+
+def test_router_diff_keeps_marked_lines_and_drops_headers_and_end() -> None:
+    raw = (
+        "!! Building configuration...\n"
+        "!! IOS XR Configuration 26.4.1.03I\n"
+        "+  interface Loopback99\n"
+        "+   description probe\n"
+        "   !\n"
+        "-  hostname xr-router-1\n"
+        "end\n"
+    )
+
+    diff, ignored = xr.parse_router_diff(raw)
+
+    assert diff == "+  interface Loopback99\n+   description probe\n   !\n-  hostname xr-router-1\n"
+    assert ignored == 0
+
+
+def test_router_diff_counts_and_drops_hash_lines() -> None:
+    raw = "!! IOS XR Configuration 26.4.1.03I\n#  prefix-set P\n#    10.0.0.0/8\n#  end-set\nend\n"
+
+    assert xr.parse_router_diff(raw) == ("", 3)
+    diff, ignored = xr.parse_router_diff(raw.replace("end\n", "+  hostname b\nend\n"))
+    assert diff == "+  hostname b\n"
+    assert ignored == 3

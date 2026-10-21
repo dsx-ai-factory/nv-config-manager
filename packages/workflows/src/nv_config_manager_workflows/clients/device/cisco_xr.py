@@ -36,29 +36,37 @@ Backup and drift (read-only):
   ``<cli xmlns=".../Cisco-IOS-XR-cli-cfg"/>``. The reply's ``cli`` leaf is the whole
   running configuration as CLI text. Nothing is locked or loaded.
 
-Deploy diff (read-only): the running configuration is read as above and compared
-with the intended configuration here, on the Config Manager side. The router is
-not asked to compute the diff.
+Deploy diff: the intended configuration replaces the candidate and the router
+computes the diff, as Junos does with ``load update``. In one session:
 
-Deploy (``commit_candidate_config``), after the diff is approved and the access
-guard passes. The diff is turned into CLI commands (``no <line>`` for lines to
-remove, the new lines to add), not the whole configuration. Then, in one session:
+  1. ``<lock>`` the ``candidate`` datastore and ``<discard-changes>`` so it starts
+     equal to the running configuration.
+  2. ``<copy-config>`` with the intended configuration as the source, written as the
+     text of the ``cli`` leaf inside ``<source><config>``, and ``candidate`` as the
+     target. This replaces the whole candidate: anything the intended configuration
+     omits is removed. (``<edit-config>`` replace is rejected on the ``cli`` leaf; only
+     ``<copy-config>`` accepts CLI text as a whole-datastore replace.)
+  3. The ``get-cli-config-diff`` action of ``Cisco-IOS-XR-cli-diff-act`` returns the
+     difference between running and the candidate as CLI text, with lines marked
+     ``+`` and ``-``. The ``!!`` header lines, the closing ``end`` and any ``#`` lines
+     (meaning not documented) are left out; the diff is empty when no line is marked.
+  4. ``<discard-changes>`` and ``<unlock>``. The router is unchanged.
 
-  1. ``<lock>`` the ``candidate`` datastore.
-  2. ``<discard-changes>`` so the candidate starts equal to the running configuration.
-  3. ``<edit-config>`` on ``candidate`` with ``default-operation=merge`` and the
-     commands as the text of the ``cli`` leaf. A syntax error comes back as an
-     ``rpc-error`` and the candidate is discarded, so the router is unchanged.
+Deploy (``commit_candidate_config``) repeats steps 1 to 3, requires the diff to equal
+the approved diff and the access guard to pass, and then:
+
   4. ``<commit>``: with the commit timer, ``<commit><confirmed/>
      <confirm-timeout>N</confirm-timeout></commit>`` (N seconds), which keeps the
-     candidate lock; without it, a plain ``<commit/>`` followed by ``<unlock>``.
+     candidate lock; without it, a plain ``<commit/>`` followed by ``<unlock>``. A
+     failed commit discards the candidate and leaves the router unchanged.
 
 With the commit timer, NVCM then proves the change is safe before keeping it:
 a second NETCONF session logs in (the account and management path survived), the
-running configuration is read again and must equal the intended configuration, and
-only then a confirming ``<commit/>`` is sent from the first session, followed by
-``<unlock>``. If any check fails nothing is confirmed, and the router rolls back
-on its own when the timer expires.
+intended configuration is copied onto the candidate again and its diff against the
+now-running configuration must have no changed lines, and only then a confirming
+``<commit/>`` is sent from the first session, followed by ``<unlock>``. If any check
+fails nothing is confirmed, and the router rolls back on its own when the timer
+expires.
 
 Operational data (diagnostics, link state, uptime): ``<get>`` with narrow
 subtree filters on the router's operational models: ``Cisco-IOS-XR-install-oper``
@@ -71,9 +79,10 @@ Actions, sent as RPCs from the router's ``-act`` YANG modules:
   ``count``) and ``roll-back-configuration-to`` (input ``commit-id``), which commit
   at once with no timer; and ``Cisco-IOS-XR-ztp-act`` ``ztp-initiate``.
 
-Checked on a router running IOS XR 26.4.1: reading and loading the ``cli`` leaf,
-the operational filters, the confirmed commit with its timer, and the confirming
-commit. Not yet run on a router: the numbered rollback and ``ztp-initiate``
+Checked on a router running IOS XR 26.4.1: reading the ``cli`` leaf, ``<copy-config>``
+of a complete configuration and of a one-block change with the diff, the operational
+filters, the confirmed commit with its timer (``confirmed-commit:1.1``), and the
+confirming commit. Not yet run on a router: the numbered rollback and ``ztp-initiate``
 actions, whose names and inputs were read from the router's YANG modules. The
 namespaces and element names are the constants below, the one place to change if
 another release differs.
@@ -129,8 +138,9 @@ _NETCONF_PORT = 830  # IANA NETCONF-over-SSH port (RFC 6242)
 # --- CLI text over NETCONF (checked on a lab router running IOS XR 26.4.1) ---------
 # The router's Cisco-IOS-XR-cli-cfg YANG module is one top-level string leaf, ``cli``
 # ("a set of CLI config commands"). Reading it with get-config returns the running
-# configuration as CLI text; writing it with edit-config loads CLI commands into the
-# candidate. There is no exec/show RPC: operational commands need their own YANG path.
+# configuration as CLI text; writing it with copy-config replaces the candidate with CLI
+# text (edit-config accepts the leaf only as a merge). There is no exec/show RPC:
+# operational commands need their own YANG path.
 _CLI_CFG_NS = "http://cisco.com/ns/yang/Cisco-IOS-XR-cli-cfg"
 _CLI_LEAF = "cli"
 _NETCONF_BASE_NS = "urn:ietf:params:xml:ns:netconf:base:1.0"
@@ -161,6 +171,7 @@ _LINE_UP = "im-state-up"
 _ARP_UNRESOLVED_STATES = ("state-incomplete", "state-deleted")
 
 # --- Actions (RPCs from the router's ``-act`` YANG modules; names and inputs read from a lab router) ---
+_DIFF_NS = "http://cisco.com/ns/yang/Cisco-IOS-XR-cli-diff-act"
 _ROLLBACK_NS = "http://cisco.com/ns/yang/Cisco-IOS-XR-cfgmgr-rollback-act"
 _ZTP_NS = "http://cisco.com/ns/yang/Cisco-IOS-XR-ztp-act"
 _ROLLBACK_LAST_RE = re.compile(r"^last (?P<count>\d+)$")
@@ -247,14 +258,36 @@ class IosXrSession(Protocol):
     def get(self, subtree: str, *, read_timeout: float = ...) -> str:
         """Return the XML reply of a <get> with the given subtree filter (operational data)."""
 
-    def apply_commands(self, commands: list[str], *, confirm_seconds: int | None) -> None:
-        """Lock the candidate, load ``commands`` and commit (trial commit if ``confirm_seconds``).
+    def candidate_diff(self, text: str, *, timeout: float) -> str:
+        """Return the router's diff of the running configuration against ``text``.
 
-        Raises :class:`ConfigSyntaxException` when the router rejects the
-        configuration and :class:`NetworkDeviceException` when the commit fails.
-        In both cases the pending changes are discarded and the router
-        configuration is unchanged.
+        Locks the candidate, replaces it with ``text``, reads the diff, then discards
+        and unlocks, so the router is unchanged.
         """
+
+    def load_replacement(self, text: str, *, timeout: float) -> str:
+        """Lock the candidate, replace it with ``text`` and return the router's diff.
+
+        The candidate stays locked and loaded for :meth:`commit`. On any failure the
+        candidate is discarded and unlocked. Raises :class:`ConfigSyntaxException`
+        when the router rejects the text.
+        """
+
+    def commit(self, *, confirm_seconds: int | None, timeout: float) -> None:
+        """Commit the loaded candidate (a trial commit if ``confirm_seconds``).
+
+        Without a timer the candidate is unlocked afterwards. A failed commit discards
+        and unlocks.
+        """
+
+    def remaining_diff(self, text: str, *, timeout: float) -> str:
+        """With the lock held after a trial commit: the diff of the running configuration against ``text``.
+
+        The candidate is discarded afterwards and the lock is kept for :meth:`confirm`.
+        """
+
+    def discard(self) -> None:
+        """Discard the loaded candidate and release the lock; never raises."""
 
     def confirm(self) -> None:
         """Confirm a pending trial commit, cancelling its rollback timer."""
@@ -287,8 +320,6 @@ def _is_unsupported(error: RPCError) -> bool:
 
 class NetconfIosXrSession:
     """:class:`IosXrSession` over a NETCONF-over-SSH session (ncclient, ``iosxr`` handler)."""
-
-    _COMMIT_TIMEOUT_SECONDS = 120
 
     def __init__(self, session: Any) -> None:
         """Wrap an open ncclient manager."""
@@ -360,11 +391,13 @@ class NetconfIosXrSession:
 
     # -- candidate datastore -----------------------------------------------------
 
-    def _config_payload(self, commands: list[str]) -> str:
-        root = etree.Element("config")
-        holder = etree.SubElement(root, f"{{{_CLI_CFG_NS}}}{_CLI_LEAF}", nsmap={None: _CLI_CFG_NS})
-        holder.text = "\n".join(commands)
-        return str(etree.tostring(root, encoding="unicode"))
+    def _source_payload(self, text: str) -> str:
+        """The ``<source>`` of a copy-config: the whole configuration as the ``cli`` leaf."""
+        source = etree.Element(f"{{{_NETCONF_BASE_NS}}}source", nsmap={None: _NETCONF_BASE_NS})
+        config = etree.SubElement(source, f"{{{_NETCONF_BASE_NS}}}config")
+        leaf = etree.SubElement(config, f"{{{_CLI_CFG_NS}}}{_CLI_LEAF}", nsmap={None: _CLI_CFG_NS})
+        leaf.text = text
+        return str(etree.tostring(source, encoding="unicode"))
 
     def _discard_and_unlock(self) -> None:
         for step in (self._session.discard_changes, lambda: self._session.unlock("candidate")):
@@ -373,8 +406,29 @@ class NetconfIosXrSession:
             except Exception:  # noqa: BLE001 - cleanup must not mask the original error
                 logger.debug("NETCONF cleanup step failed", exc_info=True)
 
-    def apply_commands(self, commands: list[str], *, confirm_seconds: int | None) -> None:
-        """Load ``commands`` into the locked candidate and commit atomically."""
+    def _copy_replacement(self, text: str, timeout: float) -> None:
+        """``<copy-config>`` of ``text`` onto the candidate: the whole candidate becomes ``text``."""
+        previous = self._session.timeout
+        self._session.timeout = timeout
+        try:
+            self._session.copy_config(source=self._source_payload(text), target="candidate")
+        except RPCError as error:
+            if _is_unsupported(error):
+                raise self._unsupported("configuration", error) from error
+            raise ConfigSyntaxException(_rpc_message(error)) from error
+        except _TRANSPORT_ERRORS as error:
+            raise NetworkDeviceException(f"Failed to load configuration: {error}") from error
+        finally:
+            self._session.timeout = previous
+
+    def _candidate_diff_text(self, timeout: float) -> str:
+        """The router's CLI diff of the candidate against running (``get-cli-config-diff``)."""
+        reply = self.action(_DIFF_NS, "get-cli-config-diff", read_timeout=timeout)
+        node = etree.fromstring(reply.encode()).find(f".//{{{_DIFF_NS}}}response")
+        return "" if node is None or node.text is None else str(node.text)
+
+    def load_replacement(self, text: str, *, timeout: float) -> str:
+        """Lock the candidate, replace it with ``text`` and return the router's diff."""
         try:
             self._session.lock("candidate")
         except RPCError as error:
@@ -382,21 +436,42 @@ class NetconfIosXrSession:
                 f"Cannot lock the candidate configuration ({_rpc_message(error)}); "
                 "another session may be configuring the router."
             ) from error
+        except _TRANSPORT_ERRORS as error:
+            raise NetworkDeviceException(f"Cannot lock the candidate: {error}") from error
         try:
             self._session.discard_changes()  # start from the running configuration
-            self._session.edit_config(
-                target="candidate",
-                config=self._config_payload(commands),
-                default_operation="merge",
-            )
+            self._copy_replacement(text, timeout)
+            return self._candidate_diff_text(timeout)
         except RPCError as error:
             self._discard_and_unlock()
-            if _is_unsupported(error):
-                raise self._unsupported("configuration", error) from error
-            raise ConfigSyntaxException(_rpc_message(error)) from error
-        except _TRANSPORT_ERRORS as error:
+            raise NetworkDeviceException(
+                f"Failed to load configuration: {_rpc_message(error)}"
+            ) from error
+        except Exception:
             self._discard_and_unlock()
-            raise NetworkDeviceException(f"Failed to load configuration: {error}") from error
+            raise
+
+    def candidate_diff(self, text: str, *, timeout: float) -> str:
+        """Router diff of the running configuration against ``text``; nothing is left loaded."""
+        diff = self.load_replacement(text, timeout=timeout)
+        self._discard_and_unlock()
+        return diff
+
+    def remaining_diff(self, text: str, *, timeout: float) -> str:
+        """After a trial commit: the diff of the running configuration against ``text``."""
+        try:
+            self._copy_replacement(text, timeout)
+            return self._candidate_diff_text(timeout)
+        finally:
+            try:
+                self._session.discard_changes()
+            except Exception:  # noqa: BLE001 - the lock is kept; cleanup must not mask the result
+                logger.debug("NETCONF discard after the verification diff failed", exc_info=True)
+
+    def commit(self, *, confirm_seconds: int | None, timeout: float) -> None:
+        """Commit the loaded candidate; with ``confirm_seconds`` the lock is kept for :meth:`confirm`."""
+        previous = self._session.timeout
+        self._session.timeout = timeout
         try:
             if confirm_seconds:
                 self._session.commit(confirmed=True, timeout=str(confirm_seconds))
@@ -407,8 +482,14 @@ class NetconfIosXrSession:
             raise NetworkDeviceException(
                 f"Commit failed: {_rpc_message(error) if isinstance(error, RPCError) else error}"
             ) from error
+        finally:
+            self._session.timeout = previous
         if not confirm_seconds:
             self._discard_and_unlock()
+
+    def discard(self) -> None:
+        """Discard the loaded candidate and release the lock; never raises."""
+        self._discard_and_unlock()
 
     def confirm(self) -> None:
         """Confirm the trial commit with a confirming ``<commit/>`` from the same session."""
@@ -478,8 +559,10 @@ class CiscoIosXrConnection(NetworkConnection):
     # no confirming commit rolled back by itself); this is the one constant to change.
     _COMMIT_CONFIRM_SECONDS = COMMIT_CONFIRM_ROLLBACK_SECONDS
 
-    # The diff runs under a 60 s activity timeout; keep the read well below it.
-    _DIFF_READ_TIMEOUT_SECONDS = 45.0
+    # The diff activity runs under one minute (as for Junos, which uses 45 s) and the apply
+    # activity under five. A 12,000-line copy-config took 36 s on a lab router and, once, over 120 s.
+    _DIFF_TIMEOUT_SECONDS = 45.0
+    _APPLY_TIMEOUT_SECONDS = 120.0
     _SHOW_READ_TIMEOUT_SECONDS = 60.0
     _CONN_TIMEOUT_SECONDS = 30
 
@@ -679,26 +762,54 @@ class CiscoIosXrConnection(NetworkConnection):
                 f"Invalid configuration for {self._host}: {error}"
             ) from error
 
-    def _plan(
-        self, new_configuration: str, *, read_timeout: float | None = None
-    ) -> tuple[list[iosxr_config.Node], list[iosxr_config.Node], str]:
-        """Return (running tree, intended tree, diff text)."""
-        intended = self._parse_intended(new_configuration)
+    def _parse_running(self) -> list[iosxr_config.Node]:
         try:
-            running = iosxr_config.parse_config(self._raw_running_config(read_timeout=read_timeout))
+            return iosxr_config.parse_config(self._raw_running_config())
         except iosxr_config.IosXrConfigError as error:
             raise NetworkDeviceException(
                 f"Cannot parse the running configuration of {self._host}: {error}"
             ) from error
-        return running, intended, iosxr_config.render_diff(running, intended)
+
+    def _router_diff(self, raw: str) -> str:
+        """The router's diff without its headers; empty when nothing would change."""
+        diff, ignored = iosxr_config.parse_router_diff(raw)
+        if ignored:
+            logger.info(
+                "%s listed %d '#' lines in its configuration diff; they are left out of the diff",
+                self._host,
+                ignored,
+            )
+        return diff
 
     def perform_candidate_diff(self, new_configuration: str, partial: bool = False) -> str:
-        """Return the diff between the running configuration and the intended one.
+        """Return the router's diff between the running configuration and the intended one.
 
-        Read-only: nothing is loaded on the router and no lock is taken.
+        The intended configuration is copied onto the candidate (``<copy-config>``), the
+        router computes the diff, and the candidate is discarded: the router is left
+        unchanged. The candidate lock is held for the duration, as it is for Junos.
         """
         self._reject_partial(partial)
-        return self._plan(new_configuration, read_timeout=self._DIFF_READ_TIMEOUT_SECONDS)[2]
+        self._parse_intended(new_configuration)
+        try:
+            raw = self._get_session().candidate_diff(
+                iosxr_config.replacement_text(new_configuration),
+                timeout=self._DIFF_TIMEOUT_SECONDS,
+            )
+        except _TRANSPORT_ERRORS as error:
+            raise NetworkDeviceException(
+                f"Failed to perform candidate diff on {self._host}: {error}"
+            ) from error
+        return self._router_diff(raw)
+
+    def _check_access_preserved(self, intended: list[iosxr_config.Node]) -> None:
+        problems = iosxr_config.check_access_preserved(
+            self._parse_running(), intended, username=self._username, host=self._host
+        )
+        if problems:
+            raise NetworkDeviceException(
+                f"Refusing to apply to {self._host}: " + "; ".join(problems),
+                non_retryable=True,
+            )
 
     def commit_candidate_config(
         self,
@@ -708,36 +819,42 @@ class CiscoIosXrConnection(NetworkConnection):
         *,
         commit_confirm: bool = True,
     ) -> None:
-        """Apply the intended configuration in one atomic commit."""
+        """Replace the router's configuration with the intended one in one atomic commit."""
         self._reject_partial(partial)
-        running, intended, diff = self._plan(new_configuration)
-        if not diff:
-            return
-        if diff != approved_diff:
-            raise DiffChangedException("Diff has changed since approval, aborting.")
-
-        problems = iosxr_config.check_access_preserved(
-            running, intended, username=self._username, host=self._host
-        )
-        if problems:
+        intended = self._parse_intended(new_configuration)
+        text = iosxr_config.replacement_text(new_configuration)
+        session = self._get_session()
+        try:
+            raw = session.load_replacement(text, timeout=self._APPLY_TIMEOUT_SECONDS)
+        except _TRANSPORT_ERRORS as error:
             raise NetworkDeviceException(
-                f"Refusing to apply to {self._host}: " + "; ".join(problems),
-                non_retryable=True,
-            )
+                f"Failed to load the candidate configuration on {self._host}: {error}"
+            ) from error
 
-        commands = iosxr_config.build_commands(running, intended)
+        try:
+            diff = self._router_diff(raw)
+            if not diff:
+                session.discard()
+                return
+            if diff != approved_diff:
+                raise DiffChangedException("Diff has changed since approval, aborting.")
+            self._check_access_preserved(intended)
+        except Exception:
+            session.discard()
+            raise
+
         confirm_seconds = self._COMMIT_CONFIRM_SECONDS if commit_confirm else None
         try:
-            self._get_session().apply_commands(commands, confirm_seconds=confirm_seconds)
+            session.commit(confirm_seconds=confirm_seconds, timeout=self._APPLY_TIMEOUT_SECONDS)
         except _TRANSPORT_ERRORS as error:
             raise NetworkDeviceException(
                 f"Failed to apply candidate configuration on {self._host}: {error}"
             ) from error
 
         if commit_confirm:
-            self._verify_then_confirm(new_configuration)
+            self._verify_then_confirm(text)
 
-    def _verify_then_confirm(self, new_configuration: str) -> None:
+    def _verify_then_confirm(self, text: str) -> None:
         """Cancel the rollback timer only if the router is reachable and converged.
 
         Every failure here is non-retryable: a retried apply would find the
@@ -745,13 +862,15 @@ class CiscoIosXrConnection(NetworkConnection):
         success while the timer is still counting down to a rollback.
 
         A fresh NETCONF login proves the account and the management path survived
-        the commit; an empty diff proves the router holds the intended
-        configuration. If either check fails the timer is left running, so the
-        router rolls itself back.
+        the commit; a second router diff of the intended configuration with no changed
+        lines proves the router holds it. If either check fails the timer is left
+        running, so the router rolls itself back.
         """
         try:
             self._check_fresh_login()
-            remaining = self._plan(new_configuration)[2]
+            remaining = self._router_diff(
+                self._get_session().remaining_diff(text, timeout=self._APPLY_TIMEOUT_SECONDS)
+            )
         except (NetworkDeviceException, *_TRANSPORT_ERRORS) as error:
             raise NetworkDeviceException(
                 f"Commit on {self._host} was not confirmed ({error}); "

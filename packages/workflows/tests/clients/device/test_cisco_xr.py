@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import difflib
 from collections import deque
 from typing import Any
 from unittest.mock import MagicMock
@@ -23,6 +24,7 @@ from unittest.mock import MagicMock
 import pytest
 from ncclient.transport.errors import AuthenticationError, SSHError  # type: ignore[import-untyped]
 
+from nv_config_manager_workflows.clients.device import iosxr_config
 from nv_config_manager_workflows.clients.device.cisco_xr import (
     _FILTER_ARP,
     _FILTER_LINKS,
@@ -108,8 +110,20 @@ ARP_XML = _REPLY.format(
 )
 
 
+def _router_diff(running: str, text: str) -> str:
+    """What the router's get-cli-config-diff prints: headers, marked changed lines, ``end``."""
+    # the router ignores indentation, so the fake compares stripped lines
+    old = [line.strip() for line in iosxr_config.normalize_config(running).splitlines()]
+    new = [line.strip() for line in iosxr_config.normalize_config(text).splitlines()]
+    lines = ["!! Building configuration...", "!! IOS XR Configuration 26.4.1"]
+    for entry in difflib.ndiff(old, new):
+        if entry.startswith(("- ", "+ ")):
+            lines.append(f"{entry[0]}  {entry[2:]}")
+    return "\n".join([*lines, "end"]) + "\n"
+
+
 class FakeSession:
-    """Records calls; answers ``show`` and ``get`` from tables."""
+    """A router that holds a running configuration; records calls; answers ``show`` and ``get``."""
 
     def __init__(
         self, shows: dict[str, str] | None = None, gets: dict[str, str] | None = None
@@ -118,14 +132,25 @@ class FakeSession:
         self.gets: dict[str, str] = gets or {}
         self.get_calls: list[str] = []
         self.show_calls: list[str] = []
-        self.applied: list[tuple[list[str], int | None]] = []
+        self.diff_texts: list[str] = []
+        self.loaded: list[str] = []
+        self.remaining_texts: list[str] = []
+        self.committed: list[int | None] = []
+        self.discarded = 0
         self.confirmed = 0
+        self.converges = True
         self.rollbacks: list[str] = []
         self.actions: list[tuple[str, str, dict[str, str] | None]] = []
         self.action_error: Exception | None = None
         self.closed = False
-        self.apply_error: Exception | None = None
+        self.load_error: Exception | None = None
+        self.commit_error: Exception | None = None
         self.confirm_error: Exception | None = None
+        self.extra_diff_lines = ""
+
+    def _diff(self, text: str) -> str:
+        diff = _router_diff(self.shows["show running-config"], text)
+        return diff.replace("end\n", self.extra_diff_lines + "end\n")
 
     def show(self, command: str, *, read_timeout: float = 0) -> str:
         self.show_calls.append(command)
@@ -139,14 +164,31 @@ class FakeSession:
             raise AssertionError(f"unexpected operational read {subtree!r}")
         return self.gets[subtree]
 
-    def apply_commands(self, commands: list[str], *, confirm_seconds: int | None) -> None:
-        if self.apply_error:
-            raise self.apply_error
-        self.applied.append((commands, confirm_seconds))
-        # the router now holds the intended configuration
-        self.shows["show running-config"] = INTENDED_AFTER.get(
-            "text", self.shows["show running-config"]
-        )
+    def candidate_diff(self, text: str, *, timeout: float) -> str:
+        if self.load_error:
+            raise self.load_error
+        self.diff_texts.append(text)
+        return self._diff(text)
+
+    def load_replacement(self, text: str, *, timeout: float) -> str:
+        if self.load_error:
+            raise self.load_error
+        self.loaded.append(text)
+        return self._diff(text)
+
+    def commit(self, *, confirm_seconds: int | None, timeout: float) -> None:
+        if self.commit_error:
+            raise self.commit_error
+        self.committed.append(confirm_seconds)
+        if self.converges:  # the router now holds the loaded configuration
+            self.shows["show running-config"] = self.loaded[-1]
+
+    def remaining_diff(self, text: str, *, timeout: float) -> str:
+        self.remaining_texts.append(text)
+        return self._diff(text)
+
+    def discard(self) -> None:
+        self.discarded += 1
 
     def confirm(self) -> None:
         if self.confirm_error:
@@ -173,9 +215,6 @@ class FakeSession:
         self.closed = True
 
 
-INTENDED_AFTER: dict[str, str] = {}
-
-
 def _connection(*sessions: Any) -> tuple[CiscoIosXrConnection, deque[Any]]:
     settings: DeviceConnectionSettings = {"username": USERNAME, "passwords": ["pw"], "mock": False}
     connection = CiscoIosXrConnection(HOST, settings=settings)
@@ -184,16 +223,7 @@ def _connection(*sessions: Any) -> tuple[CiscoIosXrConnection, deque[Any]]:
     return connection, queue
 
 
-@pytest.fixture(autouse=True)
-def _reset_after() -> None:
-    INTENDED_AFTER.clear()
-
-
 CHANGED = INTENDED.replace("metric 100", "metric 200")
-
-
-def _converge_to_changed() -> None:
-    INTENDED_AFTER["text"] = CHANGED
 
 
 # --- read operations ---------------------------------------------------------
@@ -289,21 +319,45 @@ def test_operational_read_errors_are_network_device_errors() -> None:
 # --- diff --------------------------------------------------------------------
 
 
-def test_diff_is_empty_for_a_converged_router_and_never_applies() -> None:
+def test_diff_is_empty_for_a_converged_router_and_never_commits() -> None:
     session = FakeSession()
     connection, _ = _connection(session)
 
     assert connection.perform_candidate_diff(INTENDED) == ""
-    assert session.applied == []
+    assert session.committed == []
 
 
-def test_diff_lists_changes() -> None:
+def test_diff_sends_the_intended_text_with_its_separators_and_a_closing_end() -> None:
+    session = FakeSession()
+    connection, _ = _connection(session)
+
+    connection.perform_candidate_diff(INTENDED)
+
+    sent = session.diff_texts[0]
+    assert sent == iosxr_config.replacement_text(INTENDED)
+    assert "\n!\n" in sent
+    assert sent.endswith("\nend\n")
+    assert "Building configuration" not in sent
+
+
+def test_diff_lists_the_routers_marked_lines_without_its_headers() -> None:
     connection, _ = _connection(FakeSession())
 
     diff = connection.perform_candidate_diff(CHANGED)
 
-    assert "-       metric 100" in diff
-    assert "+       metric 200" in diff
+    lines = diff.splitlines()
+    assert any(line.startswith("-") and "metric 100" in line for line in lines)
+    assert any(line.startswith("+") and "metric 200" in line for line in lines)
+    assert not any(line.startswith("!!") or line == "end" for line in lines)
+
+
+def test_hash_lines_in_the_routers_diff_do_not_make_a_diff() -> None:
+    session = FakeSession()
+    session.extra_diff_lines = "#  prefix-set A\n#    10.0.0.0/8\n#  end-set\n"
+    connection, _ = _connection(session)
+
+    assert connection.perform_candidate_diff(INTENDED) == ""
+    assert "#" not in connection.perform_candidate_diff(CHANGED)
 
 
 def test_partial_diff_is_rejected() -> None:
@@ -313,68 +367,80 @@ def test_partial_diff_is_rejected() -> None:
         connection.perform_candidate_diff(INTENDED, partial=True)
 
 
-def test_unparseable_intended_config_is_a_syntax_error() -> None:
-    connection, _ = _connection(FakeSession())
+def test_unparseable_intended_config_is_a_syntax_error_and_nothing_is_sent() -> None:
+    session = FakeSession()
+    connection, _ = _connection(session)
 
     with pytest.raises(ConfigSyntaxException):
         connection.perform_candidate_diff("prefix-set A\n  10.0.0.0/8\n")
+
+    assert session.diff_texts == []
+
+
+def test_a_router_error_while_loading_the_diff_propagates() -> None:
+    session = FakeSession()
+    session.load_error = ConfigSyntaxException("% Invalid input detected")
+    connection, _ = _connection(session)
+
+    with pytest.raises(ConfigSyntaxException):
+        connection.perform_candidate_diff(CHANGED)
 
 
 # --- apply -------------------------------------------------------------------
 
 
-def test_apply_with_empty_diff_changes_nothing() -> None:
+def test_apply_with_empty_diff_commits_nothing_and_releases_the_candidate() -> None:
     session = FakeSession()
     connection, _ = _connection(session)
 
     connection.commit_candidate_config(INTENDED, "")
 
-    assert session.applied == []
+    assert session.committed == []
+    assert session.discarded == 1
     assert session.confirmed == 0
 
 
-def test_apply_rejects_a_diff_that_changed_since_approval() -> None:
+def test_apply_rejects_a_diff_that_changed_since_approval_and_discards() -> None:
     session = FakeSession()
     connection, _ = _connection(session)
 
     with pytest.raises(DiffChangedException):
         connection.commit_candidate_config(CHANGED, "an older diff")
 
-    assert session.applied == []
+    assert session.committed == []
+    assert session.discarded == 1
 
 
 def test_apply_with_commit_confirm_verifies_and_then_confirms() -> None:
     session, probe = FakeSession(), FakeSession({"show clock": "ok"})
     connection, _ = _connection(session, probe)
-    _converge_to_changed()
     approved = connection.perform_candidate_diff(CHANGED)
 
     connection.commit_candidate_config(CHANGED, approved)
 
-    commands, seconds = session.applied[0]
-    assert commands[-1] == "exit"
-    assert "metric 200" in commands
-    assert seconds == CiscoIosXrConnection._COMMIT_CONFIRM_SECONDS
+    assert session.loaded == [iosxr_config.replacement_text(CHANGED)]
+    assert session.committed == [CiscoIosXrConnection._COMMIT_CONFIRM_SECONDS]
+    # the verification is a second router diff of the same text, taken after the commit
+    assert session.remaining_texts == session.loaded
     assert probe.closed
     assert session.confirmed == 1
 
 
 def test_apply_without_commit_confirm_sends_no_timer_and_no_confirm() -> None:
     session = FakeSession()
-    connection, _ = _connection(session)
-    _converge_to_changed()
+    connection, queue = _connection(session)
     approved = connection.perform_candidate_diff(CHANGED)
 
     connection.commit_candidate_config(CHANGED, approved, commit_confirm=False)
 
-    assert session.applied[0][1] is None
+    assert session.committed == [None]
+    assert session.remaining_texts == []
     assert session.confirmed == 0
 
 
 def test_apply_does_not_confirm_when_a_fresh_login_fails() -> None:
     session = FakeSession()
     connection, _ = _connection(session)
-    _converge_to_changed()
     approved = connection.perform_candidate_diff(CHANGED)
     connection._open_session = MagicMock(  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
         side_effect=NetworkDeviceException("All passwords failed")
@@ -390,9 +456,9 @@ def test_apply_does_not_confirm_when_a_fresh_login_fails() -> None:
 
 def test_apply_does_not_confirm_when_the_router_does_not_match_the_intended_config() -> None:
     session, probe = FakeSession(), FakeSession({"show clock": "ok"})
+    session.converges = False  # the commit "succeeds" but the running config stays as it was
     connection, _ = _connection(session, probe)
     approved = connection.perform_candidate_diff(CHANGED)
-    # the apply "succeeds" but the running config stays as it was (INTENDED_AFTER is empty)
 
     with pytest.raises(NetworkDeviceException, match="still differs") as raised:
         connection.commit_candidate_config(CHANGED, approved)
@@ -405,7 +471,6 @@ def test_failure_to_confirm_is_reported_and_not_retryable() -> None:
     session, probe = FakeSession(), FakeSession({"show clock": "ok"})
     session.confirm_error = NetworkDeviceException("session dropped")
     connection, _ = _connection(session, probe)
-    _converge_to_changed()
     approved = connection.perform_candidate_diff(CHANGED)
 
     with pytest.raises(NetworkDeviceException, match="not confirmed") as raised:
@@ -414,26 +479,29 @@ def test_failure_to_confirm_is_reported_and_not_retryable() -> None:
     assert raised.value.non_retryable
 
 
-def test_syntax_error_from_the_router_propagates_and_nothing_is_confirmed() -> None:
+def test_syntax_error_from_the_router_propagates_and_nothing_is_committed() -> None:
     session = FakeSession()
-    session.apply_error = ConfigSyntaxException("% Invalid input detected")
     connection, _ = _connection(session)
     approved = connection.perform_candidate_diff(CHANGED)
+    session.load_error = ConfigSyntaxException("% Invalid input detected")
 
     with pytest.raises(ConfigSyntaxException):
         connection.commit_candidate_config(CHANGED, approved)
 
+    assert session.committed == []
     assert session.confirmed == 0
 
 
 def test_commit_failure_propagates() -> None:
     session = FakeSession()
-    session.apply_error = NetworkDeviceException("Commit failed")
+    session.commit_error = NetworkDeviceException("Commit failed")
     connection, _ = _connection(session)
     approved = connection.perform_candidate_diff(CHANGED)
 
     with pytest.raises(NetworkDeviceException, match="Commit failed"):
         connection.commit_candidate_config(CHANGED, approved)
+
+    assert session.confirmed == 0
 
 
 def test_apply_sends_nothing_when_the_intended_config_would_remove_access() -> None:
@@ -449,7 +517,8 @@ def test_apply_sends_nothing_when_the_intended_config_would_remove_access() -> N
     with pytest.raises(NetworkDeviceException, match="account in use") as raised:
         connection.commit_candidate_config(without_user, approved)
 
-    assert session.applied == []
+    assert session.committed == []
+    assert session.discarded == 1
     assert raised.value.non_retryable
 
 
@@ -463,7 +532,7 @@ def test_apply_sends_nothing_when_the_intended_config_would_remove_access() -> N
         "  ipv4 address 192.0.2.7 255.255.255.0\n",
     ],
 )
-def test_apply_never_sends_commands_that_drop_management_items(removed: str) -> None:
+def test_apply_never_commits_when_it_would_drop_management_items(removed: str) -> None:
     session = FakeSession()
     connection, _ = _connection(session)
     candidate = INTENDED.replace(removed, "", 1)
@@ -473,7 +542,8 @@ def test_apply_never_sends_commands_that_drop_management_items(removed: str) -> 
     with pytest.raises(NetworkDeviceException, match="Refusing to apply"):
         connection.commit_candidate_config(candidate, approved)
 
-    assert session.applied == []
+    assert session.committed == []
+    assert session.discarded == 1
 
 
 def test_partial_apply_is_rejected_before_any_read() -> None:
@@ -484,6 +554,7 @@ def test_partial_apply_is_rejected_before_any_read() -> None:
         connection.commit_candidate_config(INTENDED, "", partial=True)
 
     assert session.show_calls == []
+    assert session.loaded == []
 
 
 # --- rollback and unsupported operations ------------------------------------------
