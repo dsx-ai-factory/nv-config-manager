@@ -83,8 +83,17 @@ def test_superpod_hyperreach_fixture_keeps_spx_hosts_and_ports_separate(tmp_path
     path.write_text(yaml.safe_dump(design))
     builder = AirTopologyBuilder(str(path))
     topology = builder.build_topology()
+    endpoints_by_mac = {}
+    for link in topology["links"]:
+        for endpoint in link:
+            if isinstance(endpoint, dict) and endpoint.get("mac"):
+                identity = (endpoint["node"], endpoint["interface"])
+                mac = endpoint["mac"].lower()
+                assert mac not in endpoints_by_mac or endpoints_by_mac[mac] == identity
+                endpoints_by_mac[mac] = identity
     host_name = "su02-hyperreach-host"
     host = builder.devices[host_name]
+    assert host.interface_macs["eth0"] != builder.devices["oob-mgmt-server"].interface_macs["eth1"]
     config = yaml.safe_load(generate_lldp_host_cloud_init(host))
     assert len(host.interfaces) == 3
     interfaces = {(i["device"], i["name"]): i for i in design["interfaces"]}

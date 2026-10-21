@@ -382,9 +382,20 @@ class AirTopologyBuilder:
         if auto_mac_entries:
             auto_mac_entries.sort()
             offset = 0x010000
-            for idx, (dev_name, iface) in enumerate(auto_mac_entries, start=1):
-                mac = self._index_to_mac(offset + idx)
+            used_macs = {
+                mac.lower().replace("-", ":")
+                for device in self.devices.values()
+                for mac in device.interface_macs.values()
+            }
+            next_index = offset + 1
+            for dev_name, iface in auto_mac_entries:
+                mac = self._index_to_mac(next_index)
+                while mac in used_macs:
+                    next_index += 1
+                    mac = self._index_to_mac(next_index)
                 self.devices[dev_name].interface_macs[iface] = mac
+                used_macs.add(mac)
+                next_index += 1
                 LOG.debug("Auto MAC %s:%s -> %s", dev_name, iface, mac)
             LOG.info("Auto-generated MACs for %d interface(s)", len(auto_mac_entries))
 
