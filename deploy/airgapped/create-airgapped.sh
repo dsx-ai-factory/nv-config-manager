@@ -54,6 +54,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHART_DIR="$(cd "$SCRIPT_DIR/../helm" && pwd)"
 # Repo root is two levels up from deploy/airgapped/
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# Shared version/hash policy; sourcing this file does not install anything.
+. "$REPO_ROOT/deploy/helm/files/python-tooling.sh"
 # Deploy directory (Helm chart, configs, and operator version pins)
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Shared operator/dependency version manifest
@@ -1278,28 +1280,9 @@ copy_deployment_files() {
 }
 
 
-require_patched_uv() {
-    local uv_output
-    if ! command -v uv &>/dev/null || ! uv_output=$(uv --version 2>/dev/null); then
-        log_error "uv >=0.13.4 is required to package the installer"
-        return 1
-    fi
-    # Accept stable releases only; prereleases may predate the certificate fix.
-    if [[ "$uv_output" =~ ^uv[[:space:]]+([0-9]+)\.([0-9]+)\.([0-9]+)([[:space:]]|$) ]]; then
-        local major="${BASH_REMATCH[1]}"
-        local minor="${BASH_REMATCH[2]}"
-        local patch="${BASH_REMATCH[3]}"
-        if (( 10#$major > 0 || 10#$minor > 13 || (10#$minor == 13 && 10#$patch >= 4) )); then
-            return 0
-        fi
-    fi
-    log_error "uv >=0.13.4 is required to package the installer (found: $uv_output)"
-    return 1
-}
-
 pip_download() {
-    require_patched_uv || return 1
-    uv run --no-project --with 'pip==26.2.2' python -m pip download "$@"
+    # The project enforces tool.uv.required-version before uv can access the network.
+    uv run --project "$REPO_ROOT/installer" --no-sync --with "pip==$NVCM_PIP_VERSION" python -m pip download "$@"
 }
 
 # Pin the release and verify its published SHA-256 before extracting any files.
@@ -1307,16 +1290,16 @@ pip_download() {
 download_installer_uv() {
     local installer_dest="$1"
     local arch="$2"
-    local uv_version="0.13.4"
+    local uv_version="$NVCM_UV_VERSION"
     local uv_arch uv_sha256
     case "$arch" in
         amd64)
             uv_arch="x86_64-unknown-linux-gnu"
-            uv_sha256="2b428396f12572d4429cf210ca234dd599a33b3af0958a4d5ed569d63e3f344f"
+            uv_sha256="$NVCM_UV_AMD64_SHA256"
             ;;
         arm64)
             uv_arch="aarch64-unknown-linux-gnu"
-            uv_sha256="1ae72b4718729e2ccc4f1ae2c6d1e531ca8467800e0546e9130b3886023a60ab"
+            uv_sha256="$NVCM_UV_ARM64_SHA256"
             ;;
         *) log_error "Unsupported uv architecture: $arch"; return 1 ;;
     esac
@@ -1364,7 +1347,10 @@ package_installer() {
         return 0
     fi
 
-    require_patched_uv || return 1
+    if ! command -v uv &>/dev/null; then
+        log_error "uv is required to package the installer"
+        return 1
+    fi
 
     local installer_dest="$BUILD_DIR/installer"
     mkdir -p "$installer_dest/wheels" "$installer_dest/python"

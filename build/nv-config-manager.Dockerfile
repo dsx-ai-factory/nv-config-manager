@@ -23,7 +23,7 @@ ARG NVCM_NUMPY_ALLOW_NOBLAS=true
 
 # Install build dependencies for native extensions (numpy, psycopg2, etc.)
 # Also install openssh-server to get the moduli file and sftp binary for SFTP server
-COPY --from=scripts configure-apt-mirror.sh /tmp/configure-apt-mirror.sh
+COPY --from=scripts configure-apt-mirror.sh python-ca.py /tmp/
 RUN set -eux; \
     /tmp/configure-apt-mirror.sh "$APT_MIRROR_DEBIAN" "$APT_MIRROR_GPG_KEY_URL" debian && \
     apt-get update && apt-get install -y --no-install-recommends \
@@ -34,8 +34,7 @@ RUN set -eux; \
     libpq-dev \
     openssh-server \
     sshpass && \
-    # Debian's emSign remediation package, including the affected cross-sign root.
-    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge '20250419~deb12u2' && \
+    python /tmp/python-ca.py && \
     uv pip install --system 'pip>=26.2.2' && \
     rm -rf /var/lib/apt/lists/* && \
     # Stage sftp/ssh/sshpass binaries and their dependencies for multi-arch support
@@ -99,11 +98,12 @@ FROM nvcr.io/nvidia/distroless/python:3.13-v4.1.4@sha256:eb5be985571eab7eac5e2ff
 # Replace the pinned runtime's trust store, including hashed certificate paths.
 # Copying only the bundle would leave distrusted roots reachable through capath.
 USER 0:0
-RUN ["python", "-c", "import shutil; from pathlib import Path; [shutil.rmtree(p) for p in (Path('/etc/ssl/certs'), Path('/usr/share/ca-certificates')) if p.exists()]"]
+COPY --from=scripts python-ca.py /tmp/python-ca.py
+RUN ["python", "/tmp/python-ca.py", "--reset"]
 COPY --from=builder /etc/ssl/certs/ /etc/ssl/certs/
 COPY --from=builder /usr/share/ca-certificates/ /usr/share/ca-certificates/
 # Check the actual runtime bundle, including the affected cross-sign trust anchor.
-RUN ["python", "-c", "import hashlib, ssl; context = ssl.create_default_context(cafile='/etc/ssl/certs/ca-certificates.crt'); fingerprints = {hashlib.sha256(cert).hexdigest() for cert in context.get_ca_certs(binary_form=True)}; assert len(fingerprints) > 100, 'CA bundle is incomplete'; assert fingerprints.isdisjoint({'86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b', 'd7a7a0fb5d7e2731d771e9484ebcdef71d5f0c3e0a2948782bc83ee0ea699ef4'}), 'Affected emSign trust anchor remains in runtime bundle'"]
+RUN ["python", "/tmp/python-ca.py"]
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

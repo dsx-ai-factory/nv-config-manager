@@ -16,11 +16,13 @@ FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda
 # Use the emSign remediation release instead of the base image's bundled uv.
 COPY --from=ghcr.io/astral-sh/uv:0.13.4@sha256:9f130421e930bfbdc563c00740466603f8723158e90297d07957c2294640262b /uv /uvx /usr/local/bin/
 
+COPY python-ca.py /tmp/python-ca.py
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
     && \
-    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge '20250419~deb12u2' && \
+    python /tmp/python-ca.py && \
     uv pip install --system 'pip>=26.2.2' && \
     rm -rf /var/lib/apt/lists/*
 

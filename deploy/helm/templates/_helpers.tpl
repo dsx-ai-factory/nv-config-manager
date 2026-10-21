@@ -1101,21 +1101,7 @@ Usage: {{ include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
   - |
     set -e
     echo "Installing template plugins from {{ .Values.renderService.templatePlugins.mountPath }}..."
-    pip_bootstrapped=false
-    prepare_source_install() {
-      if [ "$pip_bootstrapped" = true ]; then
-        return
-      fi
-      # Verify the advisory's pip wheel before any index or build-isolation access.
-      pip install --disable-pip-version-check --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
-      # Patched pip also loads system roots. Use its patched bundle for that path,
-      # including build subprocesses, even when the installer image is stale.
-      SSL_CERT_FILE="$(python -c 'from pip._vendor import certifi; print(certifi.where())')"
-      SSL_CERT_DIR="$(mktemp -d)"
-      REQUESTS_CA_BUNDLE="$SSL_CERT_FILE"
-      export SSL_CERT_FILE SSL_CERT_DIR REQUESTS_CA_BUNDLE
-      pip_bootstrapped=true
-    }
+{{ .Files.Get "files/python-tooling.sh" | indent 4 }}
     for plugin_dir in {{ .Values.renderService.templatePlugins.mountPath }}/*; do
       if [ ! -d "$plugin_dir" ]; then
         continue
@@ -1127,13 +1113,13 @@ Usage: {{ include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
         echo "Installing offline plugin wheel(s): $plugin_dir/dist"
         pip install --no-index --target=/opt/plugins --no-deps "$plugin_dir"/dist/*.whl
       elif [ -f "$plugin_dir/source/pyproject.toml" ]; then
-        prepare_source_install
+        nvcm_bootstrap_pip
         echo "Installing build dependencies..."
         pip install --quiet hatchling
         echo "Installing plugin source: $plugin_dir/source"
         pip install --target=/opt/plugins --no-deps "$plugin_dir/source"
       elif [ -f "$plugin_dir/pyproject.toml" ]; then
-        prepare_source_install
+        nvcm_bootstrap_pip
         echo "Installing build dependencies..."
         pip install --quiet hatchling
         echo "Installing plugin source: $plugin_dir"

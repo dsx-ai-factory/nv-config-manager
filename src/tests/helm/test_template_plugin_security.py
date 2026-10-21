@@ -61,7 +61,11 @@ def _installer_script(plugin_root: Path) -> str:
 
 
 def _run_installer(
-    tmp_path: Path, *, fail_bootstrap: bool = False, fail_ca_setup: bool = False
+    tmp_path: Path,
+    *,
+    fail_bootstrap: bool = False,
+    fail_ca_setup: bool = False,
+    script: str | None = None,
 ) -> tuple[int, list[dict]]:
     commands = tmp_path / "bin"
     commands.mkdir()
@@ -83,7 +87,7 @@ def _run_installer(
     )
     python.chmod(0o755)
     result = subprocess.run(
-        ["sh", "-c", _installer_script(tmp_path / "plugins")],
+        ["sh", "-c", script if script is not None else _installer_script(tmp_path / "plugins")],
         env={
             **os.environ,
             "PATH": f"{commands}:{os.environ['PATH']}",
@@ -146,3 +150,20 @@ def test_failed_ca_lookup_stops_before_build_dependencies(tmp_path: Path) -> Non
     assert status != 0
     assert len(calls) == 1
     assert not any("hatchling" in call["args"] for call in calls)
+
+
+def test_ci_bootstrap_preserves_configured_ca_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SSL_CERT_FILE", "/company/cacert.pem")
+    monkeypatch.setenv("SSL_CERT_DIR", "/company/certs")
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/company/requests.pem")
+    script = (_CHART / "files/python-tooling.sh").read_text() + "\nnvcm_bootstrap_uv\n"
+    status, calls = _run_installer(tmp_path, script=script)
+    assert status == 0
+    assert len(calls) == 2
+    assert "--require-hashes" in calls[1]["args"]
+    for call in calls:
+        assert call["cafile"] == "/company/cacert.pem"
+        assert call["capath"] == "/company/certs"
+        assert call["requests_ca"] == "/company/requests.pem"

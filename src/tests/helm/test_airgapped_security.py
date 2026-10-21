@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+_POLICY = Path(__file__).resolve().parents[3] / "deploy/helm/files/python-tooling.sh"
 _SCRIPT = Path(__file__).resolve().parents[3] / "deploy/airgapped/create-airgapped.sh"
 
 
@@ -55,7 +56,11 @@ def test_airgapped_uv_is_verified_before_extraction(
         + "\n}\n"
     )
     # Substitute a local release fixture's expected digest; exercise real checksum and tar tools.
-    function = re.sub(r'uv_sha256="[0-9a-f]{64}"', f'uv_sha256="{checksum}"', function)
+    policy = re.sub(
+        r"NVCM_UV_(AMD64|ARM64)_SHA256=[0-9a-f]{64}",
+        lambda match: f"NVCM_UV_{match[1]}_SHA256={checksum}",
+        _POLICY.read_text(),
+    )
     destination = tmp_path / "installer"
     destination.mkdir()
     driver = (
@@ -69,6 +74,8 @@ curl() {
     cp "$UV_TEST_ARCHIVE" "$3"
 }
 """
+        + policy
+        + "\n"
         + function
         + '\ndownload_installer_uv "$1" "$2"\n'
     )
@@ -103,76 +110,20 @@ def _shell_function(name: str) -> str:
     )
 
 
-@pytest.mark.parametrize(
-    "version,allowed",
-    [
-        ("0.6.10", False),
-        ("0.13.3", False),
-        ("0.13.4-dev", False),
-        ("invalid", False),
-        ("unavailable", False),
-        ("0.13.4", True),
-        ("0.13.5", True),
-        ("0.14.0", True),
-        ("1.0.0", True),
-    ],
-)
-def test_pip_download_requires_patched_host_uv_before_network(
-    tmp_path: Path, version: str, allowed: bool
-) -> None:
+def test_pip_download_keeps_project_version_enforcement(tmp_path: Path) -> None:
     log = tmp_path / "uv-calls"
     driver = r"""
 set -eu
-log_error() { echo "$*" >&2; }
-uv() {
-    printf '%s\n' "$*" >> "$UV_TEST_CALLS"
-    if [ "$1" = --version ]; then
-        [ "$UV_TEST_VERSION" != unavailable ] || return 127
-        printf 'uv %s (test build)\n' "$UV_TEST_VERSION"
-    fi
-}
+uv() { printf '%s\n' "$*" > "$UV_TEST_CALLS"; }
 """
-    driver += _shell_function("require_patched_uv") + _shell_function("pip_download")
+    driver += _POLICY.read_text() + "\n" + _shell_function("pip_download")
     result = subprocess.run(
         ["bash", "-c", driver + "\npip_download fixture.whl\n"],
-        env={**os.environ, "UV_TEST_VERSION": version, "UV_TEST_CALLS": str(log)},
-        capture_output=True,
-        text=True,
-    )
-    calls = log.read_text().splitlines()
-    if allowed:
-        assert result.returncode == 0, result.stderr
-        assert calls == [
-            "--version",
-            "run --no-project --with pip==26.2.2 python -m pip download fixture.whl",
-        ]
-    else:
-        assert result.returncode != 0
-        assert calls == ["--version"]
-        assert "uv >=0.13.4 is required" in result.stderr
-
-
-def test_installer_packaging_rejects_old_uv_before_building(tmp_path: Path) -> None:
-    installer = tmp_path / "installer"
-    installer.mkdir()
-    (installer / "pyproject.toml").touch()
-    log = tmp_path / "uv-calls"
-    driver = r"""
-set -eu
-log_info() { :; }
-log_error() { echo "$*" >&2; }
-uv() {
-    printf '%s\n' "$*" >> "$UV_TEST_CALLS"
-    printf 'uv 0.13.3\n'
-}
-"""
-    driver += _shell_function("require_patched_uv") + _shell_function("package_installer")
-    result = subprocess.run(
-        ["bash", "-c", driver + "\npackage_installer\n"],
         env={**os.environ, "REPO_ROOT": str(tmp_path), "UV_TEST_CALLS": str(log)},
         capture_output=True,
         text=True,
     )
-    assert result.returncode != 0
-    assert log.read_text().splitlines() == ["--version"]
-    assert "uv >=0.13.4 is required" in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert log.read_text().splitlines() == [
+        f"run --project {tmp_path}/installer --no-sync --with pip==26.2.2 python -m pip download fixture.whl"
+    ]
