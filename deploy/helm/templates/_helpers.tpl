@@ -1112,7 +1112,8 @@ Usage: {{ include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
       # including build subprocesses, even when the installer image is stale.
       SSL_CERT_FILE="$(python -c 'from pip._vendor import certifi; print(certifi.where())')"
       SSL_CERT_DIR="$(mktemp -d)"
-      export SSL_CERT_FILE SSL_CERT_DIR
+      REQUESTS_CA_BUNDLE="$SSL_CERT_FILE"
+      export SSL_CERT_FILE SSL_CERT_DIR REQUESTS_CA_BUNDLE
       pip_bootstrapped=true
     }
     for plugin_dir in {{ .Values.renderService.templatePlugins.mountPath }}/*; do

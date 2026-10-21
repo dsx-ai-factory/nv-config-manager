@@ -72,7 +72,7 @@ def _run_installer(
         "import json, os, sys\n"
         "with open(os.environ['PIP_CALLS'], 'a') as log:\n"
         "    log.write(json.dumps({'args': sys.argv[1:], 'cafile': os.getenv('SSL_CERT_FILE'), "
-        "'capath': os.getenv('SSL_CERT_DIR')}) + '\\n')\n"
+        "'capath': os.getenv('SSL_CERT_DIR'), 'requests_ca': os.getenv('REQUESTS_CA_BUNDLE')}) + '\\n')\n"
         "bootstrap = any(arg.startswith('pip @ ') for arg in sys.argv)\n"
         "sys.exit(7 if bootstrap and os.getenv('FAIL_BOOTSTRAP') == '1' else 0)\n"
     )
@@ -123,6 +123,7 @@ def test_source_installs_bootstrap_once_before_all_index_access(tmp_path: Path) 
     )
     for call in calls[1:]:
         assert call["cafile"] == "/patched/pip/cacert.pem"
+        assert call["requests_ca"] == call["cafile"]
         assert Path(call["capath"]).is_dir()
         assert not list(Path(call["capath"]).iterdir())
 

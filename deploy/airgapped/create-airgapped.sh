@@ -1278,7 +1278,27 @@ copy_deployment_files() {
 }
 
 
+require_patched_uv() {
+    local uv_output
+    if ! command -v uv &>/dev/null || ! uv_output=$(uv --version 2>/dev/null); then
+        log_error "uv >=0.13.4 is required to package the installer"
+        return 1
+    fi
+    # Accept stable releases only; prereleases may predate the certificate fix.
+    if [[ "$uv_output" =~ ^uv[[:space:]]+([0-9]+)\.([0-9]+)\.([0-9]+)([[:space:]]|$) ]]; then
+        local major="${BASH_REMATCH[1]}"
+        local minor="${BASH_REMATCH[2]}"
+        local patch="${BASH_REMATCH[3]}"
+        if (( 10#$major > 0 || 10#$minor > 13 || (10#$minor == 13 && 10#$patch >= 4) )); then
+            return 0
+        fi
+    fi
+    log_error "uv >=0.13.4 is required to package the installer (found: $uv_output)"
+    return 1
+}
+
 pip_download() {
+    require_patched_uv || return 1
     uv run --no-project --with 'pip==26.2.2' python -m pip download "$@"
 }
 
@@ -1344,11 +1364,7 @@ package_installer() {
         return 0
     fi
 
-    if ! command -v uv &>/dev/null; then
-        log_warn "uv not available, skipping installer packaging"
-        log_warn "Install uv (https://docs.astral.sh/uv/) to include the installer in the bundle"
-        return 0
-    fi
+    require_patched_uv || return 1
 
     local installer_dest="$BUILD_DIR/installer"
     mkdir -p "$installer_dest/wheels" "$installer_dest/python"

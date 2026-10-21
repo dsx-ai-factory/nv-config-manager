@@ -92,3 +92,87 @@ curl() {
         assert packaged.read_bytes() == binary
         assert os.access(packaged, os.X_OK)
     assert not list(destination.glob(".uv-*"))
+
+
+def _shell_function(name: str) -> str:
+    return (
+        name
+        + "() {"
+        + _SCRIPT.read_text().split(name + "() {", 1)[1].split("\n}\n", 1)[0]
+        + "\n}\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "version,allowed",
+    [
+        ("0.6.10", False),
+        ("0.13.3", False),
+        ("0.13.4-dev", False),
+        ("invalid", False),
+        ("unavailable", False),
+        ("0.13.4", True),
+        ("0.13.5", True),
+        ("0.14.0", True),
+        ("1.0.0", True),
+    ],
+)
+def test_pip_download_requires_patched_host_uv_before_network(
+    tmp_path: Path, version: str, allowed: bool
+) -> None:
+    log = tmp_path / "uv-calls"
+    driver = r"""
+set -eu
+log_error() { echo "$*" >&2; }
+uv() {
+    printf '%s\n' "$*" >> "$UV_TEST_CALLS"
+    if [ "$1" = --version ]; then
+        [ "$UV_TEST_VERSION" != unavailable ] || return 127
+        printf 'uv %s (test build)\n' "$UV_TEST_VERSION"
+    fi
+}
+"""
+    driver += _shell_function("require_patched_uv") + _shell_function("pip_download")
+    result = subprocess.run(
+        ["bash", "-c", driver + "\npip_download fixture.whl\n"],
+        env={**os.environ, "UV_TEST_VERSION": version, "UV_TEST_CALLS": str(log)},
+        capture_output=True,
+        text=True,
+    )
+    calls = log.read_text().splitlines()
+    if allowed:
+        assert result.returncode == 0, result.stderr
+        assert calls == [
+            "--version",
+            "run --no-project --with pip==26.2.2 python -m pip download fixture.whl",
+        ]
+    else:
+        assert result.returncode != 0
+        assert calls == ["--version"]
+        assert "uv >=0.13.4 is required" in result.stderr
+
+
+def test_installer_packaging_rejects_old_uv_before_building(tmp_path: Path) -> None:
+    installer = tmp_path / "installer"
+    installer.mkdir()
+    (installer / "pyproject.toml").touch()
+    log = tmp_path / "uv-calls"
+    driver = r"""
+set -eu
+log_info() { :; }
+log_error() { echo "$*" >&2; }
+uv() {
+    printf '%s\n' "$*" >> "$UV_TEST_CALLS"
+    printf 'uv 0.13.3\n'
+}
+"""
+    driver += _shell_function("require_patched_uv") + _shell_function("package_installer")
+    result = subprocess.run(
+        ["bash", "-c", driver + "\npackage_installer\n"],
+        env={**os.environ, "REPO_ROOT": str(tmp_path), "UV_TEST_CALLS": str(log)},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert log.read_text().splitlines() == ["--version"]
+    assert "uv >=0.13.4 is required" in result.stderr
