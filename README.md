@@ -376,12 +376,17 @@ OpenAPI specs live in [docs/api-specs](docs/api-specs/README.md). Run `make open
 
 ## Go API Bindings
 
-Generated Go clients for the Temporal, Config Store, ZTP, Render, and DHCP APIs live in
-[`bindings/go`](bindings/go/README.md). Install a specific platform release with:
+Generated Go clients for the Temporal, Config Store, ZTP, Render, and DHCP APIs
+live in [`bindings/go`](bindings/go/README.md). After the stable 1.4.0 release
+containing the corrected module path is published, install it with:
 
 ```bash
-go get github.com/nvidia/nv-config-manager/bindings/go@v1.3.0
+go get github.com/dsx-ai-factory/nv-config-manager/bindings/go@v1.4.0
 ```
+
+Earlier tags declare the previous module path. Refer to the
+[Go bindings README](bindings/go/README.md) for release-candidate and migration
+guidance.
 
 Each service is a separate package. For example, the Temporal client uses the generated request
 builder and bearer-token context:
@@ -390,7 +395,7 @@ builder and bearer-token context:
 import (
     "context"
 
-    "github.com/nvidia/nv-config-manager/bindings/go/temporal"
+    "github.com/dsx-ai-factory/nv-config-manager/bindings/go/temporal"
 )
 
 ctx := context.WithValue(context.Background(), temporal.ContextAccessToken, accessToken)
