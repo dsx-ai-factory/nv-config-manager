@@ -122,6 +122,8 @@ class TestNVConfigManagerInstallConfig:
         [
             "app",
             "component",
+            "instance",
+            "job",
             "app.kubernetes.io/name",
             "app.kubernetes.io/owner",
             "helm.sh/chart",

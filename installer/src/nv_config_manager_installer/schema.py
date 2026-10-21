@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 _KUBERNETES_NAMESPACE_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
 _KUBERNETES_LABEL_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$")
 _KUBERNETES_DNS_LABEL_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
-_RESERVED_CUSTOM_LABEL_KEYS = frozenset({"app", "component"})
+_RESERVED_CUSTOM_LABEL_KEYS = frozenset({"app", "component", "instance", "job"})
 _RESERVED_CUSTOM_LABEL_PREFIXES = ("app.kubernetes.io/", "helm.sh/")
 
 # ---------------------------------------------------------------------------
