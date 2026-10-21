@@ -69,6 +69,49 @@ Open the workflow API at `https://workflow.<hostname>/docs` and Temporal Web at 
 
 For normal operator actions, use the Config Manager UI. Use Temporal Web for detailed workflow event history, retries, payload inspection, and child workflow troubleshooting. See [Which Interface Should I Use?](../getting-started/interfaces.mdx).
 
+## Workflow Plugins
+
+Set `temporal.workflowPlugins.enabled` to install workflow plugins without rebuilding the service image. This needs a service image from NVCM 1.4.0 or later. The worker, the workflow API, the scheduler host, and the MCP server each install the same plugins in init containers, because each builds the workflow registry at startup.
+
+Each plugin ships as an image that holds the plugin wheel under `/plugin-wheels`:
+
+```yaml
+temporal:
+  workflowPlugins:
+    enabled: true
+    images:
+      - name: acme
+        image: registry.example.com/acme-workflows@sha256:<digest>
+      - name: contoso
+        image: registry.example.com/contoso-workflows@sha256:<digest>
+    rbac:
+      - name: AcmeWorkflow
+        read_roles: [all]
+        execute_roles: [network-admin]
+```
+
+Three init containers run in order:
+
+1. A copy container per plugin image puts its wheels into a shared volume.
+2. `install-workflow-plugins` installs them with `pip install --no-index --no-deps` into `/opt/workflow-plugins`, which the process adds to `PYTHONPATH`.
+3. `verify-workflow-plugins` runs in the service image. It fails the pod before the main container starts when a wheel shadows a package or top-level module in the service image, when no wheel declares an `nv_config_manager.workflows` entry point, when the service image predates plugin support, or when the registry cannot load a declared plugin. It also sees `/opt/dcim-providers` when `dcim.providerPackages` is enabled.
+
+All three init containers run as a non-root user with all capabilities dropped.
+
+Include a wheel only for the plugin and for dependencies the service image lacks. Packages that ship in the service image, such as `nv-config-manager-workflows`, must not appear in the plugin image, or the verify step rejects them.
+
+Plugin code runs in the worker and API with their credentials and access to Nautobot and devices. Pin plugin images by digest and review them as you would platform code.
+
+Every plugin workflow that has an API endpoint needs a row, or its endpoint returns 403. List the rows under `temporal.workflowPlugins.rbac`. The chart appends them to `rbac.workflows` and rolls the API and scheduler pods when they change. A row that repeats a name already in `rbac.workflows` fails the render. `rbac` must be set, because the plugin rows add to the platform rows and do not replace them.
+
+Verify that all four processes loaded the same plugins by comparing the `Workflow registry manifest` fingerprint in their logs:
+
+```bash
+for component in temporal-api temporal-nv-config-manager-worker temporal-scheduler mcp; do
+  kubectl logs -n <namespace> deploy/<release>-$component | grep -E 'Loaded workflow plugin|Workflow registry manifest'
+done
+```
+
 ## Workflow Schedulers
 
 The `<release>-temporal-scheduler` Deployment runs the scheduler host. The host discovers every scheduler contributed by the built-in workflows package and installed workflow plugins, then runs only the schedulers selected in Helm values. Installing or upgrading a plugin never starts a scheduler on its own.

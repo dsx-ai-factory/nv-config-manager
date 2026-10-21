@@ -16,11 +16,38 @@ Usage in Deployment annotation:
 */}}
 
 {{/*
+RBAC with workflow plugin rows appended to rbac.workflows.
+Plugin rows add to the platform rows. A repeated workflow name fails the render
+so that two sources never disagree about the roles of one workflow.
+*/}}
+{{- define "nv-config-manager.mergedRbac" -}}
+{{- $rbac := deepCopy .Values.rbac -}}
+{{- $pluginRows := .Values.temporal.workflowPlugins.rbac | default list -}}
+{{- $names := dict -}}
+{{- range ($rbac.workflows | default list) -}}
+{{- $_ := set $names .name true -}}
+{{- end -}}
+{{- range $pluginRows -}}
+{{- if not (and .name (hasKey . "read_roles") (hasKey . "execute_roles")) -}}
+{{- fail "temporal.workflowPlugins.rbac[] entries require name, read_roles, and execute_roles" -}}
+{{- end -}}
+{{- if hasKey $names .name -}}
+{{- fail (printf "temporal.workflowPlugins.rbac repeats workflow %q, which rbac.workflows already defines" .name) -}}
+{{- end -}}
+{{- $_ := set $names .name true -}}
+{{- end -}}
+{{- if $pluginRows -}}
+{{- $_ := set $rbac "workflows" (concat ($rbac.workflows | default list) $pluginRows) -}}
+{{- end -}}
+{{- toYaml $rbac -}}
+{{- end -}}
+
+{{/*
 Temporal RBAC ConfigMap data
 */}}
 {{- define "nv-config-manager.configmap.temporal-rbac" -}}
 rbac.yaml: |
-{{- toYaml .Values.rbac | nindent 2 }}
+{{- include "nv-config-manager.mergedRbac" . | nindent 2 }}
 {{- end -}}
 
 {{/*
