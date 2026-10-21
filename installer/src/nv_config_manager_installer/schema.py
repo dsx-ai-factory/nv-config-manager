@@ -638,6 +638,7 @@ class MonitoringConfig(BaseModel):
     @field_validator("grafana_url")
     @classmethod
     def _validate_grafana_url(cls, v: str) -> str:
+        """Validate an optional absolute HTTP(S) Grafana dashboard URL."""
         if not v:
             return v
         if any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in v) or any(
@@ -649,12 +650,14 @@ class MonitoringConfig(BaseModel):
             )
         try:
             parsed = urlsplit(v)
-            _port = parsed.port
+            port = parsed.port
         except ValueError as exc:
             raise ValueError("Grafana URL must be a valid absolute HTTP(S) URL") from exc
         if (
             parsed.scheme not in {"http", "https"}
             or not parsed.hostname
+            or not _is_valid_hostname_or_ip(parsed.hostname)
+            or port == 0
             or parsed.username is not None
             or parsed.password is not None
         ):
@@ -666,6 +669,7 @@ class MonitoringConfig(BaseModel):
     @field_validator("blackbox_exporter_url")
     @classmethod
     def _validate_blackbox_exporter_url(cls, v: str) -> str:
+        """Validate an optional Blackbox exporter host and port."""
         if not v:
             return v
         if (

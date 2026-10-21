@@ -1193,7 +1193,7 @@ class TestImagesInHelmValues:
 
 
 class TestMonitoringHelmValues:
-    def test_monitoring_urls_are_emitted(self):
+    def test_monitoring_urls_are_emitted(self) -> None:
         config = _make_config(
             infrastructure=InfrastructureConfig(
                 monitoring=MonitoringConfig(
@@ -1215,13 +1215,13 @@ class TestMonitoringHelmValues:
             "blackboxExporterUrl": "blackbox-exporter.monitoring.svc:9115",
         }
 
-    def test_empty_monitoring_urls_are_omitted(self):
+    def test_empty_monitoring_urls_are_omitted(self) -> None:
         values = _gen(_make_config())
 
         assert "grafanaUrl" not in values["monitoring"]
         assert "probes" not in values["monitoring"]
 
-    def test_blackbox_exporter_url_does_not_enable_monitoring(self):
+    def test_blackbox_exporter_url_does_not_enable_monitoring(self) -> None:
         config = _make_config(
             infrastructure=InfrastructureConfig(
                 monitoring=MonitoringConfig(
@@ -1237,7 +1237,7 @@ class TestMonitoringHelmValues:
         }
         assert "enabled" not in values["monitoring"]
 
-    def test_probe_template_quotes_blackbox_exporter_url(self):
+    def test_probe_template_quotes_blackbox_exporter_url(self) -> None:
         helper_template = (
             Path(__file__).resolve().parents[2] / "deploy" / "helm" / "templates" / "_helpers.tpl"
         ).read_text()

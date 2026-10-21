@@ -264,7 +264,7 @@ class TestNVConfigManagerInstallConfig:
             is True
         )
 
-    def test_monitoring_urls_yaml_roundtrip(self, tmp_path: Path):
+    def test_monitoring_urls_yaml_roundtrip(self, tmp_path: Path) -> None:
         path = tmp_path / "config.yaml"
         config = NVConfigManagerInstallConfig(
             infrastructure=InfrastructureConfig(
@@ -296,9 +296,11 @@ class TestNVConfigManagerInstallConfig:
             "https://user:password@grafana.example.com/d/overview",
             "https://grafana.example.com/a path",
             "https://grafana.example.com/{{notafunction}}",
+            "https://grafana..example.com/d/overview",
+            "https://grafana.example.com:0/d/overview",
         ],
     )
-    def test_monitoring_rejects_invalid_grafana_url(self, url: str):
+    def test_monitoring_rejects_invalid_grafana_url(self, url: str) -> None:
         with pytest.raises(ValueError, match="Grafana URL"):
             MonitoringConfig(grafana_url=url)
 
@@ -315,11 +317,11 @@ class TestNVConfigManagerInstallConfig:
             "-blackbox.monitoring.svc:9115",
         ],
     )
-    def test_monitoring_rejects_invalid_blackbox_exporter_url(self, url: str):
+    def test_monitoring_rejects_invalid_blackbox_exporter_url(self, url: str) -> None:
         with pytest.raises(ValueError, match="Blackbox exporter URL"):
             MonitoringConfig(blackbox_exporter_url=url)
 
-    def test_monitoring_urls_validate_assignment(self):
+    def test_monitoring_urls_validate_assignment(self) -> None:
         monitoring = MonitoringConfig()
 
         with pytest.raises(ValueError, match="Grafana URL"):
@@ -335,10 +337,10 @@ class TestNVConfigManagerInstallConfig:
             "[2001:db8::1]:9115",
         ],
     )
-    def test_monitoring_accepts_valid_blackbox_exporter_url(self, url: str):
+    def test_monitoring_accepts_valid_blackbox_exporter_url(self, url: str) -> None:
         assert MonitoringConfig(blackbox_exporter_url=url).blackbox_exporter_url == url
 
-    def test_yaml_omits_empty_monitoring_urls(self):
+    def test_yaml_omits_empty_monitoring_urls(self) -> None:
         data = yaml.safe_load(NVConfigManagerInstallConfig().to_yaml_str())
 
         monitoring = data["infrastructure"]["monitoring"]

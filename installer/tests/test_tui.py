@@ -231,7 +231,7 @@ async def test_infrastructure_disables_redis_metrics_for_external_redis():
 
 
 @pytest.mark.asyncio
-async def test_infrastructure_monitoring_urls_sync_and_collect():
+async def test_infrastructure_monitoring_urls_sync_and_collect() -> None:
     config = NVConfigManagerInstallConfig(
         infrastructure=InfrastructureConfig(
             monitoring=MonitoringConfig(
@@ -281,7 +281,7 @@ async def test_infrastructure_monitoring_urls_sync_and_collect():
     ],
 )
 @pytest.mark.asyncio
-async def test_invalid_monitoring_url_blocks_navigation(field_id: str, invalid_value: str):
+async def test_invalid_monitoring_url_blocks_navigation(field_id: str, invalid_value: str) -> None:
     config = NVConfigManagerInstallConfig()
     app = NVConfigManagerInstallerApp(config=config)
 
@@ -297,7 +297,41 @@ async def test_invalid_monitoring_url_blocks_navigation(field_id: str, invalid_v
 
 
 @pytest.mark.asyncio
-async def test_invalid_monitoring_url_blocks_save(tmp_path):
+async def test_invalid_monitoring_url_does_not_partially_update_config() -> None:
+    config = NVConfigManagerInstallConfig(
+        infrastructure=InfrastructureConfig(
+            monitoring=MonitoringConfig(
+                grafana_url="https://grafana.example.com/d/current",
+                blackbox_exporter_url="blackbox-current.monitoring.svc:9115",
+            ),
+        ),
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("infrastructure")
+        screen = app._screens["infrastructure"]
+        screen.query_one(
+            "#monitoring-grafana-url", Input
+        ).value = "https://grafana.example.com/d/new"
+        screen.query_one(
+            "#monitoring-blackbox-exporter-url", Input
+        ).value = "https://blackbox.example.com:9115"
+
+        app.switch_section("services")
+
+        assert app.active_section == "infrastructure"
+        assert (
+            config.infrastructure.monitoring.grafana_url == "https://grafana.example.com/d/current"
+        )
+        assert (
+            config.infrastructure.monitoring.blackbox_exporter_url
+            == "blackbox-current.monitoring.svc:9115"
+        )
+
+
+@pytest.mark.asyncio
+async def test_invalid_monitoring_url_blocks_save(tmp_path) -> None:
     config = NVConfigManagerInstallConfig()
     config_path = tmp_path / "nv-config-manager-install.yaml"
     app = NVConfigManagerInstallerApp(config=config, config_path=config_path)

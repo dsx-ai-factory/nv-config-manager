@@ -336,12 +336,15 @@ class InfraScreen(Container):
                 severity="error",
                 markup=False,
             )
-        infra.monitoring.grafana_url = self.query_one(
+        proposed_monitoring = infra.monitoring.model_copy()
+        proposed_monitoring.grafana_url = self.query_one(
             "#monitoring-grafana-url", Input
         ).value.strip()
-        infra.monitoring.blackbox_exporter_url = self.query_one(
+        proposed_monitoring.blackbox_exporter_url = self.query_one(
             "#monitoring-blackbox-exporter-url", Input
         ).value.strip()
+        infra.monitoring.grafana_url = proposed_monitoring.grafana_url
+        infra.monitoring.blackbox_exporter_url = proposed_monitoring.blackbox_exporter_url
         infra.monitoring.observability_enabled = self.query_one(
             "#monitoring-observability-enabled", LabeledSwitch
         ).value
