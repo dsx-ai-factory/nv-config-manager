@@ -546,6 +546,8 @@ def _format_single_interface_row(
             device_name, interface_name, device_rack_pos, intended_device_name, intended, actual
         )
 
+    row.intended_interface_label = intended.label if intended else None
+    row.lldp_port_description = actual.port_description
     row.id_ = CableValidationRow.compute_id(row)
     return row
 

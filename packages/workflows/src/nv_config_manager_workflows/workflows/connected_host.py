@@ -28,6 +28,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
 from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+from nv_config_manager_workflows.markdown import escape_markdown_cell
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
 from nv_config_manager_workflows.stage import (
     StageInput,
@@ -75,13 +76,6 @@ __all__ = [
     "ConnectedHostWorkflowInput",
     "interface_sort_key",
 ]
-
-
-def _metadata_markdown(value: str | None) -> str:
-    """Keep metadata inside one table cell while preserving the stored value."""
-    if not value:
-        return "--"
-    return " ".join(value.splitlines()).replace("\\", "\\\\").replace("|", r"\|")
 
 
 def interface_sort_key(interface_name: str) -> tuple[str, list[int]]:
@@ -286,12 +280,12 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
                 "Neighbor Interface": neighbor.name or "--",
                 **(
                     {
-                        "Intended Interface Label": _metadata_markdown(
+                        "Intended Interface Label": escape_markdown_cell(
                             intended.label
                             if (intended := intended_neighbor_data.neighbors.get(interface))
                             else None
                         ),
-                        "LLDP Port Description": _metadata_markdown(neighbor.port_description),
+                        "LLDP Port Description": escape_markdown_cell(neighbor.port_description),
                     }
                     if include_lane_metadata
                     else {}
@@ -477,10 +471,10 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
                 "Connected Interface": row.connected_interface or "--",
                 **(
                     {
-                        "Intended Interface Label": _metadata_markdown(
+                        "Intended Interface Label": escape_markdown_cell(
                             row.intended_interface_label
                         ),
-                        "LLDP Port Description": _metadata_markdown(row.lldp_port_description),
+                        "LLDP Port Description": escape_markdown_cell(row.lldp_port_description),
                     }
                     if stage_input.include_lane_metadata
                     else {}

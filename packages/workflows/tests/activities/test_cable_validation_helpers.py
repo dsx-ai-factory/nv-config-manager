@@ -24,6 +24,7 @@ from nv_config_manager_workflows.activities.cable_validation.helpers import (
     _build_host_summary,
     _classify_issue,
     _format_results_markdown,
+    _format_single_interface_row,
     _generate_csv_link,
     _generate_xlsx_link,
 )
@@ -33,8 +34,10 @@ from nv_config_manager_workflows.activities.cable_validation.models import (
     MARKDOWN_EXCLUDE_COLUMNS,
     CableValidationResultData,
     CableValidationRow,
+    InvalidCable,
     _escape_formula,
 )
+from nv_config_manager_workflows.clients.device.models import InterfaceNeighborData
 
 
 def _row(
@@ -61,6 +64,99 @@ def _decode_csv(link: str) -> pd.DataFrame:
     encoded = link.split("base64,", 1)[1].rstrip(")")
     csv_text = base64.b64decode(encoded).decode("utf-8")
     return pd.read_csv(io.StringIO(csv_text), dtype=str, keep_default_na=False)
+
+
+class TestLaneMetadata:
+    """Keep intended labels and observed descriptions visible in every report format."""
+
+    @pytest.mark.parametrize("issue_kind", ["lldp", "mac", "down", "missing", "unexpected"])
+    def test_issue_rows_preserve_lane_metadata(self, issue_kind: str) -> None:
+        """Carry metadata through every cable issue category without replacing port IDs."""
+        intended = InterfaceNeighborData(
+            name="eth1",
+            device_name="su02-hyperreach-host",
+            label="C1-2-L1",
+            macs=["00-00-00-00-00-01"] if issue_kind == "mac" else [],
+        )
+        actual = InterfaceNeighborData(
+            name=None if issue_kind == "missing" else "A56p0",
+            device_name="su02-hyperreach-host",
+            port_description="su02-hyperreach-host WRONG-LANE",
+            link_up=issue_kind != "down",
+            macs=["00-00-00-00-00-02"] if issue_kind == "mac" else [],
+        )
+        row = _format_single_interface_row(
+            "su01-cin-leaf-r01",
+            None,
+            "swp2",
+            InvalidCable(intended=None if issue_kind == "unexpected" else intended, actual=actual),
+        )
+
+        assert row is not None
+        assert row.intended_interface_label == (None if issue_kind == "unexpected" else "C1-2-L1")
+        assert row.lldp_port_description == "su02-hyperreach-host WRONG-LANE"
+        if issue_kind == "lldp":
+            assert row.intended_end_port == "eth1"
+            assert row.actual_end_port == "A56p0"
+
+    @pytest.mark.parametrize("export", ["csv", "xlsx"])
+    @pytest.mark.parametrize(
+        ("label", "description", "label_display", "description_display"),
+        [
+            (
+                "C1-2-L1",
+                "su02-hyperreach-host WRONG-LANE",
+                "C1-2-L1",
+                "su02-hyperreach-host WRONG-LANE",
+            ),
+            ("C1|2\r\nL1", "host\\|tray\nWRONG-LANE", r"C1\|2 L1", r"host\\\|tray WRONG-LANE"),
+        ],
+    )
+    def test_metadata_is_readable_in_markdown_and_preserved_in_downloads(
+        self,
+        export: str,
+        label: str,
+        description: str,
+        label_display: str,
+        description_display: str,
+    ) -> None:
+        """Escape table delimiters for display and preserve raw metadata in CSV and Excel."""
+        row = CableValidationRow.model_validate(
+            {
+                "start_device": "su01-cin-leaf-r01",
+                "start_port": "swp2",
+                "intended_end_port": "eth1",
+                "intended_interface_label": label,
+                "actual_end_port": "A56p0",
+                "lldp_port_description": description,
+                "issue": "Incorrect cabling, actual should match intended. Based on LLDP data",
+            }
+        )
+
+        markdown = _format_results_markdown(
+            [row], CSV_EXCLUDE_COLUMNS, MARKDOWN_EXCLUDE_COLUMNS, export=export
+        )
+        link, table = markdown.split("\n", 1)
+        detail = _decode_csv(link) if export == "csv" else _decode_workbook(link)["Cable Issues"]
+
+        assert "Intended Interface Label" in table
+        assert "LLDP Port Description" in table
+        assert label_display in table
+        assert description_display in table
+        assert len(table.splitlines()) == 3
+        assert detail.iloc[0]["Intended Interface Label"] == label
+        assert detail.iloc[0]["LLDP Port Description"] == description
+        assert detail.iloc[0]["Intended End Port"] == "eth1"
+        assert detail.iloc[0]["Actual End Port"] == "A56p0"
+        assert row.intended_interface_label == label
+        assert row.lldp_port_description == description
+
+    def test_missing_metadata_has_a_placeholder(self) -> None:
+        """Older and non-LLDP findings remain displayable without metadata."""
+        row = _row("switch", "Link is down.")
+
+        assert row.to_markdown()["Intended Interface Label"] == "--"
+        assert row.to_markdown()["LLDP Port Description"] == "--"
 
 
 class TestClassifyIssue:

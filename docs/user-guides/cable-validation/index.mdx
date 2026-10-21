@@ -157,7 +157,7 @@ Use this for site bringup or any time you need a full-site view.
 
    ![Report link](../../assets/images/cable-validation-report-link.png)
 
-   ![Report example](../../assets/images/cable-validation-report-example.png)
+   See [Interpreting the report](#interpreting-the-report) for the result columns and a hyper-reach mismatch example.
 
 1. Address any issues, then re-run the workflow to confirm they are resolved.
 
@@ -232,6 +232,14 @@ The workflow's final output is a `DeviceCableValidationResult` whose `interfaces
 ### Actual vs. Intended
 
 The results in the report show the device/port pair being validated (Start Device/Port) and then what the intended connection should be (based on what is in the DCIM) compared to the actual observed connection on the device.
+
+**Intended Interface Label** shows the far-end interface label from the DCIM. **LLDP Port Description** shows the neighbor's advertised description. Both appear in device and site reports, including CSV and Excel downloads; missing values appear as `--`. Interface names remain visible alongside this metadata.
+
+For example, this finding exposes the wrong lane while preserving the intended and observed interface names:
+
+| Start Port | Intended End Port | Intended Interface Label | Actual End Port | LLDP Port Description |
+| :--------- | :---------------- | :----------------------- | :-------------- | :-------------------- |
+| swp2 | eth1 | C1-2-L1 | A56p0 | su02-hyperreach-host WRONG-LANE |
 
 ### Issue
 
