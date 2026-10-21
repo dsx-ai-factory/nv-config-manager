@@ -14,7 +14,7 @@ The workflow runs directly from the Config Manager UI for ad-hoc backups, on a s
 
 Before running a backup, confirm the following are in place:
 
-- **Device exists in the configured DCIM** with a primary IPv4, platform, and the access and configuration data required by that platform. The workflow resolves the provider's device identifier before connecting. With Nautobot, this is the device UUID.
+- **Device exists in the configured DCIM** with a platform, a supported management address, and the access and configuration data required by that platform. Use a primary IPv4 or IPv6 for Arista EOS, MLNX-OS, or Juniper Junos, and a primary IPv4 for Cumulus Linux or NV-OS. The workflow resolves the provider's device identifier before connecting. With Nautobot, this is the device UUID.
 - **Device is reachable** from Config Manager over the management network, and credentials for the device are present in the secrets store. The workflow uses NVUE to pull the running configuration on Cumulus Linux devices.
 - **Intended configuration is available** for the device — that is, the [Render Service](../../render/index.mdx) has produced a rendered config in the Config Store. Drift detection compares the running config against this rendered output. If no intended config exists yet, drift detection will fail.
 - **Device ID and platform are available** from the DCIM provider. Config Manager derives the backup path from the device ID and the platform's configuration filename, writes the snapshot to the Config Store, and records its metadata through the provider.

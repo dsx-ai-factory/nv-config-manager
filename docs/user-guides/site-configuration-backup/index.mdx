@@ -12,7 +12,7 @@ Use this workflow when you need a fresh site-wide backup outside the normal sche
 
 Before running, confirm the following are in place for the devices you expect to include:
 
-- **Devices exist in the configured DCIM** with primary IPv4, platform, and managed status. The workflow resolves the device list through the provider using your site, role, status, and tenant filters.
+- **Devices exist in the configured DCIM** with a platform, a supported management address, and managed status. Use a primary IPv4 or IPv6 for Arista EOS or Juniper Junos, and a primary IPv4 for Cumulus Linux or NV-OS. The workflow resolves the device list through the provider using your site, role, status, and tenant filters.
 - **Devices are reachable** from Config Manager on their management addresses, and credentials are current in the secrets store.
 - **Intended configurations are available** in the [Config Store](../../config-store/index.mdx) for the devices being backed up. Each child compares running config against the rendered intent.
 - **Device IDs and platforms are available** from the DCIM provider. Config Manager derives each backup path from the device ID and the platform's configuration filename.
