@@ -1271,8 +1271,14 @@ plugin cannot shadow a package that ships in the service image.
 {{- if not .Values.temporal.workflowPlugins.images -}}
 {{- fail "temporal.workflowPlugins.images is required when temporal.workflowPlugins.enabled is true" -}}
 {{- end -}}
+{{- $seen := dict }}
 {{- range .Values.temporal.workflowPlugins.images }}
-{{- $name := required "temporal.workflowPlugins.images[].name is required" .name | lower | replace "_" "-" | trunc 45 | trimSuffix "-" }}
+{{- /* Container names are limited to 63 characters, minus the 21-character "copy-workflow-plugin-" prefix. */}}
+{{- $name := required "temporal.workflowPlugins.images[].name is required" .name | lower | replace "_" "-" | trunc 42 | trimSuffix "-" }}
+{{- if hasKey $seen $name }}
+{{- fail (printf "temporal.workflowPlugins.images[].name %q collides with another image after normalizing and truncating to 42 characters" $name) }}
+{{- end }}
+{{- $_ := set $seen $name true }}
 - name: copy-workflow-plugin-{{ $name }}
   image: {{ required "temporal.workflowPlugins.images[].image is required" .image }}
   imagePullPolicy: {{ .pullPolicy | default "IfNotPresent" }}
@@ -1304,14 +1310,21 @@ plugin cannot shadow a package that ships in the service image.
   args:
   - |
     set -e
-    for package_dir in /opt/workflow-plugin-packages/*; do
-      if [ ! -d "$package_dir/wheels" ]; then
-        continue
+    # One pip call for all wheels, because separate --target installs skip
+    # a top-level directory that an earlier wheel already created, which
+    # drops modules of plugins that share a namespace package.
+    set --
+    for wheel in /opt/workflow-plugin-packages/*/wheels/*.whl; do
+      if [ -e "$wheel" ]; then
+        set -- "$@" "$wheel"
       fi
-      echo "Installing offline workflow plugin wheels from $package_dir/wheels"
-      pip install --no-index --no-deps --target=/opt/workflow-plugins "$package_dir"/wheels/*.whl
     done
-    test -d /opt/workflow-plugins
+    if [ "$#" -eq 0 ]; then
+      echo "No workflow plugin wheels found under /opt/workflow-plugin-packages" >&2
+      exit 1
+    fi
+    echo "Installing $# offline workflow plugin wheels"
+    pip install --no-index --no-deps --target=/opt/workflow-plugins "$@"
   volumeMounts:
   - name: workflow-plugins-source
     mountPath: /opt/workflow-plugin-packages

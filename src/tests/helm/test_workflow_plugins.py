@@ -313,6 +313,102 @@ def test_verify_step_rejects_a_module_that_shadows_a_service_module(
     assert "shadow packages in the service image: pydantic" in result.stderr
 
 
+def _run_install_script(
+    deployment: dict[str, Any], tmp_path: Path, wheels: dict[str, list[str]]
+) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
+    """Run the rendered install script with a recording stand-in for pip."""
+    packages = tmp_path / "packages"
+    for image, names in wheels.items():
+        wheel_dir = packages / image / "wheels"
+        wheel_dir.mkdir(parents=True)
+        for name in names:
+            (wheel_dir / name).write_bytes(b"")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "pip-calls"
+    pip = bin_dir / "pip"
+    pip.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" >> {calls}\necho --- >> {calls}\n')
+    pip.chmod(0o755)
+
+    script = _init_containers(deployment)["install-workflow-plugins"]["args"][0]
+    script = script.replace("/opt/workflow-plugin-packages", str(packages))
+    script = script.replace("/opt/workflow-plugins", str(tmp_path / "installed"))
+    result = subprocess.run(
+        ["/bin/sh", "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": f"{bin_dir}:/usr/bin:/bin"},
+    )
+    if not calls.exists():
+        return result, []
+    invocations = calls.read_text().split("---\n")[:-1]
+    return result, [invocation.split() for invocation in invocations]
+
+
+def test_install_step_installs_all_plugin_wheels_in_one_pip_call(tmp_path: Path) -> None:
+    deployment = _render(*_ENABLE, *_SECOND_PLUGIN)["worker"]
+
+    result, calls = _run_install_script(
+        deployment,
+        tmp_path,
+        {"acme": ["acme_a-1.0-py3-none-any.whl"], "contoso": ["acme_b-1.0-py3-none-any.whl"]},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert len(calls) == 1
+    wheel_args = [arg for arg in calls[0] if arg.endswith(".whl")]
+    assert sorted(Path(arg).name for arg in wheel_args) == [
+        "acme_a-1.0-py3-none-any.whl",
+        "acme_b-1.0-py3-none-any.whl",
+    ]
+    assert {"--no-index", "--no-deps"} <= set(calls[0])
+
+
+def test_install_step_fails_when_no_wheels_were_copied(tmp_path: Path) -> None:
+    deployment = _render(*_ENABLE)["worker"]
+
+    result, calls = _run_install_script(deployment, tmp_path, {})
+
+    assert result.returncode != 0
+    assert calls == []
+    assert "No workflow plugin wheels found" in result.stderr
+
+
+_LONG_NAME = "a" * 60
+_COPY_PREFIX = "copy-workflow-plugin-"
+_MAX_CONTAINER_NAME = 63
+
+
+def test_long_plugin_names_still_give_valid_container_names() -> None:
+    values = (
+        "temporal.workflowPlugins.enabled=true",
+        f"temporal.workflowPlugins.images[0].name={_LONG_NAME}",
+        *_PLUGIN_IMAGE,
+    )
+
+    for label, deployment in _render(*values).items():
+        copy_names = [
+            name for name in _init_containers(deployment) if name.startswith(_COPY_PREFIX)
+        ]
+        assert len(copy_names) == 1, label
+        assert len(copy_names[0]) <= _MAX_CONTAINER_NAME, label
+
+
+def test_plugin_names_that_collide_after_truncation_are_rejected() -> None:
+    prefix = "b" * 42
+    result = _run(
+        "temporal.workflowPlugins.enabled=true",
+        f"temporal.workflowPlugins.images[0].name={prefix}one",
+        "temporal.workflowPlugins.images[0].image=registry.example.com/one:1",
+        f"temporal.workflowPlugins.images[1].name={prefix}two",
+        "temporal.workflowPlugins.images[1].image=registry.example.com/two:1",
+    )
+
+    assert result.returncode != 0
+    assert "collides with another image" in result.stderr
+
+
 def _security_context(container: dict[str, Any]) -> dict[str, Any]:
     return container["securityContext"]
 
