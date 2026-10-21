@@ -1279,12 +1279,60 @@ copy_deployment_files() {
 
 
 pip_download() {
-    if command -v pip &>/dev/null; then
-        pip download "$@"
+    uv run --no-project --with 'pip==26.2.2' python -m pip download "$@"
+}
+
+# Pin the release and verify its published SHA-256 before extracting any files.
+# https://github.com/astral-sh/uv/releases/tag/0.13.4
+download_installer_uv() {
+    local installer_dest="$1"
+    local arch="$2"
+    local uv_version="0.13.4"
+    local uv_arch uv_sha256
+    case "$arch" in
+        amd64)
+            uv_arch="x86_64-unknown-linux-gnu"
+            uv_sha256="2b428396f12572d4429cf210ca234dd599a33b3af0958a4d5ed569d63e3f344f"
+            ;;
+        arm64)
+            uv_arch="aarch64-unknown-linux-gnu"
+            uv_sha256="1ae72b4718729e2ccc4f1ae2c6d1e531ca8467800e0546e9130b3886023a60ab"
+            ;;
+        *) log_error "Unsupported uv architecture: $arch"; return 1 ;;
+    esac
+    local -a uv_checksum_command
+    if command -v sha256sum &>/dev/null; then
+        uv_checksum_command=(sha256sum -c -)
+    elif command -v shasum &>/dev/null; then
+        uv_checksum_command=(shasum -a 256 -c -)
     else
-        uv run --with pip python -m pip download "$@"
+        log_error "sha256sum or shasum is required to verify uv"
+        return 1
     fi
-    return $?
+    local uv_url="https://github.com/astral-sh/uv/releases/download/${uv_version}/uv-${uv_arch}.tar.gz"
+    local uv_stage
+    uv_stage=$(mktemp -d "${installer_dest}/.uv-${arch}.XXXXXX") || return 1
+    local uv_archive="$uv_stage/uv.tar.gz"
+    log_info "Downloading uv ${uv_version} for $arch..."
+    if ! curl -fsSL --output "$uv_archive" "$uv_url"; then
+        log_error "Failed to download uv for $arch"
+        rm -rf "$uv_stage"
+        return 1
+    fi
+    if ! printf '%s  %s\n' "$uv_sha256" "$uv_archive" | "${uv_checksum_command[@]}"; then
+        log_error "uv checksum verification failed for $arch"
+        rm -rf "$uv_stage"
+        return 1
+    fi
+    if ! tar -xz -f "$uv_archive" -C "$uv_stage" ||
+        ! mv "$uv_stage/uv-${uv_arch}/uv" "$installer_dest/uv-${arch}" ||
+        ! chmod +x "$installer_dest/uv-${arch}"; then
+        log_error "Failed to extract uv for $arch"
+        rm -rf "$uv_stage"
+        return 1
+    fi
+    rm -rf "$uv_stage"
+    log_success "Verified and packaged uv ${uv_version} for $arch"
 }
 
 package_installer() {
@@ -1378,28 +1426,9 @@ package_installer() {
         fi
     done
 
-    local uv_version
-    uv_version=$(uv --version 2>/dev/null | awk '{print $2}' || echo "0.7.0")
     for arch in amd64 arm64; do
-        local uv_arch
-        case "$arch" in
-            amd64) uv_arch="x86_64-unknown-linux-gnu" ;;
-            arm64) uv_arch="aarch64-unknown-linux-gnu" ;;
-            *) log_warn "Unsupported arch: $arch"; continue ;;
-        esac
-        local uv_url="https://github.com/astral-sh/uv/releases/download/${uv_version}/uv-${uv_arch}.tar.gz"
-        local uv_dest="$installer_dest/uv-${arch}"
-        log_info "Downloading uv binary for $arch..."
-        if curl -fsSL "$uv_url" | tar -xz -C "$installer_dest" 2>/dev/null; then
-            if mv "$installer_dest/uv-${uv_arch}/uv" "$uv_dest" && chmod +x "$uv_dest" && [[ -x "$uv_dest" ]]; then
-                rm -rf "$installer_dest/uv-${uv_arch}"
-                log_success "Downloaded uv for $arch"
-            else
-                log_warn "Failed to place uv binary for $arch"
-                rm -rf "$installer_dest/uv-${uv_arch}" "$uv_dest" 2>/dev/null || true
-            fi
-        else
-            log_warn "Failed to download uv for $arch (optional)"
+        if ! download_installer_uv "$installer_dest" "$arch"; then
+            return 1
         fi
     done
 

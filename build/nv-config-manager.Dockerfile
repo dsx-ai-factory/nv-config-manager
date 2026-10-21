@@ -102,6 +102,8 @@ USER 0:0
 RUN ["python", "-c", "import shutil; from pathlib import Path; [shutil.rmtree(p) for p in (Path('/etc/ssl/certs'), Path('/usr/share/ca-certificates')) if p.exists()]"]
 COPY --from=builder /etc/ssl/certs/ /etc/ssl/certs/
 COPY --from=builder /usr/share/ca-certificates/ /usr/share/ca-certificates/
+# Check the actual runtime bundle, including the affected cross-sign trust anchor.
+RUN ["python", "-c", "import hashlib, ssl; context = ssl.create_default_context(cafile='/etc/ssl/certs/ca-certificates.crt'); fingerprints = {hashlib.sha256(cert).hexdigest() for cert in context.get_ca_certs(binary_form=True)}; assert len(fingerprints) > 100, 'CA bundle is incomplete'; assert fingerprints.isdisjoint({'86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b', 'd7a7a0fb5d7e2731d771e9484ebcdef71d5f0c3e0a2948782bc83ee0ea699ef4'}), 'Affected emSign trust anchor remains in runtime bundle'"]
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
