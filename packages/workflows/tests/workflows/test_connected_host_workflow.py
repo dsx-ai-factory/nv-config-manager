@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -22,6 +23,7 @@ import pytest
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from temporalio import activity
 from temporalio.client import WorkflowHandle
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 
 from nv_config_manager_workflows.activities.dcim import (
@@ -80,6 +82,7 @@ MOCK_MAC_TABLE_VLAN_FILTER = DeviceMacTable(
 async def mock_get_network_device(
     activity_input: GetNetworkDeviceInput,
 ) -> GetNetworkDeviceOutput:
+    """Return a managed switch for discovery tests."""
     return GetNetworkDeviceOutput(
         device=NetworkDeviceData(
             id=activity_input.device_id,
@@ -96,11 +99,13 @@ async def mock_get_network_device(
 
 @activity.defn(name="get_device_mac_table")
 async def mock_get_device_mac_table(_: Any) -> DeviceMacTable:
+    """Return FDB entries with and without VLANs."""
     return MOCK_MAC_TABLE_VLAN_FILTER
 
 
 @activity.defn(name="get_device_actual_neighbors")
 async def mock_get_device_actual_neighbors(_: Any) -> DeviceNeighborData:
+    """Return observed neighbors, including a HyperReach port description."""
     return DeviceNeighborData(
         neighbors={
             "swp0": InterfaceNeighborData(
@@ -155,6 +160,7 @@ async def mock_get_device_actual_neighbors(_: Any) -> DeviceNeighborData:
 
 @activity.defn(name="get_device_intended_neighbors")
 async def mock_get_device_intended_neighbors(_: NetworkDeviceData) -> DeviceNeighborData:
+    """Return intended labels for observed and unobserved switch ports."""
     return DeviceNeighborData(
         neighbors={
             "swp52": InterfaceNeighborData(name="eth1", device_name="gpu-tray", label="C1-2-L1"),
@@ -163,8 +169,17 @@ async def mock_get_device_intended_neighbors(_: NetworkDeviceData) -> DeviceNeig
     )
 
 
+@activity.defn(name="get_device_intended_neighbors")
+async def mock_get_device_intended_neighbors_unavailable(
+    _: NetworkDeviceData,
+) -> DeviceNeighborData:
+    """Model a DCIM lookup failure that cannot be retried."""
+    raise ApplicationError("Intended-neighbor lookup unavailable", non_retryable=True)
+
+
 @activity.defn(name="get_host_data_by_macs")
 async def mock_get_host_data_by_macs(mac_addresses: list[str]) -> Any:
+    """Return inventory hosts for the observed MAC addresses."""
     entries = []
     for i, mac in enumerate(sorted(mac_addresses)):
         entries.append(
@@ -182,6 +197,7 @@ async def mock_get_host_data_by_macs(mac_addresses: list[str]) -> Any:
 
 @activity.defn(name="get_host_data_by_names")
 async def mock_get_host_data_by_names(device_names: list[str]) -> Any:
+    """Resolve LLDP names while leaving one host absent from inventory."""
     entries = []
     for i, name in enumerate(sorted(device_names)):
         if name == "server6.sitea.example.com":
@@ -202,15 +218,20 @@ async def mock_get_host_data_by_names(device_names: list[str]) -> Any:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("port_description", ["gpu-tray C1-2-L1", "different-tray WRONG-LANE"])
+@pytest.mark.parametrize("intended_lookup_fails", [False, True])
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow(
     mock_time: Any,
     mock_nats_client: Any,
     env: Any,
     port_description: str,
+    intended_lookup_fails: bool,
 ) -> None:
+    """Preserve discovery and observed descriptions when optional labels are unavailable."""
+
     @activity.defn(name="get_device_actual_neighbors")
     async def neighbors_with_description(device: Any) -> DeviceNeighborData:
+        """Supply matching or mismatched LLDP descriptions without validating them."""
         neighbors = await mock_get_device_actual_neighbors(device)
         neighbors.neighbors["swp52"].port_description = port_description
         return neighbors
@@ -224,7 +245,11 @@ async def test_execute_workflow(
             mock_get_network_device,
             mock_get_device_mac_table,
             neighbors_with_description,
-            mock_get_device_intended_neighbors,
+            (
+                mock_get_device_intended_neighbors_unavailable
+                if intended_lookup_fails
+                else mock_get_device_intended_neighbors
+            ),
             mock_get_host_data_by_macs,
             mock_get_host_data_by_names,
             publish_nats,
@@ -241,7 +266,7 @@ async def test_execute_workflow(
             run_timeout=timedelta(minutes=10),
         )
 
-        result = await handle.result()
+        result = await asyncio.wait_for(handle.result(), timeout=30)
 
         assert result
         stages = await handle.query("stages")
@@ -306,12 +331,17 @@ async def test_execute_workflow(
             "|swp51|[mock_neighbor4](mock_nb_url)|mock_neighbor4|--|Ethernet1/2|--|--|--|--|--|"
             in result_stripped
         )
-        assert "C1-2-L1" in neighbors_stage["output"]["display"]
+        expected_label = None if intended_lookup_fails else "C1-2-L1"
+        intended_neighbors = neighbors_stage["output"]["intended_neighbor_data"]["neighbors"]
+        if intended_lookup_fails:
+            assert intended_neighbors == {}
+        else:
+            assert intended_neighbors["swp52"]["label"] == expected_label
         assert port_description in neighbors_stage["output"]["display"]
         host_rows = {
             row["device_interface"]: row for row in host_data_stage["output"]["host_table"]
         }
-        assert host_rows["swp52"]["intended_interface_label"] == "C1-2-L1"
+        assert host_rows["swp52"]["intended_interface_label"] == expected_label
         assert host_rows["swp52"]["lldp_port_description"] == port_description
         assert host_rows["swp52"]["connected_interface"] == "A56p0"
         assert host_rows["swp0"]["intended_interface_label"] is None
@@ -334,18 +364,24 @@ async def test_execute_workflow(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("intended_lookup_fails", [False, True])
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow_no_data(
     mock_time: Any,
     mock_nats_client: Any,
     env: Any,
+    intended_lookup_fails: bool,
 ) -> None:
+    """Return the no-data result even when intended-neighbor enrichment fails."""
+
     @activity.defn(name="get_device_mac_table")
     async def mock_get_device_mac_table_empty(_: Any) -> DeviceMacTable:
+        """Return an empty FDB."""
         return DeviceMacTable(by_mac={}, by_interface={})
 
     @activity.defn(name="get_device_actual_neighbors")
     async def mock_get_device_actual_neighbors_empty(_: Any) -> DeviceNeighborData:
+        """Return an empty observed LLDP table."""
         return DeviceNeighborData(neighbors={}, link_states={})
 
     task_queue_name = str(uuid.uuid4())
@@ -357,7 +393,11 @@ async def test_execute_workflow_no_data(
             mock_get_network_device,
             mock_get_device_mac_table_empty,
             mock_get_device_actual_neighbors_empty,
-            mock_get_device_intended_neighbors,
+            (
+                mock_get_device_intended_neighbors_unavailable
+                if intended_lookup_fails
+                else mock_get_device_intended_neighbors
+            ),
             mock_get_host_data_by_macs,
             mock_get_host_data_by_names,
             publish_nats,
@@ -374,7 +414,7 @@ async def test_execute_workflow_no_data(
             run_timeout=timedelta(minutes=10),
         )
 
-        result = await handle.result()
+        result = await asyncio.wait_for(handle.result(), timeout=30)
 
         assert result == "No MAC addresses or LLDP neighbors found on device."
 

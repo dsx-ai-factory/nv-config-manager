@@ -25,6 +25,7 @@ from py_markdown_table.markdown_table import markdown_table
 from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
@@ -259,12 +260,17 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
         include_lane_metadata = workflow.patched(LANE_METADATA_PATCH_ID)
         intended_neighbor_data = DeviceNeighborData()
         if include_lane_metadata:
-            intended_neighbor_data = await workflow.execute_activity(
-                get_device_intended_neighbors,
-                device_data.device,
-                start_to_close_timeout=timedelta(minutes=1),
-                retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
-            )
+            try:
+                intended_neighbor_data = await workflow.execute_activity(
+                    get_device_intended_neighbors,
+                    device_data.device,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
+                )
+            except ActivityError:
+                self.logger.warning(
+                    "Unable to retrieve intended interface labels; continuing without labels."
+                )
 
         table_data = [
             {
