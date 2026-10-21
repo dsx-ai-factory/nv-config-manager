@@ -15,13 +15,20 @@
 """Temporal archive."""
 
 import argparse
+import base64
+import gzip
 import json
 import logging
 import os
+from datetime import UTC, datetime
 from typing import Any
 
+import boto3
+from elasticsearch import Elasticsearch
 from nats.aio.msg import Msg
+from requests_aws4auth import AWS4Auth  # type: ignore[import-untyped]
 
+from nv_config_manager.common.client.nvdataflow import NVDataflowClient
 from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.config.nats import nats_archive_config
 from nv_config_manager.common.log import configure_logging
@@ -36,31 +43,21 @@ ARCHIVE_BACKEND = (
     if "temporal.nvdataflow" in config and config["temporal.nvdataflow"].get("project")
     else "elasticsearch"
 )
-if ARCHIVE_BACKEND == "nvdataflow":
-    import base64
-    import gzip
-    from datetime import UTC, datetime
 
-    from nv_config_manager.common.client.nvdataflow import NVDataflowClient
-else:
-    import boto3  # type: ignore[import-untyped]
-    from elasticsearch import Elasticsearch
-    from requests_aws4auth import AWS4Auth  # type: ignore[import-untyped]
-
-    ELASTICSEARCH_INDEX_PREFIX = "workflow_results"
-    ELASTICSEARCH_INDEX_MAPPING = {
-        "dynamic": "false",
-        "properties": {
-            "@timestamp": {"type": "date"},
-            "start_time": {"type": "date"},
-            "close_time": {"type": "date"},
-            "started_by": {"type": "keyword"},
-            "status": {"type": "keyword"},
-            "config_manager_temporal_server": {"type": "keyword"},
-            "workflow_type": {"type": "keyword"},
-            "search_attributes": {"type": "object"},
-        },
-    }
+ELASTICSEARCH_INDEX_PREFIX = "workflow_results"
+ELASTICSEARCH_INDEX_MAPPING = {
+    "dynamic": "false",
+    "properties": {
+        "@timestamp": {"type": "date"},
+        "start_time": {"type": "date"},
+        "close_time": {"type": "date"},
+        "started_by": {"type": "keyword"},
+        "status": {"type": "keyword"},
+        "config_manager_temporal_server": {"type": "keyword"},
+        "workflow_type": {"type": "keyword"},
+        "search_attributes": {"type": "object"},
+    },
+}
 
 
 async def handle_archive_msg(msg: Msg) -> None:
