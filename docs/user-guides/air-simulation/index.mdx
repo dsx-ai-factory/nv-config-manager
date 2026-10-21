@@ -190,15 +190,17 @@ ports out of tenant-change tests.
    run [Cable Validation](../cable-validation/index.mdx); both `swp2` links
    should validate even though the observed port IDs differ from Nautobot's
    interface names.
-1. For a wrong-lane test, run this in the host console:
+1. For a metadata-difference test, run this in the host console:
 
    ```sh
-   sudo lldpcli configure ports A56p0 lldp portdescription "su02-hyperreach-host WRONG-LANE"
+   sudo lldpcli configure ports A56p0 lldp portdescription "su02-hyperreach-host A56p0"
    ```
 
    Wait for LLDP to refresh, then rerun validation. The first leaf's `swp2`
-   should fail identity validation, with `C1-2-L1` and `WRONG-LANE` visible in
-   the report. The second leaf's `swp2` should remain valid.
+   should fail identity validation, with `C1-2-L1` and `A56p0` visible in
+   the report and a generic LLDP mismatch issue. This flags differing metadata;
+   alternative naming conventions can refer to the same physical lane. The
+   second leaf's `swp2` should remain valid.
 1. Restore the persistent descriptions with `sudo systemctl restart lldpd`,
    wait for LLDP to refresh, and rerun validation.
 

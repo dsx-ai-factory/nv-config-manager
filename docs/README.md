@@ -38,9 +38,9 @@ parameters, capture workflow page states, and write PNGs to
 their matching directories under `docs/assets/images/`.
 
 `hyperreachReports.spec.ts` captures Connected Host Metadata results and the
-cable-validation report, including intended lane labels and observed LLDP port
-descriptions. Its sanitized fixtures cover a matching lane and a wrong-lane
-finding; the cable report fixture includes the formatter's Excel download.
+cable-validation report, including intended interface labels and observed LLDP port
+descriptions. Its sanitized fixtures cover matching metadata and differing naming
+conventions; the cable report fixture includes the formatter's Excel download.
 
 Live screenshots against `https://nvcm.air` are also possible when the browser
 is launched through the DSX Air SOCKS tunnel, but those are less reproducible

@@ -33,7 +33,7 @@ const examples = [
     description: STAGE_DESCRIPTION,
     display: reports.cableValidation,
     image: "cable-validation-report-example.png",
-    observedDescription: "su02-hyperreach-host WRONG-LANE",
+    observedDescription: "su02-hyperreach-host A56p0",
   },
   {
     id: "docs-hyperreach-connected-host",
@@ -81,7 +81,7 @@ test.beforeEach(async ({ page, baseURL }) => {
 });
 
 for (const example of examples) {
-  test(`captures ${example.workflowType} lane metadata`, async ({ page }) => {
+  test(`captures ${example.workflowType} interface metadata`, async ({ page }) => {
     const workflow: Workflow = {
       id: example.id,
       workflow_type: example.workflowType,
@@ -144,7 +144,7 @@ for (const example of examples) {
     if (example.workflowType === "SiteCableValidationWorkflow") {
       await expect(
         row.getByRole("cell", {
-          name: "Incorrect cabling: LLDP interface label mismatch (expected C1-2-L1, observed WRONG-LANE)",
+          name: "Incorrect cabling, actual should match intended. Based on LLDP data",
           exact: true,
         })
       ).toBeVisible();

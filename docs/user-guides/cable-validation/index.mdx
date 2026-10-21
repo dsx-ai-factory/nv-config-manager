@@ -237,13 +237,13 @@ The results in the report show the device/port pair being validated (Start Devic
 
 **Intended Interface Label** shows the far-end interface label from the DCIM. **LLDP Port Description** shows the neighbor's advertised description. Both appear in device and site reports, including CSV and Excel downloads. Missing metadata appears as `--` in the UI table and as blank cells in CSV and Excel downloads. Interface names remain visible alongside this metadata.
 
-For example, this finding exposes the wrong lane while preserving the intended and observed interface names:
+For example, this finding shows different metadata while preserving the intended and observed interface names:
 
 | Start Port | Intended End Port | Intended Interface Label | Actual End Port | LLDP Port Description |
 | :--------- | :---------------- | :----------------------- | :-------------- | :-------------------- |
-| swp2 | eth1 | C1-2-L1 | A56p0 | su02-hyperreach-host WRONG-LANE |
+| swp2 | eth1 | C1-2-L1 | A56p0 | su02-hyperreach-host A56p0 |
 
-The **Issue** identifies this as `Incorrect cabling: LLDP interface label mismatch (expected C1-2-L1, observed WRONG-LANE)`. This diagnosis applies when the description identifies the intended host but advertises a different lane label.
+The **Issue** remains generic: `Incorrect cabling, actual should match intended. Based on LLDP data`. Compare the intended fields with the observed port and description when investigating. Names such as `A56p0`, `eth_r0_0`, and `C1-2-L1` may identify the same physical lane under different naming conventions. Treat this finding as a difference from the source of truth that needs investigation, rather than proof of a wrong lane.
 
 ### Issue
 

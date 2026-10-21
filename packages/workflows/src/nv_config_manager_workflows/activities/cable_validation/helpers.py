@@ -434,24 +434,6 @@ def _row_mac_mismatch(
     )
 
 
-def _lldp_mismatch_issue(intended: InterfaceNeighborData, actual: InterfaceNeighborData) -> str:
-    """Explain label mismatches when the description identifies the intended host."""
-    parts = (actual.port_description or "").split()
-    intended_host = intended.chassis_name or intended.device_name
-    if (
-        intended.label
-        and intended_host
-        and len(parts) == 2
-        and parts[0].lower() == intended_host.lower()
-        and parts[1].lower() != intended.label.lower()
-    ):
-        return (
-            f"{INCORRECT_CABLING_PREFIX}: LLDP interface label mismatch "
-            f"(expected {intended.label}, observed {parts[1]})"
-        )
-    return "Incorrect cabling, actual should match intended. Based on LLDP data"
-
-
 def _row_lldp_mismatch(
     device_name: str,
     interface_name: str,
@@ -476,7 +458,7 @@ def _row_lldp_mismatch(
         intended_end_rack=_rack_position_str(intended.device_rack, intended.device_position),
         actual_end_device=_display_or_macs(actual_device_name, actual.macs),
         actual_end_port=_display_or_macs(actual.name, actual.macs),
-        issue=_lldp_mismatch_issue(intended, actual),
+        issue="Incorrect cabling, actual should match intended. Based on LLDP data",
         troubleshooting_info=actual.ts_info,
     )
 
