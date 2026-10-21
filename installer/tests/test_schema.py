@@ -137,6 +137,8 @@ class TestNVConfigManagerInstallConfig:
 
         with pytest.raises(ValueError, match="invalid Kubernetes label key"):
             cluster.custom_labels = {"invalid key": "true"}
+        with pytest.raises(ValueError, match="reserved custom label key"):
+            cluster.custom_labels = {"app": "test"}
 
     def test_yaml_omits_empty_cluster_custom_labels(self) -> None:
         data = yaml.safe_load(NVConfigManagerInstallConfig().to_yaml_str())
