@@ -33,7 +33,9 @@
 #
 # Or via the TUI installer: toggle "Enable local observability stack" on the
 # Infrastructure screen. The TUI auto-flips monitoring.enabled so the
-# PodMonitor resources in templates/monitoring.yaml are rendered.
+# PodMonitor resources in templates/monitoring.yaml are rendered. The deployer
+# applies this file as local-stack defaults before values-generated.yaml so
+# installer-configured monitoring endpoints take precedence.
 #
 # DO NOT use in shared clusters (nv-config-manager-qa, prod, or any cluster
 # with a separately managed production monitoring stack):

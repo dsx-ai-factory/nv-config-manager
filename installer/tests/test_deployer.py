@@ -1145,6 +1145,59 @@ class TestKindImageLoading:
 
 
 class TestHelmInstall:
+    def test_observability_defaults_precede_generated_values(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        logged_commands: list[list[str]] = []
+
+        def fake_run_logged(
+            cmd: list[str],
+            step: DeployStep,
+            callback: RecordingCallback,
+            **kwargs: object,
+        ) -> MagicMock:
+            logged_commands.append(cmd)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("nv_config_manager_installer.deployer._run_logged", fake_run_logged)
+
+        chart_dir = tmp_path / "helm"
+        chart_dir.mkdir()
+        observability_values = chart_dir / "values-observability.yaml"
+        observability_values.write_text(
+            "monitoring:\n"
+            "  grafanaUrl: http://localhost:3000/default\n"
+            "  probes:\n"
+            "    blackboxExporterUrl: blackbox-exporter:9115\n"
+        )
+        generated_values = tmp_path / "values-generated.yaml"
+        generated_values.write_text(
+            "monitoring:\n"
+            "  grafanaUrl: https://grafana.example.com/d/overview\n"
+            "  probes:\n"
+            "    blackboxExporterUrl: blackbox-exporter.monitoring.svc:9115\n"
+        )
+
+        config = _make_config()
+        config.cluster.airgapped = True
+        config.infrastructure.monitoring.observability_enabled = True
+        deployer = Deployer(
+            config,
+            DeployOptions(chart_dir=str(chart_dir)),
+            RecordingCallback(),
+        )
+        deployer._values_file = generated_values
+
+        deployer._helm_install()
+
+        helm_cmd = next(
+            cmd for cmd in logged_commands if cmd[:3] == ["helm", "upgrade", "--install"]
+        )
+        values_files = [helm_cmd[index + 1] for index, arg in enumerate(helm_cmd) if arg == "-f"]
+        assert values_files == [str(observability_values), str(generated_values)]
+
     def test_kind_deploy_does_not_enable_helm_debug_without_flag(self, monkeypatch, tmp_path):
         logged_commands: list[list[str]] = []
 

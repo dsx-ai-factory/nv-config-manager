@@ -2857,6 +2857,17 @@ class Deployer:
                 timeout=300,
             )
 
+        observability_values: Path | None = None
+        if self.config.infrastructure.monitoring.observability_enabled:
+            candidate = Path(chart) / "values-observability.yaml"
+            if candidate.exists():
+                observability_values = candidate
+                self.callback.on_log(
+                    "Layering values-observability.yaml (LOCAL-DEV observability stack)"
+                )
+            else:
+                self.callback.on_log(f"WARNING: observability enabled but {candidate} not found")
+
         helm_args = [
             "helm",
             "upgrade",
@@ -2865,12 +2876,18 @@ class Deployer:
             chart,
             "-n",
             ns,
-            "-f",
-            str(self._values_file),
-            "--wait",
-            "--timeout",
-            self.options.helm_timeout,
         ]
+        if observability_values is not None:
+            helm_args.extend(["-f", str(observability_values)])
+        helm_args.extend(
+            [
+                "-f",
+                str(self._values_file),
+                "--wait",
+                "--timeout",
+                self.options.helm_timeout,
+            ]
+        )
 
         if self.options.helm_debug:
             helm_args.append("--debug")
@@ -2880,20 +2897,6 @@ class Deployer:
 
         if self._should_reuse_existing_gateway_class():
             helm_args.extend(["--set", "gateway.createGatewayClass=false"])
-
-        # Local-dev metrics overlay (Prometheus + Alloy).
-        # See deploy/helm/values-observability.yaml for the LOCAL-DEV-ONLY warning.
-        if self.config.infrastructure.monitoring.observability_enabled:
-            observability_values = Path(chart) / "values-observability.yaml"
-            if observability_values.exists():
-                self.callback.on_log(
-                    "Layering values-observability.yaml (LOCAL-DEV observability stack)"
-                )
-                helm_args.extend(["-f", str(observability_values)])
-            else:
-                self.callback.on_log(
-                    f"WARNING: observability enabled but {observability_values} not found"
-                )
 
         debug_suffix = " --debug" if "--debug" in helm_args else ""
         self.callback.on_log(f"Running: helm upgrade --install {release}{debug_suffix} ...")
