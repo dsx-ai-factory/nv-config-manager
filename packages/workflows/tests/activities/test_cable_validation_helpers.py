@@ -263,6 +263,18 @@ class TestLldpGuidance:
                 id="matching-label",
             ),
             pytest.param({}, {"port_description": None}, NAMING, id="observed-port-id"),
+            pytest.param(
+                {},
+                {"port_description": None, "name": "00:11:22:33:44:66"},
+                GENERIC,
+                id="mac-port-id-without-description",
+            ),
+            pytest.param(
+                {},
+                {"port_description": "host 00:11:22:33:44:66"},
+                GENERIC,
+                id="mac-port-in-description",
+            ),
             pytest.param({}, {"port_description": "host"}, GENERIC, id="one-token"),
             pytest.param(
                 {},

@@ -481,6 +481,7 @@ def _lldp_mismatch_issue(intended: InterfaceNeighborData, actual: InterfaceNeigh
     if (
         not expected_port
         or not observed_port
+        or is_mac_address(observed_port)
         or not _C_NOTATION_LABEL.fullmatch(expected_port)
         or expected_port.casefold() == observed_port.casefold()
     ):
