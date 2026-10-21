@@ -25,6 +25,7 @@ from py_markdown_table.markdown_table import markdown_table
 from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
@@ -49,6 +50,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from nv_config_manager_workflows.activities.device import (
         get_device_actual_neighbors,
+        get_device_intended_neighbors,
         get_device_mac_table,
     )
     from nv_config_manager_workflows.clients.device.models import (
@@ -64,6 +66,7 @@ with workflow.unsafe.imports_passed_through():
 
 ACTIVITY_NO_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
+LANE_METADATA_PATCH_ID = "connected-host-lane-metadata-v1"
 
 __all__ = [
     "ACTIVITY_NO_RETRY_POLICY",
@@ -140,6 +143,7 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
     workflow_mcp_enabled = True
     workflow_required_activities = (
         get_device_actual_neighbors,
+        get_device_intended_neighbors,
         get_device_mac_table,
         get_host_data_by_macs,
         get_host_data_by_names,
@@ -230,6 +234,8 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
         """Device Neighbors Stage Output."""
 
         neighbor_data: DeviceNeighborData
+        intended_neighbor_data: DeviceNeighborData = Field(default_factory=DeviceNeighborData)
+        include_lane_metadata: bool = False
 
     @stage_executor("get_device_neighbors")
     async def get_device_neighbors(
@@ -250,11 +256,40 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
 
+        # Older histories must retain their activity sequence and table layout.
+        include_lane_metadata = workflow.patched(LANE_METADATA_PATCH_ID)
+        intended_neighbor_data = DeviceNeighborData()
+        if include_lane_metadata:
+            try:
+                intended_neighbor_data = await workflow.execute_activity(
+                    get_device_intended_neighbors,
+                    device_data.device,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
+                )
+            except ActivityError:
+                self.logger.warning(
+                    "Unable to retrieve intended interface labels; continuing without labels."
+                )
+
         table_data = [
             {
                 "Interface": interface,
                 "Neighbor Device": neighbor.device_name or "--",
                 "Neighbor Interface": neighbor.name or "--",
+                **(
+                    {
+                        "Intended Interface Label": (
+                            intended.label
+                            if (intended := intended_neighbor_data.neighbors.get(interface))
+                            and intended.label
+                            else "--"
+                        ),
+                        "LLDP Port Description": neighbor.port_description or "--",
+                    }
+                    if include_lane_metadata
+                    else {}
+                ),
                 "Link Status": "Up" if neighbor_data.link_states.get(interface, False) else "Down",
             }
             for interface, neighbor in sorted(
@@ -271,6 +306,8 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
         return ConnectedHostMetadataWorkflow.DeviceNeighborsStageOutput(
             display=markdown,
             neighbor_data=neighbor_data,
+            intended_neighbor_data=intended_neighbor_data,
+            include_lane_metadata=include_lane_metadata,
         )
 
     class ConnectedHostDataStageInput(StageInput):
@@ -278,6 +315,8 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
 
         mac_table: DeviceMacTable
         neighbor_data: DeviceNeighborData
+        intended_neighbor_data: DeviceNeighborData = Field(default_factory=DeviceNeighborData)
+        include_lane_metadata: bool = False
 
     class HostEntry(BaseModel):
         """Connected Host Entry."""
@@ -291,6 +330,8 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
         tenant: str | None
         url: str | None
         alias: str | None = None
+        intended_interface_label: str | None = None
+        lldp_port_description: str | None = None
 
     class ConnectedHostDataStageOutput(StageOutput):
         """Markdown output for connected host data."""
@@ -412,6 +453,12 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
                         neighbor_data.name if neighbor_data else None
                     )
                 host_entry["lldp_name"] = neighbor_data.device_name
+                host_entry["lldp_port_description"] = neighbor_data.port_description
+
+            intended_neighbor = stage_input.intended_neighbor_data.neighbors.get(interface_name)
+            host_entry["intended_interface_label"] = (
+                intended_neighbor.label if intended_neighbor else None
+            )
 
             host_entries.append(ConnectedHostMetadataWorkflow.HostEntry(**host_entry))
 
@@ -422,6 +469,14 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
                 "LLDP Name": row.lldp_name or "--",
                 "Alias": row.alias or "--",
                 "Connected Interface": row.connected_interface or "--",
+                **(
+                    {
+                        "Intended Interface Label": row.intended_interface_label or "--",
+                        "LLDP Port Description": row.lldp_port_description or "--",
+                    }
+                    if stage_input.include_lane_metadata
+                    else {}
+                ),
                 "MAC Address": format_mac(row.mac) if row.mac else "--",
                 "Tenant": row.tenant or "--",
                 "VLAN": row.vlan or "--",
@@ -461,6 +516,8 @@ class ConnectedHostMetadataWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMix
             ConnectedHostMetadataWorkflow.ConnectedHostDataStageInput(
                 mac_table=mac_table_output.mac_table,
                 neighbor_data=neighbor_output.neighbor_data,
+                intended_neighbor_data=neighbor_output.intended_neighbor_data,
+                include_lane_metadata=neighbor_output.include_lane_metadata,
             )
         )
         await self.archive_results()

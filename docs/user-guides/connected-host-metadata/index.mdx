@@ -32,7 +32,7 @@ After submission, a status page appears showing the three stages. A typical run 
 
 ## Execution stages
 
-The workflow runs three stages. The first two are independent and run in parallel; the third waits on both. None of the stages require manual approval.
+The workflow reads the FDB and LLDP data in the first two stages, then joins the results in the third. None of the stages require manual approval.
 
 1. **`get_device_mac_table` — Read the FDB from the device.**
 
@@ -40,7 +40,7 @@ The workflow runs three stages. The first two are independent and run in paralle
 
 1. **`get_device_neighbors` — Read the LLDP neighbor table from the device.**
 
-   Queries the device for its LLDP neighbors and renders (Interface, Neighbor Device, Neighbor Interface, Link Status). On an empty table the stage display reads "No LLDP neighbors found on device." rather than failing.
+   Queries the device for its LLDP neighbors and the DCIM for intended cable connections. Displays Interface, Neighbor Device, Neighbor Interface, Intended Interface Label, LLDP Port Description, and Link Status. On an empty LLDP table the stage display reads "No LLDP neighbors found on device." rather than failing.
 
 1. **`get_connected_host_data` — Join MAC + LLDP against Nautobot.**
 
@@ -49,11 +49,20 @@ The workflow runs three stages. The first two are independent and run in paralle
    - Looks up hosts by MAC via `get_host_data_by_macs`.
    - Looks up hosts by device name via `get_host_data_by_names` (used when the LLDP neighbor name resolves to a Nautobot host).
    - For each interface with multiple MAC candidates, prefers the entry whose MAC matches a known Nautobot host; otherwise prefers the youngest FDB entry.
-   - Emits a final table with columns: Network Interface, Host, LLDP Name, Alias, Connected Interface, MAC Address, Tenant, VLAN.
+   - Joins intended far-end interface labels by the local switch interface, so a different advertised port ID does not hide the expected label.
+   - Emits a final table with columns: Network Interface, Host, LLDP Name, Alias, Connected Interface, Intended Interface Label, LLDP Port Description, MAC Address, Tenant, VLAN.
 
      If both the FDB and LLDP stages returned empty data, this stage short-circuits to UNREACHABLE rather than running a join.
 
 The workflow archives the result before completing. Activity timeouts are short (1 minute) with up to 3 retries on transient errors.
+
+### Comparing intended labels and observed descriptions
+
+**Intended Interface Label** comes from the far-end interface in the DCIM's modeled cable connection. **LLDP Port Description** is the value advertised by the observed neighbor. **Alias** remains the host alias. Missing labels or descriptions appear as `--`; the label does not fall back to an interface name.
+
+If the intended-label lookup fails, discovery continues with labels shown as `--`. Observed LLDP data remains available.
+
+For a hyper-reach connection, the observed **Connected Interface** can be `A56p0`, while **Intended Interface Label** is `C1-2-L1` and **LLDP Port Description** is `gpu-tray C1-2-L1`. Both matching and mismatched values are displayed as reported. This workflow does not mark a connection valid; run [Cable Validation](../cable-validation/index.mdx) to check the intended topology against observed data.
 
 ## Verifying outcomes
 
