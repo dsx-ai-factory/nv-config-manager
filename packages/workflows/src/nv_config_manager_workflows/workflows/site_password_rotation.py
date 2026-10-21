@@ -93,7 +93,12 @@ __all__ = [
 # Default configurations
 DEFAULT_CONFIG_MANAGER_STATUS = ["Active", "Provisioned"]
 DEFAULT_CONFIG_MANAGER_TENANT = None
-SUPPORTED_PLATFORMS = [Platform.CUMULUS_LINUX, Platform.NV_OS, Platform.JUNIPER_JUNOS]
+SUPPORTED_PLATFORMS = [
+    Platform.CUMULUS_LINUX,
+    Platform.NV_OS,
+    Platform.JUNIPER_JUNOS,
+    Platform.ARISTA_EOS,
+]
 
 # Search attributes to clone from parent to child workflows
 CLONE_SEARCH_ATTRS = [

@@ -61,6 +61,84 @@ _ENGINEERING_BUILD = re.compile(r"-\d+\.\w+\s+\(engineering build\)$")
 _TECH_SUPPORT_TIMEOUT_SECONDS = 540
 
 
+class _PasswordFallbackNode(Node):
+    """A pyeapi node that retries a rejected request with the other known passwords.
+
+    pyeapi sends nothing when it connects, so a stale password only shows up as
+    a 401 on the first command. A request that eAPI rejects as unauthorized is
+    retried with the remaining candidate passwords, newest first; the one that
+    works becomes the node's password for the rest of the session. A pass in
+    which every password fails restores the original one and is not repeated
+    for the rest of the session, since each failed login counts towards the
+    account's lockout.
+    """
+
+    def __init__(
+        self,
+        connection: object,
+        *,
+        host: str,
+        username: str,
+        passwords: Callable[[], list[str]],
+        on_password: Callable[[str], None],
+        **kwargs: object,
+    ) -> None:
+        super().__init__(connection, **kwargs)
+        self._fallback_host = host
+        self._fallback_username = username
+        self._candidate_passwords = passwords
+        self._on_password = on_password
+        self._fallback_spent = False
+
+    def run_commands(self, commands: object, *args: object, **kwargs: object) -> object:
+        try:
+            return super().run_commands(commands, *args, **kwargs)
+        except pyeapi.eapilib.ConnectionError as exc:
+            if "unauthorized" not in str(exc).lower():
+                raise
+            unauthorized = exc
+        if self._fallback_spent:
+            raise NetworkDeviceException(
+                f"eAPI on {self._fallback_host} rejected the password for "
+                f"{self._fallback_username}; the other known passwords already failed"
+            ) from unauthorized
+        original = self._enablepwd
+        for password in self._candidate_passwords():
+            self._use_password(password)
+            try:
+                result = super().run_commands(commands, *args, **kwargs)
+            except pyeapi.eapilib.CommandError:
+                # eAPI accepted the password; a command in the request failed.
+                self._password_worked(password)
+                raise
+            except pyeapi.eapilib.ConnectionError as exc:
+                if "unauthorized" in str(exc).lower():
+                    continue
+                # Whether this password works is unknown, so go back to the one in use.
+                self._use_password(original)
+                raise
+            self._password_worked(password)
+            return result
+        self._fallback_spent = True
+        self._use_password(original)
+        raise NetworkDeviceException(
+            f"eAPI on {self._fallback_host} rejected every known password for "
+            f"{self._fallback_username}"
+        ) from unauthorized
+
+    def _use_password(self, password: str | None) -> None:
+        self.connection.authentication(self._fallback_username, password)
+        self.enable_authentication(password)
+
+    def _password_worked(self, password: str) -> None:
+        logger.warning(
+            "eAPI on %s rejected the password in use for %s; another known password worked",
+            self._fallback_host,
+            self._fallback_username,
+        )
+        self._on_password(password)
+
+
 class AristaConnection(NetworkConnection):
     """Arista Device Connection."""
 
@@ -87,22 +165,38 @@ class AristaConnection(NetworkConnection):
         ctx.set_ciphers("DEFAULT")
 
         def connect_with_password(password: str) -> Node:
-            return pyeapi.connect(
+            connection = pyeapi.connect(
                 transport="https",
                 host=self._host,
                 port=self._port,
                 username=self._username,
                 password=password,
-                enablepwd=password,
-                return_node=True,
                 context=ctx,
                 timeout=300,
             )
+            self._working_password = password
+            return _PasswordFallbackNode(
+                connection,
+                host=self._host,
+                username=self._username,
+                passwords=self._other_passwords,
+                on_password=self._remember_password,
+                enablepwd=password,
+            )
 
+        # Connecting sends nothing, so this only picks the first candidate; the
+        # node falls back to the others on the first unauthorized request.
         return self._try_passwords_with_callback(
             connect_with_password,
             (pyeapi.eapilib.ConnectionError, pyeapi.eapilib.CommandError),
         )
+
+    def _other_passwords(self) -> list[str]:
+        """Candidate passwords other than the one in use, newest first."""
+        return [p for p in self._passwords_to_try if p != self._working_password]
+
+    def _remember_password(self, password: str) -> None:
+        self._working_password = password
 
     def get_running_configuration(self) -> str:
         """Load the running configuration for a given device."""

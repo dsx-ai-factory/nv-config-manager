@@ -1,0 +1,12 @@
+{#- Local accounts. The hash uses the site's fixed salt, so a re-render changes
+    the line only when the password rotates (password_key = <secret>_<rotation>).
+    EOS sets the root password with "aaa root secret"; root is not a username.
+    network-admin accounts get privilege 15 and every other role privilege 1. -#}
+{% for user in device_data|users %}
+{% if user.username == "root" %}
+aaa root secret sha512 {{ (user.password_key|load_secret(site=device_data|site_name))|encrypt("sha512", site=device_data|site_name) }}
+{% else %}
+{% set role = user.role or "network-admin" %}
+username {{ user.username }} privilege {{ 15 if role == "network-admin" else 1 }} role {{ role }} secret sha512 {{ (user.password_key|load_secret(site=device_data|site_name))|encrypt("sha512", site=device_data|site_name) }}
+{% endif %}
+{% endfor %}
