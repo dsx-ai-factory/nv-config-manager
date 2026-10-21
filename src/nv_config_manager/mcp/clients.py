@@ -22,11 +22,15 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from nv_config_manager.common.auth import auth_required as config_auth_required
-from nv_config_manager.common.client import (
+from nv_config_manager.common.client.config_store import (
     ConfigStoreClient,
     ConfigStoreException,
+)
+from nv_config_manager.common.client.dhcp import (
     DHCPClient,
     DHCPClientException,
+)
+from nv_config_manager.common.client.temporal import (
     TemporalClient,
     TemporalClientException,
 )

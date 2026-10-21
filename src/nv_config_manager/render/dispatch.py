@@ -23,7 +23,7 @@ from typing import Any
 
 from prometheus_client import Counter, Histogram
 
-from nv_config_manager.common.client import ConfigStoreException
+from nv_config_manager.common.client.config_store import ConfigStoreException
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import (
     DCIMChangeEvent,

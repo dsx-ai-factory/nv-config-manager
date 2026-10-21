@@ -143,6 +143,14 @@ print(registry.all_workflows)
 print(registry.all_activities)
 ```
 
+To deploy a plugin on Kubernetes without rebuilding the service image, package
+the wheel in an image under `/plugin-wheels` and list it under
+`temporal.workflowPlugins` in the Helm values. The plugin image must not carry
+packages that ship in the service image. See
+[Workflow Plugins](../../docs/temporal/temporal-deployment.mdx#workflow-plugins)
+for the image contract, the pod checks, and the `rbac.workflows` rows each API
+workflow needs.
+
 The worker, API, workflow CLI, and MCP server use this registry, so no
 service-code registration change is required. Plugin workflows must satisfy the
 registration contract above. Workflow class names, declared workflow names,

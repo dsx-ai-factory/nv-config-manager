@@ -20,7 +20,9 @@ from unittest.mock import patch
 
 import pytest
 
-from nv_config_manager.common.client import RenderClient, TemporalClient, ZTPClient
+from nv_config_manager.common.client.render import RenderClient
+from nv_config_manager.common.client.temporal import TemporalClient
+from nv_config_manager.common.client.ztp import ZTPClient
 
 
 @pytest.mark.asyncio
