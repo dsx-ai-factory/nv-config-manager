@@ -53,7 +53,7 @@ class _CustomLabelRow(Horizontal):
     """Editable Kubernetes label key/value pair."""
 
     def __init__(self, key: str, value: str, index: int) -> None:
-        super().__init__(classes="account-title-row")
+        super().__init__(classes="account-title-row custom-label-row")
         self._key = key
         self._value = value
         self._index = index

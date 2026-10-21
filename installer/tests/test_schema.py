@@ -117,6 +117,21 @@ class TestNVConfigManagerInstallConfig:
         with pytest.raises(ValueError, match="invalid Kubernetes label value"):
             ClusterConfig(custom_labels={"production": value})
 
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "app",
+            "component",
+            "app.kubernetes.io/name",
+            "app.kubernetes.io/owner",
+            "helm.sh/chart",
+            "helm.sh/owner",
+        ],
+    )
+    def test_cluster_custom_labels_reject_chart_owned_keys(self, key: str) -> None:
+        with pytest.raises(ValueError, match="reserved custom label key"):
+            ClusterConfig(custom_labels={key: "test"})
+
     def test_cluster_custom_labels_validate_assignment(self) -> None:
         cluster = ClusterConfig()
 

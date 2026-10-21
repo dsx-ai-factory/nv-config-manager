@@ -33,6 +33,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 _KUBERNETES_NAMESPACE_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
 _KUBERNETES_LABEL_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$")
 _KUBERNETES_DNS_LABEL_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
+_RESERVED_CUSTOM_LABEL_KEYS = frozenset({"app", "component"})
+_RESERVED_CUSTOM_LABEL_PREFIXES = ("app.kubernetes.io/", "helm.sh/")
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -130,6 +132,10 @@ class ClusterConfig(BaseModel):
         for key, value in labels.items():
             if not _is_kubernetes_label_key(key):
                 raise ValueError(f"invalid Kubernetes label key: {key!r}")
+            if key in _RESERVED_CUSTOM_LABEL_KEYS or key.startswith(
+                _RESERVED_CUSTOM_LABEL_PREFIXES
+            ):
+                raise ValueError(f"reserved custom label key: {key!r}")
             if value and (len(value) > 63 or _KUBERNETES_LABEL_NAME_RE.fullmatch(value) is None):
                 raise ValueError(f"invalid Kubernetes label value for {key!r}: {value!r}")
         return labels

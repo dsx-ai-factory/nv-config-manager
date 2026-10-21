@@ -161,6 +161,11 @@ NVConfigManagerInstallerApp {
     margin-bottom: 0;
 }
 
+.custom-label-row Input {
+    width: 1fr;
+    margin-right: 1;
+}
+
 .account-header {
     text-style: bold;
     margin-bottom: 0;

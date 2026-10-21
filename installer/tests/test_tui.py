@@ -353,6 +353,22 @@ async def test_cluster_custom_labels_add_and_remove() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cluster_custom_label_row_fits_within_container() -> None:
+    config = NVConfigManagerInstallConfig(
+        cluster=ClusterConfig(custom_labels={"production": "true"})
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test(size=(100, 70)) as pilot:
+        await pilot.pause()
+        screen = app._screens["cluster"]
+        labels_list = screen.query_one("#custom-labels-list")
+        remove_button = screen.query_one("#custom-label-0-remove", Button)
+
+        assert remove_button.region.right <= labels_list.content_region.right
+
+
+@pytest.mark.asyncio
 async def test_invalid_custom_label_blocks_navigation() -> None:
     config = NVConfigManagerInstallConfig()
     app = NVConfigManagerInstallerApp(config=config)
