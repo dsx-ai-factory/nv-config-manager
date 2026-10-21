@@ -21,6 +21,12 @@ from configparser import ConfigParser
 from nv_config_manager_clients.dhcp import DHCPClient as _DHCPClient
 from nv_config_manager_clients.dhcp import DHCPClientException as DHCPClientException
 
+from nv_config_manager.common.config.http import (
+    get_internal_auth_headers,
+    get_mtls_cert_paths,
+    parse_verify_param,
+)
+
 
 class DHCPClient(_DHCPClient):
     """Application client retaining the legacy INI factory."""
@@ -32,14 +38,6 @@ class DHCPClient(_DHCPClient):
         section: str = "dhcp",
     ) -> DHCPClient:
         """Create a DHCP client from INI configuration."""
-        # Imported lazily because nv_config_manager.common.config imports common clients.
-        # Avoid circular import: common.config imports these service client factories.
-        from nv_config_manager.common.config import (
-            get_internal_auth_headers,
-            get_mtls_cert_paths,
-            parse_verify_param,
-        )
-
         dhcp_config = config[section]
         use_internal = dhcp_config.getboolean("use_internal_endpoint", fallback=False)
         if use_internal:
