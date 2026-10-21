@@ -24,7 +24,7 @@ from aiohttp import ClientResponse
 from pytest_mock import MockerFixture
 
 from nv_config_manager.common import auth as auth_mod
-from nv_config_manager.common.config import clear_config_cache
+from nv_config_manager.common.config.loader import clear_config_cache
 from nv_config_manager.temporal.runtime import configure_workflow_runtime
 from nv_config_manager_workflows import runtime as workflow_runtime
 

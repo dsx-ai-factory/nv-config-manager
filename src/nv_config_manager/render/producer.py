@@ -19,7 +19,7 @@ import os
 
 from nv_config_manager_templates.version import TemplateVersion
 
-from nv_config_manager.common.config import is_aggregate_environment
+from nv_config_manager.common.config.environment import is_aggregate_environment
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import dcim_client_session
 from nv_config_manager.render.lock import create_lock

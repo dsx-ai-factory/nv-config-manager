@@ -31,7 +31,6 @@ from nats import connect
 from nats.js.api import DiscardPolicy, RetentionPolicy, StorageType, StreamConfig
 from nv_config_manager_infrastructure.nats.client import DEFAULT_NATS_API_PREFIX
 
-from nv_config_manager.common.client.nats import config_manager_api_prefix
 from nv_config_manager.common.config.loader import resolve_section
 
 DEFAULT_CONFIG_MANAGER_NATS_STREAM = "nv-config-manager"
@@ -147,7 +146,7 @@ def nats_config_manager_api_prefix(config: ConfigParser | None = None) -> str:
     Render-change, device-change and archive events are subjects on this one stream,
     so they share its prefix.
     """
-    return config_manager_api_prefix(_nats_section(config))
+    return _nats_section(config).get("config_manager_api_prefix", DEFAULT_NATS_API_PREFIX)
 
 
 def _nats_change_config(
