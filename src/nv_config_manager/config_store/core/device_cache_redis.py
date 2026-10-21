@@ -25,7 +25,8 @@ from nv_config_manager_infrastructure.redis import async_result
 
 from nv_config_manager.common.client.factory import dcim_client, redis_client
 from nv_config_manager.common.client.redis import RedisClient
-from nv_config_manager.common.config import dcim_cache_ttl, load_config
+from nv_config_manager.common.config.dcim import dcim_cache_ttl
+from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMClient, DeviceMetadata
 

@@ -14,7 +14,8 @@
 # limitations under the License.
 """Server-side authentication and identity extraction for NVIDIA Config Manager services.
 
-All configuration is read from ``nv-config-manager.ini`` (via :func:`nv_config_manager.common.config.load_config`).
+All configuration is read from ``nv-config-manager.ini``
+(via :func:`nv_config_manager.common.config.loader.load_config`).
 
 INI sections::
 

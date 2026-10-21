@@ -24,7 +24,7 @@ from nv_config_manager.common.client.config_store import (
     ConfigStoreFileNotFound,
 )
 from nv_config_manager.common.client.factory import temporal_client
-from nv_config_manager.common.config import get_storage_client
+from nv_config_manager.common.config.storage import get_storage_client
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMNotFoundError, dcim_client_session
 from nv_config_manager.ztp.api.schemas import ChecksumResponse

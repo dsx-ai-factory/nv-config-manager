@@ -25,10 +25,12 @@ from typing import TYPE_CHECKING
 import nats.js
 
 from nv_config_manager.common.client.factory import redis_client
-from nv_config_manager.common.config import (
-    NATSConnectionManager,
+from nv_config_manager.common.config.environment import (
     is_aggregate_environment,
     is_local_environment,
+)
+from nv_config_manager.common.config.nats import (
+    NATSConnectionManager,
     nats_config_manager_api_prefix,
     nats_connection,
     nats_render_change_config,

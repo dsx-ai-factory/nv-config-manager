@@ -149,8 +149,8 @@ def _config(*, internal: bool = False) -> ConfigParser:
     return config
 
 
-def test_common_config_import_does_not_load_client_implementations() -> None:
-    """Common configuration must not pull client implementations into services."""
+def test_common_config_package_does_not_load_implementations() -> None:
+    """The config package initializer must remain free of eager re-exports."""
     code = """
 import sys
 
@@ -158,6 +158,7 @@ import nv_config_manager.common.config
 
 forbidden_prefixes = (
     "nv_config_manager.common.client",
+    "nv_config_manager.common.config.",
     "nv_config_manager_workflows.clients.device",
     "nv_config_manager_workflows.clients.redfish",
     "nv_config_manager_workflows.clients.ticketing",
@@ -169,7 +170,7 @@ loaded = sorted(
     if module.startswith(forbidden_prefixes)
 )
 if loaded:
-    raise SystemExit(f"unexpected workflow client imports: {loaded}")
+    raise SystemExit(f"unexpected implementation imports: {loaded}")
 """
     result = subprocess.run(
         [sys.executable, "-c", code],

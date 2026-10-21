@@ -22,7 +22,8 @@ from nv_config_manager.common.client.config_store import (
     ConfigStoreClient,
     ConfigStoreFileNotFound,
 )
-from nv_config_manager.common.config import get_internal_auth_headers, load_config
+from nv_config_manager.common.config.http import get_internal_auth_headers
+from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.dcim.models import ZTPDevice
 
 

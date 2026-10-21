@@ -26,10 +26,10 @@ from nv_config_manager_templates.version import template_version_key
 from nv_config_manager.common.client.config_store import ConfigStoreFileNotFound
 from nv_config_manager.common.client.factory import config_store_client
 from nv_config_manager.common.client.render import FileCommit
-from nv_config_manager.common.config import (
+from nv_config_manager.common.config.client_settings.config_store import (
     config_store_ui_url,
-    is_aggregate_environment,
 )
+from nv_config_manager.common.config.environment import is_aggregate_environment
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import (
     DCIMClient,

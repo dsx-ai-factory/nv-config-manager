@@ -33,8 +33,12 @@ from nv_config_manager.common.client.nats import (
     NatsClient,
     NatsConsumer,
 )
-from nv_config_manager.common.config import ensure_local_streams, nats_connection
-from nv_config_manager.common.config.nats import LOCAL_STREAM_MAX_BYTES, LocalStreamConfigMismatch
+from nv_config_manager.common.config.nats import (
+    LOCAL_STREAM_MAX_BYTES,
+    LocalStreamConfigMismatch,
+    ensure_local_streams,
+    nats_connection,
+)
 
 TEST_SERVER = "nats://nats.example.local:4222"
 

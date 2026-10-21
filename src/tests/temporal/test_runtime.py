@@ -283,7 +283,7 @@ def test_installed_dcim_factory_reads_current_service_configuration(
         }
     )
     load_config = mocker.patch(
-        "nv_config_manager.common.config.load_config",
+        "nv_config_manager.dcim.registry.load_config",
         side_effect=[initial, rotated],
     )
     clients = [Mock(spec=DCIMClient), Mock(spec=DCIMClient)]
