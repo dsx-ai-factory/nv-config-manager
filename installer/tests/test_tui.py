@@ -331,7 +331,7 @@ async def test_invalid_monitoring_url_does_not_partially_update_config() -> None
 
 
 @pytest.mark.asyncio
-async def test_invalid_monitoring_url_blocks_save(tmp_path) -> None:
+async def test_invalid_monitoring_url_blocks_save(tmp_path: Path) -> None:
     config = NVConfigManagerInstallConfig()
     config_path = tmp_path / "nv-config-manager-install.yaml"
     app = NVConfigManagerInstallerApp(config=config, config_path=config_path)
