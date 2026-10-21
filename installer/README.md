@@ -272,6 +272,7 @@ Basic deployment settings and site definitions.
 | NVIDIA Config Manager Device Username | Device login username for NVIDIA Config Manager service account (default: `nv-config-manager`) |
 | Deploy Size | Resource profile: `small`, `medium`, or `large` (see below) |
 | Mock Device Interaction | Use mock network connections instead of real SSH/API calls (for Kind/CI) |
+| Custom Labels | Kubernetes label key/value pairs propagated to workloads, monitoring resources, probes, and exported metrics |
 
 **Deploy size profiles:**
 
@@ -766,6 +767,9 @@ cluster:
   airgapped: false
   mock_devices: true
   size: small
+  custom_labels:
+    production: "false"
+    include_in_slo: "false"
 secrets:
   method: kubernetes
   config_manager_service_username: nv-config-manager

@@ -131,6 +131,30 @@ class TestGenerateHelmValues:
         assert ext["postgres"]["configStore"]["host"] == "cluster-config-store-rw"
         assert values["mcp"]["enabled"] is True
 
+    def test_custom_labels_are_emitted_under_global(self) -> None:
+        values = _gen(
+            _make_config(
+                cluster=ClusterConfig(
+                    hostname="test.example.com",
+                    environment="prod",
+                    custom_labels={
+                        "production": "true",
+                        "include_in_slo": "true",
+                    },
+                )
+            )
+        )
+
+        assert values["global"]["customLabels"] == {
+            "production": "true",
+            "include_in_slo": "true",
+        }
+
+    def test_empty_custom_labels_are_omitted_from_global(self) -> None:
+        values = _gen(_make_config())
+
+        assert "customLabels" not in values["global"]
+
     def test_s3_irsa_role_and_region(self):
         """S3 IRSA emits an annotated ServiceAccount without a credentials Secret."""
         config = _make_config(

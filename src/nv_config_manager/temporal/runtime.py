@@ -31,12 +31,7 @@ from nv_config_manager_infrastructure.redis import RedisClient
 from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
 
-from nv_config_manager.common.client import NatsProducer
-from nv_config_manager.common.config import (
-    is_aggregate_environment,
-    load_config,
-    nats_archive_config,
-)
+from nv_config_manager.common.client.nats import NatsProducer
 from nv_config_manager.common.config.client_settings.config_store import (
     config_store_client_settings,
 )
@@ -46,6 +41,9 @@ from nv_config_manager.common.config.client_settings.ticketing import (
     ticketing_client_settings,
 )
 from nv_config_manager.common.config.client_settings.ztp import ztp_client_settings
+from nv_config_manager.common.config.environment import is_aggregate_environment
+from nv_config_manager.common.config.loader import load_config
+from nv_config_manager.common.config.nats import nats_archive_config
 from nv_config_manager.common.config.storage import get_storage_client
 from nv_config_manager.common.lock import token_lock_backend
 from nv_config_manager.dcim.registry import create_dcim_client
@@ -53,7 +51,7 @@ from nv_config_manager.temporal.client.connection import (
     client_connect_options,
     temporal_address,
 )
-from nv_config_manager.temporal.client.device.base import NetworkConnection
+from nv_config_manager.temporal.client.device.factory import from_device_data
 from nv_config_manager.temporal.client.redfish import (
     get_config_manager_connection,
     get_default_connection,
@@ -152,7 +150,7 @@ def _dcim_client() -> DCIMClient:
 
 def _device_connection(device_data: NetworkDeviceData) -> WorkflowNetworkConnection:
     """Create a device connection through the service configuration adapter."""
-    return NetworkConnection.from_device_data(device_data)
+    return from_device_data(device_data)
 
 
 def _redfish_connection(

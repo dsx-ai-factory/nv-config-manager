@@ -24,7 +24,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_fastapi_instrumentator import metrics as instrumentator_metrics
 
 from nv_config_manager.common.auth import install_identity_probe
-from nv_config_manager.common.config import dcim_client
+from nv_config_manager.common.client.factory import dcim_client
 from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
 from nv_config_manager.common.telemetry import (
     group_fastapi_status_codes,

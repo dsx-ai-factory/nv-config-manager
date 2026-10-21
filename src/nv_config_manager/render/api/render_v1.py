@@ -22,9 +22,7 @@ from pydantic import BaseModel, Field
 
 from nv_config_manager.common.auth import get_sso_user
 from nv_config_manager.common.client.render import FileCommit
-from nv_config_manager.common.config import (
-    is_aggregate_environment,
-)
+from nv_config_manager.common.config.environment import is_aggregate_environment
 from nv_config_manager.dcim import dcim_client_session
 from nv_config_manager.render.events.util import queue_render_batch
 from nv_config_manager.render.exceptions import RenderScopeMismatch

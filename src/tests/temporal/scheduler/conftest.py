@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from nv_config_manager import dcim
-from nv_config_manager.common.config import clear_config_cache, load_config
+from nv_config_manager.common.config.loader import clear_config_cache, load_config
 from nv_config_manager.dcim import registry as dcim_registry
 from nv_config_manager_workflows.schedulers import runtime as scheduler_runtime
 from tests.temporal.scheduler.helpers import SECRET_SENTINEL
