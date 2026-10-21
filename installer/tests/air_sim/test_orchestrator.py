@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import shutil
 import subprocess
 import sys
@@ -27,6 +28,7 @@ from unittest.mock import Mock
 import pytest
 
 from nv_config_manager_installer.air_sim.constants import DEFAULT_MOCK_TOPOLOGY_PATH
+from nv_config_manager_installer.air_sim.context_topology import build_site_design_from_mock_context
 from nv_config_manager_installer.air_sim.orchestrator import (
     SimOrchestrator,
     StepStatus,
@@ -58,6 +60,41 @@ def test_resolve_topology_prefers_direct_path() -> None:
     orchestrator = SimOrchestrator(cfg, _Callback())
 
     assert orchestrator._resolve_topology_path(cfg) == "/tmp/direct.yaml"
+
+
+@pytest.mark.parametrize("invalid_network", [None, "missing-exit", "static-ip"])
+def test_superpod_lldp_is_attached_before_boot_without_touching_spx_hosts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, invalid_network: str | None
+) -> None:
+    design = build_site_design_from_mock_context("air_superpod", "demo")
+    if invalid_network == "missing-exit":
+        for interface in design["interfaces"]:
+            if interface["device"] == "su02-hyperreach-host" and interface["name"] == "eth0":
+                interface["description"] = ""
+    elif invalid_network == "static-ip":
+        design["ip_addresses"].append(
+            {"device": "su02-hyperreach-host", "interface": "eth1", "address": "192.0.2.1/24"}
+        )
+    topology = tmp_path / "topology.json"
+    topology.write_text(json.dumps(design))
+    orchestrator = SimOrchestrator(
+        SimConfig(topology_path=str(topology), auto_configure=False, config_manager_repo=""),
+        _Callback(),
+    )
+    manager = Mock(spec=AirSimulationManager)
+    manager.resolve_cumulus_vx_images.return_value = {}
+    manager.create_simulation.return_value = "test-sim"
+    monkeypatch.setattr(orchestrator, "_create_simulation_manager", lambda _cfg: manager)
+    if invalid_network:
+        with pytest.raises(ValueError, match="LLDP"):
+            orchestrator._run_impl()
+        manager.create_simulation.assert_not_called()
+        return
+    assert orchestrator._run_impl() == ("", 0)
+    manager.attach_cloud_init.assert_called_once()
+    assert manager.attach_cloud_init.call_args.args[:2] == ("test-sim", "su02-hyperreach-host")
+    names = [call[0] for call in manager.mock_calls]
+    assert names.index("attach_cloud_init") < names.index("start_simulation")
 
 
 def test_resolve_topology_uses_installer_checkout_fallback(

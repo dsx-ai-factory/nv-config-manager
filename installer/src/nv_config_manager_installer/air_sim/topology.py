@@ -340,7 +340,9 @@ class AirTopologyBuilder:
                     "quote MAC addresses in YAML"
                 )
             mac_address = None if raw_mac == "auto" else raw_mac
-            needs_auto = raw_mac == "auto"
+            needs_auto = raw_mac == "auto" or (
+                raw_mac is None and bool(self.devices[device_name].air_config.get("lldp"))
+            )
 
             if description.lower() == "exit":
                 self.exit_interfaces.append((device_name, intf_name))
