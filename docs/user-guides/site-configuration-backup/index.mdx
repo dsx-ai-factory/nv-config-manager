@@ -64,9 +64,10 @@ The workflow runs three stages. None require manual approval at the site level.
    For each device, the workflow starts a [Configuration Backup](../configuration-backup/index.mdx) child workflow with `trigger=WORKFLOW`. Children run in parallel; the stage display updates as each completes. A child that fails is recorded in the per-device result rather than stopping the run.
 
    These children retain interactive stage-retry behavior, unlike scheduled
-   backups. A failed stage can wait for a manual retry; each child has a
-   15-minute run timeout. Inspect its workflow page rather than expecting every
-   device failure to appear immediately in the site summary.
+   backups. A failed stage can wait for a manual retry only until the child's
+   15-minute run timeout expires. After timeout, the child cannot be manually
+   resumed; start a new backup instead. Inspect its workflow page rather than
+   expecting every device failure to appear immediately in the site summary.
 
 1. **`format_result` — Aggregate per-device results.**
 
