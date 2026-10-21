@@ -118,7 +118,7 @@ class CableValidationRow(BaseModel):
         """Return dict of columns to include in markdown table (excludes MARKDOWN_EXCLUDE_COLUMNS)."""
         return {
             k: escape_markdown_cell(v)
-            if k in ("Intended Interface Label", "LLDP Port Description")
+            if k in ("Intended Interface Label", "LLDP Port Description", "Issue")
             else v
             for k, v in self.model_dump(by_alias=True).items()
             if k not in MARKDOWN_EXCLUDE_COLUMNS

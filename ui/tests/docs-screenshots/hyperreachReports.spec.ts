@@ -143,6 +143,12 @@ for (const example of examples) {
     ).toBeVisible();
     if (example.workflowType === "SiteCableValidationWorkflow") {
       await expect(
+        row.getByRole("cell", {
+          name: "Incorrect cabling: LLDP interface label mismatch (expected C1-2-L1, observed WRONG-LANE)",
+          exact: true,
+        })
+      ).toBeVisible();
+      await expect(
         row.getByRole("cell", { name: "eth1", exact: true })
       ).toBeVisible();
       await expect(

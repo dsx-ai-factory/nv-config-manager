@@ -243,6 +243,8 @@ For example, this finding exposes the wrong lane while preserving the intended a
 | :--------- | :---------------- | :----------------------- | :-------------- | :-------------------- |
 | swp2 | eth1 | C1-2-L1 | A56p0 | su02-hyperreach-host WRONG-LANE |
 
+The **Issue** identifies this as `Incorrect cabling: LLDP interface label mismatch (expected C1-2-L1, observed WRONG-LANE)`. This diagnosis applies when the description identifies the intended host but advertises a different lane label.
+
 ### Issue
 
 The category of mismatch — see [Cable validation issues](#cable-validation-issues) below for the full catalog.

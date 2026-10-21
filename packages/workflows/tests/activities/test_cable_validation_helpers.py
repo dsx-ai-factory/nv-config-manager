@@ -98,6 +98,101 @@ class TestLaneMetadata:
         if issue_kind == "lldp":
             assert row.intended_end_port == "eth1"
             assert row.actual_end_port == "A56p0"
+            assert row.issue == (
+                "Incorrect cabling: LLDP interface label mismatch "
+                "(expected C1-2-L1, observed WRONG-LANE)"
+            )
+
+    @pytest.mark.parametrize(
+        ("label", "description", "chassis_name", "is_label_mismatch"),
+        [
+            ("C1-2-L1", "su02-hyperreach-host WRONG-LANE", None, True),
+            ("C1-2-L1", "SU02-HYPERREACH-HOST wrong-lane", None, True),
+            ("C1-2-L1", "tray-chassis WRONG-LANE", "tray-chassis", True),
+            ("C1-2-L1", "su02-hyperreach-host c1-2-l1", None, False),
+            (None, "su02-hyperreach-host WRONG-LANE", None, False),
+            ("", "su02-hyperreach-host WRONG-LANE", None, False),
+            ("C1-2-L1", "wrong-host WRONG-LANE", None, False),
+            ("C1-2-L1", "su02-hyperreach-host", None, False),
+            ("C1-2-L1", "su02-hyperreach-host WRONG LANE", None, False),
+            ("C1-2-L1", None, None, False),
+        ],
+    )
+    def test_label_diagnostic_requires_matching_description_hostname(
+        self,
+        label: str | None,
+        description: str | None,
+        chassis_name: str | None,
+        is_label_mismatch: bool,
+    ) -> None:
+        """Keep other LLDP errors distinct from a confirmed interface-label mismatch."""
+        row = _format_single_interface_row(
+            "su01-cin-leaf-r01",
+            None,
+            "swp2",
+            InvalidCable(
+                intended=InterfaceNeighborData(
+                    name="eth1",
+                    device_name="su02-hyperreach-host",
+                    chassis_name=chassis_name,
+                    label=label,
+                ),
+                actual=InterfaceNeighborData(
+                    name="A56p0",
+                    device_name="su02-hyperreach-host",
+                    port_description=description,
+                    link_up=True,
+                ),
+            ),
+        )
+
+        assert row is not None
+        if is_label_mismatch:
+            assert description is not None
+            assert row.issue == (
+                "Incorrect cabling: LLDP interface label mismatch "
+                f"(expected {label}, observed {description.split()[1]})"
+            )
+        else:
+            assert (
+                row.issue == "Incorrect cabling, actual should match intended. Based on LLDP data"
+            )
+
+    @pytest.mark.parametrize("export", ["csv", "xlsx"])
+    def test_label_diagnostic_is_escaped_for_display_and_preserved_in_exports(
+        self, export: str
+    ) -> None:
+        """Keep inventory text in one Markdown cell without changing downloadable evidence."""
+        row = _format_single_interface_row(
+            "su01-cin-leaf-r01",
+            None,
+            "swp2",
+            InvalidCable(
+                intended=InterfaceNeighborData(name="eth1", device_name="host", label="C1|2\nL1"),
+                actual=InterfaceNeighborData(
+                    name="A56p0", device_name="host", port_description="host WRONG|LANE"
+                ),
+            ),
+        )
+
+        assert row is not None
+        expected_issue = (
+            "Incorrect cabling: LLDP interface label mismatch "
+            "(expected C1|2\nL1, observed WRONG|LANE)"
+        )
+        assert row.issue == expected_issue
+        assert row.to_markdown()["Issue"] == (
+            "Incorrect cabling: LLDP interface label mismatch "
+            r"(expected C1\|2 L1, observed WRONG\|LANE)"
+        )
+        assert _classify_issue(row.issue) == "miscabled"
+        markdown = _format_results_markdown(
+            [row], CSV_EXCLUDE_COLUMNS, MARKDOWN_EXCLUDE_COLUMNS, export=export
+        )
+        link, table = markdown.split("\n", 1)
+        assert len(table.splitlines()) == 3
+        detail = _decode_csv(link) if export == "csv" else _decode_workbook(link)["Cable Issues"]
+        assert detail.iloc[0]["Issue"] == expected_issue
 
     @pytest.mark.parametrize("export", ["csv", "xlsx"])
     @pytest.mark.parametrize(
