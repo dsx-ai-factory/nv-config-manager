@@ -28,7 +28,11 @@ from nats.js.api import (
 )
 from nats.js.errors import BadRequestError, NotFoundError
 
-from nv_config_manager.common.client import DEFAULT_NATS_API_PREFIX, NatsClient, NatsConsumer
+from nv_config_manager.common.client.nats import (
+    DEFAULT_NATS_API_PREFIX,
+    NatsClient,
+    NatsConsumer,
+)
 from nv_config_manager.common.config import ensure_local_streams, nats_connection
 from nv_config_manager.common.config.nats import LOCAL_STREAM_MAX_BYTES, LocalStreamConfigMismatch
 

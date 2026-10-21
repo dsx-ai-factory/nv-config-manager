@@ -21,6 +21,8 @@ from configparser import ConfigParser
 from nv_config_manager_clients.temporal import TemporalClient as _TemporalClient
 from nv_config_manager_clients.temporal import TemporalClientException as TemporalClientException
 
+from nv_config_manager.common.config.http import get_internal_auth_headers, get_mtls_cert_paths
+
 
 class TemporalClient(_TemporalClient):
     """Application client retaining the legacy INI factory."""
@@ -44,9 +46,6 @@ class TemporalClient(_TemporalClient):
         Returns:
             Configured TemporalClient instance
         """
-        # Avoid circular import: common.config imports these service client factories.
-        from nv_config_manager.common.config import get_internal_auth_headers, get_mtls_cert_paths
-
         temporal_config = config[section]
         use_internal = temporal_config.getboolean("use_internal_endpoint", fallback=False)
 

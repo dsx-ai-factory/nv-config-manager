@@ -22,7 +22,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from nv_config_manager.common.auth import AuthConfig
-from nv_config_manager.common.client import (
+from nv_config_manager.common.client.config_store import (
     ConfigStoreException,
     ConfigStoreFileNotFound,
 )

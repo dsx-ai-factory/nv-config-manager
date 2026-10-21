@@ -40,7 +40,7 @@ if ARCHIVE_BACKEND == "nvdataflow":
     import gzip
     from datetime import UTC, datetime
 
-    from nv_config_manager.common.client import NVDataflowClient
+    from nv_config_manager.common.client.nvdataflow import NVDataflowClient
 else:
     import boto3  # type: ignore[import-untyped]
     from elasticsearch import Elasticsearch

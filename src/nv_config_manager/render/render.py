@@ -24,9 +24,9 @@ from nv_config_manager_templates.render import Renderer
 from nv_config_manager_templates.version import template_version_key
 
 from nv_config_manager.common.client.config_store import ConfigStoreFileNotFound
+from nv_config_manager.common.client.factory import config_store_client
 from nv_config_manager.common.client.render import FileCommit
 from nv_config_manager.common.config import (
-    config_store_client,
     config_store_ui_url,
     is_aggregate_environment,
 )

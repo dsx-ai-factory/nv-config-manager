@@ -20,11 +20,11 @@ from unittest.mock import patch
 
 import pytest
 
+from nv_config_manager.common.client.factory import dcim_client
 from nv_config_manager.common.config import (
     SpiffeJwtUnavailableError,
     _read_spiffe_jwt,
     clear_config_cache,
-    dcim_client,
     get_internal_auth_headers,
     load_config,
     reload_config,
@@ -131,7 +131,7 @@ class TestDCIMClient:
         expected_client = object()
 
         with patch(
-            "nv_config_manager.common.config.create_dcim_client",
+            "nv_config_manager.common.client.factory.create_dcim_client",
             return_value=expected_client,
         ) as create_client:
             connection = dcim_client(config)

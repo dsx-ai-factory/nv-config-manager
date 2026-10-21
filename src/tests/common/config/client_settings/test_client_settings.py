@@ -41,7 +41,7 @@ from nv_config_manager_infrastructure.nats import (
 from nv_config_manager_infrastructure.redis import RedisClient as PackageRedisClient
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager.common.config import (
+from nv_config_manager.common.client.factory import (
     config_store_client,
     nats_client,
     redis_client,
@@ -149,14 +149,15 @@ def _config(*, internal: bool = False) -> ConfigParser:
     return config
 
 
-def test_common_config_import_does_not_load_workflow_client_implementations() -> None:
-    """Common configuration must not pull vendor SDKs into unrelated services."""
+def test_common_config_import_does_not_load_client_implementations() -> None:
+    """Common configuration must not pull client implementations into services."""
     code = """
 import sys
 
 import nv_config_manager.common.config
 
 forbidden_prefixes = (
+    "nv_config_manager.common.client",
     "nv_config_manager_workflows.clients.device",
     "nv_config_manager_workflows.clients.redfish",
     "nv_config_manager_workflows.clients.ticketing",
@@ -172,6 +173,54 @@ if loaded:
 """
     result = subprocess.run(
         [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_common_client_package_does_not_load_client_implementations() -> None:
+    """The client package initializer must remain free of eager re-exports."""
+    code = """
+import sys
+
+import nv_config_manager.common.client
+
+loaded = sorted(
+    module
+    for module in sys.modules
+    if module.startswith("nv_config_manager.common.client.")
+)
+if loaded:
+    raise SystemExit(f"unexpected client imports: {loaded}")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "nv_config_manager.common.client.config_store",
+        "nv_config_manager.common.client.dhcp",
+        "nv_config_manager.common.client.render",
+        "nv_config_manager.common.client.temporal",
+        "nv_config_manager.common.client.ztp",
+        "nv_config_manager.common.client.factory",
+    ],
+)
+def test_common_client_module_imports_in_fresh_interpreter(module: str) -> None:
+    """Client modules must not depend on prior imports to avoid a package cycle."""
+    result = subprocess.run(
+        [sys.executable, "-c", f"import {module}"],
         capture_output=True,
         text=True,
         check=False,

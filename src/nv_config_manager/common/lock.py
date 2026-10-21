@@ -27,11 +27,11 @@ from nv_config_manager_infrastructure.lock import NoopLock as _FakeLock
 from nv_config_manager_infrastructure.lock import TokenLockBackend
 from redis.asyncio.lock import Lock as AsyncRedisLock
 
-from nv_config_manager.common.config import redis_client
+from nv_config_manager.common.client.factory import redis_client
 from nv_config_manager.common.config.environment import is_local_environment
 
 if TYPE_CHECKING:
-    from nv_config_manager.common.client import RedisClient
+    from nv_config_manager.common.client.redis import RedisClient
 
 log = logging.getLogger(__name__)
 

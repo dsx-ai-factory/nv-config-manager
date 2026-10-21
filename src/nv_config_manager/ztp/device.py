@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from nv_config_manager.common.client import (
+from nv_config_manager.common.client.config_store import (
     ConfigStoreClient,
     ConfigStoreFileNotFound,
 )

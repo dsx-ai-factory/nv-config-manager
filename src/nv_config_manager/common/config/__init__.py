@@ -12,40 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""NVIDIA Config Manager Common Configuration.
-
-Centralized configuration loading and client factories for all NVIDIA Config Manager services.
-All services use the same INI format - see nv-config-manager-chart/sample-nv-config-manager.ini.
-"""
+"""NVIDIA Config Manager common configuration."""
 
 from __future__ import annotations
 
 from configparser import ConfigParser
 
-from nv_config_manager_clients import ConfigStoreType
+from nv_config_manager_infrastructure.nats import DEFAULT_NATS_API_PREFIX  # noqa: F401
 
-# =============================================================================
-# CLIENT IMPORTS
-# =============================================================================
-from nv_config_manager.common.client import (  # noqa: F401
-    DEFAULT_NATS_API_PREFIX,
-    ConfigStoreClient,
-    DHCPClient,
-    NatsClient,
-    RedisClient,
-    RenderClient,
-    TemporalClient,
-    ZTPClient,
-    config_manager_api_prefix,
-)
-from nv_config_manager.common.config.client_settings.config_store import (
-    config_store_client_settings,
-)
-from nv_config_manager.common.config.client_settings.nats import nats_client_settings
-from nv_config_manager.common.config.client_settings.redis import redis_settings
-from nv_config_manager.common.config.client_settings.render import (
-    render_client_settings,
-)
 from nv_config_manager.common.config.environment import (  # noqa: F401
     is_aggregate_environment,
     is_local_environment,
@@ -80,28 +54,6 @@ from nv_config_manager.common.config.nats import (  # noqa: F401
 from nv_config_manager.common.config.storage import (  # noqa: F401
     get_storage_client,
 )
-from nv_config_manager.dcim import DCIMClient, create_dcim_client
-
-# =============================================================================
-# CLIENT FACTORIES
-# =============================================================================
-
-
-def config_store_client(
-    file_type: ConfigStoreType | str = ConfigStoreType.INTENDED,
-    config: ConfigParser | None = None,
-) -> ConfigStoreClient:
-    """Create a ConfigStoreClient for this environment.
-
-    Args:
-        file_type: ConfigStoreType enum or "intended"/"backup" string
-        config: ConfigParser instance (uses load_config() if None)
-
-    Returns:
-        Configured ConfigStoreClient instance
-    """
-
-    return ConfigStoreClient(**config_store_client_settings(config, file_type=file_type))
 
 
 def config_store_ui_url(config: ConfigParser | None = None) -> str:
@@ -115,32 +67,6 @@ def config_store_ui_url(config: ConfigParser | None = None) -> str:
     """
     config = resolve_config(config)
     return config["config_store.client"]["ui_url"]
-
-
-def dhcp_client(config: ConfigParser | None = None) -> DHCPClient:
-    """Create a DHCPClient for this environment.
-
-    Args:
-        config: ConfigParser instance (uses load_config() if None)
-
-    Returns:
-        Configured DHCPClient instance
-    """
-
-    config = resolve_config(config)
-    return DHCPClient.from_config(config)
-
-
-def dcim_client(config: ConfigParser | None = None) -> DCIMClient:
-    """Create a client for the configured DCIM provider.
-
-    Existing deployments without a ``[dcim]`` section select the built-in
-    Nautobot provider. New services should use this factory instead of
-    constructing a backend-specific client.
-    """
-
-    config = resolve_config(config)
-    return create_dcim_client(config)
 
 
 def dcim_cache_ttl(config: ConfigParser | None = None, default: int = 86400) -> int:
@@ -157,74 +83,3 @@ def dcim_cache_ttl(config: ConfigParser | None = None, default: int = 86400) -> 
     if config.has_option("nautobot", "cache_ttl"):
         return config.getint("nautobot", "cache_ttl")
     return default
-
-
-def redis_client(
-    db_key: str = "db",
-    config: ConfigParser | None = None,
-) -> RedisClient:
-    """Create a RedisClient for this environment.
-
-    Args:
-        db_key: Key name for database number (default "db", some use "lock_db")
-        config: ConfigParser instance (uses load_config() if None)
-
-    Returns:
-        Configured RedisClient instance
-    """
-
-    return RedisClient(**redis_settings(config, db_key=db_key))
-
-
-def nats_client(config: ConfigParser | None = None) -> NatsClient:
-    """Create a NatsClient for this environment.
-
-    Args:
-        config: ConfigParser instance (uses load_config() if None)
-
-    Returns:
-        Configured NatsClient instance
-    """
-
-    return NatsClient(**nats_client_settings(config))
-
-
-def render_client(config: ConfigParser | None = None) -> RenderClient:
-    """Create a RenderClient for this environment.
-
-    Args:
-        config: ConfigParser instance (uses load_config() if None)
-
-    Returns:
-        Configured RenderClient instance
-    """
-
-    return RenderClient(**render_client_settings(config))
-
-
-def temporal_client(config: ConfigParser | None = None) -> TemporalClient:
-    """Create a TemporalClient for this environment.
-
-    Args:
-        config: ConfigParser instance (uses load_config() if None)
-
-    Returns:
-        Configured TemporalClient instance
-    """
-
-    config = resolve_config(config)
-    return TemporalClient.from_config(config)
-
-
-def ztp_client(config: ConfigParser | None = None) -> ZTPClient:
-    """Create a ZTPClient for this environment.
-
-    Args:
-        config: ConfigParser instance (uses load_config() if None)
-
-    Returns:
-        Configured ZTPClient instance
-    """
-
-    config = resolve_config(config)
-    return ZTPClient.from_config(config)

@@ -31,7 +31,7 @@ from nv_config_manager_infrastructure.redis import RedisClient
 from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
 
-from nv_config_manager.common.client import NatsProducer
+from nv_config_manager.common.client.nats import NatsProducer
 from nv_config_manager.common.config import (
     is_aggregate_environment,
     load_config,
