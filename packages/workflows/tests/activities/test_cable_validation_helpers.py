@@ -286,13 +286,16 @@ class TestLldpGuidance:
         ],
     )
     def test_issue_uses_supported_evidence(
-        self, intended_changes: dict, actual_changes: dict, expected_issue: str
+        self,
+        intended_changes: dict[str, str | None],
+        actual_changes: dict[str, str | None],
+        expected_issue: str,
     ) -> None:
-        intended = InterfaceNeighborData(
-            **{"device_name": "host", "name": "eth1", "label": "C1-2-L1", **intended_changes}
+        intended = InterfaceNeighborData.model_validate(
+            {"device_name": "host", "name": "eth1", "label": "C1-2-L1", **intended_changes}
         )
-        actual = InterfaceNeighborData(
-            **{
+        actual = InterfaceNeighborData.model_validate(
+            {
                 "device_name": "host",
                 "name": "A56p0",
                 "port_description": "host A56p0",
