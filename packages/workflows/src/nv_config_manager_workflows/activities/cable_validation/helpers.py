@@ -457,6 +457,7 @@ def _lldp_mismatch_issue(intended: InterfaceNeighborData, actual: InterfaceNeigh
         if actual.device_name and not is_mac_address(actual.device_name)
         else None
     )
+    observed_port: str | None
     parts = (actual.port_description or "").split()
     if len(parts) == 2:
         description_name, observed_port = parts

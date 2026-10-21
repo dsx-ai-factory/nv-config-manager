@@ -24,7 +24,7 @@ from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
 from temporalio import activity
 from temporalio.client import WorkflowHandle
 from temporalio.exceptions import ApplicationError
-from temporalio.worker import Worker
+from temporalio.worker import Replayer, Worker
 
 from nv_config_manager_workflows.activities.dcim import (
     GetNetworkDeviceInput,
@@ -39,6 +39,7 @@ from nv_config_manager_workflows.clients.device.models import (
     DeviceNeighborData,
     InterfaceNeighborData,
 )
+from nv_config_manager_workflows.converter import get_data_converter
 from nv_config_manager_workflows.workflows.connected_host import (
     ConnectedHostMetadataWorkflow,
     ConnectedHostWorkflowInput,
@@ -387,6 +388,12 @@ async def test_execute_workflow(
             assert search_attrs[attr] == val
 
         assert mock_nats_client.return_value.publish.called == 1
+
+        # New histories, including optional lookup failures, must replay with the patch enabled.
+        await Replayer(
+            workflows=[ConnectedHostMetadataWorkflow],
+            data_converter=get_data_converter(),
+        ).replay_workflow(await handle.fetch_history())
 
 
 @pytest.mark.asyncio
