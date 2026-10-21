@@ -566,6 +566,72 @@ async def test_giving_up_terminates_even_if_the_claim_cannot_be_released(
 
 
 @pytest.mark.asyncio
+async def test_last_delivery_follows_a_lower_limit_on_the_existing_consumer(
+    mock_dispatcher: MagicMock, mock_lock: MagicMock, custom_ini: Callable[[str], None]
+) -> None:
+    """With a durable limited below the default, its last delivery still frees the claim."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    consumer.max_deliver = 5
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_msg.metadata = MagicMock(num_delivered=5)
+    mock_lock.acquire.return_value = False
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock
+    ) as mock_clear_queued:
+        await consumer.message_handler(mock_msg)
+
+    mock_clear_queued.assert_awaited_once_with("test-device", token="claim-1")
+    mock_msg.term.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_unlimited_consumer_never_gives_up(
+    mock_dispatcher: MagicMock, mock_lock: MagicMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A durable without a delivery limit keeps redelivering, so nothing is terminated."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    consumer.max_deliver = -1
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_msg.metadata = MagicMock(num_delivered=CONSUMER_MAX_DELIVER * 10)
+    mock_lock.acquire.return_value = False
+
+    with patch("nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock):
+        await consumer.message_handler(mock_msg)
+
+    mock_msg.term.assert_not_awaited()
+    mock_msg.nak.assert_awaited_once_with(delay=5)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("delivered", "delay"), [(1, 1), (2, 2), (4, 8), (7, 60), (900, 60)])
+async def test_failed_render_backs_off_before_redelivery(
+    mock_dispatcher: MagicMock,
+    mock_lock: MagicMock,
+    custom_ini: Callable[[str], None],
+    delivered: int,
+    delay: int,
+) -> None:
+    """Failures wait longer each time, so an outage cannot burn through the delivery limit."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_msg.metadata = MagicMock(num_delivered=delivered)
+    mock_lock.acquire.return_value = True
+    mock_dispatcher.nautobot_change_dispatch = AsyncMock(side_effect=Exception("dcim down"))
+
+    with patch("nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock):
+        await consumer.message_handler(mock_msg)
+
+    mock_msg.nak.assert_awaited_once_with(delay=delay)
+
+
+@pytest.mark.asyncio
 async def test_pull_device_change_consumer_render_exception(mock_dispatcher, mock_lock, custom_ini):
     """Test PullDeviceChangeConsumer handles RenderException."""
     custom_ini(TEST_NATS_CONFIG)
@@ -652,7 +718,7 @@ async def test_resilient_message_handler_consumer_error(custom_ini):
     # Should not raise, should nak the message instead
     await consumer._resilient_message_handler(mock_msg)
 
-    consumer.nak.assert_called_once_with(mock_msg)
+    consumer.nak.assert_called_once_with(mock_msg, delay=1)
 
 
 @pytest.mark.asyncio
@@ -750,6 +816,32 @@ async def test_existing_consumer_mismatch_logs_admin_update_request(custom_ini, 
     assert "max_deliver" in warning[2]
     assert "Ask the NATS administrator" in warning[3]
     assert "Delivery policy may retain" in warning[3]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("existing_limit", "effective_limit"), [(5, 5), (-1, -1), (None, -1)])
+async def test_existing_consumer_delivery_limit_is_the_one_enforced(
+    custom_ini: Callable[[str], None],
+    mock_jetstream: MagicMock,
+    existing_limit: int | None,
+    effective_limit: int,
+) -> None:
+    """The consumer gives up on the last delivery JetStream allows, not the one it expects."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+    consumer.jetstream = mock_jetstream
+    existing = MagicMock()
+    existing.config = ConsumerConfig(
+        durable_name=consumer.queue,
+        filter_subject="test_subject",
+        ack_policy=AckPolicy.EXPLICIT,
+        max_deliver=existing_limit,
+    )
+    mock_jetstream.consumer_info.return_value = existing
+
+    await consumer._ensure_consumer_exists()
+
+    assert consumer.max_deliver == effective_limit
 
 
 @pytest.mark.asyncio
