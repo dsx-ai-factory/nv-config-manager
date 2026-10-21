@@ -50,16 +50,22 @@ sudo lldpcli show interface ports A56p0 details
 sudo lldpcli show interface ports A56p1 details
 ```
 
-On each CIN leaf, verify the corresponding `swp2` LLDP neighbor has the expected
-port description, then run Device Cable Validation for that leaf. Both links
-should validate through the port-description path. For a negative test, change
-one lane interactively, allow LLDP to refresh, and rerun validation:
+Run Connected Host Metadata against each CIN leaf. Its final table should show
+the `swp2` intended interface label beside the observed LLDP port description
+and `A56p0` or `A56p1` port ID. Then run Device Cable Validation for that leaf.
+Both links should validate through the port-description path. For a negative
+test, change one lane interactively, allow LLDP to refresh, and rerun validation:
 
 ```sh
 sudo lldpcli configure ports A56p0 lldp portdescription "su02-hyperreach-host WRONG-LANE"
 ```
 
 The first link should fail identity validation while the other still passes.
+The validation report should show intended label `C1-2-L1` beside observed
+description `su02-hyperreach-host WRONG-LANE`, retaining `eth1` and `A56p0` as
+the intended and actual port names. The CSV and Excel downloads include the
+same metadata.
+
 Restore the persistent fixture with `sudo systemctl restart lldpd`, wait for LLDP
 to refresh, and rerun validation. This fixture covers port-description and label
 matching; it does not model physical PCIe line cards or exercise Nautobot

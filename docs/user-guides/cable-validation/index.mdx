@@ -159,6 +159,8 @@ Use this for site bringup or any time you need a full-site view.
 
    See [Interpreting the report](#interpreting-the-report) for the result columns and a hyper-reach mismatch example.
 
+   ![Cable validation report showing the intended interface label and an incorrect observed LLDP port description](../../assets/images/cable-validation-report-example.png)
+
 1. Address any issues, then re-run the workflow to confirm they are resolved.
 
 ## Running device cable validation
@@ -233,7 +235,7 @@ The workflow's final output is a `DeviceCableValidationResult` whose `interfaces
 
 The results in the report show the device/port pair being validated (Start Device/Port) and then what the intended connection should be (based on what is in the DCIM) compared to the actual observed connection on the device.
 
-**Intended Interface Label** shows the far-end interface label from the DCIM. **LLDP Port Description** shows the neighbor's advertised description. Both appear in device and site reports, including CSV and Excel downloads; missing values appear as `--`. Interface names remain visible alongside this metadata.
+**Intended Interface Label** shows the far-end interface label from the DCIM. **LLDP Port Description** shows the neighbor's advertised description. Both appear in device and site reports, including CSV and Excel downloads. Missing metadata appears as `--` in the UI table and as blank cells in CSV and Excel downloads. Interface names remain visible alongside this metadata.
 
 For example, this finding exposes the wrong lane while preserving the intended and observed interface names:
 
