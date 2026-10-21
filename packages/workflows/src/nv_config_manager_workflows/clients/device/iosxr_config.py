@@ -12,17 +12,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Cisco IOS XR configuration text handling: normalize, parse, diff, remediate, guard.
+"""Cisco IOS XR configuration text handling: normalize, parse, guard.
 
 Everything here is pure text processing so it can be tested without a router.
 The connection class feeds it the output of ``show running-config`` and the
 rendered intended configuration.
 
-The diff is client-side. XR has no read-only way to load a candidate and compare
-it with the running configuration, so both texts are canonicalized
-(:func:`normalize_config`), parsed into trees (:func:`parse_config`) and compared
-(:func:`render_diff`). The commands that would make the router match the intended
-configuration come from :func:`build_commands`.
+The diff is computed by the router: the intended text is copied onto the candidate
+datastore and the router reports the difference (see ``cisco_xr``). This module
+canonicalizes the texts (:func:`normalize_config`, :func:`replacement_text`),
+parses them into trees (:func:`parse_config`) for the lockout guard, and parses
+the router's diff (:func:`parse_router_diff`).
 """
 
 from __future__ import annotations
@@ -56,21 +56,6 @@ _SET_HEADER_RE = re.compile(
 _POLICY_HEADER_RE = re.compile(r"^route-policy\s+\S+")
 _GROUP_HEADER_RE = re.compile(r"^group\s+\S+$")
 _BANNER_RE = re.compile(r"^banner\s+\S+\s+(\S)(.*)$")
-
-# Leaf commands whose value is replaced by simply entering the new value; they
-# need no ``no <old value>`` first. Verified against the XR CLI on lab routers.
-SINGLETON_KEYWORDS = frozenset(
-    {
-        "description",
-        "mtu",
-        "bandwidth",
-        "secret",
-        "password",
-        "hostname",
-        "router-id",
-        "maximum-paths",
-    }
-)
 
 # A config this small cannot be a real router configuration; refuse to apply it.
 MIN_INTENDED_TOP_LEVEL_NODES = 3
@@ -279,126 +264,6 @@ def flatten(nodes: list[Node], prefix: tuple[str, ...] = ()) -> list[tuple[str, 
         paths.extend((*path, line) for line in node.body)
         paths.extend(flatten(node.children, path))
     return paths
-
-
-# ---------------------------------------------------------------------------
-# Diff for the approver.
-# ---------------------------------------------------------------------------
-
-
-def _render_added(node: Node, depth: int, out: list[str]) -> None:
-    pad = "  " * depth
-    out.append(f"+ {pad}{node.line}")
-    out.extend(f"+ {pad}  {line}" for line in node.body)
-    for child in node.children:
-        _render_added(child, depth + 1, out)
-
-
-def _render_removed(node: Node, depth: int, out: list[str]) -> None:
-    pad = "  " * depth
-    out.append(f"- {pad}{node.line}")
-    out.extend(f"- {pad}  {line}" for line in node.body)
-    for child in node.children:
-        _render_removed(child, depth + 1, out)
-
-
-def _diff_level(running: list[Node], intended: list[Node], depth: int) -> list[str]:
-    out: list[str] = []
-    for node in running:
-        match = _find(intended, node.line)
-        if match is None:
-            _render_removed(node, depth, out)
-            continue
-        if node.atomic or match.atomic:
-            if node.body != match.body:
-                pad = "  " * depth
-                out.append(f"  {pad}{node.line}")
-                out.extend(f"- {pad}  {line}" for line in node.body)
-                out.extend(f"+ {pad}  {line}" for line in match.body)
-            continue
-        inner = _diff_level(node.children, match.children, depth + 1)
-        if inner:
-            out.append(f"  {'  ' * depth}{node.line}")
-            out.extend(inner)
-    for node in intended:
-        if _find(running, node.line) is None:
-            _render_added(node, depth, out)
-    return out
-
-
-def render_diff(running: list[Node], intended: list[Node]) -> str:
-    """Return the diff that turns ``running`` into ``intended`` ('' when converged).
-
-    Lines start with ``-`` (only on the router), ``+`` (only in the intended
-    configuration) or two spaces (the parent of a change). The text is
-    deterministic, so the diff approved by a person can be compared with the
-    diff recomputed at apply time.
-    """
-    lines = _diff_level(running, intended, 0)
-    return "\n".join(lines) + ("\n" if lines else "")
-
-
-# ---------------------------------------------------------------------------
-# Commands.
-# ---------------------------------------------------------------------------
-
-
-def _first_token(line: str) -> str:
-    return line.split(" ", 1)[0]
-
-
-def _added_commands(node: Node) -> list[str]:
-    if node.atomic:
-        return [node.line, *node.body]
-    if not node.children:
-        return [node.line]
-    commands = [node.line]
-    for child in node.children:
-        commands.extend(_added_commands(child))
-    commands.append("exit")
-    return commands
-
-
-def _command_level(running: list[Node], intended: list[Node]) -> list[str]:
-    added_leaves = [
-        n for n in intended if not n.children and not n.atomic and _find(running, n.line) is None
-    ]
-    replaced = {
-        _first_token(n.line) for n in added_leaves if _first_token(n.line) in SINGLETON_KEYWORDS
-    }
-    commands: list[str] = []
-    for node in running:
-        match = _find(intended, node.line)
-        if match is None:
-            leaf = not node.children and not node.atomic
-            if leaf and _first_token(node.line) in replaced:
-                continue
-            commands.append(f"no {node.line}")
-            continue
-        if node.atomic or match.atomic:
-            if node.body != match.body:
-                commands.extend(_added_commands(match))
-            continue
-        inner = _command_level(node.children, match.children)
-        if inner:
-            commands.append(node.line)
-            commands.extend(inner)
-            commands.append("exit")
-    for node in intended:
-        if _find(running, node.line) is None:
-            commands.extend(_added_commands(node))
-    return commands
-
-
-def build_commands(running: list[Node], intended: list[Node]) -> list[str]:
-    """Return the config-mode commands that make ``running`` equal ``intended``.
-
-    Removals are ``no <line>`` (a removed block is removed by its header only),
-    additions follow, and every entered sub-mode is left with ``exit``. The
-    commands are applied in one atomic commit, so their order does not open a
-    window where the router has half a configuration.
-    """
-    return _command_level(running, intended)
 
 
 # ---------------------------------------------------------------------------

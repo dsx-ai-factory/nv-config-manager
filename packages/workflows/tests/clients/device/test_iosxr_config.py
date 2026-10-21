@@ -27,14 +27,6 @@ def _guard(intended: str, running: str = RUNNING) -> list[str]:
     )
 
 
-def _diff(running: str, intended: str) -> str:
-    return xr.render_diff(xr.parse_config(running), xr.parse_config(intended))
-
-
-def _commands(running: str, intended: str) -> list[str]:
-    return xr.build_commands(xr.parse_config(running), xr.parse_config(intended))
-
-
 def _without(text: str, *lines: str) -> str:
     result = text
     for line in lines:
@@ -65,7 +57,8 @@ def test_normalize_writes_slash_addresses_in_netmask_form() -> None:
 
     assert " ipv4 address 10.0.0.7 255.255.255.255\n" in result
     assert " ipv4 address 10.0.0.8 255.255.255.0 secondary\n" in result
-    assert _diff(RUNNING, INTENDED.replace("10.0.0.7 255.255.255.255", "10.0.0.7/32")) == ""
+    slash = INTENDED.replace("10.0.0.7 255.255.255.255", "10.0.0.7/32")
+    assert xr.normalize_config(slash) == xr.normalize_config(INTENDED)
 
 
 def test_normalize_handles_crlf_and_blank_lines() -> None:
@@ -122,14 +115,6 @@ def test_an_unterminated_configuration_group_is_rejected() -> None:
         xr.parse_config("group DC-INT\n interface 'HundredGigE.*'\n")
 
 
-def test_commands_resend_a_changed_configuration_group_as_a_whole() -> None:
-    changed = GROUP.replace("mtu 9100", "mtu 9000")
-
-    commands = xr.build_commands(xr.parse_config(GROUP), xr.parse_config(changed))
-
-    assert commands == ["group DC-INT", "interface 'HundredGigE.*'", "mtu 9000", "end-group"]
-
-
 NEW_STANZAS = (
     "key chain KC\n macsec\n  key 0A1B\n   key-string password7 0822455D0A16\n"
     "   cryptographic-algorithm aes-256-cmac\n   lifetime 00:00:00 march 12 2026 infinite\n"
@@ -144,7 +129,7 @@ NEW_STANZAS = (
 )
 
 
-def test_the_data_driven_stanzas_parse_and_converge() -> None:
+def test_the_data_driven_stanzas_parse() -> None:
     tree = xr.parse_config(NEW_STANZAS)
 
     assert [n.line for n in tree][:3] == [
@@ -152,21 +137,6 @@ def test_the_data_driven_stanzas_parse_and_converge() -> None:
         "ipv4 access-list SNMP-1",
         "snmp-server community abc RO IPv4 SNMP-1",
     ]
-    assert xr.render_diff(tree, xr.parse_config(NEW_STANZAS)) == ""
-
-
-def test_a_new_community_and_a_changed_key_string_produce_commands() -> None:
-    changed = NEW_STANZAS.replace("0822455D0A16", "1304010B0818").replace(
-        "community abc RO", "community abc RO SystemOwner"
-    )
-
-    commands = xr.build_commands(xr.parse_config(NEW_STANZAS), xr.parse_config(changed))
-
-    assert "no snmp-server community abc RO IPv4 SNMP-1" in commands
-    assert "snmp-server community abc RO SystemOwner IPv4 SNMP-1" in commands or any(
-        c.startswith("snmp-server community abc RO SystemOwner") for c in commands
-    )
-    assert "key-string password7 1304010B0818" in commands
 
 
 def test_nested_route_policy_binding_is_a_leaf_not_a_block() -> None:
@@ -203,116 +173,7 @@ def test_parse_keeps_multiline_banner_as_one_unit() -> None:
     assert tree[1].line == "hostname a"
 
 
-# --- diff ------------------------------------------------------------------
-
-
-def test_converged_router_has_empty_diff_despite_layout_and_comments() -> None:
-    assert _diff(RUNNING, INTENDED) == ""
-
-
-def test_diff_shows_changed_leaf_with_its_parents() -> None:
-    changed = INTENDED.replace("metric 100", "metric 200")
-
-    assert _diff(RUNNING, changed) == (
-        "  router isis CORE\n"
-        "    interface HundredGigE0/0/0/0\n"
-        "      address-family ipv4 unicast\n"
-        "-       metric 100\n"
-        "+       metric 200\n"
-    )
-
-
-def test_diff_shows_added_and_removed_blocks() -> None:
-    intended = (
-        _without(INTENDED, "interface Loopback0")
-        + "interface Loopback9\n  ipv4 address 10.9.9.9 255.255.255.255\n"
-    )
-    diff = _diff(RUNNING, intended)
-
-    assert "- interface Loopback0" in diff
-    assert "+ interface Loopback9" in diff
-    assert "+   ipv4 address 10.9.9.9 255.255.255.255" in diff
-
-
-def test_diff_replaces_changed_set_as_a_whole() -> None:
-    intended = INTENDED.replace("192.168.0.0/16", "172.16.0.0/12")
-    diff = _diff(RUNNING, intended)
-
-    assert "-   192.168.0.0/16" in diff
-    assert "+   172.16.0.0/12" in diff
-
-
-def test_diff_is_deterministic() -> None:
-    changed = INTENDED.replace("metric 100", "metric 200")
-
-    assert _diff(RUNNING, changed) == _diff(RUNNING, changed)
-
-
 # --- commands --------------------------------------------------------------
-
-
-def test_commands_for_changed_singleton_do_not_negate_the_old_value() -> None:
-    intended = INTENDED.replace("Underlay Loopback", "Core Loopback")
-
-    assert _commands(RUNNING, intended) == [
-        "interface Loopback0",
-        "description Core Loopback",
-        "exit",
-    ]
-
-
-def test_commands_remove_with_no_and_enter_parents() -> None:
-    intended = _without(INTENDED, "      metric 100")
-    # the address-family block is now empty on the router side, so it stays in place
-    commands = _commands(RUNNING, intended)
-
-    assert commands == [
-        "router isis CORE",
-        "interface HundredGigE0/0/0/0",
-        "address-family ipv4 unicast",
-        "no metric 100",
-        "exit",
-        "exit",
-        "exit",
-    ]
-
-
-def test_commands_remove_whole_block_by_header_only() -> None:
-    intended = _without(
-        INTENDED,
-        "interface Loopback0",
-        "  description Underlay Loopback",
-        "  ipv4 address 10.0.0.7 255.255.255.255",
-    )
-
-    assert _commands(RUNNING, intended) == ["no interface Loopback0"]
-
-
-def test_commands_add_nested_block_with_exits() -> None:
-    intended = INTENDED + "router bgp 65000\n  neighbor 10.1.1.1\n    remote-as 65001\n"
-
-    assert _commands(RUNNING, intended) == [
-        "router bgp 65000",
-        "neighbor 10.1.1.1",
-        "remote-as 65001",
-        "exit",
-        "exit",
-    ]
-
-
-def test_commands_resend_a_changed_atomic_block() -> None:
-    intended = INTENDED.replace("192.168.0.0/16", "172.16.0.0/12")
-
-    assert _commands(RUNNING, intended) == [
-        "prefix-set PL-LOOPBACKS",
-        "10.0.0.0/8 le 32,",
-        "172.16.0.0/12",
-        "end-set",
-    ]
-
-
-def test_no_commands_when_converged() -> None:
-    assert _commands(RUNNING, INTENDED) == []
 
 
 # --- lockout guard: one case per protected item ------------------------------
@@ -444,18 +305,14 @@ def test_guard_does_not_apply_to_what_the_router_never_had() -> None:
     assert _guard(_without(INTENDED, "ssh server vrf MGMT"), running) == []
 
 
-def test_prefix_set_entries_compare_in_the_routers_text_order_without_regard_to_input_order() -> (
+def test_prefix_set_entries_are_parsed_in_the_routers_text_order_regardless_of_input_order() -> (
     None
 ):
     router = "prefix-set P\n  10.54.10.0/23,\n  10.54.8.0/25\nend-set\n"
     rendered = "prefix-set P\n  10.54.8.0/25,\n  10.54.10.0/23\nend-set\n"
 
-    assert _diff(router, rendered) == ""
+    assert xr.parse_config(router)[0].body == xr.parse_config(rendered)[0].body
     assert xr.parse_config(rendered)[0].body == ("10.54.10.0/23,", "10.54.8.0/25", "end-set")
-
-
-def test_prefix_sets_with_different_members_still_differ() -> None:
-    assert _diff("prefix-set P\n  10.0.0.0/8\nend-set\n", "prefix-set P\n  10.0.0.0/9\nend-set\n")
 
 
 # --- text sent for a router-side replace and the router's diff -----------------------
