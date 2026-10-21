@@ -135,6 +135,11 @@ async def mock_get_device_actual_neighbors(_: Any) -> DeviceNeighborData:
                 device_serial="MOCKSERIAL4",
                 device_role="tenant-a-device",
             ),
+            "swp52": InterfaceNeighborData(
+                name="A56p0",
+                device_name="gpu-tray",
+                port_description="gpu-tray C1-2-L1",
+            ),
         },
         link_states={
             "swp0": True,
@@ -143,7 +148,18 @@ async def mock_get_device_actual_neighbors(_: Any) -> DeviceNeighborData:
             "swp10": True,
             "swp49": True,
             "swp51": True,
+            "swp52": True,
         },
+    )
+
+
+@activity.defn(name="get_device_intended_neighbors")
+async def mock_get_device_intended_neighbors(_: NetworkDeviceData) -> DeviceNeighborData:
+    return DeviceNeighborData(
+        neighbors={
+            "swp52": InterfaceNeighborData(name="eth1", device_name="gpu-tray", label="C1-2-L1"),
+            "swp53": InterfaceNeighborData(name="eth2", device_name="gpu-tray", label="C1-2-L2"),
+        }
     )
 
 
@@ -185,12 +201,20 @@ async def mock_get_host_data_by_names(device_names: list[str]) -> Any:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("port_description", ["gpu-tray C1-2-L1", "different-tray WRONG-LANE"])
 @patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
 async def test_execute_workflow(
     mock_time: Any,
     mock_nats_client: Any,
     env: Any,
+    port_description: str,
 ) -> None:
+    @activity.defn(name="get_device_actual_neighbors")
+    async def neighbors_with_description(device: Any) -> DeviceNeighborData:
+        neighbors = await mock_get_device_actual_neighbors(device)
+        neighbors.neighbors["swp52"].port_description = port_description
+        return neighbors
+
     task_queue_name = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -199,7 +223,8 @@ async def test_execute_workflow(
         activities=[
             mock_get_network_device,
             mock_get_device_mac_table,
-            mock_get_device_actual_neighbors,
+            neighbors_with_description,
+            mock_get_device_intended_neighbors,
             mock_get_host_data_by_macs,
             mock_get_host_data_by_names,
             publish_nats,
@@ -235,7 +260,8 @@ async def test_execute_workflow(
         assert neighbors_stage["depends_on"] == []
         neighbors_display_stripped = neighbors_stage["output"]["display"].replace(" ", "")
         assert (
-            "|Interface|NeighborDevice|NeighborInterface|LinkStatus|" in neighbors_display_stripped
+            "|Interface|NeighborDevice|NeighborInterface|IntendedInterfaceLabel|LLDPPortDescription|LinkStatus|"
+            in neighbors_display_stripped
         )
 
         # Check get_connected_host_data stage
@@ -250,35 +276,47 @@ async def test_execute_workflow(
         # Check that the final output includes the new table structure with LLDP Name
         result_stripped = result.replace(" ", "")
         assert (
-            "|NetworkInterface|Host|LLDPName|Alias|ConnectedInterface|MACAddress|Tenant|VLAN|"
+            "|NetworkInterface|Host|LLDPName|Alias|ConnectedInterface|IntendedInterfaceLabel|LLDPPortDescription|MACAddress|Tenant|VLAN|"
             in result_stripped
         )
         # Check MAC-based entries
         assert (
-            "|swp0|[server0](mock_nb_url)|mock_neighbor1|--|eth0|00:00:00:00:00:01|TenantA|100|"
+            "|swp0|[server0](mock_nb_url)|mock_neighbor1|--|eth0|--|--|00:00:00:00:00:01|TenantA|100|"
             in result_stripped
         )
         assert (
-            "|swp1|[server1](mock_nb_url)|mock_neighbor2|server1alias|eth0|00:00:00:00:00:02|TenantA|200|"
+            "|swp1|[server1](mock_nb_url)|mock_neighbor2|server1alias|eth0|--|--|00:00:00:00:00:02|TenantA|200|"
             in result_stripped
         )
         assert (
-            "|swp2|[server2](mock_nb_url)|--|--|eth0|00:00:00:00:00:03|--|300|" in result_stripped
+            "|swp2|[server2](mock_nb_url)|--|--|eth0|--|--|00:00:00:00:00:03|--|300|"
+            in result_stripped
         )
         # Check entries with MAC addresses reported over LLDP
         assert (
-            "|swp10|[server6](mock_nb_url)|server6.sitea.example.com|--|02:00:00:00:00:10|--|TenantA|--|"
+            "|swp10|[server6](mock_nb_url)|server6.sitea.example.com|--|02:00:00:00:00:10|--|--|--|TenantA|--|"
             in result_stripped
         )
         # Check LLDP-only entries (network devices without MAC addresses)
         assert (
-            "|swp49|[mock_neighbor3](mock_nb_url)|mock_neighbor3|--|swp49|--|TenantA|--|"
+            "|swp49|[mock_neighbor3](mock_nb_url)|mock_neighbor3|--|swp49|--|--|--|TenantA|--|"
             in result_stripped
         )
         assert (
-            "|swp51|[mock_neighbor4](mock_nb_url)|mock_neighbor4|--|Ethernet1/2|--|--|--|"
+            "|swp51|[mock_neighbor4](mock_nb_url)|mock_neighbor4|--|Ethernet1/2|--|--|--|--|--|"
             in result_stripped
         )
+        assert "C1-2-L1" in neighbors_stage["output"]["display"]
+        assert port_description in neighbors_stage["output"]["display"]
+        host_rows = {
+            row["device_interface"]: row for row in host_data_stage["output"]["host_table"]
+        }
+        assert host_rows["swp52"]["intended_interface_label"] == "C1-2-L1"
+        assert host_rows["swp52"]["lldp_port_description"] == port_description
+        assert host_rows["swp52"]["connected_interface"] == "A56p0"
+        assert host_rows["swp0"]["intended_interface_label"] is None
+        assert host_rows["swp0"]["lldp_port_description"] is None
+        assert "swp53" not in host_rows  # Intended-only ports do not become discovery results.
 
         expected_search_attributes = {
             "DeviceID": ["mock_device_uuid"],
@@ -319,6 +357,7 @@ async def test_execute_workflow_no_data(
             mock_get_network_device,
             mock_get_device_mac_table_empty,
             mock_get_device_actual_neighbors_empty,
+            mock_get_device_intended_neighbors,
             mock_get_host_data_by_macs,
             mock_get_host_data_by_names,
             publish_nats,
