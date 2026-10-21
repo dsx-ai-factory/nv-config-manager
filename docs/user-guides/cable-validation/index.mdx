@@ -243,7 +243,15 @@ For example, this finding shows different metadata while preserving the intended
 | :--------- | :---------------- | :----------------------- | :-------------- | :-------------------- |
 | swp2 | eth1 | C1-2-L1 | A56p0 | su02-hyperreach-host A56p0 |
 
-The **Issue** remains generic: `Incorrect cabling, actual should match intended. Based on LLDP data`. Compare the intended fields with the observed port and description when investigating. Names such as `A56p0`, `eth_r0_0`, and `C1-2-L1` may identify the same physical lane under different naming conventions. Treat this finding as a difference from the source of truth that needs investigation, rather than proof of a wrong lane.
+The **Issue** column gives a short finding and one next check, keeping the identifiers in the existing intended/observed columns:
+
+| Finding | Issue text |
+| :------ | :--------- |
+| Device identity matches; a C-notation identifier differs from another port naming format | Port naming differs. Check the Cerebro lane map and host LLDP configuration. |
+| Reported device identity differs from the intended device and known chassis aliases | Device identity differs. Verify the LLDP hostname and cable destination. |
+| Device identity matches; both port identifiers use C-notation and differ | C-notation labels differ. Verify the lane map, inventory, and cable placement. |
+
+The example above uses the **Port naming differs** message. Legacy interface names such as `eth_r0_p0` use the same guidance. Names such as `A56p0`, `eth_r0_0`, and `C1-2-L1` may identify the same physical lane under different conventions, so these messages recommend verification before re-cabling or re-provisioning. Missing, malformed, or conflicting identity data retains the generic LLDP issue when it cannot support a more specific finding. The same text appears in the UI, CSV and Excel; validation decisions are unchanged.
 
 ### Issue
 

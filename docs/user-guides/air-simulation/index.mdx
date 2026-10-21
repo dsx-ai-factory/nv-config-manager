@@ -198,7 +198,7 @@ ports out of tenant-change tests.
 
    Wait for LLDP to refresh, then rerun validation. The first leaf's `swp2`
    should fail identity validation, with `C1-2-L1` and `A56p0` visible in
-   the report and a generic LLDP mismatch issue. This flags differing metadata;
+   the report and **Port naming differs** guidance in the Issue column. This flags differing metadata;
    alternative naming conventions can refer to the same physical lane. The
    second leaf's `swp2` should remain valid.
 1. Restore the persistent descriptions with `sudo systemctl restart lldpd`,

@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import csv
 import io
+import re
 from collections.abc import Iterable
 from typing import Any
 
@@ -52,6 +53,13 @@ from nv_config_manager_workflows.clients.device.models import (
     format_mac,
     is_mac_address,
 )
+
+_GENERIC_LLDP_ISSUE = "Incorrect cabling, actual should match intended. Based on LLDP data"
+_PORT_NAMING_ISSUE = "Port naming differs. Check the Cerebro lane map and host LLDP configuration."
+_DEVICE_IDENTITY_ISSUE = "Device identity differs. Verify the LLDP hostname and cable destination."
+_C_NOTATION_ISSUE = "C-notation labels differ. Verify the lane map, inventory, and cable placement."
+_LLDP_GUIDANCE_ISSUES = frozenset({_PORT_NAMING_ISSUE, _DEVICE_IDENTITY_ISSUE, _C_NOTATION_ISSUE})
+_C_NOTATION_LABEL = re.compile(r"C[0-9]+-[0-9]+-L[0-9]+", re.IGNORECASE)
 
 
 def _rack_position_str(rack: str | None, position: int | None) -> str | None:
@@ -434,6 +442,54 @@ def _row_mac_mismatch(
     )
 
 
+def _lldp_mismatch_issue(intended: InterfaceNeighborData, actual: InterfaceNeighborData) -> str:
+    """Suggest a next check only when neighbor identity and port metadata support it."""
+    expected_names = {
+        name.casefold()
+        for name in (intended.device_name, intended.chassis_name)
+        if name and not is_mac_address(name)
+    }
+    if not expected_names:
+        return _GENERIC_LLDP_ISSUE
+
+    observed_name = (
+        actual.device_name.casefold()
+        if actual.device_name and not is_mac_address(actual.device_name)
+        else None
+    )
+    parts = (actual.port_description or "").split()
+    if len(parts) == 2:
+        description_name, observed_port = parts
+        if is_mac_address(description_name):
+            return _GENERIC_LLDP_ISSUE
+        description_matches = description_name.casefold() in expected_names
+        if observed_name and (observed_name in expected_names) != description_matches:
+            # Conflicting LLDP identities cannot identify which metadata needs attention.
+            return _GENERIC_LLDP_ISSUE
+        if not description_matches:
+            return _DEVICE_IDENTITY_ISSUE
+    else:
+        if observed_name and observed_name not in expected_names:
+            return _DEVICE_IDENTITY_ISSUE
+        if observed_name not in expected_names:
+            return _GENERIC_LLDP_ISSUE
+        if parts:
+            return _GENERIC_LLDP_ISSUE
+        observed_port = actual.name
+
+    expected_port = intended.label or intended.name
+    if (
+        not expected_port
+        or not observed_port
+        or not _C_NOTATION_LABEL.fullmatch(expected_port)
+        or expected_port.casefold() == observed_port.casefold()
+    ):
+        return _GENERIC_LLDP_ISSUE
+    if _C_NOTATION_LABEL.fullmatch(observed_port):
+        return _C_NOTATION_ISSUE
+    return _PORT_NAMING_ISSUE
+
+
 def _row_lldp_mismatch(
     device_name: str,
     interface_name: str,
@@ -443,7 +499,7 @@ def _row_lldp_mismatch(
     actual: InterfaceNeighborData,
     actual_device_name: str | None,
 ) -> CableValidationRow:
-    """Build row for incorrect cabling based on LLDP (actual.name set)."""
+    """Build a row for intended/observed LLDP differences (actual.name set)."""
     end_port = (
         f"{intended.name} ({format_mac(intended.macs[0])})"
         if is_mac_address(actual.name) and intended.macs
@@ -458,7 +514,7 @@ def _row_lldp_mismatch(
         intended_end_rack=_rack_position_str(intended.device_rack, intended.device_position),
         actual_end_device=_display_or_macs(actual_device_name, actual.macs),
         actual_end_port=_display_or_macs(actual.name, actual.macs),
-        issue="Incorrect cabling, actual should match intended. Based on LLDP data",
+        issue=_lldp_mismatch_issue(intended, actual),
         troubleshooting_info=actual.ts_info,
     )
 
@@ -694,7 +750,7 @@ def _classify_issue(issue: str | None) -> str:
     """
     if issue in (LINK_DOWN_MSG, LINK_UP_NO_NEIGHBOR_MSG):
         return "missing"
-    if issue and issue.startswith(INCORRECT_CABLING_PREFIX):
+    if issue and (issue.startswith(INCORRECT_CABLING_PREFIX) or issue in _LLDP_GUIDANCE_ISSUES):
         return "miscabled"
     if issue == UNEXPECTED_CONNECTION_MSG:
         return "unexpected"

@@ -98,59 +98,9 @@ class TestLaneMetadata:
         if issue_kind == "lldp":
             assert row.intended_end_port == "eth1"
             assert row.actual_end_port == "A56p0"
-            assert (
-                row.issue == "Incorrect cabling, actual should match intended. Based on LLDP data"
+            assert row.issue == (
+                "Port naming differs. Check the Cerebro lane map and host LLDP configuration."
             )
-
-    @pytest.mark.parametrize(
-        ("label", "description", "chassis_name"),
-        [
-            ("C1-2-L1", "su02-hyperreach-host A56p0", None),
-            ("C1-2-L1", "su02-hyperreach-host eth_r0_0", None),
-            ("C1-2-L1", "SU02-HYPERREACH-HOST c1-2-l2", None),
-            ("C1-2-L1", "tray-chassis A56p0", "tray-chassis"),
-            (None, "su02-hyperreach-host A56p0", None),
-            ("", "su02-hyperreach-host A56p0", None),
-            ("C1-2-L1", "wrong-host A56p0", None),
-            ("C1-2-L1", "su02-hyperreach-host", None),
-            ("C1-2-L1", "su02-hyperreach-host A56p0 extra", None),
-            ("C1-2-L1", None, None),
-        ],
-    )
-    def test_lldp_findings_preserve_raw_metadata_without_diagnosing_a_lane(
-        self,
-        label: str | None,
-        description: str | None,
-        chassis_name: str | None,
-    ) -> None:
-        """Naming conventions can differ for the same physical lane."""
-        row = _format_single_interface_row(
-            "su01-cin-leaf-r01",
-            None,
-            "swp2",
-            InvalidCable(
-                intended=InterfaceNeighborData(
-                    name="eth1",
-                    device_name="su02-hyperreach-host",
-                    chassis_name=chassis_name,
-                    label=label,
-                ),
-                actual=InterfaceNeighborData(
-                    name="A56p0",
-                    device_name="su02-hyperreach-host",
-                    port_description=description,
-                    link_up=True,
-                ),
-            ),
-        )
-
-        assert row is not None
-        assert row.issue == "Incorrect cabling, actual should match intended. Based on LLDP data"
-        assert row.intended_interface_label == label
-        assert row.lldp_port_description == description
-        assert row.intended_end_port == "eth1"
-        assert row.actual_end_port == "A56p0"
-        assert _classify_issue(row.issue) == "miscabled"
 
     @pytest.mark.parametrize("export", ["csv", "xlsx"])
     @pytest.mark.parametrize(
@@ -210,6 +160,172 @@ class TestLaneMetadata:
 
         assert row.to_markdown()["Intended Interface Label"] == "--"
         assert row.to_markdown()["LLDP Port Description"] == "--"
+
+
+class TestLldpGuidance:
+    """Only classify supported discrepancies; keep guidance short and conditional."""
+
+    NAMING = "Port naming differs. Check the Cerebro lane map and host LLDP configuration."
+    DEVICE = "Device identity differs. Verify the LLDP hostname and cable destination."
+    C_NOTATION = "C-notation labels differ. Verify the lane map, inventory, and cable placement."
+    GENERIC = "Incorrect cabling, actual should match intended. Based on LLDP data"
+
+    @pytest.mark.parametrize(
+        ("intended_changes", "actual_changes", "expected_issue"),
+        [
+            pytest.param({}, {}, NAMING, id="port-name-convention"),
+            pytest.param({}, {"port_description": "host eth_r0_p0"}, NAMING, id="legacy-name"),
+            pytest.param(
+                {}, {"port_description": "  HOST   a56p0  "}, NAMING, id="case-whitespace"
+            ),
+            pytest.param({}, {"port_description": "host C1-5-L1"}, C_NOTATION, id="c-label"),
+            pytest.param({}, {"port_description": "host c1-3-l1"}, C_NOTATION, id="c-label-case"),
+            pytest.param(
+                {},
+                {"device_name": "other-host", "port_description": "other-host C1-2-L1"},
+                DEVICE,
+                id="different-device",
+            ),
+            pytest.param(
+                {},
+                {"device_name": "other-host", "port_description": None},
+                DEVICE,
+                id="device-without-description",
+            ),
+            pytest.param(
+                {},
+                {"device_name": None, "port_description": "other-host C1-2-L1"},
+                DEVICE,
+                id="description-device-only",
+            ),
+            pytest.param(
+                {"device_name": "line-card", "chassis_name": "host"},
+                {},
+                NAMING,
+                id="chassis-alias",
+            ),
+            pytest.param(
+                {"device_name": "line-card", "chassis_name": "host"},
+                {"device_name": "LINE-CARD"},
+                NAMING,
+                id="known-identities",
+            ),
+            pytest.param({}, {"device_name": None}, NAMING, id="description-identity"),
+            pytest.param(
+                {},
+                {"device_name": "00:11:22:33:44:55"},
+                NAMING,
+                id="mac-chassis-id",
+            ),
+            pytest.param(
+                {},
+                {"port_description": "other-host C1-2-L1"},
+                GENERIC,
+                id="conflicting-description-host",
+            ),
+            pytest.param(
+                {},
+                {"device_name": "other-host"},
+                GENERIC,
+                id="conflicting-system-host",
+            ),
+            pytest.param(
+                {},
+                {"device_name": None, "port_description": None},
+                GENERIC,
+                id="missing-identity",
+            ),
+            pytest.param(
+                {},
+                {"device_name": "00:11:22:33:44:55", "port_description": None},
+                GENERIC,
+                id="only-mac-identity",
+            ),
+            pytest.param({"device_name": None}, {}, GENERIC, id="missing-intended-identity"),
+            pytest.param(
+                {"device_name": None, "chassis_name": "host"},
+                {},
+                NAMING,
+                id="only-chassis-alias",
+            ),
+            pytest.param({"label": None}, {}, GENERIC, id="no-label"),
+            pytest.param({"label": ""}, {}, GENERIC, id="empty-label"),
+            pytest.param(
+                {"label": None, "name": "C1-2-L1"},
+                {},
+                NAMING,
+                id="c-interface-name",
+            ),
+            pytest.param(
+                {},
+                {"port_description": "host c1-2-l1"},
+                GENERIC,
+                id="matching-label",
+            ),
+            pytest.param({}, {"port_description": None}, NAMING, id="observed-port-id"),
+            pytest.param({}, {"port_description": "host"}, GENERIC, id="one-token"),
+            pytest.param(
+                {},
+                {"port_description": "host C1-2-L1 extra"},
+                GENERIC,
+                id="extra-token",
+            ),
+            pytest.param(
+                {},
+                {"port_description": "host C1-5-L1-extra"},
+                NAMING,
+                id="c-like-name",
+            ),
+            pytest.param({"label": "C1|2\nL1"}, {}, GENERIC, id="non-c-label"),
+            pytest.param(
+                {},
+                {"port_description": "00:11:22:33:44:55 C1-5-L1"},
+                GENERIC,
+                id="description-mac-identity",
+            ),
+        ],
+    )
+    def test_issue_uses_supported_evidence(
+        self, intended_changes: dict, actual_changes: dict, expected_issue: str
+    ) -> None:
+        intended = InterfaceNeighborData(
+            **{"device_name": "host", "name": "eth1", "label": "C1-2-L1", **intended_changes}
+        )
+        actual = InterfaceNeighborData(
+            **{
+                "device_name": "host",
+                "name": "A56p0",
+                "port_description": "host A56p0",
+                "link_up": True,
+                **actual_changes,
+            }
+        )
+        row = _format_single_interface_row(
+            "leaf", None, "swp2", InvalidCable(intended=intended, actual=actual)
+        )
+        assert row is not None
+        assert row.issue == expected_issue
+        assert row.intended_interface_label == intended.label
+        assert row.lldp_port_description == actual.port_description
+        assert row.intended_end_port == intended.name
+        assert row.actual_end_port == actual.name
+        assert _classify_issue(row.issue) == "miscabled"
+
+    @pytest.mark.parametrize("issue", [NAMING, DEVICE, C_NOTATION])
+    @pytest.mark.parametrize("export", ["csv", "xlsx"])
+    def test_guidance_and_summary_survive_exports(self, issue: str, export: str) -> None:
+        row = _row("leaf", issue)
+        markdown = _format_results_markdown(
+            [row], CSV_EXCLUDE_COLUMNS, MARKDOWN_EXCLUDE_COLUMNS, export=export
+        )
+        link, table = markdown.split("\n", 1)
+        assert issue in table
+        detail = _decode_csv(link) if export == "csv" else _decode_workbook(link)["Cable Issues"]
+        assert detail.iloc[0]["Issue"] == issue
+        summary = _build_host_summary([row])
+        assert summary[0]["Miscabled"] == 1
+        assert summary[0]["Total Issues"] == 1
+        assert len(issue) < 90
 
 
 class TestClassifyIssue:

@@ -144,7 +144,7 @@ for (const example of examples) {
     if (example.workflowType === "SiteCableValidationWorkflow") {
       await expect(
         row.getByRole("cell", {
-          name: "Incorrect cabling, actual should match intended. Based on LLDP data",
+          name: "Port naming differs. Check the Cerebro lane map and host LLDP configuration.",
           exact: true,
         })
       ).toBeVisible();
