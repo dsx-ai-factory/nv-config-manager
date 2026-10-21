@@ -11,6 +11,9 @@
 # =============================================================================
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim@sha256:531f855bda2c73cd6ef67d56b733b357cea384185b3022bd09f05e002cd144ca AS builder
 
+# Use the emSign remediation release instead of the base image's bundled uv.
+COPY --from=ghcr.io/astral-sh/uv:0.13.4@sha256:9f130421e930bfbdc563c00740466603f8723158e90297d07957c2294640262b /uv /uvx /usr/local/bin/
+
 ARG APT_MIRROR_DEBIAN=""
 ARG APT_MIRROR_GPG_KEY_URL=""
 ARG NVCM_NUMPY_FROM_SOURCE=false
@@ -24,12 +27,16 @@ COPY --from=scripts configure-apt-mirror.sh /tmp/configure-apt-mirror.sh
 RUN set -eux; \
     /tmp/configure-apt-mirror.sh "$APT_MIRROR_DEBIAN" "$APT_MIRROR_GPG_KEY_URL" debian && \
     apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     g++ \
     gcc \
     libffi-dev \
     libpq-dev \
     openssh-server \
     sshpass && \
+    # Debian's emSign remediation package, including the affected cross-sign root.
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge '20250419~deb12u2' && \
+    uv pip install --system 'pip>=26.2.2' && \
     rm -rf /var/lib/apt/lists/* && \
     # Stage sftp/ssh/sshpass binaries and their dependencies for multi-arch support
     mkdir -p /sftp-bin /sftp-lib && \
@@ -88,6 +95,13 @@ RUN --mount=type=cache,id=nvcm-uv-cache,target=/root/.cache/uv \
 # Runtime stage - NVIDIA distroless Python
 # =============================================================================
 FROM nvcr.io/nvidia/distroless/python:3.13-v4.1.4@sha256:eb5be985571eab7eac5e2ff722ed17eedbf64d4cf584ae0cef34cc6497592556
+
+# Replace the pinned runtime's trust store, including hashed certificate paths.
+# Copying only the bundle would leave distrusted roots reachable through capath.
+USER 0:0
+RUN ["python", "-c", "import shutil; from pathlib import Path; [shutil.rmtree(p) for p in (Path('/etc/ssl/certs'), Path('/usr/share/ca-certificates')) if p.exists()]"]
+COPY --from=builder /etc/ssl/certs/ /etc/ssl/certs/
+COPY --from=builder /usr/share/ca-certificates/ /usr/share/ca-certificates/
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

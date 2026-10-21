@@ -12,6 +12,9 @@
 # =============================================================================
 FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36 AS builder
 
+# Use the emSign remediation release instead of the base image's bundled uv.
+COPY --from=ghcr.io/astral-sh/uv:0.13.4@sha256:9f130421e930bfbdc563c00740466603f8723158e90297d07957c2294640262b /uv /uvx /usr/local/bin/
+
 ARG APT_MIRROR_DEBIAN=""
 ARG APT_MIRROR_GPG_KEY_URL=""
 
@@ -20,6 +23,7 @@ COPY --from=scripts configure-apt-mirror.sh /tmp/configure-apt-mirror.sh
 RUN set -eux; \
     /tmp/configure-apt-mirror.sh "$APT_MIRROR_DEBIAN" "$APT_MIRROR_GPG_KEY_URL" debian && \
     apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     g++ \
     gcc \
     git=1:2.39.5-0+deb12u3 \
@@ -32,6 +36,9 @@ RUN set -eux; \
     libxml2-dev \
     libxslt1-dev \
     zlib1g-dev && \
+    # Debian's emSign remediation package, including the affected cross-sign root.
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge '20250419~deb12u2' && \
+    uv pip install --system 'pip>=26.2.2' && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/nautobot
@@ -79,6 +86,13 @@ RUN mkdir -p /opt/nautobot/static \
 # Runtime stage - NVIDIA distroless Python
 # =============================================================================
 FROM nvcr.io/nvidia/distroless/python:3.11-v4.1.4@sha256:377041587967c3d0c96d8d8027a0b39b7f4ae122d7a1f9180b177efd41faca3c
+
+# Replace the pinned runtime's trust store, including hashed certificate paths.
+# Copying only the bundle would leave distrusted roots reachable through capath.
+USER 0:0
+RUN ["python", "-c", "import shutil; from pathlib import Path; [shutil.rmtree(p) for p in (Path('/etc/ssl/certs'), Path('/usr/share/ca-certificates')) if p.exists()]"]
+COPY --from=builder /etc/ssl/certs/ /etc/ssl/certs/
+COPY --from=builder /usr/share/ca-certificates/ /usr/share/ca-certificates/
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

@@ -50,8 +50,9 @@ test-main-py:
     # Improve performance with overlayfs.
     DOCKER_DRIVER: overlay2
   before_script:
-    - pip install --upgrade pip
-    - pip install uv
+    # Bootstrap with the advisory's hash-verified wheel before using the index.
+    - pip install --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+    - pip install "uv==0.13.4"
     - uv sync --frozen
   script:
     - uv run pytest packages/dcim/tests -v
@@ -91,8 +92,9 @@ test-main-workflows:
     - when: never
   image: $NVCM_CI_IMAGE_PYTHON_313
   before_script:
-    - pip install --upgrade pip
-    - pip install uv
+    # Bootstrap with the advisory's hash-verified wheel before using the index.
+    - pip install --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+    - pip install "uv==0.13.4"
   script:
     - make test-workflow-package
   artifacts:
@@ -127,8 +129,9 @@ test-main-workflow-artifacts:
     - when: never
   image: $NVCM_CI_IMAGE_PYTHON_313
   before_script:
-    - pip install --upgrade pip
-    - pip install uv
+    # Bootstrap with the advisory's hash-verified wheel before using the index.
+    - pip install --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+    - pip install "uv==0.13.4"
   script:
     - make test-workflow-wheels
 
@@ -152,8 +155,9 @@ test-main-network-templates:
     - when: never
   image: $NVCM_CI_IMAGE_PYTHON_313
   before_script:
-    - pip install --upgrade pip
-    - pip install uv
+    # Bootstrap with the advisory's hash-verified wheel before using the index.
+    - pip install --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+    - pip install "uv==0.13.4"
     - uv sync --frozen
   script:
     - uv run pytest packages/templates/tests -v --cov=nv_config_manager_templates --cov-report=xml:packages/templates/coverage.xml --cov-report=term
@@ -188,8 +192,9 @@ test-main-installer:
     - when: never
   image: $NVCM_CI_IMAGE_PYTHON_313
   before_script:
-    - pip install --upgrade pip
-    - pip install uv
+    # Bootstrap with the advisory's hash-verified wheel before using the index.
+    - pip install --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+    - pip install "uv==0.13.4"
     - cd installer
     - uv sync --frozen
   script:

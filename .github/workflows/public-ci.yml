@@ -33,6 +33,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: &setup_uv astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: "0.13.4"
           enable-cache: true
       - name: Setup Go
         uses: &actions_setup_go actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -76,6 +77,7 @@ jobs:
           python-version: ${{ env.NAUTOBOT_PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          version: "0.13.4"
           enable-cache: true
       - name: Lint and build app package
         working-directory: components/nautobot/nautobot-app-overlays
@@ -104,6 +106,7 @@ jobs:
           python-version: ${{ env.NAUTOBOT_PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          version: "0.13.4"
           enable-cache: true
       - name: Lint and build app package
         working-directory: components/nautobot/nautobot-nv-config-manager
@@ -163,6 +166,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          version: "0.13.4"
           enable-cache: true
       - run: uv sync --frozen
       - run: uv run pytest packages/dcim/tests -v
@@ -196,6 +200,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          version: "0.13.4"
           enable-cache: true
       - name: Test installer
         working-directory: installer
@@ -224,6 +229,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          version: "0.13.4"
           enable-cache: true
       - run: uv sync --frozen
       - run: uv run pytest packages/templates/tests -v --cov=nv_config_manager_templates --cov-report=xml:packages/templates/coverage.xml --cov-report=term
@@ -250,6 +256,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          version: "0.13.4"
           enable-cache: true
       - name: Test the non-editable workflows package and collect coverage
         run: make test-workflow-package
@@ -277,6 +284,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          version: "0.13.4"
           enable-cache: true
       - name: Check workflows package installs and runs outside the workspace
         run: make test-workflow-wheels
@@ -320,6 +328,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          version: "0.13.4"
           enable-cache: true
       - name: Install Helm
         run: |
@@ -340,7 +349,7 @@ jobs:
           # PyYAML 6.0.3 cp313 manylinux2014 x86_64 wheel. Update this hash
           # when PYTHON_VERSION or the Helm runner architecture changes.
           PYYAML_SHA256=0f29edc409a6392443abf94b9cf89ce99889a1dd5376d94316ae5145dfedd5d6
-          python -m pip install --disable-pip-version-check --no-deps \
+          uv pip install --system --no-deps \
             --only-binary=:all: --require-hashes \
             -r <(printf 'PyYAML==6.0.3 --hash=sha256:%s\n' "$PYYAML_SHA256")
       - name: Build chart dependencies
@@ -576,6 +585,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
+        with:
+          version: "0.13.4"
       - run: uv sync --frozen --only-group promotion-gate --no-install-project --no-install-workspace
       - name: Exercise exact-revision rollout observation
         run: uv run --frozen --only-group promotion-gate --no-sync python .gitlab/ci/scripts/test_wait_for_argocd.py
@@ -598,6 +609,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          version: "0.13.4"
           enable-cache: true
       - uses: *actions_setup_go
         with:
