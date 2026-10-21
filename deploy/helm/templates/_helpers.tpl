@@ -2049,7 +2049,7 @@ spec:
   jobName: {{ .root.Values.monitoring.probes.jobNamePrefix | default "" }}{{ .name }}-probe
   prober:
     scheme: {{ .scheme }}
-    url: {{ .root.Values.monitoring.probes.blackboxExporterUrl }}
+    url: {{ .root.Values.monitoring.probes.blackboxExporterUrl | quote }}
   targets:
     staticConfig:
       {{- include "nv-config-manager.probeStaticConfigLabels" .root | nindent 6 }}

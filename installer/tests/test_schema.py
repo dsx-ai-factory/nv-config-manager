@@ -264,6 +264,87 @@ class TestNVConfigManagerInstallConfig:
             is True
         )
 
+    def test_monitoring_urls_yaml_roundtrip(self, tmp_path: Path):
+        path = tmp_path / "config.yaml"
+        config = NVConfigManagerInstallConfig(
+            infrastructure=InfrastructureConfig(
+                monitoring=MonitoringConfig(
+                    grafana_url="https://grafana.example.com/d/overview?var-namespace=kiwi",
+                    blackbox_exporter_url="blackbox-exporter.monitoring.svc:9115",
+                ),
+            ),
+        )
+
+        config.to_yaml(path)
+        loaded = NVConfigManagerInstallConfig.from_yaml(path)
+
+        assert (
+            loaded.infrastructure.monitoring.grafana_url
+            == "https://grafana.example.com/d/overview?var-namespace=kiwi"
+        )
+        assert (
+            loaded.infrastructure.monitoring.blackbox_exporter_url
+            == "blackbox-exporter.monitoring.svc:9115"
+        )
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "grafana.example.com/d/overview",
+            "ftp://grafana.example.com/d/overview",
+            "https://",
+            "https://user:password@grafana.example.com/d/overview",
+            "https://grafana.example.com/a path",
+            "https://grafana.example.com/{{notafunction}}",
+        ],
+    )
+    def test_monitoring_rejects_invalid_grafana_url(self, url: str):
+        with pytest.raises(ValueError, match="Grafana URL"):
+            MonitoringConfig(grafana_url=url)
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "blackbox-exporter.monitoring.svc",
+            "https://blackbox-exporter.monitoring.svc:9115",
+            "blackbox-exporter.monitoring.svc:0",
+            "blackbox-exporter.monitoring.svc:65536",
+            "user@blackbox-exporter.monitoring.svc:9115",
+            "blackbox exporter:9115",
+            "blackbox_exporter.monitoring.svc:9115",
+            "-blackbox.monitoring.svc:9115",
+        ],
+    )
+    def test_monitoring_rejects_invalid_blackbox_exporter_url(self, url: str):
+        with pytest.raises(ValueError, match="Blackbox exporter URL"):
+            MonitoringConfig(blackbox_exporter_url=url)
+
+    def test_monitoring_urls_validate_assignment(self):
+        monitoring = MonitoringConfig()
+
+        with pytest.raises(ValueError, match="Grafana URL"):
+            monitoring.grafana_url = "grafana.example.com"
+        with pytest.raises(ValueError, match="Blackbox exporter URL"):
+            monitoring.blackbox_exporter_url = "blackbox-exporter.monitoring.svc"
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "blackbox-exporter.monitoring.svc.:9115",
+            "192.0.2.10:9115",
+            "[2001:db8::1]:9115",
+        ],
+    )
+    def test_monitoring_accepts_valid_blackbox_exporter_url(self, url: str):
+        assert MonitoringConfig(blackbox_exporter_url=url).blackbox_exporter_url == url
+
+    def test_yaml_omits_empty_monitoring_urls(self):
+        data = yaml.safe_load(NVConfigManagerInstallConfig().to_yaml_str())
+
+        monitoring = data["infrastructure"]["monitoring"]
+        assert "grafana_url" not in monitoring
+        assert "blackbox_exporter_url" not in monitoring
+
     def test_yaml_prunes_inactive_secret_backend(self):
         config = NVConfigManagerInstallConfig(secrets=SecretsConfig(method=SecretsMethod.ESO))
         config.secrets.k8s.nautobot.values["token"] = "stale-k8s-token"

@@ -1068,6 +1068,11 @@ def build_values(
             "redis": {"enabled": _redis_metrics_enabled(config) and monitoring_active},
         },
     }
+    if monitoring.grafana_url:
+        monitoring_values["grafanaUrl"] = monitoring.grafana_url
+    probe_values: dict[str, Any] = {}
+    if monitoring.blackbox_exporter_url:
+        probe_values["blackboxExporterUrl"] = monitoring.blackbox_exporter_url
     if monitoring_active:
         # The local-dev observability stack relies on the existing PodMonitor
         # resources in templates/monitoring.yaml to scrape nv-config-manager pods, so we
@@ -1085,10 +1090,10 @@ def build_values(
         monitoring_values.update(
             {
                 "enabled": True,
-                "probes": {"enabled": True},
                 "prometheus": {"namespace": prometheus_namespace},
             }
         )
+        probe_values["enabled"] = True
         monitoring_values["podMonitors"].update(
             {
                 "enabled": True,
@@ -1097,6 +1102,8 @@ def build_values(
                 "cnpg": {"enabled": True},
             }
         )
+    if probe_values:
+        monitoring_values["probes"] = probe_values
     values["monitoring"] = monitoring_values
 
     if monitoring.observability_enabled:

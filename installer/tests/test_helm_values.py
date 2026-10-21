@@ -1193,6 +1193,60 @@ class TestImagesInHelmValues:
 
 
 class TestMonitoringHelmValues:
+    def test_monitoring_urls_are_emitted(self):
+        config = _make_config(
+            infrastructure=InfrastructureConfig(
+                monitoring=MonitoringConfig(
+                    enabled=True,
+                    grafana_url="https://grafana.example.com/d/overview?var-namespace=kiwi",
+                    blackbox_exporter_url="blackbox-exporter.monitoring.svc:9115",
+                ),
+            ),
+        )
+
+        values = _gen(config)
+
+        assert (
+            values["monitoring"]["grafanaUrl"]
+            == "https://grafana.example.com/d/overview?var-namespace=kiwi"
+        )
+        assert values["monitoring"]["probes"] == {
+            "enabled": True,
+            "blackboxExporterUrl": "blackbox-exporter.monitoring.svc:9115",
+        }
+
+    def test_empty_monitoring_urls_are_omitted(self):
+        values = _gen(_make_config())
+
+        assert "grafanaUrl" not in values["monitoring"]
+        assert "probes" not in values["monitoring"]
+
+    def test_blackbox_exporter_url_does_not_enable_monitoring(self):
+        config = _make_config(
+            infrastructure=InfrastructureConfig(
+                monitoring=MonitoringConfig(
+                    blackbox_exporter_url="blackbox-exporter.monitoring.svc:9115",
+                ),
+            ),
+        )
+
+        values = _gen(config)
+
+        assert values["monitoring"]["probes"] == {
+            "blackboxExporterUrl": "blackbox-exporter.monitoring.svc:9115",
+        }
+        assert "enabled" not in values["monitoring"]
+
+    def test_probe_template_quotes_blackbox_exporter_url(self):
+        helper_template = (
+            Path(__file__).resolve().parents[2] / "deploy" / "helm" / "templates" / "_helpers.tpl"
+        ).read_text()
+
+        assert (
+            "url: {{ .root.Values.monitoring.probes.blackboxExporterUrl | quote }}"
+            in helper_template
+        )
+
     @pytest.mark.parametrize(
         ("external_redis_enabled", "explicit", "observability", "monitoring"),
         product((False, True), repeat=4),

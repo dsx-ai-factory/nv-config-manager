@@ -657,6 +657,9 @@ Gateway, TLS, database backups, monitoring, and load balancer configuration.
 | Enable TLS | Self-signed TLS certificates for public endpoints |
 | CNPG S3 Backup | Enable CloudNativePG Postgres backups to S3 |
 | Monitoring | Enable PodMonitors and monitoring resources |
+| Prometheus namespace | Namespace allowed through network policy for Prometheus scraping |
+| Grafana dashboard URL | Optional absolute HTTP(S) dashboard URL linked from the UI splash page |
+| Blackbox exporter address | Optional `host:port` used by generated Prometheus Probe resources |
 | Redis metrics | Run the exporter for bundled Redis; unavailable when external Redis is configured |
 
 `infrastructure.monitoring.redis_metrics_enabled` stores the explicit Redis
@@ -665,6 +668,19 @@ monitoring is disabled_. When monitoring is enabled, the installer also enables
 the Redis PodMonitor. The local observability stack automatically enables both
 without changing the explicit preference. External Redis suppresses both
 generated settings.
+The optional monitoring endpoints are configured in installer YAML and map
+directly to the chart's `monitoring.grafanaUrl` and
+`monitoring.probes.blackboxExporterUrl` values:
+
+```yaml
+infrastructure:
+  monitoring:
+    enabled: true
+    prometheus_namespace: kiwi-prometheus
+    grafana_url: https://grafana.example.com/d/nv-config-manager
+    blackbox_exporter_url: blackbox-exporter.monitoring.svc:9115
+```
+
 For a headless local deployment that runs only the exporter:
 
 ```yaml
