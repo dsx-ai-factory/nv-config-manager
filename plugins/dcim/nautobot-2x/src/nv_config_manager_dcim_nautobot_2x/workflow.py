@@ -20,6 +20,7 @@ device queries, workflow integration, and NVIDIA Config Manager plugin interacti
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import Mapping
@@ -205,6 +206,10 @@ class NautobotWorkflowClient(BaseNautobotClient):
             # The backup scheduler only survives DCIMError; a bare transport
             # error here exits the process and crash-loops the pod.
             raise DCIMConnectivityError("Could not load backup-enabled devices") from exc
+        except json.JSONDecodeError as exc:
+            raise DCIMInvalidDataError(
+                "Nautobot returned invalid backup-enabled device data"
+            ) from exc
         try:
             return {
                 str(device["id"])
