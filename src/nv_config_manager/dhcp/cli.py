@@ -43,6 +43,7 @@ from nv_config_manager.dcim import (
     DCIMReadCancelledError,
     dcim_client_session,
 )
+from nv_config_manager.dhcp.config_hash import write_expected_config_hash
 from nv_config_manager.dhcp.heartbeat import (
     DEFAULT_HEARTBEAT_FILE,
     DEFAULT_MAX_AGE_SECONDS,
@@ -254,6 +255,7 @@ def _mark_verified_sync(
     log line is emitted when ``log`` is true. ``recovered`` marks a post-drift
     recovery, which must be logged.
     """
+    write_expected_config_hash(running_hash)
     DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP.labels(ip_version=str(ip_version)).set(time.time())
     if not log:
         return
@@ -877,7 +879,7 @@ async def _sync_kea_configuration_async(
                             verified = True
                             _mark_verified_sync(
                                 ip_version,
-                                kea_running_hash if debug else "",
+                                kea_running_hash,
                                 recovered=False,
                                 log=debug,
                             )

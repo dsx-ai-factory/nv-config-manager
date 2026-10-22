@@ -19,7 +19,6 @@ import asyncio
 import base64
 import binascii
 from collections.abc import AsyncIterator, Coroutine
-from configparser import ConfigParser
 from contextlib import asynccontextmanager
 from ipaddress import ip_address
 from typing import Any
@@ -42,6 +41,7 @@ from nv_config_manager.common.telemetry import (
     instrument_fastapi_app,
     setup_tracing,
 )
+from nv_config_manager.dhcp.config_hash import read_expected_config_hash
 from nv_config_manager.dhcp.kea import IpVersion, KeaClient, KeaException
 from nv_config_manager.dhcp.lease_dashboard import (
     DhcpSummaryResponse,
@@ -612,10 +612,9 @@ async def _assert_kea_online(client: KeaClient) -> None:
 
 
 def _assert_desired_config_applied(
-    config: list[dict[str, Any]] | dict[str, Any],
-    app_config: ConfigParser,
+    running_hash: str | None,
 ) -> None:
-    """Raise 500 unless Kea's running config reflects the desired configuration.
+    """Raise 500 unless Kea is running the last configuration verified by sync.
 
     This is the *readiness* gate. It is intentionally strict: a freshly started
     Kea running only the bootstrap config must NOT be reported ready, otherwise
@@ -624,37 +623,20 @@ def _assert_desired_config_applied(
     bootstrap/validation path reaches Kea through the internal validation Service
     (publishNotReadyAddresses), not by weakening readiness.
 
-    Today the applied-config signal is a proxy: on remote-lease-db deployments a
-    successful initial sync swaps Kea's ``lease-database`` from the bootstrap
-    ``memfile`` to ``postgresql``, so its presence means "the desired config was
-    applied".
-
-    TODO(part-1 hash verification): once ``KeaClient.get_config_hash`` /
-    ``expected_hash`` land, plug the applied-hash-vs-expected-hash comparison in
-    here (in addition to / in place of the lease-database heuristic) so readiness
-    reflects the exact desired configuration rather than a proxy signal.
+    The config-sync sidecar publishes the hash only after ``config-set`` and
+    ``config-hash-get`` agree. Comparing that value with Kea's lightweight
+    ``config-hash-get`` response avoids transferring the full effective config.
     """
-    # KEA returns a list of responses, we want the first one
-    config_list = config if isinstance(config, list) else [config]
-
-    # Some error conditions don't return result or argument keys
-    if config_list[0].get("result", 0) != 0 or "arguments" not in config_list[0]:
-        error_msg = config_list[0].get("text", "No message provided")
-        raise HTTPException(status_code=500, detail=f"Failed to get KEA config: {error_msg}")
-
-    # Only remote (PostgreSQL) lease-db deployments have a config-applied proxy
-    # signal in the running Kea config. Local/memfile deployments have no such
-    # marker, so there is nothing further to assert here. Every chart-rendered
-    # INI hardcodes ``local = false``, so no deployed pod takes this branch; the
-    # hash comparison in the TODO above is what closes it for hand-written INIs.
-    remote_lease_db = not app_config["dhcp.lease_db"].getboolean("local")
-    if not remote_lease_db:
-        return
-
-    dhcp4_config = config_list[0]["arguments"]["Dhcp4"]
-    lease_db_type = dhcp4_config.get("lease-database", {}).get("type", "memfile")
-    if lease_db_type != "postgresql":
-        raise HTTPException(status_code=500, detail="Lease database not present in Dhcp4 config")
+    expected_hash = read_expected_config_hash()
+    if expected_hash is None:
+        raise HTTPException(status_code=500, detail="Verified KEA configuration hash is unavailable")
+    if running_hash is None:
+        raise HTTPException(status_code=500, detail="KEA configuration hash is unavailable")
+    if running_hash != expected_hash:
+        raise HTTPException(
+            status_code=500,
+            detail="KEA configuration hash does not match the last verified configuration",
+        )
 
 
 @app.get("/livez")
@@ -691,16 +673,17 @@ async def healthcheck() -> str:
     NOT restart a live Kea; the readiness path never recycles the Kea container.
     """
     client = KeaClient.from_config(attached=True)
-    app_config = load_config()
     try:
         await _assert_kea_online(client)
-        config = await client.get_config(4)
-        _assert_desired_config_applied(config, app_config)
+        running_hash = await client.get_config_hash(4)
+        _assert_desired_config_applied(running_hash)
         return "OK"
     except TimeoutError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except ClientResponseError as exc:
         raise HTTPException(status_code=500, detail=str(exc.message)) from exc
+    except (ClientError, KeaException) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         await client.close()
 

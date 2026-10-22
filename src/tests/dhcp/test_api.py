@@ -36,7 +36,7 @@ from nv_config_manager.dhcp.api import (
     _install_cors,
     app,
 )
-from nv_config_manager.dhcp.kea import KeaClient
+from nv_config_manager.dhcp.kea import KeaClient, KeaException
 
 _HEADERS_TRUSTED = AuthConfig(accept_request_headers=True)
 _AUTH_DISABLED = AuthConfig(required=False)
@@ -242,46 +242,54 @@ def test_healthcheck_success():
     """Verify healthcheck success case."""
     client = TestClient(app)
 
-    with patch(
-        "nv_config_manager.dhcp.api.KeaClient.status", new_callable=AsyncMock
-    ) as mock_status:
-        mock_status.return_value = [
-            {"arguments": {"pid": 9, "reload": 63173, "uptime": 63173}, "result": 0}
-        ]
-        with patch(
-            "nv_config_manager.dhcp.api.KeaClient.get_config", new_callable=AsyncMock
-        ) as mock_get_config:
-            mock_get_config.return_value = MIN_READY_CONFIG
-            with patch(
-                "nv_config_manager.dhcp.api.RedisClient.load_kea_config", new_callable=AsyncMock
-            ) as mock_load_kea:
-                mock_load_kea.return_value = {"some": "data"}
-                rsp = client.get("/healthcheck")
-                assert rsp.status_code == 200
-                assert rsp.json() == "OK"
+    with (
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.status",
+            new_callable=AsyncMock,
+            return_value=[{"arguments": {"pid": 9}, "result": 0}],
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.get_config_hash",
+            new_callable=AsyncMock,
+            return_value="verified-hash",
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.read_expected_config_hash",
+            return_value="verified-hash",
+        ),
+    ):
+        rsp = client.get("/healthcheck")
+
+    assert rsp.status_code == 200
+    assert rsp.json() == "OK"
 
 
-def test_healthcheck_unsynced():
-    """Verify healthcheck with unsynced config."""
+def test_healthcheck_rejects_config_hash_mismatch():
+    """Readiness rejects Kea when its running config differs from the verified config."""
     client = TestClient(app)
 
-    with patch(
-        "nv_config_manager.dhcp.api.KeaClient.status", new_callable=AsyncMock
-    ) as mock_status:
-        mock_status.return_value = [
-            {"arguments": {"pid": 9, "reload": 63173, "uptime": 63173}, "result": 0}
-        ]
-        with patch(
-            "nv_config_manager.dhcp.api.KeaClient.get_config", new_callable=AsyncMock
-        ) as mock_get_config:
-            mock_get_config.return_value = MIN_UNSYNCED_CONFIG
-            with patch(
-                "nv_config_manager.dhcp.api.RedisClient.load_kea_config", new_callable=AsyncMock
-            ) as mock_load_kea:
-                mock_load_kea.return_value = {"some": "data"}
-                rsp = client.get("/healthcheck")
-                assert rsp.status_code == 500
-                assert rsp.json() == {"detail": "Lease database not present in Dhcp4 config"}
+    with (
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.status",
+            new_callable=AsyncMock,
+            return_value=[{"arguments": {"pid": 9}, "result": 0}],
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.get_config_hash",
+            new_callable=AsyncMock,
+            return_value="bootstrap-hash",
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.read_expected_config_hash",
+            return_value="verified-hash",
+        ),
+    ):
+        rsp = client.get("/healthcheck")
+
+    assert rsp.status_code == 500
+    assert rsp.json() == {
+        "detail": "KEA configuration hash does not match the last verified configuration"
+    }
 
 
 def test_healthcheck_status_error():
@@ -320,14 +328,12 @@ def test_healthcheck_http_error():
             assert rsp.json() == {"detail": "HTTP ERROR"}
 
 
-def test_healthcheck_not_ready_when_redis_has_no_config():
-    """Strict readiness: an unconfigured pod must NOT be ready even if Redis is empty.
+def test_healthcheck_not_ready_without_verified_hash():
+    """Strict readiness rejects a bootstrap-only pod before sync publishes a hash.
 
     This is the core of "preserve strict DHCP traffic gating": a freshly started
-    Kea on the bootstrap config (memfile lease-db) with no desired config in
-    Redis previously returned "OK" so the refresh process could reach it. That
-    escape hatch is removed -- the bootstrap path now reaches Kea via the
-    internal validation Service instead, so readiness stays strict.
+    Kea has its own valid hash, but it must not receive traffic until config-sync
+    has applied and verified the desired configuration.
     """
     client = TestClient(app)
 
@@ -338,24 +344,23 @@ def test_healthcheck_not_ready_when_redis_has_no_config():
             return_value=[{"arguments": {"pid": 9}, "result": 0}],
         ),
         patch(
-            "nv_config_manager.dhcp.api.KeaClient.get_config",
+            "nv_config_manager.dhcp.api.KeaClient.get_config_hash",
             new_callable=AsyncMock,
-            return_value=MIN_UNSYNCED_CONFIG,
+            return_value="bootstrap-hash",
         ),
         patch(
-            "nv_config_manager.dhcp.api.RedisClient.load_kea_config",
-            new_callable=AsyncMock,
+            "nv_config_manager.dhcp.api.read_expected_config_hash",
             return_value=None,
         ),
     ):
         rsp = client.get("/healthcheck")
 
     assert rsp.status_code == 500
-    assert rsp.json() == {"detail": "Lease database not present in Dhcp4 config"}
+    assert rsp.json() == {"detail": "Verified KEA configuration hash is unavailable"}
 
 
-def test_healthcheck_ready_when_kea_online_and_config_applied():
-    """Readiness reflects Kea-online AND desired config applied (postgresql lease-db)."""
+def test_healthcheck_not_ready_when_kea_omits_config_hash():
+    """Readiness rejects old Kea responses that do not provide a config hash."""
     client = TestClient(app)
 
     with (
@@ -365,19 +370,58 @@ def test_healthcheck_ready_when_kea_online_and_config_applied():
             return_value=[{"arguments": {"pid": 9}, "result": 0}],
         ),
         patch(
+            "nv_config_manager.dhcp.api.KeaClient.get_config_hash",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.read_expected_config_hash",
+            return_value="verified-hash",
+        ),
+    ):
+        rsp = client.get("/healthcheck")
+
+    assert rsp.status_code == 500
+    assert rsp.json() == {"detail": "KEA configuration hash is unavailable"}
+
+
+def test_healthcheck_uses_checksum_without_fetching_full_config(tmp_path):
+    """Readiness compares verified hashes without issuing an expensive config-get."""
+    client = TestClient(app)
+    expected_hash_file = tmp_path / "expected-config-hash-v4"
+    expected_hash_file.write_text("verified-hash\n", encoding="ascii")
+
+    with (
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.status",
+            new_callable=AsyncMock,
+            return_value=[{"arguments": {"pid": 9}, "result": 0}],
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.get_config_hash",
+            new_callable=AsyncMock,
+            return_value="verified-hash",
+        ),
+        patch(
             "nv_config_manager.dhcp.api.KeaClient.get_config",
             new_callable=AsyncMock,
-            return_value=MIN_READY_CONFIG,
+            return_value=MIN_UNSYNCED_CONFIG,
+        ) as mock_get_config,
+        patch(
+            "nv_config_manager.dhcp.config_hash.EXPECTED_CONFIG_HASH_FILE",
+            str(expected_hash_file),
+            create=True,
         ),
     ):
         rsp = client.get("/healthcheck")
 
     assert rsp.status_code == 200
     assert rsp.json() == "OK"
+    mock_get_config.assert_not_awaited()
 
 
-def test_healthcheck_reports_config_get_failure():
-    """A KEA config-get error surfaces as an unready (500) response."""
+def test_healthcheck_reports_config_hash_get_failure():
+    """A KEA config-hash-get error surfaces as an unready (500) response."""
     client = TestClient(app)
 
     with (
@@ -387,15 +431,15 @@ def test_healthcheck_reports_config_get_failure():
             return_value=[{"arguments": {"pid": 9}, "result": 0}],
         ),
         patch(
-            "nv_config_manager.dhcp.api.KeaClient.get_config",
+            "nv_config_manager.dhcp.api.KeaClient.get_config_hash",
             new_callable=AsyncMock,
-            return_value=[{"result": 1, "text": "configuration unavailable"}],
+            side_effect=KeaException("Failed to get configuration hash: unavailable"),
         ),
     ):
         rsp = client.get("/healthcheck")
 
     assert rsp.status_code == 500
-    assert rsp.json() == {"detail": "Failed to get KEA config: configuration unavailable"}
+    assert rsp.json() == {"detail": "Failed to get configuration hash: unavailable"}
 
 
 def test_livez_ready_when_kea_online_without_applied_config():

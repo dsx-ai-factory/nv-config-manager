@@ -704,6 +704,16 @@ async def test_sync_loop_updates_last_successful_sync_gauge() -> None:
     kea_client.get_config_hash.assert_awaited_once()
 
 
+def test_mark_verified_sync_publishes_expected_hash(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """A verified sync publishes the checksum consumed by readiness probes."""
+    expected_hash_file = tmp_path / "expected-config-hash-v4"
+    monkeypatch.setenv("CONFIG_SYNC_EXPECTED_HASH_FILE", str(expected_hash_file))
+
+    cli._mark_verified_sync(4, "verified-hash", recovered=False, log=False)
+
+    assert expected_hash_file.read_text(encoding="ascii") == "verified-hash\n"
+
+
 async def test_sync_loop_does_not_mark_verified_when_hash_unavailable() -> None:
     """Two missing hashes are not a verified match; the gauge must stay put."""
     config = {"Dhcp4": {"subnet4": []}}
