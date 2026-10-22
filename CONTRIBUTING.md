@@ -146,6 +146,12 @@ bootstrap versions and hashes live in `deploy/helm/files/python-tooling.sh`, use
 by GitLab CI and embedded in the chart's source-plugin installer. Container CA
 validation lives in `build/python-ca.py`.
 
+After building container images, audit their actual system CA bundles and
+individual trust anchors with `build/check-image-trust.sh IMAGE`. This works
+with distroless images and requires Docker and uv on the host. CI image pins
+live in `.gitlab/ci/images.yml`; GitLab project/group variables override those
+defaults and must be refreshed to matching versions and digests too.
+
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
    ```bash

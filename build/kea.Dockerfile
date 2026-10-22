@@ -7,7 +7,7 @@
 # - Supervisor is needed for process management (kea-dhcp4 + stork-agent)
 # - Stork agent requires shell scripts and dynamic configuration
 
-FROM nvcr.io/nvidia/base/ubuntu:noble-20260217@sha256:57a7daab5579d4b4cfbe25b59dc9d22d0c4cec24e5608523e77fd5f12e9da51a
+FROM nvcr.io/nvidia/base/ubuntu:noble-20260917@sha256:7e0f726d635d440d28a7f18e6498d3bdb76c7038bd4c90a090c21eb7c9f40686
 
 ARG APT_MIRROR=""
 ARG APT_MIRROR_GPG_KEY_URL=""
@@ -23,6 +23,7 @@ RUN set -eux; \
         curl \
         gnupg \
         supervisor && \
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20260816ubuntu0.24.04.1 && \
     # Add ISC Cloudsmith repository for Kea 2.6
     curl -1sLf 'https://dl.cloudsmith.io/public/isc/kea-2-6/setup.deb.sh' | bash && \
     apt-get update && \

@@ -6,15 +6,15 @@
 # =============================================================================
 # Builder stage - compile the Go binary
 # =============================================================================
-FROM nvcr.io/nvidia/base/ubuntu:noble-20260217@sha256:57a7daab5579d4b4cfbe25b59dc9d22d0c4cec24e5608523e77fd5f12e9da51a AS builder
+FROM nvcr.io/nvidia/base/ubuntu:noble-20260917@sha256:7e0f726d635d440d28a7f18e6498d3bdb76c7038bd4c90a090c21eb7c9f40686 AS builder
 
 ARG APT_MIRROR=""
 ARG APT_MIRROR_GPG_KEY_URL=""
 
 # Official SHA256 checksums from https://go.dev/dl/
-ARG GO_VERSION=1.26.9
-ARG GO_SHA256_AMD64=42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d
-ARG GO_SHA256_ARM64=4a97373d49fcacdcf3694fea368a500b00ee3e963974f3e7514132717632f052
+ARG GO_VERSION=1.26.10
+ARG GO_SHA256_AMD64=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
+ARG GO_SHA256_ARM64=3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797
 
 # Install Go with checksum verification
 COPY --from=scripts configure-apt-mirror.sh /tmp/configure-apt-mirror.sh
@@ -23,6 +23,7 @@ RUN set -eux; \
     apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl && \
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20260816ubuntu0.24.04.1 && \
     ARCH=$(dpkg --print-architecture) && \
     TARBALL="go${GO_VERSION}.linux-${ARCH}.tar.gz" && \
     if [ "$ARCH" = "amd64" ]; then EXPECTED="$GO_SHA256_AMD64"; \
@@ -49,7 +50,7 @@ RUN go build -ldflags="-s -w" -o bin/nats-ready ./cmd/nats-ready
 # =============================================================================
 # Runtime stage - NVIDIA distroless Go image (minimal, no shell)
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/go:v4.1.6@sha256:570f30c4fecbf23ed8312c654a6e50ea1720ede0acca62493455b2ca121c9929
+FROM nvcr.io/nvidia/distroless/go:v4.1.7@sha256:9ef7b9ac43cbf4c833fd5d98689dc09b06a29e5ec3451796b037aa27928fe532
 
 COPY --from=builder /build/bin/nats-ready /nats-ready
 USER nvs
