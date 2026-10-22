@@ -154,7 +154,11 @@ nvcm-installer generate-values nv-config-manager-install.yaml --output-dir ./gen
 | `--local-images` | `false` | Use local image tags instead of registry images |
 | `--chart-dir` | auto-detect | Helm chart directory used for size profile overlays |
 
-The command writes a `values-generated.yaml` file to the output directory, combining the installer config and selected size profile.
+The command writes one `values-generated.yaml` file to the output directory.
+It merges the selected size profile, local observability defaults when enabled,
+and installer-generated settings in that order. Deployment-specific settings
+therefore win without requiring callers to preserve multiple Helm `--values`
+arguments.
 
 ### deploy
 

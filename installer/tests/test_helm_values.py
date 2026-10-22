@@ -1193,6 +1193,45 @@ class TestImagesInHelmValues:
 
 
 class TestMonitoringHelmValues:
+    def test_complete_values_merge_observability_defaults_before_generated_values(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        chart_dir = tmp_path / "chart"
+        chart_dir.mkdir()
+        (chart_dir / "values.yaml").write_text("{}\n")
+        (chart_dir / "values-local-small.yaml").write_text(
+            "sizeProfileMarker: true\nmonitoring:\n  grafanaUrl: http://size-profile.example.com\n"
+        )
+        (chart_dir / "values-observability.yaml").write_text(
+            "observabilityOverlayMarker: true\n"
+            "monitoring:\n"
+            "  grafanaUrl: http://localhost:3000/default\n"
+            "  probes:\n"
+            "    blackboxExporterUrl: blackbox-exporter:9115\n"
+        )
+        output_path = tmp_path / "values-generated.yaml"
+        config = _make_config(
+            infrastructure=InfrastructureConfig(
+                monitoring=MonitoringConfig(
+                    observability_enabled=True,
+                    grafana_url="https://grafana.example.com/d/overview",
+                    blackbox_exporter_url="blackbox-exporter.monitoring.svc:9115",
+                ),
+            ),
+        )
+
+        generate_helm_values(config, {}, output_path, chart_dir=chart_dir)
+
+        values = yaml.safe_load(output_path.read_text())
+        assert values["sizeProfileMarker"] is True
+        assert values["observabilityOverlayMarker"] is True
+        assert values["monitoring"]["grafanaUrl"] == "https://grafana.example.com/d/overview"
+        assert (
+            values["monitoring"]["probes"]["blackboxExporterUrl"]
+            == "blackbox-exporter.monitoring.svc:9115"
+        )
+
     def test_monitoring_urls_are_emitted(self) -> None:
         config = _make_config(
             infrastructure=InfrastructureConfig(

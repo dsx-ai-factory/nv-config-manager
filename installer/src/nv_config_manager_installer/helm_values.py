@@ -1109,8 +1109,8 @@ def build_values(
     if monitoring.observability_enabled:
         # Flip the subchart condition gates so prometheus / alloy render.
         # Full configuration lives in
-        # deploy/helm/values-observability.yaml, which the deployer layers in
-        # via an additional `-f` flag. Alloy itself watches the PodMonitor /
+        # deploy/helm/values-observability.yaml, which build_complete_values
+        # merges before these generated settings. Alloy itself watches the PodMonitor /
         # ServiceMonitor / Probe CRs (via its prometheus.operator.*
         # components) so we don't ship the Prometheus Operator pod. Grafana
         # and Loki are AGPL-licensed and are not enabled by default.
@@ -1172,7 +1172,7 @@ def build_complete_values(
     local_tags: dict[str, str] | None = None,
     chart_dir: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Build one override file with selected size profile and TUI-generated values."""
+    """Build one ordered override file from chart defaults and generated values."""
     generated = build_values(
         config,
         secrets_state,
@@ -1188,6 +1188,10 @@ def build_complete_values(
     values: dict[str, Any] = {}
     if size_values.exists():
         values = _deep_merge(values, _load_values_file(size_values))
+    if config.infrastructure.monitoring.observability_enabled:
+        observability_values = resolved_chart_dir / "values-observability.yaml"
+        if observability_values.exists():
+            values = _deep_merge(values, _load_values_file(observability_values))
 
     return _deep_merge(values, generated)
 

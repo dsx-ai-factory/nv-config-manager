@@ -123,7 +123,9 @@ nvcm-installer generate-values nv-config-manager-install.yaml --output-dir ./gen
 | `--chart-dir` | auto-detect | Helm chart directory used for size profile overlays |
 
 Produces:
-- `values-generated.yaml` — Combined override file with TUI-generated values and the selected `cluster.size` profile
+- `values-generated.yaml` — Combined override file with the selected
+  `cluster.size` profile, local observability defaults when enabled, and
+  installer-generated settings applied in that order
 - `config-secrets.ini` — Site-specific credential INI files
 
 ### `nvcm-installer deploy`

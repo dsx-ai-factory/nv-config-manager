@@ -113,6 +113,15 @@ observability:
 
 For Kind and airgapped demo environments, the installer can deploy a local observability stack by setting `infrastructure.monitoring.observability_enabled: true` or by toggling **Enable local observability stack** on the TUI Infrastructure screen.
 
+The installer merges the selected size profile, then `values-observability.yaml`,
+then installer-generated settings into one `values-generated.yaml` file. Both
+`generate-values` and `deploy` therefore preserve configured monitoring
+endpoints without depending on Helm values-file argument order.
+
+For manual Helm commands, treat `values-observability.yaml` as a defaults file:
+pass it before deployment-specific values because Helm gives the rightmost
+values file precedence.
+
 This path is for local development and demos only. It installs:
 
 | Component | Purpose |

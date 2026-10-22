@@ -1145,7 +1145,7 @@ class TestKindImageLoading:
 
 
 class TestHelmInstall:
-    def test_observability_defaults_precede_generated_values(
+    def test_helm_install_uses_only_complete_generated_values(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
@@ -1165,8 +1165,8 @@ class TestHelmInstall:
 
         chart_dir = tmp_path / "helm"
         chart_dir.mkdir()
-        observability_values = chart_dir / "values-observability.yaml"
-        observability_values.write_text(
+        (chart_dir / "values-local-small.yaml").write_text("sizeProfileMarker: true\n")
+        (chart_dir / "values-observability.yaml").write_text(
             "monitoring:\n"
             "  grafanaUrl: http://localhost:3000/default\n"
             "  probes:\n"
@@ -1196,7 +1196,7 @@ class TestHelmInstall:
             cmd for cmd in logged_commands if cmd[:3] == ["helm", "upgrade", "--install"]
         )
         values_files = [helm_cmd[index + 1] for index, arg in enumerate(helm_cmd) if arg == "-f"]
-        assert values_files == [str(observability_values), str(generated_values)]
+        assert values_files == [str(generated_values)]
 
     def test_kind_deploy_does_not_enable_helm_debug_without_flag(self, monkeypatch, tmp_path):
         logged_commands: list[list[str]] = []
