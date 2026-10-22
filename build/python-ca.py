@@ -31,6 +31,7 @@ CA_DIRECTORIES = (Path("/etc/ssl/certs"), Path("/usr/share/ca-certificates"))
 
 
 def verify_bundle(path: str = "/etc/ssl/certs/ca-certificates.crt") -> None:
+    """Require a populated public CA bundle without affected trust anchors."""
     context = ssl.create_default_context(cafile=path)
     fingerprints = {
         hashlib.sha256(cert).hexdigest() for cert in context.get_ca_certs(binary_form=True)
@@ -41,11 +42,38 @@ def verify_bundle(path: str = "/etc/ssl/certs/ca-certificates.crt") -> None:
         raise SystemExit("Affected emSign trust anchor remains in CA bundle")
 
 
+def exported_path(directory: Path, path: Path) -> Path:
+    """Resolve an image-relative path without following links into the host."""
+    pending = list(path.parts)
+    resolved = directory
+    links = 0
+    while pending:
+        part = pending.pop(0)
+        if part == "..":
+            if resolved == directory:
+                raise SystemExit("Certificate link escapes image export")
+            resolved = resolved.parent
+            continue
+        resolved /= part
+        if resolved.is_symlink():
+            links += 1
+            if links > 40:
+                raise SystemExit("Certificate link cycle in image export")
+            target = resolved.readlink()
+            resolved = directory if target.is_absolute() else resolved.parent
+            pending = list(target.parts[1:] if target.is_absolute() else target.parts) + pending
+    if not resolved.exists():
+        raise SystemExit(f"Certificate target missing from image export: {path}")
+    return resolved
+
+
 def verify_directory(directory: Path) -> None:
     """Check the bundle and individual anchors, including stale capath targets."""
-    verify_bundle(str(directory / "etc/ssl/certs/ca-certificates.crt"))
+    directory = directory.resolve()
+    verify_bundle(str(exported_path(directory, Path("etc/ssl/certs/ca-certificates.crt"))))
     for path in directory.rglob("*"):
-        if path.is_symlink() or not path.is_file():
+        path = exported_path(directory, path.relative_to(directory))
+        if not path.is_file():
             continue
         for pem in re.findall(
             rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",

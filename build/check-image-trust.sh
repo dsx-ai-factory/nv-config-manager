@@ -20,14 +20,16 @@ trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
 container_id=$(docker create "$1" /unused)
-mkdir -p "$export_dir/etc/ssl" "$export_dir/usr/share"
+mkdir -p "$export_dir/etc/ssl" "$export_dir/usr/share" "$export_dir/usr/local/share"
 docker cp "$container_id:/etc/ssl/certs" "$export_dir/etc/ssl/certs"
-# Alpine's ca-certificates-bundle package can omit the individual source files.
-if ! docker cp "$container_id:/usr/share/ca-certificates" "$export_dir/usr/share/ca-certificates" 2>"$export_dir/copy-error"; then
-    case "$(cat "$export_dir/copy-error")" in
-        *"Could not find the file /usr/share/ca-certificates in container"*) ;;
-        *) cat "$export_dir/copy-error" >&2; exit 1 ;;
-    esac
-fi
+# Include locally installed anchors; Alpine can omit either source directory.
+for ca_dir in /usr/share/ca-certificates /usr/local/share/ca-certificates; do
+    if ! docker cp "$container_id:$ca_dir" "$export_dir$ca_dir" 2>"$export_dir/copy-error"; then
+        case "$(cat "$export_dir/copy-error")" in
+            *"Could not find the file $ca_dir in container"*) ;;
+            *) cat "$export_dir/copy-error" >&2; exit 1 ;;
+        esac
+    fi
+done
 uv run --no-project python "$script_dir/python-ca.py" --directory "$export_dir"
 echo "$1: system CA bundle and individual trust anchors verified"
