@@ -118,6 +118,19 @@ def _collect_validation_errors(config: NVConfigManagerInstallConfig) -> list[str
         errors.append("At least one site is required")
     if config.sso.enabled and not config.sso.issuer_url:
         errors.append("sso.issuer_url is required when SSO is enabled")
+    nats = config.external_services.nats
+    if nats.enabled and "replace-me.invalid" in nats.server:
+        errors.append("External NATS server must not contain replace-me.invalid")
+    nats_placeholders = {
+        "queue": nats.queue,
+        "Config Manager durable": nats.streams.config_manager.consumer.name,
+        "archive durable": nats.streams.config_manager.archive_consumer.name,
+        "archive delivery subject": (nats.streams.config_manager.archive_consumer.delivery_subject),
+        "Nautobot durable": nats.streams.nautobot.consumer.name,
+    }
+    for field_name, value in nats_placeholders.items():
+        if value.startswith("replace-me"):
+            errors.append(f"NATS {field_name} must not begin with replace-me")
     if not config.services.nautobot and config.content.requires_local_nautobot:
         errors.append(
             "Custom jobs and post-deploy jobs require a local Nautobot deployment "

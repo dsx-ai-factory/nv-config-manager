@@ -131,6 +131,81 @@ class TestValidateCommand:
 
         assert any("post-deploy jobs require a local Nautobot" in error for error in errors)
 
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "queue",
+            "device_consumer",
+            "archive_consumer",
+            "archive_delivery",
+            "nautobot_consumer",
+        ],
+    )
+    def test_nats_placeholders_fail_readiness(self, field: str) -> None:
+        config = NVConfigManagerInstallConfig(
+            cluster=ClusterConfig(hostname="test.example.com"),
+            sites=[SiteConfig(name="dc01")],
+        )
+        nats = config.external_services.nats
+        if field == "queue":
+            nats.queue = "replace-me-queue"
+        elif field == "device_consumer":
+            nats.streams.config_manager.consumer.name = "replace-me-device"
+        elif field == "archive_consumer":
+            nats.streams.config_manager.archive_consumer.name = "replace-me-archive"
+        elif field == "archive_delivery":
+            nats.streams.config_manager.archive_consumer.delivery_subject = (
+                "replace-me.archive.delivery"
+            )
+        else:
+            nats.streams.nautobot.consumer.name = "replace-me-nautobot"
+
+        errors = _collect_validation_errors(config)
+
+        assert any("replace-me" in error and "NATS" in error for error in errors)
+
+    def test_external_nats_placeholder_server_fails_readiness(self) -> None:
+        config = NVConfigManagerInstallConfig(
+            cluster=ClusterConfig(hostname="test.example.com"),
+            sites=[SiteConfig(name="dc01")],
+            external_services={
+                "nats": {
+                    "enabled": True,
+                    "server": "tls://replace-me.invalid:4222",
+                }
+            },
+        )
+
+        errors = _collect_validation_errors(config)
+
+        assert any("replace-me.invalid" in error for error in errors)
+
+    def test_completed_nats_topology_passes_readiness(self) -> None:
+        config = NVConfigManagerInstallConfig(
+            cluster=ClusterConfig(hostname="test.example.com"),
+            sites=[SiteConfig(name="dc01")],
+            external_services={
+                "nats": {
+                    "enabled": True,
+                    "server": "tls://nats.example.com:4222",
+                    "streams": {
+                        "config_manager": {
+                            "consumer": {"name": "cell-device"},
+                            "archive_consumer": {
+                                "name": "cell-archive",
+                                "delivery_subject": "cell.archive.delivery",
+                            },
+                        },
+                        "nautobot": {"consumer": {"name": "cell-nautobot"}},
+                    },
+                }
+            },
+        )
+
+        errors = _collect_validation_errors(config)
+
+        assert not any("NATS" in error for error in errors)
+
 
 class TestInitCommand:
     def test_init_rejects_unsupported_ztp_platform(self, tmp_path: Path):

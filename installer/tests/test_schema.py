@@ -28,6 +28,7 @@ from nv_config_manager_installer.schema import (
     ContentConfig,
     DCIMConfig,
     DeploySize,
+    ExternalNATSConfig,
     ExternalPostgresConfig,
     ExternalRedisConfig,
     ExternalServicesConfig,
@@ -64,6 +65,15 @@ from nv_config_manager_installer.schema import (
 )
 
 
+def _external_nats(**overrides: object) -> ExternalNATSConfig:
+    data: dict[str, object] = {
+        "enabled": True,
+        "server": "tls://nats.example.com:4222",
+    }
+    data.update(overrides)
+    return ExternalNATSConfig.model_validate(data)
+
+
 class TestNVConfigManagerInstallConfig:
     def test_default_config(self):
         config = NVConfigManagerInstallConfig()
@@ -74,6 +84,282 @@ class TestNVConfigManagerInstallConfig:
         assert config.services.render is True
         assert config.dcim.provider == "nautobot-2x"
         assert config.infrastructure.monitoring.redis_metrics_enabled is False
+
+    def test_nats_topology_defaults_round_trip_through_yaml(self, tmp_path: Path) -> None:
+        config = NVConfigManagerInstallConfig()
+        path = tmp_path / "config.yaml"
+
+        config.to_yaml(path)
+        loaded = NVConfigManagerInstallConfig.from_yaml(path)
+
+        assert loaded.external_services.nats.model_dump(mode="json") == {
+            "enabled": False,
+            "server": "",
+            "auth_method": "password",
+            "user": "nv-config-manager",
+            "secret_name": "",
+            "external_secret_name": "",
+            "creds_path": "/etc/nv-config-manager/secrets/nats.creds",
+            "queue": "nv-config-manager",
+            "streams": {
+                "config_manager": {
+                    "name": "nv-config-manager",
+                    "api_prefix": "$JS.API",
+                    "subjects": [
+                        "nv-config-manager.nautobotchange",
+                        "nv-config-manager.devicechange",
+                        "nv-config-manager.workflow.result",
+                    ],
+                    "render_change_subject": "nv-config-manager.nautobotchange",
+                    "device_change_subject": "nv-config-manager.devicechange",
+                    "archive_subject": "nv-config-manager.workflow.result",
+                    "consumer": {"name": "nv-config-manager-device"},
+                    "archive_consumer": {
+                        "name": "nv-config-manager-archive",
+                        "delivery_subject": "nv-config-manager.archive.delivery",
+                    },
+                },
+                "nautobot": {
+                    "name": "nautobot",
+                    "api_prefix": "$JS.API",
+                    "subjects": ["nautobot"],
+                    "subject": "nautobot",
+                    "consumer": {"name": "nv-config-manager-nautobot"},
+                },
+            },
+        }
+        serialized = yaml.safe_load(path.read_text())["external_services"]["nats"]
+        assert serialized == {
+            "enabled": False,
+            "queue": "nv-config-manager",
+            "streams": loaded.external_services.nats.model_dump(mode="json")["streams"],
+        }
+
+    @pytest.mark.parametrize(
+        ("enabled", "topology"),
+        [
+            (
+                True,
+                {
+                    "streams": {
+                        "config_manager": {
+                            "subjects": ["nv-config-manager.>"],
+                            "archive_consumer": {
+                                "delivery_subject": "nv-config-manager-archive.delivery"
+                            },
+                        },
+                        "nautobot": {
+                            "api_prefix": "$JS.CEREBRO.API",
+                            "consumer": {"name": "cell-nautobot"},
+                        },
+                    }
+                },
+            ),
+            (
+                False,
+                {
+                    "queue": "cell-queue",
+                    "streams": {
+                        "config_manager": {
+                            "consumer": {"name": "cell-device"},
+                            "archive_consumer": {
+                                "name": "cell-archive",
+                                "delivery_subject": "cell.archive.delivery",
+                            },
+                        },
+                        "nautobot": {"consumer": {"name": "cell-nautobot"}},
+                    },
+                },
+            ),
+        ],
+    )
+    def test_nats_accepts_supported_external_and_bundled_topologies(
+        self, enabled: bool, topology: dict[str, object]
+    ) -> None:
+        data: dict[str, object] = {"enabled": enabled, **topology}
+        if enabled:
+            data["server"] = "wss://nats.example.com"
+
+        nats = ExternalNATSConfig.model_validate(data)
+
+        assert nats.enabled is enabled
+        if enabled:
+            assert nats.streams.config_manager.subjects == ["nv-config-manager.>"]
+            assert nats.streams.nautobot.api_prefix == "$JS.CEREBRO.API"
+        else:
+            assert nats.queue == "cell-queue"
+            assert nats.streams.config_manager.consumer.name == "cell-device"
+
+    @pytest.mark.parametrize(
+        ("overrides", "message"),
+        [
+            ({"streams": {"config_manager": {"name": "bad.name"}}}, "stream"),
+            (
+                {"streams": {"config_manager": {"consumer": {"name": "bad/name"}}}},
+                "durable",
+            ),
+            (
+                {
+                    "streams": {
+                        "config_manager": {"archive_consumer": {"name": "nv-config-manager-device"}}
+                    }
+                },
+                "durable",
+            ),
+            ({"streams": {"nautobot": {"name": "nv-config-manager"}}}, "stream names"),
+            ({"streams": {"config_manager": {"subjects": []}}}, "non-empty"),
+            (
+                {
+                    "streams": {
+                        "config_manager": {
+                            "subjects": [
+                                "nv-config-manager.nautobotchange",
+                                "nv-config-manager.nautobotchange",
+                            ]
+                        }
+                    }
+                },
+                "unique",
+            ),
+        ],
+    )
+    def test_nats_rejects_invalid_names_and_subject_lists(
+        self, overrides: dict[str, object], message: str
+    ) -> None:
+        with pytest.raises(ValueError, match=message):
+            _external_nats(**overrides)
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"queue": "bad queue"},
+            {"queue": "bad..queue"},
+            {"queue": "bad.*"},
+            {"queue": "bad.>"},
+            {"streams": {"config_manager": {"api_prefix": "$JS.*"}}},
+            {
+                "streams": {
+                    "config_manager": {"archive_consumer": {"delivery_subject": "archive.>"}}
+                }
+            },
+        ],
+    )
+    def test_nats_rejects_invalid_concrete_subjects(self, overrides: dict[str, object]) -> None:
+        with pytest.raises(ValueError, match="subject"):
+            _external_nats(**overrides)
+
+    @pytest.mark.parametrize(
+        "pattern",
+        ["foo..bar", "foo bar", "foo*", "foo.>.bar", "foo.bar>", "foo.\nbar"],
+    )
+    def test_nats_rejects_malformed_subject_patterns(self, pattern: str) -> None:
+        with pytest.raises(ValueError, match="pattern"):
+            _external_nats(
+                streams={
+                    "config_manager": {
+                        "subjects": [pattern],
+                    }
+                }
+            )
+
+    @pytest.mark.parametrize(
+        ("overrides", "message"),
+        [
+            (
+                {"streams": {"config_manager": {"render_change_subject": "other.event"}}},
+                "covered",
+            ),
+            (
+                {"streams": {"nautobot": {"subject": "other"}}},
+                "covered",
+            ),
+            (
+                {
+                    "streams": {
+                        "config_manager": {
+                            "device_change_subject": "nv-config-manager.nautobotchange"
+                        }
+                    }
+                },
+                "distinct",
+            ),
+            (
+                {
+                    "streams": {
+                        "config_manager": {
+                            "subjects": ["nv-config-manager.>"],
+                            "archive_consumer": {
+                                "delivery_subject": "nv-config-manager.archive.delivery"
+                            },
+                        }
+                    }
+                },
+                "delivery",
+            ),
+        ],
+    )
+    def test_nats_rejects_invalid_subject_relationships(
+        self, overrides: dict[str, object], message: str
+    ) -> None:
+        with pytest.raises(ValueError, match=message):
+            _external_nats(**overrides)
+
+    def test_bundled_nats_rejects_imported_prefix_and_overlapping_streams(self) -> None:
+        with pytest.raises(ValueError, match="API prefix"):
+            ExternalNATSConfig.model_validate(
+                {"streams": {"nautobot": {"api_prefix": "$JS.CEREBRO.API"}}}
+            )
+
+        with pytest.raises(ValueError, match="overlap"):
+            ExternalNATSConfig.model_validate(
+                {
+                    "streams": {
+                        "config_manager": {
+                            "subjects": [
+                                "nv-config-manager.nautobotchange",
+                                "nv-config-manager.devicechange",
+                                "nv-config-manager.workflow.result",
+                                "events.>",
+                            ]
+                        },
+                        "nautobot": {
+                            "subjects": ["events.nautobot"],
+                            "subject": "events.nautobot",
+                        },
+                    }
+                }
+            )
+
+    @pytest.mark.parametrize("server", ["", "nats://nats.example.com:4222"])
+    def test_external_nats_requires_secure_server(self, server: str) -> None:
+        with pytest.raises(ValueError, match="tls:// or wss://"):
+            ExternalNATSConfig(enabled=True, server=server)
+
+    def test_nats_assignment_revalidates_topology(self) -> None:
+        nats = _external_nats()
+
+        with pytest.raises(ValueError, match="subject"):
+            nats.queue = "invalid queue"
+
+    def test_disabled_nats_yaml_prunes_only_connection_fields(self) -> None:
+        config = NVConfigManagerInstallConfig(
+            external_services=ExternalServicesConfig(
+                nats=ExternalNATSConfig(
+                    server="tls://stale.example.com:4222",
+                    auth_method="JWT",
+                    user="stale-user",
+                    secret_name="stale-secret",
+                    external_secret_name="stale-external-secret",
+                    creds_path="/stale/nats.creds",
+                    queue="cell.queue",
+                )
+            )
+        )
+
+        nats = yaml.safe_load(config.to_yaml_str())["external_services"]["nats"]
+
+        assert set(nats) == {"enabled", "queue", "streams"}
+        assert nats["queue"] == "cell.queue"
 
     def test_cluster_custom_labels_roundtrip(self, tmp_path: Path) -> None:
         path = tmp_path / "config.yaml"

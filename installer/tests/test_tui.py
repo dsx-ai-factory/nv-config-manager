@@ -252,22 +252,132 @@ async def test_external_services_separates_nautobot_and_nats() -> None:
     config = NVConfigManagerInstallConfig()
     app = NVConfigManagerInstallerApp(config=config)
 
-    async with app.run_test():
+    async with app.run_test() as pilot:
         app.switch_section("external_services")
         screen = app._screens["external_services"]
 
         assert not screen.query("#ext-dcim-provider")
         screen.query_one("#ext-nautobot-enabled", LabeledSwitch).value = False
+        assert screen.query_one("#ext-nats-fields").display is False
+        assert screen.query_one("#nats-topology").display is True
         screen.query_one("#ext-nats-enabled", LabeledSwitch).value = True
-        screen.query_one("#ext-nats-server", Input).value = "nats://nats.example.com:4222"
+        await pilot.pause()
+        assert screen.query_one("#ext-nats-fields").display is True
+        assert screen.query_one("#nats-topology").display is True
+        screen.query_one("#ext-nats-server", Input).value = "tls://nats.example.com:4222"
         screen.query_one("#ext-nats-auth-method").value = NATSAuthMethod.JWT.value
         screen.write_to_config(config)
 
         assert config.dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER
         assert config.services.nautobot is True
         assert config.external_services.nats.enabled is True
-        assert config.external_services.nats.server == "nats://nats.example.com:4222"
+        assert config.external_services.nats.server == "tls://nats.example.com:4222"
         assert config.external_services.nats.auth_method == NATSAuthMethod.JWT
+
+
+@pytest.mark.asyncio
+async def test_external_services_round_trips_complete_nats_topology() -> None:
+    config = NVConfigManagerInstallConfig.model_validate(
+        {
+            "external_services": {
+                "nats": {
+                    "enabled": True,
+                    "server": "wss://nats.example.com",
+                    "queue": "cell.queue",
+                    "streams": {
+                        "config_manager": {
+                            "name": "cm-stream",
+                            "api_prefix": "$JS.CM.API",
+                            "subjects": ["cm.render", "cm.device", "cm.workflow.result"],
+                            "render_change_subject": "cm.render",
+                            "device_change_subject": "cm.device",
+                            "archive_subject": "cm.workflow.result",
+                            "consumer": {"name": "cell-device"},
+                            "archive_consumer": {
+                                "name": "cell-archive",
+                                "delivery_subject": "cell.archive.delivery",
+                            },
+                        },
+                        "nautobot": {
+                            "name": "nautobot-stream",
+                            "api_prefix": "$JS.CEREBRO.API",
+                            "subjects": ["nautobot.events", "nautobot.>"],
+                            "subject": "nautobot.events",
+                            "consumer": {"name": "cell-nautobot"},
+                        },
+                    },
+                }
+            }
+        }
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("external_services")
+        screen = app._screens["external_services"]
+        assert screen.query_one("#nats-cm-subjects", Input).value == (
+            "cm.render, cm.device, cm.workflow.result"
+        )
+        assert screen.query_one("#nats-nautobot-subjects", Input).value == (
+            "nautobot.events, nautobot.>"
+        )
+
+        screen.write_to_config(config)
+
+        nats = config.external_services.nats
+        assert nats.queue == "cell.queue"
+        assert nats.streams.config_manager.name == "cm-stream"
+        assert nats.streams.config_manager.subjects == [
+            "cm.render",
+            "cm.device",
+            "cm.workflow.result",
+        ]
+        assert nats.streams.config_manager.archive_consumer.delivery_subject == (
+            "cell.archive.delivery"
+        )
+        assert nats.streams.nautobot.api_prefix == "$JS.CEREBRO.API"
+        assert nats.streams.nautobot.subjects == ["nautobot.events", "nautobot.>"]
+        assert nats.streams.nautobot.consumer.name == "cell-nautobot"
+
+
+@pytest.mark.asyncio
+async def test_external_services_rejects_invalid_nats_topology() -> None:
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("external_services")
+        screen = app._screens["external_services"]
+        screen.query_one(
+            "#nats-cm-subjects", Input
+        ).value = "nv-config-manager.nautobotchange,,nv-config-manager.devicechange"
+
+        with pytest.raises(ValueError, match="subject pattern"):
+            screen.write_to_config(config)
+
+
+@pytest.mark.asyncio
+async def test_external_services_reports_nats_placeholders_in_status() -> None:
+    config = NVConfigManagerInstallConfig()
+    config.external_services.nats.streams.nautobot.consumer.name = "replace-me-nautobot"
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        screen = app._screens["external_services"]
+
+        assert screen.get_status(config) == "[!]"
+
+
+@pytest.mark.asyncio
+async def test_external_services_reports_missing_nats_topology_in_status() -> None:
+    config = NVConfigManagerInstallConfig()
+    config.external_services.nats.streams.config_manager.name = ""
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        screen = app._screens["external_services"]
+
+        assert screen.get_status(config) == "[!]"
 
 
 @pytest.mark.asyncio

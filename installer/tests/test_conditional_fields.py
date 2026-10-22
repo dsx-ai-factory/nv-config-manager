@@ -75,6 +75,18 @@ async def test_sso_fields_hidden_when_disabled():
 
 
 @pytest.mark.asyncio
+async def test_nats_topology_visible_when_external_connection_hidden() -> None:
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("external_services")
+
+        assert app.query_one("#ext-nats-fields").display is False
+        _assert_displayed(app.query_one("#nats-topology"))
+
+
+@pytest.mark.asyncio
 async def test_sso_fields_shown_when_enabled():
     """SSO fields should be visible when SSO is enabled."""
     config = NVConfigManagerInstallConfig()

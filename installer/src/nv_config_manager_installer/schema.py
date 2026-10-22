@@ -741,12 +741,125 @@ class NATSAuthMethod(StrEnum):
     JWT = "JWT"
 
 
+def _nats_pattern_matches(pattern: str, subject: str) -> bool:
+    """Return whether a valid NATS subject pattern matches a concrete subject."""
+    pattern_tokens = pattern.split(".")
+    subject_tokens = subject.split(".")
+    subject_index = 0
+    for pattern_index, token in enumerate(pattern_tokens):
+        if token == ">":
+            return pattern_index == len(pattern_tokens) - 1 and subject_index < len(subject_tokens)
+        if subject_index >= len(subject_tokens):
+            return False
+        if token != "*" and token != subject_tokens[subject_index]:
+            return False
+        subject_index += 1
+    return subject_index == len(subject_tokens)
+
+
+def _nats_patterns_overlap(left: str, right: str) -> bool:
+    """Return whether two valid NATS subject patterns match any common subject."""
+    left_tokens = left.split(".")
+    right_tokens = right.split(".")
+    left_index = 0
+    right_index = 0
+    while left_index < len(left_tokens) and right_index < len(right_tokens):
+        left_token = left_tokens[left_index]
+        right_token = right_tokens[right_index]
+        if left_token == ">" or right_token == ">":
+            return True
+        if left_token != "*" and right_token != "*" and left_token != right_token:
+            return False
+        left_index += 1
+        right_index += 1
+    return left_index == len(left_tokens) and right_index == len(right_tokens)
+
+
+def _validate_nats_name(value: str, field_name: str) -> None:
+    if not value:
+        raise ValueError(f"NATS {field_name} is required")
+    if any(
+        character.isspace() or ord(character) < 32 or ord(character) == 127 or character in ".*>/\\"
+        for character in value
+    ):
+        raise ValueError(f"NATS {field_name} contains an invalid character")
+
+
+def _validate_nats_subject(value: str, field_name: str, *, pattern: bool) -> None:
+    kind = "subject pattern" if pattern else "subject"
+    if not value:
+        raise ValueError(f"NATS {field_name} {kind} is required")
+    if any(
+        character.isspace() or ord(character) < 32 or ord(character) == 127 for character in value
+    ):
+        raise ValueError(f"NATS {field_name} {kind} contains whitespace or control characters")
+    tokens = value.split(".")
+    if any(not token for token in tokens):
+        raise ValueError(f"NATS {field_name} {kind} contains an empty token")
+    for index, token in enumerate(tokens):
+        if not pattern and ("*" in token or ">" in token):
+            raise ValueError(f"NATS {field_name} subject must be concrete")
+        if pattern and ("*" in token or ">" in token):
+            if token == "*":
+                continue
+            if token == ">" and index == len(tokens) - 1:
+                continue
+            raise ValueError(f"NATS {field_name} subject pattern has an invalid wildcard")
+
+
+class NATSConsumerConfig(BaseModel):
+    name: str = ""
+
+
+class NATSArchiveConsumerConfig(BaseModel):
+    name: str = "nv-config-manager-archive"
+    delivery_subject: str = "nv-config-manager.archive.delivery"
+
+
+class NATSConfigManagerStreamConfig(BaseModel):
+    name: str = "nv-config-manager"
+    api_prefix: str = "$JS.API"
+    subjects: list[str] = Field(
+        default_factory=lambda: [
+            "nv-config-manager.nautobotchange",
+            "nv-config-manager.devicechange",
+            "nv-config-manager.workflow.result",
+        ]
+    )
+    render_change_subject: str = "nv-config-manager.nautobotchange"
+    device_change_subject: str = "nv-config-manager.devicechange"
+    archive_subject: str = "nv-config-manager.workflow.result"
+    consumer: NATSConsumerConfig = Field(
+        default_factory=lambda: NATSConsumerConfig(name="nv-config-manager-device")
+    )
+    archive_consumer: NATSArchiveConsumerConfig = Field(default_factory=NATSArchiveConsumerConfig)
+
+
+class NATSNautobotStreamConfig(BaseModel):
+    name: str = "nautobot"
+    api_prefix: str = "$JS.API"
+    subjects: list[str] = Field(default_factory=lambda: ["nautobot"])
+    subject: str = "nautobot"
+    consumer: NATSConsumerConfig = Field(
+        default_factory=lambda: NATSConsumerConfig(name="nv-config-manager-nautobot")
+    )
+
+
+class NATSStreamsConfig(BaseModel):
+    config_manager: NATSConfigManagerStreamConfig = Field(
+        default_factory=NATSConfigManagerStreamConfig
+    )
+    nautobot: NATSNautobotStreamConfig = Field(default_factory=NATSNautobotStreamConfig)
+
+
 class ExternalNATSConfig(BaseModel):
     """User-managed NATS connection settings.
 
     NATS ownership is independent of the selected DCIM implementation. When
     disabled, the installer deploys the bundled NATS service.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     enabled: bool = False
     server: str = ""
@@ -755,6 +868,8 @@ class ExternalNATSConfig(BaseModel):
     secret_name: str = ""
     external_secret_name: str = ""
     creds_path: str = "/etc/nv-config-manager/secrets/nats.creds"
+    queue: str = "nv-config-manager"
+    streams: NATSStreamsConfig = Field(default_factory=NATSStreamsConfig)
 
     @field_validator("server", "user", "secret_name", "external_secret_name", "creds_path")
     @classmethod
@@ -766,8 +881,90 @@ class ExternalNATSConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_external_endpoint(self) -> ExternalNATSConfig:
-        if self.enabled and not self.server:
-            raise ValueError("External NATS requires a server")
+        if self.enabled and not self.server.startswith(("tls://", "wss://")):
+            raise ValueError("External NATS server must use tls:// or wss://")
+
+        config_manager = self.streams.config_manager
+        nautobot = self.streams.nautobot
+        names = (
+            (config_manager.name, "Config Manager stream name"),
+            (nautobot.name, "Nautobot stream name"),
+            (config_manager.consumer.name, "Config Manager durable name"),
+            (config_manager.archive_consumer.name, "archive durable name"),
+            (nautobot.consumer.name, "Nautobot durable name"),
+        )
+        for value, field_name in names:
+            _validate_nats_name(value, field_name)
+
+        concrete_subjects = (
+            (self.queue, "queue"),
+            (config_manager.api_prefix, "Config Manager API prefix"),
+            (config_manager.render_change_subject, "render change"),
+            (config_manager.device_change_subject, "device change"),
+            (config_manager.archive_subject, "archive"),
+            (
+                config_manager.archive_consumer.delivery_subject,
+                "archive delivery",
+            ),
+            (nautobot.api_prefix, "Nautobot API prefix"),
+            (nautobot.subject, "Nautobot event"),
+        )
+        for value, field_name in concrete_subjects:
+            _validate_nats_subject(value, field_name, pattern=False)
+
+        for field_name, patterns in (
+            ("Config Manager", config_manager.subjects),
+            ("Nautobot", nautobot.subjects),
+        ):
+            if not patterns:
+                raise ValueError(f"NATS {field_name} subject list must be non-empty")
+            if len(patterns) != len(set(patterns)):
+                raise ValueError(f"NATS {field_name} subject patterns must be unique")
+            for pattern in patterns:
+                _validate_nats_subject(pattern, field_name, pattern=True)
+
+        if config_manager.name == nautobot.name:
+            raise ValueError("NATS stream names must differ")
+        if config_manager.consumer.name == config_manager.archive_consumer.name:
+            raise ValueError("Config Manager durable names must differ")
+
+        event_subjects = (
+            config_manager.render_change_subject,
+            config_manager.device_change_subject,
+            config_manager.archive_subject,
+        )
+        if len(set(event_subjects)) != len(event_subjects):
+            raise ValueError("Config Manager event subjects must be distinct")
+        for subject in event_subjects:
+            if not any(
+                _nats_pattern_matches(pattern, subject) for pattern in config_manager.subjects
+            ):
+                raise ValueError(
+                    f"Config Manager event subject {subject!r} is not covered by its stream"
+                )
+        if not any(
+            _nats_pattern_matches(pattern, nautobot.subject) for pattern in nautobot.subjects
+        ):
+            raise ValueError(
+                f"Nautobot event subject {nautobot.subject!r} is not covered by its stream"
+            )
+        if any(
+            _nats_pattern_matches(pattern, config_manager.archive_consumer.delivery_subject)
+            for pattern in config_manager.subjects
+        ):
+            raise ValueError(
+                "Archive delivery subject must not be captured by the Config Manager stream"
+            )
+
+        if not self.enabled:
+            if config_manager.api_prefix != "$JS.API" or nautobot.api_prefix != "$JS.API":
+                raise ValueError("Bundled NATS API prefixes must be $JS.API")
+            if any(
+                _nats_patterns_overlap(config_pattern, nautobot_pattern)
+                for config_pattern in config_manager.subjects
+                for nautobot_pattern in nautobot.subjects
+            ):
+                raise ValueError("Bundled NATS stream subject patterns must not overlap")
         return self
 
 
@@ -1262,7 +1459,7 @@ def _prune_services(services: dict[str, Any]) -> None:
 def _prune_external_services(external_services: dict[str, Any]) -> None:
     nats = _as_dict(external_services.get("nats"))
     if not nats.get("enabled"):
-        _replace_with_keys(nats, {"enabled"})
+        _replace_with_keys(nats, {"enabled", "queue", "streams"})
 
     redis = _as_dict(external_services.get("redis"))
     if not redis.get("enabled"):

@@ -113,6 +113,38 @@ def _gen(
         path.unlink(missing_ok=True)
 
 
+def _default_nats_topology() -> dict[str, object]:
+    return {
+        "queue": "nv-config-manager",
+        "streams": {
+            "configManager": {
+                "name": "nv-config-manager",
+                "apiPrefix": "$JS.API",
+                "subjects": [
+                    "nv-config-manager.nautobotchange",
+                    "nv-config-manager.devicechange",
+                    "nv-config-manager.workflow.result",
+                ],
+                "renderChangeSubject": "nv-config-manager.nautobotchange",
+                "deviceChangeSubject": "nv-config-manager.devicechange",
+                "archiveSubject": "nv-config-manager.workflow.result",
+                "consumer": {"name": "nv-config-manager-device"},
+                "archiveConsumer": {
+                    "name": "nv-config-manager-archive",
+                    "deliverySubject": "nv-config-manager.archive.delivery",
+                },
+            },
+            "nautobot": {
+                "name": "nautobot",
+                "apiPrefix": "$JS.API",
+                "subjects": ["nautobot"],
+                "subject": "nautobot",
+                "consumer": {"name": "nv-config-manager-nautobot"},
+            },
+        },
+    }
+
+
 class TestGenerateHelmValues:
     def test_basic_values(self):
         values = _gen(_make_config())
@@ -294,13 +326,7 @@ class TestGenerateHelmValues:
         assert values["nautobotNats"]["jetstream"]["enabled"] is True
         assert values["nautobotNats"]["natsReady"]["useNatsCli"] is True
 
-    def test_neither_secrets_method_overrides_stream_names(self):
-        """Both paths leave stream naming to the chart.
-
-        Emitting names from only one path is what let the two drift apart
-        before, which pointed the autoscaling trigger at a stream with no
-        consumers. A single source keeps the INI and the chart in step.
-        """
+    def test_both_secrets_methods_emit_identical_complete_nats_topology(self):
         eso = _make_config(
             secrets=SecretsConfig(
                 method=SecretsMethod.ESO,
@@ -309,8 +335,85 @@ class TestGenerateHelmValues:
         )
 
         for config in (_make_config(), eso):
-            nats = _gen(config)["externalServices"].get("nats", {})
-            assert "streams" not in nats
+            nats = _gen(config)["externalServices"]["nats"]
+            assert nats == {
+                "server": "nats://nv-config-manager@nats:4222",
+                "authMethod": "password",
+                "local": True,
+                **_default_nats_topology(),
+            }
+
+    def test_external_nats_maps_and_preserves_complete_custom_topology(self):
+        nats = ExternalNATSConfig.model_validate(
+            {
+                "enabled": True,
+                "server": "tls://nats.prod.example.com:4222",
+                "auth_method": "JWT",
+                "user": "platform",
+                "secret_name": "nats-password",
+                "external_secret_name": "nats-eso",
+                "creds_path": "/etc/nats/prod.creds",
+                "queue": "custom.queue",
+                "streams": {
+                    "config_manager": {
+                        "name": "cm-stream",
+                        "api_prefix": "$JS.CM.API",
+                        "subjects": ["cm.workflow.result", "cm.*", "cm.>"],
+                        "render_change_subject": "cm.render",
+                        "device_change_subject": "cm.device",
+                        "archive_subject": "cm.workflow.result",
+                        "consumer": {"name": "cm-device"},
+                        "archive_consumer": {
+                            "name": "cm-archive",
+                            "delivery_subject": "archive.delivery",
+                        },
+                    },
+                    "nautobot": {
+                        "name": "nautobot-stream",
+                        "api_prefix": "$JS.CEREBRO.API",
+                        "subjects": ["nautobot.events", "nautobot.>"],
+                        "subject": "nautobot.events",
+                        "consumer": {"name": "cell-nautobot"},
+                    },
+                },
+            }
+        )
+
+        values = _gen(_make_config(external_services=ExternalServicesConfig(nats=nats)))
+
+        assert values["externalServices"]["nats"] == {
+            "server": "tls://nats.prod.example.com:4222",
+            "authMethod": "JWT",
+            "local": False,
+            "user": "platform",
+            "secretName": "nats-password",
+            "externalSecretName": "nats-eso",
+            "credsPath": "/etc/nats/prod.creds",
+            "queue": "custom.queue",
+            "streams": {
+                "configManager": {
+                    "name": "cm-stream",
+                    "apiPrefix": "$JS.CM.API",
+                    "subjects": ["cm.workflow.result", "cm.*", "cm.>"],
+                    "renderChangeSubject": "cm.render",
+                    "deviceChangeSubject": "cm.device",
+                    "archiveSubject": "cm.workflow.result",
+                    "consumer": {"name": "cm-device"},
+                    "archiveConsumer": {
+                        "name": "cm-archive",
+                        "deliverySubject": "archive.delivery",
+                    },
+                },
+                "nautobot": {
+                    "name": "nautobot-stream",
+                    "apiPrefix": "$JS.CEREBRO.API",
+                    "subjects": ["nautobot.events", "nautobot.>"],
+                    "subject": "nautobot.events",
+                    "consumer": {"name": "cell-nautobot"},
+                },
+            },
+        }
+        assert values["nautobotNats"]["enabled"] is False
 
     def test_nautobot_disabled(self):
         config = _make_config(
@@ -852,7 +955,7 @@ class TestGenerateHelmValues:
             external_services=ExternalServicesConfig(
                 nats=ExternalNATSConfig(
                     enabled=True,
-                    server="nats://nats.prod.example.com:4222",
+                    server="tls://nats.prod.example.com:4222",
                     auth_method=NATSAuthMethod.JWT,
                     creds_path="/etc/nats/prod.creds",
                 )
@@ -863,13 +966,14 @@ class TestGenerateHelmValues:
 
         assert values["externalServices"]["nautobot"]["local"] is True
         assert values["externalServices"]["nats"] == {
-            "server": "nats://nats.prod.example.com:4222",
+            "server": "tls://nats.prod.example.com:4222",
             "authMethod": "JWT",
             "local": False,
             "user": "nv-config-manager",
             "secretName": "",
             "externalSecretName": "",
             "credsPath": "/etc/nats/prod.creds",
+            **_default_nats_topology(),
         }
         assert values["nautobotNats"]["enabled"] is False
 

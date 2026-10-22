@@ -653,6 +653,38 @@ def _redis_metrics_enabled(config: NVConfigManagerInstallConfig) -> bool:
     )
 
 
+def _build_nats_topology(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
+    """Map installer-owned NATS topology to the chart's values contract."""
+    nats = config.external_services.nats
+    config_manager = nats.streams.config_manager
+    nautobot = nats.streams.nautobot
+    return {
+        "queue": nats.queue,
+        "streams": {
+            "configManager": {
+                "name": config_manager.name,
+                "apiPrefix": config_manager.api_prefix,
+                "subjects": list(config_manager.subjects),
+                "renderChangeSubject": config_manager.render_change_subject,
+                "deviceChangeSubject": config_manager.device_change_subject,
+                "archiveSubject": config_manager.archive_subject,
+                "consumer": {"name": config_manager.consumer.name},
+                "archiveConsumer": {
+                    "name": config_manager.archive_consumer.name,
+                    "deliverySubject": config_manager.archive_consumer.delivery_subject,
+                },
+            },
+            "nautobot": {
+                "name": nautobot.name,
+                "apiPrefix": nautobot.api_prefix,
+                "subjects": list(nautobot.subjects),
+                "subject": nautobot.subject,
+                "consumer": {"name": nautobot.consumer.name},
+            },
+        },
+    }
+
+
 def _build_external_services(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
     """Build the ``externalServices`` section."""
     svc = config.services
@@ -671,6 +703,7 @@ def _build_external_services(config: NVConfigManagerInstallConfig) -> dict[str, 
         ext["nautobot"] = {"local": False}
 
     nats = es.nats
+    nats_topology = _build_nats_topology(config)
     if nats.enabled:
         ext["nats"] = {
             "server": nats.server,
@@ -680,12 +713,14 @@ def _build_external_services(config: NVConfigManagerInstallConfig) -> dict[str, 
             "secretName": nats.secret_name,
             "externalSecretName": nats.external_secret_name,
             "credsPath": nats.creds_path,
+            **nats_topology,
         }
     else:
         ext["nats"] = {
             "server": "nats://nv-config-manager@nats:4222",
             "authMethod": "password",
             "local": True,
+            **nats_topology,
         }
 
     if es.redis.enabled and es.redis.host:

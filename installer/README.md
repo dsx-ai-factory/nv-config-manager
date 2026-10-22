@@ -385,6 +385,29 @@ default in-cluster deployments.
 | Use external DCIM | Toggle — disables the in-cluster Nautobot stack |
 | DCIM endpoint | URL of the external provider; required when the provider is not the bundled `nautobot-2x` implementation |
 
+**NATS**
+
+NATS topology is always installer-owned and is shown for both bundled and
+external deployments. The installer preserves every explicit stream, subject,
+queue, and durable name; it does not derive names from the release or
+environment.
+
+| Field | Description |
+|-------|-------------|
+| Use external NATS | Toggle — disables the bundled NATS deployment |
+| Server URL | External `tls://` or `wss://` endpoint |
+| Authentication | Password or JWT credentials |
+| Queue | Worker queue name |
+| Config Manager stream | Stream name, JetStream API prefix, ordered subject patterns, and concrete render/device/archive subjects |
+| Config Manager consumers | Pull-consumer and archive durable names, plus the archive delivery subject |
+| Nautobot stream | Stream name, JetStream API prefix, ordered subject patterns, and concrete event subject |
+| Nautobot consumer | Durable name for the Nautobot event consumer |
+
+Comma-separated subject lists preserve their entered order. Wildcards must be
+complete NATS tokens (`*`, or terminal `>`). For bundled NATS, both API prefixes
+must be `$JS.API`, the two stream patterns may not overlap, and archive delivery
+must not be captured by the Config Manager stream.
+
 **Redis**
 
 | Field | Description |

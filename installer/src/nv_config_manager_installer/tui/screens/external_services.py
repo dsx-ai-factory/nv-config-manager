@@ -87,7 +87,7 @@ class ExternalServicesScreen(Container):
             yield Label("Server URL", classes="field-label")
             yield Input(
                 value=nats.server,
-                placeholder="nats://nats.example.com:4222",
+                placeholder="tls://nats.example.com:4222",
                 id="ext-nats-server",
             )
             yield Label("Authentication", classes="field-label")
@@ -108,6 +108,67 @@ class ExternalServicesScreen(Container):
             yield Input(value=nats.external_secret_name, id="ext-nats-external-secret-name")
             yield Label("Credentials path (JWT auth)", classes="field-label")
             yield Input(value=nats.creds_path, id="ext-nats-creds-path")
+        config_manager_stream = nats.streams.config_manager
+        nautobot_stream = nats.streams.nautobot
+        with Container(id="nats-topology"):
+            yield Label("NATS topology", classes="field-label")
+            yield Label("Queue", classes="field-label")
+            yield Input(value=nats.queue, id="nats-queue")
+            yield Label("Config Manager stream name", classes="field-label")
+            yield Input(value=config_manager_stream.name, id="nats-cm-stream-name")
+            yield Label("Config Manager API prefix", classes="field-label")
+            yield Input(value=config_manager_stream.api_prefix, id="nats-cm-api-prefix")
+            yield Label("Config Manager subjects (comma-separated)", classes="field-label")
+            yield Input(
+                value=", ".join(config_manager_stream.subjects),
+                id="nats-cm-subjects",
+            )
+            yield Label("Render change subject", classes="field-label")
+            yield Input(
+                value=config_manager_stream.render_change_subject,
+                id="nats-render-subject",
+            )
+            yield Label("Device change subject", classes="field-label")
+            yield Input(
+                value=config_manager_stream.device_change_subject,
+                id="nats-device-subject",
+            )
+            yield Label("Archive subject", classes="field-label")
+            yield Input(
+                value=config_manager_stream.archive_subject,
+                id="nats-archive-subject",
+            )
+            yield Label("Device consumer durable", classes="field-label")
+            yield Input(
+                value=config_manager_stream.consumer.name,
+                id="nats-device-consumer",
+            )
+            yield Label("Archive consumer durable", classes="field-label")
+            yield Input(
+                value=config_manager_stream.archive_consumer.name,
+                id="nats-archive-consumer",
+            )
+            yield Label("Archive delivery subject", classes="field-label")
+            yield Input(
+                value=config_manager_stream.archive_consumer.delivery_subject,
+                id="nats-archive-delivery-subject",
+            )
+            yield Label("Nautobot stream name", classes="field-label")
+            yield Input(value=nautobot_stream.name, id="nats-nautobot-stream-name")
+            yield Label("Nautobot API prefix", classes="field-label")
+            yield Input(value=nautobot_stream.api_prefix, id="nats-nautobot-api-prefix")
+            yield Label("Nautobot subjects (comma-separated)", classes="field-label")
+            yield Input(
+                value=", ".join(nautobot_stream.subjects),
+                id="nats-nautobot-subjects",
+            )
+            yield Label("Nautobot event subject", classes="field-label")
+            yield Input(value=nautobot_stream.subject, id="nats-nautobot-subject")
+            yield Label("Nautobot consumer durable", classes="field-label")
+            yield Input(
+                value=nautobot_stream.consumer.name,
+                id="nats-nautobot-consumer",
+            )
 
         # ── Redis ──────────────────────────────────────────────────────────
         yield Label("Redis", classes="field-label")
@@ -269,6 +330,9 @@ class ExternalServicesScreen(Container):
         except (ValueError, LookupError):
             return default
 
+    def _comma_values(self, widget_id: str) -> list[str]:
+        return [value.strip() for value in self.query_one(widget_id, Input).value.split(",")]
+
     def write_to_config(self, config: NVConfigManagerInstallConfig) -> None:
         nautobot_external = self.query_one(_W_EXT_NAUTOBOT, LabeledSwitch).value
         nautobot_server = self.query_one("#ext-nautobot-url", Input).value.strip()
@@ -288,6 +352,39 @@ class ExternalServicesScreen(Container):
                 "#ext-nats-external-secret-name", Input
             ).value.strip(),
             creds_path=self.query_one("#ext-nats-creds-path", Input).value.strip(),
+            queue=self.query_one("#nats-queue", Input).value.strip(),
+            streams={
+                "config_manager": {
+                    "name": self.query_one("#nats-cm-stream-name", Input).value.strip(),
+                    "api_prefix": self.query_one("#nats-cm-api-prefix", Input).value.strip(),
+                    "subjects": self._comma_values("#nats-cm-subjects"),
+                    "render_change_subject": self.query_one(
+                        "#nats-render-subject", Input
+                    ).value.strip(),
+                    "device_change_subject": self.query_one(
+                        "#nats-device-subject", Input
+                    ).value.strip(),
+                    "archive_subject": self.query_one("#nats-archive-subject", Input).value.strip(),
+                    "consumer": {
+                        "name": self.query_one("#nats-device-consumer", Input).value.strip()
+                    },
+                    "archive_consumer": {
+                        "name": self.query_one("#nats-archive-consumer", Input).value.strip(),
+                        "delivery_subject": self.query_one(
+                            "#nats-archive-delivery-subject", Input
+                        ).value.strip(),
+                    },
+                },
+                "nautobot": {
+                    "name": self.query_one("#nats-nautobot-stream-name", Input).value.strip(),
+                    "api_prefix": self.query_one("#nats-nautobot-api-prefix", Input).value.strip(),
+                    "subjects": self._comma_values("#nats-nautobot-subjects"),
+                    "subject": self.query_one("#nats-nautobot-subject", Input).value.strip(),
+                    "consumer": {
+                        "name": self.query_one("#nats-nautobot-consumer", Input).value.strip()
+                    },
+                },
+            },
         )
         r = es.redis
         r.enabled = self.query_one(_W_EXT_REDIS, LabeledSwitch).value
@@ -345,6 +442,39 @@ class ExternalServicesScreen(Container):
                 "#ext-nats-external-secret-name", Input
             ).value = es.nats.external_secret_name
             self.query_one("#ext-nats-creds-path", Input).value = es.nats.creds_path
+            config_manager_stream = es.nats.streams.config_manager
+            nautobot_stream = es.nats.streams.nautobot
+            self.query_one("#nats-queue", Input).value = es.nats.queue
+            self.query_one("#nats-cm-stream-name", Input).value = config_manager_stream.name
+            self.query_one("#nats-cm-api-prefix", Input).value = config_manager_stream.api_prefix
+            self.query_one("#nats-cm-subjects", Input).value = ", ".join(
+                config_manager_stream.subjects
+            )
+            self.query_one(
+                "#nats-render-subject", Input
+            ).value = config_manager_stream.render_change_subject
+            self.query_one(
+                "#nats-device-subject", Input
+            ).value = config_manager_stream.device_change_subject
+            self.query_one(
+                "#nats-archive-subject", Input
+            ).value = config_manager_stream.archive_subject
+            self.query_one(
+                "#nats-device-consumer", Input
+            ).value = config_manager_stream.consumer.name
+            self.query_one(
+                "#nats-archive-consumer", Input
+            ).value = config_manager_stream.archive_consumer.name
+            self.query_one(
+                "#nats-archive-delivery-subject", Input
+            ).value = config_manager_stream.archive_consumer.delivery_subject
+            self.query_one("#nats-nautobot-stream-name", Input).value = nautobot_stream.name
+            self.query_one("#nats-nautobot-api-prefix", Input).value = nautobot_stream.api_prefix
+            self.query_one("#nats-nautobot-subjects", Input).value = ", ".join(
+                nautobot_stream.subjects
+            )
+            self.query_one("#nats-nautobot-subject", Input).value = nautobot_stream.subject
+            self.query_one("#nats-nautobot-consumer", Input).value = nautobot_stream.consumer.name
             self.query_one(_W_EXT_REDIS, LabeledSwitch).value = r.enabled
             self.query_one("#ext-redis-host", Input).value = r.host
             self.query_one("#ext-redis-port", Input).value = str(r.port)
@@ -380,7 +510,38 @@ class ExternalServicesScreen(Container):
             config.dcim.server or config.services.external_nautobot_url
         ):
             return "[!]"
+        try:
+            ExternalNATSConfig.model_validate(es.nats.model_dump())
+        except ValueError:
+            return "[!]"
         if es.nats.enabled and not es.nats.server:
+            return "[!]"
+        if es.nats.enabled and "replace-me.invalid" in es.nats.server:
+            return "[!]"
+        config_manager_stream = es.nats.streams.config_manager
+        nautobot_stream = es.nats.streams.nautobot
+        if not config_manager_stream.subjects or not nautobot_stream.subjects:
+            return "[!]"
+        nats_readiness_values = (
+            es.nats.queue,
+            config_manager_stream.name,
+            config_manager_stream.api_prefix,
+            *config_manager_stream.subjects,
+            config_manager_stream.render_change_subject,
+            config_manager_stream.device_change_subject,
+            config_manager_stream.archive_subject,
+            config_manager_stream.consumer.name,
+            config_manager_stream.archive_consumer.name,
+            config_manager_stream.archive_consumer.delivery_subject,
+            nautobot_stream.name,
+            nautobot_stream.api_prefix,
+            *nautobot_stream.subjects,
+            nautobot_stream.subject,
+            nautobot_stream.consumer.name,
+        )
+        if not all(nats_readiness_values) or any(
+            value.startswith("replace-me") for value in nats_readiness_values
+        ):
             return "[!]"
         if es.redis.enabled and not es.redis.host:
             return "[!]"
