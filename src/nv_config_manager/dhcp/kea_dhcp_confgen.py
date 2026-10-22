@@ -20,6 +20,7 @@ import ipaddress
 import os
 import random
 import time as _time
+from collections import Counter
 from typing import Any, cast
 
 import macaddress
@@ -59,6 +60,20 @@ def _normalize_reservation_id(reservation_id: str) -> str:
         return reservation_id.lower()
 
 
+def _duplicate_identifier_error(
+    reservation: dict[str, Any], reservation_id: str
+) -> DhcpConfigGenerationError:
+    """Build the domain error for a duplicated reservation identifier."""
+    hostname = reservation.get("hostname", "unknown")
+    return DhcpConfigGenerationError(
+        f"Duplicate DHCP reservation: device '{hostname}' (identifier: "
+        f"{reservation_id}) has multiple reserved IPs with the same client-id or "
+        "hw-address. Kea allows only one reservation per identifier. "
+        "Use dhcp-pool only (not dhcp-reserve) for interfaces that don't need "
+        "per-device options, or ensure each interface has a unique MAC address."
+    )
+
+
 def _check_duplicate_identifier(
     reservation: dict[str, Any],
     reservation_ids: set[str],
@@ -69,15 +84,16 @@ def _check_duplicate_identifier(
         return
     normalized = _normalize_reservation_id(reservation_id)
     if normalized in reservation_ids:
-        hostname = reservation.get("hostname", "unknown")
-        raise DhcpConfigGenerationError(
-            f"Duplicate DHCP reservation: device '{hostname}' (identifier: "
-            f"{reservation_id}) has multiple reserved IPs with the same client-id or "
-            "hw-address. Kea allows only one reservation per identifier. "
-            "Use dhcp-pool only (not dhcp-reserve) for interfaces that don't need "
-            "per-device options, or ensure each interface has a unique MAC address."
-        )
+        raise _duplicate_identifier_error(reservation, reservation_id)
     reservation_ids.add(normalized)
+
+
+def _reservation_identifier(reservation: dict[str, Any]) -> str | None:
+    """Return a normalized reservation identifier, if one is configured."""
+    reservation_id = reservation.get("hw-address") or reservation.get("client-id")
+    if not reservation_id:
+        return None
+    return _normalize_reservation_id(reservation_id)
 
 
 def _add_auto_reservations(
@@ -88,7 +104,27 @@ def _add_auto_reservations(
     errors: list[str],
 ) -> None:
     """Add auto reservations and track identifiers/IPs."""
+    identifiers = [
+        identifier
+        for reservation in auto_subnet_reservations
+        if (identifier := _reservation_identifier(reservation)) is not None
+    ]
+    duplicate_identifiers = {
+        identifier for identifier, count in Counter(identifiers).items() if count > 1
+    }
+    seen_duplicate_identifiers: set[str] = set()
+
     for reservation in auto_subnet_reservations:
+        normalized_identifier = _reservation_identifier(reservation)
+        if normalized_identifier in duplicate_identifiers:
+            if normalized_identifier in seen_duplicate_identifiers:
+                reservation_id = cast(
+                    str, reservation.get("hw-address") or reservation.get("client-id")
+                )
+                errors.append(str(_duplicate_identifier_error(reservation, reservation_id)))
+            seen_duplicate_identifiers.add(normalized_identifier)
+            continue
+
         try:
             _check_duplicate_identifier(reservation, reservation_ids)
         except DhcpConfigGenerationError as exc:
@@ -267,11 +303,12 @@ def _process_subnet_reservations(
             }
             _add_reservation_identifier(reservation_data, reservation, dhcp_contexts)
         except DhcpConfigGenerationError as exc:
-            conflicts.extend(item_conflicts)
             errors.append(str(exc))
             continue
+        finally:
+            conflicts.extend(item_conflicts)
+            errors.extend(item_conflicts)
 
-        conflicts.extend(item_conflicts)
         if item_conflicts:
             continue
         options.clear()
@@ -323,11 +360,12 @@ def _process_option_candidates(
                 }
                 _add_reservation_identifier(entry, candidate, dhcp_contexts)
         except DhcpConfigGenerationError as exc:
-            conflicts.extend(item_conflicts)
             errors.append(str(exc))
             continue
+        finally:
+            conflicts.extend(item_conflicts)
+            errors.extend(item_conflicts)
 
-        conflicts.extend(item_conflicts)
         if item_conflicts:
             continue
         options.clear()
@@ -385,12 +423,13 @@ async def _generate_automatic_dhcp_subnets_and_reservations(
 
     subnet_configs: list[dict[str, Any]] = []
     reservations: list[dict[str, Any]] = []
-    conflicts: list[str] = []
 
     for subnet_data in dhcp_subnets:
         options: dict[str, Any] = {}
         config: dict[str, Any] = {}
         site_option_codes = _site_option_defs(site_dhcp_options)
+        subnet_conflicts: list[str] = []
+        subnet_reservations: list[dict[str, Any]] = []
 
         _filter_pool_reservation_overlaps(subnet_data)
         _process_subnet_reservations(
@@ -399,8 +438,8 @@ async def _generate_automatic_dhcp_subnets_and_reservations(
             site_option_codes,
             options,
             config,
-            reservations,
-            conflicts,
+            subnet_reservations,
+            subnet_conflicts,
             errors,
         )
         subnet_option_reservations = _process_option_candidates(
@@ -409,7 +448,7 @@ async def _generate_automatic_dhcp_subnets_and_reservations(
             site_option_codes,
             options,
             config,
-            conflicts,
+            subnet_conflicts,
             errors,
         )
         try:
@@ -419,20 +458,26 @@ async def _generate_automatic_dhcp_subnets_and_reservations(
         except DhcpConfigGenerationError as exc:
             errors.append(str(exc))
             continue
-        subnet_configs.append(subnet_config)
 
-    if conflicts:
-        errors.extend(conflicts)
+        if subnet_conflicts:
+            continue
+        subnet_configs.append(subnet_config)
+        reservations.extend(subnet_reservations)
 
     return subnet_configs, reservations
+
+
+def _log_config_generation_errors(errors: list[str]) -> None:
+    """Log every collected generation error."""
+    for error in errors:
+        logger.error(error)
 
 
 def _raise_config_generation_errors(errors: list[str]) -> None:
     """Log every collected generation error, then raise one aggregate failure."""
     if not errors:
         return
-    for error in errors:
-        logger.error(error)
+    _log_config_generation_errors(errors)
     raise DhcpConfigGenerationError(
         "\n".join(errors) + f"\n({len(errors)} config generation error(s) total)"
     )
@@ -793,16 +838,18 @@ def _extract_hooks_path(kea_config: dict[str, Any], version: int = 4) -> str:
     return default_path
 
 
-async def generate_config(
+async def _generate_config_candidate(
     dcim_client: DCIMClient,
+    errors: list[str],
     redis_client: RedisClient | None = None,
     version: int = 4,
     kea_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Generate a KEA DHCP Configuration.
+    """Build a KEA DHCP configuration candidate without publishing it.
 
     Args:
         dcim_client: Provider client for fetching normalized DHCP data
+        errors: Mutable collector for recoverable configuration errors
         redis_client: Optional Redis client for preserving subnet IDs
         version: DHCP version (4 or 6)
         kea_config: Optional existing Kea config to extract hooks path from
@@ -810,7 +857,6 @@ async def generate_config(
     _start = _time.monotonic()
     config = load_config()
     is_aggregate = config.getboolean("general", "aggregate", fallback=False)
-    errors: list[str] = []
 
     # Get hooks path from existing Kea config (architecture-specific path set at build time)
     hooks_path = _extract_hooks_path(kea_config or {}, version)
@@ -909,6 +955,34 @@ async def generate_config(
     DHCP_CONFIG_GENERATION_DURATION.labels(ip_version=str(version)).observe(
         _time.monotonic() - _start
     )
+    return dhcp_config
+
+
+async def generate_config(
+    dcim_client: DCIMClient,
+    redis_client: RedisClient | None = None,
+    version: int = 4,
+    kea_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Generate a KEA DHCP Configuration.
+
+    Recoverable domain errors are logged together after the private candidate
+    has been fully built. An unexpected exception remains fail-fast, but any
+    domain errors collected before it are logged before it is re-raised.
+    """
+    errors: list[str] = []
+    try:
+        dhcp_config = await _generate_config_candidate(
+            dcim_client,
+            errors,
+            redis_client=redis_client,
+            version=version,
+            kea_config=kea_config,
+        )
+    except Exception:
+        _log_config_generation_errors(errors)
+        raise
+
     _raise_config_generation_errors(errors)
     return dhcp_config
 

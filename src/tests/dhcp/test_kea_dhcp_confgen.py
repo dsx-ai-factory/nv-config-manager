@@ -28,6 +28,9 @@ from nv_config_manager.dhcp.kea import KeaClient
 from nv_config_manager.dhcp.kea_dhcp_confgen import (
     DhcpConfigGenerationError,
     _format_options_for_kea,
+    _generate_automatic_dhcp_subnets_and_reservations,
+    _generate_config_candidate,
+    _generate_reservations,
     generate_config,
     inject_lease_db_config,
 )
@@ -571,6 +574,60 @@ class MockConflictingItemMutationClient(MockNautobotClient):
         }
 
 
+class MockCollectedThenUnexpectedClient(MockNautobotClient):
+    """Return a domain error followed by malformed provider data."""
+
+    async def load_auto_dhcp_subnets(
+        self, family: int = 4, is_aggregate_managed: bool | None = None
+    ):
+        return [
+            {
+                "prefix": ipaddress.ip_network("192.0.2.0/25"),
+                "gateway": ipaddress.ip_address("192.0.2.1"),
+                "pool_ips": [],
+                "option_candidates": [],
+                "reservations": [
+                    {
+                        "address": ipaddress.ip_address("192.0.2.10"),
+                        "mac_address": None,
+                        "serial": None,
+                        "device_name": "domain-error-device",
+                        "interface_name": "eth0",
+                        "interface_role": "management",
+                        "device_id": "domain-error-device-id",
+                    }
+                ],
+            },
+            {
+                "prefix": ipaddress.ip_network("192.0.2.128/25"),
+                "gateway": ipaddress.ip_address("192.0.2.129"),
+                "option_candidates": [],
+                "reservations": [],
+            },
+        ]
+
+    async def load_dhcp_contexts(self, is_aggregate_managed: bool | None = None):
+        return {}
+
+
+class MockConflictThenUnexpectedClient(MockConflictingItemMutationClient):
+    """Return an option conflict followed by malformed provider data."""
+
+    async def load_auto_dhcp_subnets(
+        self, family: int = 4, is_aggregate_managed: bool | None = None
+    ):
+        subnets = await super().load_auto_dhcp_subnets(family, is_aggregate_managed)
+        return [
+            *subnets,
+            {
+                "prefix": ipaddress.ip_network("192.0.2.0/25"),
+                "gateway": ipaddress.ip_address("192.0.2.1"),
+                "option_candidates": [],
+                "reservations": [],
+            },
+        ]
+
+
 @pytest.mark.asyncio
 async def test_auto_dhcp_subnets_graphql_error():
     """Test that GraphQL query failures cause config generation to fail."""
@@ -605,6 +662,50 @@ async def test_auto_dhcp_subnets_invalid_data():
         await generate_config(
             MockFailingNautobotClient("invalid_data"), MockRedisClient(), version=4
         )
+
+
+@pytest.mark.asyncio
+async def test_unexpected_error_flushes_previously_collected_domain_errors(
+    caplog: pytest.LogCaptureFixture,
+):
+    """Fail-fast exceptions do not suppress domain errors already encountered."""
+    expected_error = (
+        "Reservation for domain-error-device on interface eth0 with address "
+        "192.0.2.10 has no MAC address or serial"
+    )
+
+    with caplog.at_level(logging.ERROR), pytest.raises(KeyError, match="pool_ips"):
+        await generate_config(
+            MockCollectedThenUnexpectedClient("https://nautobot.example.com/", "dummy"),
+            MockRedisClient(),
+            version=4,
+        )
+
+    assert [
+        record.getMessage() for record in caplog.records if record.levelno == logging.ERROR
+    ] == [expected_error]
+
+
+@pytest.mark.asyncio
+async def test_unexpected_error_flushes_previously_collected_option_conflicts(
+    caplog: pytest.LogCaptureFixture,
+):
+    """Fail-fast exceptions do not suppress option conflicts already encountered."""
+    expected_error = (
+        "Subnet 100.64.0.0/24 reservation for 100.64.0.11 conflicts with existing "
+        "option ntp-servers: 10.0.0.1 != 10.0.0.2"
+    )
+
+    with caplog.at_level(logging.ERROR), pytest.raises(KeyError, match="pool_ips"):
+        await generate_config(
+            MockConflictThenUnexpectedClient("https://nautobot.example.com/", "dummy"),
+            MockRedisClient(),
+            version=4,
+        )
+
+    assert [
+        record.getMessage() for record in caplog.records if record.levelno == logging.ERROR
+    ] == [expected_error]
 
 
 @pytest.mark.asyncio
@@ -775,17 +876,41 @@ async def test_config_generation_logs_all_domain_errors_before_failing(
 
 @pytest.mark.asyncio
 async def test_config_generation_finishes_valid_candidate_before_failing():
-    """Valid state reaches subnet-ID preservation before aggregate failure."""
+    """The private candidate retains valid state and excludes invalid records."""
     redis_client = TrackingRedisClient()
+    errors: list[str] = []
 
-    with pytest.raises(DhcpConfigGenerationError):
-        await generate_config(
-            MockFailingNautobotClient("reservation_without_mac"),
-            redis_client,
-            version=4,
-        )
+    candidate = await _generate_config_candidate(
+        MockFailingNautobotClient("reservation_without_mac"),
+        errors,
+        redis_client=redis_client,
+        version=4,
+    )
 
     assert redis_client.load_called
+    assert len(errors) == 1
+    assert "has no MAC address or serial" in errors[0]
+    assert "test-device" not in {
+        reservation["hostname"] for reservation in candidate["Dhcp4"]["reservations"]
+    }
+    assert candidate["Dhcp4"]["subnet4"]
+
+
+@pytest.mark.asyncio
+async def test_failed_subnet_does_not_retain_its_reservations():
+    """Reservations are committed only when their containing subnet is valid."""
+    client = MockMultipleGenerationErrorsClient("https://nautobot.example.com/", "dummy")
+    errors: list[str] = []
+
+    subnets, reservations = await _generate_automatic_dhcp_subnets_and_reservations(
+        client,
+        await client.load_dhcp_contexts(),
+        errors,
+        version=4,
+    )
+
+    assert "203.0.113.128/25" not in {subnet["subnet"] for subnet in subnets}
+    assert "invalid-subnet-config" not in {reservation["hostname"] for reservation in reservations}
 
 
 @pytest.mark.asyncio
@@ -815,6 +940,52 @@ async def test_conflicting_item_does_not_leak_option_state(
     assert [
         record.getMessage() for record in caplog.records if "conflicts with" in record.message
     ] == [expected_error]
+
+
+@pytest.mark.asyncio
+async def test_conflicting_subnet_is_excluded_from_retained_candidate():
+    """A subnet with ambiguous shared options contributes no partial state."""
+    client = MockConflictingItemMutationClient("https://nautobot.example.com/", "dummy")
+    errors: list[str] = []
+
+    subnets, reservations = await _generate_automatic_dhcp_subnets_and_reservations(
+        client,
+        await client.load_dhcp_contexts(),
+        errors,
+        version=4,
+    )
+
+    assert subnets == []
+    assert reservations == []
+    assert len(errors) == 1
+    assert "conflicts with existing option ntp-servers" in errors[0]
+
+
+def test_duplicate_identifier_group_is_excluded_from_retained_candidate():
+    """No reservation wins arbitrarily when an identifier is duplicated."""
+    duplicate_reservations = [
+        {
+            "hostname": hostname,
+            "hw-address": "00:11:22:33:44:55",
+            "ip-address": address,
+        }
+        for hostname, address in [
+            ("duplicate-a", "10.0.0.10"),
+            ("duplicate-b", "10.0.0.11"),
+        ]
+    ]
+    errors: list[str] = []
+
+    reservations = _generate_reservations(
+        [],
+        errors,
+        auto_subnet_reservations=duplicate_reservations,
+        version=4,
+    )
+
+    assert reservations == []
+    assert len(errors) == 1
+    assert "Duplicate DHCP reservation" in errors[0]
 
 
 @pytest.mark.asyncio
