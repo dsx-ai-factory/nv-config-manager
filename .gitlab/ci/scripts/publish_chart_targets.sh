@@ -1,9 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-chart_file="${1:?usage: publish_chart_targets.sh CHART_FILE VERSION CHART_NAME}"
-chart_version="${2:?usage: publish_chart_targets.sh CHART_FILE VERSION CHART_NAME}"
-chart_name="${3:?usage: publish_chart_targets.sh CHART_FILE VERSION CHART_NAME}"
+chart_file="${1:?usage: publish_chart_targets.sh CHART_FILE VERSION CHART_NAME [--release]}"
+chart_version="${2:?usage: publish_chart_targets.sh CHART_FILE VERSION CHART_NAME [--release]}"
+chart_name="${3:?usage: publish_chart_targets.sh CHART_FILE VERSION CHART_NAME [--release]}"
+release_package=false
+case "${4:-}" in
+  '') ;;
+  --release)
+    if [[ "${CI_COMMIT_REF_PROTECTED:-false}" != true || -z "${CI_COMMIT_TAG:-}" || "$CI_COMMIT_TAG" != "$chart_version" ]]; then
+      echo "Chart repackaging requires a matching protected release tag." >&2
+      exit 1
+    fi
+    release_package=true
+    ;;
+  *) echo "Unsupported chart publishing mode." >&2; exit 1 ;;
+esac
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+chart_workspace=""
+trap 'if [[ -n "$chart_workspace" ]]; then rm -rf "$chart_workspace"; fi' EXIT
 
 trim() {
   local value="$1"
@@ -19,6 +34,7 @@ parse_options() {
   local -n registry_ref="$3"
   local -n username_ref="$4"
   local -n label_ref="$5"
+  local -n image_target_ref="$6"
 
   if [[ -z "$options" ]]; then
     return 0
@@ -36,6 +52,7 @@ parse_options() {
       org) org_ref="$value" ;;
       registry) registry_ref="$value" ;;
       username) username_ref="$value" ;;
+      image_target) image_target_ref="$value" ;;
       *)
         echo "Unsupported chart target option '${key}'." >&2
         exit 1
@@ -54,6 +71,8 @@ publish_target() {
   local registry=""
   local username=""
   local label=""
+  local image_target=""
+  local target_chart_file="$chart_file"
 
   target_type="$(trim "$target_type")"
   target_type="${target_type,,}"
@@ -66,7 +85,7 @@ publish_target() {
     exit 1
   fi
 
-  parse_options "$options" org registry username label
+  parse_options "$options" org registry username label image_target
   label="${label:-$target_type:$repository}"
 
   local token
@@ -74,6 +93,29 @@ publish_target() {
   if [[ -z "$token" ]]; then
     echo "Chart publish target ${label} references ${token_var}, but that variable is empty or unset."
     exit 1
+  fi
+
+  # Promotion uploads the prevalidated PR artifact verbatim. Only the trusted
+  # tag job opts into unpacking and remapping charts; never unpack PR archives
+  # while registry credentials are available.
+  if [[ "$release_package" == true && -n "$image_target" ]]; then
+    if [[ -z "${NVCM_IMAGE_TARGETS:-}" ]]; then
+      echo "Per-chart image_target requires NVCM_IMAGE_TARGETS to be configured." >&2
+      exit 1
+    fi
+    local image_target_exports target_dir
+    image_target_exports="$(bash "$script_dir/image_target_env.sh" "$image_target")"
+    eval "$image_target_exports"
+    if [[ -z "$chart_workspace" ]]; then
+      chart_workspace="$(mktemp -d)"
+    fi
+    target_dir="$(mktemp -d "${chart_workspace}/target.XXXXXX")"
+    tar -xzf "$chart_file" -C "$target_dir"
+    bash "$script_dir/update_helm_image_values.sh" "$target_dir/$chart_name/values.yaml" \
+      "$NVCM_IMAGE_REPOSITORY" "$chart_version"
+    helm package "$target_dir/$chart_name" --version "$chart_version" --app-version "$chart_version" \
+      --destination "$target_dir"
+    target_chart_file="$target_dir/${chart_name}-${chart_version}.tgz"
   fi
 
   case "$target_type" in
@@ -95,7 +137,7 @@ publish_target() {
 
       echo "Publishing chart to ${label}..."
       set +e
-      publish_output=$(ngc-cli/ngc registry chart push --source "$chart_file" "${repository}/${chart_name}:${chart_version}" 2>&1)
+      publish_output=$(ngc-cli/ngc registry chart push --source "$target_chart_file" "${repository}/${chart_name}:${chart_version}" 2>&1)
       publish_exit=$?
       set -e
 
@@ -123,7 +165,7 @@ publish_target() {
 
       echo "Publishing chart to ${label}..."
       helm registry login "$registry" --username "$username" --password-stdin <<< "$token"
-      helm push "$chart_file" "oci://${repository}"
+      helm push "$target_chart_file" "oci://${repository}"
       echo "Published chart to ${label}."
       ;;
     *)
@@ -182,6 +224,7 @@ publish_legacy_lists() {
   local usernames=()
   local labels=()
   local orgs=()
+  local image_targets=()
 
   read_lines NVCM_CHART_PUBLISH_TYPES types
   read_lines NVCM_CHART_PUBLISH_REPOSITORIES repositories
@@ -190,6 +233,7 @@ publish_legacy_lists() {
   read_lines NVCM_CHART_PUBLISH_USERNAMES usernames
   read_lines NVCM_CHART_PUBLISH_LABELS labels
   read_lines NVCM_CHART_PUBLISH_ORGS orgs
+  read_lines NVCM_CHART_PUBLISH_IMAGE_TARGETS image_targets
 
   local target_count="${#types[@]}"
   if ((target_count == 0)); then
@@ -220,6 +264,9 @@ publish_legacy_lists() {
     fi
     if ((index < ${#usernames[@]})) && [[ -n "${usernames[$index]}" ]]; then
       options="${options:+$options,}username=${usernames[$index]}"
+    fi
+    if ((index < ${#image_targets[@]})) && [[ -n "${image_targets[$index]}" ]]; then
+      options="${options:+$options,}image_target=${image_targets[$index]}"
     fi
     publish_target "${types[$index]}" "${repositories[$index]}" "${token_vars[$index]}" "$options"
   done
