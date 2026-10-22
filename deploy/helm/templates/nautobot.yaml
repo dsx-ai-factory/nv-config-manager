@@ -260,6 +260,7 @@ spec:
             echo "Stream exists, updating..."
             nats stream edit "$CONFIG_MANAGER_STREAM" \
               --server="$NV_CONFIG_MANAGER_SERVER" \
+              --subjects="$CONFIG_MANAGER_SUBJECTS" \
               --max-bytes="$MAX_BYTES" \
               --force
           fi
