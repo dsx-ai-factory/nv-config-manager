@@ -152,6 +152,8 @@ def build_site_design_from_mock_context(
                 "mode": intf.get("mode"),
                 "mtu": intf.get("mtu"),
             }
+            if intf.get("_air"):
+                normalized_intf["_air"] = intf["_air"]
             if intf.get("untagged_vlan"):
                 vlan = intf["untagged_vlan"]
                 normalized_intf["untagged_vlan"] = (
