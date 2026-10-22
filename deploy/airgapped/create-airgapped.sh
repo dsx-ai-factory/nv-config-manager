@@ -1285,57 +1285,55 @@ pip_download() {
     uv run --project "$REPO_ROOT/installer" --no-sync --with "pip==$NVCM_PIP_VERSION" python -m pip download "$@"
 }
 
-# Pin the release and verify its published SHA-256 before extracting any files.
-# https://github.com/astral-sh/uv/releases/tag/0.13.4
-download_installer_uv() {
+# Digests are pinned from the immutable upstream release, not fetched with the archive.
+# https://github.com/astral-sh/python-build-standalone/releases/tag/20260320
+download_installer_python() {
     local installer_dest="$1"
-    local arch="$2"
-    local uv_version="$NVCM_UV_VERSION"
-    local uv_arch uv_sha256
-    case "$arch" in
-        amd64)
-            uv_arch="x86_64-unknown-linux-gnu"
-            uv_sha256="$NVCM_UV_AMD64_SHA256"
-            ;;
-        arm64)
-            uv_arch="aarch64-unknown-linux-gnu"
-            uv_sha256="$NVCM_UV_ARM64_SHA256"
-            ;;
-        *) log_error "Unsupported uv architecture: $arch"; return 1 ;;
-    esac
-    local -a uv_checksum_command
+    local triple="$2"
+    local pbs_tag="20260320"
+    local pbs_cpython="3.13.12"
+    local pbs_file="cpython-${pbs_cpython}+${pbs_tag}-${triple}-install_only_stripped.tar.gz"
+    local pbs_url="https://github.com/astral-sh/python-build-standalone/releases/download/${pbs_tag}/${pbs_file}"
+    local pbs_sha256
+    pbs_sha256=$(awk -v file="$pbs_file" '$2 == file {print $1}' "$SCRIPT_DIR/python-runtimes.sha256") || return 1
+    if [[ ! "$pbs_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+        log_error "Missing pinned Python checksum for $triple"
+        return 1
+    fi
+    local -a checksum_command
     if command -v sha256sum &>/dev/null; then
-        uv_checksum_command=(sha256sum -c -)
-    elif command -v shasum &>/dev/null; then
-        uv_checksum_command=(shasum -a 256 -c -)
+        checksum_command=(sha256sum -c -)
     else
-        log_error "sha256sum or shasum is required to verify uv"
+        checksum_command=(shasum -a 256 -c -)
+    fi
+    local pbs_stage
+    pbs_stage=$(mktemp -d "${installer_dest}/.python-${triple}.XXXXXX") || return 1
+    local pbs_archive="$pbs_stage/$pbs_file"
+    log_info "Downloading Python ${pbs_cpython} for ${triple}..."
+    if ! curl -fsSL --output "$pbs_archive" "$pbs_url"; then
+        log_error "Failed to download Python for $triple"
+        rm -rf "$pbs_stage"
         return 1
     fi
-    local uv_url="https://github.com/astral-sh/uv/releases/download/${uv_version}/uv-${uv_arch}.tar.gz"
-    local uv_stage
-    uv_stage=$(mktemp -d "${installer_dest}/.uv-${arch}.XXXXXX") || return 1
-    local uv_archive="$uv_stage/uv.tar.gz"
-    log_info "Downloading uv ${uv_version} for $arch..."
-    if ! curl -fsSL --output "$uv_archive" "$uv_url"; then
-        log_error "Failed to download uv for $arch"
-        rm -rf "$uv_stage"
+    if ! printf '%s  %s\n' "$pbs_sha256" "$pbs_archive" | "${checksum_command[@]}"; then
+        log_error "Python checksum verification failed for $triple"
+        rm -rf "$pbs_stage"
         return 1
     fi
-    if ! printf '%s  %s\n' "$uv_sha256" "$uv_archive" | "${uv_checksum_command[@]}"; then
-        log_error "uv checksum verification failed for $arch"
-        rm -rf "$uv_stage"
+    if ! tar -xz -f "$pbs_archive" -C "$pbs_stage" ||
+        [[ ! -x "$pbs_stage/python/bin/python3" && ! -x "$pbs_stage/python/bin/python3.13" ]]; then
+        log_error "Failed to extract Python runtime for $triple"
+        rm -rf "$pbs_stage"
         return 1
     fi
-    if ! tar -xz -f "$uv_archive" -C "$uv_stage" ||
-        ! mv "$uv_stage/uv-${uv_arch}/uv" "$installer_dest/uv-${arch}" ||
-        ! chmod +x "$installer_dest/uv-${arch}"; then
-        log_error "Failed to extract uv for $arch"
-        rm -rf "$uv_stage"
+    local pbs_dest="$installer_dest/python/$triple"
+    if ! mkdir -p "$pbs_dest" || ! mv "$pbs_stage/python" "$pbs_dest/"; then
+        log_error "Failed to package Python runtime for $triple"
+        rm -rf "$pbs_stage" "$pbs_dest"
         return 1
     fi
-    rm -rf "$uv_stage"
-    log_success "Verified and packaged uv ${uv_version} for $arch"
+    rm -rf "$pbs_stage"
+    log_success "Verified and packaged Python ${pbs_cpython} for $triple"
 }
 
 package_installer() {
@@ -1400,9 +1398,6 @@ package_installer() {
     done
     log_success "Vendored dependency wheels"
 
-    local pbs_tag="20260320"
-    local pbs_cpython="3.13.12"
-    local pbs_base="https://github.com/astral-sh/python-build-standalone/releases/download"
     local -a pbs_triples=(
         x86_64-unknown-linux-gnu
         aarch64-unknown-linux-gnu
@@ -1411,25 +1406,7 @@ package_installer() {
     )
 
     for triple in "${pbs_triples[@]}"; do
-        local pbs_file="cpython-${pbs_cpython}+${pbs_tag}-${triple}-install_only_stripped.tar.gz"
-        local pbs_url="${pbs_base}/${pbs_tag}/${pbs_file}"
-        local pbs_dest="$installer_dest/python/${triple}"
-        log_info "Downloading Python ${pbs_cpython} for ${triple}..."
-        mkdir -p "$pbs_dest"
-        if curl -fsSL "$pbs_url" | tar -xz -C "$pbs_dest"; then
-            if [[ -x "$pbs_dest/python/bin/python3" || -x "$pbs_dest/python/bin/python3.13" ]]; then
-                log_success "Downloaded Python for ${triple}"
-            else
-                log_warn "Python binary not found after extracting ${triple}"
-            fi
-        else
-            log_warn "Failed to download Python for ${triple}"
-            rm -rf "$pbs_dest"
-        fi
-    done
-
-    for arch in amd64 arm64; do
-        if ! download_installer_uv "$installer_dest" "$arch"; then
+        if ! download_installer_python "$installer_dest" "$triple"; then
             return 1
         fi
     done

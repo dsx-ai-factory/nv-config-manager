@@ -2647,7 +2647,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "certifi", specifier = ">=2024.8.30" },
+    { name = "certifi", specifier = ">=2026.10.19" },
     { name = "nats-py", extras = ["nkeys", "aiohttp"], specifier = ">=2.15.0" },
     { name = "nv-config-manager-logging", editable = "packages/logging" },
     { name = "redis", extras = ["hiredis"], specifier = ">=5.2.1" },

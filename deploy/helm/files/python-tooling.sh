@@ -14,10 +14,7 @@
 # limitations under the License.
 # Shared by GitLab CI and the chart's source-plugin installer.
 # Keep bootstrap versions and release hashes here. Sourcing does not access the network.
-NVCM_UV_VERSION=0.13.4
 NVCM_PIP_VERSION=26.2.2
-NVCM_UV_AMD64_SHA256=2b428396f12572d4429cf210ca234dd599a33b3af0958a4d5ed569d63e3f344f
-NVCM_UV_ARM64_SHA256=1ae72b4718729e2ccc4f1ae2c6d1e531ca8467800e0546e9130b3886023a60ab
 NVCM_PIP_REQUIREMENT='pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70'
 NVCM_UV_REQUIREMENT='uv==0.13.4 --hash=sha256:e90ab42825587821096cb0d071e387468da38cfa22818c91f9c0b3c0453048e8 --hash=sha256:05e4332791b4d55b6dde8695b7fa6079b26991519f44760887c5dfbd5ca4fe53 --hash=sha256:7b3cdf868e5415631fe797b648c0d6945d38d388f23367bdd0b6332e80a1fcb0 --hash=sha256:52b5c753a7c2d5f8323a70bb4c93118988356331d0758afa6446c81f974e7196'
 nvcm_pip_ready=false

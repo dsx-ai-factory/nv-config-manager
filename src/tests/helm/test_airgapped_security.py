@@ -12,14 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Airgapped uv downloads fail closed before extraction on checksum errors."""
+"""Airgapped downloads enforce host tooling and verify Python before extraction."""
 
 from __future__ import annotations
 
 import hashlib
 import io
 import os
-import re
 import subprocess
 import tarfile
 from pathlib import Path
@@ -28,77 +27,7 @@ import pytest
 
 _POLICY = Path(__file__).resolve().parents[3] / "deploy/helm/files/python-tooling.sh"
 _SCRIPT = Path(__file__).resolve().parents[3] / "deploy/airgapped/create-airgapped.sh"
-
-
-@pytest.mark.parametrize(
-    "arch,triple", [("amd64", "x86_64-unknown-linux-gnu"), ("arm64", "aarch64-unknown-linux-gnu")]
-)
-@pytest.mark.parametrize("corrupt", [False, True])
-def test_airgapped_uv_is_verified_before_extraction(
-    tmp_path: Path,
-    arch: str,
-    triple: str,
-    corrupt: bool,
-) -> None:
-    archive = tmp_path / "fixture.tar.gz"
-    binary = b"fixture uv binary"
-    with tarfile.open(archive, "w:gz") as tar:
-        info = tarfile.TarInfo(f"uv-{triple}/uv")
-        info.size = len(binary)
-        tar.addfile(info, io.BytesIO(binary))
-    checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
-    if corrupt:
-        archive.write_bytes(b"corrupted archive")
-    source = _SCRIPT.read_text()
-    function = (
-        "download_installer_uv() {"
-        + source.split("download_installer_uv() {", 1)[1].split("\n}\n", 1)[0]
-        + "\n}\n"
-    )
-    # Substitute a local release fixture's expected digest; exercise real checksum and tar tools.
-    policy = re.sub(
-        r"NVCM_UV_(AMD64|ARM64)_SHA256=[0-9a-f]{64}",
-        lambda match: f"NVCM_UV_{match[1]}_SHA256={checksum}",
-        _POLICY.read_text(),
-    )
-    destination = tmp_path / "installer"
-    destination.mkdir()
-    driver = (
-        """
-set -eu
-log_info() { :; }
-log_success() { :; }
-log_error() { echo "$*" >&2; }
-curl() {
-    printf '%s\n' "$4" > "$UV_TEST_URL"
-    cp "$UV_TEST_ARCHIVE" "$3"
-}
-"""
-        + policy
-        + "\n"
-        + function
-        + '\ndownload_installer_uv "$1" "$2"\n'
-    )
-    result = subprocess.run(
-        ["bash", "-c", driver, "test", str(destination), arch],
-        env={**os.environ, "UV_TEST_ARCHIVE": str(archive), "UV_TEST_URL": str(tmp_path / "url")},
-        capture_output=True,
-        text=True,
-    )
-    assert (
-        (tmp_path / "url").read_text().strip()
-        == f"https://github.com/astral-sh/uv/releases/download/0.13.4/uv-{triple}.tar.gz"
-    )
-    packaged = destination / f"uv-{arch}"
-    if corrupt:
-        assert result.returncode != 0
-        assert not packaged.exists()
-        assert "checksum verification failed" in result.stderr
-    else:
-        assert result.returncode == 0, result.stderr
-        assert packaged.read_bytes() == binary
-        assert os.access(packaged, os.X_OK)
-    assert not list(destination.glob(".uv-*"))
+_RUNTIME_HASHES = _SCRIPT.with_name("python-runtimes.sha256")
 
 
 def _shell_function(name: str) -> str:
@@ -108,6 +37,119 @@ def _shell_function(name: str) -> str:
         + _SCRIPT.read_text().split(name + "() {", 1)[1].split("\n}\n", 1)[0]
         + "\n}\n"
     )
+
+
+def _download_python(
+    tmp_path: Path, triple: str, failure: str = ""
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    archive = tmp_path / "fixture.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        info = tarfile.TarInfo(
+            "python/README" if failure == "missing-binary" else "python/bin/python3"
+        )
+        payload = b"#!/bin/sh\nexit 0\n"
+        info.size = len(payload)
+        info.mode = 0o755
+        tar.addfile(info, io.BytesIO(payload))
+    if failure == "invalid-archive":
+        archive.write_bytes(b"not a tar archive")
+    checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+    if failure == "checksum":
+        archive.write_bytes(b"tampered archive")
+    filename = next(
+        line.split()[1]
+        for line in _RUNTIME_HASHES.read_text().splitlines()
+        if not line.startswith("#") and f"-{triple}-" in line
+    )
+    (tmp_path / "python-runtimes.sha256").write_text(
+        "" if failure == "missing-checksum" else f"{checksum}  {filename}\n"
+    )
+    driver = r"""
+set -eu
+log_info() { :; }
+log_success() { :; }
+log_error() { echo "$*" >&2; }
+curl() {
+    printf '%s\n' "$4" > "$PYTHON_TEST_URL"
+    [ "$PYTHON_TEST_FAILURE" != download ] || return 22
+    cp "$PYTHON_TEST_ARCHIVE" "$3"
+}
+tar() {
+    touch "$PYTHON_TEST_EXTRACTED"
+    command tar "$@"
+}
+"""
+    destination = tmp_path / "installer"
+    destination.mkdir()
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            driver
+            + _shell_function("download_installer_python")
+            + '\ndownload_installer_python "$1" "$2"\n',
+            "test",
+            str(destination),
+            triple,
+        ],
+        env={
+            **os.environ,
+            "SCRIPT_DIR": str(tmp_path),
+            "PYTHON_TEST_ARCHIVE": str(archive),
+            "PYTHON_TEST_URL": str(tmp_path / "url"),
+            "PYTHON_TEST_EXTRACTED": str(tmp_path / "extracted"),
+            "PYTHON_TEST_FAILURE": failure,
+        },
+        capture_output=True,
+        text=True,
+    )
+    return result, destination
+
+
+@pytest.mark.parametrize(
+    "triple",
+    [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+    ],
+)
+@pytest.mark.parametrize("corrupt", [False, True])
+def test_python_checksum_is_verified_before_extraction(
+    tmp_path: Path, triple: str, corrupt: bool
+) -> None:
+    result, destination = _download_python(tmp_path, triple, "checksum" if corrupt else "")
+    assert (tmp_path / "url").read_text().strip() == (
+        "https://github.com/astral-sh/python-build-standalone/releases/download/20260320/"
+        f"cpython-3.13.12+20260320-{triple}-install_only_stripped.tar.gz"
+    )
+    if corrupt:
+        assert result.returncode != 0
+        assert "Python checksum verification failed" in result.stderr
+        assert not (tmp_path / "extracted").exists()
+        assert not (destination / "python" / triple).exists()
+    else:
+        assert result.returncode == 0, result.stderr
+        binary = destination / "python" / triple / "python/bin/python3"
+        assert binary.read_bytes() == b"#!/bin/sh\nexit 0\n"
+        assert os.access(binary, os.X_OK)
+    assert not list(destination.glob(".python-*"))
+
+
+@pytest.mark.parametrize(
+    "failure", ["missing-checksum", "download", "invalid-archive", "missing-binary"]
+)
+def test_python_download_fails_closed(tmp_path: Path, failure: str) -> None:
+    triple = "x86_64-unknown-linux-gnu"
+    result, destination = _download_python(tmp_path, triple, failure)
+    assert result.returncode != 0
+    assert not (destination / "python" / triple).exists()
+    assert not list(destination.glob(".python-*"))
+    if failure in {"missing-checksum", "download"}:
+        assert not (tmp_path / "extracted").exists()
+    if failure == "missing-checksum":
+        assert not (tmp_path / "url").exists()
 
 
 def test_pip_download_keeps_project_version_enforcement(tmp_path: Path) -> None:
