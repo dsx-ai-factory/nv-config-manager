@@ -742,7 +742,8 @@ class DeployScreen(Container):
 
         app = self.app
         if isinstance(app, NVConfigManagerInstallerApp):
-            app.collect_config()
+            if not app.collect_config():
+                return
             self._config = app.config
             self._sync_gateway_options()
             self._sync_secret_options()

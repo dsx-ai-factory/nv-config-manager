@@ -407,6 +407,31 @@ async def test_values_preview_rejects_incomplete_nats_topology_before_generation
 
 
 @pytest.mark.asyncio
+async def test_values_preview_stops_when_edited_nats_fields_fail_collection() -> None:
+    config = NVConfigManagerInstallConfig(
+        cluster=ClusterConfig(hostname="test.example.com"),
+        sites=[SiteConfig(name="dc01")],
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("values_preview")
+        external_screen = app._screens["external_services"]
+        external_screen.query_one("#nats-render-subject", Input).value = "invalid,subject"
+        preview_screen = app._screens["values_preview"]
+
+        with patch(
+            "nv_config_manager_installer.tui.screens.values_preview.build_complete_values"
+        ) as build_values:
+            preview_screen._generate_preview()
+
+        build_values.assert_not_called()
+        assert (
+            "validation" in str(preview_screen.query_one("#values-status", Label).render()).lower()
+        )
+
+
+@pytest.mark.asyncio
 async def test_external_services_reports_missing_nats_topology_in_status() -> None:
     config = NVConfigManagerInstallConfig()
     config.external_services.nats.streams.config_manager.name = ""
@@ -593,6 +618,31 @@ async def test_deployment_start_selects_local_image_source(
 
     assert deployed_config.images.source == ImageSource.LOCAL
     assert deployed_options is options
+
+
+@pytest.mark.asyncio
+async def test_deployment_stops_when_edited_nats_fields_fail_collection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = NVConfigManagerInstallConfig(
+        cluster=ClusterConfig(hostname="test.example.com"),
+        sites=[SiteConfig(name="dc01")],
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+    create_deployer = Mock()
+    create_deployer.return_value.steps = []
+    monkeypatch.setattr(DeployScreen, "create_deployer", create_deployer)
+    monkeypatch.setattr(DeployScreen, "_run_deploy", lambda self: None)
+
+    async with app.run_test():
+        external_screen = app._screens["external_services"]
+        external_screen.query_one("#nats-render-subject", Input).value = "invalid,subject"
+        deploy_screen = app._screens["deploy"]
+
+        deploy_screen._start_deploy()
+
+        create_deployer.assert_not_called()
+        assert deploy_screen._deploy_running is False
 
 
 @pytest.mark.asyncio

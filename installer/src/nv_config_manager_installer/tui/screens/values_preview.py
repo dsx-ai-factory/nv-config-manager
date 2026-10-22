@@ -66,12 +66,14 @@ class ValuesPreviewScreen(Container):
 
     def _generate_preview(self) -> None:
         app = self.app
-        if hasattr(app, "collect_config"):
-            app.collect_config()
-
         status = self.query_one("#values-status", Label)
         log = self.query_one("#values-log", Log)
         log.clear()
+        if hasattr(app, "collect_config") and app.collect_config() is False:
+            self._last_output = None
+            status.update("Error: Fix validation errors before generating values.")
+            log.write("Generation stopped: configuration validation failed.\n")
+            return
 
         try:
             config = validate_config_readiness(self._config)
