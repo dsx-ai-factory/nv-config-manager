@@ -151,6 +151,12 @@ class PullConsumer:
         self.liveness_timeout = float(
             os.getenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", str(CONSUMER_ACK_WAIT_SECONDS + 240))
         )
+        if self.liveness_timeout <= CONSUMER_ACK_WAIT_SECONDS:
+            raise ValueError(
+                f"CONSUMER_LIVENESS_TIMEOUT_SECONDS={self.liveness_timeout:g} must exceed the "
+                f"consumer ack wait of {CONSUMER_ACK_WAIT_SECONDS}s, or a slow render would "
+                "restart the pod before it finishes"
+            )
         self._last_successful_fetch = time.monotonic()
 
     def run(self) -> None:
@@ -739,7 +745,7 @@ def main() -> None:
     else:
         raise NotImplementedError(f"No consumer implemented for {consumer_name}.")
 
-    start_liveness_server(consumer)
+    start_liveness_server(consumer, port=int(os.getenv("CONSUMER_LIVENESS_PORT", "8001")))
     consumer.run()
     get_logger(__name__, category=LogCategory.RENDER_EVENT).info("Exiting...")
 
