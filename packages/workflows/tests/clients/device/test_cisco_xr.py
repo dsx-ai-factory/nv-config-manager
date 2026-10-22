@@ -504,6 +504,43 @@ def test_commit_failure_propagates() -> None:
     assert session.confirmed == 0
 
 
+@pytest.mark.parametrize(
+    "error",
+    [NetworkDeviceException("Commit failed"), SSHError("connection lost")],
+    ids=["device-exception", "transport-error"],
+)
+def test_a_failed_confirmed_commit_is_not_retryable(error: Exception) -> None:
+    """The confirmed commit may have reached the router, so a retry could report a false success."""
+    session = FakeSession()
+    session.commit_error = error
+    connection, _ = _connection(session)
+    approved = connection.perform_candidate_diff(CHANGED)
+
+    with pytest.raises(NetworkDeviceException) as raised:
+        connection.commit_candidate_config(CHANGED, approved, commit_confirm=True)
+
+    assert raised.value.non_retryable
+    assert session.confirmed == 0
+
+
+@pytest.mark.parametrize(
+    "error",
+    [NetworkDeviceException("Commit failed"), SSHError("connection lost")],
+    ids=["device-exception", "transport-error"],
+)
+def test_a_failed_plain_commit_stays_retryable(error: Exception) -> None:
+    """Without the commit timer nothing is pending on the router, so a retry is safe."""
+    session = FakeSession()
+    session.commit_error = error
+    connection, _ = _connection(session)
+    approved = connection.perform_candidate_diff(CHANGED)
+
+    with pytest.raises(NetworkDeviceException) as raised:
+        connection.commit_candidate_config(CHANGED, approved, commit_confirm=False)
+
+    assert not raised.value.non_retryable
+
+
 def test_apply_sends_nothing_when_the_intended_config_would_remove_access() -> None:
     session = FakeSession()
     connection, _ = _connection(session)

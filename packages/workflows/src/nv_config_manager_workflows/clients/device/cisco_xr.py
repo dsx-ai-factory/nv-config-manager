@@ -846,9 +846,19 @@ class CiscoIosXrConnection(NetworkConnection):
         confirm_seconds = self._COMMIT_CONFIRM_SECONDS if commit_confirm else None
         try:
             session.commit(confirm_seconds=confirm_seconds, timeout=self._APPLY_TIMEOUT_SECONDS)
-        except _TRANSPORT_ERRORS as error:
+        except (NetworkDeviceException, *_TRANSPORT_ERRORS) as error:
+            if not commit_confirm:
+                if isinstance(error, NetworkDeviceException):
+                    raise
+                raise NetworkDeviceException(
+                    f"Failed to apply candidate configuration on {self._host}: {error}"
+                ) from error
+            # A failed confirmed commit may still have reached the router: a retry could
+            # find an empty diff and report success while the rollback timer is running.
             raise NetworkDeviceException(
-                f"Failed to apply candidate configuration on {self._host}: {error}"
+                f"Confirmed commit on {self._host} failed or its result is unknown ({error}); "
+                "the router rolls back when the commit timer expires.",
+                non_retryable=True,
             ) from error
 
         if commit_confirm:

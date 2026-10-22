@@ -364,3 +364,36 @@ def test_router_diff_counts_and_drops_hash_lines() -> None:
     diff, ignored = xr.parse_router_diff(raw.replace("end\n", "+  hostname b\nend\n"))
     assert diff == "+  hostname b\n"
     assert ignored == 3
+
+
+IPV6_HOST = "2001:db8::7"
+IPV6_RUNNING = RUNNING + "interface HundredGigE0/0/0/9\n ipv6 address 2001:db8::7/64\n!\n"
+
+
+def test_guard_protects_the_interface_that_owns_an_ipv6_management_address() -> None:
+    """An interface whose only management address is IPv6 must not be dropped."""
+    problems = xr.check_access_preserved(
+        xr.parse_config(IPV6_RUNNING), xr.parse_config(RUNNING), username=USERNAME, host=IPV6_HOST
+    )
+
+    assert any("HundredGigE0/0/0/9" in problem for problem in problems)
+
+
+def test_guard_blocks_changing_the_ipv6_management_address() -> None:
+    changed = IPV6_RUNNING.replace("2001:db8::7/64", "2001:db8::99/64")
+
+    problems = xr.check_access_preserved(
+        xr.parse_config(IPV6_RUNNING), xr.parse_config(changed), username=USERNAME, host=IPV6_HOST
+    )
+
+    assert any("no longer carries the management address" in problem for problem in problems)
+
+
+def test_guard_blocks_an_interface_that_loses_its_ipv6_address() -> None:
+    dropped = IPV6_RUNNING.replace(" ipv6 address 2001:db8::7/64\n", "")
+
+    problems = xr.check_access_preserved(
+        xr.parse_config(IPV6_RUNNING), xr.parse_config(dropped), username=USERNAME, host=IPV6_HOST
+    )
+
+    assert any("loses its IP address" in problem for problem in problems)

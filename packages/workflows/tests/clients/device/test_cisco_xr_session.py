@@ -99,6 +99,7 @@ def test_show_running_config_maps_rpc_and_transport_errors() -> None:
 
 
 def test_an_unsupported_cli_leaf_is_a_non_retryable_error_names_the_cli_leaf() -> None:
+    """A router without the ``cli`` leaf fails with a non-retryable error that names the module."""
     session, manager = _session()
     manager.get_config.side_effect = _RpcError("unknown element", tag="unknown-element")
 

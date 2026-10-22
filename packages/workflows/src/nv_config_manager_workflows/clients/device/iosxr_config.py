@@ -271,14 +271,14 @@ def flatten(nodes: list[Node], prefix: tuple[str, ...] = ()) -> list[tuple[str, 
 # ---------------------------------------------------------------------------
 
 _MGMT_INTERFACE_RE = re.compile(r"^interface\s+MgmtEth\S*$", re.IGNORECASE)
-_IPV4_ADDRESS_RE = re.compile(r"^ipv4 address\s+(\S+)")
+_IP_ADDRESS_RE = re.compile(r"^(?:ipv4|ipv6) address\s+(\S+)")
 _PROTECTED_TOP_RE = re.compile(r"^(line\s+\S+|vty-pool\s+\S+.*)$")
 
 
 def _interface_addresses(node: Node) -> list[str]:
     addresses = []
     for child in node.children:
-        match = _IPV4_ADDRESS_RE.match(child.line)
+        match = _IP_ADDRESS_RE.match(child.line)
         if match:
             addresses.append(match.group(1).split("/")[0])
     return addresses
@@ -344,7 +344,7 @@ def check_access_preserved(
         running_addresses = _interface_addresses(node)
         wanted_addresses = _interface_addresses(wanted)
         if running_addresses and not wanted_addresses:
-            problems.append(f"'{node.line}' loses its IPv4 address in the intended configuration")
+            problems.append(f"'{node.line}' loses its IP address in the intended configuration")
         if any(_same_host(addr, host) for addr in running_addresses) and not any(
             _same_host(addr, host) for addr in wanted_addresses
         ):
