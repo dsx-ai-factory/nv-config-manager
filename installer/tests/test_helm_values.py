@@ -113,6 +113,17 @@ def _gen(
         path.unlink(missing_ok=True)
 
 
+def test_generation_revalidates_nested_models_before_writing(tmp_path: Path) -> None:
+    config = _make_config()
+    config.external_services.nats.streams.nautobot.consumer.name = ""
+    output_path = tmp_path / "values.yaml"
+
+    with pytest.raises(ValueError, match="Nautobot durable name"):
+        generate_helm_values(config, {}, output_path)
+
+    assert not output_path.exists()
+
+
 def _default_nats_topology() -> dict[str, object]:
     return {
         "queue": "nv-config-manager",

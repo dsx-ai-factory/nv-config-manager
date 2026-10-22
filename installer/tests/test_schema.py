@@ -250,7 +250,7 @@ class TestNVConfigManagerInstallConfig:
 
     @pytest.mark.parametrize(
         "pattern",
-        ["foo..bar", "foo bar", "foo*", "foo.>.bar", "foo.bar>", "foo.\nbar"],
+        ["foo..bar", "foo bar", "foo*", "foo.>.bar", "foo.bar>", "foo.\nbar", "foo,bar"],
     )
     def test_nats_rejects_malformed_subject_patterns(self, pattern: str) -> None:
         with pytest.raises(ValueError, match="pattern"):
@@ -330,10 +330,35 @@ class TestNVConfigManagerInstallConfig:
                 }
             )
 
-    @pytest.mark.parametrize("server", ["", "nats://nats.example.com:4222"])
+    @pytest.mark.parametrize(
+        "server",
+        [
+            "",
+            "nats://nats.example.com:4222",
+            "tls://",
+            "wss://",
+            "tls+spoof://nats.example.com:4222",
+            "prefix-tls://nats.example.com:4222",
+        ],
+    )
     def test_external_nats_requires_secure_server(self, server: str) -> None:
-        with pytest.raises(ValueError, match="tls:// or wss://"):
+        with pytest.raises(ValueError, match="tls:// or wss://.*hostname"):
             ExternalNATSConfig(enabled=True, server=server)
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"queue": "worker,queue"},
+            {
+                "streams": {
+                    "config_manager": {"render_change_subject": "nv-config-manager,nautobotchange"}
+                }
+            },
+        ],
+    )
+    def test_nats_rejects_commas_in_concrete_subjects(self, overrides: dict[str, object]) -> None:
+        with pytest.raises(ValueError, match="comma"):
+            _external_nats(**overrides)
 
     def test_nats_assignment_revalidates_topology(self) -> None:
         nats = _external_nats()

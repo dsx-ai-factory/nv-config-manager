@@ -43,6 +43,7 @@ from nv_config_manager_installer.schema import (
     get_known_workflows,
 )
 from nv_config_manager_installer.secrets import build_eso_vault_config
+from nv_config_manager_installer.validation import validate_config_readiness
 
 _ZTP_S3_CREDENTIALS_SECRET_NAME = "ztp-s3-credentials"
 
@@ -1231,6 +1232,7 @@ def generate_helm_values(
     complete: bool = True,
 ) -> None:
     """Generate the Helm values YAML file."""
+    config = validate_config_readiness(config)
     if complete:
         values = build_complete_values(
             config,

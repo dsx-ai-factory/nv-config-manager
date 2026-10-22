@@ -226,15 +226,11 @@ spec:
           set -e
           NV_CONFIG_MANAGER_SERVER="nats://${NATS_USER}:${NATS_PASSWORD}@{{ $natsName }}:4222"
           NAUTOBOT_SERVER="nats://${NAUTOBOT_USER}:${NAUTOBOT_PASSWORD}@{{ $natsName }}:4222"
-          CONFIG_MANAGER_STREAM="{{ .Values.externalServices.nats.streams.configManager.name }}"
-          CONFIG_MANAGER_SUBJECTS="{{ join "," .Values.externalServices.nats.streams.configManager.subjects }}"
-          DCIM_STREAM="{{ .Values.dcim.events.stream | default .Values.externalServices.nats.streams.nautobot.name }}"
-          {{- if .Values.dcim.events.subject }}
-          DCIM_SUBJECTS="{{ .Values.dcim.events.subject }}"
-          {{- else }}
-          DCIM_SUBJECTS="{{ join "," .Values.externalServices.nats.streams.nautobot.subjects }}"
-          {{- end }}
-          MAX_BYTES="{{ .Values.nautobotNats.natsReady.streamMaxBytes | default 104857600 | int64 }}"
+          CONFIG_MANAGER_STREAM="$NV_CONFIG_MANAGER_NATS_STREAM_NAME"
+          CONFIG_MANAGER_SUBJECTS="$NV_CONFIG_MANAGER_NATS_STREAM_SUBJECTS"
+          DCIM_STREAM="$NAUTOBOT_NATS_STREAM_NAME"
+          DCIM_SUBJECTS="$NAUTOBOT_NATS_STREAM_SUBJECTS"
+          MAX_BYTES="$NATS_STREAM_MAX_BYTES"
           
           echo "Waiting for NATS server..."
           until nats rtt -s "$NV_CONFIG_MANAGER_SERVER" >/dev/null 2>&1; do
@@ -321,6 +317,8 @@ spec:
           {{- else }}
           value: {{ join "," .Values.externalServices.nats.streams.nautobot.subjects | quote }}
           {{- end }}
+        - name: NATS_STREAM_MAX_BYTES
+          value: {{ .Values.nautobotNats.natsReady.streamMaxBytes | default 104857600 | int64 | quote }}
         - name: NAUTOBOT_USER
           value: "nautobot"
         - name: NAUTOBOT_PASSWORD

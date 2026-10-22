@@ -52,6 +52,11 @@ from nv_config_manager_installer.schema import (
 )
 from nv_config_manager_installer.secrets import generate_secrets
 from nv_config_manager_installer.tui.app import NVConfigManagerInstallerApp
+from nv_config_manager_installer.validation import (
+    ConfigReadinessError,
+    collect_validation_errors,
+    validate_config_readiness,
+)
 
 
 @click.group()
@@ -111,33 +116,16 @@ def validate(config_path: Path) -> None:
 
 def _collect_validation_errors(config: NVConfigManagerInstallConfig) -> list[str]:
     """Return a list of validation error messages for a NVConfigManagerInstallConfig."""
-    errors: list[str] = []
-    if not config.cluster.hostname:
-        errors.append("cluster.hostname is required")
-    if not config.sites:
-        errors.append("At least one site is required")
-    if config.sso.enabled and not config.sso.issuer_url:
-        errors.append("sso.issuer_url is required when SSO is enabled")
-    nats = config.external_services.nats
-    if nats.enabled and "replace-me.invalid" in nats.server:
-        errors.append("External NATS server must not contain replace-me.invalid")
-    nats_placeholders = {
-        "queue": nats.queue,
-        "Config Manager durable": nats.streams.config_manager.consumer.name,
-        "archive durable": nats.streams.config_manager.archive_consumer.name,
-        "archive delivery subject": (nats.streams.config_manager.archive_consumer.delivery_subject),
-        "Nautobot durable": nats.streams.nautobot.consumer.name,
-    }
-    for field_name, value in nats_placeholders.items():
-        if value.startswith("replace-me"):
-            errors.append(f"NATS {field_name} must not begin with replace-me")
-    if not config.services.nautobot and config.content.requires_local_nautobot:
-        errors.append(
-            "Custom jobs and post-deploy jobs require a local Nautobot deployment "
-            "(services.nautobot must be true, or remove content.jobs and "
-            "content.run_after_deploy)"
-        )
-    return errors
+    return collect_validation_errors(config)
+
+
+def _require_ready_config(
+    config: NVConfigManagerInstallConfig,
+) -> NVConfigManagerInstallConfig:
+    try:
+        return validate_config_readiness(config)
+    except ConfigReadinessError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 @main.command("generate-values")
@@ -171,7 +159,7 @@ def generate_values(
     chart_dir: Path | None,
 ) -> None:
     """Generate Helm values from config."""
-    config = NVConfigManagerInstallConfig.from_yaml(config_path)
+    config = _require_ready_config(NVConfigManagerInstallConfig.from_yaml(config_path))
     output_dir.mkdir(parents=True, exist_ok=True)
 
     secrets_state = generate_secrets(config)
@@ -265,6 +253,8 @@ def deploy(
         config.images.source = ImageSource(image_source)
     if ngc_api_key:
         config.images.pull_secret.password = ngc_api_key
+
+    config = _require_ready_config(config)
 
     options = DeployOptions(
         project_root=project_root,

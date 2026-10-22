@@ -70,6 +70,7 @@ from nv_config_manager_installer.schema import (
     ZTPStorageType,
 )
 from nv_config_manager_installer.secrets import generate_secrets
+from nv_config_manager_installer.validation import ConfigReadinessError, validate_config_readiness
 
 _DEFAULT_GATEWAY_CLASS_NAME = "envoy-gateway"
 _HELM_RELEASE_NAME_ANNOTATION = "meta.helm.sh/release-name"
@@ -1088,7 +1089,7 @@ class Deployer:
         options: DeployOptions,
         callback: DeployCallback | None = None,
     ) -> None:
-        self.config = self.CONFIG_MODEL.model_validate(config.model_dump())
+        self.config = self.CONFIG_MODEL.model_validate(config.model_dump(mode="python"))
         self.options = options
         self.callback = callback or _NoopCallback()
         self._secrets_state: dict[str, str] = {}
@@ -1193,6 +1194,13 @@ class Deployer:
 
     def run(self) -> bool:
         """Execute the full deployment pipeline. Returns True on success."""
+        try:
+            self.config = validate_config_readiness(self.config)
+        except ConfigReadinessError as exc:
+            self.callback.on_log(f"Deployment failed readiness validation: {exc}")
+            self.callback.on_complete(False, [])
+            return False
+
         project_root = find_project_root(self.options.project_root)
         self._validate_project_paths(project_root)
         original_cwd = Path.cwd()

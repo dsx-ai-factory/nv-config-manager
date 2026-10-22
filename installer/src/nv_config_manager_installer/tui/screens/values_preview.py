@@ -26,6 +26,7 @@ from textual.widgets import Button, Input, Label, Log
 from nv_config_manager_installer.helm_values import build_complete_values
 from nv_config_manager_installer.schema import ImageSource, NVConfigManagerInstallConfig
 from nv_config_manager_installer.secrets import generate_secrets
+from nv_config_manager_installer.validation import validate_config_readiness
 
 
 class ValuesPreviewScreen(Container):
@@ -73,10 +74,11 @@ class ValuesPreviewScreen(Container):
         log.clear()
 
         try:
-            secrets_state = generate_secrets(self._config)
-            local_images = self._config.images.source == ImageSource.LOCAL
+            config = validate_config_readiness(self._config)
+            secrets_state = generate_secrets(config)
+            local_images = config.images.source == ImageSource.LOCAL
             values = build_complete_values(
-                self._config,
+                config,
                 secrets_state,
                 local_images=local_images,
             )

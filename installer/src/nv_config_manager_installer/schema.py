@@ -26,6 +26,7 @@ import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -789,6 +790,8 @@ def _validate_nats_subject(value: str, field_name: str, *, pattern: bool) -> Non
     kind = "subject pattern" if pattern else "subject"
     if not value:
         raise ValueError(f"NATS {field_name} {kind} is required")
+    if "," in value:
+        raise ValueError(f"NATS {field_name} {kind} does not support commas")
     if any(
         character.isspace() or ord(character) < 32 or ord(character) == 127 for character in value
     ):
@@ -881,8 +884,11 @@ class ExternalNATSConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_external_endpoint(self) -> ExternalNATSConfig:
-        if self.enabled and not self.server.startswith(("tls://", "wss://")):
-            raise ValueError("External NATS server must use tls:// or wss://")
+        endpoint = urlsplit(self.server)
+        if self.enabled and (endpoint.scheme not in {"tls", "wss"} or not endpoint.hostname):
+            raise ValueError(
+                "External NATS server must use tls:// or wss:// and include a hostname"
+            )
 
         config_manager = self.streams.config_manager
         nautobot = self.streams.nautobot

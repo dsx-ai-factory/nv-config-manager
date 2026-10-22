@@ -224,6 +224,18 @@ class TestDeployerInit:
         with pytest.raises(ValueError, match="post-deploy jobs require a local Nautobot"):
             Deployer(config, DeployOptions())
 
+    def test_rejects_incomplete_nats_topology_before_deployment(self):
+        config = _make_config()
+        config.external_services.nats.streams.nautobot.consumer.name = "replace-me-nautobot"
+        callback = RecordingCallback()
+        deployer = Deployer(config, DeployOptions(), callback)
+
+        with patch("nv_config_manager_installer.deployer.find_project_root") as find_root:
+            assert deployer.run() is False
+
+        find_root.assert_not_called()
+        assert any("replace-me" in message for message in callback.logs)
+
 
 class TestGatewayClassReuse:
     @patch(

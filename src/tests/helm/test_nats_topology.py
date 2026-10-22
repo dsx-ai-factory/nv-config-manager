@@ -89,17 +89,53 @@ nautobotNats:
 """
 
 
+def _nats_ready_init_container(documents: list[dict[str, Any]]) -> dict[str, Any]:
+    for document in documents:
+        pod_spec = document.get("spec", {}).get("template", {}).get("spec", {})
+        for container in pod_spec.get("initContainers", []):
+            if container.get("name", "").endswith("-ready"):
+                return container
+    raise AssertionError("bundled NATS readiness init container was not rendered")
+
+
 def test_bundled_stream_create_and_edit_reconcile_configured_subjects(
     tmp_path: Path,
 ) -> None:
-    rendered, _ = _render(tmp_path, _bundled_values())
+    _, documents = _render(tmp_path, _bundled_values())
+    container = _nats_ready_init_container(documents)
+    script = container["args"][0]
+    env = {entry["name"]: entry.get("value") for entry in container["env"]}
 
-    assert 'CONFIG_MANAGER_SUBJECTS="custom.render,custom.device,custom.workflow.result"' in (
-        rendered
+    assert env["NV_CONFIG_MANAGER_NATS_STREAM_SUBJECTS"] == (
+        "custom.render,custom.device,custom.workflow.result"
     )
-    assert 'DCIM_SUBJECTS="custom.nautobot"' in rendered
-    assert rendered.count('--subjects="$CONFIG_MANAGER_SUBJECTS"') == 2
-    assert rendered.count('--subjects="$DCIM_SUBJECTS"') == 2
+    assert env["NAUTOBOT_NATS_STREAM_SUBJECTS"] == "custom.nautobot"
+    assert script.count('--subjects="$CONFIG_MANAGER_SUBJECTS"') == 2
+    assert script.count('--subjects="$DCIM_SUBJECTS"') == 2
+
+
+def test_bundled_reconciler_keeps_topology_out_of_shell_source(tmp_path: Path) -> None:
+    malicious_stream = "cm$(touch${IFS}/tmp/nats-stream-pwned)"
+    malicious_subject = "render;touch${IFS}/tmp/nats-subject-pwned"
+    values = (
+        _bundled_values()
+        .replace("custom-config-manager", malicious_stream)
+        .replace("custom.render", malicious_subject)
+        .replace("useNatsCli: true", "useNatsCli: true\n    streamMaxBytes: 123456")
+    )
+
+    _, documents = _render(tmp_path, values)
+    container = _nats_ready_init_container(documents)
+    script = container["args"][0]
+    env = {entry["name"]: entry.get("value") for entry in container["env"]}
+
+    assert malicious_stream not in script
+    assert malicious_subject not in script
+    assert env["NV_CONFIG_MANAGER_NATS_STREAM_NAME"] == malicious_stream
+    assert env["NV_CONFIG_MANAGER_NATS_STREAM_SUBJECTS"].startswith(malicious_subject)
+    assert env["NATS_STREAM_MAX_BYTES"] == "123456"
+    assert script.count('--subjects="$CONFIG_MANAGER_SUBJECTS"') == 2
+    assert script.count('--subjects="$DCIM_SUBJECTS"') == 2
 
 
 def test_custom_consumers_and_archive_delivery_reach_rendered_ini(tmp_path: Path) -> None:

@@ -403,7 +403,8 @@ environment.
 | Nautobot stream | Stream name, JetStream API prefix, ordered subject patterns, and concrete event subject |
 | Nautobot consumer | Durable name for the Nautobot event consumer |
 
-Comma-separated subject lists preserve their entered order. Wildcards must be
+Comma-separated subject lists preserve their entered order. A comma is the list
+separator and is not supported inside an individual subject. Wildcards must be
 complete NATS tokens (`*`, or terminal `>`). For bundled NATS, both API prefixes
 must be `$JS.API`, the two stream patterns may not overlap, and archive delivery
 must not be captured by the Config Manager stream.

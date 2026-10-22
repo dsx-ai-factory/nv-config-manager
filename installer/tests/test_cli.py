@@ -206,6 +206,36 @@ class TestValidateCommand:
 
         assert not any("NATS" in error for error in errors)
 
+    def test_readiness_revalidates_invalid_nested_assignment(self) -> None:
+        config = NVConfigManagerInstallConfig(
+            cluster=ClusterConfig(hostname="test.example.com"),
+            sites=[SiteConfig(name="dc01")],
+        )
+        config.external_services.nats.streams.nautobot.consumer.name = ""
+
+        errors = _collect_validation_errors(config)
+
+        assert any("Nautobot durable name" in error for error in errors)
+
+    def test_generate_values_rejects_incomplete_nats_before_writing(self, tmp_path: Path) -> None:
+        config = NVConfigManagerInstallConfig(
+            cluster=ClusterConfig(hostname="test.example.com"),
+            sites=[SiteConfig(name="dc01")],
+        )
+        config.external_services.nats.streams.nautobot.consumer.name = "replace-me-nautobot"
+        config_path = tmp_path / "installer.yaml"
+        output_dir = tmp_path / "generated"
+        config.to_yaml(config_path)
+
+        result = CliRunner().invoke(
+            main,
+            ["generate-values", str(config_path), "--output-dir", str(output_dir)],
+        )
+
+        assert result.exit_code != 0
+        assert "replace-me" in result.output
+        assert not output_dir.exists()
+
 
 class TestInitCommand:
     def test_init_rejects_unsupported_ztp_platform(self, tmp_path: Path):
@@ -246,6 +276,24 @@ class TestDeployCommand:
         assert "--no-watch-pods" in result.output
         assert "--vault-token-file" in result.output
         assert "--skip-vault-population" in result.output
+
+    @patch("nv_config_manager_installer.cli._run_deployer")
+    def test_deploy_rejects_incomplete_nats_before_starting(
+        self, mock_run_deployer: MagicMock, tmp_path: Path
+    ) -> None:
+        config = NVConfigManagerInstallConfig(
+            cluster=ClusterConfig(hostname="test.example.com"),
+            sites=[SiteConfig(name="dc01")],
+        )
+        config.external_services.nats.queue = "replace-me-queue"
+        config_path = tmp_path / "installer.yaml"
+        config.to_yaml(config_path)
+
+        result = CliRunner().invoke(main, ["deploy", str(config_path), "--dry-run"])
+
+        assert result.exit_code != 0
+        assert "replace-me" in result.output
+        mock_run_deployer.assert_not_called()
 
 
 class TestPVCUpdaterCommand:

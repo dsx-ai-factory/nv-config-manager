@@ -357,6 +357,20 @@ async def test_external_services_rejects_invalid_nats_topology() -> None:
 
 
 @pytest.mark.asyncio
+async def test_external_services_rejects_comma_in_nats_subject_value() -> None:
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("external_services")
+        screen = app._screens["external_services"]
+        screen.query_one("#nats-render-subject", Input).value = "nv-config-manager,nautobotchange"
+
+        with pytest.raises(ValueError, match="comma"):
+            screen.write_to_config(config)
+
+
+@pytest.mark.asyncio
 async def test_external_services_reports_nats_placeholders_in_status() -> None:
     config = NVConfigManagerInstallConfig()
     config.external_services.nats.streams.nautobot.consumer.name = "replace-me-nautobot"
@@ -366,6 +380,30 @@ async def test_external_services_reports_nats_placeholders_in_status() -> None:
         screen = app._screens["external_services"]
 
         assert screen.get_status(config) == "[!]"
+
+
+@pytest.mark.asyncio
+async def test_values_preview_rejects_incomplete_nats_topology_before_generation(
+    tmp_path: Path,
+) -> None:
+    config = NVConfigManagerInstallConfig(
+        cluster=ClusterConfig(hostname="test.example.com"),
+        sites=[SiteConfig(name="dc01")],
+    )
+    config.external_services.nats.streams.nautobot.consumer.name = "replace-me-nautobot"
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("values_preview")
+        screen = app._screens["values_preview"]
+        output_path = tmp_path / "values.yaml"
+        screen.query_one("#values-output-path", Input).value = str(output_path)
+
+        screen._generate_preview()
+        assert "replace-me" in str(screen.query_one("#values-status", Label).render()).lower()
+        screen._write_to_file()
+
+        assert not output_path.exists()
 
 
 @pytest.mark.asyncio
