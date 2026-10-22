@@ -638,6 +638,7 @@ spec:
         - name: nautobot
           image: {{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nautobot) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy | default .Values.global.images.nautobot.pullPolicy }}
+          {{- include "nv-config-manager.preStopDrain" (dict "root" . "indent" 10) }}
           command:
             - nautobot-server
             - start
@@ -758,6 +759,7 @@ spec:
         - name: nginx
           image: {{ .Values.nautobot.nginx.image.registry }}/{{ .Values.nautobot.nginx.image.repository }}:{{ .Values.nautobot.nginx.image.tag }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy | default .Values.nautobot.nginx.image.pullPolicy }}
+          {{- include "nv-config-manager.preStopDrain" (dict "root" . "indent" 10) }}
           command:
             - /bin/sh
             - -c

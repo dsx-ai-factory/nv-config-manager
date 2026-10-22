@@ -144,6 +144,28 @@ strategy:
 {{- end }}
 {{- end }}
 
+{{/*
+preStop drain delay for a container whose shutdown the gateway retry cannot hide.
+Deleting a pod marks its endpoints terminating and sends SIGTERM at the same
+moment, so without a delay the container can stop serving before routing has
+caught up. The retry only recovers a refused connection between Envoy and the
+pod. It does not see traffic from a LoadBalancer Service, a write that oauth2-proxy
+answers with a 502 because the app behind it is gone, or an error from a
+container whose in-pod dependency exited first. Every container on such a
+request path needs the delay, not only the one a probe targets. oauth2-proxy
+itself does not: Envoy connects to it directly, so the retry covers it.
+Rendered only from Kubernetes 1.30, where the native sleep action is on by
+default; older API servers drop the field without an error.
+Indents itself so that nothing at all is rendered when disabled.
+Usage: {{- include "nv-config-manager.preStopDrain" (dict "root" . "indent" 8) }}
+*/}}
+{{- define "nv-config-manager.preStopDrain" -}}
+{{- $seconds := .root.Values.global.preStopSleepSeconds | default 0 | int -}}
+{{- if and (gt $seconds 0) (semverCompare ">=1.30.0-0" .root.Capabilities.KubeVersion.Version) -}}
+{{- printf "lifecycle:\n  preStop:\n    sleep:\n      seconds: %d" $seconds | nindent (int .indent) -}}
+{{- end -}}
+{{- end -}}
+
 {{/* HTTPRoute parent reference for chart-managed or shared Gateways. */}}
 {{- define "nv-config-manager.gatewayParentRef" -}}
 - name: {{ .Values.gateway.name }}
