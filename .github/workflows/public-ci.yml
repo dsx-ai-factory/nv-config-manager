@@ -363,6 +363,8 @@ jobs:
           fi
       - name: GitLab promotion shared-values tests
         run: uv run python .gitlab/ci/scripts/tests/shared_values_test.py
+      - name: GitLab release publishing tests
+        run: uv run python .gitlab/ci/scripts/tests/publishing_test.py
       - run: helm lint deploy/helm/ --values deploy/helm/values-ci.yaml
       - run: helm template test deploy/helm/ --values deploy/helm/values-ci.yaml >/tmp/nvcm-helm.yaml
       - name: CNPG PodMonitor ownership render
