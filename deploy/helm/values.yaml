@@ -698,6 +698,8 @@ externalServices:
   jira:
     enabled: false
     baseUrl: ""
+    # Atlassian account email for Cloud Basic auth; empty preserves bearer auth.
+    email: ""
 # =============================================================================
 # Gateway API Controller
 # =============================================================================

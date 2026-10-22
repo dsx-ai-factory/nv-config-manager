@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from configparser import ConfigParser
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from nv_config_manager.common.config.loader import resolve_config
 from nv_config_manager.temporal.common.secrets import get_credential
@@ -28,6 +28,7 @@ class TicketingClientSettings(TypedDict):
 
     base_url: str
     api_token: str
+    email: NotRequired[str]
 
 
 def ticketing_client_settings(
@@ -40,7 +41,11 @@ def ticketing_client_settings(
         raise ValueError(f"Unknown ticketing platform: {platform!r}")
 
     resolved = resolve_config(config)
-    return {
+    settings: TicketingClientSettings = {
         "base_url": get_credential(resolved, platform, "base_url"),
         "api_token": get_credential(resolved, platform, "api_token"),
     }
+    email = get_credential(resolved, platform, "email")
+    if email:
+        settings["email"] = email
+    return settings
