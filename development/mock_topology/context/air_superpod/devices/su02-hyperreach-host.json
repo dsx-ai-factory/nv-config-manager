@@ -1,0 +1,105 @@
+{
+  "data": {
+    "device": {
+      "id": "air-superpod-su02-hyperreach-host",
+      "name": "su02-hyperreach-host",
+      "tags": [],
+      "tenant": {
+        "name": "Public Demo"
+      },
+      "role": {
+        "name": "Compute-Tray"
+      },
+      "device_type": {
+        "manufacturer": {
+          "name": "Generic"
+        },
+        "model": "Generic Server"
+      },
+      "status": {
+        "name": "Active"
+      },
+      "serial": "AIR-HYPERREACH-01",
+      "config_context": {},
+      "location": {
+        "name": "SPO01"
+      },
+      "platform": {
+        "name": "Ubuntu"
+      },
+      "_air": {
+        "os": "generic/ubuntu2404",
+        "cpu": 2,
+        "memory": 4096,
+        "lldp": {
+          "eth1": {
+            "name": "A56p0",
+            "port_description": "su02-hyperreach-host C1-2-L1"
+          },
+          "eth2": {
+            "name": "A56p1",
+            "port_description": "su02-hyperreach-host C1-2-L2"
+          }
+        }
+      },
+      "interfaces": [
+        {
+          "name": "eth0",
+          "type": "1000base-t",
+          "status": {
+            "name": "Active"
+          },
+          "enabled": true,
+          "mgmt_only": true,
+          "ip_addresses": [],
+          "description": "exit",
+          "mtu": 1500
+        },
+        {
+          "name": "eth1",
+          "type": "400gbase-x-qsfpdd",
+          "status": {
+            "name": "Active"
+          },
+          "enabled": true,
+          "mgmt_only": false,
+          "ip_addresses": [],
+          "description": "su01-cin-leaf-r01:swp2",
+          "mtu": 9216,
+          "label": "C1-2-L1",
+          "connected_interface": {
+            "name": "swp2",
+            "device": {
+              "name": "su01-cin-leaf-r01",
+              "role": {
+                "name": "CIN-LEAF"
+              }
+            }
+          }
+        },
+        {
+          "name": "eth2",
+          "type": "400gbase-x-qsfpdd",
+          "status": {
+            "name": "Active"
+          },
+          "enabled": true,
+          "mgmt_only": false,
+          "ip_addresses": [],
+          "description": "su01-cin-leaf-r02:swp2",
+          "mtu": 9216,
+          "label": "C1-2-L2",
+          "connected_interface": {
+            "name": "swp2",
+            "device": {
+              "name": "su01-cin-leaf-r02",
+              "role": {
+                "name": "CIN-LEAF"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
