@@ -14,8 +14,8 @@ ARG TEMPORAL_ADMIN_TOOLS_VERSION=1.30.8@sha256:22d417fd0d541da6b18486912a546b320
 ARG TEMPORAL_UI_VERSION=2.54.1@sha256:ff0943fe532b8e33c46cd28b29e81e0ce0b6f55b9ee50a38ef1b437cc4de3fa5
 
 # Keep official binaries while awaiting upstream rebuilds for Go's CA distrust
-# mitigation: https://go.dev/issue/82345. Refreshed runtime CA stores below are
-# separate from that pending compiler/runtime fix.
+# mitigation: https://go.dev/issue/82345. Local binaries below use patched Go
+# toolchains; copied upstream binaries still await an upstream image rebuild.
 FROM temporalio/server:${TEMPORAL_SERVER_VERSION} AS server-upstream
 FROM temporalio/admin-tools:${TEMPORAL_ADMIN_TOOLS_VERSION} AS admin-tools-upstream
 FROM temporalio/ui:${TEMPORAL_UI_VERSION} AS ui-upstream
