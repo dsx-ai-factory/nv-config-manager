@@ -18,6 +18,7 @@ import os
 import time
 from configparser import ConfigParser
 from copy import deepcopy
+from pathlib import Path
 from unittest.mock import AsyncMock, call, patch
 
 import jwt as pyjwt
@@ -238,7 +239,7 @@ def test_cors_rejects_wildcard_origin() -> None:
         _install_cors(FastAPI())
 
 
-def test_healthcheck_success():
+def test_healthcheck_success() -> None:
     """Verify healthcheck success case."""
     client = TestClient(app)
 
@@ -264,7 +265,7 @@ def test_healthcheck_success():
     assert rsp.json() == "OK"
 
 
-def test_healthcheck_rejects_config_hash_mismatch():
+def test_healthcheck_rejects_config_hash_mismatch() -> None:
     """Readiness rejects Kea when its running config differs from the verified config."""
     client = TestClient(app)
 
@@ -292,7 +293,7 @@ def test_healthcheck_rejects_config_hash_mismatch():
     }
 
 
-def test_healthcheck_status_error():
+def test_healthcheck_status_error() -> None:
     """Verify healthcheck with status error."""
     client = TestClient(app)
 
@@ -311,7 +312,7 @@ def test_healthcheck_status_error():
             assert rsp.json() == {"detail": "Kea DHCPv4 is unavailable"}
 
 
-def test_healthcheck_http_error():
+def test_healthcheck_http_error() -> None:
     """Verify healthcheck with HTTP error."""
     client = TestClient(app)
 
@@ -328,7 +329,7 @@ def test_healthcheck_http_error():
             assert rsp.json() == {"detail": "HTTP ERROR"}
 
 
-def test_healthcheck_not_ready_without_verified_hash():
+def test_healthcheck_not_ready_without_verified_hash() -> None:
     """Strict readiness rejects a bootstrap-only pod before sync publishes a hash.
 
     This is the core of "preserve strict DHCP traffic gating": a freshly started
@@ -359,7 +360,7 @@ def test_healthcheck_not_ready_without_verified_hash():
     assert rsp.json() == {"detail": "Verified KEA configuration hash is unavailable"}
 
 
-def test_healthcheck_not_ready_when_kea_omits_config_hash():
+def test_healthcheck_not_ready_when_kea_omits_config_hash() -> None:
     """Readiness rejects old Kea responses that do not provide a config hash."""
     client = TestClient(app)
 
@@ -385,7 +386,7 @@ def test_healthcheck_not_ready_when_kea_omits_config_hash():
     assert rsp.json() == {"detail": "KEA configuration hash is unavailable"}
 
 
-def test_healthcheck_uses_checksum_without_fetching_full_config(tmp_path):
+def test_healthcheck_uses_checksum_without_fetching_full_config(tmp_path: Path) -> None:
     """Readiness compares verified hashes without issuing an expensive config-get."""
     client = TestClient(app)
     expected_hash_file = tmp_path / "expected-config-hash-v4"
@@ -420,7 +421,7 @@ def test_healthcheck_uses_checksum_without_fetching_full_config(tmp_path):
     mock_get_config.assert_not_awaited()
 
 
-def test_healthcheck_reports_config_hash_get_failure():
+def test_healthcheck_reports_config_hash_get_failure() -> None:
     """A KEA config-hash-get error surfaces as an unready (500) response."""
     client = TestClient(app)
 

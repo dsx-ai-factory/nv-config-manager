@@ -704,7 +704,9 @@ async def test_sync_loop_updates_last_successful_sync_gauge() -> None:
     kea_client.get_config_hash.assert_awaited_once()
 
 
-def test_mark_verified_sync_publishes_expected_hash(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_mark_verified_sync_publishes_expected_hash(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A verified sync publishes the checksum consumed by readiness probes."""
     expected_hash_file = tmp_path / "expected-config-hash-v4"
     monkeypatch.setenv("CONFIG_SYNC_EXPECTED_HASH_FILE", str(expected_hash_file))
