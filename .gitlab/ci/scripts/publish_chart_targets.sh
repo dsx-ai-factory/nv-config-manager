@@ -1,9 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-chart_file="${1:?usage: publish_chart_targets.sh CHART_FILE VERSION CHART_NAME}"
-chart_version="${2:?usage: publish_chart_targets.sh CHART_FILE VERSION CHART_NAME}"
-chart_name="${3:?usage: publish_chart_targets.sh CHART_FILE VERSION CHART_NAME}"
+chart_file="${1:?usage: publish_chart_targets.sh CHART_FILE VERSION CHART_NAME [--release]}"
+chart_version="${2:?usage: publish_chart_targets.sh CHART_FILE VERSION CHART_NAME [--release]}"
+chart_name="${3:?usage: publish_chart_targets.sh CHART_FILE VERSION CHART_NAME [--release]}"
+release_package=false
+case "${4:-}" in
+  '') ;;
+  --release)
+    if [[ "${CI_COMMIT_REF_PROTECTED:-false}" != true || -z "${CI_COMMIT_TAG:-}" || "$CI_COMMIT_TAG" != "$chart_version" ]]; then
+      echo "Chart repackaging requires a matching protected release tag." >&2
+      exit 1
+    fi
+    release_package=true
+    ;;
+  *) echo "Unsupported chart publishing mode." >&2; exit 1 ;;
+esac
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 chart_workspace=""
 trap 'if [[ -n "$chart_workspace" ]]; then rm -rf "$chart_workspace"; fi' EXIT
@@ -83,7 +95,10 @@ publish_target() {
     exit 1
   fi
 
-  if [[ -n "$image_target" ]]; then
+  # Promotion uploads the prevalidated PR artifact verbatim. Only the trusted
+  # tag job opts into unpacking and remapping charts; never unpack PR archives
+  # while registry credentials are available.
+  if [[ "$release_package" == true && -n "$image_target" ]]; then
     if [[ -z "${NVCM_IMAGE_TARGETS:-}" ]]; then
       echo "Per-chart image_target requires NVCM_IMAGE_TARGETS to be configured." >&2
       exit 1

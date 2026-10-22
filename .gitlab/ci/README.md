@@ -76,16 +76,25 @@ oci|registry.example.com/staging/components|STAGING_REGISTRY_TOKEN|image_target=
 
 Supported optional chart target options are `org`, `registry`, `username`,
 `label`, and `image_target`. Set `image_target` to a name in `NVCM_IMAGE_TARGETS`
-when that chart destination must use a different image namespace. Each mapped
-destination gets its own chart package with the matching image repositories and
-release tags; the default package retained for promotion is unchanged. Legacy
-chart lists can use the corresponding `NVCM_CHART_PUBLISH_IMAGE_TARGETS` list.
+when that release chart destination must use a different image namespace. The
+protected tag job passes `--release` to the chart publisher, enabling a package
+with matching image repositories and release tags for each mapped destination.
+The default package retained for promotion is unchanged. Legacy chart lists can
+use the corresponding `NVCM_CHART_PUBLISH_IMAGE_TARGETS` list. PR promotion never
+unpacks or remaps its prevalidated chart: it uploads that package verbatim,
+ignoring per-target image mappings because promotion images are published only
+to `NVCM_VALUES_IMAGE_TARGET`.
 
 Builds and scans use the selected image target. After `update-version` creates
 the release tags there, `publish-images-release` copies all nine project images
 to the other configured image targets. Copies preserve every architecture and
-the source digests, with separate credentials for each destination. Only stable
-releases update `latest`. Chart publishing waits for these copies to succeed.
+the source digests, with separate credentials for each destination. Stable
+releases then run `publish-latest-release` under a shared resource lock. That
+job rechecks all versioned image digests before updating any `latest` tag,
+including the build source. It fetches Git tags inside the lock and skips older
+stable versions, preventing overlapping or retried pipelines from moving
+`latest` backward. RCs never update `latest`. Chart publishing waits for image
+copies and, for stable releases, the latest-tag phase to succeed.
 Adding a chart destination alone does not configure an image destination: add
 its image target and `image_target` mapping together. Use masked, protected
 service-key variables for CI publishing.

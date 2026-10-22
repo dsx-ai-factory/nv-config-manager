@@ -107,7 +107,7 @@ helm-publish-release:
             "${CI_API_V4_URL}/projects/$CI_PROJECT_ID/packages/helm/api/stable/charts"
       echo "✅ Pushed $filename to GitLab (stable)"
       
-      bash .gitlab/ci/scripts/publish_chart_targets.sh "$filename" "$NEW_VERSION" "$CHART_NAME"
+      bash .gitlab/ci/scripts/publish_chart_targets.sh "$filename" "$NEW_VERSION" "$CHART_NAME" --release
       mkdir -p chart
       mv "$filename" "chart/$filename"
       echo "Chart package retained for promotion"
@@ -120,6 +120,8 @@ helm-publish-release:
     - job: release-version
       artifacts: true
     - job: publish-images-release
+    - job: publish-latest-release
+      optional: true
 
   artifacts:
     paths: [chart/]
@@ -172,21 +174,6 @@ update-version:
     - docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal:$NEW_VERSION $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal:$CI_COMMIT_SHORT_SHA
     - docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal-bootstrap:$NEW_VERSION $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal-bootstrap:$CI_COMMIT_SHORT_SHA
     - docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal-ui:$NEW_VERSION $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal-ui:$CI_COMMIT_SHORT_SHA
-    - |
-      if [ "${NEW_VERSION#*-}" = "$NEW_VERSION" ]; then
-        echo "Creating latest tags for stable release $NEW_VERSION..."
-        docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager:latest $IMAGE_REPOSITORY_BASE/nv-config-manager:$NEW_VERSION
-        docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-kea:latest $IMAGE_REPOSITORY_BASE/nv-config-manager-kea:$NEW_VERSION
-        docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-kea-admin:latest $IMAGE_REPOSITORY_BASE/nv-config-manager-kea-admin:$NEW_VERSION
-        docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-ui:latest $IMAGE_REPOSITORY_BASE/nv-config-manager-ui:$NEW_VERSION
-        docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-nautobot:latest $IMAGE_REPOSITORY_BASE/nv-config-manager-nautobot:$NEW_VERSION
-        docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-nats-ready:latest $IMAGE_REPOSITORY_BASE/nv-config-manager-nats-ready:$NEW_VERSION
-        docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal:latest $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal:$NEW_VERSION
-        docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal-bootstrap:latest $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal-bootstrap:$NEW_VERSION
-        docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal-ui:latest $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal-ui:$NEW_VERSION
-      else
-        echo "Skipping latest tags for prerelease $NEW_VERSION"
-      fi
     - echo "✅ Pushed multi-arch images with tag $NEW_VERSION to configured registry"
     # Verify multi-arch manifests
     - echo "📋 Verifying multi-arch manifests:"
@@ -234,6 +221,32 @@ publish-images-release:
     - job: update-version
       artifacts: false
 
+# Serialize mutable tags across stable releases. Fetch tags inside the lock so
+# queued or retried older releases cannot move latest backward.
+publish-latest-release:
+  <<: *release-job-timeout
+  stage: release
+  tags:
+    - dca
+    - linux/amd64
+    - docker
+  image: $NVCM_CI_IMAGE_ALPINE
+  resource_group: nvcm-release-latest
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/'
+      when: on_success
+    - when: never
+  before_script:
+    - apk add --no-cache bash git coreutils skopeo
+  script:
+    - git fetch --tags --force
+    - bash .gitlab/ci/scripts/publish_image_targets.sh "$NEW_VERSION" --latest
+  needs:
+    - job: release-version
+      artifacts: true
+    - job: publish-images-release
+      artifacts: false
+
 # Record the release artifact version without creating Git tags in the mirror.
 make-release:
   <<: *release-job-timeout
@@ -254,6 +267,8 @@ make-release:
     - job: release-version
       artifacts: true
     - job: publish-images-release
+    - job: publish-latest-release
+      optional: true
 
 # Publish network template engine/reference package from the tagged mirrored commit.
 publish-network-templates-release:
