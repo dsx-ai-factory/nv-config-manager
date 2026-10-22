@@ -7,35 +7,18 @@
 # Keep this source line aligned with the currently approved production server
 # version.  Changing it requires the Temporal database-upgrade procedure.
 ARG TEMPORAL_SERVER_VERSION=1.30.8@sha256:54c59485b185ad787061f9a2ed72bd31c8efeae2d4144c61f22873df52c3c781
-# The bootstrap-only admin-tools image supplies Temporal's schema files.
+# The bootstrap-only admin-tools image supplies Temporal's schema files and
+# command-line tools.
 ARG TEMPORAL_ADMIN_TOOLS_VERSION=1.30.8@sha256:22d417fd0d541da6b18486912a546b3203f516f0bf9f8b2f27611506fca2507c
 # The UI is independently deployable and does not change Temporal persistence.
 ARG TEMPORAL_UI_VERSION=2.54.1@sha256:ff0943fe532b8e33c46cd28b29e81e0ce0b6f55b9ee50a38ef1b437cc4de3fa5
 
+# Keep official binaries while awaiting upstream rebuilds for Go's CA distrust
+# mitigation: https://go.dev/issue/82345. Refreshed runtime CA stores below are
+# separate from that pending compiler/runtime fix.
+FROM temporalio/server:${TEMPORAL_SERVER_VERSION} AS server-upstream
 FROM temporalio/admin-tools:${TEMPORAL_ADMIN_TOOLS_VERSION} AS admin-tools-upstream
 FROM temporalio/ui:${TEMPORAL_UI_VERSION} AS ui-upstream
-
-# Rebuild the approved server and CLI sources so upstream binaries cannot retain
-# a vulnerable Go crypto/x509 implementation. Keep persistence/schema versions.
-FROM golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS server-builder
-ARG TEMPORAL_SERVER_VERSION
-WORKDIR /src
-RUN server_version="${TEMPORAL_SERVER_VERSION%%@*}" && \
-    go mod download go.temporal.io/server@v${server_version} && \
-    cp -R /go/pkg/mod/go.temporal.io/server@v${server_version}/. . && \
-    chmod -R u+w . && \
-    CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/temporal-server ./cmd/server && \
-    CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/temporal-sql-tool ./cmd/tools/sql
-
-FROM golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS cli-builder
-# CLI 1.9.1's module zip omits cliext, a nested module used through a local replace.
-# Use the full, hash-verified source at the upstream binary's exact revision.
-ADD --checksum=sha256:2417fbc1348cc3b3e5b01166ebe4c40938d779505d8e119b2ed77bb3d6ae965c https://codeload.github.com/temporalio/cli/tar.gz/1de87a9f26991bf4f5c0a5ff96f2cea8d7a3cbde /tmp/cli.tar.gz
-WORKDIR /src
-RUN tar -xzf /tmp/cli.tar.gz --strip-components=1 && \
-    CGO_ENABLED=0 go build -trimpath \
-        -ldflags="-s -w -X github.com/temporalio/cli/internal/temporalcli.Version=1.9.1" \
-        -o /out/temporal ./cmd/temporal
 
 FROM golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS dockerize-builder
 RUN CGO_ENABLED=0 GOBIN=/out go install github.com/jwilder/dockerize@v0.15.1
@@ -66,7 +49,7 @@ RUN ui_version="${TEMPORAL_UI_VERSION%%@*}" && \
 # Temporal Server
 # =============================================================================
 FROM nvcr.io/nvidia/distroless/go:v4.1.7@sha256:9ef7b9ac43cbf4c833fd5d98689dc09b06a29e5ec3451796b037aa27928fe532 AS server
-COPY --from=server-builder /out/temporal-server /usr/local/bin/temporal-server
+COPY --from=server-upstream /usr/local/bin/temporal-server /usr/local/bin/temporal-server
 COPY --from=dockerize-builder /out/dockerize /usr/local/bin/dockerize
 USER nvs
 ENTRYPOINT ["/usr/local/bin/temporal-server"]
@@ -77,8 +60,8 @@ ENTRYPOINT ["/usr/local/bin/temporal-server"]
 # This image carries Temporal's v1.30 schema files plus NVIDIA Config Manager's
 # bootstrap binary. It runs only as a chart-managed init container.
 FROM nvcr.io/nvidia/distroless/go:v4.1.7@sha256:9ef7b9ac43cbf4c833fd5d98689dc09b06a29e5ec3451796b037aa27928fe532 AS bootstrap
-COPY --from=cli-builder /out/temporal /usr/local/bin/temporal
-COPY --from=server-builder /out/temporal-sql-tool /usr/local/bin/temporal-sql-tool
+COPY --from=admin-tools-upstream /usr/local/bin/temporal /usr/local/bin/temporal
+COPY --from=admin-tools-upstream /usr/local/bin/temporal-sql-tool /usr/local/bin/temporal-sql-tool
 COPY --from=admin-tools-upstream /etc/temporal/schema /etc/temporal/schema
 COPY --from=bootstrap-builder /out/temporal-bootstrap /usr/local/bin/temporal-bootstrap
 USER nvs
