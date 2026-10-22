@@ -174,7 +174,10 @@ is_aggregate_environment=true
 
 @pytest.mark.asyncio
 async def test_queue_render_publishes_under_a_claim_that_records_the_message(
-    mock_dcim_client, mock_nats_connection, fake_redis: FakeClaimRedis, nats_ini: None
+    mock_dcim_client: AsyncMock,
+    mock_nats_connection: AsyncMock,
+    fake_redis: FakeClaimRedis,
+    nats_ini: None,
 ) -> None:
     """The message carries its claim's token, and the claim records the message's sequence."""
     mock_dcim_client.get_render_device_status.return_value = ENABLED
@@ -193,7 +196,10 @@ async def test_queue_render_publishes_under_a_claim_that_records_the_message(
 
 @pytest.mark.asyncio
 async def test_disabled_device_is_rejected_without_touching_the_slot(
-    mock_dcim_client, mock_nats_connection, fake_redis: FakeClaimRedis, nats_ini: None
+    mock_dcim_client: AsyncMock,
+    mock_nats_connection: AsyncMock,
+    fake_redis: FakeClaimRedis,
+    nats_ini: None,
 ) -> None:
     """The lookup runs before the claim, so a stale disabled read cannot hide a newer change."""
     mock_dcim_client.get_render_device_status.return_value = RenderDeviceStatus(
@@ -209,7 +215,10 @@ async def test_disabled_device_is_rejected_without_touching_the_slot(
 
 @pytest.mark.asyncio
 async def test_queue_render_releases_its_claim_when_publish_fails(
-    mock_dcim_client, mock_nats_connection, fake_redis: FakeClaimRedis, nats_ini: None
+    mock_dcim_client: AsyncMock,
+    mock_nats_connection: AsyncMock,
+    fake_redis: FakeClaimRedis,
+    nats_ini: None,
 ) -> None:
     """A failed publish frees the slot so the next change can queue the device."""
     mock_dcim_client.get_render_device_status.return_value = ENABLED
@@ -223,7 +232,10 @@ async def test_queue_render_releases_its_claim_when_publish_fails(
 
 @pytest.mark.asyncio
 async def test_published_render_succeeds_even_if_its_sequence_cannot_be_recorded(
-    mock_dcim_client, mock_nats_connection, fake_redis: FakeClaimRedis, nats_ini: None
+    mock_dcim_client: AsyncMock,
+    mock_nats_connection: AsyncMock,
+    fake_redis: FakeClaimRedis,
+    nats_ini: None,
 ) -> None:
     """The render is queued either way; the unrecorded claim is reclaimed after the grace period."""
     mock_dcim_client.get_render_device_status.return_value = ENABLED

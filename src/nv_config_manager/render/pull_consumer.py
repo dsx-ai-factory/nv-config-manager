@@ -34,6 +34,7 @@ from nats.js.errors import FetchTimeoutError, NotFoundError
 from nv_config_manager_infrastructure.nats import DEFAULT_NATS_API_PREFIX
 from prometheus_client import Gauge, start_http_server
 from redis.asyncio.lock import Lock as AsyncRedisLock
+from redis.exceptions import LockError
 
 from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.config.nats import (
@@ -708,13 +709,19 @@ class PullDeviceChangeConsumer(PullConsumer):
             await asyncio.sleep(DEVICE_LOCK_RENEW_INTERVAL_SECONDS)
             try:
                 await lock.reacquire()
-            except Exception as e:  # pylint: disable=broad-exception-caught
+            except LockError as e:
                 self.logger.error(
-                    "Could not renew the render lock for %s; another render may start",
+                    "Lost the render lock for %s; another render may start",
                     device_id,
                     exc_info=e,
                 )
                 return
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                # The lock outlives several renewal intervals, so a later attempt
+                # can still keep it.
+                self.logger.warning(
+                    "Could not renew the render lock for %s, retrying: %s", device_id, e
+                )
 
     async def _give_up(self, msg: Msg, device_id: str, claim: str | None, reason: str) -> None:
         """Drop a message JetStream will not redeliver, and free its dedup slot.

@@ -26,6 +26,8 @@ from nats.aio.msg import Msg
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 from nats.js.errors import NotFoundError
 from redis.asyncio.lock import Lock as AsyncRedisLock
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import LockNotOwnedError
 
 from nv_config_manager.common.nats_admin import CONSUMER_MAX_DELIVER
 from nv_config_manager.render.events.util import DeviceNotEnabledError
@@ -469,6 +471,44 @@ async def test_device_lock_is_renewed_for_a_render_that_outlives_it(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "keeps_renewing"),
+    [
+        (RedisConnectionError("connection reset"), True),
+        (LockNotOwnedError("no longer owned"), False),
+    ],
+)
+async def test_device_lock_renewal_survives_transient_errors(
+    mock_dispatcher: MagicMock,
+    mock_lock: MagicMock,
+    custom_ini: Callable[[str], None],
+    error: Exception,
+    keeps_renewing: bool,
+) -> None:
+    """Only losing the lock ends renewal; a Redis blip is retried at the next interval."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_lock.acquire.return_value = True
+    mock_lock.reacquire.side_effect = [error, True, True, True, True, True, True, True]
+
+    async def slow_render(_data: dict[str, str]) -> None:
+        await asyncio.sleep(0.05)
+
+    mock_dispatcher.nautobot_change_dispatch = AsyncMock(side_effect=slow_render)
+    with (
+        patch("nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock),
+        patch("nv_config_manager.render.pull_consumer.DEVICE_LOCK_RENEW_INTERVAL_SECONDS", 0.01),
+    ):
+        await consumer.message_handler(mock_msg)
+
+    assert (mock_lock.reacquire.await_count > 1) is keeps_renewing
+    mock_msg.ack.assert_awaited_once()
+    mock_lock.release.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_pull_device_change_consumer_lock_failure(mock_dispatcher, mock_lock, custom_ini):
     """Test PullDeviceChangeConsumer when lock cannot be acquired."""
     custom_ini(TEST_NATS_CONFIG)
@@ -500,8 +540,8 @@ def _last_delivery_msg(data: dict[str, str]) -> AsyncMock:
 
 @pytest.mark.asyncio
 async def test_last_delivery_that_never_wins_the_lock_frees_its_claim(
-    mock_dispatcher, mock_lock, custom_ini
-):
+    mock_dispatcher: MagicMock, mock_lock: MagicMock, custom_ini: Callable[[str], None]
+) -> None:
     """A message dropped at max_deliver must not keep suppressing later changes."""
     custom_ini(TEST_NATS_CONFIG)
     consumer = PullDeviceChangeConsumer()
