@@ -98,6 +98,7 @@ SUPPORTED_PLATFORMS = [
     Platform.NV_OS,
     Platform.JUNIPER_JUNOS,
     Platform.CISCO_IOS_XR,
+    Platform.ARISTA_EOS,
 ]
 
 # Search attributes to clone from parent to child workflows

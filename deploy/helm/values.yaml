@@ -87,6 +87,9 @@ global:
   baseDomain: config-manager.example.com
   # Environment identifier (dev, test, staging, agg-prod, etc.)
   environment: dev
+  # Optional fallback domain for server-generated attribution identities. This
+  # does not affect service hostnames; configure those with gateway.baseHostname.
+  defaultUserDomain: ""
   # Whether this is an aggregate deployment
   aggregate: false
   # Kubernetes namespace for all services
@@ -1883,6 +1886,21 @@ temporal:
   # labelSelector:
   # matchLabels:
   # app.kubernetes.io/component: nv-config-manager-worker
+
+  # Workflow plugins for the worker, API, scheduler host, and MCP.
+  # Each image provides plugin wheels under /plugin-wheels. Wheels install
+  # offline with --no-deps, so the image carries only the plugin and packages
+  # the service image lacks. Every process loads the same set.
+  # Requires a service image from NVCM 1.4.0 or later.
+  # images entries: {name, image, pullPolicy}
+  # rbac entries: {name, read_roles, execute_roles}, one per plugin API
+  # workflow, appended to rbac.workflows. A workflow without a row returns 403.
+  workflowPlugins:
+    enabled: false
+    # Match the glibc-based NVCM runtime so compiled wheels remain compatible.
+    installerImage: python:3.13-bookworm
+    images: []
+    rbac: []
 
   # Scheduler (for automatic backup scheduling and plugin-contributed schedulers).
   # By default only the built-in backup scheduler is enabled, and it is deployed

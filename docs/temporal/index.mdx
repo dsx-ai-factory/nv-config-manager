@@ -28,7 +28,7 @@ Ensure network infrastructure integrity with automated validation workflows:
 Automate routine network management tasks:
 
 - **Configuration Backup & Deploy**: Manage device configurations safely
-- **OS Upgrades**: Automated operating system updates with rollback support
+- **OS Upgrades**: Staged operating system updates with approval and pre-upgrade configuration backup; OS-image rollback is supported, but is not automatic
 - **Device Reprovisioning**: Complete device lifecycle management
 
 ### Data Center Management
@@ -37,20 +37,23 @@ Streamline data center operations:
 
 - **BMC Provisioning**: Automated baseboard management controller setup
 - **Host Metadata Discovery**: Automatic discovery and inventory management
-- **VPC Management**: Virtual private cloud provisioning and management
+- **Spectrum-X Overlay Management**: Create, assign, delete, and change tenants for overlays
 
 ## Supported Platforms
 
-- **Arista EOS**: Complete support for Arista network devices
-- **Cumulus Linux**: Full integration with Cumulus networking
+- **Arista EOS**: Configuration operations, cable validation, and diagnostics, including technical-support archives
+- **Cumulus Linux**: Configuration operations, cable validation, diagnostics, and OS upgrades
 - **Mellanox/NVIDIA**: Infiniband and Ethernet switch support
-- **Juniper Junos**: Cable validation, configuration backup, and diagnostics
+- **Juniper Junos**: Configuration operations, cable validation, password rotation, diagnostics, and OS upgrades
 - **Cisco IOS XR**: Cable validation, configuration backup, deploy, and diagnostics (see [Cisco IOS XR](../user-guides/cisco-ios-xr/index.mdx))
 - **Generic BMC**: Redfish-compatible baseboard management controllers
 
 ## Quick Start
 
-**Deploy to test and production environments using ArgoCD** - [Production Deployment](temporal-deployment.mdx)
+Use the [installer deployment guide](../install/index.mdx) to deploy Config
+Manager, then verify the workers and configure schedulers with the
+[Temporal deployment guide](temporal-deployment.mdx). ArgoCD deployments can use
+the installer-generated Helm values.
 
 ## Architecture
 

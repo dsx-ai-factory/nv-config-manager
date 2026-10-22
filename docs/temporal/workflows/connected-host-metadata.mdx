@@ -4,7 +4,7 @@ sidebar-title: Connected Host Metadata
 position: 10
 ---
 
-Collects and manages metadata about hosts connected to network infrastructure for inventory and topology documentation.
+Discovers hosts connected to a switch through its MAC forwarding table and LLDP neighbors, then enriches the results with DCIM host metadata and intended interface labels.
 
 ## User Interface
 
@@ -12,15 +12,17 @@ Collects and manages metadata about hosts connected to network infrastructure fo
 
 | Field | Description | Selection Type | Required |
 | :---- | :---------- | :------------- | :------- |
-| **Site** | Choose the site for host discovery | Single dropdown from available sites | Yes |
-| **Network Scope** | Network ranges to scan for connected hosts | Text input field | Yes |
-| **Discovery Method** | Method for host detection and enumeration | Dropdown: LLDP, ARP, SNMP, Multi | Yes |
+| **Site** | Filter the device list by site | Dropdown | Yes |
+| **Tenant** | Filter the device list by tenant | Dropdown | No |
+| **Status** | Filter the device list by device status | Dropdown | No |
+| **Device** | Select the switch to inspect | Dropdown | Yes |
 
 ## Workflow Execution
 
 ### Execution Stages
 
-1. Discover connected hosts
-1. Collect host metadata
-1. Map network connectivity
-1. Update host inventory
+1. `get_device_mac_table`: read the device's MAC forwarding table.
+1. `get_device_neighbors`: read observed LLDP neighbors and intended far-end interface labels.
+1. `get_connected_host_data`: join observations with DCIM host metadata and display the consolidated table.
+
+The neighbor and final tables show **Intended Interface Label** beside **LLDP Port Description**. These are expected and observed values, respectively; the workflow does not validate a match or update host inventory. See the [Connected Host Metadata guide](../../user-guides/connected-host-metadata/index.mdx) for column meanings and troubleshooting.

@@ -12,28 +12,28 @@ Use this workflow when you need a fresh site-wide backup outside the normal sche
 
 Before running, confirm the following are in place for the devices you expect to include:
 
-- **Devices exist in Nautobot** with primary IPv4, platform, and managed status. The workflow resolves the device list from Nautobot using your site, role, status, and tenant filters.
+- **Devices exist in the configured DCIM** with primary IPv4, platform, and managed status. The workflow resolves the device list through the provider using your site, role, status, and tenant filters.
 - **Devices are reachable** from Config Manager on their management addresses, and credentials are current in the secrets store.
-- **Intended configurations are available** in the [Config Store](../../config-store/index.mdx) when you want drift detection on each child backup. Each child compares running config against the device's rendered intended configuration from the Config Store.
-- **Backup paths are configured** on device records so each child can record where the snapshot landed.
+- **Intended configurations are available** in the [Config Store](../../config-store/index.mdx) for render-enabled devices. Each child compares running config against the rendered intent. A backup-enabled device with rendering disabled skips the drift check.
+- **Device IDs and platforms are available** from the DCIM provider. Config Manager derives each backup path from the device ID and the platform's configuration filename.
 - **User attribution is present.** UI and CLI submissions populate the requesting user automatically; the workflow rejects requests with no user attached.
 
-By default the workflow includes only devices with **backup enabled** in Nautobot. Uncheck **Backup enabled only** on the form to include all managed devices that match the other filters.
+By default the workflow includes only devices with **backup enabled** in the configured DCIM. Uncheck **Backup enabled only** on the form to include all managed devices that match the other filters.
 
 ## Running the workflow
 
 1. Navigate to the Config Manager URL for your environment.
-1. Click the **+** in the top right and select **SiteBackupWorkflow**.
+1. In the Config Manager UI, click New workflow (+) in the upper-right corner and select Site Configuration Backup.
 1. Fill in the form using the field reference below and submit.
 
-![Site Configuration Backup workflow form](../../assets/images/workflows/backupworkflow-form.png)
+![Site Configuration Backup workflow form](../../assets/images/workflows/sitebackupworkflow-form.png)
 
 | Field | Description | Required |
 | :---- | :---------- | :------- |
 | **Site** | The site whose devices should be backed up. | Yes |
 | **Roles** | Device roles to include (multi-select). Leave empty to include all roles. | No |
 | **Device Status** | Device statuses to include (multi-select). Defaults to Active and Provisioned. | Yes |
-| **Tenant** | Nautobot tenant filter. | No |
+| **Tenant** | DCIM tenant filter. | No |
 | **Backup enabled only** | When checked, only devices with backup enabled are included. | No (defaults to checked) |
 
 After submission, a status page appears showing the three stages. The middle stage updates its display incrementally as child backups complete.
@@ -46,6 +46,7 @@ uv run workflow-cli login -H config-manager.example.com
 uv run workflow-cli site-backup \
   -H config-manager.example.com \
   --site rno1 \
+  --roles "" \
   --status Active,Provisioned \
   --backup-enabled-only true
 ```
@@ -54,13 +55,18 @@ uv run workflow-cli site-backup \
 
 The workflow runs three stages. None require manual approval at the site level.
 
-1. **`get_devices` — Resolve the device list from Nautobot.**
+1. **`get_devices` — Resolve the device list from the configured DCIM.**
 
-   Calls Nautobot with the supplied site, role, status, tenant, and backup-enabled filters. Supported platforms are Arista EOS, Cisco IOS XR, Cumulus Linux, Juniper Junos, and NV-OS. The stage display lists the devices that will be backed up.
+   Calls the provider with the supplied site, role, status, tenant, and backup-enabled filters. Supported platforms are Arista EOS, Cisco IOS XR, Cumulus Linux, Juniper Junos, and NV-OS. The stage display lists the devices that will be backed up.
 
 1. **`perform_backups` — Fan out a child backup per device.**
 
    For each device, the workflow starts a [Configuration Backup](../configuration-backup/index.mdx) child workflow with `trigger=WORKFLOW`. Children run in parallel; the stage display updates as each completes. A child that fails is recorded in the per-device result rather than stopping the run.
+
+   These children retain interactive stage-retry behavior, unlike scheduled
+   backups. A failed stage can wait for a manual retry; each child has a
+   15-minute run timeout. Inspect its workflow page rather than expecting every
+   device failure to appear immediately in the site summary.
 
 1. **`format_result` — Aggregate per-device results.**
 

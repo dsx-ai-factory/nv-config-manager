@@ -19,7 +19,13 @@ from __future__ import annotations
 from configparser import ConfigParser
 
 from nv_config_manager.common.config.loader import resolve_config
+from nv_config_manager.temporal.client.device.arista import AristaConnection
 from nv_config_manager.temporal.client.device.base import NetworkConnection
+from nv_config_manager.temporal.client.device.cisco_xr import CiscoIosXrConnection
+from nv_config_manager.temporal.client.device.cumulus import CumulusConnection, NVOSConnection
+from nv_config_manager.temporal.client.device.juniper import JuniperConnection
+from nv_config_manager.temporal.client.device.mellanox import MellanoxConnection
+from nv_config_manager.temporal.client.device.mock import MockNetworkConnection
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
 from nv_config_manager_workflows.clients.device.arista import (
     AristaConnection as _AristaConnection,
@@ -61,18 +67,14 @@ def from_device_data(
         mock=resolved_config["device"].getboolean("mock", fallback=False),
     )
 
-    # Import locally to avoid a cycle through device/__init__.py while this
-    # factory resolves workflow classes to patch-compatible service adapters.
-    from nv_config_manager.temporal.client import device as service_clients
-
     service_classes: dict[object, type[NetworkConnection]] = {
-        _AristaConnection: service_clients.AristaConnection,
-        _CumulusConnection: service_clients.CumulusConnection,
-        _NVOSConnection: service_clients.NVOSConnection,
-        _JuniperConnection: service_clients.JuniperConnection,
-        _CiscoIosXrConnection: service_clients.CiscoIosXrConnection,
-        _MellanoxConnection: service_clients.MellanoxConnection,
-        _MockNetworkConnection: service_clients.MockNetworkConnection,
+        _AristaConnection: AristaConnection,
+        _CumulusConnection: CumulusConnection,
+        _NVOSConnection: NVOSConnection,
+        _JuniperConnection: JuniperConnection,
+        _CiscoIosXrConnection: CiscoIosXrConnection,
+        _MellanoxConnection: MellanoxConnection,
+        _MockNetworkConnection: MockNetworkConnection,
     }
     connection_class = service_classes[workflow_class]
     return connection_class(

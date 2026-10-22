@@ -27,6 +27,12 @@ from nv_config_manager_clients.config_store import (
     ConfigStoreFileNotFound as ConfigStoreFileNotFound,
 )
 
+from nv_config_manager.common.config.http import (
+    get_internal_auth_headers,
+    get_mtls_cert_paths,
+    parse_verify_param,
+)
+
 
 class ConfigStoreClient(_ConfigStoreClient):
     """Application client retaining the legacy INI factory."""
@@ -48,13 +54,6 @@ class ConfigStoreClient(_ConfigStoreClient):
         Returns:
             Configured ConfigStoreClient instance
         """
-        # Avoid circular import: common.config imports these service client factories.
-        from nv_config_manager.common.config import (
-            get_internal_auth_headers,
-            get_mtls_cert_paths,
-            parse_verify_param,
-        )
-
         if hasattr(file_type, "value"):
             file_type_str = str(file_type.value)
         else:

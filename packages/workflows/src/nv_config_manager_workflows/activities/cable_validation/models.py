@@ -29,6 +29,7 @@ from nv_config_manager_workflows.clients.device.models import (
     DeviceNeighborData,
     InterfaceNeighborData,
 )
+from nv_config_manager_workflows.markdown import escape_markdown_cell
 
 CABLE_STATUS_UPDATE_CONCURRENCY = 10
 CSV_EXCLUDE_COLUMNS: frozenset[str] = frozenset({"Troubleshooting Info"})
@@ -104,9 +105,11 @@ class CableValidationRow(BaseModel):
     start_rack: str | None = Field(default=None, alias="Start Rack")
     intended_end_device: str | None = Field(default=None, alias="Intended End Device")
     intended_end_port: str | None = Field(default=None, alias="Intended End Port")
+    intended_interface_label: str | None = Field(default=None, alias="Intended Interface Label")
     intended_end_rack: str | None = Field(default=None, alias="Intended End Rack")
     actual_end_device: str | None = Field(default=None, alias="Actual End Device")
     actual_end_port: str | None = Field(default=None, alias="Actual End Port")
+    lldp_port_description: str | None = Field(default=None, alias="LLDP Port Description")
     issue: str | None = Field(default=None, alias="Issue")
     troubleshooting_info: str | None = Field(default=None, alias="Troubleshooting Info")
     id_: str | None = Field(default=None, alias="ID")
@@ -114,7 +117,9 @@ class CableValidationRow(BaseModel):
     def to_markdown(self) -> dict[str, Any]:
         """Return dict of columns to include in markdown table (excludes MARKDOWN_EXCLUDE_COLUMNS)."""
         return {
-            k: v
+            k: escape_markdown_cell(v)
+            if k in ("Intended Interface Label", "LLDP Port Description", "Issue")
+            else v
             for k, v in self.model_dump(by_alias=True).items()
             if k not in MARKDOWN_EXCLUDE_COLUMNS
         }

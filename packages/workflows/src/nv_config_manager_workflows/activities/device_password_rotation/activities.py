@@ -62,6 +62,8 @@ async def validate_password_diff(
         return helpers._validate_junos_diff(diff, username)
     elif platform == "iosxr":
         return helpers._validate_iosxr_diff(diff, username)
+    elif platform == "eos":
+        return helpers._validate_eos_diff(diff, username)
     else:
         error_msg = f"No diff parser available for platform: {platform}"
         activity.logger.error(error_msg)
@@ -116,6 +118,7 @@ async def validate_platform_support(
         Platform.NV_OS: "nvos",
         Platform.JUNIPER_JUNOS: "junos",
         Platform.CISCO_IOS_XR: "iosxr",
+        Platform.ARISTA_EOS: "eos",
     }
 
     slugified_platform = platform_map.get(platform)
