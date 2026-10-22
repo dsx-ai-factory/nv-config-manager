@@ -337,3 +337,18 @@ def test_managed_devices_template_allows_devices_without_platform() -> None:
     managed_devices_template = (MOCK_TOPOLOGY_DESIGNS / "managed_devices.yaml.j2").read_text()
 
     assert "device.platform is defined" in managed_devices_template
+
+
+def test_air_superpod_hyperreach_labels_are_loaded_into_nautobot() -> None:
+    """Preserve HyperReach lane labels when rendering Nautobot interface data."""
+    host = _load_device(
+        MOCK_TOPOLOGY_CONTEXT / "air_superpod" / "devices" / "su02-hyperreach-host.json"
+    )
+    environment = Environment(loader=FileSystemLoader(MOCK_TOPOLOGY_DESIGNS))
+    rendered = environment.get_template("interfaces.yaml.j2").render(
+        json={"devices": [host]}, global_defaults={"status": "Active"}
+    )
+    interfaces = {i["!create_or_update:name"]: i for i in yaml.safe_load(rendered)["interfaces"]}
+    assert interfaces["eth1"]["label"] == "C1-2-L1"
+    assert interfaces["eth2"]["label"] == "C1-2-L2"
+    assert "label" not in interfaces["eth0"]

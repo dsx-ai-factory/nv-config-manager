@@ -141,6 +141,10 @@ NVConfigManagerInstallerApp {
     height: auto;
 }
 
+#custom-labels-list {
+    height: auto;
+}
+
 #accounts-list {
     height: auto;
 }
@@ -155,6 +159,11 @@ NVConfigManagerInstallerApp {
 .account-title-row {
     height: auto;
     margin-bottom: 0;
+}
+
+.custom-label-row Input {
+    width: 1fr;
+    margin-right: 1;
 }
 
 .account-header {

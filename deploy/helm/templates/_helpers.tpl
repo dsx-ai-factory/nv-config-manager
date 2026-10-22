@@ -1957,7 +1957,7 @@ Usage: {{ include "nv-config-manager.podTargetLabels" . | nindent 2 }}
 {{- if .Values.global.customLabels }}
 podTargetLabels:
   {{- range $key, $val := .Values.global.customLabels }}
-  - {{ $key }}
+  - {{ $key | quote }}
   {{- end }}
 {{- end }}
 {{- end -}}
@@ -1977,7 +1977,7 @@ Usage under each endpoint:
 - action: replace
   sourceLabels: [job]
   regex: .*
-  targetLabel: {{ $k }}
+  targetLabel: {{ $k | quote }}
   replacement: {{ $v | toString | quote }}
 {{ end }}
 {{- end }}
