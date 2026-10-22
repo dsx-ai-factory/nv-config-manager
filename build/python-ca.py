@@ -32,7 +32,10 @@ CA_DIRECTORIES = (Path("/etc/ssl/certs"), Path("/usr/share/ca-certificates"))
 
 def verify_bundle(path: str = "/etc/ssl/certs/ca-certificates.crt") -> None:
     """Require a populated public CA bundle without affected trust anchors."""
-    context = ssl.create_default_context(cafile=path)
+    try:
+        context = ssl.create_default_context(cafile=path)
+    except ssl.SSLError as error:
+        raise SystemExit(f"Invalid CA bundle at {path}: {error}") from None
     fingerprints = {
         hashlib.sha256(cert).hexdigest() for cert in context.get_ca_certs(binary_form=True)
     }
@@ -51,6 +54,7 @@ def exported_path(directory: Path, path: Path) -> Path:
         part = pending.pop(0)
         if part == "..":
             if resolved == directory:
+                # Reject traversal above the export instead of clamping it like /.. on Linux.
                 raise SystemExit("Certificate link escapes image export")
             resolved = resolved.parent
             continue
@@ -80,7 +84,12 @@ def verify_directory(directory: Path) -> None:
             path.read_bytes(),
             flags=re.DOTALL,
         ):
-            fingerprint = hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem.decode("ascii"))).hexdigest()
+            try:
+                certificate = pem.decode("ascii")
+                ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(cadata=certificate)
+                fingerprint = hashlib.sha256(ssl.PEM_cert_to_DER_cert(certificate)).hexdigest()
+            except (ValueError, UnicodeError, ssl.SSLError) as error:
+                raise SystemExit(f"Invalid PEM certificate in {path}: {error}") from None
             if fingerprint in BLOCKED_ROOTS:
                 raise SystemExit(f"Affected emSign trust anchor remains in {path}")
 
@@ -95,5 +104,9 @@ if __name__ == "__main__":
         verify_bundle()
     elif len(sys.argv) == 3 and sys.argv[1] == "--directory":
         verify_directory(Path(sys.argv[2]))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--bundle":
+        verify_bundle(sys.argv[2])
     else:
-        raise SystemExit("Usage: python-ca.py [--reset | --directory EXPORTED_ROOT]")
+        raise SystemExit(
+            "Usage: python-ca.py [--reset | --directory EXPORTED_ROOT | --bundle PATH]"
+        )

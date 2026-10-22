@@ -4,8 +4,8 @@
 # Audit the actual runtime store without needing a shell/Python inside the image.
 set -eu
 
-if [ "$#" -ne 1 ]; then
-    echo "Usage: $0 IMAGE" >&2
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ] || { [ "$#" -eq 2 ] && [ "$2" != --node ]; }; then
+    echo "Usage: $0 IMAGE [--node]" >&2
     exit 2
 fi
 
@@ -19,10 +19,13 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
-container_id=$(docker create "$1" /unused)
+platform=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$1")
+echo "Auditing $1 ($platform)"
+container_id=$(docker create --platform "$platform" "$1" /unused)
 mkdir -p "$export_dir/etc/ssl" "$export_dir/usr/share" "$export_dir/usr/local/share"
 docker cp "$container_id:/etc/ssl/certs" "$export_dir/etc/ssl/certs"
 # Include locally installed anchors; Alpine can omit either source directory.
+# Only Docker's known missing-path error is optional; unknown errors fail closed.
 for ca_dir in /usr/share/ca-certificates /usr/local/share/ca-certificates; do
     if ! docker cp "$container_id:$ca_dir" "$export_dir$ca_dir" 2>"$export_dir/copy-error"; then
         case "$(cat "$export_dir/copy-error")" in
@@ -31,5 +34,11 @@ for ca_dir in /usr/share/ca-certificates /usr/local/share/ca-certificates; do
         esac
     fi
 done
-uv run --no-project python "$script_dir/python-ca.py" --directory "$export_dir"
+uv run --no-project --python python3 python "$script_dir/python-ca.py" --directory "$export_dir"
+if [ "${2:-}" = --node ]; then
+    docker run --rm --network none --platform "$platform" --entrypoint node "$1" \
+        -p 'require("node:tls").rootCertificates.join("\n")' > "$export_dir/node-roots.pem"
+    uv run --no-project --python python3 python "$script_dir/python-ca.py" --bundle "$export_dir/node-roots.pem"
+    echo "$1: Node bundled CA store verified"
+fi
 echo "$1: system CA bundle and individual trust anchors verified"

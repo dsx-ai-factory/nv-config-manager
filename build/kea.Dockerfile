@@ -23,7 +23,8 @@ RUN set -eux; \
         curl \
         gnupg \
         supervisor && \
-    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20260816ubuntu0.24.04.1 && \
+    { dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20260816ubuntu0.24.04.1 || \
+        { echo "ca-certificates < 20260816ubuntu0.24.04.1" >&2; exit 1; }; } && \
     # Add ISC Cloudsmith repository for Kea 2.6
     curl -1sLf 'https://dl.cloudsmith.io/public/isc/kea-2-6/setup.deb.sh' | bash && \
     apt-get update && \

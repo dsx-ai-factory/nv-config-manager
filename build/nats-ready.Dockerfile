@@ -23,7 +23,8 @@ RUN set -eux; \
     apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl && \
-    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20260816ubuntu0.24.04.1 && \
+    { dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20260816ubuntu0.24.04.1 || \
+        { echo "ca-certificates < 20260816ubuntu0.24.04.1" >&2; exit 1; }; } && \
     ARCH=$(dpkg --print-architecture) && \
     TARBALL="go${GO_VERSION}.linux-${ARCH}.tar.gz" && \
     if [ "$ARCH" = "amd64" ]; then EXPECTED="$GO_SHA256_AMD64"; \

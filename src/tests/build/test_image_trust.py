@@ -110,3 +110,23 @@ def test_unresolved_ca_links_fail(tmp_path: Path, cycle: bool) -> None:
         link.with_name("other.pem").symlink_to(link.name)
     with pytest.raises(SystemExit, match="image export"):
         checker["verify_directory"](tmp_path)
+
+
+@pytest.mark.parametrize("contents", ["abcde", "bm90IGEgY2VydGlmaWNhdGU=", "\u00e9"])
+def test_malformed_individual_certificate_fails(tmp_path: Path, contents: str) -> None:
+    """Reject malformed PEM and DER data with a readable audit error."""
+    checker, bundle, _ = _exported_store(tmp_path)
+    (bundle.parent / "malformed.pem").write_text(
+        f"-----BEGIN CERTIFICATE-----\n{contents}\n-----END CERTIFICATE-----"
+    )
+    with pytest.raises(SystemExit, match="Invalid PEM certificate"):
+        checker["verify_directory"](tmp_path)
+
+
+def test_malformed_bundle_fails(tmp_path: Path) -> None:
+    """Report an invalid combined bundle without exposing an SSL traceback."""
+    checker = runpy.run_path(str(_CHECKER))
+    bundle = tmp_path / "bundle.pem"
+    bundle.write_text("-----BEGIN CERTIFICATE-----\nabcde\n-----END CERTIFICATE-----")
+    with pytest.raises(SystemExit, match="Invalid CA bundle"):
+        checker["verify_bundle"](str(bundle))

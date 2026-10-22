@@ -147,8 +147,10 @@ by GitLab CI and embedded in the chart's source-plugin installer. Container CA
 validation lives in `build/python-ca.py`.
 
 After building container images, audit their actual system CA bundles and
-individual trust anchors with `build/check-image-trust.sh IMAGE`. This works
-with distroless images and requires Docker and uv on the host. CI image pins
+individual trust anchors with `build/check-image-trust.sh IMAGE`. Add `--node`
+to also check Node's bundled roots. The GitLab PR image builds run this audit
+before uploading each image artifact. This works with distroless images and
+requires Docker, Python 3, and uv on the host. CI image pins
 live in `.gitlab/ci/images.yml`; GitLab project/group variables override those
 defaults and must be refreshed to matching versions and digests too.
 
