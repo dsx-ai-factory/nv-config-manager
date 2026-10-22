@@ -6,6 +6,22 @@ This project uses release tags for published versions. Add entries under
 `Unreleased` while changes are in flight, then finalize them under the release
 version before the selected release candidate is promoted.
 
+## 1.4.1
+
+### Added
+
+- Added Hyper-reach cable validation using LLDP port descriptions. Validation
+  accepts a matching chassis hostname and interface label, with the connected
+  device name and interface name as fallbacks. Existing LLDP and MAC validation
+  paths remain available.
+- Added intended interface labels and observed LLDP port descriptions to cable
+  validation and connected-host metadata reports, with guidance for mismatched
+  host identities, port names, and cable-lane labels.
+- Added a SuperPOD AIR Hyper-reach validation demo with an LLDP host fixture,
+  persistent host configuration, and example report screenshots.
+- Added documentation for Hyper-reach interface labels, chassis identity, and
+  LLDP port-description matching.
+
 ## 1.4.0
 
 ### Added
