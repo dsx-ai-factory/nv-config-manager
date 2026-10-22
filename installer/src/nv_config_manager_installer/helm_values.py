@@ -1232,7 +1232,7 @@ def generate_helm_values(
         f"# Base Hostname: {config.cluster.hostname}\n"
         f"# Secrets Method: {config.secrets.method.value}\n"
         f"# Resource Size: {config.cluster.size.value}\n"
-        f"# Contains: generated overrides plus selected size profile; chart defaults are not embedded\n"
+        f"# Contains: size profile, optional observability defaults, then generated overrides\n"
         f"# =============================================================================\n\n"
     )
 

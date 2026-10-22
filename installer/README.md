@@ -131,6 +131,8 @@ Produces:
 ### `nvcm-installer deploy`
 
 Run a headless (non-interactive) deployment.
+The installer passes only the complete `values-generated.yaml` artifact to
+Helm; it does not rely on multiple ordered values files during deployment.
 
 ```bash
 nvcm-installer deploy nv-config-manager-install.yaml \

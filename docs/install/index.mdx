@@ -165,6 +165,8 @@ arguments.
 Run `nvcm-installer deploy` to run a headless, non-interactive deployment from an existing configuration file.
 
 Use this command for repeatable deploys after you have created and reviewed `nv-config-manager-install.yaml`.
+The deployer passes only the complete generated values file to Helm, rather
+than reconstructing an ordered list of profile and observability overlays.
 
 ```bash
 nvcm-installer deploy nv-config-manager-install.yaml \
