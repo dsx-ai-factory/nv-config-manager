@@ -980,16 +980,17 @@ EXCEL_LINK_PREFIX = (
     "spreadsheetml.sheet;base64,"
 )
 EXPECTED_CABLE_TABLE = (
-    "|Start Device|Start Port|Intended End Device|    Intended End Port   |Actual End Device| Actual End Port |                                          Issue                                          |\n"
-    "|------------|----------|-------------------|------------------------|-----------------|-----------------|-----------------------------------------------------------------------------------------|\n"
-    "|mock_device1|   swp0   |    mock_device2   |          swp0          |   mock_server2  |    Server BMC   |Incorrect cabling, actual should match intended. Based on expected MAC 00-00-00-00-00-02*|\n"
-    "|mock_device1|   swp1   |    mock_server1   |       Server BMC       |       None      |       None      |                                      Link is down.                                      |\n"
-    "|mock_device1|   swp23  |    mock_server2   |       MOCKSERVER2      |       None      |       None      |                                      Link is down.                                      |\n"
-    "|mock_device2|   swp9   |     mock_dpu1     |         DPU BMC        |mock_server1_dpu1|     DPU BMC     |Incorrect cabling, actual should match intended. Based on expected MAC 00-00-00-00-00-09*|\n"
-    "|mock_device3|   swp0   |    mock_device2   |          swp6          |       None      |       None      |                             Link is up but no neighbor found                            |\n"
-    "|mock_device3|   swp1   |        None       |          None          |   mock_device4  |       swp7      |                               Unexpected connection found                               |\n"
-    "|mock_device3|   swp5   |    mock_device1   |          swp8          |   mock_device1  |       swp9      |           Incorrect cabling, actual should match intended. Based on LLDP data           |\n"
-    "|mock_device3|   swp6   |    mock_device1   |swp8 (00:00:00:00:00:de)|       None      |00:00:00:00:a3:42|           Incorrect cabling, actual should match intended. Based on LLDP data           |\n\n"
+    "|Start Device|Start Port|Intended End Device|    Intended End Port   |Intended Interface Label|Actual End Device| Actual End Port |LLDP Port Description|                                          Issue                                          |\n"
+    "|------------|----------|-------------------|------------------------|------------------------|-----------------|-----------------|---------------------|-----------------------------------------------------------------------------------------|\n"
+    "|mock_device1|   swp0   |    mock_device2   |          swp0          |           --           |   mock_server2  |    Server BMC   |          --         |Incorrect cabling, actual should match intended. Based on expected MAC 00-00-00-00-00-02*|\n"
+    "|mock_device1|   swp1   |    mock_server1   |       Server BMC       |           --           |       None      |       None      |          --         |                                      Link is down.                                      |\n"
+    "|mock_device1|   swp23  |    mock_server2   |       MOCKSERVER2      |           --           |       None      |       None      |          --         |                                      Link is down.                                      |\n"
+    "|mock_device2|   swp9   |     mock_dpu1     |         DPU BMC        |           --           |mock_server1_dpu1|     DPU BMC     |          --         |Incorrect cabling, actual should match intended. Based on expected MAC 00-00-00-00-00-09*|\n"
+    "|mock_device3|   swp0   |    mock_device2   |          swp6          |           --           |       None      |       None      |          --         |                             Link is up but no neighbor found                            |\n"
+    "|mock_device3|   swp1   |        None       |          None          |           --           |   mock_device4  |       swp7      |          --         |                               Unexpected connection found                               |\n"
+    "|mock_device3|   swp5   |    mock_device1   |          swp8          |           --           |   mock_device1  |       swp9      |          --         |           Incorrect cabling, actual should match intended. Based on LLDP data           |\n"
+    "|mock_device3|   swp6   |    mock_device1   |swp8 (00:00:00:00:00:de)|           --           |       None      |00:00:00:00:a3:42|          --         |           Incorrect cabling, actual should match intended. Based on LLDP data           |\n"
+    "\n"
     "*Either the expected MAC in our database is wrong, or this link is not cabled correctly."
 )
 

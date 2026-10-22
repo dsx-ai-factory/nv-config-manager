@@ -39,6 +39,7 @@ from nv_config_manager_installer.air_sim.constants import (
     PROJECT_ROOT,
 )
 from nv_config_manager_installer.air_sim.context_topology import write_site_design_from_mock_context
+from nv_config_manager_installer.air_sim.host_cloud_init import generate_lldp_host_cloud_init
 from nv_config_manager_installer.air_sim.installer_config import (
     build_deploy_command,
     generate_air_sim_install_yaml,
@@ -441,6 +442,7 @@ class SimOrchestrator:
         manager.ensure_temporal_search_attributes(host, port)
 
     def _run_impl(self) -> tuple[str, int]:
+        """Build, configure, and start the simulation before deploying Config Manager."""
         cfg = self._cfg
         upload_sources = (
             cfg.auto_configure and bool(cfg.config_manager_repo) and cfg.wait_timeout > 0
@@ -531,6 +533,21 @@ class SimOrchestrator:
         lb_allowed = builder.lb_allowed_prefixes
         bgp_asn = builder.resolve_device_bgp_asn(cfg.oob_server_name) or "4266000000"
 
+        host_cloud_inits = {}
+        for name, device in builder.devices.items():
+            if name == cfg.oob_server_name or name not in topology["nodes"]:
+                continue
+            if host_cloud_init := generate_lldp_host_cloud_init(device):
+                if (name, "eth0") not in builder.exit_interfaces:
+                    raise ValueError(f"{name}: LLDP host eth0 must be an exit interface")
+                if any(
+                    ip.get("device") == name for ip in builder.site_design.get("ip_addresses", [])
+                ):
+                    raise ValueError(
+                        f"{name}: LLDP fixture hosts must not have static IP addresses"
+                    )
+                host_cloud_inits[name] = host_cloud_init
+
         self._step("create-sim", StepStatus.RUNNING)
         simulation_id = manager.create_simulation(builder.simulation_name, topology)
         self._log(f"Simulation: {simulation_id}")
@@ -573,6 +590,10 @@ class SimOrchestrator:
             self._step("attach-cloud-init", StepStatus.SUCCESS)
         else:
             self._step("attach-cloud-init", StepStatus.SKIPPED)
+
+        for name, host_cloud_init in host_cloud_inits.items():
+            manager.attach_cloud_init(simulation_id, name, host_cloud_init)
+            self._log(f"Persistent LLDP host setup attached to {name}")
 
         if not cfg.no_aggressive_dhcp:
             cumulus_names = [
