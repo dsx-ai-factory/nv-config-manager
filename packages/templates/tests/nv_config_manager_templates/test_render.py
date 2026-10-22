@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -220,3 +221,65 @@ def test_cumulus_sftp_startup_download_uses_default_vrf_without_eth0_address(
     else:
         assert "ip vrf exec default" not in boot_script
         assert "touch /tmp/startup.yaml\nchmod 600 /tmp/startup.yaml" in boot_script
+
+
+def test_arista_users_include_renders_one_sha512_secret_per_account(
+    public_leaf_data, public_location_data, monkeypatch
+) -> None:
+    """The EOS account lines the password rotation validator expects."""
+    monkeypatch.setenv("NV_CONFIG_MANAGER_SKIP_VAULT", "1")
+    render_data = RenderData(device=public_leaf_data, location=public_location_data)
+
+    output = Renderer().render("arista-eos/role-common/include/users.j2", render_data)
+
+    lines = [line for line in output.splitlines() if line.strip()]
+    credentials = sorted(public_leaf_data.access.credentials, key=lambda c: c.username)
+    assert len(lines) == len(credentials) > 0
+    for line, credential in zip(lines, credentials, strict=True):
+        role = (credential.role or "").strip() or "network-admin"
+        privilege = 15 if role == "network-admin" else 1
+        assert re.fullmatch(
+            rf"username {re.escape(credential.username)} privilege {privilege} "
+            rf"role {re.escape(role)} secret sha512 \$6\$H0QFj2rx\$[./A-Za-z0-9]+",
+            line,
+        ), line
+
+
+def test_arista_users_include_sets_the_root_password_with_aaa_root(
+    public_leaf_data, public_location_data, monkeypatch
+) -> None:
+    """EOS sets the root password with "aaa root secret", which root rotation expects."""
+    monkeypatch.setenv("NV_CONFIG_MANAGER_SKIP_VAULT", "1")
+    root = public_leaf_data.access.credentials[0].model_copy(update={"username": "root"})
+    device = public_leaf_data.model_copy(
+        update={"access": public_leaf_data.access.model_copy(update={"credentials": (root,)})}
+    )
+    render_data = RenderData(device=device, location=public_location_data)
+
+    output = Renderer().render("arista-eos/role-common/include/users.j2", render_data)
+
+    lines = [line for line in output.splitlines() if line.strip()]
+    assert len(lines) == 1
+    assert re.fullmatch(r"aaa root secret sha512 \$6\$H0QFj2rx\$[./A-Za-z0-9]+", lines[0]), lines[0]
+
+
+def test_arista_users_include_gives_privilege_15_only_to_network_admin(
+    public_leaf_data, public_location_data, monkeypatch
+) -> None:
+    """Accounts with any role other than network-admin get privilege 1."""
+    monkeypatch.setenv("NV_CONFIG_MANAGER_SKIP_VAULT", "1")
+    first = public_leaf_data.access.credentials[0]
+    credentials = (
+        first.model_copy(update={"username": "admin1", "role": "network-admin"}),
+        first.model_copy(update={"username": "ops1", "role": "network-operator"}),
+    )
+    device = public_leaf_data.model_copy(
+        update={"access": public_leaf_data.access.model_copy(update={"credentials": credentials})}
+    )
+    render_data = RenderData(device=device, location=public_location_data)
+
+    output = Renderer().render("arista-eos/role-common/include/users.j2", render_data)
+
+    lines = [line for line in output.splitlines() if line.strip()]
+    assert lines[0].startswith("username admin1 privilege 15 role network-admin secret sha512 ")
+    assert lines[1].startswith("username ops1 privilege 1 role network-operator secret sha512 ")

@@ -14,11 +14,12 @@
 # limitations under the License.
 """Dynamic API endpoint generation from workflow metadata."""
 
+import os
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, TypeAdapter, ValidationError, computed_field
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.common.auth import get_sso_user
@@ -34,6 +35,21 @@ logger = get_logger(__name__, category=LogCategory.TEMPORAL_API)
 def _validation_error_detail(message: str) -> list[dict[str, Any]]:
     """Return an ``HTTPValidationError``-compatible body detail without echoing input."""
     return [{"type": "value_error", "loc": ["body"], "msg": message}]
+
+
+def _authenticated_user_domain(request: Request) -> str | None:
+    """Resolve a user domain from trusted identity, deployment config, or ``None``."""
+    identity = getattr(request.state, "identity", None)
+    full_identity = getattr(identity, "email", None)
+    normalized_identity = full_identity.strip() if isinstance(full_identity, str) else ""
+    if normalized_identity.count("@") == 1 and not any(
+        character.isspace() for character in normalized_identity
+    ):
+        local_part, domain = normalized_identity.split("@", 1)
+        if local_part and domain:
+            return domain
+
+    return os.getenv("NV_CONFIG_MANAGER_DOMAIN", "").strip() or None
 
 
 class WorkflowResponse(BaseModel):
@@ -63,6 +79,7 @@ def create_workflow_endpoint(
 ) -> Callable[..., Awaitable[WorkflowResponse]]:
     """Create a FastAPI endpoint function for a workflow."""
     owned_fields = injectable_server_owned_fields(input_class)
+    user_domain_field = input_class.model_fields.get("user_domain")
 
     async def workflow_endpoint(
         body: input_class,  # type: ignore
@@ -77,8 +94,8 @@ def create_workflow_endpoint(
         inject_user = "user" in owned_fields or (
             hasattr(body, "user") and not body.user  # type: ignore[attr-defined]
         )
-        inject_user_domain = "user_domain" in owned_fields or (
-            hasattr(body, "user_domain") and not body.user_domain  # type: ignore[attr-defined]
+        inject_user_domain = (
+            user_domain_field is not None and not body.user_domain  # type: ignore[attr-defined]
         )
 
         if inject_user or inject_user_domain:
@@ -89,10 +106,21 @@ def create_workflow_endpoint(
             if inject_user:
                 body.user = user  # type: ignore[attr-defined]
 
-            if inject_user_domain:
-                # Extract domain from user email or default to nvidia.com
-                # TODO: add a default user domain to INI file for external customers
-                body.user_domain = user.split("@")[1] if "@" in user else "nvidia.com"  # type: ignore[attr-defined]
+            if inject_user_domain and user_domain_field is not None:
+                user_domain = _authenticated_user_domain(request)
+                if user_domain is None:
+                    try:
+                        # FieldInfo has no nullable flag, so validate against its annotation.
+                        TypeAdapter(user_domain_field.rebuild_annotation()).validate_python(None)
+                    except ValidationError as error:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=_validation_error_detail(
+                                "No authenticated or configured user domain is available for "
+                                "the non-nullable 'user_domain' field."
+                            ),
+                        ) from error
+                body.user_domain = user_domain  # type: ignore[attr-defined]
 
         try:
             body = await cast(type[WorkflowMetadataMixin], workflow_class).canonicalize_input(body)

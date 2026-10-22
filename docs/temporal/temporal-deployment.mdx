@@ -16,6 +16,28 @@ The installer controls Temporal deployment through `nv-config-manager-install.ya
 - `rbac`: configures workflow read and execute roles.
 - `infrastructure`: configures TLS, gateway, storage, and optional observability.
 
+### Workflow attribution domain
+
+Authenticated email identities supply their own domain for new workflow
+attribution. When an authenticated identity is a short username or service
+name, configure an optional deployment default:
+
+```yaml
+global:
+  defaultUserDomain: example.com
+```
+
+The setting is used for backend workflow attribution; it is not a UI display
+setting. The chart writes it to `[temporal].user_domain` in the unified
+`nv-config-manager.ini` and passes it to the Temporal API, worker, and Render
+workloads as `NV_CONFIG_MANAGER_DOMAIN`. For deployments that do not use this
+Helm chart, set the INI value for Temporal clients and
+`NV_CONFIG_MANAGER_DOMAIN` for those processes. If it is unset, the Workflow
+API leaves nullable `user_domain` fields as `None` and rejects unresolved
+non-nullable fields with `422`.
+Explicit caller-owned domain values are preserved, while fields declared
+`ServerOwned` are always replaced by authenticated attribution.
+
 ## Temporal Images
 
 The managed Temporal deployment uses three independently scoped distroless
@@ -46,6 +68,49 @@ Open the workflow API at `https://workflow.<hostname>/docs` and Temporal Web at 
 ## Operations
 
 For normal operator actions, use the Config Manager UI. Use Temporal Web for detailed workflow event history, retries, payload inspection, and child workflow troubleshooting. See [Which Interface Should I Use?](../getting-started/interfaces.mdx).
+
+## Workflow Plugins
+
+Set `temporal.workflowPlugins.enabled` to install workflow plugins without rebuilding the service image. This needs a service image from NVCM 1.4.0 or later. The worker, the workflow API, the scheduler host, and the MCP server each install the same plugins in init containers, because each builds the workflow registry at startup.
+
+Each plugin ships as an image that holds the plugin wheel under `/plugin-wheels`:
+
+```yaml
+temporal:
+  workflowPlugins:
+    enabled: true
+    images:
+      - name: acme
+        image: registry.example.com/acme-workflows@sha256:<digest>
+      - name: contoso
+        image: registry.example.com/contoso-workflows@sha256:<digest>
+    rbac:
+      - name: AcmeWorkflow
+        read_roles: [all]
+        execute_roles: [network-admin]
+```
+
+Three init containers run in order:
+
+1. A copy container per plugin image puts its wheels into a shared volume.
+1. `install-workflow-plugins` installs them with `pip install --no-index --no-deps` into `/opt/workflow-plugins`, which the process adds to `PYTHONPATH`.
+1. `verify-workflow-plugins` runs in the service image. It fails the pod before the main container starts when a wheel shadows a package or top-level module in the service image, when no wheel declares an `nv_config_manager.workflows` entry point, when the service image predates plugin support, or when the registry cannot load a declared plugin. It also sees `/opt/dcim-providers` when `dcim.providerPackages` is enabled.
+
+All three init containers run as a non-root user with all capabilities dropped.
+
+Include a wheel only for the plugin and for dependencies the service image lacks. Packages that ship in the service image, such as `nv-config-manager-workflows`, must not appear in the plugin image, or the verify step rejects them.
+
+Plugin code runs in the worker and API with their credentials and access to Nautobot and devices. Pin plugin images by digest and review them as you would platform code.
+
+Every plugin workflow that has an API endpoint needs a row, or its endpoint returns 403. List the rows under `temporal.workflowPlugins.rbac`. The chart appends them to `rbac.workflows` and rolls the API and scheduler pods when they change. A row that repeats a name already in `rbac.workflows` fails the render. `rbac` must be set, because the plugin rows add to the platform rows and do not replace them.
+
+Verify that all four processes loaded the same plugins by comparing the `Workflow registry manifest` fingerprint in their logs:
+
+```bash
+for component in temporal-api temporal-nv-config-manager-worker temporal-scheduler mcp; do
+  kubectl logs -n <namespace> deploy/<release>-$component | grep -E 'Loaded workflow plugin|Workflow registry manifest'
+done
+```
 
 ## Workflow Schedulers
 
@@ -111,7 +176,7 @@ Selection rules:
 - Each entry must be a map with a boolean `enabled` flag. The optional `requiresDcimProvider` must be a non-empty string; otherwise rendering fails. Set `requiresDcimProvider: null` to remove a requirement inherited from the chart defaults, which makes the entry run on any provider; it does not turn the scheduler off. Use `enabled: false` for that.
 - Helm selects an entry when `enabled` is `true` and its `requiresDcimProvider`, if set, matches `dcim.provider`.
 - The Deployment is rendered only when at least one scheduler is selected. Installs on a DCIM provider other than `nautobot-2x` that enable no plugin schedulers have no scheduler pod.
-- On `nautobot-2x`, the pod waits for Nautobot before starting only when a `builtin.` scheduler is selected. The host gives DCIM access only to built-in schedulers, so a pod that runs only plugin schedulers starts while Nautobot is unavailable.
+- On `nautobot-2x`, the pod waits for Nautobot before starting only when a `builtin.` scheduler is selected. A plugin-only pod skips this wait. Public runtime DCIM access is available to plugins; only the built-in scheduler adapter is configured conditionally. A plugin that uses DCIM must handle its unavailability during startup and operation.
 - If an existing release was installed from a chart that predates `temporal.scheduler.schedulers`, `helm upgrade --reuse-values` reuses values with no `schedulers` map, so rendering fails with `temporal.scheduler.schedulers is missing` before anything is applied; the running release is untouched. Upgrade without `--reuse-values`, or also pass `--set 'temporal.scheduler.schedulers.builtin\.backup.enabled=true' --set 'temporal.scheduler.schedulers.builtin\.backup.requiresDcimProvider=nautobot-2x'` to keep the chart default. Pass both: reused values have no default to merge, so without `requiresDcimProvider` the backup scheduler would also be deployed for other DCIM providers. To run no schedulers, set `temporal.scheduler.enabled=false`. The check fires only when the map is missing: if the same upgrade sets any other entry, such as `--set 'temporal.scheduler.schedulers.acme\.cleanup.enabled=true'`, the map exists without `builtin.backup`, so rendering succeeds and backup reconciliation silently stops. Pass both `builtin.backup` settings in that case too.
 - A selected identity that no installed plugin provides stops the scheduler host at startup with `Unknown enabled workflow scheduler identities`.
 - The host constructs every selected scheduler before starting any. If a constructor raises, the host logs `Failed to construct workflow scheduler <identity> from plugin <plugin>` and exits nonzero before any scheduler runs. On SIGTERM or SIGINT, the host logs `Received signal <signal>, stopping workflow schedulers`, cancels every scheduler, and exits 0.
@@ -147,7 +212,11 @@ kubectl get pdb -n <namespace>
 # <release>-temporal-nv-config-manager-worker-pdb   N/A             1                 1
 ```
 
-`ALLOWED DISRUPTIONS` should be `replicas - maxUnavailable`. If it shows `0`, all replicas are already disrupted or not Ready — investigate before draining further nodes.
+`ALLOWED DISRUPTIONS` shows how many more pods can be evicted within the
+disruption budget. With all three replicas Ready and `maxUnavailable: 1`, it
+shows `1`. If it shows `0` at any point, check pod readiness and the PDB status
+before draining further nodes. Refer to the Kubernetes [PodDisruptionBudget reference](https://kubernetes.io/docs/reference/kubernetes-api/policy/pod-disruption-budget-v1/)
+for details.
 
 ### Pod Anti-Affinity
 
