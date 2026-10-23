@@ -629,7 +629,9 @@ def _assert_desired_config_applied(
     """
     expected_hash = read_expected_config_hash()
     if expected_hash is None:
-        raise HTTPException(status_code=500, detail="Verified KEA configuration hash is unavailable")
+        raise HTTPException(
+            status_code=500, detail="Verified KEA configuration hash is unavailable"
+        )
     if running_hash is None:
         raise HTTPException(status_code=500, detail="KEA configuration hash is unavailable")
     if running_hash != expected_hash:
