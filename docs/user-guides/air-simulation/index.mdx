@@ -125,8 +125,12 @@ explicit CPU, memory, and storage values apply to both hosts and Cumulus nodes.
 Cumulus OS images continue to be selected from `intended-firmware.version` and
 resolved against Air; `_air.os` selects the image for non-Cumulus nodes only.
 
-Use full topology mode for SimX NICs. Minimal mode rejects these topologies
-because grouping devices would lose the per-host PCI and cable associations.
+Use full topology mode for all SimX settings, including hosts that specify only
+a simulator image or emulation mode without a NIC mapping. Minimal mode rejects
+SimX settings because grouping devices would lose their simulator, PCI, and cable
+associations. Minimal mode retains its existing render-only behavior for ordinary
+designs: it produces generic Cumulus groups and discards custom host OS and VM
+options. Use full mode whenever those options must be preserved.
 Image availability, SimX access, and remaining option validation depend on the
 target Air organization. This support uses the existing site-design workflow;
 native Air JSON import and attaching to a running simulation are separate workflows.

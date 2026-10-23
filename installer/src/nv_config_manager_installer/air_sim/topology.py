@@ -23,6 +23,7 @@ import os
 import re
 import sys
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -282,6 +283,12 @@ class AirTopologyBuilder:
             air_enabled = air_config.get("enabled", True)
             if not isinstance(air_enabled, bool):
                 raise ValueError(f"Device '{name}' _air.enabled must be a boolean")
+            if (
+                air_enabled
+                and "network_pci" in air_config
+                and not isinstance(air_config["network_pci"], Mapping)
+            ):
+                raise ValueError(f"Device '{name}' _air.network_pci must be a mapping")
             raw_serial = device.get("serial", "")
             serial = "" if raw_serial == "auto" else raw_serial
             needs_auto = raw_serial == "auto"
@@ -490,10 +497,19 @@ class AirTopologyBuilder:
         """
         if self.minimal_mode:
             if any(
-                device.air_enabled and device.air_config.get("network_pci")
+                device.air_enabled
+                and any(
+                    device.air_config.get(field)
+                    for field in (
+                        "network_pci",
+                        "simulator_image",
+                        "emulation_type",
+                        "config_only_features",
+                    )
+                )
                 for device in self.devices.values()
             ):
-                raise ValueError("SimX network_pci requires full topology mode")
+                raise ValueError("SimX options require full topology mode")
             return self._build_minimal_topology()
         return self._build_full_topology()
 
@@ -698,7 +714,7 @@ class AirTopologyBuilder:
         topology["links"].append(
             [
                 {"node": server_name, "interface": server_interface},
-                {"node": attach_switch, "interface": attach_interface},
+                self._make_link_endpoint(attach_switch, attach_interface),
             ]
         )
 
