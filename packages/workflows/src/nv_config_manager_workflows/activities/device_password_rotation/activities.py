@@ -60,6 +60,8 @@ async def validate_password_diff(
         return helpers._validate_cumulus_diff(diff, username)
     elif platform == "junos":
         return helpers._validate_junos_diff(diff, username)
+    elif platform == "iosxr":
+        return helpers._validate_iosxr_diff(diff, username)
     elif platform == "eos":
         return helpers._validate_eos_diff(diff, username)
     else:
@@ -115,6 +117,7 @@ async def validate_platform_support(
         Platform.CUMULUS_LINUX: "cumulus",
         Platform.NV_OS: "nvos",
         Platform.JUNIPER_JUNOS: "junos",
+        Platform.CISCO_IOS_XR: "iosxr",
         Platform.ARISTA_EOS: "eos",
     }
 

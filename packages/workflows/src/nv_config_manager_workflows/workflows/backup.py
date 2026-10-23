@@ -27,7 +27,7 @@ from temporalio.exceptions import ApplicationError
 
 from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.secret_redaction import redact_junos_secrets
+from nv_config_manager_workflows.secret_redaction import redact_device_secrets
 from nv_config_manager_workflows.stage import (
     StageInput,
     StageMixin,
@@ -273,7 +273,7 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
-        diff = redact_junos_secrets(diff)
+        diff = redact_device_secrets(diff)
 
         has_drift = bool(diff.strip())
         if not has_drift:

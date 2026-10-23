@@ -66,6 +66,12 @@ Config Manager bundles the EOS boot script but no EOS role templates. Before you
 
 Reprovisioning an EOS device renames its startup-config and any zerotouch-config aside on flash and schedules a reload five minutes ahead, which starts ZeroTouch. If EOS does not confirm the scheduled reload, Config Manager renames the files back and cancels the reload.
 
+**Cisco IOS XR** — DHCP option 67 (`boot-file-name`) pointing at the rendered configuration. The bundled `Cisco IOS XR ZTP DHCP Options` context sets, on `MgmtEth0/RP0/CPU0/0`:
+
+- `boot-file-name`: `http://ztp.example.com/v1/device/{device_uuid}/config/full-config`
+
+`full-config` is the intended IOS XR configuration rendered by operator or plugin templates. The first line of the rendered file must start with `!! IOS XR`: IOS XR ZTP treats a downloaded file as configuration only with that header (a file starting with `#!` is run as a script), and Config Manager serves the stored file unchanged. The router applies it as its ZTP configuration; image installation needs a ZTP script, which is not bundled.
+
 Replace `ztp.example.com` with your ZTP server URL and `{device_uuid}` with the device UUID from the device management system.
 
 ### ONIE Configuration
@@ -148,7 +154,7 @@ Common configuration file names:
 
 - `boot-script`: Cumulus Linux or Arista EOS initial boot script
 - `ztp.json`: NV-OS ZTP sequence
-- `full-config`: Junos hierarchical configuration (operator- or plugin-rendered) or Arista EOS configuration
+- `full-config`: Junos hierarchical configuration, Arista EOS configuration or IOS XR configuration (operator- or plugin-rendered)
 - `startup.yaml`: Cumulus / NV-OS intended configuration
 - `system.cfg`: System configuration
 - `interfaces.cfg`: Interface configuration

@@ -16,7 +16,11 @@
 
 import pytest
 
-from nv_config_manager_workflows.secret_redaction import redact_junos_secrets
+from nv_config_manager_workflows.secret_redaction import (
+    redact_device_secrets,
+    redact_iosxr_secrets,
+    redact_junos_secrets,
+)
 
 
 @pytest.mark.parametrize(
@@ -78,3 +82,74 @@ def test_preserves_non_secret_text() -> None:
 
 def test_empty_string_is_unchanged() -> None:
     assert redact_junos_secrets("") == ""
+
+
+def test_redact_iosxr_secrets_hides_values_and_keeps_structure() -> None:
+    config = (
+        "username admin\n"
+        " group root-lr\n"
+        " secret 10 $6$salt$hashvalue\n"
+        "snmp-server community topsecretstring RO\n"
+        "key chain KC\n"
+        " key 1\n"
+        "  key-string password 7 0822455D0A16\n"
+        "tacacs-server host 10.0.0.1\n"
+        " key 7 094F471A1A0A\n"
+        "hostname r1\n"
+    )
+
+    result = redact_iosxr_secrets(config)
+
+    for leaked in ("$6$salt$hashvalue", "topsecretstring", "0822455D0A16", "094F471A1A0A"):
+        assert leaked not in result
+    assert " secret 10 <redacted>\n" in result
+    assert "snmp-server community <redacted> RO\n" in result
+    assert "  key-string password 7 <redacted>\n" in result
+    assert " key 7 <redacted>\n" in result
+    assert " key 1\n" in result
+    assert "hostname r1\n" in result
+
+
+def test_redact_iosxr_secrets_redacts_one_line_username_secrets() -> None:
+    text = "username admin secret 10 $6$salt$hashvalue\n+username ops password 7 0822455D0A16\n"
+
+    result = redact_iosxr_secrets(text)
+
+    assert "hashvalue" not in result
+    assert "0822455D0A16" not in result
+    assert "username admin secret 10 <redacted>\n" in result
+    assert "+username ops password 7 <redacted>\n" in result
+
+
+def test_redact_iosxr_secrets_redacts_diff_lines_with_markers() -> None:
+    diff = "-   secret 10 $6$old$aaaa\n+   secret 10 $6$new$bbbb\n"
+
+    result = redact_iosxr_secrets(diff)
+
+    assert "aaaa" not in result and "bbbb" not in result
+    assert result.count("<redacted>") == 2
+
+
+def test_redact_device_secrets_applies_both_platforms() -> None:
+    text = 'encrypted-password "$6$abc$def";\nsecret 10 $6$x$y\n'
+
+    result = redact_device_secrets(text)
+
+    assert "$def" not in result and "$x$y" not in result
+
+
+def test_iosxr_key_string_with_the_type_attached_to_the_keyword_is_redacted() -> None:
+    text = (
+        "   key-string password7 0822455D0A16\n"
+        "   key-string password6 AbCdEf\n"
+        "   key-string clear secretvalue\n"
+        "   cryptographic-algorithm aes-256-cmac\n"
+    )
+
+    result = redact_iosxr_secrets(text)
+
+    assert "   key-string password7 <redacted>\n" in result
+    assert "   key-string password6 <redacted>\n" in result
+    assert "   key-string clear <redacted>\n" in result
+    assert "0822455D0A16" not in result and "secretvalue" not in result
+    assert "cryptographic-algorithm aes-256-cmac" in result
