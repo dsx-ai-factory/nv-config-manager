@@ -30,6 +30,11 @@
                 "library": "/usr/lib/kea/hooks/libdhcp_stat_cmds.so"
             }
         ],
+        "multi-threading": {
+            "enable-multi-threading": true,
+            "thread-pool-size": 0,
+            "packet-queue-size": 64
+        },
         "option-def": [
             {
                 "name": "cumulus-provision-url",
