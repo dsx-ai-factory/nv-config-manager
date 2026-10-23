@@ -23,7 +23,8 @@
 # SEPARATE pipeline on the unprotected pull-request/<n> ref with no secrets
 # (see pr-build.yml). This pipeline runs on protected main, holds the
 # protected variables, and only operates on the already-built artifacts -
-# untrusted PR code never executes here.
+# only trusted orchestration runs in credentialed processes. The independent
+# image audit clears its environment and isolates execution of the Node binary.
 #
 # Required protected CI/CD variables (see .gitlab/ci/README.md):
 #   NVCM_MIRROR_API_TOKEN, NVCM_TEST_ENV_TARGETS, NVCM_CHART_REPO,
@@ -34,7 +35,7 @@
 
 .test-promote-rules: &test-promote-rules
   - if: $CI_PIPELINE_SOURCE == "parent_pipeline" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $NVCM_PROMOTE_PR && $NVCM_PROMOTE_PR_SHA && $NVCM_PROMOTE_BUILD_PIPELINE_ID && $NVCM_PROMOTE_ENV =~ /^(test|test01|kiwi-qa)$/ && $NVCM_PROMOTE_SOURCE_PIPELINE_ID && $NVCM_PROMOTE_SOURCE_REF && $NVCM_PROMOTE_SOURCE_SHA
-    when: always
+    when: on_success
   - when: never
 
 .test-promote-request-rules: &test-promote-request-rules
@@ -174,7 +175,43 @@ test-promote-build:
     expire_in: 1 week
 
 # -----------------------------------------------------------------------------
-# 2) Download image tars by job id, load, retag, push, capture digests.
+# 2) Independently audit PR artifacts with this protected main checkout.
+#    Credentials are used only for downloading; the checker gets a clean
+#    environment and an empty registry config. No PR scripts are executed.
+# -----------------------------------------------------------------------------
+test-promote-audit-images:
+  stage: deploy
+  <<: *test-promote-runner
+  tags:
+    - dgxc-corp-restricted
+    - linux/amd64
+    - docker
+  image: $NVCM_CI_IMAGE_DOCKER_DIND
+  services:
+    - name: $NVCM_CI_IMAGE_DOCKER_DIND
+      alias: docker
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375/
+    DOCKER_TLS_CERTDIR: ""
+  rules: *test-promote-rules
+  needs:
+    - job: test-promote-build
+      artifacts: true
+  before_script:
+    - apk add -q bash curl unzip coreutils python3
+    - uv_container="$(docker create "$NVCM_CI_IMAGE_UV" /uv)"
+    - docker cp "$uv_container:/uv" /usr/local/bin/uv
+    - docker rm "$uv_container"
+  script:
+    - bash .gitlab/ci/scripts/image_trust_gate.sh promote
+  artifacts:
+    paths:
+      - audited-pr-images.sha256
+    expire_in: 1 week
+
+# -----------------------------------------------------------------------------
+# 3) Verify audited archive hashes, load, retag, push, capture digests.
 # -----------------------------------------------------------------------------
 test-promote-push-images:
   stage: deploy
@@ -191,6 +228,8 @@ test-promote-push-images:
   rules: *test-promote-rules
   needs:
     - job: test-promote-build
+      artifacts: true
+    - job: test-promote-audit-images
       artifacts: true
   before_script:
     - apk add -q bash curl unzip coreutils
@@ -211,7 +250,7 @@ test-promote-push-images:
     expire_in: 1 week
 
 # -----------------------------------------------------------------------------
-# 3) Download the chart .tgz packaged in the secret-free build stage, validate
+# 4) Download the chart .tgz packaged in the secret-free build stage, validate
 #    its render against the target env's actual values layering, and publish it.
 #    Does NOT check out or package PR source (that happens in pr-build-chart).
 # -----------------------------------------------------------------------------

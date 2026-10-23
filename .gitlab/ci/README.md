@@ -194,6 +194,15 @@ secret CI/CD variable in this project and its groups must be flagged
 Protected** - unprotected variables are visible to the untrusted
 `pull-request/*` builds. Never protect `pull-request/*` refs.
 
+The PR's own certificate audit provides early feedback. Before promotion,
+`test-promote-audit-images` independently checks the image archives using the
+protected main checkout. It passes no CI variables or registry credentials to
+the checker; Node runs without network access or host mounts. GitLab still
+provides protected variables to trusted job orchestration. The push job requires
+this audit to succeed and verifies each downloaded archive against its audit
+hash. Main/tag builds audit both architectures and publish multi-architecture
+manifests from the exact audited digests, without resolving the tags again.
+
 | Variable | Purpose |
 | -------- | ------- |
 | `NV_CONFIG_MANAGER_VALUES_PUSH_TOKEN` | Token with write access to the downstream values repository; protected + masked |

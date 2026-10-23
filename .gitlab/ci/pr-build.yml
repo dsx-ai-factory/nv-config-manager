@@ -110,7 +110,8 @@ pr-build-image:
       REGISTRY=pr-local
       TEMPLATE_ENGINE_VERSION="${TEMPLATE_ENGINE_VERSION}"
       DOCKER_BUILD_OUTPUT="--output type=docker,dest=${CI_PROJECT_DIR}/images/${NVCM_PR_IMAGE}.tar"
-    # Audit the exported image before it can become a promotion artifact.
+    # Early PR feedback only: protected main independently audits these exact
+    # archives before promotion, since the PR controls the scripts used here.
     - docker load --input "images/${NVCM_PR_IMAGE}.tar"
     - |
       if [ "$NVCM_PR_TARGET" = ui ]; then

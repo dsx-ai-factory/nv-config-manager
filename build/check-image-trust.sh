@@ -36,7 +36,8 @@ for ca_dir in /usr/share/ca-certificates /usr/local/share/ca-certificates; do
 done
 uv run --no-project --python python3 python "$script_dir/python-ca.py" --directory "$export_dir"
 if [ "${2:-}" = --node ]; then
-    docker run --rm --network none --platform "$platform" --entrypoint node "$1" \
+    docker run --rm --network none --read-only --cap-drop ALL \
+        --security-opt no-new-privileges --platform "$platform" --entrypoint node "$1" \
         -p 'require("node:tls").rootCertificates.join("\n")' > "$export_dir/node-roots.pem"
     uv run --no-project --python python3 python "$script_dir/python-ca.py" --bundle "$export_dir/node-roots.pem"
     echo "$1: Node bundled CA store verified"
