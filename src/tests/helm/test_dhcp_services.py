@@ -50,7 +50,9 @@ _RELEASE = "test"
 _DHCP_NAME = "test-nv-config-manager-dhcp"
 
 
-def _render_result(*set_args: str) -> subprocess.CompletedProcess[str]:
+def _render_result(
+    *set_args: str, set_string: tuple[str, ...] = ()
+) -> subprocess.CompletedProcess[str]:
     """Render the DHCP template, preserving a non-zero exit for negative tests."""
     if shutil.which("helm") is None:
         pytest.skip("helm binary not available")
@@ -69,12 +71,14 @@ def _render_result(*set_args: str) -> subprocess.CompletedProcess[str]:
     ]
     for pair in set_args:
         cmd += ["--set", pair]
+    for pair in set_string:
+        cmd += ["--set-string", pair]
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
-def _render(*set_args: str) -> str:
+def _render(*set_args: str, set_string: tuple[str, ...] = ()) -> str:
     """Render the DHCP template with values-ci.yaml, or skip if unrenderable."""
-    result = _render_result(*set_args)
+    result = _render_result(*set_args, set_string=set_string)
     if result.returncode != 0:
         # Both environment preconditions are checked above, so a non-zero exit
         # here is a template regression -- the thing this file exists to catch.
@@ -83,9 +87,9 @@ def _render(*set_args: str) -> str:
     return result.stdout
 
 
-def _refresh_env(*set_args: str) -> dict[str, str]:
+def _refresh_env(*set_args: str, set_string: tuple[str, ...] = ()) -> dict[str, str]:
     """Return environment variables rendered for config-refresh-v4."""
-    docs = _load_docs(_render(*set_args))
+    docs = _load_docs(_render(*set_args, set_string=set_string))
     containers = _containers(docs, f"{_DHCP_NAME}-refresh")
     return {
         item["name"]: item.get("value") for item in containers["config-refresh-v4"].get("env", [])
@@ -183,6 +187,28 @@ def test_kea_threading_defaults_match_historical_kea_config() -> None:
     assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "64"
 
 
+def test_quoted_false_size_from_cpu_request_keeps_historical_defaults() -> None:
+    """A quoted "false" is off, so the pool and queue stay at 0 and 64."""
+    env = _refresh_env(
+        "networkDhcp.resources.dhcp.requests.cpu=1500m",
+        set_string=("networkDhcp.kea.multiThreading.sizeFromCpuRequest=false",),
+    )
+
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "0"
+    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "64"
+
+
+def test_quoted_true_size_from_cpu_request_uses_the_cpu_request() -> None:
+    """A quoted "true" enables CPU sizing."""
+    env = _refresh_env(
+        "networkDhcp.resources.dhcp.requests.cpu=1500m",
+        set_string=("networkDhcp.kea.multiThreading.sizeFromCpuRequest=true",),
+    )
+
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "2"
+    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "16"
+
+
 def test_fractional_dhcp_cpu_request_rounds_the_thread_pool_up() -> None:
     """With CPU sizing enabled, 1500 millicores is two threads and queue 16."""
     env = _refresh_env(
@@ -278,6 +304,7 @@ def test_explicit_packet_queue_overrides_derived_queue() -> None:
         ),
         (("networkDhcp.kea.multiThreading.threadPoolSize=-1",), "threadPoolSize"),
         (("networkDhcp.kea.multiThreading.packetQueueSize=0",), "packetQueueSize"),
+        (("networkDhcp.kea.multiThreading.sizeFromCpuRequest=yes",), "sizeFromCpuRequest"),
     ],
 )
 def test_invalid_kea_threading_input_fails_rendering(

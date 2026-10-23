@@ -2225,12 +2225,28 @@ Context: (dict "root" . "name" "threadPoolSize|packetQueueSize" "allowZero" true
 
 {{/*
 True when the chart should size workers from the DHCP CPU request.
+
+Accepts a boolean or the strings "true" and "false". A quoted "false" must
+stay off; any other type or string fails the render.
 */}}
 {{- define "nv-config-manager.dhcp.sizeFromCpuRequest" -}}
 {{- $kea := .Values.networkDhcp.kea | default dict -}}
 {{- $threading := $kea.multiThreading | default dict -}}
-{{- if $threading.sizeFromCpuRequest -}}
+{{- if hasKey $threading "sizeFromCpuRequest" -}}
+{{- $flag := index $threading "sizeFromCpuRequest" -}}
+{{- if or (kindIs "invalid" $flag) (eq ($flag | toString | trim) "<nil>") (eq ($flag | toString | trim) "<no value>") -}}
+{{- else if kindIs "bool" $flag -}}
+{{- if $flag }}true{{ end -}}
+{{- else if kindIs "string" $flag -}}
+{{- $normalized := $flag | trim | lower -}}
+{{- if eq $normalized "true" -}}
 true
+{{- else if ne $normalized "false" -}}
+{{- fail (printf "networkDhcp.kea.multiThreading.sizeFromCpuRequest must be a boolean, got %q" $flag) -}}
+{{- end -}}
+{{- else -}}
+{{- fail (printf "networkDhcp.kea.multiThreading.sizeFromCpuRequest must be a boolean, got %q" ($flag | toString)) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 
