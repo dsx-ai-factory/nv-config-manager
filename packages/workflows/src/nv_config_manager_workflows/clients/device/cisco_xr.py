@@ -392,7 +392,13 @@ class NetconfIosXrSession:
     # -- candidate datastore -----------------------------------------------------
 
     def _source_payload(self, text: str) -> str:
-        """The ``<source>`` of a copy-config: the whole configuration as the ``cli`` leaf."""
+        """The ``<source>`` of a copy-config: the whole configuration as the ``cli`` leaf.
+
+        The XML sent is ``<source><config><cli xmlns=".../Cisco-IOS-XR-cli-cfg">TEXT</cli></config></source>``.
+        ncclient requires the ``<source>`` wrapper for an inline source. Building the
+        element with lxml (not string concatenation) escapes ``<``, ``>`` and ``&`` in
+        the configuration text.
+        """
         source = etree.Element(f"{{{_NETCONF_BASE_NS}}}source", nsmap={None: _NETCONF_BASE_NS})
         config = etree.SubElement(source, f"{{{_NETCONF_BASE_NS}}}config")
         leaf = etree.SubElement(config, f"{{{_CLI_CFG_NS}}}{_CLI_LEAF}", nsmap={None: _CLI_CFG_NS})
@@ -407,7 +413,18 @@ class NetconfIosXrSession:
                 logger.debug("NETCONF cleanup step failed", exc_info=True)
 
     def _copy_replacement(self, text: str, timeout: float) -> None:
-        """``<copy-config>`` of ``text`` onto the candidate: the whole candidate becomes ``text``."""
+        """``<copy-config>`` of ``text`` onto the candidate: the whole candidate becomes ``text``.
+
+        This is the replace. RFC 6241 section 7.3 defines ``<copy-config>`` as creating or
+        replacing an entire datastore with the content of another, so the router drops
+        every line that ``text`` does not contain; NVCM computes no removals itself.
+        ``<edit-config>`` cannot do this: the ``cli`` leaf accepts it only as a merge, and
+        both replace forms are rejected with ``operation-not-supported``.
+
+        A rejected text (syntax the router does not parse) is a :class:`ConfigSyntaxException`.
+        A router that does not implement the request is a non-retryable error. The session
+        timeout is raised for the call because a 12,000-line copy takes tens of seconds.
+        """
         previous = self._session.timeout
         self._session.timeout = timeout
         try:
@@ -428,7 +445,12 @@ class NetconfIosXrSession:
         return "" if node is None or node.text is None else str(node.text)
 
     def load_replacement(self, text: str, *, timeout: float) -> str:
-        """Lock the candidate, replace it with ``text`` and return the router's diff."""
+        """Lock the candidate, replace it with ``text`` and return the router's diff.
+
+        The candidate datastore is shared by every session, so the lock keeps another
+        session from editing it between the load and the commit; the diff that was
+        approved is then the diff that is committed.
+        """
         try:
             self._session.lock("candidate")
         except RPCError as error:
@@ -439,8 +461,11 @@ class NetconfIosXrSession:
         except _TRANSPORT_ERRORS as error:
             raise NetworkDeviceException(f"Cannot lock the candidate: {error}") from error
         try:
-            self._session.discard_changes()  # start from the running configuration
+            # Clear edits left by an earlier session so the candidate starts equal to running.
+            self._session.discard_changes()
+            # The replace: the candidate becomes the intended configuration.
             self._copy_replacement(text, timeout)
+            # The router, not NVCM, computes what would change (as Junos cu.diff() does).
             return self._candidate_diff_text(timeout)
         except RPCError as error:
             self._discard_and_unlock()
@@ -458,7 +483,12 @@ class NetconfIosXrSession:
         return diff
 
     def remaining_diff(self, text: str, *, timeout: float) -> str:
-        """After a trial commit: the diff of the running configuration against ``text``."""
+        """After a trial commit: the diff of the running configuration against ``text``.
+
+        The lock from :meth:`load_replacement` is still held, so the copy-config goes
+        straight onto the candidate. If the commit took effect as intended the diff has
+        no changed lines; the candidate is discarded either way.
+        """
         try:
             self._copy_replacement(text, timeout)
             return self._candidate_diff_text(timeout)
@@ -819,11 +849,18 @@ class CiscoIosXrConnection(NetworkConnection):
         *,
         commit_confirm: bool = True,
     ) -> None:
-        """Replace the router's configuration with the intended one in one atomic commit."""
+        """Replace the router's configuration with the intended one in one atomic commit.
+
+        Order: (1) copy-config the intended text onto the locked candidate and read the
+        router's diff; (2) abort unless it equals ``approved_diff`` and the lockout guard
+        passes; (3) commit (a confirmed commit when ``commit_confirm``); (4) with the
+        timer, verify the router and only then confirm.
+        """
         self._reject_partial(partial)
         intended = self._parse_intended(new_configuration)
         text = iosxr_config.replacement_text(new_configuration)
         session = self._get_session()
+        # (1) Load: lock, discard, copy-config, get-cli-config-diff. The lock stays held.
         try:
             raw = session.load_replacement(text, timeout=self._APPLY_TIMEOUT_SECONDS)
         except _TRANSPORT_ERRORS as error:
@@ -834,8 +871,10 @@ class CiscoIosXrConnection(NetworkConnection):
         try:
             diff = self._router_diff(raw)
             if not diff:
+                # Router already matches the intended configuration: nothing to commit.
                 session.discard()
                 return
+            # (2) The router must still propose exactly what a person approved.
             if diff != approved_diff:
                 raise DiffChangedException("Diff has changed since approval, aborting.")
             self._check_access_preserved(intended)
@@ -843,6 +882,8 @@ class CiscoIosXrConnection(NetworkConnection):
             session.discard()
             raise
 
+        # (3) Commit the loaded candidate. With a timer the router rolls back by itself
+        # unless step (4) confirms, so a commit that cuts NVCM off heals on its own.
         confirm_seconds = self._COMMIT_CONFIRM_SECONDS if commit_confirm else None
         try:
             session.commit(confirm_seconds=confirm_seconds, timeout=self._APPLY_TIMEOUT_SECONDS)
@@ -861,6 +902,7 @@ class CiscoIosXrConnection(NetworkConnection):
                 non_retryable=True,
             ) from error
 
+        # (4) Second login, second copy-config diff, then the confirming commit.
         if commit_confirm:
             self._verify_then_confirm(text)
 
