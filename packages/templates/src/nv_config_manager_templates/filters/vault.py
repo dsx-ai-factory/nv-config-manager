@@ -25,13 +25,25 @@ from nv_config_manager_templates.filters import FilterException
 
 
 def _hvac_client():
-    """Return an appropriate Hashicorp Vault client for this environment."""
+    """Return a Hashicorp Vault client for the Vault named in VAULT_ADDR.
+
+    There is no default address, so an unconfigured render fails instead of
+    sending the local Vault token to a server the user did not choose.
+    """
+    url = os.getenv("VAULT_ADDR", "").strip()
+    if not url:
+        raise FilterException(
+            "No Vault address configured. Set VAULT_ADDR (and VAULT_NAMESPACE if your "
+            "Vault uses namespaces), set NV_CONFIG_MANAGER_CONFIG_SECRET_PATH to read "
+            "secrets from a file, or set NV_CONFIG_MANAGER_SKIP_VAULT=1 to render "
+            "placeholders."
+        )
     # TODO: Detect AWS and extract token from environment
     token_path = pathlib.Path("~/.vault-token").expanduser()
     with open(token_path, encoding="utf-8") as f:
         token = f.read()
     return hvac.Client(
-        url="https://prod.vault.nvidia.com", verify=True, namespace="ngc", token=token
+        url=url, verify=True, namespace=os.getenv("VAULT_NAMESPACE") or None, token=token
     )
 
 
