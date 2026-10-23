@@ -6,6 +6,14 @@ This project uses release tags for published versions. Add entries under
 `Unreleased` while changes are in flight, then finalize them under the release
 version before the selected release candidate is promoted.
 
+## Unreleased
+
+### Changed
+
+- Air full topology mode now applies explicit `_air` CPU, memory, storage and
+  supported node options to Cumulus devices. Review custom designs that previously
+  relied on those settings being ignored before rebuilding.
+
 ## 1.4.0
 
 ### Added

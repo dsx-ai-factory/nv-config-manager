@@ -64,10 +64,13 @@ def _remote_repo_path(path: str) -> str:
 
 
 def _normalize_post_deploy_job(job_spec: dict[str, Any]) -> dict[str, str]:
+    """Serialize job inputs, treating omitted, null and blank values as no arguments."""
     job = str(job_spec.get("job", "")).strip()
     raw_input = job_spec.get("input", "")
-    if isinstance(raw_input, str):
-        job_input = raw_input
+    if raw_input is None:
+        job_input = ""
+    elif isinstance(raw_input, str):
+        job_input = raw_input if raw_input.strip() else ""
     else:
         job_input = json.dumps(raw_input)
     return {"job": job, "input": job_input}

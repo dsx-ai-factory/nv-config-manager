@@ -1302,7 +1302,7 @@ class LaunchScreen(Container):
         """Return a provider-owned validation error, or an empty string when ready."""
         if self._config.run_mock_topology_job and not self._config.mock_topology_path:
             return "Mock topology path required for bundled Nautobot population."
-        return ""
+        return self._config.custom_jobs_error()
 
     def _start_bringup(self) -> None:
         if self._config.use_mock_context_for_fabric:
