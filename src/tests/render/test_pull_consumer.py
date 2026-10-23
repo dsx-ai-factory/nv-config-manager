@@ -218,6 +218,18 @@ def test_liveness_timeout_at_or_below_ack_wait_is_rejected(
         PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
 
 
+@pytest.mark.parametrize("timeout", ["nan", "inf", "-inf"])
+def test_non_finite_liveness_timeout_is_rejected(
+    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch, timeout: str
+) -> None:
+    """A budget that never expires would leave a stalled consumer running forever."""
+    custom_ini(TEST_NATS_CONFIG)
+    monkeypatch.setenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", timeout)
+
+    with pytest.raises(ValueError, match="must be a finite number of seconds"):
+        PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+
+
 def test_liveness_timeout_above_ack_wait_is_accepted(
     custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch
 ) -> None:

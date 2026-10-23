@@ -18,6 +18,7 @@ import asyncio
 import asyncio.log
 import json
 import logging
+import math
 import os
 import signal
 import ssl
@@ -151,6 +152,11 @@ class PullConsumer:
         self.liveness_timeout = float(
             os.getenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", str(CONSUMER_ACK_WAIT_SECONDS + 240))
         )
+        if not math.isfinite(self.liveness_timeout):
+            raise ValueError(
+                f"CONSUMER_LIVENESS_TIMEOUT_SECONDS={self.liveness_timeout:g} must be a finite "
+                "number of seconds, or a stalled consumer would never be restarted"
+            )
         if self.liveness_timeout <= CONSUMER_ACK_WAIT_SECONDS:
             raise ValueError(
                 f"CONSUMER_LIVENESS_TIMEOUT_SECONDS={self.liveness_timeout:g} must exceed the "
