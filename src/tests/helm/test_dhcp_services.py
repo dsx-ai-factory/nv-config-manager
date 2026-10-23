@@ -50,8 +50,8 @@ _RELEASE = "test"
 _DHCP_NAME = "test-nv-config-manager-dhcp"
 
 
-def _render(*set_args: str) -> str:
-    """Render the DHCP template with values-ci.yaml, or skip if unrenderable."""
+def _render_result(*set_args: str) -> subprocess.CompletedProcess[str]:
+    """Render the DHCP template, preserving a non-zero exit for negative tests."""
     if shutil.which("helm") is None:
         pytest.skip("helm binary not available")
     if not (_CHART_DIR / "charts").is_dir():
@@ -69,14 +69,27 @@ def _render(*set_args: str) -> str:
     ]
     for pair in set_args:
         cmd += ["--set", pair]
+    return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+def _render(*set_args: str) -> str:
+    """Render the DHCP template with values-ci.yaml, or skip if unrenderable."""
+    result = _render_result(*set_args)
     if result.returncode != 0:
         # Both environment preconditions are checked above, so a non-zero exit
         # here is a template regression -- the thing this file exists to catch.
         # Skipping would let it through silently.
         pytest.fail(f"helm template failed:\n{result.stderr.strip()}")
     return result.stdout
+
+
+def _refresh_env(*set_args: str) -> dict[str, str]:
+    """Return environment variables rendered for config-refresh-v4."""
+    docs = _load_docs(_render(*set_args))
+    containers = _containers(docs, f"{_DHCP_NAME}-refresh")
+    return {
+        item["name"]: item.get("value") for item in containers["config-refresh-v4"].get("env", [])
+    }
 
 
 def _load_docs(rendered: str) -> list[dict[str, Any]]:
@@ -160,6 +173,65 @@ def test_config_refresh_targets_bootstrap_service() -> None:
 
     assert env.get("NV_CONFIG_MANAGER_KEA_SERVER") == f"{_DHCP_NAME}-kea-bootstrap"
     assert env.get("NV_CONFIG_MANAGER_KEA_PORT") == "8000"
+
+
+def test_kea_threading_defaults_follow_dhcp_cpu_request() -> None:
+    """One requested DHCP CPU selects one Kea thread and an eight-packet queue."""
+    env = _refresh_env()
+
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "1"
+    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "8"
+
+
+def test_fractional_dhcp_cpu_request_rounds_the_thread_pool_up() -> None:
+    """1500 millicores is two threads, so the derived queue is sixteen."""
+    env = _refresh_env("networkDhcp.resources.dhcp.requests.cpu=1500m")
+
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "2"
+    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "16"
+
+
+def test_subcore_dhcp_cpu_request_uses_one_thread() -> None:
+    """A fractional request below one CPU still gets one Kea thread."""
+    env = _refresh_env("networkDhcp.resources.dhcp.requests.cpu=500m")
+
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "1"
+    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "8"
+
+
+def test_explicit_thread_pool_derives_packet_queue() -> None:
+    """An explicit thread override replaces CPU sizing and scales the queue."""
+    env = _refresh_env("networkDhcp.kea.multiThreading.threadPoolSize=3")
+
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "3"
+    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "24"
+
+
+def test_explicit_packet_queue_overrides_derived_queue() -> None:
+    """An explicit queue override is independent of the eight-times default."""
+    env = _refresh_env(
+        "networkDhcp.kea.multiThreading.threadPoolSize=3",
+        "networkDhcp.kea.multiThreading.packetQueueSize=10",
+    )
+
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "3"
+    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "10"
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ("networkDhcp.resources.dhcp.requests.cpu=lots", "requests.cpu"),
+        ("networkDhcp.kea.multiThreading.threadPoolSize=0", "threadPoolSize"),
+        ("networkDhcp.kea.multiThreading.packetQueueSize=0", "packetQueueSize"),
+    ],
+)
+def test_invalid_kea_threading_input_fails_rendering(override: str, message: str) -> None:
+    """Malformed CPU quantities and non-positive overrides fail chart rendering."""
+    result = _render_result(override)
+
+    assert result.returncode != 0
+    assert message in result.stderr
 
 
 def _probe_path(container: dict[str, Any], probe: str) -> str:

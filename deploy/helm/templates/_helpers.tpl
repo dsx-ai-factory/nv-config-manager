@@ -2172,3 +2172,71 @@ Fails fast when neither is available so pods never point at a dead OTLP target.
 - name: OTEL_SERVICE_NAME
   value: {{ .serviceName | quote }}
 {{- end -}}
+
+{{/*
+Convert a Kubernetes CPU quantity to whole millicores.
+
+Accepts decimal cores ("1", "1.5") and millicore quantities ("500m", "1500m").
+*/}}
+{{- define "nv-config-manager.dhcp.cpuMillicores" -}}
+{{- $raw := . | toString | trim -}}
+{{- if not (regexMatch `^[0-9]+(\.[0-9]+)?m?$` $raw) -}}
+{{- fail (printf "networkDhcp.resources.dhcp.requests.cpu %q is not a valid CPU quantity" $raw) -}}
+{{- end -}}
+{{- if hasSuffix "m" $raw -}}
+{{- $millis := trimSuffix "m" $raw | float64 | ceil | int -}}
+{{- if le $millis 0 -}}
+{{- fail (printf "networkDhcp.resources.dhcp.requests.cpu %q must request a positive amount of CPU" $raw) -}}
+{{- end -}}
+{{- $millis -}}
+{{- else -}}
+{{- $millis := mulf ($raw | float64) 1000.0 | ceil | int -}}
+{{- if le $millis 0 -}}
+{{- fail (printf "networkDhcp.resources.dhcp.requests.cpu %q must request a positive amount of CPU" $raw) -}}
+{{- end -}}
+{{- $millis -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Return an explicit positive multi-threading override, or an empty value when unset.
+Context: (dict "root" . "name" "threadPoolSize|packetQueueSize")
+*/}}
+{{- define "nv-config-manager.dhcp.threadingOverride" -}}
+{{- $kea := .root.Values.networkDhcp.kea | default dict -}}
+{{- $threading := $kea.multiThreading | default dict -}}
+{{- $raw := index $threading .name | toString | trim -}}
+{{- if or (not (hasKey $threading .name)) (eq $raw "") (eq $raw "<no value>") (eq $raw "<nil>") -}}
+{{- "" -}}
+{{- else if not (regexMatch `^[1-9][0-9]*$` $raw) -}}
+{{- fail (printf "networkDhcp.kea.multiThreading.%s must be a positive integer" .name) -}}
+{{- else -}}
+{{- $raw -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Kea worker count: explicit threadPoolSize, otherwise the DHCP CPU request
+rounded up to at least one thread.
+*/}}
+{{- define "nv-config-manager.dhcp.threadPoolSize" -}}
+{{- $override := include "nv-config-manager.dhcp.threadingOverride" (dict "root" . "name" "threadPoolSize") -}}
+{{- if $override -}}
+{{- $override -}}
+{{- else -}}
+{{- $millis := include "nv-config-manager.dhcp.cpuMillicores" .Values.networkDhcp.resources.dhcp.requests.cpu | int -}}
+{{- div (add $millis 999) 1000 -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Kea packet queue: explicit packetQueueSize, otherwise eight packets per worker.
+*/}}
+{{- define "nv-config-manager.dhcp.packetQueueSize" -}}
+{{- $override := include "nv-config-manager.dhcp.threadingOverride" (dict "root" . "name" "packetQueueSize") -}}
+{{- if $override -}}
+{{- $override -}}
+{{- else -}}
+{{- mul (include "nv-config-manager.dhcp.threadPoolSize" . | int) 8 -}}
+{{- end -}}
+{{- end -}}

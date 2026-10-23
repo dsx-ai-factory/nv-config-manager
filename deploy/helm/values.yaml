@@ -1686,6 +1686,12 @@ networkDhcp:
   # Kea configuration
   kea:
     storkAgentPort: 9457
+    # Worker count follows networkDhcp.resources.dhcp.requests.cpu unless
+    # threadPoolSize is set. Fractional CPU requests round up to at least one
+    # thread. packetQueueSize defaults to eight times the effective thread pool.
+    multiThreading:
+      threadPoolSize:
+      packetQueueSize:
 # See docs/overview/observability.mdx (Tracing) for configuration details.
 observability:
   enabled: false

@@ -43,6 +43,12 @@ class DhcpConfigGenerationError(Exception):
     """DHCP Configuration Generation Error."""
 
 
+_THREAD_POOL_SIZE_ENV = "NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"
+_PACKET_QUEUE_SIZE_ENV = "NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"
+_DEFAULT_THREAD_POOL_SIZE = 1
+_PACKETS_PER_THREAD = 8
+
+
 _DHCP4_OPTION_SPACE = "dhcp4"
 SiteOptionDefs = dict[str, dict[str, Any]]
 
@@ -721,6 +727,38 @@ def _extract_hooks_path(kea_config: dict[str, Any], version: int = 4) -> str:
     return default_path
 
 
+def _positive_int_setting(name: str, default: int) -> int:
+    """Return a positive integer environment setting or its explicit default."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise DhcpConfigGenerationError(f"{name} must be a positive integer") from exc
+    if value < 1:
+        raise DhcpConfigGenerationError(f"{name} must be a positive integer")
+    return value
+
+
+def _multi_threading_config() -> dict[str, Any]:
+    """Build the Kea worker settings published by config refresh.
+
+    Missing settings use one worker and eight queued packets per worker. They
+    never use Kea's hardware auto-detection, which can observe node CPUs rather
+    than the container's CPU request.
+    """
+    thread_pool_size = _positive_int_setting(_THREAD_POOL_SIZE_ENV, _DEFAULT_THREAD_POOL_SIZE)
+    return {
+        "enable-multi-threading": True,
+        "thread-pool-size": thread_pool_size,
+        "packet-queue-size": _positive_int_setting(
+            _PACKET_QUEUE_SIZE_ENV,
+            thread_pool_size * _PACKETS_PER_THREAD,
+        ),
+    }
+
+
 async def generate_config(
     dcim_client: DCIMClient,
     redis_client: RedisClient | None = None,
@@ -736,6 +774,7 @@ async def generate_config(
         kea_config: Optional existing Kea config to extract hooks path from
     """
     _start = _time.monotonic()
+    multi_threading = _multi_threading_config()
     config = load_config()
     is_aggregate = config.getboolean("general", "aggregate", fallback=False)
 
@@ -768,6 +807,7 @@ async def generate_config(
                 {"library": f"{hooks_path}/libdhcp_lease_cmds.so"},
                 {"library": f"{hooks_path}/libdhcp_stat_cmds.so"},
             ],
+            "multi-threading": multi_threading,
             "option-def": site_dhcp_options,
             "reservations-global": True,
             "reservations": [],
