@@ -50,8 +50,7 @@ test-main-py:
     # Improve performance with overlayfs.
     DOCKER_DRIVER: overlay2
   before_script:
-    - pip install --upgrade pip
-    - pip install uv
+    - . deploy/helm/files/python-tooling.sh && nvcm_bootstrap_uv
     - uv sync --frozen
   script:
     - uv run pytest packages/dcim/tests -v
@@ -91,8 +90,7 @@ test-main-workflows:
     - when: never
   image: $NVCM_CI_IMAGE_PYTHON_313
   before_script:
-    - pip install --upgrade pip
-    - pip install uv
+    - . deploy/helm/files/python-tooling.sh && nvcm_bootstrap_uv
   script:
     - make test-workflow-package
   artifacts:
@@ -127,8 +125,7 @@ test-main-workflow-artifacts:
     - when: never
   image: $NVCM_CI_IMAGE_PYTHON_313
   before_script:
-    - pip install --upgrade pip
-    - pip install uv
+    - . deploy/helm/files/python-tooling.sh && nvcm_bootstrap_uv
   script:
     - make test-workflow-wheels
 
@@ -152,8 +149,7 @@ test-main-network-templates:
     - when: never
   image: $NVCM_CI_IMAGE_PYTHON_313
   before_script:
-    - pip install --upgrade pip
-    - pip install uv
+    - . deploy/helm/files/python-tooling.sh && nvcm_bootstrap_uv
     - uv sync --frozen
   script:
     - uv run pytest packages/templates/tests -v --cov=nv_config_manager_templates --cov-report=xml:packages/templates/coverage.xml --cov-report=term
@@ -188,8 +184,7 @@ test-main-installer:
     - when: never
   image: $NVCM_CI_IMAGE_PYTHON_313
   before_script:
-    - pip install --upgrade pip
-    - pip install uv
+    - . deploy/helm/files/python-tooling.sh && nvcm_bootstrap_uv
     - cd installer
     - uv sync --frozen
   script:

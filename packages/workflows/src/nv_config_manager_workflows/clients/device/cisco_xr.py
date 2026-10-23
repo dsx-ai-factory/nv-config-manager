@@ -27,9 +27,12 @@ render. It travels in the single string leaf ``cli`` of the YANG module
 IOS XR has no "run this show command" RPC, so everything else uses YANG.
 
 Session: an SSH login to the ``netconf`` subsystem on port 830, with the
-``iosxr`` ncclient device profile. The router must advertise ``:candidate`` and
-``:confirmed-commit``; otherwise the connection is refused. Passwords are tried
-in turn.
+``iosxr`` ncclient device profile. When the session opens, each side sends a NETCONF
+``<hello>`` listing its capabilities. The router must list two NETCONF capabilities in
+its ``<hello>`` to NVCM: ``:candidate`` (a candidate datastore to load and diff
+without touching running) and ``:confirmed-commit`` (a commit that rolls back on its
+own unless confirmed). If either is missing the connection is refused. Passwords are
+tried in turn.
 
 Backup and drift (read-only):
   ``<get-config><source><running/></source>`` with the filter

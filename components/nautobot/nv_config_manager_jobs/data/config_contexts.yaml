@@ -99,6 +99,22 @@
           "re0:mgmt-0": *juniper_ztp_reservation
   deployment_types: [all]
 
+- name: Arista EOS ZTP DHCP Options
+  description: DHCP option 67 (boot-file-name) pointing EOS ZeroTouch at the rendered boot script
+  weight: 1000
+  is_active: true
+  platforms:
+    - Arista EOS
+  data:
+    dhcp:
+      options:
+        interface_names:
+          Management1: &arista_ztp_reservation
+            reservation_options:
+              boot-file-name: http://{{ ztp_server }}/v1/device/{{ device_id }}/boot-script
+          Management0: *arista_ztp_reservation
+  deployment_types: [all]
+
 - name: Cisco IOS XR ZTP DHCP Options
   description: DHCP option 67 URL of the rendered full-config for IOS XR HTTP ZTP
   weight: 1000

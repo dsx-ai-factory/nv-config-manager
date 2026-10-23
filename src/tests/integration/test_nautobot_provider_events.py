@@ -170,6 +170,10 @@ def _scoped_record_and_affected_device(
     """Find a scoped record selected by the provider's managed-device query."""
     for record in records:
         location_ids = [location["id"] for location in record.get("locations", [])]
+        if not location_ids:
+            # Without locations the query below matches every managed device, but the
+            # provider still narrows the record by its other scopes (a platform, say).
+            continue
         affected_devices = _managed_devices_at_locations(
             nautobot_url, nautobot_client, location_ids
         )

@@ -43,6 +43,29 @@ option boot-file-name "http://ztp.example.com/v1/device/{device_uuid}/config/ztp
 
 `full-config` is the intended Junos configuration rendered by operator or plugin templates. The ZTP API does not synthesize a placeholder file.
 
+**Arista EOS** — standard DHCP option 67 (`boot-file-name`) pointing at the rendered boot script. The bundled platform context sets it on `Management1` and `Management0`:
+
+```text
+boot-file-name http://{{ ztp_server }}/v1/device/{{ device_id }}/boot-script
+```
+
+EOS enters ZeroTouch when it boots without a startup-config, downloads the script and runs it. The bundled `arista-eos` boot script:
+
+1. Validates the serial number against the DCIM.
+1. Downloads and verifies the firmware image and makes it the boot image, when the running release differs from the intended one.
+1. Fetches `full-config` from the source-IP-authorized SFTP service and writes it as the startup-config.
+
+EOS then reloads with that configuration, and the switch reports itself provisioned once eAPI is up after the reload.
+
+Config Manager bundles the EOS boot script but no EOS role templates. Before you provision or reprovision an EOS device:
+
+- Provide the intended EOS `full-config` through your template plugin or configuration source.
+- Provide a matching `boot-script` entrypoint for the device's role and intended release. Entrypoints are matched on platform, role, and intended firmware, and the bundled tree only has `arista-eos/spx-leaf/4.34.3M`.
+- Check that both `boot-script` and `full-config` exist for the device in Config Store.
+- Make sure the intended configuration enables HTTPS eAPI and keeps the ZTP server reachable from the VRF that eAPI runs in. The switch reports itself provisioned from that VRF after the reload.
+
+Reprovisioning an EOS device renames its startup-config and any zerotouch-config aside on flash and schedules a reload five minutes ahead, which starts ZeroTouch. If EOS does not confirm the scheduled reload, Config Manager renames the files back and cancels the reload.
+
 **Cisco IOS XR** — DHCP option 67 (`boot-file-name`) pointing at the rendered configuration. The bundled `Cisco IOS XR ZTP DHCP Options` context sets, on `MgmtEth0/RP0/CPU0/0`:
 
 - `boot-file-name`: `http://ztp.example.com/v1/device/{device_uuid}/config/full-config`
@@ -65,7 +88,7 @@ The ONIE installer will automatically append `.ztp` to the URL if it points to a
 Ensure devices can reach the ZTP server:
 
 - **DHCP traffic**: Devices must be able to exchange DHCP packets with the Config Manager DHCP service on UDP 67/68.
-- **ZTP service traffic**: Devices must be able to access the configured HTTP or HTTPS bootstrap listener and TCP 2222 for the default Cumulus rendered-configuration download.
+- **ZTP service traffic**: Devices must be able to access the configured HTTP or HTTPS bootstrap listener and TCP 2222 for the Cumulus rendered-configuration and Arista EOS `full-config` downloads.
 - **DNS resolution**: Devices must be able to resolve the ZTP server hostname, which requires UDP/TCP 53 if hostnames are used.
 - **IP address registration**: Device IP addresses must be registered in the device management system.
 
@@ -129,9 +152,9 @@ The HTTP endpoint remains available for compatibility and troubleshooting.
 
 Common configuration file names:
 
-- `boot-script`: Cumulus Linux initial boot script
+- `boot-script`: Cumulus Linux or Arista EOS initial boot script
 - `ztp.json`: NV-OS ZTP sequence
-- `full-config`: Junos hierarchical configuration, or IOS XR configuration (operator- or plugin-rendered)
+- `full-config`: Junos hierarchical configuration, Arista EOS configuration or IOS XR configuration (operator- or plugin-rendered)
 - `startup.yaml`: Cumulus / NV-OS intended configuration
 - `system.cfg`: System configuration
 - `interfaces.cfg`: Interface configuration
@@ -200,7 +223,7 @@ Contact your system administrator for the specific configuration file names for 
 
 ### Security
 
-1. **Protect rendered configuration**: Use the default SFTP transport for Cumulus `startup.yaml`; restrict bootstrap HTTP to the private provisioning network
+1. **Protect rendered configuration**: Use the default SFTP transport for Cumulus `startup.yaml` and Arista EOS `full-config`; restrict bootstrap HTTP to the private provisioning network
 1. **Verify Checksums**: Always verify firmware checksums before installation
 1. **Validate Serial Numbers**: Use the serial validation endpoint before provisioning
 1. **Monitor Provisioning**: Correlate the ZTP `http-lb` and `sftp` container logs during provisioning

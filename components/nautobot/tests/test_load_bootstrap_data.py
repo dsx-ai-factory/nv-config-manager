@@ -765,6 +765,21 @@ class TestLoadConfigContexts:
             "http-port",
         } <= option_names
 
+    def test_bundled_arista_ztp_context_points_option_67_at_the_boot_script(self) -> None:
+        """The bundled Arista EOS context points DHCP option 67 at the rendered boot script."""
+        data_path = Path(__file__).resolve().parents[1] / "nv_config_manager_jobs/data/config_contexts.yaml"
+        with data_path.open() as f:
+            config_contexts = yaml.safe_load(f)
+
+        ztp_context = next(context for context in config_contexts if context["name"] == "Arista EOS ZTP DHCP Options")
+        assert ztp_context["platforms"] == ["Arista EOS"]
+        interfaces = ztp_context["data"]["dhcp"]["options"]["interface_names"]
+        assert set(interfaces) == {"Management1", "Management0"}
+        for options in interfaces.values():
+            assert options["reservation_options"] == {
+                "boot-file-name": "http://{{ ztp_server }}/v1/device/{{ device_id }}/boot-script"
+            }
+
     def test_bundled_juniper_ztp_context_targets_junos_and_full_config(self):
         data_path = Path(__file__).resolve().parents[1] / "nv_config_manager_jobs/data/config_contexts.yaml"
         with data_path.open() as f:

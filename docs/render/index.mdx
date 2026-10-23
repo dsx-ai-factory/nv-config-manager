@@ -110,7 +110,7 @@ Common commands:
 | `list-entrypoints` | Show which entrypoint templates match a device from a live provider or cached render data. |
 | `render` | Render an `--entrypoint` name or a full `--template` path from `--provider-config` or `--cached-render-data`. |
 
-Without `--vault`, encrypted fields in CLI output are placeholders. Use `--vault` before copying rendered configs to lab hardware. For render regression tests, add expected files under `tests/resources/expected_config/` and matching portable `RenderData` JSON under `tests/resources/`, then run `uv run pytest` (see the `nv-config-manager-templates` README).
+Without `--vault`, encrypted fields in CLI output are placeholders. Use `--vault` before copying rendered configs to lab hardware; it reads secrets from the Vault at `VAULT_ADDR` (and `VAULT_NAMESPACE` if your Vault uses namespaces). For render regression tests, add expected files under `tests/resources/expected_config/` and matching portable `RenderData` JSON under `tests/resources/`, then run `uv run pytest` (see the `nv-config-manager-templates` README).
 
 ## Template Inheritance
 
@@ -467,9 +467,9 @@ Secret management and encryption (for passwords, keys, and so on).
 
 **Secret Loading Modes:**
 
-1. **Production**: Queries Hashicorp Vault directly
-1. **Kubernetes**: Reads from injected secret files
+1. **Kubernetes**: Reads from the injected secret file named by `NV_CONFIG_MANAGER_CONFIG_SECRET_PATH`
 1. **Development**: Returns dummy value (`{path}:{key}`) when `NV_CONFIG_MANAGER_SKIP_VAULT=1`
+1. **Direct Vault**: Otherwise queries the Vault at `VAULT_ADDR`, in `VAULT_NAMESPACE` when set, with the token in `~/.vault-token`. There is no default address: if none of these variables is set, the render fails.
 
 **Example Usage:**
 
