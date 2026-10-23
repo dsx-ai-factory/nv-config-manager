@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
 import secrets
 import string
@@ -105,6 +106,31 @@ class SimConfig:
         if self.generate_fabric_from_mock_context is not None:
             return self.generate_fabric_from_mock_context
         return self.run_mock_topology_job
+
+    def custom_jobs_error(self) -> str:
+        """Validate custom job inputs before any AIR resources are created."""
+        for index, spec in enumerate(self.extra_run_after_deploy, start=1):
+            if not isinstance(spec, dict):
+                return f"Custom job {index} must specify a job class and JSON inputs."
+            job = spec.get("job", "")
+            raw_input = spec.get("input", "")
+            if not isinstance(job, str) or not job.strip():
+                if not job and not raw_input:
+                    continue
+                return f"Custom job {index} needs a job class."
+            if isinstance(raw_input, str) and not raw_input.strip():
+                continue
+            try:
+                inputs = json.loads(raw_input) if isinstance(raw_input, str) else raw_input
+            except ValueError:
+                return f"Custom job {index} inputs must be valid JSON."
+            if not isinstance(inputs, dict):
+                return f"Custom job {index} inputs must be a JSON object."
+            try:
+                json.dumps(inputs, allow_nan=False)
+            except (TypeError, ValueError):
+                return f"Custom job {index} inputs must be valid JSON."
+        return ""
 
     def to_yaml(self, path: Path) -> None:
         """Persist config to a YAML file with 0600 permissions."""

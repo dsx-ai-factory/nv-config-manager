@@ -71,6 +71,35 @@ Important fields:
 | **Simulation Name** | Name shown in DSX Air. Leave blank to auto-generate. |
 | **OOB Management Server Name** | Existing DSX Air server node that receives Config Manager, usually `oob-mgmt-server`. |
 
+### Custom Nautobot topology jobs
+
+Under **Topology → Nautobot → Custom topology jobs**:
+
+1. Select **Add Job Directory** and choose the local job-package directory, for
+   example `/path/to/example_topology`. The directory and its contents are
+   uploaded to the simulation during installation.
+1. Select **Add Job to Run** and enter its full Nautobot job class, for example
+   `custom.example_topology.jobs.design.ExampleTopologyDesign`.
+1. Enter the job's inputs as a JSON object, such as
+   `{"deployment_name": "demo"}`. Blank inputs mean no arguments. Jobs run in
+   the displayed order after installation, following the mock job if enabled.
+1. Save the profile or launch the simulation. Invalid JSON and non-object inputs
+   are rejected before Air resources are created.
+
+![Custom Nautobot topology jobs](../../assets/images/air-sim/09-custom-topology-jobs.svg)
+
+For a custom job that replaces the bundled inventory, turn off **Populate bundled
+Nautobot with the mock topology job**. The Air topology YAML, Nautobot population
+job, and template plugins are separate selections; keep them aligned with the
+same design. A preview-only job does not populate the inventory needed for
+automatic switch provisioning.
+
+Directories can be uploaded without adding a job to run. Multiple jobs may use
+the same directory. These controls edit the existing `extra_job_paths` and
+`extra_run_after_deploy` settings, including profiles created outside the TUI.
+Do not enter passwords or tokens as job inputs; resolve credentials through your
+job's runtime secret integration.
+
 ### DSX Air trial topology
 
 ```mermaid
