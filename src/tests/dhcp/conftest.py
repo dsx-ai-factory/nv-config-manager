@@ -13,3 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """DHCP test configuration - INI mocking handled by top-level conftest.py."""
+
+from pathlib import Path
+
+import pytest
+
+from nv_config_manager.dhcp.config_hash import EXPECTED_CONFIG_HASH_FILE_ENV
+
+
+@pytest.fixture(autouse=True)
+def isolate_expected_config_hash_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Keep each DHCP test's readiness state in its own temporary directory."""
+    monkeypatch.setenv(EXPECTED_CONFIG_HASH_FILE_ENV, str(tmp_path / "expected-config-hash-v4"))

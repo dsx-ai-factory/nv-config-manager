@@ -284,8 +284,7 @@ publish-network-templates-release:
       when: on_success
     - when: never
   before_script:
-    - pip install --upgrade pip
-    - pip install uv
+    - . deploy/helm/files/python-tooling.sh && nvcm_bootstrap_uv
   script:
     - uv build --package nv-config-manager-templates --out-dir dist --clear
     - >
@@ -313,8 +312,7 @@ publish-nautobot-app-overlays-release:
       when: on_success
     - when: never
   before_script:
-    - pip install --upgrade pip
-    - pip install uv
+    - . deploy/helm/files/python-tooling.sh && nvcm_bootstrap_uv
   script:
     - cd components/nautobot/nautobot-app-overlays
     - export SETUPTOOLS_SCM_PRETEND_VERSION="${NEW_VERSION}"
@@ -344,8 +342,7 @@ publish-nautobot-nv-config-manager-release:
       when: on_success
     - when: never
   before_script:
-    - pip install --upgrade pip
-    - pip install uv
+    - . deploy/helm/files/python-tooling.sh && nvcm_bootstrap_uv
   script:
     - cd components/nautobot/nautobot-nv-config-manager
     - export SETUPTOOLS_SCM_PRETEND_VERSION="${NEW_VERSION}"

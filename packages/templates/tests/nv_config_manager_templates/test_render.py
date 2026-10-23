@@ -28,6 +28,8 @@ from nv_config_manager_dcim import RenderData, RenderDataExtension
 
 from nv_config_manager_templates.dataclasses.interface import ConnectedDevice
 from nv_config_manager_templates.filters import FilterException
+from nv_config_manager_templates.filters.device import uuid as device_uuid
+from nv_config_manager_templates.filters.device import ztp_servers
 from nv_config_manager_templates.render import Renderer
 
 RESOURCES_DIR = Path(__file__).resolve().parents[1] / "resources"
@@ -283,3 +285,61 @@ def test_arista_users_include_gives_privilege_15_only_to_network_admin(
     lines = [line for line in output.splitlines() if line.strip()]
     assert lines[0].startswith("username admin1 privilege 15 role network-admin secret sha512 ")
     assert lines[1].startswith("username ops1 privilege 1 role network-operator secret sha512 ")
+
+
+def test_arista_boot_script_provisions_from_the_ztp_service(
+    public_leaf_data, public_location_data
+) -> None:
+    """The EOS ZeroTouch script fetches everything from the device's own ZTP endpoints."""
+    os.environ["NV_CONFIG_MANAGER_SKIP_VAULT"] = "1"
+    render_data = RenderData(device=public_leaf_data, location=public_location_data)
+
+    output = Renderer().render("arista-eos/role-common/base/boot-script.j2", render_data)
+
+    assert output.startswith("#!/bin/bash\n")
+    assert "trap error ERR\n" in output
+    assert "set -o pipefail\n" in output
+    assert f'ZTP_SERVER="http://{ztp_servers(public_leaf_data)[0]}"' in output
+    assert f'DEVICE_URL="$ZTP_SERVER/v1/device/{device_uuid(public_leaf_data)}"' in output
+    assert f'DESIRED_FIRMWARE="{public_leaf_data.firmware.desired_version}"' in output
+    for endpoint in ("validate_serial", "firmware", "firmware/checksum", "provisioned"):
+        assert f'"$DEVICE_URL/{endpoint}"' in output, endpoint
+    # The configuration carries password hashes, so it comes over SFTP, never HTTP.
+    assert (
+        f'CONFIG_URL="sftp://{ztp_servers(public_leaf_data)[0]}:2222/device/'
+        f'{device_uuid(public_leaf_data)}/full-config"'
+    ) in output
+    assert '--output /mnt/flash/startup-config.ztp "$CONFIG_URL"' in output
+    assert '"$DEVICE_URL/config/full-config"' not in output
+    assert (
+        "rm -f /mnt/flash/startup-config.nvcm-backup /mnt/flash/zerotouch-config.nvcm-backup"
+        in output
+    )
+    assert "boot system flash:" in output
+    assert "mv /mnt/flash/startup-config.ztp /mnt/flash/startup-config" in output
+    assert output.rstrip().endswith("exit 0")
+
+
+def test_arista_boot_script_reports_provisioned_after_the_reload(
+    public_leaf_data, public_location_data
+) -> None:
+    """The provisioned report waits for the reload: a one-shot rc.eos sends it once eAPI is up."""
+    os.environ["NV_CONFIG_MANAGER_SKIP_VAULT"] = "1"
+    render_data = RenderData(device=public_leaf_data, location=public_location_data)
+
+    output = Renderer().render("arista-eos/role-common/base/boot-script.j2", render_data)
+
+    main, _, rest = output.partition("cat > /mnt/flash/rc.eos.ztp <<EOF")
+    hook, _, tail = rest.partition("\nEOF\nchmod +x /mnt/flash/rc.eos.ztp")
+    assert hook, "the boot script writes no rc.eos"
+    assert "/provisioned" not in main + tail, "the script reports provisioned before EOS reloads"
+    assert '"$DEVICE_URL/provisioned"' in hook
+    assert 'DEVICE_URL="$DEVICE_URL"' in hook
+    assert "rm -f /mnt/flash/rc.eos" in hook
+    assert "show management api http-commands | json" in hook
+    # After the reload the management port is in a VRF; the report must leave from it.
+    assert 'netns=(ip netns exec "ns-$vrf")' in hook
+    assert '"${netns[@]}" curl' in hook
+    assert ") < /dev/null > /dev/null 2>&1 &" in hook
+    # rc.eos is put in place last, so a script that fails earlier leaves no report behind.
+    assert tail.lstrip("\n").startswith("mv /mnt/flash/rc.eos.ztp /mnt/flash/rc.eos")

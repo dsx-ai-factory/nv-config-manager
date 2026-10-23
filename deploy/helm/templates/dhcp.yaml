@@ -153,6 +153,9 @@ spec:
           {{- toYaml .Values.networkDhcp.resources.healthcheck | nindent 10 }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerSecretsDirEtcVault" . | nindent 8 }}
+        - name: dhcp-sync-state
+          mountPath: /tmp/nv-config-manager-dhcp-state
+          readOnly: true
       # API container
       - name: api
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -197,6 +200,9 @@ spec:
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerSecretsDirEtcVault" . | nindent 8 }}
         {{- include "nv-config-manager.authVolumeMounts" . | nindent 8 }}
+        - name: dhcp-sync-state
+          mountPath: /tmp/nv-config-manager-dhcp-state
+          readOnly: true
       # Config sync container
       - name: config-sync-v4
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -247,9 +253,14 @@ spec:
         # start and never receives Secret updates.
         {{- include "nv-config-manager.vaultAgent.configManagerSecretsDirEtcVault" . | nindent 8 }}
         {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
+        - name: dhcp-sync-state
+          mountPath: /tmp/nv-config-manager-dhcp-state
       {{- /* SPIFFE helper sidecar for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar" (dict "root" . "serviceName" "network-dhcp") | nindent 6 }}
       volumes:
+      - name: dhcp-sync-state
+        emptyDir:
+          sizeLimit: 1Mi
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
       {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
