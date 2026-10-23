@@ -38,10 +38,12 @@ class JobDirectoryRow(Horizontal):
     """
 
     def __init__(self, path: str) -> None:
+        """Retain the saved path until its input is mounted."""
         super().__init__()
         self.path = path
 
     def compose(self) -> ComposeResult:
+        """Build the directory input and its browse/remove controls."""
         yield Input(value=self.path, placeholder="/path/to/example_topology")
         yield Button("Browse", classes="browse-job-directory")
         yield Button("Remove", variant="error", classes="remove-custom-job")
@@ -56,11 +58,14 @@ class JobRunRow(Vertical):
     """
 
     def __init__(self, spec: Any) -> None:
+        """Prepare editable fields while retaining the original saved entry."""
         super().__init__()
         self.spec = spec
         fields = spec if isinstance(spec, dict) else {}
         self._initial_job = str(fields.get("job", ""))
         raw_input = fields.get("input", "") if isinstance(spec, dict) else spec
+        if isinstance(spec, dict) and raw_input is None:
+            raw_input = ""
         try:
             self._initial_input = (
                 raw_input if isinstance(raw_input, str) else json.dumps(raw_input, indent=2)
@@ -69,6 +74,7 @@ class JobRunRow(Vertical):
             self._initial_input = repr(raw_input)
 
     def compose(self) -> ComposeResult:
+        """Build the job class, JSON input and removal controls."""
         yield Label("Job class", classes="field-label")
         yield Input(
             value=self._initial_job,
@@ -84,7 +90,8 @@ class JobRunRow(Vertical):
         inputs = self.query_one(TextArea).text
         if job == self._initial_job and inputs == self._initial_input:
             return self.spec
-        return {"job": job.strip(), "input": inputs.strip()}
+        fields = self.spec if isinstance(self.spec, dict) else {}
+        return {**fields, "job": job.strip(), "input": inputs.strip()}
 
 
 class CustomJobsPanel(Container):
@@ -97,11 +104,14 @@ class CustomJobsPanel(Container):
     """
 
     def __init__(self, config: SimConfig, **kwargs: object) -> None:
+        """Initialize the editor and track the latest configuration sync."""
         super().__init__(**kwargs)
         self._config = config
         self._syncing = False
+        self._sync_generation = 0
 
     def compose(self) -> ComposeResult:
+        """Build the saved directory/job rows and validation message."""
         yield Label("Custom topology jobs", classes="subsection-label")
         yield Static(
             "Upload local Nautobot job-package directories. Add the jobs to run after "
@@ -119,6 +129,7 @@ class CustomJobsPanel(Container):
         yield Static(self._config.custom_jobs_error(), id="custom-jobs-error")
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle adding, browsing and removing directory/job rows."""
         button = event.button
         if button.id == "add-custom-job-directory":
             event.stop()
@@ -137,6 +148,7 @@ class CustomJobsPanel(Container):
 
     @work
     async def _pick_directory(self, row: JobDirectoryRow | None = None) -> None:
+        """Select a directory and add or update its row when accepted."""
         picked = await self.app.push_screen_wait(
             SelectDirectory(title="Select job package directory")
         )
@@ -150,6 +162,7 @@ class CustomJobsPanel(Container):
             row.query_one(Input).value = str(picked)
 
     def write_to_config(self, config: SimConfig) -> None:
+        """Save mounted row edits unless a configuration sync is in progress."""
         if self._syncing:
             return  # The saved settings remain authoritative until rows finish mounting.
         config.extra_job_paths = [
@@ -167,17 +180,23 @@ class CustomJobsPanel(Container):
         self.query_one("#custom-jobs-error", Static).update(config.custom_jobs_error())
 
     def sync_from_config(self, config: SimConfig) -> None:
+        """Schedule replacement of the rows from the latest saved configuration."""
         self._config = config
         self._syncing = True
-        self._sync_rows()
+        self._sync_generation += 1
+        self._sync_rows(self._sync_generation)
 
     @work(exclusive=True)
-    async def _sync_rows(self) -> None:
-        paths = self.query_one("#custom-job-directories", Vertical)
-        runs = self.query_one("#custom-job-runs", Vertical)
-        await paths.remove_children()
-        await runs.remove_children()
-        await paths.mount_all(JobDirectoryRow(path) for path in self._config.extra_job_paths)
-        await runs.mount_all(JobRunRow(spec) for spec in self._config.extra_run_after_deploy)
-        self.query_one("#custom-jobs-error", Static).update(self._config.custom_jobs_error())
-        self._syncing = False
+    async def _sync_rows(self, generation: int) -> None:
+        """Replace saved rows and release the guard for the latest sync on exit."""
+        try:
+            paths = self.query_one("#custom-job-directories", Vertical)
+            runs = self.query_one("#custom-job-runs", Vertical)
+            await paths.remove_children()
+            await runs.remove_children()
+            await paths.mount_all(JobDirectoryRow(path) for path in self._config.extra_job_paths)
+            await runs.mount_all(JobRunRow(spec) for spec in self._config.extra_run_after_deploy)
+            self.query_one("#custom-jobs-error", Static).update(self._config.custom_jobs_error())
+        finally:
+            if generation == self._sync_generation:
+                self._syncing = False

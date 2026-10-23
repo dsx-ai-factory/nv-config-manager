@@ -116,11 +116,14 @@ class SimConfig:
             raw_input = spec.get("input", "")
             if not isinstance(job, str):
                 return f"Custom job {index} needs a job class."
-            if not job.strip():
-                if not job and not raw_input:
+            job = job.strip()
+            if isinstance(raw_input, str):
+                raw_input = raw_input.strip()
+            if not job:
+                if not raw_input:
                     continue
                 return f"Custom job {index} needs a job class."
-            if isinstance(raw_input, str) and not raw_input.strip():
+            if raw_input is None or (isinstance(raw_input, str) and not raw_input):
                 continue
             try:
                 inputs = json.loads(raw_input) if isinstance(raw_input, str) else raw_input

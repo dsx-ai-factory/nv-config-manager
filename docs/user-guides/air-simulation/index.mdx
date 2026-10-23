@@ -145,8 +145,9 @@ Under **Topology → Nautobot → Custom topology jobs**:
 1. Select **Add Job to Run** and enter its full Nautobot job class, for example
    `custom.example_topology.jobs.design.ExampleTopologyDesign`.
 1. Enter the job's inputs as a JSON object, such as
-   `{"deployment_name": "demo"}`. Blank inputs mean no arguments. Jobs run in
-   the displayed order after installation, following the mock job if enabled.
+   `{"deployment_name": "demo"}`. Blank inputs, including an empty or `null` YAML
+   `input`, mean no arguments. Jobs run in the displayed order after installation,
+   following the mock job if enabled.
 1. Save the profile or launch the simulation. Invalid JSON and non-object inputs
    are rejected before Air resources are created.
 

@@ -108,6 +108,7 @@ def test_custom_jobs_do_not_infer_mock_topology() -> None:
 @pytest.mark.parametrize(
     ("inputs", "expected"),
     [
+        (None, ""),
         ("", ""),
         (" \t\n", ""),
         (' {"dryrun": true} \n', ' {"dryrun": true} \n'),
@@ -115,7 +116,7 @@ def test_custom_jobs_do_not_infer_mock_topology() -> None:
     ],
 )
 def test_custom_job_inputs_normalize_blank_strings(
-    inputs: str | dict[str, bool], expected: str
+    inputs: str | dict[str, bool] | None, expected: str
 ) -> None:
     cfg = SimConfig(
         run_mock_topology_job=False,
