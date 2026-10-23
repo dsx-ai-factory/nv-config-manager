@@ -2182,7 +2182,7 @@ such as "1e3m", are not a valid quantity.
 */}}
 {{- define "nv-config-manager.dhcp.cpuMillicores" -}}
 {{- $raw := . | toString | trim -}}
-{{- if not (regexMatch `^[0-9]+(\.[0-9]+)?(([eE][+-]?[0-9]+)|m)?$` $raw) -}}
+{{- if not (regexMatch `^([0-9]+(\.[0-9]*)?|\.[0-9]+)(([eE][+-]?[0-9]+)|m)?$` $raw) -}}
 {{- fail (printf "networkDhcp.resources.dhcp.requests.cpu %q is not a valid CPU quantity" $raw) -}}
 {{- end -}}
 {{- if hasSuffix "m" $raw -}}
