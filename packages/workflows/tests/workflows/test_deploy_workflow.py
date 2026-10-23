@@ -13,9 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import json
+import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 from unittest.mock import ANY, patch
 
@@ -53,6 +56,64 @@ from nv_config_manager_workflows.workflows.deploy import (
 )
 
 from .conftest import mock_send_slack_message
+
+_WORKFLOW_DETAIL_FIXTURE = (
+    Path(__file__).parents[1] / "fixtures" / "workflow_detail_deploy_pending_approval.json"
+)
+_FIXTURE_WORKFLOW_ID = "docs-deploy-pending-approval"
+
+
+def _build_pending_approval_fixture(
+    workflow_input: dict[str, Any], stages: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Build the stable workflow-detail response shared with UI tests."""
+    normalized_stages = json.loads(json.dumps(stages))
+    for stage in normalized_stages:
+        for history_entry in stage["state_history"]:
+            history_entry["time"] = "2026-06-08T16:02:00+00:00"
+
+    return {
+        "id": _FIXTURE_WORKFLOW_ID,
+        "workflow_type": "DeployWorkflow",
+        "workflow_input": workflow_input,
+        "started_by": "demo",
+        "start_time": "2026-06-08T16:02:00Z",
+        "close_time": None,
+        "status": "RUNNING",
+        "pending_approval": True,
+        "failed_stage": False,
+        "stages": normalized_stages,
+        "result": None,
+        "search_attributes": {
+            "DeviceID": ["mock_device_uuid"],
+            "DeviceName": ["mock_device"],
+            "DevicePlatform": ["cumulus-linux"],
+            "DeviceRole": ["mock_role"],
+            "ExecuteRoles": ["all"],
+            "FailedStage": [False],
+            "PendingApproval": [True],
+            "ReadRoles": ["all"],
+            "Site": ["SITEA"],
+            "User": ["demo"],
+        },
+        "href": (
+            f"https://temporal-ui.example.com/namespaces/default/workflows/"
+            f"{_FIXTURE_WORKFLOW_ID}"
+        ),
+    }
+
+
+def _assert_pending_approval_fixture(current: dict[str, Any]) -> None:
+    """Compare the running workflow with its shared UI fixture."""
+    if os.environ.get("NVCM_UPDATE_SNAPSHOTS") == "1":
+        _WORKFLOW_DETAIL_FIXTURE.write_text(json.dumps(current, indent=2) + "\n")
+    if not _WORKFLOW_DETAIL_FIXTURE.exists():
+        pytest.fail(
+            "Missing shared workflow-detail fixture; capture it with NVCM_UPDATE_SNAPSHOTS=1",
+            pytrace=False,
+        )
+
+    assert json.loads(_WORKFLOW_DETAIL_FIXTURE.read_text()) == current
 
 
 @activity.defn(name="get_network_device")
@@ -317,102 +378,11 @@ async def test_execute_workflow(
         while await handle.query("pending_approval") is False:
             await asyncio.sleep(1)
 
-        expected_pre_approve_stages = [
-            {
-                "approval_threshold": 0,
-                "approvers": [],
-                "child_workflows": [],
-                "depends_on": [],
-                "description": "Load the latest intended configuration from the Config Store.",
-                "execution_time": 0.0,
-                "input": {"device_id": "mock_device_uuid"},
-                "name": "load_intended_configuration",
-                "output": {
-                    "commit_id": "mock_commit_id",
-                    "display": "Loaded intended configuration from "
-                    "[mock_device_uuid/startup.yaml](https://config-manager.example.com/device/mock_device_uuid/startup.yaml?file_type=intended&commit=mock_commit_id).",
-                    "intended_config": "mock intended config",
-                },
-                "rejecters": [],
-                "requires_approval": False,
-                "retry_count": 0,
-                "retryable": True,
-                "state": "COMPLETE",
-                "state_history": [
-                    {"state": "NOT_STARTED", "time": "1970-01-01T00:00:00+00:00"},
-                    {"state": "IN_PROGRESS", "time": "1970-01-01T00:00:00+00:00"},
-                    {"state": "COMPLETE", "time": "1970-01-01T00:00:00+00:00"},
-                ],
-                "traceback": None,
-            },
-            {
-                "approval_threshold": 1,
-                "approvers": [],
-                "child_workflows": [],
-                "depends_on": ["load_intended_configuration"],
-                "description": "Retrieve the configuration diff.",
-                "execution_time": None,
-                "input": {
-                    "device_id": "mock_device_uuid",
-                    "intended_config": "mock intended config",
-                },
-                "name": "perform_configuration_diff",
-                "output": {
-                    "approved": False,
-                    "diff": "mock_diff",
-                    "display": "Configuration Diff For Approval\n```\nmock_diff\n```",
-                },
-                "rejecters": [],
-                "requires_approval": True,
-                "retry_count": 0,
-                "retryable": True,
-                "state": "PENDING_APPROVAL",
-                "state_history": [
-                    {"state": "NOT_STARTED", "time": "1970-01-01T00:00:00+00:00"},
-                    {"state": "IN_PROGRESS", "time": "1970-01-01T00:00:00+00:00"},
-                    {"state": "PENDING_APPROVAL", "time": "1970-01-01T00:00:00+00:00"},
-                ],
-                "traceback": None,
-            },
-            {
-                "approval_threshold": 0,
-                "approvers": [],
-                "child_workflows": [],
-                "depends_on": ["perform_configuration_diff"],
-                "description": "Apply the configuration to the device.",
-                "execution_time": None,
-                "input": None,
-                "name": "apply_configuration",
-                "output": None,
-                "rejecters": [],
-                "requires_approval": False,
-                "retry_count": 0,
-                "retryable": True,
-                "state": "NOT_STARTED",
-                "state_history": [{"state": "NOT_STARTED", "time": "1970-01-01T00:00:00+00:00"}],
-                "traceback": None,
-            },
-            {
-                "approval_threshold": 0,
-                "approvers": [],
-                "child_workflows": [],
-                "depends_on": ["perform_configuration_diff"],
-                "description": "Run the backup workflow for the device..",
-                "execution_time": None,
-                "input": None,
-                "name": "perform_backup",
-                "output": None,
-                "rejecters": [],
-                "requires_approval": False,
-                "retry_count": 0,
-                "retryable": True,
-                "state": "NOT_STARTED",
-                "state_history": [{"state": "NOT_STARTED", "time": "1970-01-01T00:00:00+00:00"}],
-                "traceback": None,
-            },
-        ]
-
-        assert await handle.query("stages") == expected_pre_approve_stages
+        pending_approval_stages = await handle.query("stages")
+        fixture = _build_pending_approval_fixture(
+            input_data.model_dump(mode="json"), pending_approval_stages
+        )
+        _assert_pending_approval_fixture(fixture)
         await handle.signal("approve", {"stage_name": "perform_configuration_diff", "user": "Test"})
 
         result = await handle.result()

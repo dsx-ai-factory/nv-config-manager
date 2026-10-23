@@ -978,6 +978,26 @@ so importing a workflow module does not parse them. The UI keeps byte-for-byte c
 Change both copies together, and add a capability only together with the UI
 code that implements it.
 
+### Shared running-workflow fixture
+
+`tests/fixtures/workflow_detail_deploy_pending_approval.json` is the canonical
+running-workflow example used by the Deploy workflow test, UI workflow-detail
+tests, and documentation screenshot generator. The Python workflow test captures
+the actual stage query at the approval gate; the UI reads the resulting API
+response directly rather than maintaining a TypeScript copy.
+
+When an intentional Deploy stage change makes the snapshot stale, regenerate it
+from the repository root and review the JSON diff:
+
+```sh
+NVCM_UPDATE_SNAPSHOTS=1 uv run pytest \
+  packages/workflows/tests/workflows/test_deploy_workflow.py::test_execute_workflow
+```
+
+Then regenerate `deployworkflow-running.png` with `make docs-ui-screenshots`.
+Do not edit a separate UI fixture; workflow stage changes should be reconciled
+in this file once.
+
 ## Temporal compatibility
 
 Changes to workflow definitions, scheduled activity arguments or options, and

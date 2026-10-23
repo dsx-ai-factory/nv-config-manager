@@ -21,6 +21,7 @@ import { expect, test as base, type Page, type Route } from "@playwright/test";
 
 import workflowFormIds from "@/config/workflow-form-ids.json";
 import { getWorkflowFormFixture } from "@/mocks/data/workflowForms";
+import { DEPLOY_PENDING_APPROVAL_WORKFLOW } from "../shared/workflowFixtures";
 
 const SCREENSHOT_DIR = path.resolve(
   process.cwd(),
@@ -655,6 +656,37 @@ test.describe("workflow page docs screenshots", () => {
     await screenshotWorkflowListPage(page);
   });
 
+  test.describe("running workflow screenshots", () => {
+    test.use({ timezoneId: "America/Los_Angeles" });
+
+    test("captures a running Deploy workflow pending approval", async ({
+      page,
+    }) => {
+      await page.goto(`/workflows/${DEPLOY_PENDING_APPROVAL_WORKFLOW.id}`);
+
+      await expect(
+        page.getByRole("heading", { name: "Workflow Details" })
+      ).toBeVisible();
+      await page
+        .getByRole("button", {
+          name: "Select Retrieve the configuration diff.",
+        })
+        .click();
+      await expect(page.getByRole("button", { name: "Approve" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Reject" })).toBeVisible();
+      await expect(
+        page.getByText("Configuration Diff For Approval")
+      ).toBeVisible();
+      await settleFonts(page);
+      await page.addStyleTag({
+        content: "nextjs-portal { display: none !important; }",
+      });
+      await page.screenshot({
+        path: path.join(SCREENSHOT_DIR, "deployworkflow-running.png"),
+      });
+    });
+  });
+
   test("captures user roles popout", async ({ page }) => {
     await page.goto("/workflows");
     await page.waitForLoadState("networkidle");
@@ -707,6 +739,13 @@ async function setupDocsMocks(page: Page): Promise<void> {
   await page.route("**/v1/workflow/metadata?include=form", async (route) => {
     await fulfillJson(route, DOC_WORKFLOW_METADATA);
   });
+
+  await page.route(
+    `**/v1/workflow/${DEPLOY_PENDING_APPROVAL_WORKFLOW.id}`,
+    async (route) => {
+      await fulfillJson(route, DEPLOY_PENDING_APPROVAL_WORKFLOW);
+    }
+  );
 
   await page.route(/.*\/v1\/workflow\/[^/?#]+\/form(\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());

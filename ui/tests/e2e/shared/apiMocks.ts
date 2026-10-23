@@ -37,6 +37,7 @@ import {
   FORBIDDEN_SITE_ID,
   FORBIDDEN_DEVICE_IDS,
 } from "@/mocks/data";
+import { DEPLOY_PENDING_APPROVAL_WORKFLOW } from "../../shared/workflowFixtures";
 
 /** A JSON fixture the workflow API tests keep in `src/tests/temporal/api/fixtures/`. */
 function readApiFixture<T>(file: string): T {
@@ -1835,6 +1836,14 @@ export async function mockWorkflowDetailsEndpoint(page: Page) {
           error:
             "Forbidden: You do not have permission to access this resource",
         },
+      });
+      return;
+    }
+
+    if (id === DEPLOY_PENDING_APPROVAL_WORKFLOW.id) {
+      await route.fulfill({
+        status: 200,
+        json: DEPLOY_PENDING_APPROVAL_WORKFLOW,
       });
       return;
     }

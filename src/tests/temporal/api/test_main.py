@@ -13,9 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import json
 from configparser import ConfigParser
 from datetime import datetime
 from importlib import reload
+from pathlib import Path
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -72,6 +74,20 @@ def test_healthcheck():
     rsp = client.get("/healthcheck")
     assert rsp.status_code == 200
     assert rsp.json() == "OK"
+
+
+def test_shared_workflow_detail_fixture_matches_api_contract() -> None:
+    """Keep the UI's running-workflow fixture valid against the API model."""
+    fixture = json.loads(
+        (
+            Path(__file__).resolve().parents[4]
+            / "packages/workflows/tests/fixtures/workflow_detail_deploy_pending_approval.json"
+        ).read_text()
+    )
+
+    response = WorkflowDetailResponse.model_validate(fixture)
+
+    assert response.model_dump(mode="json") == fixture
 
 
 def test_api_startup_configures_only_workflow_ui_runtime() -> None:
