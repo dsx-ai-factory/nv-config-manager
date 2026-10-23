@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 import yaml
 
 from nv_config_manager_installer.air_sim.constants import (
@@ -102,6 +103,31 @@ def test_custom_jobs_do_not_infer_mock_topology() -> None:
 
     assert jobs == [{"path": "/opt/custom/jobs"}]
     assert run_after_deploy == [{"job": "custom.jobs.RunDemo", "input": ""}]
+
+
+@pytest.mark.parametrize(
+    ("inputs", "expected"),
+    [
+        ("", ""),
+        (" \t\n", ""),
+        (' {"dryrun": true} \n', ' {"dryrun": true} \n'),
+        ({"dryrun": True}, '{"dryrun": true}'),
+    ],
+)
+def test_custom_job_inputs_normalize_blank_strings(
+    inputs: str | dict[str, bool], expected: str
+) -> None:
+    cfg = SimConfig(
+        run_mock_topology_job=False,
+        extra_run_after_deploy=[{"job": "custom.jobs.RunDemo", "input": inputs}],
+    )
+
+    assert cfg.custom_jobs_error() == ""
+    _, runs = build_content_jobs(cfg)
+
+    assert runs == [{"job": "custom.jobs.RunDemo", "input": expected}]
+    actual_inputs = json.loads(runs[0]["input"]) if runs[0]["input"] else {}
+    assert actual_inputs == ({"dryrun": True} if expected else {})
 
 
 def test_template_plugin_paths_are_included_without_generation() -> None:

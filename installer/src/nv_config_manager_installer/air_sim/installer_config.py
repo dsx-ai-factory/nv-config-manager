@@ -67,7 +67,7 @@ def _normalize_post_deploy_job(job_spec: dict[str, Any]) -> dict[str, str]:
     job = str(job_spec.get("job", "")).strip()
     raw_input = job_spec.get("input", "")
     if isinstance(raw_input, str):
-        job_input = raw_input
+        job_input = raw_input if raw_input.strip() else ""
     else:
         job_input = json.dumps(raw_input)
     return {"job": job, "input": job_input}
