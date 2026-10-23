@@ -6,10 +6,27 @@ This project uses release tags for published versions. Add entries under
 `Unreleased` while changes are in flight, then finalize them under the release
 version before the selected release candidate is promoted.
 
-## Unreleased
+## 1.4.0
 
 ### Added
 
+- Added a pluggable DCIM interface with a bundled Nautobot provider, typed
+  location references, and pluggable template render data. Provider authors can
+  use the DCIM contribution guide without modifying the platform services.
+- Extracted reusable device and infrastructure clients, logging, workflow
+  contracts, activities, and built-in workflows into installable workspace
+  packages. Workflow plugins register through the
+  `nv_config_manager.workflows` entry-point group.
+- Added plugin scheduler registration and a shared scheduler host. Select
+  schedulers explicitly with `temporal.scheduler.schedulers`; the default
+  `builtin.backup` entry reconciles backups for the Nautobot provider.
+- Added Juniper Junos device support for configuration operations, cable
+  validation, password rotation, diagnostics, and OS upgrades.
+- Expanded Arista EOS support with running-image discovery, technical-support
+  archives, and environment, transceiver, interface-counter, and interface-MAC
+  diagnostics.
+- Added Redis exporter support and DHCP reconciliation metrics and structured
+  logs, including a UI indication when DHCP configuration becomes stale.
 - Added `GET /v1/workflow/{form_id}/form`, keyed by each form-enabled workflow's
   explicit, stable `workflow_form_id`, which returns a version 1 form envelope:
   a form projection of its input schema (`schema`), a
@@ -38,6 +55,25 @@ version before the selected release candidate is promoted.
 
 ### Changed
 
+- Corrected Go module paths and imports to use the repository's
+  `github.com/dsx-ai-factory/nv-config-manager` location. Go bindings consumers
+  must update imports and select a release containing the corrected module path.
+- Scheduled and syslog-triggered backups fail after activity retries instead
+  of waiting indefinitely for a manual stage retry. Interactive and child
+  backups retain their retry controls unless `terminate_on_failure` is set.
+- Backups for backup-enabled devices with rendering disabled skip the intended
+  configuration drift check. Render-enabled devices still need an intended
+  configuration in the Config Store.
+- Render updates select enabled devices according to aggregate ownership;
+  disabled devices are excluded from template-triggered updates. VLAN
+  relationship changes also trigger configuration rendering.
+- Cumulus ZTP retrieves rendered startup configuration over SFTP. Allow TCP
+  2222 from device subnets to the ZTP service in addition to the HTTP or HTTPS
+  bootstrap path.
+- Spectrum-X overlay assignment can remove selected port assignments without
+  adding a replacement and cleans up unused device-level VRF associations.
+- Gateway monitoring covers configured browser and JWT-only service routes;
+  bundled NATS is monitored through its in-cluster HTTP endpoint.
 - Workflow launcher forms are rendered with RJSF from the `/form` envelope.
   The UI shows a "needs a newer UI" state for a form version or capability it
   does not support, instead of rendering a partial form. Existing workflow
@@ -64,6 +100,16 @@ version before the selected release candidate is promoted.
 
 ### Fixed
 
+- DHCP sync and refresh processes mount the INI directory so ConfigMap updates
+  remain visible. Lease summaries read active leases from the shared database,
+  and reconciliation tolerates reads cancelled by a Nautobot replica.
+- UI, Nautobot, and Temporal UI health probes bypass the OIDC login redirect.
+- Fixed Arista confirmed-commit sequencing, connected-host discovery without a
+  tenant, and the Nautobot alias field used by host metadata workflows.
+- Fixed Config Store comparison statistics and diff spacing, and ZTP serial
+  validation when no matching device exists.
+- Improved installer recovery from transient Air setup timeouts, local-source
+  upload, and inventory-only device handling.
 - Services with tracing enabled no longer leak memory on every outbound aiohttp
   session. With no OpenTelemetry meter provider configured, the aiohttp
   instrumentation registered a new meter on the global proxy provider for each
@@ -79,7 +125,8 @@ version before the selected release candidate is promoted.
   rescheduled after nats-box started came back without JetStream state, and
   nothing re-ran stream setup. Runtime-created streams now use the configured
   names, subjects, and the same limits as nats-ready.
-- nats-ready no longer logs NATS passwords or token-only credentials in the server address.
+- nats-ready no longer logs NATS passwords or token-only credentials in the
+  server address.
 - Nautobot upgrades no longer wipe nv-config-manager's Redis data. The Nautobot
   Django cache shared Redis database 0 with nv-config-manager, and
   `nautobot-server post_upgrade` clears that cache with `FLUSHDB`. Every
@@ -93,6 +140,11 @@ version before the selected release candidate is promoted.
   Nautobot. After upgrading, delete the leftover `:1:nautobot*` keys from
   database 0; see "Upgrading From an Earlier Release" in the Nautobot
   integration docs.
+
+### Security
+
+- Updated Python, UI, Temporal, and container dependencies, and restricted
+  internal service authentication to the SPIFFE identity path.
 
 ## 1.3.1
 

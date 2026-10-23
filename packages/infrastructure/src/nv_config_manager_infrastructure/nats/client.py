@@ -29,8 +29,7 @@ from nv_config_manager_logging import LogCategory, get_logger
 
 logger = get_logger(__name__, category=LogCategory.NATS)
 
-# Defined here rather than in common.config because that module imports this
-# package; common.config re-exports it as the public name.
+# Canonical JetStream API prefix shared by infrastructure and service clients.
 DEFAULT_NATS_API_PREFIX = "$JS.API"
 _REDACTED_NATS_SERVER = "<redacted-nats-server>"
 

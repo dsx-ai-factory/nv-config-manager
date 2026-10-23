@@ -8,6 +8,8 @@ readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.13"
 dependencies = [
+    # Remove compromised emSign CA trust (GHSA-6q48-6c7w-9gw2).
+    "certifi>=2026.10.19",
     # Core / Shared
     "click>=8.1.7",
     # Security: Fix idna vulnerability (GHSA-65pc-fj4g-8rjx)
@@ -213,6 +215,7 @@ docs = [
 ]
 
 [tool.uv]
+required-version = ">=0.13.4"
 package = true
 
 [tool.uv.workspace]

@@ -21,11 +21,11 @@ from fastapi import APIRouter, HTTPException, Request
 from nats.aio.client import Client
 from nats.js import JetStreamContext
 from nats.js.errors import NotFoundError
+from nv_config_manager_infrastructure.nats import DEFAULT_NATS_API_PREFIX
 from pydantic import BaseModel
 
-from nv_config_manager.common.config import (
-    DEFAULT_NATS_API_PREFIX,
-    load_config,
+from nv_config_manager.common.config.loader import load_config
+from nv_config_manager.common.config.nats import (
     nats_config_manager_api_prefix,
     nats_connection,
     nats_dcim_change_config,

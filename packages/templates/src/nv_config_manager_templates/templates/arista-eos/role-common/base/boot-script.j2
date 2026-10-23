@@ -1,0 +1,135 @@
+#!/bin/bash
+{# Arista EOS ZeroTouch script. EOS downloads this file from the URL in DHCP option 67
+    (boot-file-name) and runs it as root with no configuration applied. When it exits 0
+    the switch reloads with the startup-config and boot image the script left on flash:.
+    Role entrypoints extend this template; the blocks are the only intended variation. #}
+# NVIDIA Config Manager ZeroTouch script for {{ device_data|hostname }}
+
+ZTP_SERVER="http://{{ (device_data|ztp_servers)[0] }}"
+DEVICE_URL="$ZTP_SERVER/v1/device/{{ device_data|uuid }}"
+# The rendered configuration carries password hashes, so it comes from the ZTP
+# service's SFTP endpoint, which authorizes by source address, rather than over HTTP.
+CONFIG_URL="sftp://{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/full-config"
+DESIRED_FIRMWARE="{{ device_data|desired_firmware }}"
+IMAGE="EOS-$DESIRED_FIRMWARE.swi"
+
+# Log everything this script does; flash: survives the reload that follows.
+exec >> /mnt/flash/ztp-nvcm.log 2>&1
+date "+%FT%T ztp starting script $0"
+
+function error() {
+  echo "ERROR: the ZTP script failed while running '$BASH_COMMAND' at line $BASH_LINENO" >&2
+  exit 1
+}
+trap error ERR
+# A failing command inside a pipeline fails the pipeline, so the trap fires.
+set -o pipefail
+
+function retry_curl() {
+  local attempt=1
+  local max_attempts=5
+  local output=""
+  local exit_code=0
+  while [ $attempt -le $max_attempts ]; do
+    # Retry 5xx answers inside curl; retry connection failures here while the
+    # provisioning network settles.
+    output=$(curl --silent --show-error --retry 5 --retry-delay 5 "$@") && { echo "$output"; return 0; }
+    exit_code=$?
+    if [ $exit_code -ne 7 ]; then
+      echo "curl $* failed with exit code $exit_code" >&2
+      return $exit_code
+    fi
+    echo "connection failed (attempt $attempt of $max_attempts); retrying in 10 seconds" >&2
+    sleep 10
+    attempt=$((attempt + 1))
+  done
+  return $exit_code
+}
+
+function cli() {
+  FastCli -p 15 -c "$1"
+}
+
+function json_field() {
+  python3 -c 'import json, sys; print(json.load(sys.stdin)[sys.argv[1]])' "$1"
+}
+
+{% block validate_serial %}
+# Refuse to configure a switch other than the one this script was rendered for.
+SERIAL=$(cli "show version | json" | json_field serialNumber)
+PAYLOAD=$(SERIAL="$SERIAL" python3 -c 'import json, os; print(json.dumps({"serial": os.environ["SERIAL"]}))')
+retry_curl --fail -H "Content-Type: application/json" -d "$PAYLOAD" "$DEVICE_URL/validate_serial"
+{% endblock %}
+
+{% block firmware %}
+# Stage the desired image and boot it next; lab and engineering builds report the
+# release followed by the build, so only the release is compared.
+RUNNING_FIRMWARE=$(cli "show version | json" | json_field version | sed -E 's/-[0-9]+\.[A-Za-z0-9]+ \(engineering build\)$//')
+if [ "$RUNNING_FIRMWARE" != "$DESIRED_FIRMWARE" ]; then
+  echo "running $RUNNING_FIRMWARE, installing $DESIRED_FIRMWARE"
+  retry_curl --fail --output "/mnt/flash/$IMAGE" "$DEVICE_URL/firmware"
+  EXPECTED_SHA256=$(retry_curl --fail "$DEVICE_URL/firmware/checksum" | json_field checksum)
+  ACTUAL_SHA256=$(sha256sum "/mnt/flash/$IMAGE" | cut -d ' ' -f 1)
+  if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+    rm -f "/mnt/flash/$IMAGE"
+    echo "ERROR: $IMAGE has SHA-256 $ACTUAL_SHA256, the image store records $EXPECTED_SHA256" >&2
+    exit 1
+  fi
+  # "boot system" validates the image and writes boot-config, which the reload honours.
+  cli $'configure\nboot system flash:'"$IMAGE"
+else
+  echo "already running $DESIRED_FIRMWARE"
+fi
+{% endblock %}
+
+{% block configuration %}
+# The rendered intended configuration becomes the startup-config the reload boots with.
+retry_curl --fail --insecure --user ztp:ztp --output /mnt/flash/startup-config.ztp "$CONFIG_URL"
+test -s /mnt/flash/startup-config.ztp
+mv /mnt/flash/startup-config.ztp /mnt/flash/startup-config
+{% endblock %}
+
+{% block extras %}{% endblock %}
+
+# A reprovision renames the old startup-config and zerotouch-config aside on flash and
+# leaves them there through the reset; this switch is past that point.
+rm -f /mnt/flash/startup-config.nvcm-backup /mnt/flash/zerotouch-config.nvcm-backup
+
+{% block report_provisioned %}
+# Config Manager backs a device up as soon as it is marked provisioned, and EOS reloads the
+# moment this script exits, so reporting from here races the reload. Leave the report to a
+# one-shot flash:rc.eos instead: EOS runs it early on the next boot, it deletes itself, and a
+# background job waits until eAPI serves on the management address before reporting. Once the
+# configuration is applied the management port usually sits in a VRF, which EOS runs as the
+# network namespace ns-<VRF>, so the report goes out from the VRF eAPI serves in.
+cat > /mnt/flash/rc.eos.ztp <<EOF
+#!/bin/bash
+DEVICE_URL="$DEVICE_URL"
+EOF
+cat >> /mnt/flash/rc.eos.ztp <<'EOF'
+rm -f /mnt/flash/rc.eos
+(
+  exec >> /mnt/flash/ztp-nvcm.log 2>&1
+  date "+%FT%T rc.eos waiting for eAPI before reporting provisioned"
+  for attempt in $(seq 90); do
+    vrf=$(FastCli -p 15 -c "show management api http-commands | json" 2>/dev/null |
+        python3 -c 'import json, sys; d = json.load(sys.stdin); assert d["httpsServer"]["running"] and d["urls"]; print(d["vrf"])' 2>/dev/null)
+    if [ -n "$vrf" ]; then
+      netns=()
+      [ "$vrf" = default ] || netns=(ip netns exec "ns-$vrf")
+      if "${netns[@]}" curl --silent --show-error --fail --retry 5 --retry-delay 10 --retry-connrefused -X POST "$DEVICE_URL/provisioned"; then
+        date "+%FT%T rc.eos reported provisioned from VRF $vrf"
+        exit 0
+      fi
+    fi
+    sleep 10
+  done
+  date "+%FT%T ERROR: rc.eos gave up reporting provisioned; mark the device provisioned by hand"
+) < /dev/null > /dev/null 2>&1 &
+EOF
+chmod +x /mnt/flash/rc.eos.ztp
+mv /mnt/flash/rc.eos.ztp /mnt/flash/rc.eos
+{% endblock %}
+
+date "+%FT%T ztp script finished; EOS reloads and rc.eos reports provisioned once eAPI is up"
+exit 0

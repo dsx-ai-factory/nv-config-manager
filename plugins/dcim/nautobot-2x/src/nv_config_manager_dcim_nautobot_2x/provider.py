@@ -370,7 +370,18 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 )
                 continue
             device = connected_interface.get("device")
-            if not isinstance(device, dict):
+            chassis_name: str | None = None
+            if isinstance(device, dict):
+                parent_bay = device.get("parent_bay")
+                if isinstance(parent_bay, dict) and isinstance(parent_bay.get("device"), dict):
+                    # Line card installed in a chassis DeviceBay: hyper-reach port
+                    # descriptions report the chassis hostname, not the line card's
+                    # own name, so surface it as an alias without losing the line
+                    # card's own identity (name, role) used by other validations.
+                    chassis_device = parent_bay["device"]
+                    if isinstance(chassis_device.get("name"), str):
+                        chassis_name = chassis_device["name"]
+            else:
                 module = connected_interface.get("module")
                 device = module.get("device") if isinstance(module, dict) else None
             if not isinstance(device, dict) or not isinstance(device.get("name"), str):
@@ -386,6 +397,11 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                         if connected_interface.get("name") is not None
                         else None
                     ),
+                    connected_interface_label=(
+                        str(connected_interface["label"])
+                        if connected_interface.get("label") is not None
+                        else None
+                    ),
                     connected_interface_mac=(
                         str(connected_interface["mac_address"])
                         if connected_interface.get("mac_address") is not None
@@ -397,6 +413,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                         role=str(role["name"]) if isinstance(role, dict) else None,
                         rack=str(rack["name"]) if isinstance(rack, dict) else None,
                         position=device.get("position"),
+                        chassis_name=chassis_name,
                     ),
                 )
             )

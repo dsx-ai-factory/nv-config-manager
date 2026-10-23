@@ -11,13 +11,12 @@ FROM ghcr.io/nautobot/nautobot-dev:${NAUTOBOT_VER}-py${PYTHON_VER}
 ARG NAUTOBOT_ROOT=/opt/nautobot
 ENV NAUTOBOT_ROOT=${NAUTOBOT_ROOT}
 
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install uv==0.6.10 --root-user-action=ignore
+COPY --from=ghcr.io/astral-sh/uv:0.13.4@sha256:9f130421e930bfbdc563c00740466603f8723158e90297d07957c2294640262b /uv /uvx /usr/local/bin/
 
 WORKDIR /source
 
-# Copy the pyproject.toml and uv.lock files first for cache optimization
-COPY pyproject.toml uv.lock /source/
+# Copy package metadata first; this image installs from pyproject.toml.
+COPY pyproject.toml /source/
 
 # Copy only the package inputs required for the editable install.
 COPY README.md /source/
