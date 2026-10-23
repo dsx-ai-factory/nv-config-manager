@@ -6,6 +6,10 @@ from __future__ import annotations
 
 import os
 
+from nv_config_manager.common.log import LogCategory, get_logger
+
+logger = get_logger(__name__, category=LogCategory.DHCP)
+
 EXPECTED_CONFIG_HASH_FILE_ENV = "CONFIG_SYNC_EXPECTED_HASH_FILE"
 EXPECTED_CONFIG_HASH_FILE = "/tmp/nv-config-manager-dhcp-state/expected-config-hash-v4"  # nosec B108
 _MAX_CONFIG_HASH_LENGTH = 128
@@ -28,24 +32,33 @@ def read_expected_config_hash() -> str | None:
     return config_hash
 
 
-def write_expected_config_hash(config_hash: str) -> None:
-    """Atomically publish the last verified Kea config hash."""
+def write_expected_config_hash(config_hash: str) -> bool:
+    """Atomically publish the last verified Kea config hash.
+
+    Returns ``True`` if the hash was written successfully, ``False`` otherwise.
+    """
     if not config_hash or len(config_hash) > _MAX_CONFIG_HASH_LENGTH:
-        raise ValueError("Kea configuration hash must contain 1-128 characters")
+        logger.error("Kea configuration hash must contain 1-128 characters")
+        return False
 
     path = expected_config_hash_file()
     directory = os.path.dirname(path)
-    os.makedirs(directory, mode=0o700, exist_ok=True)
-    temporary_path = f"{path}.{os.getpid()}.tmp"
+    temporary_path = f"{path}.{os.getpid()}.tmp"  # nosec B108
     try:
+        os.makedirs(directory, mode=0o700, exist_ok=True)
         with open(temporary_path, "w", encoding="ascii") as hash_file:
             os.chmod(temporary_path, 0o600)
             hash_file.write(f"{config_hash}\n")
             hash_file.flush()
             os.fsync(hash_file.fileno())
         os.replace(temporary_path, path)
-    finally:
+        return True
+    except (OSError, UnicodeError):
+        logger.exception("Failed to write expected config hash to %s", path)
         try:
             os.unlink(temporary_path)
         except FileNotFoundError:
             pass
+        except OSError:
+            logger.exception("Failed to delete temporary file %s", temporary_path)
+        return False

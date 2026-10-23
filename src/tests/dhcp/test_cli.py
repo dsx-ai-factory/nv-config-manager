@@ -716,6 +716,36 @@ def test_mark_verified_sync_publishes_expected_hash(
     assert expected_hash_file.read_text(encoding="ascii") == "verified-hash\n"
 
 
+def test_mark_verified_sync_does_not_mark_success_when_hash_write_fails(mocker: Any) -> None:
+    """A failed readiness publication leaves successful-sync signals unchanged."""
+    before = _gauge_value(DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP, ip_version="4")
+    mocker.patch.object(cli, "write_expected_config_hash", return_value=False)
+    log_sync_state = mocker.patch.object(cli, "_log_sync_state")
+
+    cli._mark_verified_sync(4, "verified-hash", recovered=False)
+
+    assert _gauge_value(DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP, ip_version="4") == before
+    log_sync_state.assert_not_called()
+
+
+async def test_sync_loop_retries_failed_hash_publication(mocker: Any) -> None:
+    """The monitoring iteration republishes a hash that startup could not write."""
+    config = {"Dhcp4": {"subnet4": []}}
+    kea_client, redis_client = _make_clients(
+        load_side_effect=[config, config],
+        config_hash="verified-hash",
+    )
+    write_expected_hash = mocker.patch.object(
+        cli,
+        "write_expected_config_hash",
+        side_effect=[False, True],
+    )
+
+    await _run_sync_until_stop(kea_client, redis_client)
+
+    assert write_expected_hash.call_args_list == [call("verified-hash"), call("verified-hash")]
+
+
 async def test_sync_loop_does_not_mark_verified_when_hash_unavailable() -> None:
     """Two missing hashes are not a verified match; the gauge must stay put."""
     config = {"Dhcp4": {"subnet4": []}}

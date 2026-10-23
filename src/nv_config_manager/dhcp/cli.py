@@ -251,11 +251,12 @@ def _mark_verified_sync(
 
     Call only after the running KEA hash matches the desired hash (or after
     ``config-set`` plus ``config-hash-get`` verification succeeds). The gauge
-    is always refreshed so its AGE stays low while healthy; the ``in-sync``
-    log line is emitted when ``log`` is true. ``recovered`` marks a post-drift
-    recovery, which must be logged.
+    and ``in-sync`` log are updated only after the readiness hash is published;
+    a publication failure leaves both stale while the loop retries. ``recovered``
+    marks a post-drift recovery, which must be logged.
     """
-    write_expected_config_hash(running_hash)
+    if not write_expected_config_hash(running_hash):
+        return
     DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP.labels(ip_version=str(ip_version)).set(time.time())
     if not log:
         return
