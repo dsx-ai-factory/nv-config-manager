@@ -1179,6 +1179,8 @@ renderService:
               topologyKey: kubernetes.io/hostname
   # Consumers
   consumers:
+    # Port for the /healthz liveness endpoint on every render consumer
+    healthPort: 8001
     nautobot:
       replicas: 3
       resources:
