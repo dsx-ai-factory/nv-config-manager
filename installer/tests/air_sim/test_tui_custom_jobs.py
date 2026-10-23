@@ -318,6 +318,7 @@ async def test_cancelled_sync_keeps_latest_sync_guard(monkeypatch: pytest.Monkey
         assert latest.extra_run_after_deploy == [{"job": "custom.example.jobs.Latest", "input": ""}]
 
         release_latest.set()
+        await pilot.pause()  # Let the cancelled worker leave the manager before waiting.
         await app.workers.wait_for_complete()
         assert panel._syncing is False
         assert panel.query_one(JobRunRow).query_one(Input).value == "custom.example.jobs.Latest"
