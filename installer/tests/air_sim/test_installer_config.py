@@ -17,7 +17,9 @@
 from __future__ import annotations
 
 import json
+import shlex
 
+import pytest
 import yaml
 
 from nv_config_manager_installer.air_sim.constants import (
@@ -227,3 +229,33 @@ def test_internal_air_deploy_command_uses_default_numpy_wheel_path() -> None:
 
     assert "uv run --python 3.13" in command
     assert "NVCM_NUMPY_FROM_SOURCE" not in command
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_numpy_source_build_option_survives_saved_air_config(tmp_path, enabled: bool) -> None:
+    path = tmp_path / "air-sim.yaml"
+    SimConfig(numpy_from_source=enabled).to_yaml(path)
+
+    config = SimConfig.from_yaml(path)
+    command = shlex.split(build_deploy_command(config))
+
+    assert config.numpy_from_source is enabled
+    if enabled:
+        expected = {
+            "NVCM_NUMPY_FROM_SOURCE=true",
+            "NVCM_NUMPY_CPU_BASELINE=none",
+            "NVCM_NUMPY_CPU_DISPATCH=none",
+            "NVCM_NUMPY_ALLOW_NOBLAS=true",
+        }
+        assert expected <= set(command[1 : command.index("uv")])
+        assert "--build-images" in command
+        assert "--load-kind" in command
+    else:
+        assert not any(argument.startswith("NVCM_NUMPY_") for argument in command)
+
+
+def test_older_air_config_keeps_numpy_wheel_default(tmp_path) -> None:
+    path = tmp_path / "air-sim.yaml"
+    path.write_text("deploy: true\n")
+
+    assert SimConfig.from_yaml(path).numpy_from_source is False

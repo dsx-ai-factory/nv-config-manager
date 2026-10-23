@@ -208,8 +208,8 @@ When deploying with locally built images, you can opt into building NumPy from s
 
 ```bash
 NVCM_NUMPY_FROM_SOURCE=true \
-NVCM_NUMPY_CPU_BASELINE=min \
-NVCM_NUMPY_CPU_DISPATCH=max \
+NVCM_NUMPY_CPU_BASELINE=none \
+NVCM_NUMPY_CPU_DISPATCH=none \
 NVCM_NUMPY_ALLOW_NOBLAS=true \
 nvcm-installer deploy nv-config-manager-install.yaml \
   --image-source local \
@@ -218,6 +218,15 @@ nvcm-installer deploy nv-config-manager-install.yaml \
 ```
 
 These settings only affect image builds that you explicitly run with `--build-images`. They are not enabled by any installer preset. Prefer fixing the VM or hypervisor CPU model when possible; use this build option when the deployment environment cannot expose the required CPU features.
+
+The source-build defaults use `none` for both CPU baseline and dispatch. NumPy's
+`min` baseline can still require `X86_V2`; rebuilding with `min` does not remove
+that requirement. This compatibility mode takes longer to build and disables
+NumPy's optional CPU optimizations. See [NumPy CPU build options](https://numpy.org/doc/stable/reference/simd/build-options.html).
+
+For the DSX Air launcher, enable **Options → Build NumPy for older virtual CPUs**
+or set `numpy_from_source: true` in the saved Air configuration. The launcher
+passes these source-build settings to the remote installer automatically.
 
 ## TUI Wizard Reference
 

@@ -733,6 +733,7 @@ async def test_options_page_saves_visible_fields_without_resetting_hidden_flags(
         options.query_one("#use-public-air", LabeledSwitch).value = False
         options.query_one("#oob-ssh-password", Input).value = TEST_OOB_SSH_PASSWORD
         options.query_one("#config-manager-ref", Input).value = "feature/air-demo"
+        options.query_one("#numpy-from-source", LabeledSwitch).value = True
         await pilot.click("#size-large")
         await pilot.pause(0.1)
 
@@ -741,8 +742,28 @@ async def test_options_page_saves_visible_fields_without_resetting_hidden_flags(
     assert config.use_internal is True
     assert config.oob_ssh_password == TEST_OOB_SSH_PASSWORD
     assert config.config_manager_ref == "feature/air-demo"
+    assert config.numpy_from_source is True
     assert config.auto_configure is False
     assert config.deploy is False
     assert config.no_aggressive_dhcp is True
     assert config.no_reset_before_dhcp is True
     assert config.size == "large"
+
+
+@pytest.mark.asyncio
+async def test_options_page_loads_and_disables_numpy_source_build() -> None:
+    config = SimConfig(numpy_from_source=True)
+    app = ClipboardAirSimApp(config=config)
+
+    async with app.run_test(size=(180, 70)) as pilot:
+        app.switch_section("options")
+        await pilot.pause(0.1)
+        options = app.query_one("#screen-options")
+        toggle = options.query_one("#numpy-from-source", LabeledSwitch)
+        assert toggle.value is True
+
+        options.sync_from_config(SimConfig(numpy_from_source=False))
+        assert toggle.value is False
+        app.collect_config()
+
+    assert config.numpy_from_source is False

@@ -90,6 +90,16 @@ class OptionsScreen(Container):
             classes="field-hint",
         )
         yield Static("", id="build-mode-hint", classes="field-hint")
+        yield LabeledSwitch(
+            "Build NumPy for older virtual CPUs",
+            value=self._config.numpy_from_source,
+            id="numpy-from-source",
+        )
+        yield Static(
+            "Enable for NumPy unsupported-CPU errors such as X86_V2. "
+            "Compiling from source takes longer and disables NumPy CPU optimizations.",
+            classes="field-hint",
+        )
         yield Label(
             "Cumulus Version Override  (leave blank to use topology values)",
             classes="field-label",
@@ -138,6 +148,7 @@ class OptionsScreen(Container):
         config.git_token = self.query_one("#git-token", Input).value.strip()
         config.config_manager_repo = self.query_one("#config-manager-repo", Input).value.strip()
         config.config_manager_ref = self.query_one("#config-manager-ref", Input).value.strip()
+        config.numpy_from_source = self.query_one("#numpy-from-source", LabeledSwitch).value
         config.cumulus_version = self.query_one("#cumulus-version", Input).value.strip()
         for s in _SIZES:
             if self.query_one(f"#size-{s}", RadioButton).value:
@@ -159,6 +170,7 @@ class OptionsScreen(Container):
         self.query_one("#git-token", Input).value = config.git_token
         self.query_one("#config-manager-repo", Input).value = config.config_manager_repo
         self.query_one("#config-manager-ref", Input).value = config.config_manager_ref
+        self.query_one("#numpy-from-source", LabeledSwitch).value = config.numpy_from_source
         self.query_one("#cumulus-version", Input).value = config.cumulus_version
         for s in _SIZES:
             self.query_one(f"#size-{s}", RadioButton).value = config.size == s

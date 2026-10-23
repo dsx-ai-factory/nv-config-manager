@@ -71,6 +71,7 @@ class SimConfig:
     config_manager_ref: str = "main"
     cumulus_version: str = ""
     deploy: bool = True
+    numpy_from_source: bool = False
 
     generate_fabric_from_mock_context: bool | None = None
     run_mock_topology_job: bool = True

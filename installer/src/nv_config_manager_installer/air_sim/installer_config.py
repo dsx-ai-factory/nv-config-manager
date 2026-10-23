@@ -212,14 +212,22 @@ def generate_air_sim_install_yaml(
     return yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
 
 
-def build_deploy_command(_cfg: SimConfig) -> str:
+def build_deploy_command(cfg: SimConfig) -> str:
     """Return the remote command that runs nv-config-manager-installer deploy."""
     user = NVCM_BOX_USER
     kube = f"KUBECONFIG=/home/{user}/.kube/config"
     config_path = f"/home/{user}/{CONFIG_MANAGER_INSTALL_CONFIG}"
+    numpy_env = ""
+    if cfg.numpy_from_source:
+        numpy_env = (
+            " NVCM_NUMPY_FROM_SOURCE=true"
+            " NVCM_NUMPY_CPU_BASELINE=none"
+            " NVCM_NUMPY_CPU_DISPATCH=none"
+            " NVCM_NUMPY_ALLOW_NOBLAS=true"
+        )
 
     return (
-        f"sudo NO_COLOR=1 {kube} uv run --python 3.13"
+        f"sudo NO_COLOR=1{numpy_env} {kube} uv run --python 3.13"
         f" --directory {CONFIG_MANAGER_REMOTE_DIR}"
         f" --project {CONFIG_MANAGER_REMOTE_DIR}/installer"
         f" nv-config-manager-installer deploy {config_path}"
