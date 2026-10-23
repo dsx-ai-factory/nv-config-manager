@@ -2176,11 +2176,13 @@ Fails fast when neither is available so pods never point at a dead OTLP target.
 {{/*
 Convert a Kubernetes CPU quantity to whole millicores.
 
-Accepts decimal cores ("1", "1.5") and millicore quantities ("500m", "1500m").
+Accepts decimal cores ("1", "1.5"), exponent cores ("1e0", "1.5e0"), and
+millicore quantities ("500m", "1500m"). An exponent and a suffix together,
+such as "1e3m", are not a valid quantity.
 */}}
 {{- define "nv-config-manager.dhcp.cpuMillicores" -}}
 {{- $raw := . | toString | trim -}}
-{{- if not (regexMatch `^[0-9]+(\.[0-9]+)?m?$` $raw) -}}
+{{- if not (regexMatch `^[0-9]+(\.[0-9]+)?(([eE][+-]?[0-9]+)|m)?$` $raw) -}}
 {{- fail (printf "networkDhcp.resources.dhcp.requests.cpu %q is not a valid CPU quantity" $raw) -}}
 {{- end -}}
 {{- if hasSuffix "m" $raw -}}
@@ -2199,14 +2201,20 @@ Accepts decimal cores ("1", "1.5") and millicore quantities ("500m", "1500m").
 {{- end -}}
 
 {{/*
-Return an explicit positive multi-threading override, or an empty value when unset.
+Return an explicit positive multi-threading override.
+
+The chart default is an empty string, which means derive the value. A missing
+key or a null override is treated the same way.
 Context: (dict "root" . "name" "threadPoolSize|packetQueueSize")
 */}}
 {{- define "nv-config-manager.dhcp.threadingOverride" -}}
 {{- $kea := .root.Values.networkDhcp.kea | default dict -}}
 {{- $threading := $kea.multiThreading | default dict -}}
-{{- $raw := index $threading .name | toString | trim -}}
-{{- if or (not (hasKey $threading .name)) (eq $raw "") (eq $raw "<no value>") (eq $raw "<nil>") -}}
+{{- $raw := "" -}}
+{{- if hasKey $threading .name -}}
+{{- $raw = index $threading .name | toString | trim -}}
+{{- end -}}
+{{- if or (eq $raw "") (eq $raw "<no value>") (eq $raw "<nil>") -}}
 {{- "" -}}
 {{- else if not (regexMatch `^[1-9][0-9]*$` $raw) -}}
 {{- fail (printf "networkDhcp.kea.multiThreading.%s must be a positive integer" .name) -}}

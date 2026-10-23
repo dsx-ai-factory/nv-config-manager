@@ -199,6 +199,38 @@ def test_subcore_dhcp_cpu_request_uses_one_thread() -> None:
     assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "8"
 
 
+def test_exponent_dhcp_cpu_request_is_normalized() -> None:
+    """Kubernetes exponent form 1.5e0 is 1.5 cores: two threads and queue 16."""
+    env = _refresh_env("networkDhcp.resources.dhcp.requests.cpu=1.5e0")
+
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "2"
+    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "16"
+
+
+def test_empty_threading_overrides_follow_dhcp_cpu_request() -> None:
+    """Blank chart overrides stay unset, so sizing still follows the CPU request."""
+    env = _refresh_env(
+        "networkDhcp.resources.dhcp.requests.cpu=1500m",
+        "networkDhcp.kea.multiThreading.threadPoolSize=",
+        "networkDhcp.kea.multiThreading.packetQueueSize=",
+    )
+
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "2"
+    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "16"
+
+
+def test_empty_thread_pool_keeps_an_explicit_packet_queue() -> None:
+    """A blank thread pool derives from CPU while an explicit queue is kept."""
+    env = _refresh_env(
+        "networkDhcp.resources.dhcp.requests.cpu=1500m",
+        "networkDhcp.kea.multiThreading.threadPoolSize=",
+        "networkDhcp.kea.multiThreading.packetQueueSize=10",
+    )
+
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "2"
+    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "10"
+
+
 def test_explicit_thread_pool_derives_packet_queue() -> None:
     """An explicit thread override replaces CPU sizing and scales the queue."""
     env = _refresh_env("networkDhcp.kea.multiThreading.threadPoolSize=3")
@@ -222,6 +254,7 @@ def test_explicit_packet_queue_overrides_derived_queue() -> None:
     ("override", "message"),
     [
         ("networkDhcp.resources.dhcp.requests.cpu=lots", "requests.cpu"),
+        ("networkDhcp.resources.dhcp.requests.cpu=1e3m", "requests.cpu"),
         ("networkDhcp.kea.multiThreading.threadPoolSize=0", "threadPoolSize"),
         ("networkDhcp.kea.multiThreading.packetQueueSize=0", "packetQueueSize"),
     ],
