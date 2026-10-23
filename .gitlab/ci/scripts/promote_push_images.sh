@@ -66,7 +66,6 @@ for image in $images; do
     curl -fsS --retry 3 --retry-delay 5 -H "JOB-TOKEN: ${CI_JOB_TOKEN}" \
         -o "${workdir}/artifacts.zip" \
         "${api}/jobs/${job_id}/artifacts"
-    unzip -q "${workdir}/artifacts.zip" -d "$workdir"
 
     # The artifact contents (image tarball) are attacker-controlled by design -
     # they are the PR's own build. Provenance (that this came from the guarded
@@ -74,12 +73,9 @@ for image in $images; do
     # trusted pipeline metadata, NOT from any file the build wrote. Never
     # source or eval anything under $workdir here: this job holds registry
     # credentials, so executing untrusted build output would leak them.
-    tar_file="${workdir}/images/${image}.tar.gz"
-    if [[ ! -f "$tar_file" ]]; then
-        echo "ERROR: job ${job_id} artifacts do not contain ${image}.tar.gz" >&2
-        ls -laR "$workdir" || true
-        exit 1
-    fi
+    tar_file="${workdir}/${image}.tar.gz"
+    unzip -p "${workdir}/artifacts.zip" "images/${image}.tar.gz" > "$tar_file"
+    bash "${CI_PROJECT_DIR}/.gitlab/ci/scripts/image_trust_gate.sh" verify-archive "$image" "$tar_file"
 
     echo "Loading ${image}..."
     docker load -i "$tar_file"
