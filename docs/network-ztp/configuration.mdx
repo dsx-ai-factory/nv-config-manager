@@ -70,7 +70,7 @@ Reprovisioning an EOS device renames its startup-config and any zerotouch-config
 
 - `boot-file-name`: `http://ztp.example.com/v1/device/{device_uuid}/config/full-config`
 
-`full-config` is the intended IOS XR configuration rendered by operator or plugin templates. The router applies it as its ZTP configuration; image installation needs a ZTP script, which is not bundled.
+`full-config` is the intended IOS XR configuration rendered by operator or plugin templates. The first line of the rendered file must start with `!! IOS XR`: IOS XR ZTP treats a downloaded file as configuration only with that header (a file starting with `#!` is run as a script), and Config Manager serves the stored file unchanged. The router applies it as its ZTP configuration; image installation needs a ZTP script, which is not bundled.
 
 Replace `ztp.example.com` with your ZTP server URL and `{device_uuid}` with the device UUID from the device management system.
 

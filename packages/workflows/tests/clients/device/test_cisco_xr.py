@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
 import pytest
 from ncclient.transport.errors import AuthenticationError, SSHError  # type: ignore[import-untyped]
 
-from nv_config_manager_workflows.clients.device import iosxr_config
+from nv_config_manager_workflows.clients.device import cisco_xr, iosxr_config
 from nv_config_manager_workflows.clients.device.cisco_xr import (
     _FILTER_ARP,
     _FILTER_LINKS,
@@ -476,6 +476,22 @@ def test_failure_to_confirm_is_reported_and_not_retryable() -> None:
     with pytest.raises(NetworkDeviceException, match="not confirmed") as raised:
         connection.commit_candidate_config(CHANGED, approved)
 
+    assert raised.value.non_retryable
+
+
+def test_apply_does_not_confirm_when_the_checks_used_up_the_commit_timer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, probe = FakeSession(), FakeSession({"show clock": "ok"})
+    connection, _ = _connection(session, probe)
+    approved = connection.perform_candidate_diff(CHANGED)
+    clock = iter([1000.0, 1000.0 + connection._COMMIT_CONFIRM_SECONDS])  # commit, then pre-confirm
+    monkeypatch.setattr(cisco_xr.time, "monotonic", lambda: next(clock))
+
+    with pytest.raises(NetworkDeviceException, match="used up the commit timer") as raised:
+        connection.commit_candidate_config(CHANGED, approved)
+
+    assert session.confirmed == 0
     assert raised.value.non_retryable
 
 

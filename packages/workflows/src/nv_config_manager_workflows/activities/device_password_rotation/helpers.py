@@ -77,17 +77,31 @@ def _validate_iosxr_diff(diff: str, username: str) -> ValidatePasswordDiffOutput
         else:
             invalid_lines.append(raw_line.strip())
 
-    if not invalid_lines and valid_lines:
+    removed = [line for line in valid_lines if line.startswith("-")]
+    added = [line for line in valid_lines if line.startswith("+")]
+    if not invalid_lines and len(removed) == 1 and len(added) == 1:
         activity.logger.info(f"IOS XR password diff validation successful for user {username}")
         return ValidatePasswordDiffOutput(
             is_valid=True, invalid_lines=[], valid_lines=valid_lines, error_message=None
         )
-    if not invalid_lines:
+    if not invalid_lines and not valid_lines:
         return ValidatePasswordDiffOutput(
             is_valid=False,
             invalid_lines=[],
             valid_lines=[],
             error_message=f"Diff contains no password changes for user '{username}'",
+        )
+    if not invalid_lines:
+        # A secret only removed or only added is not a rotation: it would delete the
+        # credential or leave two.
+        return ValidatePasswordDiffOutput(
+            is_valid=False,
+            invalid_lines=valid_lines,
+            valid_lines=[],
+            error_message=(
+                f"Diff for user '{username}' must replace the secret: "
+                "exactly one removed and one added secret line"
+            ),
         )
     return ValidatePasswordDiffOutput(
         is_valid=False,

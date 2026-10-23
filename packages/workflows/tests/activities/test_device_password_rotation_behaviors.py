@@ -363,6 +363,19 @@ nv set system aaa user admin password $6$newpassword"""
 
         assert _validate_iosxr_diff(removed, "admin").is_valid is False
 
+    def test_iosxr_secret_only_removed_or_only_added_fails(self) -> None:
+        """A lone removal deletes the credential; a lone addition leaves two."""
+        removed = "  username admin\n-   secret 10 $6$a$b\n"
+        added = "  username admin\n+   secret 10 $6$c$d\n"
+        two_replacements = (
+            "  username admin\n-   secret 10 $6$a$b\n-   secret 10 $6$e$f\n+   secret 10 $6$c$d\n"
+        )
+
+        for diff in (removed, added, two_replacements):
+            result = _validate_iosxr_diff(diff, "admin")
+            assert result.is_valid is False
+            assert "replace the secret" in (result.error_message or "")
+
     def test_iosxr_diff_without_secret_change_fails(self) -> None:
         result = _validate_iosxr_diff("  username admin\n", "admin")
 

@@ -95,6 +95,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Any, Protocol
 
 import netaddr
@@ -591,6 +592,8 @@ class CiscoIosXrConnection(NetworkConnection):
     # ``commit confirmed`` is given in seconds (checked on 26.4.1: a 30 s timer with
     # no confirming commit rolled back by itself); this is the one constant to change.
     _COMMIT_CONFIRM_SECONDS = COMMIT_CONFIRM_ROLLBACK_SECONDS
+    # Do not send the confirming commit with less than this left on the rollback timer.
+    _CONFIRM_MARGIN_SECONDS = 15.0
 
     # The diff activity runs under one minute (as for Junos, which uses 45 s) and the apply
     # activity under five. A 12,000-line copy-config took 36 s on a lab router and, once, over 120 s.
@@ -905,11 +908,12 @@ class CiscoIosXrConnection(NetworkConnection):
                 non_retryable=True,
             ) from error
 
-        # (4) Second login, second copy-config diff, then the confirming commit.
+        # (4) Second login, second copy-config diff, then the confirming commit. The router's
+        # rollback timer started when the commit succeeded, so the checks race against it.
         if commit_confirm:
-            self._verify_then_confirm(text)
+            self._verify_then_confirm(text, time.monotonic() + self._COMMIT_CONFIRM_SECONDS)
 
-    def _verify_then_confirm(self, text: str) -> None:
+    def _verify_then_confirm(self, text: str, deadline: float) -> None:
         """Cancel the rollback timer only if the router is reachable and converged.
 
         Every failure here is non-retryable: a retried apply would find the
@@ -937,6 +941,15 @@ class CiscoIosXrConnection(NetworkConnection):
                 f"Commit on {self._host} was not confirmed: the running configuration still "
                 "differs from the intended configuration; the router will roll back when "
                 "the commit timer expires.",
+                non_retryable=True,
+            )
+        # The checks above can use up the rollback window (password retries, two 120 s
+        # operations). If the timer has expired or is about to, the router has reverted or
+        # is reverting, and a confirming commit would succeed as a no-op on the old config.
+        if deadline - time.monotonic() < self._CONFIRM_MARGIN_SECONDS:
+            raise NetworkDeviceException(
+                f"Commit on {self._host} was not confirmed: the checks used up the commit "
+                "timer; the router rolls back when it expires.",
                 non_retryable=True,
             )
         try:
