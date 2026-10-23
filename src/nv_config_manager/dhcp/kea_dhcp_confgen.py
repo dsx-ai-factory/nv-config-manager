@@ -45,7 +45,8 @@ class DhcpConfigGenerationError(Exception):
 
 _THREAD_POOL_SIZE_ENV = "NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"
 _PACKET_QUEUE_SIZE_ENV = "NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"
-_DEFAULT_THREAD_POOL_SIZE = 1
+_DEFAULT_THREAD_POOL_SIZE = 0
+_DEFAULT_PACKET_QUEUE_SIZE = 64
 _PACKETS_PER_THREAD = 8
 
 
@@ -727,34 +728,45 @@ def _extract_hooks_path(kea_config: dict[str, Any], version: int = 4) -> str:
     return default_path
 
 
-def _positive_int_setting(name: str, default: int) -> int:
-    """Return a positive integer environment setting or its explicit default."""
+def _int_setting(name: str, default: int, *, minimum: int) -> int:
+    """Return an integer environment setting at or above ``minimum``."""
     raw = os.environ.get(name)
     if raw is None or not raw.strip():
         return default
+    bound = "zero or a positive integer" if minimum == 0 else "a positive integer"
     try:
         value = int(raw)
     except ValueError as exc:
-        raise DhcpConfigGenerationError(f"{name} must be a positive integer") from exc
-    if value < 1:
-        raise DhcpConfigGenerationError(f"{name} must be a positive integer")
+        raise DhcpConfigGenerationError(f"{name} must be {bound}") from exc
+    if value < minimum:
+        raise DhcpConfigGenerationError(f"{name} must be {bound}")
     return value
 
 
 def _multi_threading_config() -> dict[str, Any]:
     """Build the Kea worker settings published by config refresh.
 
-    Missing settings use one worker and eight queued packets per worker. They
-    never use Kea's hardware auto-detection, which can observe node CPUs rather
-    than the container's CPU request.
+    Missing settings keep Kea's historical block: auto-detected workers
+    (thread-pool-size 0) and a 64-packet queue. An explicit positive thread
+    pool defaults the queue to eight packets per worker.
     """
-    thread_pool_size = _positive_int_setting(_THREAD_POOL_SIZE_ENV, _DEFAULT_THREAD_POOL_SIZE)
+    thread_pool_size = _int_setting(
+        _THREAD_POOL_SIZE_ENV,
+        _DEFAULT_THREAD_POOL_SIZE,
+        minimum=0,
+    )
+    default_queue = (
+        _DEFAULT_PACKET_QUEUE_SIZE
+        if thread_pool_size == 0
+        else thread_pool_size * _PACKETS_PER_THREAD
+    )
     return {
         "enable-multi-threading": True,
         "thread-pool-size": thread_pool_size,
-        "packet-queue-size": _positive_int_setting(
+        "packet-queue-size": _int_setting(
             _PACKET_QUEUE_SIZE_ENV,
-            thread_pool_size * _PACKETS_PER_THREAD,
+            default_queue,
+            minimum=1,
         ),
     }
 

@@ -175,59 +175,68 @@ def test_config_refresh_targets_bootstrap_service() -> None:
     assert env.get("NV_CONFIG_MANAGER_KEA_PORT") == "8000"
 
 
-def test_kea_threading_defaults_follow_dhcp_cpu_request() -> None:
-    """One requested DHCP CPU selects one Kea thread and an eight-packet queue."""
+def test_kea_threading_defaults_match_historical_kea_config() -> None:
+    """Default values keep Kea's auto-detected pool and 64-packet queue."""
     env = _refresh_env()
 
-    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "1"
-    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "8"
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "0"
+    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "64"
 
 
 def test_fractional_dhcp_cpu_request_rounds_the_thread_pool_up() -> None:
-    """1500 millicores is two threads, so the derived queue is sixteen."""
-    env = _refresh_env("networkDhcp.resources.dhcp.requests.cpu=1500m")
+    """With CPU sizing enabled, 1500 millicores is two threads and queue 16."""
+    env = _refresh_env(
+        "networkDhcp.kea.multiThreading.sizeFromCpuRequest=true",
+        "networkDhcp.resources.dhcp.requests.cpu=1500m",
+    )
 
     assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "2"
     assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "16"
 
 
 def test_subcore_dhcp_cpu_request_uses_one_thread() -> None:
-    """A fractional request below one CPU still gets one Kea thread."""
-    env = _refresh_env("networkDhcp.resources.dhcp.requests.cpu=500m")
+    """With CPU sizing enabled, a request below one CPU still gets one thread."""
+    env = _refresh_env(
+        "networkDhcp.kea.multiThreading.sizeFromCpuRequest=true",
+        "networkDhcp.resources.dhcp.requests.cpu=500m",
+    )
 
     assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "1"
     assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "8"
 
 
 def test_exponent_dhcp_cpu_request_is_normalized() -> None:
-    """Kubernetes exponent form 1.5e0 is 1.5 cores: two threads and queue 16."""
-    env = _refresh_env("networkDhcp.resources.dhcp.requests.cpu=1.5e0")
+    """With CPU sizing enabled, exponent form 1.5e0 is two threads and queue 16."""
+    env = _refresh_env(
+        "networkDhcp.kea.multiThreading.sizeFromCpuRequest=true",
+        "networkDhcp.resources.dhcp.requests.cpu=1.5e0",
+    )
 
     assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "2"
     assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "16"
 
 
-def test_empty_threading_overrides_follow_dhcp_cpu_request() -> None:
-    """Blank chart overrides stay unset, so sizing still follows the CPU request."""
+def test_empty_threading_overrides_keep_historical_kea_config() -> None:
+    """Blank overrides stay unset even when the DHCP CPU request changes."""
     env = _refresh_env(
         "networkDhcp.resources.dhcp.requests.cpu=1500m",
         "networkDhcp.kea.multiThreading.threadPoolSize=",
         "networkDhcp.kea.multiThreading.packetQueueSize=",
     )
 
-    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "2"
-    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "16"
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "0"
+    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "64"
 
 
 def test_empty_thread_pool_keeps_an_explicit_packet_queue() -> None:
-    """A blank thread pool derives from CPU while an explicit queue is kept."""
+    """A blank thread pool stays at auto-detect while an explicit queue is kept."""
     env = _refresh_env(
         "networkDhcp.resources.dhcp.requests.cpu=1500m",
         "networkDhcp.kea.multiThreading.threadPoolSize=",
         "networkDhcp.kea.multiThreading.packetQueueSize=10",
     )
 
-    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "2"
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "0"
     assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "10"
 
 
@@ -251,17 +260,31 @@ def test_explicit_packet_queue_overrides_derived_queue() -> None:
 
 
 @pytest.mark.parametrize(
-    ("override", "message"),
+    ("overrides", "message"),
     [
-        ("networkDhcp.resources.dhcp.requests.cpu=lots", "requests.cpu"),
-        ("networkDhcp.resources.dhcp.requests.cpu=1e3m", "requests.cpu"),
-        ("networkDhcp.kea.multiThreading.threadPoolSize=0", "threadPoolSize"),
-        ("networkDhcp.kea.multiThreading.packetQueueSize=0", "packetQueueSize"),
+        (
+            (
+                "networkDhcp.kea.multiThreading.sizeFromCpuRequest=true",
+                "networkDhcp.resources.dhcp.requests.cpu=lots",
+            ),
+            "requests.cpu",
+        ),
+        (
+            (
+                "networkDhcp.kea.multiThreading.sizeFromCpuRequest=true",
+                "networkDhcp.resources.dhcp.requests.cpu=1e3m",
+            ),
+            "requests.cpu",
+        ),
+        (("networkDhcp.kea.multiThreading.threadPoolSize=-1",), "threadPoolSize"),
+        (("networkDhcp.kea.multiThreading.packetQueueSize=0",), "packetQueueSize"),
     ],
 )
-def test_invalid_kea_threading_input_fails_rendering(override: str, message: str) -> None:
+def test_invalid_kea_threading_input_fails_rendering(
+    overrides: tuple[str, ...], message: str
+) -> None:
     """Malformed CPU quantities and non-positive overrides fail chart rendering."""
-    result = _render_result(override)
+    result = _render_result(*overrides)
 
     assert result.returncode != 0
     assert message in result.stderr

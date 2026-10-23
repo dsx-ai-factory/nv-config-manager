@@ -32,8 +32,8 @@
         ],
         "multi-threading": {
             "enable-multi-threading": true,
-            "thread-pool-size": 1,
-            "packet-queue-size": 8
+            "thread-pool-size": 0,
+            "packet-queue-size": 64
         },
         "option-def": [
             {

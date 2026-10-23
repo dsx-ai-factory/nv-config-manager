@@ -2201,11 +2201,11 @@ such as "1e3m", are not a valid quantity.
 {{- end -}}
 
 {{/*
-Return an explicit positive multi-threading override.
+Return an explicit multi-threading override, or an empty value when unset.
 
-The chart default is an empty string, which means derive the value. A missing
-key or a null override is treated the same way.
-Context: (dict "root" . "name" "threadPoolSize|packetQueueSize")
+The chart default is an empty string. A missing key or a null override is
+treated the same way. threadPoolSize may be zero; packetQueueSize may not.
+Context: (dict "root" . "name" "threadPoolSize|packetQueueSize" "allowZero" true)
 */}}
 {{- define "nv-config-manager.dhcp.threadingOverride" -}}
 {{- $kea := .root.Values.networkDhcp.kea | default dict -}}
@@ -2216,35 +2216,55 @@ Context: (dict "root" . "name" "threadPoolSize|packetQueueSize")
 {{- end -}}
 {{- if or (eq $raw "") (eq $raw "<no value>") (eq $raw "<nil>") -}}
 {{- "" -}}
-{{- else if not (regexMatch `^[1-9][0-9]*$` $raw) -}}
-{{- fail (printf "networkDhcp.kea.multiThreading.%s must be a positive integer" .name) -}}
+{{- else if not (regexMatch (ternary `^(0|[1-9][0-9]*)$` `^[1-9][0-9]*$` .allowZero) $raw) -}}
+{{- fail (printf "networkDhcp.kea.multiThreading.%s must be %s" .name (ternary "zero or a positive integer" "a positive integer" .allowZero)) -}}
 {{- else -}}
 {{- $raw -}}
 {{- end -}}
 {{- end -}}
 
 {{/*
-Kea worker count: explicit threadPoolSize, otherwise the DHCP CPU request
-rounded up to at least one thread.
+True when the chart should size workers from the DHCP CPU request.
 */}}
-{{- define "nv-config-manager.dhcp.threadPoolSize" -}}
-{{- $override := include "nv-config-manager.dhcp.threadingOverride" (dict "root" . "name" "threadPoolSize") -}}
-{{- if $override -}}
-{{- $override -}}
-{{- else -}}
-{{- $millis := include "nv-config-manager.dhcp.cpuMillicores" .Values.networkDhcp.resources.dhcp.requests.cpu | int -}}
-{{- div (add $millis 999) 1000 -}}
+{{- define "nv-config-manager.dhcp.sizeFromCpuRequest" -}}
+{{- $kea := .Values.networkDhcp.kea | default dict -}}
+{{- $threading := $kea.multiThreading | default dict -}}
+{{- if $threading.sizeFromCpuRequest -}}
+true
 {{- end -}}
 {{- end -}}
 
 {{/*
-Kea packet queue: explicit packetQueueSize, otherwise eight packets per worker.
+Kea worker count. An empty threadPoolSize keeps Kea auto-detection (0) unless
+sizeFromCpuRequest is set, in which case the DHCP CPU request is rounded up
+to at least one thread.
+*/}}
+{{- define "nv-config-manager.dhcp.threadPoolSize" -}}
+{{- $override := include "nv-config-manager.dhcp.threadingOverride" (dict "root" . "name" "threadPoolSize" "allowZero" true) -}}
+{{- if ne $override "" -}}
+{{- $override -}}
+{{- else if include "nv-config-manager.dhcp.sizeFromCpuRequest" . -}}
+{{- $millis := include "nv-config-manager.dhcp.cpuMillicores" .Values.networkDhcp.resources.dhcp.requests.cpu | int -}}
+{{- div (add $millis 999) 1000 -}}
+{{- else -}}
+{{- 0 -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Kea packet queue. An empty packetQueueSize keeps 64 while the pool is
+auto-detected, and otherwise defaults to eight packets per worker.
 */}}
 {{- define "nv-config-manager.dhcp.packetQueueSize" -}}
-{{- $override := include "nv-config-manager.dhcp.threadingOverride" (dict "root" . "name" "packetQueueSize") -}}
-{{- if $override -}}
+{{- $override := include "nv-config-manager.dhcp.threadingOverride" (dict "root" . "name" "packetQueueSize" "allowZero" false) -}}
+{{- if ne $override "" -}}
 {{- $override -}}
 {{- else -}}
-{{- mul (include "nv-config-manager.dhcp.threadPoolSize" . | int) 8 -}}
+{{- $threads := include "nv-config-manager.dhcp.threadPoolSize" . | int -}}
+{{- if eq $threads 0 -}}
+{{- 64 -}}
+{{- else -}}
+{{- mul $threads 8 -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
