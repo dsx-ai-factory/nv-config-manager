@@ -6,7 +6,7 @@
 # Base Hostname: config-manager.local
 # Secrets Method: kubernetes
 # Resource Size: small
-# Contains: generated overrides plus selected size profile; chart defaults are not embedded
+# Contains: size profile, optional observability defaults, then generated overrides
 # =============================================================================
 
 oidc:

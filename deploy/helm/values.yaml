@@ -3146,7 +3146,9 @@ monitoring:
 #
 # Enable the whole stack together for LOCAL DEV / KIND / AIRGAPPED DEMOS ONLY
 # by toggling "Enable local observability stack" in the TUI installer (or by
-# layering deploy/helm/values-observability.yaml on top of your values).
+# applying a baseline values file, then deploy/helm/values-observability.yaml,
+# then an optional custom-endpoint override). Helm gives the rightmost values
+# file precedence.
 #
 # Architecture: Alloy watches the PodMonitor / ServiceMonitor / Probe CRs
 # (via prometheus.operator.* components) and scrapes the targets, then

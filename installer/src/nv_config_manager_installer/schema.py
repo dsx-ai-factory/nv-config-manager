@@ -24,8 +24,10 @@ from __future__ import annotations
 import os
 import re
 from enum import StrEnum
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -33,6 +35,21 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 _KUBERNETES_NAMESPACE_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
 _KUBERNETES_LABEL_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$")
 _KUBERNETES_DNS_LABEL_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
+_DNS_HOST_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9]{0,61}[A-Za-z0-9])?$")
+
+
+def _is_valid_hostname_or_ip(value: str) -> bool:
+    """Return whether *value* is an IP address or DNS hostname."""
+    try:
+        ip_address(value)
+    except ValueError:
+        value = value.removesuffix(".")
+        return len(value) <= 253 and all(
+            _DNS_HOST_LABEL_RE.fullmatch(label) is not None for label in value.split(".")
+        )
+    return True
+
+
 _RESERVED_CUSTOM_LABEL_KEYS = frozenset({"app", "component", "instance", "job"})
 _RESERVED_CUSTOM_LABEL_PREFIXES = ("app.kubernetes.io/", "helm.sh/")
 
@@ -601,6 +618,10 @@ class MonitoringConfig(BaseModel):
     # Explicit preference for the bundled local Redis exporter. Local
     # observability enables it effectively without changing this preference.
     redis_metrics_enabled: bool = False
+    # External dashboard linked from the UI splash page.
+    grafana_url: str = ""
+    # Prometheus Probe prober address. The Probe API expects host:port without a scheme.
+    blackbox_exporter_url: str = ""
 
     @field_validator("prometheus_namespace")
     @classmethod
@@ -612,6 +633,65 @@ class MonitoringConfig(BaseModel):
                 "namespace must be a lowercase DNS-1123 label (alphanumeric, hyphens, "
                 "start/end with alphanumeric, max 63 characters)"
             )
+        return v
+
+    @field_validator("grafana_url")
+    @classmethod
+    def _validate_grafana_url(cls, v: str) -> str:
+        """Validate an optional absolute HTTP(S) Grafana dashboard URL."""
+        if not v:
+            return v
+        if any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in v) or any(
+            char in v for char in '{}<>"\\^`|'
+        ):
+            raise ValueError(
+                "Grafana URL must not contain whitespace, control characters, "
+                "Helm delimiters, or unsafe URL characters"
+            )
+        try:
+            parsed = urlsplit(v)
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("Grafana URL must be a valid absolute HTTP(S) URL") from exc
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or not _is_valid_hostname_or_ip(parsed.hostname)
+            or port == 0
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise ValueError(
+                "Grafana URL must be an absolute HTTP(S) URL without embedded credentials"
+            )
+        return v
+
+    @field_validator("blackbox_exporter_url")
+    @classmethod
+    def _validate_blackbox_exporter_url(cls, v: str) -> str:
+        """Validate an optional Blackbox exporter host and port."""
+        if not v:
+            return v
+        if (
+            "://" in v
+            or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in v)
+            or any(char in v for char in "/?#")
+        ):
+            raise ValueError("Blackbox exporter URL must use host:port without a scheme")
+        try:
+            parsed = urlsplit(f"//{v}")
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("Blackbox exporter URL must use a valid host:port") from exc
+        if (
+            not parsed.hostname
+            or not _is_valid_hostname_or_ip(parsed.hostname)
+            or port is None
+            or not 1 <= port <= 65535
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise ValueError("Blackbox exporter URL must use host:port without credentials")
         return v
 
 
@@ -1277,6 +1357,12 @@ def _prune_infrastructure(infrastructure: dict[str, Any]) -> None:
     backup = _as_dict(infrastructure.get("cnpg_s3_backup"))
     if not backup.get("enabled"):
         _replace_with_keys(backup, {"enabled"})
+
+    monitoring = _as_dict(infrastructure.get("monitoring"))
+    if not monitoring.get("grafana_url"):
+        monitoring.pop("grafana_url", None)
+    if not monitoring.get("blackbox_exporter_url"):
+        monitoring.pop("blackbox_exporter_url", None)
 
     _prune_load_balancer(_as_dict(infrastructure.get("load_balancer")))
     _prune_ztp_storage(_as_dict(infrastructure.get("ztp_storage")))

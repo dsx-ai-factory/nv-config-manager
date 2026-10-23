@@ -26,14 +26,28 @@
 # replica is fine for local dev) is the equivalent of OTel's Target Allocator
 # if you ever scale this out.
 #
-# Layer this on top of values-local.yaml (or values-ci.yaml for template
-# tests):
+# For template tests that want this file's built-in endpoint defaults, apply
+# the baseline first and this overlay second:
 #
 #   helm template test . --values values-ci.yaml --values values-observability.yaml
 #
+# If custom monitoring endpoints are required, add an endpoint override last:
+#
+#   helm template test . \
+#     --values values-ci.yaml \
+#     --values values-observability.yaml \
+#     --values values-monitoring-endpoints.yaml
+#
 # Or via the TUI installer: toggle "Enable local observability stack" on the
 # Infrastructure screen. The TUI auto-flips monitoring.enabled so the
-# PodMonitor resources in templates/monitoring.yaml are rendered.
+# PodMonitor resources in templates/monitoring.yaml are rendered. The installer
+# merges this file into values-generated.yaml before its generated settings, so
+# configured monitoring endpoints take precedence without relying on Helm -f
+# argument order.
+#
+# Manual Helm order is baseline -> observability -> optional endpoint override.
+# Helm's rightmost file wins, so custom monitoring endpoints must be in the
+# final file.
 #
 # DO NOT use in shared clusters (nv-config-manager-qa, prod, or any cluster
 # with a separately managed production monitoring stack):

@@ -1068,6 +1068,11 @@ def build_values(
             "redis": {"enabled": _redis_metrics_enabled(config) and monitoring_active},
         },
     }
+    if monitoring.grafana_url:
+        monitoring_values["grafanaUrl"] = monitoring.grafana_url
+    probe_values: dict[str, Any] = {}
+    if monitoring.blackbox_exporter_url:
+        probe_values["blackboxExporterUrl"] = monitoring.blackbox_exporter_url
     if monitoring_active:
         # The local-dev observability stack relies on the existing PodMonitor
         # resources in templates/monitoring.yaml to scrape nv-config-manager pods, so we
@@ -1085,10 +1090,10 @@ def build_values(
         monitoring_values.update(
             {
                 "enabled": True,
-                "probes": {"enabled": True},
                 "prometheus": {"namespace": prometheus_namespace},
             }
         )
+        probe_values["enabled"] = True
         monitoring_values["podMonitors"].update(
             {
                 "enabled": True,
@@ -1097,13 +1102,15 @@ def build_values(
                 "cnpg": {"enabled": True},
             }
         )
+    if probe_values:
+        monitoring_values["probes"] = probe_values
     values["monitoring"] = monitoring_values
 
     if monitoring.observability_enabled:
         # Flip the subchart condition gates so prometheus / alloy render.
         # Full configuration lives in
-        # deploy/helm/values-observability.yaml, which the deployer layers in
-        # via an additional `-f` flag. Alloy itself watches the PodMonitor /
+        # deploy/helm/values-observability.yaml, which build_complete_values
+        # merges before these generated settings. Alloy itself watches the PodMonitor /
         # ServiceMonitor / Probe CRs (via its prometheus.operator.*
         # components) so we don't ship the Prometheus Operator pod. Grafana
         # and Loki are AGPL-licensed and are not enabled by default.
@@ -1165,7 +1172,7 @@ def build_complete_values(
     local_tags: dict[str, str] | None = None,
     chart_dir: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Build one override file with selected size profile and TUI-generated values."""
+    """Build one ordered override file from chart defaults and generated values."""
     generated = build_values(
         config,
         secrets_state,
@@ -1181,6 +1188,10 @@ def build_complete_values(
     values: dict[str, Any] = {}
     if size_values.exists():
         values = _deep_merge(values, _load_values_file(size_values))
+    if config.infrastructure.monitoring.observability_enabled:
+        observability_values = resolved_chart_dir / "values-observability.yaml"
+        if observability_values.exists():
+            values = _deep_merge(values, _load_values_file(observability_values))
 
     return _deep_merge(values, generated)
 
@@ -1221,7 +1232,7 @@ def generate_helm_values(
         f"# Base Hostname: {config.cluster.hostname}\n"
         f"# Secrets Method: {config.secrets.method.value}\n"
         f"# Resource Size: {config.cluster.size.value}\n"
-        f"# Contains: generated overrides plus selected size profile; chart defaults are not embedded\n"
+        f"# Contains: size profile, optional observability defaults, then generated overrides\n"
         f"# =============================================================================\n\n"
     )
 

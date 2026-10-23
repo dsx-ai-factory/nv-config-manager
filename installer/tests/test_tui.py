@@ -231,6 +231,124 @@ async def test_infrastructure_disables_redis_metrics_for_external_redis():
 
 
 @pytest.mark.asyncio
+async def test_infrastructure_monitoring_urls_sync_and_collect() -> None:
+    config = NVConfigManagerInstallConfig(
+        infrastructure=InfrastructureConfig(
+            monitoring=MonitoringConfig(
+                grafana_url="https://grafana.example.com/d/current",
+                blackbox_exporter_url="blackbox-current.monitoring.svc:9115",
+            ),
+        ),
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("infrastructure")
+        screen = app._screens["infrastructure"]
+
+        assert (
+            screen.query_one("#monitoring-grafana-url", Input).value
+            == "https://grafana.example.com/d/current"
+        )
+        assert (
+            screen.query_one("#monitoring-blackbox-exporter-url", Input).value
+            == "blackbox-current.monitoring.svc:9115"
+        )
+
+        screen.query_one(
+            "#monitoring-grafana-url", Input
+        ).value = "https://grafana.example.com/d/new?var-namespace=kiwi"
+        screen.query_one(
+            "#monitoring-blackbox-exporter-url", Input
+        ).value = "blackbox-new.monitoring.svc:9115"
+        app.collect_config()
+
+        assert (
+            config.infrastructure.monitoring.grafana_url
+            == "https://grafana.example.com/d/new?var-namespace=kiwi"
+        )
+        assert (
+            config.infrastructure.monitoring.blackbox_exporter_url
+            == "blackbox-new.monitoring.svc:9115"
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_id", "invalid_value"),
+    [
+        ("#monitoring-grafana-url", "grafana.example.com/d/overview"),
+        ("#monitoring-blackbox-exporter-url", "https://blackbox.example.com:9115"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_invalid_monitoring_url_blocks_navigation(field_id: str, invalid_value: str) -> None:
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("infrastructure")
+        app._screens["infrastructure"].query_one(field_id, Input).value = invalid_value
+
+        app.switch_section("services")
+
+        assert app.active_section == "infrastructure"
+        assert config.infrastructure.monitoring.grafana_url == ""
+        assert config.infrastructure.monitoring.blackbox_exporter_url == ""
+
+
+@pytest.mark.asyncio
+async def test_invalid_monitoring_url_does_not_partially_update_config() -> None:
+    config = NVConfigManagerInstallConfig(
+        infrastructure=InfrastructureConfig(
+            monitoring=MonitoringConfig(
+                grafana_url="https://grafana.example.com/d/current",
+                blackbox_exporter_url="blackbox-current.monitoring.svc:9115",
+            ),
+        ),
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("infrastructure")
+        screen = app._screens["infrastructure"]
+        screen.query_one(
+            "#monitoring-grafana-url", Input
+        ).value = "https://grafana.example.com/d/new"
+        screen.query_one(
+            "#monitoring-blackbox-exporter-url", Input
+        ).value = "https://blackbox.example.com:9115"
+
+        app.switch_section("services")
+
+        assert app.active_section == "infrastructure"
+        assert (
+            config.infrastructure.monitoring.grafana_url == "https://grafana.example.com/d/current"
+        )
+        assert (
+            config.infrastructure.monitoring.blackbox_exporter_url
+            == "blackbox-current.monitoring.svc:9115"
+        )
+
+
+@pytest.mark.asyncio
+async def test_invalid_monitoring_url_blocks_save(tmp_path: Path) -> None:
+    config = NVConfigManagerInstallConfig()
+    config_path = tmp_path / "nv-config-manager-install.yaml"
+    app = NVConfigManagerInstallerApp(config=config, config_path=config_path)
+
+    async with app.run_test():
+        app.switch_section("infrastructure")
+        app._screens["infrastructure"].query_one(
+            "#monitoring-grafana-url", Input
+        ).value = "grafana.example.com/d/overview"
+
+        app.action_save()
+
+        assert not config_path.exists()
+        assert config.infrastructure.monitoring.grafana_url == ""
+
+
+@pytest.mark.asyncio
 async def test_external_temporal_screen_revalidates_form_values():
     """External Temporal form values must pass model validation before saving."""
     config = NVConfigManagerInstallConfig()
