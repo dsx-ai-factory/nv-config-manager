@@ -66,6 +66,33 @@ def test_exported_ca_store(tmp_path: Path, location: str) -> None:
             checker["verify_directory"](tmp_path)
 
 
+@pytest.mark.parametrize("location", ["bundle", "local"])
+def test_incident_tls_root_is_rejected(tmp_path: Path, location: str) -> None:
+    """Reject the real TLS G3 root without modifying the production blocklist."""
+    checker = runpy.run_path(str(_CHECKER))
+    root = (Path(__file__).parent / "fixtures/emsign-root-tls-g3.pem").read_text()
+    certificate = re.search(
+        r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", root, flags=re.DOTALL
+    ).group()
+    assert hashlib.sha256(ssl.PEM_cert_to_DER_cert(certificate)).hexdigest() == (
+        "7dd78d5f4f13459a83dff9abbba62edbaf6f2d102bf257fd712f4d9f2746ed8d"
+    )
+    bundle = tmp_path / "etc/ssl/certs/ca-certificates.crt"
+    bundle.parent.mkdir(parents=True)
+    bundle.write_text(Path(certifi.where()).read_text())
+    if location == "bundle":
+        bundle.write_text(bundle.read_text() + "\n" + certificate)
+    else:
+        anchor = tmp_path / "usr/local/share/ca-certificates/emsign-root-tls-g3.crt"
+        anchor.parent.mkdir(parents=True)
+        anchor.write_text(certificate)
+        (bundle.parent / "emsign-root-tls-g3.pem").symlink_to(
+            "/usr/local/share/ca-certificates/emsign-root-tls-g3.crt"
+        )
+    with pytest.raises(SystemExit, match="Affected emSign trust anchor remains"):
+        checker["verify_directory"](tmp_path)
+
+
 def test_missing_exported_bundle_fails(tmp_path: Path) -> None:
     """A missing exported bundle must fail the audit."""
     checker = runpy.run_path(str(_CHECKER))

@@ -175,6 +175,7 @@ def test_promotion_rejects_changed_archive_before_loading_or_pushing(gate) -> No
         check=False,
     )
     assert result.returncode != 0
+    assert "FAILED" in result.stdout
     assert "load " not in (binaries / "calls").read_text()
     assert "push " not in (binaries / "calls").read_text()
 
