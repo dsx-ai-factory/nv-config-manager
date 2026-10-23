@@ -335,6 +335,27 @@ def test_liveness_uses_livez_and_readiness_uses_healthcheck() -> None:
         assert _probe_path(containers[name], "readinessProbe") == "/healthcheck"
 
 
+def test_verified_config_hash_is_shared_with_readiness_containers() -> None:
+    """Sync publishes its verified hash through a pod-local volume mounted by probes."""
+    docs = _load_docs(_render())
+    deployment = next(
+        doc
+        for doc in docs
+        if doc.get("kind") == "Deployment" and doc["metadata"]["name"] == _DHCP_NAME
+    )
+    pod_spec = deployment["spec"]["template"]["spec"]
+    volumes = {volume["name"]: volume for volume in pod_spec["volumes"]}
+    containers = {container["name"]: container for container in pod_spec["containers"]}
+
+    assert volumes["dhcp-sync-state"]["emptyDir"] == {"sizeLimit": "1Mi"}
+    for name in ("healthcheck", "api", "config-sync-v4"):
+        mounts = {mount["name"]: mount for mount in containers[name]["volumeMounts"]}
+        assert mounts["dhcp-sync-state"]["mountPath"] == "/tmp/nv-config-manager-dhcp-state"
+    for name in ("healthcheck", "api"):
+        mounts = {mount["name"]: mount for mount in containers[name]["volumeMounts"]}
+        assert mounts["dhcp-sync-state"]["readOnly"] is True
+
+
 def test_config_sync_liveness_is_the_heartbeat_probe() -> None:
     """config-sync liveness tracks its own loop, not an endpoint reflecting config state.
 
