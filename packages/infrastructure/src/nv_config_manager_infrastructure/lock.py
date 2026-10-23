@@ -42,6 +42,10 @@ class NoopLock:
         """Release the lock."""
         return True
 
+    async def reacquire(self) -> bool:
+        """Reset the lock's timeout."""
+        return True
+
     async def __aenter__(self) -> NoopLock:
         """Async context manager entry."""
         await self.acquire()

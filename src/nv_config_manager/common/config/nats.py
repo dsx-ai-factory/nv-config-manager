@@ -175,6 +175,11 @@ def nats_render_change_config(config: ConfigParser | None = None) -> tuple[str, 
     return _nats_change_config(_NATS_ENUM.RENDER_CHANGE, config)
 
 
+def nats_render_consumer_name(config: ConfigParser | None = None) -> str:
+    """Return the durable name of the consumer that runs device renders."""
+    return _nats_section(config).get("config_manager_consumer_name", "nv-config-manager-device")
+
+
 def nats_device_change_config(config: ConfigParser | None = None) -> tuple[str, str]:
     """Return the configured stream and subject for device-change notifications."""
     return _nats_change_config(_NATS_ENUM.DEVICE_CHANGE, config)
