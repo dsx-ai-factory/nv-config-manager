@@ -3001,6 +3001,35 @@ nautobotNats:
     maxFile: 10G # Max file storage (increase for production or use nats-ready binary)
   # Max payload size (8MB)
   maxPayload: 8388608
+  # Gateway access to bundled NATS on one hostname and one HTTPRoute. Requires
+  # gateway.enabled. The two rules are gated separately because they expose
+  # different things; the native client port (4222) and the rest of the
+  # monitoring port (varz, connz, jsz) are never routed. When the chart creates
+  # the Gateway, the route attaches only to its HTTPS listener and the HTTP
+  # listener answers with a 301 to https.
+  gateway:
+    hostname: "nats.{{ .Values.gateway.baseHostname }}"
+    # Unauthenticated exact GET /healthz from the monitoring port, so a blackbox
+    # exporter outside the cluster can probe NATS. Rendered only when the NATS
+    # Probe is (monitoring.probes.enabled, a blackboxExporterUrl and
+    # monitoring.probes.nats.enabled) without an explicit
+    # monitoring.probes.nats.target.
+    healthRoute:
+      enabled: true
+    # NATS client protocol over WebSocket, so publishers outside the cluster
+    # (for example an external DCIM provider's event publisher) can connect with
+    # wss://<hostname> and the same account passwords as in-cluster clients.
+    # TLS terminates at the gateway. Enabling this changes the NATS config, which
+    # restarts NATS. With kgateway the chart enables WebSocket upgrades on the
+    # Gateway it creates; on a shared kgateway Gateway (gateway.create=false)
+    # the Gateway owner must enable them, or the handshake gets a 403.
+    websocket:
+      enabled: false
+      port: 8080
+      # No request timeout: client connections are long-lived. The idle timeout
+      # must exceed the NATS ping interval (2m by default) so idle but healthy
+      # connections are not cut.
+      idleTimeout: 300s
   # Prometheus metrics exporter (prometheus-nats-exporter sidecar).
   # Off by default (zero blast radius). When enabled, a sidecar polls the NATS
   # monitoring endpoint (:8222) and re-exposes nats_* Prometheus metrics on the
@@ -3103,15 +3132,15 @@ monitoring:
     # per-environment when probes need to match a site-specific alerting /
     # dashboard regex.
     jobNamePrefix: ""
-    # Bundled NATS (nautobotNats.enabled or externalServices.nats.local) has
-    # no gateway route, so its probe targets the in-cluster monitoring
-    # endpoint (`http://<release>-nats.<namespace>.svc:8222/healthz`). The
-    # namespace-isolation NetworkPolicy opens 8222 only to
-    # monitoring.prometheus.namespace, where the exporter must run.
+    # Bundled NATS (nautobotNats.enabled or externalServices.nats.local) is
+    # probed at `/healthz` on nautobotNats.gateway.hostname when
+    # that route is rendered. Otherwise the probe targets the in-cluster
+    # monitoring endpoint (`http://<release>-nats.<namespace>.svc:8222/healthz`),
+    # and the namespace-isolation NetworkPolicy opens 8222 only to
+    # monitoring.prometheus.namespace, where the exporter must then run.
     nats:
       enabled: true
-      # Override when the blackbox exporter runs outside the cluster and
-      # cannot resolve cluster-local service names.
+      # Explicit target URL; overrides both defaults above.
       target: ""
   # PodMonitors: each PodMonitor is enabled when podMonitors.enabled AND the
   # target service is enabled. CNPG scrapes also require podMonitors.cnpg.enabled
