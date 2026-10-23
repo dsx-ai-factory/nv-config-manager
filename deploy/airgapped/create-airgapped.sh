@@ -1282,16 +1282,16 @@ copy_deployment_files() {
 
 pip_download() {
     # The project enforces tool.uv.required-version before uv can access the network.
-    uv run --project "$REPO_ROOT/installer" --no-sync --with "pip==$NVCM_PIP_VERSION" python -m pip download "$@"
+    uv run --project "$REPO_ROOT/installer" --no-sync --with "$NVCM_PIP_REQUIREMENT" python -m pip download "$@"
 }
 
 # Digests are pinned from the immutable upstream release, not fetched with the archive.
-# https://github.com/astral-sh/python-build-standalone/releases/tag/20260320
+# https://github.com/astral-sh/python-build-standalone/releases/tag/20261021
 download_installer_python() {
     local installer_dest="$1"
     local triple="$2"
-    local pbs_tag="20260320"
-    local pbs_cpython="3.13.12"
+    local pbs_tag="20261021"
+    local pbs_cpython="3.13.17"
     local pbs_file="cpython-${pbs_cpython}+${pbs_tag}-${triple}-install_only_stripped.tar.gz"
     local pbs_url="https://github.com/astral-sh/python-build-standalone/releases/download/${pbs_tag}/${pbs_file}"
     local pbs_sha256

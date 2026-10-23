@@ -31,7 +31,7 @@ build-backend = "hatchling.build"
 packages = ["src/nv_config_manager_installer"]
 
 [tool.uv]
-required-version = ">=0.13.4"
+required-version = ">=0.13.5"
 package = true
 
 [tool.ruff]

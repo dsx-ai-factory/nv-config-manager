@@ -140,11 +140,14 @@ force-pushing it.
 
 ## Getting Started
 
-Python development requires **uv 0.13.4 or newer**, enforced by each project's
+Python development requires **uv 0.13.5 or newer**, enforced by each project's
 `pyproject.toml`. GitHub Actions reads that requirement directly. Shared pip/uv
 bootstrap versions and hashes live in `deploy/helm/files/python-tooling.sh`, used
 by GitLab CI and embedded in the chart's source-plugin installer. Container CA
 validation lives in `build/python-ca.py`.
+
+Upgrading uv does not replace existing Python environments. Refresh managed
+interpreters separately and upgrade existing environments to pip 26.2.2 or newer.
 
 After building container images, audit their actual system CA bundles and
 individual trust anchors with `build/check-image-trust.sh IMAGE`. Add `--node`

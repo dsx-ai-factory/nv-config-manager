@@ -13,4 +13,4 @@ variables:
   NVCM_CI_IMAGE_PYTHON_313: "python:3.13.17-trixie@sha256:d5a186865324088bd10d1671801b42297a8fe3f8059143fb22b2e2b776ffa6dd"
   NVCM_CI_IMAGE_SONAR: "sonarsource/sonar-scanner-cli:11"
   NVCM_CI_IMAGE_UBUNTU: "ubuntu:24.04"
-  NVCM_CI_IMAGE_UV: "ghcr.io/astral-sh/uv:0.13.4@sha256:9f130421e930bfbdc563c00740466603f8723158e90297d07957c2294640262b"
+  NVCM_CI_IMAGE_UV: "ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff"
