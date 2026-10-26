@@ -193,6 +193,39 @@ def test_complete_certificate_anchor_is_valid(tmp_path: Path, anchor_path: str) 
     checker["verify_directory"](tmp_path)
 
 
+@pytest.mark.parametrize("anchor_path", [*_ANCHOR_PATHS, "etc/ssl/certs/local.pem"])
+@pytest.mark.parametrize("contents", ["", "not a certificate\n"])
+@pytest.mark.parametrize("symlink", [False, True])
+def test_markerless_certificate_anchor_fails(
+    tmp_path: Path, anchor_path: str, contents: str, symlink: bool
+) -> None:
+    """Require PEM content in CRT, PEM, and hashed certificate files."""
+    checker, _, _ = _exported_store(tmp_path)
+    anchor = tmp_path / anchor_path
+    anchor.parent.mkdir(parents=True, exist_ok=True)
+    if symlink:
+        target = anchor.with_suffix(".data")
+        target.write_text(contents)
+        anchor.symlink_to(target.name)
+    else:
+        anchor.write_text(contents)
+    with pytest.raises(SystemExit, match="no certificate found"):
+        checker["verify_directory"](tmp_path)
+
+
+@pytest.mark.parametrize("metadata_path", ["copy-error", "etc/ssl/certs/README"])
+@pytest.mark.parametrize("contents", ["", "certificate directory metadata\n"])
+def test_noncertificate_metadata_is_allowed(
+    tmp_path: Path, metadata_path: str, contents: str
+) -> None:
+    """Do not mistake bookkeeping files or documentation for trust anchors."""
+    checker, _, _ = _exported_store(tmp_path)
+    metadata = tmp_path / metadata_path
+    metadata.parent.mkdir(parents=True, exist_ok=True)
+    metadata.write_text(contents)
+    checker["verify_directory"](tmp_path)
+
+
 def test_malformed_bundle_fails(tmp_path: Path) -> None:
     """Report an invalid combined bundle without exposing an SSL traceback."""
     checker = runpy.run_path(str(_CHECKER))

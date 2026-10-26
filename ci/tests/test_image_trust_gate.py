@@ -26,6 +26,8 @@ import certifi
 import pytest
 import yaml
 
+type Gate = tuple[Path, Path, dict[str, str]]
+
 ROOT = Path(__file__).resolve().parents[2]
 IMAGES = (
     "nv-config-manager",
@@ -41,7 +43,7 @@ IMAGES = (
 
 
 @pytest.fixture
-def gate(tmp_path: Path):
+def gate(tmp_path: Path) -> Gate:
     """Keep real audit scripts, replacing only Docker and artifact transport."""
     repo = tmp_path / "trusted"
     for name in (
@@ -122,7 +124,7 @@ def gate(tmp_path: Path):
     return repo, binaries, env
 
 
-def run_gate(gate, *args: str) -> subprocess.CompletedProcess:
+def run_gate(gate: Gate, *args: str) -> subprocess.CompletedProcess[str]:
     repo, _, env = gate
     return subprocess.run(
         ["bash", str(repo / ".gitlab/ci/scripts/image_trust_gate.sh"), *args],
@@ -134,7 +136,7 @@ def run_gate(gate, *args: str) -> subprocess.CompletedProcess:
     )
 
 
-def test_release_manifests_use_both_audited_digests(gate) -> None:
+def test_release_manifests_use_both_audited_digests(gate: Gate) -> None:
     repo, binaries, _ = gate
     for arch in ("amd64", "arm64"):
         (binaries / "arch").write_text(arch)
@@ -154,14 +156,14 @@ def test_release_manifests_use_both_audited_digests(gate) -> None:
 
 
 @pytest.mark.parametrize("mode", [("main", "amd64"), ("promote",)])
-def test_audit_failure_stops_the_gate(gate, mode: tuple[str, ...]) -> None:
+def test_audit_failure_stops_the_gate(gate: Gate, mode: tuple[str, ...]) -> None:
     _, binaries, _ = gate
     (binaries / "fail-audit").touch()
     assert run_gate(gate, *mode).returncode != 0
     assert "push " not in (binaries / "calls").read_text()
 
 
-def test_promotion_rejects_changed_archive_before_loading_or_pushing(gate) -> None:
+def test_promotion_rejects_changed_archive_before_loading_or_pushing(gate: Gate) -> None:
     repo, binaries, env = gate
     result = run_gate(gate, "promote")
     assert result.returncode == 0, result.stderr

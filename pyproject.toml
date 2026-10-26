@@ -334,7 +334,7 @@ known-first-party = ["nv_config_manager", "nv_config_manager_workflows"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/tests/**/*.py" = ["B", "ANN"]
-"ci/tests/**/*.py" = ["B", "ANN"]
+"ci/tests/**/*.py" = ["B"]
 
 [tool.ruff.format]
 quote-style = "double"

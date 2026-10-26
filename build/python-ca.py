@@ -90,6 +90,12 @@ def verify_directory(directory: Path) -> None:
             b"-----END CERTIFICATE-----"
         ) != len(certificates):
             raise SystemExit(f"Unmatched PEM certificate marker in {path}")
+        if not certificates and any(
+            candidate.suffix.lower() in {".crt", ".pem"}
+            or re.fullmatch(r"[0-9a-fA-F]{8}\.[0-9]+", candidate.name)
+            for candidate in (entry, path)
+        ):
+            raise SystemExit(f"Invalid PEM certificate in {path}: no certificate found")
         for pem in certificates:
             try:
                 certificate = pem.decode("ascii")
