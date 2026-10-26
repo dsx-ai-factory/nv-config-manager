@@ -21,12 +21,12 @@ Typical reasons to reprovision a device:
 
 Before running Reprovision, confirm the following are in place:
 
-- **Device exists in Nautobot** with the correct serial number, eth0 MAC address, primary IPv4, platform, and any required config contexts. If you have just swapped hardware, update the serial and MAC in Nautobot before starting.
+- **Device exists in Nautobot** with the correct serial number, primary IPv4, platform, and any required config contexts, and the MAC address on the management interface the switch boots from: `eth0` on Cumulus Linux, `Management1` or `Management0` on Arista EOS. The EOS DHCP options are set on those interfaces, so a MAC recorded only on `eth0` does not get them. If you have just swapped hardware, update the serial and MAC in Nautobot before starting.
 - **ZTP is enabled** on the device record (the `ztp_enabled` flag on the Config Manager Info tab).
 - **Device is reachable** on its current management IP and responds to the API-driven factory reset. The workflow has no path forward against an unreachable device — and an unreachable device that has truly been factory-reset will ZTP on its own anyway.
 - **Device status** is one of Provisioning, Provisioned, or Active so that Nautobot considers it in scope for ZTP.
-- **Network path is healthy.** The Config Manager cluster must reach Cumulus NVUE on TCP 8765 to initiate the factory reset. In the return direction, DHCP (UDP 67/68), the configured HTTP/HTTPS bootstrap port, and ZTP SFTP on TCP 2222 must be open from the device network to Config Manager. The switch's upstream relay path must be up.
-- **Cumulus Linux 5.x** is installed. ZTP will not proceed on pre-5.x releases; upgrade the device first using the [Switch OS Upgrade](../switch-os-upgrade/index.mdx) workflow.
+- **Network path is healthy.** The Config Manager cluster must reach Cumulus NVUE on TCP 8765 (eAPI on TCP 443 for Arista EOS) to initiate the factory reset. In the return direction, DHCP (UDP 67/68), the configured HTTP/HTTPS bootstrap port, and ZTP SFTP on TCP 2222 must be open from the device network to Config Manager. The switch's upstream relay path must be up.
+- **Cumulus Linux 5.x** is installed, on Cumulus Linux switches. ZTP will not proceed on pre-5.x releases; upgrade the device first using the [Switch OS Upgrade](../switch-os-upgrade/index.mdx) workflow.
 - **Approval to take the device offline.** Reprovisioning reboots the switch and re-applies its full configuration; any traffic transiting the device will be disrupted.
 
 ## Running the workflow
@@ -42,7 +42,7 @@ The workflow form takes the following inputs:
 | **Site** | The site of the target device. Drives the device list below. | Yes |
 | **Tenant** | Optional Nautobot tenant filter to narrow the device list. | No |
 | **Status** | Optional device-status filter to narrow the device list. | No |
-| **Device** | The target device. The list is filtered by the selections above and pre-filtered to Cumulus Linux and NV-OS platforms. | Yes |
+| **Device** | The target device. The list is filtered by the selections above and pre-filtered to Cumulus Linux, NV-OS, and Arista EOS platforms. | Yes |
 
 After submission, a status page appears showing each stage as it runs. The workflow typically completes in 10-35 minutes, depending on how long the device takes to ZTP and how large the backup is.
 

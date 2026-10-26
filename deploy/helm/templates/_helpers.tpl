@@ -1101,6 +1101,7 @@ Usage: {{ include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
   - |
     set -e
     echo "Installing template plugins from {{ .Values.renderService.templatePlugins.mountPath }}..."
+{{ .Files.Get "files/python-tooling.sh" | indent 4 }}
     for plugin_dir in {{ .Values.renderService.templatePlugins.mountPath }}/*; do
       if [ ! -d "$plugin_dir" ]; then
         continue
@@ -1112,11 +1113,13 @@ Usage: {{ include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
         echo "Installing offline plugin wheel(s): $plugin_dir/dist"
         pip install --no-index --target=/opt/plugins --no-deps "$plugin_dir"/dist/*.whl
       elif [ -f "$plugin_dir/source/pyproject.toml" ]; then
+        nvcm_bootstrap_pip
         echo "Installing build dependencies..."
         pip install --quiet hatchling
         echo "Installing plugin source: $plugin_dir/source"
         pip install --target=/opt/plugins --no-deps "$plugin_dir/source"
       elif [ -f "$plugin_dir/pyproject.toml" ]; then
+        nvcm_bootstrap_pip
         echo "Installing build dependencies..."
         pip install --quiet hatchling
         echo "Installing plugin source: $plugin_dir"

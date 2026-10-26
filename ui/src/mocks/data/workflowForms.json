@@ -1749,7 +1749,8 @@
               "managed_only": true,
               "platform": [
                 "Cumulus Linux",
-                "NV-OS"
+                "NV-OS",
+                "Arista EOS"
               ]
             }
           },

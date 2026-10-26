@@ -140,6 +140,12 @@ force-pushing it.
 
 ## Getting Started
 
+Python development requires **uv 0.13.4 or newer**, enforced by each project's
+`pyproject.toml`. GitHub Actions reads that requirement directly. Shared pip/uv
+bootstrap versions and hashes live in `deploy/helm/files/python-tooling.sh`, used
+by GitLab CI and embedded in the chart's source-plugin installer. Container CA
+validation lives in `build/python-ca.py`.
+
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
    ```bash
