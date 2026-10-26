@@ -76,15 +76,22 @@ def verify_directory(directory: Path) -> None:
     """Check the bundle and individual anchors, including stale capath targets."""
     directory = directory.resolve()
     verify_bundle(str(exported_path(directory, Path("etc/ssl/certs/ca-certificates.crt"))))
-    for path in directory.rglob("*"):
-        path = exported_path(directory, path.relative_to(directory))
+    for entry in directory.rglob("*"):
+        path = exported_path(directory, entry.relative_to(directory))
         if not path.is_file():
             continue
-        for pem in re.findall(
+        contents = path.read_bytes()
+        certificates = re.findall(
             rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
-            path.read_bytes(),
+            contents,
             flags=re.DOTALL,
+        )
+        if (entry.suffix == ".crt" or path.suffix == ".crt") and (
+            contents.count(b"-----BEGIN CERTIFICATE-----") != len(certificates)
+            or contents.count(b"-----END CERTIFICATE-----") != len(certificates)
         ):
+            raise SystemExit(f"Unmatched PEM certificate marker in {path}")
+        for pem in certificates:
             try:
                 certificate = pem.decode("ascii")
                 ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(cadata=certificate)

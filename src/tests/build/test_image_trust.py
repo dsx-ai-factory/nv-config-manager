@@ -150,6 +150,43 @@ def test_malformed_individual_certificate_fails(tmp_path: Path, contents: str) -
         checker["verify_directory"](tmp_path)
 
 
+@pytest.mark.parametrize("marker", ["BEGIN", "END"])
+@pytest.mark.parametrize("include_complete", [False, True])
+@pytest.mark.parametrize("symlink", [False, True])
+def test_unmatched_crt_certificate_marker_fails(
+    tmp_path: Path, marker: str, include_complete: bool, symlink: bool
+) -> None:
+    """Reject incomplete CRT anchors even alongside a valid certificate."""
+    checker, bundle, _ = _exported_store(tmp_path)
+    complete = re.findall(
+        r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
+        bundle.read_text(),
+        flags=re.DOTALL,
+    )[0]
+    contents = f"-----{marker} CERTIFICATE-----\n"
+    if include_complete:
+        contents = complete + "\n" + contents
+    anchor = tmp_path / "usr/local/share/ca-certificates/incomplete.crt"
+    anchor.parent.mkdir(parents=True)
+    if symlink:
+        target = anchor.with_suffix(".pem")
+        target.write_text(contents)
+        anchor.symlink_to(target.name)
+    else:
+        anchor.write_text(contents)
+    with pytest.raises(SystemExit, match="Unmatched PEM certificate marker"):
+        checker["verify_directory"](tmp_path)
+
+
+def test_complete_crt_anchor_is_valid(tmp_path: Path) -> None:
+    """Continue accepting complete certificate blocks in local CRT files."""
+    checker, bundle, _ = _exported_store(tmp_path)
+    anchor = tmp_path / "usr/local/share/ca-certificates/complete.crt"
+    anchor.parent.mkdir(parents=True)
+    anchor.write_text(bundle.read_text())
+    checker["verify_directory"](tmp_path)
+
+
 def test_malformed_bundle_fails(tmp_path: Path) -> None:
     """Report an invalid combined bundle without exposing an SSL traceback."""
     checker = runpy.run_path(str(_CHECKER))
