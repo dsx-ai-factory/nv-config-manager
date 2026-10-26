@@ -19,6 +19,9 @@ version before the selected release candidate is promoted.
   host identities, port names, and cable-lane labels.
 - Added a SuperPOD AIR Hyper-reach validation demo with an LLDP host fixture,
   persistent host configuration, and example report screenshots.
+- The AIR fixture now installs the LLDP host in an inventory-only chassis
+  DeviceBay to exercise parent-chassis matching. Added MCP QA steps for the
+  positive, mismatched-chassis, and standalone fallback cases.
 - Added documentation for Hyper-reach interface labels, chassis identity, and
   LLDP port-description matching.
 

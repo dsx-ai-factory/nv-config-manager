@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from mcp.server.fastmcp import FastMCP
@@ -25,6 +26,7 @@ from pydantic import BaseModel, Field
 from nv_config_manager.mcp import tools
 from nv_config_manager.mcp.settings import MCPSettings
 from nv_config_manager.mcp.workflows import MCPWorkflow
+from nv_config_manager_workflows.workflows.cable_validation import DeviceCableValidationWorkflow
 
 
 class FakeServer:
@@ -106,6 +108,28 @@ async def test_workflow_starter_promotes_config_manager_ui_href(
     assert server.tool_descriptions["run_backup"] == ("Run a backup.\n\nResolve the device first.")
     assert "Resolve the device first." in (server.tools["run_backup"].__doc__ or "")
     assert "workflow_ui_href" in (server.tools["run_backup"].__doc__ or "")
+
+
+async def test_device_cable_validation_can_be_started_through_mcp(
+    monkeypatch: pytest.MonkeyPatch,
+    settings: MCPSettings,
+) -> None:
+    """MCP must dispatch the real cable-validation input model to the workflow API."""
+    start = AsyncMock(return_value={"data": {"id": "cable-validation-qa"}})
+    monkeypatch.setattr(tools, "start_workflow", start)
+    workflow = tools.discover_mcp_workflows([DeviceCableValidationWorkflow])[0]
+    server = FastMCP("cable-validation-qa")
+    tools._register_workflow_starter(server, settings, workflow)
+    device_id = "11111111-1111-1111-1111-111111111111"
+
+    await server.call_tool("run_device_cable_validation", {"device_id": device_id})
+
+    start.assert_awaited_once()
+    assert start.await_args.args[1] == "/ngc/device_cable_validation"
+    payload = start.await_args.args[2]
+    assert payload["device_id"] == device_id
+    assert payload["defer_cable_status_updates"] is False
+    assert payload["ignore_no_neighbor"] is False
 
 
 async def test_workflow_starter_exposes_workflow_specific_input_schema(
