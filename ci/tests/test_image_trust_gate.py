@@ -15,6 +15,7 @@
 """Exercise audit isolation and the binding between checked and published images."""
 
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -81,11 +82,15 @@ def gate(tmp_path: Path):
         "    esac ;;\n"
         "esac\n"
     )
+    # setup-python's Linux runtime needs its lib directory after env -i.
+    # Supply it only in this test double; keep the production audit isolated.
+    python_libdir = shlex.quote(str(Path(sys.base_prefix) / "lib"))
     (binaries / "uv").write_text(
         "#!/bin/bash\nset -eu\n"
         '[[ -z "${AUDIT_TEST_SECRET:-}" ]] || exit 94\n'
         "shift 5\n"
-        f'exec "{sys.executable}" "$@"\n'
+        f"export LD_LIBRARY_PATH={python_libdir}\n"
+        f'exec {shlex.quote(sys.executable)} "$@"\n'
     )
     (binaries / "curl").write_text(
         '#!/bin/bash\nset -eu\nbase="$(dirname "$0")"\n'
