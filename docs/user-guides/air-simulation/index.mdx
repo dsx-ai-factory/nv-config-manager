@@ -71,6 +71,100 @@ Important fields:
 | **Simulation Name** | Name shown in DSX Air. Leave blank to auto-generate. |
 | **OOB Management Server Name** | Existing DSX Air server node that receives Config Manager, usually `oob-mgmt-server`. |
 
+### Custom SimX topology options
+
+Custom site-design YAML can retain SimX hosts and their simulated NICs. Put the
+Air node settings under the device's `_air` key, and put the NIC identifier under
+the interface's `_air.network_pci` key. The identifier must match an entry in
+that same device's `_air.network_pci` mapping. For example, these entries define
+one host with two ports on the same simulated ConnectX-8 NIC:
+
+```yaml
+devices:
+  - name: simx-host01
+    platform: Ubuntu
+    _air:
+      os: <available-doca-host-image>
+      cpu: 4
+      memory: 8192
+      storage: 20
+      emulation_type: HOST
+      config_only_features: true
+      model: host
+      simulator_image: <available-simx-image>
+      network_pci:
+        nic0:
+          emulation_type: NIC_ETHERNET
+          model: connectx8
+          dpa: true
+          port_type: ethernet
+          number_of_ports: 2
+          pci_addresses: ["0000:03:00.0", "0000:03:00.1"]
+interfaces:
+  - device: simx-host01
+    name: eth_p0
+    _air:
+      network_pci: nic0
+  - device: simx-host01
+    name: eth_p1
+    _air:
+      network_pci: nic0
+```
+
+This is a site-design excerpt. Add the host's management interface and fabric
+cables, the NVCM management server and addressing, and matching Nautobot inventory
+and configuration templates for the complete lab. For a mock topology blueprint,
+put the same `_air` settings on the device and its nested interfaces in the
+blueprint's device JSON. The context converter preserves both.
+
+The builder passes through `emulation_type`, `config_only_features`, `model`,
+`simulator_image`, and `network_pci`, including nested NIC settings. It also
+preserves explicit `cpu_mode`, `cpu_options`, `nic_model`, `secureboot`, `pxehost`,
+`features`, `storage_pci`, `labels`, and `positioning` settings. These options and
+explicit CPU, memory, and storage values apply to both hosts and Cumulus nodes.
+Cumulus OS images continue to be selected from `intended-firmware.version` and
+resolved against Air; `_air.os` selects the image for non-Cumulus nodes only.
+
+Use full topology mode for all SimX settings, including hosts that specify only
+a simulator image or emulation mode without a NIC mapping. Minimal mode rejects
+SimX settings because grouping devices would lose their simulator, PCI, and cable
+associations. Minimal mode retains its existing render-only behavior for ordinary
+designs: it produces generic Cumulus groups and discards custom host OS and VM
+options. Use full mode whenever those options must be preserved.
+Image availability, SimX access, and remaining option validation depend on the
+target Air organization. This support uses the existing site-design workflow;
+native Air JSON import and attaching to a running simulation are separate workflows.
+
+### Custom Nautobot topology jobs
+
+Under **Topology → Nautobot → Custom topology jobs**:
+
+1. Select **Add Job Directory** and choose the local job-package directory, for
+   example `/path/to/example_topology`. The directory and its contents are
+   uploaded to the simulation during installation.
+1. Select **Add Job to Run** and enter its full Nautobot job class, for example
+   `custom.example_topology.jobs.design.ExampleTopologyDesign`.
+1. Enter the job's inputs as a JSON object, such as
+   `{"deployment_name": "demo"}`. Blank inputs, including an empty or `null` YAML
+   `input`, mean no arguments. Jobs run in the displayed order after installation,
+   following the mock job if enabled.
+1. Save the profile or launch the simulation. Invalid JSON and non-object inputs
+   are rejected before Air resources are created.
+
+![Custom Nautobot topology jobs](../../assets/images/air-sim/09-custom-topology-jobs.svg)
+
+For a custom job that replaces the bundled inventory, turn off **Populate bundled
+Nautobot with the mock topology job**. The Air topology YAML, Nautobot population
+job, and template plugins are separate selections; keep them aligned with the
+same design. A preview-only job does not populate the inventory needed for
+automatic switch provisioning.
+
+Directories can be uploaded without adding a job to run. Multiple jobs may use
+the same directory. These controls edit the existing `extra_job_paths` and
+`extra_run_after_deploy` settings, including profiles created outside the TUI.
+Do not enter passwords or tokens as job inputs; resolve credentials through your
+job's runtime secret integration.
+
 ### DSX Air trial topology
 
 ```mermaid
