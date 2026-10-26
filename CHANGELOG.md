@@ -22,6 +22,12 @@ version before the selected release candidate is promoted.
 - Added documentation for Hyper-reach interface labels, chassis identity, and
   LLDP port-description matching.
 
+### Fixed
+
+- The AIR Hyper-reach fixture now installs its LLDP host in a chassis DeviceBay
+  and advertises the chassis name, enabling parent-chassis validation in simulation.
+- AIR simulations resolve the MCP gateway hostname on new and existing setups.
+
 ## 1.4.0
 
 ### Added
