@@ -86,10 +86,9 @@ def verify_directory(directory: Path) -> None:
             contents,
             flags=re.DOTALL,
         )
-        if (entry.suffix == ".crt" or path.suffix == ".crt") and (
-            contents.count(b"-----BEGIN CERTIFICATE-----") != len(certificates)
-            or contents.count(b"-----END CERTIFICATE-----") != len(certificates)
-        ):
+        if contents.count(b"-----BEGIN CERTIFICATE-----") != len(certificates) or contents.count(
+            b"-----END CERTIFICATE-----"
+        ) != len(certificates):
             raise SystemExit(f"Unmatched PEM certificate marker in {path}")
         for pem in certificates:
             try:

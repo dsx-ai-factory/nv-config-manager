@@ -24,6 +24,10 @@ import certifi
 import pytest
 
 _CHECKER = Path(__file__).resolve().parents[3] / "build/python-ca.py"
+_ANCHOR_PATHS = (
+    "usr/local/share/ca-certificates/incomplete.crt",
+    "etc/ssl/certs/deadbeef.0",
+)
 
 
 def _exported_store(directory: Path) -> tuple[dict, Path, str]:
@@ -153,10 +157,11 @@ def test_malformed_individual_certificate_fails(tmp_path: Path, contents: str) -
 @pytest.mark.parametrize("marker", ["BEGIN", "END"])
 @pytest.mark.parametrize("include_complete", [False, True])
 @pytest.mark.parametrize("symlink", [False, True])
-def test_unmatched_crt_certificate_marker_fails(
-    tmp_path: Path, marker: str, include_complete: bool, symlink: bool
+@pytest.mark.parametrize("anchor_path", _ANCHOR_PATHS)
+def test_unmatched_certificate_marker_fails(
+    tmp_path: Path, marker: str, include_complete: bool, symlink: bool, anchor_path: str
 ) -> None:
-    """Reject incomplete CRT anchors even alongside a valid certificate."""
+    """Reject incomplete local and hashed anchors, including regular files."""
     checker, bundle, _ = _exported_store(tmp_path)
     complete = re.findall(
         r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
@@ -166,8 +171,8 @@ def test_unmatched_crt_certificate_marker_fails(
     contents = f"-----{marker} CERTIFICATE-----\n"
     if include_complete:
         contents = complete + "\n" + contents
-    anchor = tmp_path / "usr/local/share/ca-certificates/incomplete.crt"
-    anchor.parent.mkdir(parents=True)
+    anchor = tmp_path / anchor_path
+    anchor.parent.mkdir(parents=True, exist_ok=True)
     if symlink:
         target = anchor.with_suffix(".pem")
         target.write_text(contents)
@@ -178,11 +183,12 @@ def test_unmatched_crt_certificate_marker_fails(
         checker["verify_directory"](tmp_path)
 
 
-def test_complete_crt_anchor_is_valid(tmp_path: Path) -> None:
-    """Continue accepting complete certificate blocks in local CRT files."""
+@pytest.mark.parametrize("anchor_path", _ANCHOR_PATHS)
+def test_complete_certificate_anchor_is_valid(tmp_path: Path, anchor_path: str) -> None:
+    """Continue accepting complete certificate blocks in local and hashed files."""
     checker, bundle, _ = _exported_store(tmp_path)
-    anchor = tmp_path / "usr/local/share/ca-certificates/complete.crt"
-    anchor.parent.mkdir(parents=True)
+    anchor = tmp_path / anchor_path
+    anchor.parent.mkdir(parents=True, exist_ok=True)
     anchor.write_text(bundle.read_text())
     checker["verify_directory"](tmp_path)
 
