@@ -12,35 +12,43 @@
 {{- $redisHost := include "nv-config-manager.redisHost" . }}
 {{- $redisPort := .Values.externalServices.redis.port | default 6379 }}
 {{- $redisScheme := .Values.externalServices.redis.ssl | ternary "rediss" "redis" }}
+{{- /* oauth2-proxy otherwise gives up on an upstream after 30s and answers 502,
+     whatever the gateway's own timeout is. That cuts every browser request
+     short of gateway.timeout.requestTimeout, and the gateway retries that 502
+     for GET and HEAD, so a slow read reaches the backend numRetries + 1 times.
+     Matching the gateway's timeout lets the gateway's 504, which is not
+     retried, end a slow request instead. */}}
+{{- $timeout := .Values.gateway.timeout.requestTimeout | default "300s" }}
+{{- $uploadTimeout := .Values.networkZtp.upload.timeout | default "3600s" }}
 {{- $proxies := list }}
 {{- /* A dedicated callback proxy keeps OIDC usable when the UI is disabled. */}}
 {{- $proxies = append $proxies (dict "name" "callback" "port" 9109 "upstream" "static://200") }}
 {{- if .Values.ui.enabled }}
-  {{- $proxies = append $proxies (dict "name" "ui" "port" 9100 "upstream" (printf "http://%s:3000" $uiName)) }}
+  {{- $proxies = append $proxies (dict "name" "ui" "port" 9100 "upstream" (printf "http://%s:3000" $uiName) "timeout" $timeout) }}
 {{- end }}
 {{- if .Values.renderService.enabled }}
-  {{- $proxies = append $proxies (dict "name" "render" "port" 9101 "upstream" (printf "http://%s-api:9000" $renderName)) }}
+  {{- $proxies = append $proxies (dict "name" "render" "port" 9101 "upstream" (printf "http://%s-api:9000" $renderName) "timeout" $timeout) }}
 {{- end }}
 {{- if .Values.networkZtp.enabled }}
-  {{- $proxies = append $proxies (dict "name" "ztp" "port" 9102 "upstream" (printf "http://%s-api:9000" $ztpName)) }}
+  {{- $proxies = append $proxies (dict "name" "ztp" "port" 9102 "upstream" (printf "http://%s-api:9000" $ztpName) "timeout" $uploadTimeout) }}
 {{- end }}
 {{- if .Values.networkDhcp.enabled }}
-  {{- $proxies = append $proxies (dict "name" "dhcp" "port" 9103 "upstream" (printf "http://%s-internal:9000" $dhcpName)) }}
+  {{- $proxies = append $proxies (dict "name" "dhcp" "port" 9103 "upstream" (printf "http://%s-internal:9000" $dhcpName) "timeout" $timeout) }}
 {{- end }}
 {{- if .Values.temporal.enabled }}
-  {{- $proxies = append $proxies (dict "name" "workflow" "port" 9104 "upstream" (printf "http://%s-api:9000" $temporalName)) }}
+  {{- $proxies = append $proxies (dict "name" "workflow" "port" 9104 "upstream" (printf "http://%s-api:9000" $temporalName) "timeout" $timeout) }}
 {{- if .Values.temporal.server.enabled }}
-  {{- $proxies = append $proxies (dict "name" "temporal" "port" 9105 "upstream" (printf "http://%s-web-service:8080" $temporalName)) }}
+  {{- $proxies = append $proxies (dict "name" "temporal" "port" 9105 "upstream" (printf "http://%s-web-service:8080" $temporalName) "timeout" $timeout) }}
 {{- end }}
 {{- end }}
 {{- if and .Values.nautobot.enabled .Values.externalServices.nautobot.local }}
-  {{- $proxies = append $proxies (dict "name" "nautobot" "port" 9106 "upstream" (printf "http://%s:80" $nautobotName)) }}
+  {{- $proxies = append $proxies (dict "name" "nautobot" "port" 9106 "upstream" (printf "http://%s:80" $nautobotName) "timeout" $timeout) }}
 {{- end }}
 {{- if .Values.configStore.enabled }}
-  {{- $proxies = append $proxies (dict "name" "config-store" "port" 9107 "upstream" (printf "http://%s-api:9000" $configStoreName)) }}
+  {{- $proxies = append $proxies (dict "name" "config-store" "port" 9107 "upstream" (printf "http://%s-api:9000" $configStoreName) "timeout" $timeout) }}
 {{- end }}
 {{- if .Values.mcp.enabled }}
-  {{- $proxies = append $proxies (dict "name" "mcp" "port" 9108 "upstream" (printf "http://%s:9000" $mcpName)) }}
+  {{- $proxies = append $proxies (dict "name" "mcp" "port" 9108 "upstream" (printf "http://%s:9000" $mcpName) "timeout" $timeout) }}
 {{- end }}
 apiVersion: v1
 kind: ConfigMap
@@ -60,6 +68,9 @@ data:
     redirect_url = {{ printf "https://%s%s/oauth2/callback" $.Values.gateway.baseHostname (ternary (printf ":%v" $.Values.oidc.callbackPort) "" (not (empty $.Values.oidc.callbackPort))) | quote }}
     http_address = {{ printf "0.0.0.0:%v" $proxy.port | quote }}
     upstreams = [{{ $proxy.upstream | quote }}]
+    {{- with $proxy.timeout }}
+    upstream_timeout = {{ . | quote }}
+    {{- end }}
     email_domains = ["*"]
     scope = {{ join " " ($.Values.oidc.scopes | default (list "openid" "email" "profile")) | quote }}
     cookie_name = {{ $.Values.oidc.proxy.cookieName | default "_nvcm_oidc_proxy" | quote }}
