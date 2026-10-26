@@ -20,6 +20,7 @@ rotation and history remediation require coordination with the credential owner.
 ## Project Map and Validation
 
 - `src/nv_config_manager/` and `src/tests/`: Python services and tests.
+- `ci/tests/`: build, container, and CI tooling tests, run with `make test-ci`.
 - `packages/` and `plugins/`: shared libraries and DCIM integrations.
 - `installer/`: deployment configuration, CLI, TUI, and installer tests.
 - `ui/`: Next.js UI and Playwright tests.
@@ -31,6 +32,10 @@ Use [CONTRIBUTING.md](CONTRIBUTING.md) for coding and review requirements,
 [README.md](README.md#testing) for test commands, and [RELEASE.md](RELEASE.md)
 for the release process. Run checks appropriate to the changed component;
 integration tests require a deployed environment. Do not claim unrun checks passed.
+
+Place new build, container, and CI tooling tests in `ci/tests/` and service tests
+in `src/tests/`. Keep tooling tests independent of application fixtures and
+application coverage.
 
 ## Python Imports
 

@@ -161,6 +161,10 @@ requires Docker, Python 3, and uv on the host. CI image pins
 live in `.gitlab/ci/images.yml`; GitLab project/group variables override those
 defaults and must be refreshed to matching versions and digests too.
 
+Build, container, and CI tooling tests belong in `ci/tests/`. Run them with
+`make test-ci`; GitHub and GitLab CI run this suite separately from the
+application tests and their coverage collection. Service tests belong in `src/tests/`.
+
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
    ```bash

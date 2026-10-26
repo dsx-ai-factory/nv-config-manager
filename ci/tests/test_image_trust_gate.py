@@ -25,7 +25,7 @@ import certifi
 import pytest
 import yaml
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 IMAGES = (
     "nv-config-manager",
     "nv-config-manager-kea",

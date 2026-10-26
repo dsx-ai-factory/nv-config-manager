@@ -133,7 +133,7 @@ jobs:
         run: |
           SPDX_ID="SPDX-License-Identifier: Apache-2.0"
           LICENSE_TEXT="Licensed under the Apache License"
-          CHECK_DIRS="src/ ui/src/ ui/tests/ packages/ plugins/ components/ db/migrations/ scripts/ development/ installer/src/"
+          CHECK_DIRS="src/ ci/tests/ ui/src/ ui/tests/ packages/ plugins/ components/ db/migrations/ scripts/ development/ installer/src/"
           EXTENSIONS="py ts tsx go"
           FAILED=0
           for dir in $CHECK_DIRS; do
@@ -169,6 +169,8 @@ jobs:
           resolution-strategy: lowest
           enable-cache: true
       - run: uv sync --frozen
+      - name: CI tooling tests
+        run: make test-ci
       - run: uv run pytest packages/dcim/tests -v
       - run: uv run pytest -n auto --cov=src/nv_config_manager --cov-report=xml:coverage.xml --cov-report=term
       - name: Nautobot tests

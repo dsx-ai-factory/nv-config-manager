@@ -23,7 +23,7 @@ from pathlib import Path
 import certifi
 import pytest
 
-_CHECKER = Path(__file__).resolve().parents[3] / "build/python-ca.py"
+_CHECKER = Path(__file__).resolve().parents[2] / "build/python-ca.py"
 _ANCHOR_PATHS = (
     "usr/local/share/ca-certificates/incomplete.crt",
     "etc/ssl/certs/deadbeef.0",
