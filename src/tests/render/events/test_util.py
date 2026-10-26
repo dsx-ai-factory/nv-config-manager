@@ -22,9 +22,10 @@ import pytest
 from nv_config_manager.dcim import RenderDeviceStatus
 from nv_config_manager.render.events.util import (
     DeviceNotEnabledError,
+    EnqueueResult,
+    _process_single_device_enqueue,
+    claim_queued,
     clear_queued,
-    is_queued,
-    mark_queued,
     queue_render,
     should_run,
 )
@@ -112,8 +113,7 @@ is_aggregate_environment=false
     )
     with patch("nv_config_manager.render.events.util._get_queue_redis_client") as redis_getter:
         redis = MagicMock()
-        redis.exists = AsyncMock(return_value=False)
-        redis.setex = AsyncMock()
+        redis.redis.set = AsyncMock(return_value=True)
         redis_getter.return_value = redis
 
         await queue_render("test-device", "message", "user", "2024-01-16T21:46:05Z")
@@ -152,8 +152,7 @@ is_aggregate_environment=false
     mock_nats_connection.jetstream.return_value.publish.side_effect = RuntimeError("NATS error")
     with patch("nv_config_manager.render.events.util._get_queue_redis_client") as redis_getter:
         redis = MagicMock()
-        redis.exists = AsyncMock(return_value=False)
-        redis.setex = AsyncMock()
+        redis.redis.set = AsyncMock(return_value=True)
         redis.delete = AsyncMock()
         redis_getter.return_value = redis
 
@@ -165,17 +164,106 @@ is_aggregate_environment=false
 
 @pytest.mark.asyncio
 async def test_redis_deduplication_functions():
-    """Queue-marker helpers retain their Redis behavior."""
+    """The queued flag is checked and set in one Redis command."""
     with patch("nv_config_manager.render.events.util._get_queue_redis_client") as redis_getter:
         redis = MagicMock()
-        redis.setex = AsyncMock()
-        redis.exists = AsyncMock(return_value=True)
+        redis.redis.set = AsyncMock(side_effect=[True, None])
         redis.delete = AsyncMock()
         redis_getter.return_value = redis
 
-        await mark_queued("device")
-        assert await is_queued("device") is True
+        assert await claim_queued("device") is True
+        assert await claim_queued("device") is False
         await clear_queued("device")
 
-    redis.setex.assert_awaited_once_with("device_queued", 60, 1, serialize=False)
+    redis.redis.set.assert_awaited_with("device_queued", 1, nx=True, ex=60)
     redis.delete.assert_awaited_once_with("device_queued")
+
+
+@pytest.mark.asyncio
+async def test_claim_queued_always_claims_without_redis():
+    """Local environments have no Redis, so every request is published."""
+    with patch("nv_config_manager.render.events.util._get_queue_redis_client", return_value=None):
+        assert await claim_queued("device") is True
+
+
+def _enqueue_redis(claimed: bool) -> MagicMock:
+    redis = MagicMock()
+    redis.redis.set = AsyncMock(return_value=True if claimed else None)
+    redis.delete = AsyncMock()
+    return redis
+
+
+def _jetstream() -> MagicMock:
+    jetstream = MagicMock()
+    jetstream.publish = AsyncMock()
+    return jetstream
+
+
+@pytest.mark.asyncio
+async def test_enqueue_skips_device_already_queued(mock_dcim_client, custom_ini):
+    """A device another producer already claimed is neither checked nor published."""
+    custom_ini("[nats]\n")
+    redis = _enqueue_redis(claimed=False)
+    jetstream = _jetstream()
+
+    result = await _process_single_device_enqueue(
+        "device", "msg", "user", "ts", jetstream, MagicMock(), redis, mock_dcim_client
+    )
+
+    assert result is EnqueueResult.ALREADY_QUEUED
+    jetstream.publish.assert_not_awaited()
+    mock_dcim_client.get_render_device_status.assert_not_awaited()
+    redis.delete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_releases_claim_for_disabled_device(mock_dcim_client, custom_ini):
+    """A device that is not enabled does not keep the flag it was just given."""
+    custom_ini("[nats]\n")
+    redis = _enqueue_redis(claimed=True)
+    jetstream = _jetstream()
+
+    result = await _process_single_device_enqueue(
+        "device", "msg", "user", "ts", jetstream, MagicMock(), redis, mock_dcim_client
+    )
+
+    assert isinstance(result, dict)
+    assert "not enabled" in result["error"]
+    jetstream.publish.assert_not_awaited()
+    redis.delete.assert_awaited_once_with("device_queued")
+
+
+@pytest.mark.asyncio
+async def test_enqueue_failure_keeps_another_producers_flag(mock_dcim_client, custom_ini):
+    """An error before this producer claimed the device leaves the existing flag alone."""
+    custom_ini("[nats]\n")
+    redis = _enqueue_redis(claimed=True)
+    redis.redis.set.side_effect = ConnectionError("redis down")
+
+    result = await _process_single_device_enqueue(
+        "device", "msg", "user", "ts", _jetstream(), MagicMock(), redis, mock_dcim_client
+    )
+
+    assert isinstance(result, dict)
+    redis.delete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_queue_render_does_not_report_skipped_duplicate_as_published(
+    mock_dcim_client, mock_nats_connection, custom_ini
+):
+    """The publish log line only appears when a message was actually published."""
+    custom_ini("[nats]\n")
+    logger = MagicMock()
+    with (
+        patch(
+            "nv_config_manager.render.events.util._get_queue_redis_client",
+            return_value=_enqueue_redis(claimed=False),
+        ),
+        patch("nv_config_manager.render.events.util.get_logger", return_value=logger),
+    ):
+        await queue_render("device", "message", "user", "2024-01-16T21:46:05Z")
+
+    mock_nats_connection.jetstream.return_value.publish.assert_not_awaited()
+    published = [c for c in logger.info.call_args_list if "Published" in c.args[0]]
+    assert published == []
