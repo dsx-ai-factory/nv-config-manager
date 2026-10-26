@@ -23,6 +23,7 @@ from typing import Any
 import pytest
 import yaml
 
+from nv_config_manager_installer.air_sim.constants import DEFAULT_MOCK_CONTEXT_ROOT
 from nv_config_manager_installer.air_sim.context_topology import (
     build_site_design_from_mock_context,
 )
@@ -32,6 +33,25 @@ from nv_config_manager_installer.air_sim.topology import AirTopologyBuilder
 
 def _write_yaml(path: Path, data: dict[str, Any]) -> None:
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
+def test_hyperreach_chassis_is_inventory_only_and_child_remains_an_air_node(
+    tmp_path: Path,
+) -> None:
+    """A Nautobot parent bay must not require an extra VM or move the test links."""
+    design = build_site_design_from_mock_context(
+        "air_superpod", "qa", context_root=DEFAULT_MOCK_CONTEXT_ROOT
+    )
+    devices = _devices_by_name(design)
+    assert devices["su02-hyperreach-chassis"]["_air"]["enabled"] is False
+    topology_path = tmp_path / "superpod.yaml"
+    _write_yaml(topology_path, design)
+    topology = AirTopologyBuilder(str(topology_path)).build_topology()
+    assert "su02-hyperreach-chassis" not in topology["nodes"]
+    assert "su02-hyperreach-host" in topology["nodes"]
+    assert devices["su02-hyperreach-host"]["_air"]["lldp"]["eth1"]["port_description"] == (
+        "su02-hyperreach-chassis C1-2-L1"
+    )
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:

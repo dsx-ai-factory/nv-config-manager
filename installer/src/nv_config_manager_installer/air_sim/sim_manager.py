@@ -959,6 +959,7 @@ class AirSimulationManager:
         f" render.{CONFIG_MANAGER_HOSTNAME}"
         f" ztp.{CONFIG_MANAGER_HOSTNAME} dhcp.{CONFIG_MANAGER_HOSTNAME}"
         f" workflow.{CONFIG_MANAGER_HOSTNAME}"
+        f" mcp.{CONFIG_MANAGER_HOSTNAME}"
         f" config-store.{CONFIG_MANAGER_HOSTNAME} temporal.{CONFIG_MANAGER_HOSTNAME}"
         f" svc-workflow.{CONFIG_MANAGER_HOSTNAME}"
         f" svc-config-store.{CONFIG_MANAGER_HOSTNAME}"
@@ -1021,7 +1022,8 @@ class AirSimulationManager:
                 f"grep -Fqw -- {shlex.quote(CONFIG_MANAGER_HOSTNAME)} /etc/hosts"
                 f" || echo {hosts_line} | sudo tee -a /etc/hosts > /dev/null"
             ]
-            for hostname in additional_hostnames:
+            # Existing simulations already have nvcm.air, but may lack MCP.
+            for hostname in (f"mcp.{CONFIG_MANAGER_HOSTNAME}", *additional_hostnames):
                 provider_line = shlex.quote(f"{gateway_ip} {hostname}")
                 add_commands.append(
                     f"grep -Fqw -- {shlex.quote(hostname)} /etc/hosts"

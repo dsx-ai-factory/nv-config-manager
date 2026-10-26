@@ -12,9 +12,13 @@
       },
       "device_type": {
         "manufacturer": {
-          "name": "Generic"
+          "name": "NVIDIA"
         },
-        "model": "Generic Server"
+        "model": "AIR Hyper-reach Line Card"
+      },
+      "parent_bay": {
+        "name": "line-card-1",
+        "device": {"name": "su02-hyperreach-chassis"}
       },
       "status": {
         "name": "Active"
@@ -34,11 +38,11 @@
         "lldp": {
           "eth1": {
             "name": "A56p0",
-            "port_description": "su02-hyperreach-host C1-2-L1"
+            "port_description": "su02-hyperreach-chassis C1-2-L1"
           },
           "eth2": {
             "name": "A56p1",
-            "port_description": "su02-hyperreach-host C1-2-L2"
+            "port_description": "su02-hyperreach-chassis C1-2-L2"
           }
         }
       },

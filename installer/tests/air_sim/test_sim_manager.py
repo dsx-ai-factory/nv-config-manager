@@ -109,6 +109,8 @@ def test_configure_etc_hosts_adds_provider_hostname_on_existing_install(
         additional_hostnames=("netbox.nvcm.air",),
     )
     assert "grep -Fqw -- nvcm.air" in commands[1]
+    assert "grep -Fqw -- mcp.nvcm.air" in commands[1]
+    assert "192.0.2.10 mcp.nvcm.air" in commands[1]
     assert "grep -Fqw -- netbox.nvcm.air" in commands[1]
     assert "192.0.2.10 netbox.nvcm.air" in commands[1]
 
