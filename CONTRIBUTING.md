@@ -152,11 +152,15 @@ interpreters separately and upgrade existing environments to pip 26.2.2 or newer
 After building container images, audit their actual system CA bundles and
 individual trust anchors with `build/check-image-trust.sh IMAGE`. Add `--node`
 to also check Node's bundled roots. The GitLab PR image builds run this audit
-before uploading each image artifact. Protected promotion independently audits
+before uploading each image artifact.
+
+Protected promotion independently audits
 the archives with trusted main-branch scripts and verifies their hashes before
 pushing. Main/tag builds audit both architectures and create manifests from
 the verified digests. The audit process receives no CI or registry credentials;
-Node runs without network access or host mounts. This works with distroless images and
+Node runs without network access or host mounts.
+
+This works with distroless images and
 requires Docker, Python 3, and uv on the host. CI image pins
 live in `.gitlab/ci/images.yml`; GitLab project/group variables override those
 defaults and must be refreshed to matching versions and digests too.
