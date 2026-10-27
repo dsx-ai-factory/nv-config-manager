@@ -978,13 +978,19 @@ so importing a workflow module does not parse them. The UI keeps byte-for-byte c
 Change both copies together, and add a capability only together with the UI
 code that implements it.
 
-### Shared running-workflow fixture
+### Shared workflow fixtures
 
 `tests/fixtures/workflow_detail_deploy_pending_approval.json` is the canonical
 running-workflow example used by the Deploy workflow test, UI workflow-detail
 tests, and documentation screenshot generator. The Python workflow test captures
 the actual stage query at the approval gate; the UI reads the resulting API
 response directly rather than maintaining a TypeScript copy.
+
+`tests/fixtures/workflow_summaries/` contains one canonical JSON file for each
+API workflow exposed through the browser UI with `workflow_form_enabled`.
+Edit only the canonical files. Python and UI tests require every form-enabled
+workflow to be represented and valid against its registered API models. When
+enabling a workflow form, add its summary and run `make docs-ui-screenshots`.
 
 When an intentional Deploy stage change makes the snapshot stale, regenerate it
 from the repository root and review the JSON diff:
@@ -996,7 +1002,7 @@ NVCM_UPDATE_SNAPSHOTS=1 uv run pytest \
 
 Then regenerate `deployworkflow-running.png` with `make docs-ui-screenshots`.
 Do not edit a separate UI fixture; workflow stage changes should be reconciled
-in this file once.
+in the canonical detail fixture once.
 
 ## Temporal compatibility
 

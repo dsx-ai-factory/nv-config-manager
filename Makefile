@@ -411,6 +411,7 @@ docs-air-sim-screenshots:
 	cd installer && uv run python scripts/screenshot_air_sim_tui.py
 
 docs-ui-screenshots:
+	cd ui && npm run fixtures:workflows
 	cd ui && npm run docs:screenshots
 
 clean:

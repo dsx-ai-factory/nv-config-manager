@@ -7,6 +7,7 @@
     "docs:screenshots": "npx playwright test --config=playwright.docs.config.ts --project=chromium",
     "build": "next build",
     "start": "next start",
+    "fixtures:workflows": "node scripts/sync-workflow-fixtures.mjs",
     "lint": "eslint src/",
     "test:e2e": "npx playwright test --ui",
     "test:e2e:ci": "npx playwright test",

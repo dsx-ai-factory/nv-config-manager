@@ -19,8 +19,11 @@ import path from "node:path";
 
 import { expect, test as base, type Page, type Route } from "@playwright/test";
 
+import legacyWorkflowRedirects from "@/config/legacy-workflow-redirects.json";
 import workflowFormIds from "@/config/workflow-form-ids.json";
+import { workflowsMockData } from "@/mocks/data";
 import { getWorkflowFormFixture } from "@/mocks/data/workflowForms";
+import type { Workflow } from "@/types/data-table.types";
 import { DEPLOY_PENDING_APPROVAL_WORKFLOW } from "../shared/workflowFixtures";
 
 const SCREENSHOT_DIR = path.resolve(
@@ -39,6 +42,7 @@ const DEMO_VPC_ID = "vpc-demo-101";
 
 const DOC_WORKFLOW_DISPLAY_NAMES: Record<string, string> = {
   BackupWorkflow: "Configuration Backup",
+  ConfigDiffWorkflow: "Configuration Diff",
   SiteBackupWorkflow: "Site Configuration Backup",
   ConnectedHostMetadataWorkflow: "Connected Host Metadata",
   DeployWorkflow: "Configuration Deploy",
@@ -67,6 +71,7 @@ const DOC_WORKFLOW_DISPLAY_NAMES: Record<string, string> = {
 
 const DOC_WORKFLOW_ENDPOINTS: Record<string, string> = {
   BackupWorkflow: "/ngc/backup",
+  ConfigDiffWorkflow: "/ngc/config_diff",
   SiteBackupWorkflow: "/ngc/site_backup",
   ConnectedHostMetadataWorkflow: "/ngc/connected_host_metadata",
   DeployWorkflow: "/ngc/deploy",
@@ -123,21 +128,7 @@ type Device = {
   tenant: string;
 };
 
-type DocWorkflow = {
-  id: string;
-  workflow_type: string;
-  workflow_input: Record<string, unknown>;
-  started_by: string;
-  start_time: string;
-  close_time: string | null;
-  status: string;
-  pending_approval: boolean;
-  failed_stage?: boolean;
-  stages: unknown[];
-  result: unknown;
-  search_attributes: Record<string, Array<string | boolean>>;
-  href: string;
-};
+type DocWorkflow = Omit<Workflow, "result" | "stages">;
 
 type DocWorkflowFixture = {
   id: string;
@@ -303,62 +294,9 @@ const DOC_WORKFLOW_METADATA = {
   ),
 };
 
-const DOC_WORKFLOWS: DocWorkflow[] = [
-  createDocWorkflow({
-    id: "workflow-20260608-000001",
-    workflowType: "DeployWorkflow",
-    status: "RUNNING",
-    pendingApproval: true,
-    user: "demo",
-    site: AIR_SITE,
-    deviceName: "tan-leaf-01",
-    deviceId: AIR_TAN_LEAF_01_ID,
-    deviceRole: "TAN-HLEAF",
-    devicePlatform: "Cumulus Linux",
-    startTime: "2026-06-08T16:02:00Z",
-  }),
-  createDocWorkflow({
-    id: "workflow-20260608-000002",
-    workflowType: "BackupWorkflow",
-    status: "COMPLETED",
-    pendingApproval: false,
-    user: "demo",
-    site: AIR_SITE,
-    deviceName: "tan-leaf-02",
-    deviceId: "air-trial-tan-leaf-02",
-    deviceRole: "TAN-HLEAF",
-    devicePlatform: "Cumulus Linux",
-    startTime: "2026-06-08T15:48:00Z",
-    closeTime: "2026-06-08T15:51:00Z",
-  }),
-  createDocWorkflow({
-    id: "workflow-20260608-000003",
-    workflowType: "DiagnosticsWorkflow",
-    status: "RUNNING",
-    pendingApproval: false,
-    user: "nvcm-network",
-    site: PDX_SITE,
-    deviceName: "pdx01-cumulus-leaf-01",
-    deviceId: PDX_CUMULUS_ID,
-    deviceRole: "CIN-Leaf",
-    devicePlatform: "Cumulus Linux",
-    startTime: "2026-06-08T16:10:00Z",
-  }),
-  createDocWorkflow({
-    id: "workflow-20260608-000004",
-    workflowType: "InfinibandGetUnhealthyPortsWorkflow",
-    status: "FAILED",
-    pendingApproval: false,
-    user: "demo",
-    site: PDX_SITE,
-    deviceName: "infiniband-switch1",
-    deviceId: PDX_MLNX_ID,
-    deviceRole: "CIN-Spine",
-    devicePlatform: "MLNX-OS",
-    startTime: "2026-06-08T14:37:00Z",
-    closeTime: "2026-06-08T14:39:00Z",
-  }),
-];
+const DOC_WORKFLOWS: DocWorkflow[] = Object.values(workflowsMockData).map(
+  ({ workflows }) => workflows[0]
+);
 
 const AIR_DEVICE_QUERY = {
   "device-id": AIR_TAN_LEAF_01_ID,
@@ -385,6 +323,12 @@ const WORKFLOW_SCREENSHOTS: WorkflowScreenshot[] = [
     path: "/workflows/backupworkflow/form",
     query: AIR_DEVICE_QUERY,
     title: "New Configuration Backup Workflow",
+  },
+  {
+    fileName: "configdiffworkflow-form.png",
+    path: "/workflows/configdiffworkflow/form",
+    query: AIR_DEVICE_QUERY,
+    title: "New Configuration Diff Workflow",
   },
   {
     fileName: "connectedhostmetadataworkflow-form.png",
@@ -627,6 +571,21 @@ test.describe("workflow form docs screenshots", () => {
     await fs.mkdir(SCREENSHOT_DIR, { recursive: true });
   });
 
+  test("covers every form-enabled workflow", () => {
+    expect(WORKFLOW_SCREENSHOTS.map(({ path }) => path).sort()).toEqual(
+      Object.keys(workflowFormIds)
+        .map(
+          (workflowType) =>
+            `/workflows/${
+              legacyWorkflowRedirects[
+                workflowType as keyof typeof legacyWorkflowRedirects
+              ]
+            }/form`
+        )
+        .sort()
+    );
+  });
+
   for (const workflow of WORKFLOW_SCREENSHOTS) {
     test(`captures ${workflow.title}`, async ({ page }) => {
       await page.goto(routeWithQuery(workflow.path, workflow.query));
@@ -646,18 +605,22 @@ test.describe("workflow page docs screenshots", () => {
     await fs.mkdir(SCREENSHOT_DIR, { recursive: true });
   });
 
-  test("captures workflow list page", async ({ page }) => {
-    await page.goto("/workflows");
-    await page.waitForLoadState("networkidle");
-
-    await expect(page.getByRole("heading", { name: "Workflows" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: /Configuration Deploy/ })).toBeVisible();
-    await settleFonts(page);
-    await screenshotWorkflowListPage(page);
-  });
-
-  test.describe("running workflow screenshots", () => {
+  test.describe("workflow data screenshots", () => {
     test.use({ timezoneId: "America/Los_Angeles" });
+
+    test("captures workflow list page", async ({ page }) => {
+      await page.goto("/workflows");
+      await page.waitForLoadState("networkidle");
+
+      await expect(
+        page.getByRole("heading", { name: "Workflows" })
+      ).toBeVisible();
+      await expect(
+        page.getByRole("cell", { name: /Configuration Deploy/ })
+      ).toBeVisible();
+      await settleFonts(page);
+      await screenshotWorkflowListPage(page);
+    });
 
     test("captures a running Deploy workflow pending approval", async ({
       page,
@@ -682,6 +645,7 @@ test.describe("workflow page docs screenshots", () => {
         content: "nextjs-portal { display: none !important; }",
       });
       await page.screenshot({
+        animations: "disabled",
         path: path.join(SCREENSHOT_DIR, "deployworkflow-running.png"),
       });
     });
@@ -693,15 +657,18 @@ test.describe("workflow page docs screenshots", () => {
 
     await page.getByRole("button", { name: "User roles" }).click();
     const popout = page
-      .locator('[data-radix-popper-content-wrapper] > div')
+      .locator("[data-radix-popper-content-wrapper] > div")
       .filter({ hasText: "Username" })
       .first();
     await expect(popout).toBeVisible();
     await expect(popout.getByText("demo", { exact: true })).toBeVisible();
-    await expect(popout.getByText("nvcm-network", { exact: true })).toBeVisible();
+    await expect(
+      popout.getByText("nvcm-network", { exact: true })
+    ).toBeVisible();
     await expect(popout.getByText("all", { exact: true })).toHaveCount(0);
     await settleFonts(page);
     await popout.screenshot({
+      animations: "disabled",
       path: path.join(SCREENSHOT_DIR, "workflow-user-popout.png"),
     });
   });
@@ -872,8 +839,6 @@ function createDocWorkflow(fixture: DocWorkflowFixture): DocWorkflow {
     close_time: fixture.closeTime ?? null,
     status: fixture.status,
     pending_approval: fixture.pendingApproval,
-    stages: [],
-    result: null,
     search_attributes: {
       DeviceID: [fixture.deviceId],
       DeviceName: [fixture.deviceName],
@@ -941,8 +906,8 @@ function filterWorkflows(
     const displayStatus = workflow.failed_stage
       ? "FAILED"
       : workflow.pending_approval
-        ? "PENDING_APPROVAL"
-        : workflow.status;
+      ? "PENDING_APPROVAL"
+      : workflow.status;
 
     if (workflowType && workflow.workflow_type !== workflowType) {
       return false;
@@ -958,18 +923,17 @@ function filterWorkflows(
       return false;
     }
 
-    if (
-      status &&
-      workflow.status !== status &&
-      displayStatus !== status
-    ) {
+    if (status && workflow.status !== status && displayStatus !== status) {
       return false;
     }
 
     if (!Number.isNaN(startTimeFilter)) {
       const workflowStartTime = Date.parse(workflow.start_time);
 
-      if (Number.isNaN(workflowStartTime) || workflowStartTime < startTimeFilter) {
+      if (
+        Number.isNaN(workflowStartTime) ||
+        workflowStartTime < startTimeFilter
+      ) {
         return false;
       }
     }
@@ -977,7 +941,10 @@ function filterWorkflows(
     if (!Number.isNaN(endTimeFilter)) {
       const workflowCloseTime = Date.parse(workflow.close_time ?? "");
 
-      if (Number.isNaN(workflowCloseTime) || workflowCloseTime > endTimeFilter) {
+      if (
+        Number.isNaN(workflowCloseTime) ||
+        workflowCloseTime > endTimeFilter
+      ) {
         return false;
       }
     }
@@ -1121,7 +1088,7 @@ async function screenshotWorkflowCard(
     await page.waitForTimeout(250);
 
     try {
-      await card.screenshot({ path: outputPath });
+      await card.screenshot({ animations: "disabled", path: outputPath });
       return;
     } catch (error) {
       if (attempt === 3) {
@@ -1144,6 +1111,7 @@ async function screenshotWorkflowListPage(page: Page): Promise<void> {
   }
 
   await page.screenshot({
+    animations: "disabled",
     clip: {
       height: Math.min(
         viewport.height,

@@ -90,6 +90,51 @@ def test_shared_workflow_detail_fixture_matches_api_contract() -> None:
     assert response.model_dump(mode="json") == fixture
 
 
+def test_shared_workflow_summary_fixtures_match_api_contract() -> None:
+    """Keep browser workflow summaries aligned with registered Python workflows."""
+    canonical_directory = (
+        Path(__file__).resolve().parents[4] / "packages/workflows/tests/fixtures/workflow_summaries"
+    )
+    browser_directory = Path(__file__).resolve().parents[4] / "ui/src/mocks/data/workflows/fixtures"
+    canonical_paths = sorted(canonical_directory.glob("*.json"))
+    input_models = {
+        workflow.__name__: workflow.workflow_input_class
+        for workflow in WORKFLOW_REGISTRY.api_workflows
+    }
+    fixture_workflow_types: set[str] = set()
+
+    assert canonical_paths
+    assert [path.name for path in canonical_paths] == sorted(
+        path.name for path in browser_directory.glob("*.json")
+    )
+    for canonical_path in canonical_paths:
+        collection = json.loads(canonical_path.read_text())
+        assert (browser_directory / canonical_path.name).read_bytes() == canonical_path.read_bytes()
+        assert collection["next_page_token"] is None
+        assert collection["workflows"]
+        workflow_type = collection["workflows"][0]["workflow_type"]
+        assert workflow_type in input_models
+        assert workflow_type not in fixture_workflow_types
+        fixture_workflow_types.add(workflow_type)
+        for fixture in collection["workflows"]:
+            assert fixture["workflow_type"] == workflow_type
+            assert (
+                WorkflowSummaryResponse.model_validate(fixture).model_dump(mode="json") == fixture
+            )
+            assert (
+                input_models[workflow_type]
+                .model_validate(fixture["workflow_input"])
+                .model_dump(mode="json", exclude_unset=True)
+                == fixture["workflow_input"]
+            )
+
+    assert fixture_workflow_types == {
+        workflow.__name__
+        for workflow in WORKFLOW_REGISTRY.api_workflows
+        if workflow.get_workflow_form_enabled()
+    }
+
+
 def test_api_startup_configures_only_workflow_ui_runtime() -> None:
     """API startup installs the UI provider without initializing worker lock state."""
     with (
