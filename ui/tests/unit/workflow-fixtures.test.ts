@@ -19,6 +19,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import workflowFormIds from "@/config/workflow-form-ids.json";
+import { workflowsMockData } from "@/mocks/data";
 
 describe("workflow summary fixtures", () => {
   it("keeps form-enabled workflow summaries complete and synchronized", () => {
@@ -55,8 +56,9 @@ describe("workflow summary fixtures", () => {
       expect(collectionWorkflowTypes.size).toBe(1);
       fixtureWorkflowTypes.push(...collectionWorkflowTypes);
     }
-    expect(fixtureWorkflowTypes.sort()).toEqual(
-      Object.keys(workflowFormIds).sort()
+    expect(Object.keys(workflowsMockData).sort()).toEqual(
+      fixtureWorkflowTypes.sort()
     );
+    expect(fixtureWorkflowTypes).toEqual(Object.keys(workflowFormIds).sort());
   });
 });
