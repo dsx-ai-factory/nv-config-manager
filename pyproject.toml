@@ -177,7 +177,7 @@ dev = [
     "mock>=5.1.0",
 
     # Linting & Formatting
-    "ruff==0.16.3",
+    "ruff==0.17.3",
     "black>=24.10.0",
     "isort>=6.1.0",
     "mypy>=1.12.0",

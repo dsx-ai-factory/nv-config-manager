@@ -19,7 +19,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, cast
+from typing import Any, Self, cast
 
 import netaddr
 from jnpr.junos import Device
@@ -255,7 +255,7 @@ class JuniperConnection(NetworkConnection):
                 logger.debug("Error closing NETCONF session to %s", self._host, exc_info=True)
             self._device = None
 
-    def __enter__(self) -> JuniperConnection:
+    def __enter__(self) -> Self:
         """Enter a context that closes the NETCONF session on exit."""
         return self
 

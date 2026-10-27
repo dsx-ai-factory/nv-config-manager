@@ -47,7 +47,7 @@ dev = [
     "pytest-timeout>=2.3.1",
     "pytest-xdist>=3.8.0",
     "responses>=0.25.3",
-    "ruff==0.16.3",
+    "ruff==0.17.3",
 ]
 
 [build-system]
