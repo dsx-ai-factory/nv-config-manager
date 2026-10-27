@@ -93,7 +93,7 @@ RUN --mount=type=cache,id=nvcm-uv-cache,target=/root/.cache/uv \
 # =============================================================================
 # Runtime stage - NVIDIA distroless Python
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/python:3.13-v4.1.4@sha256:eb5be985571eab7eac5e2ff722ed17eedbf64d4cf584ae0cef34cc6497592556
+FROM nvcr.io/nvidia/distroless/python:3.13-v4.1.9@sha256:d9eff62906053e6eb7f55037259b281ec064bee3ab04e84f0eb92fdfd70200c0
 
 # Replace the pinned runtime's trust store, including hashed certificate paths.
 # Copying only the bundle would leave distrusted roots reachable through capath.
