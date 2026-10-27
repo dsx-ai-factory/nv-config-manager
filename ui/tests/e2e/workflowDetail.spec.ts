@@ -18,7 +18,7 @@ import { expect } from "@playwright/test";
 import { test } from "./shared/utils";
 import { FORBIDDEN_WORKFLOW_ID } from "@/mocks/data";
 import { createGenericWorkflow } from "@/mocks/data/workflows/genericWorkflow";
-import { DEPLOY_PENDING_APPROVAL_WORKFLOW } from "../shared/workflowFixtures";
+import { DEPLOY_PENDING_APPROVAL_WORKFLOW } from "../shared/deployPendingApprovalFixture";
 
 const createWorkflowWithStage = ({
   id,

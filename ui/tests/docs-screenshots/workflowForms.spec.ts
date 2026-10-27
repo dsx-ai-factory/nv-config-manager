@@ -24,7 +24,7 @@ import workflowFormIds from "@/config/workflow-form-ids.json";
 import { workflowsMockData } from "@/mocks/data";
 import { getWorkflowFormFixture } from "@/mocks/data/workflowForms";
 import type { Workflow } from "@/types/data-table.types";
-import { DEPLOY_PENDING_APPROVAL_WORKFLOW } from "../shared/workflowFixtures";
+import { DEPLOY_PENDING_APPROVAL_WORKFLOW } from "../shared/deployPendingApprovalFixture";
 
 const SCREENSHOT_DIR = path.resolve(
   process.cwd(),
@@ -129,21 +129,6 @@ type Device = {
 };
 
 type DocWorkflow = Omit<Workflow, "result" | "stages">;
-
-type DocWorkflowFixture = {
-  id: string;
-  workflowType: string;
-  status: string;
-  pendingApproval: boolean;
-  user: string;
-  site: string;
-  deviceName: string;
-  deviceId: string;
-  deviceRole: string;
-  devicePlatform: string;
-  startTime: string;
-  closeTime?: string | null;
-};
 
 type QueryValue = string | string[];
 
@@ -824,31 +809,15 @@ async function setupDocsMocks(page: Page): Promise<void> {
   );
 }
 
-function createDocWorkflow(fixture: DocWorkflowFixture): DocWorkflow {
-  const workflowInput = {
-    device_id: fixture.deviceId,
-    site: fixture.site,
-  };
-
+function createFilterTestWorkflow(
+  id: string,
+  closeTime: string | null
+): DocWorkflow {
   return {
-    id: fixture.id,
-    workflow_type: fixture.workflowType,
-    workflow_input: workflowInput,
-    started_by: fixture.user,
-    start_time: fixture.startTime,
-    close_time: fixture.closeTime ?? null,
-    status: fixture.status,
-    pending_approval: fixture.pendingApproval,
-    search_attributes: {
-      DeviceID: [fixture.deviceId],
-      DeviceName: [fixture.deviceName],
-      DevicePlatform: [fixture.devicePlatform],
-      DeviceRole: [fixture.deviceRole],
-      PendingApproval: [fixture.pendingApproval],
-      Site: [fixture.site],
-      User: [fixture.user],
-    },
-    href: `/v1/workflow/${fixture.id}`,
+    ...workflowsMockData.BackupWorkflow.workflows[0],
+    id,
+    start_time: "not-a-date",
+    close_time: closeTime,
   };
 }
 
@@ -965,37 +934,16 @@ function getFirstSearchAttribute(workflow: DocWorkflow, key: string): string {
 }
 
 test.describe("workflow docs mock filtering", () => {
-  const baseFixture = {
-    deviceId: AIR_TAN_LEAF_01_ID,
-    deviceName: "tan-leaf-01",
-    devicePlatform: "Cumulus Linux",
-    deviceRole: "TAN-HLEAF",
-    pendingApproval: false,
-    site: AIR_SITE,
-    status: "COMPLETED",
-    user: "demo",
-    workflowType: "BackupWorkflow",
-  };
-
   test("matches end-time-only filters by close time without requiring valid start time", () => {
-    const closedBeforeEnd = createDocWorkflow({
-      ...baseFixture,
-      id: "closed-before-end",
-      startTime: "not-a-date",
-      closeTime: "2026-06-08T15:51:00Z",
-    });
-    const unfinished = createDocWorkflow({
-      ...baseFixture,
-      id: "unfinished",
-      startTime: "not-a-date",
-      closeTime: null,
-    });
-    const closedAfterEnd = createDocWorkflow({
-      ...baseFixture,
-      id: "closed-after-end",
-      startTime: "not-a-date",
-      closeTime: "2026-06-08T15:53:00Z",
-    });
+    const closedBeforeEnd = createFilterTestWorkflow(
+      "closed-before-end",
+      "2026-06-08T15:51:00Z"
+    );
+    const unfinished = createFilterTestWorkflow("unfinished", null);
+    const closedAfterEnd = createFilterTestWorkflow(
+      "closed-after-end",
+      "2026-06-08T15:53:00Z"
+    );
 
     const endTimeOnlyUrl = new URL(
       "https://docs.test/v1/workflow?end_time=2026-06-08T15:52:00Z"

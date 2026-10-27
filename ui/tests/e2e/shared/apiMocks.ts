@@ -37,7 +37,7 @@ import {
   FORBIDDEN_SITE_ID,
   FORBIDDEN_DEVICE_IDS,
 } from "@/mocks/data";
-import { DEPLOY_PENDING_APPROVAL_WORKFLOW } from "../../shared/workflowFixtures";
+import { DEPLOY_PENDING_APPROVAL_WORKFLOW } from "../../shared/deployPendingApprovalFixture";
 
 /** A JSON fixture the workflow API tests keep in `src/tests/temporal/api/fixtures/`. */
 function readApiFixture<T>(file: string): T {
