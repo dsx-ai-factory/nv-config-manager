@@ -455,6 +455,7 @@ class MockTopologyDesign(DesignJob):
             "designs/vxlans.yaml.j2",
             "designs/ip_addresses.yaml.j2",
             "designs/devices.yaml.j2",
+            "designs/device_bays.yaml.j2",
             "designs/vrf_device_assignments.yaml.j2",
             "designs/overlay_assignments.yaml.j2",
             "designs/interfaces.yaml.j2",

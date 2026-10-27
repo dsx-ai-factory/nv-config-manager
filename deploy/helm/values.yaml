@@ -1962,6 +1962,15 @@ temporal:
         memory: 256Mi
       limits:
         memory: 512Mi
+  # Temporal server persistence settings
+  persistence:
+    # Extra libpq connection parameters for both the default and visibility
+    # datastores. connect_timeout bounds each reconnect dial; without it a
+    # dial to an unreachable Postgres primary blocks for the kernel TCP
+    # timeout (~2m) after a CNPG failover.
+    connectAttributes:
+      connect_timeout: "10"
+
   # Dynamic configuration for Temporal server
   # See: https://docs.temporal.io/references/dynamic-configuration
   dynamicConfig: []

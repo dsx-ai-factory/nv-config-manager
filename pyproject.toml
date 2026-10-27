@@ -215,7 +215,7 @@ docs = [
 ]
 
 [tool.uv]
-required-version = ">=0.13.4"
+required-version = ">=0.13.5"
 package = true
 
 [tool.uv.workspace]
@@ -334,6 +334,7 @@ known-first-party = ["nv_config_manager", "nv_config_manager_workflows"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/tests/**/*.py" = ["B", "ANN"]
+"ci/tests/**/*.py" = ["B"]
 
 [tool.ruff.format]
 quote-style = "double"

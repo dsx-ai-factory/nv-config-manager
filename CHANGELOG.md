@@ -6,6 +6,15 @@ This project uses release tags for published versions. Add entries under
 `Unreleased` while changes are in flight, then finalize them under the release
 version before the selected release candidate is promoted.
 
+## Unreleased
+
+### Fixed
+
+- Installer content hashes no longer depend on wall-clock time, preventing
+  unchanged jobs and templates from being detected as changed across runs.
+- The AIR Hyper-reach fixture now installs its LLDP host in a chassis DeviceBay
+  and advertises the chassis name, enabling parent-chassis validation in simulation.
+
 ## 1.4.0
 
 ### Added
