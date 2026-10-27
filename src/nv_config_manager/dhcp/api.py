@@ -18,7 +18,7 @@ import argparse
 import asyncio
 import base64
 import binascii
-from collections.abc import AsyncIterator, Coroutine
+from collections.abc import AsyncGenerator, Coroutine
 from contextlib import asynccontextmanager
 from ipaddress import ip_address
 from typing import Any
@@ -149,7 +149,7 @@ async def _fetch_summary_sources(
 
 
 @asynccontextmanager
-async def _kea_lease_client() -> AsyncIterator[KeaClient]:
+async def _kea_lease_client() -> AsyncGenerator[KeaClient]:
     """Map KEA client errors for lease routes and always close the client."""
     client = KeaClient.from_config()
     try:

@@ -91,7 +91,7 @@ class TestInstalledManifest:
     def test_local_test_workflows_are_left_out(self) -> None:
         manifest = registry_manifest(WorkflowRegistry.build())
 
-        assert LOCAL_TEST_WORKFLOWS
+        assert len(LOCAL_TEST_WORKFLOWS) > 0
         for workflow in LOCAL_TEST_WORKFLOWS:
             assert workflow.__name__ not in manifest.workflows
 

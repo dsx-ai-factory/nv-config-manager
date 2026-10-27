@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any, Self, cast
 
@@ -76,7 +76,7 @@ def _junos_list(container: dict[str, Any], key: str) -> list[dict[str, Any]]:
     if isinstance(value, dict):
         return [value]
     if isinstance(value, list):
-        return cast(list[dict[str, Any]], list(value))
+        return list(value)
     return []
 
 
@@ -232,7 +232,7 @@ class JuniperConnection(NetworkConnection):
         return self._device
 
     @contextmanager
-    def _device_timeout(self, seconds: int) -> Iterator[Device]:
+    def _device_timeout(self, seconds: int) -> Generator[Device]:
         """Run exclusive-config work under a tighter RPC deadline, then restore."""
         device = self._get_device()
         previous = device.timeout
