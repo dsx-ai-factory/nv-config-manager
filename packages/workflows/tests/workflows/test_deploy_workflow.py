@@ -97,8 +97,7 @@ def _build_pending_approval_fixture(
             "User": ["demo"],
         },
         "href": (
-            f"https://temporal-ui.example.com/namespaces/default/workflows/"
-            f"{_FIXTURE_WORKFLOW_ID}"
+            f"https://temporal-ui.example.com/namespaces/default/workflows/{_FIXTURE_WORKFLOW_ID}"
         ),
     }
 
