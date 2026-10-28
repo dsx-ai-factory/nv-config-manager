@@ -823,8 +823,9 @@ class TestImageBuilds:
         assert all("--load" not in command.cmd for command in commands)
         assert all(command.timeout == 900 for command in commands)
         assert all(command.env and command.env["DOCKER_BUILDKIT"] == "1" for command in commands)
-        assert len(run_commands) == 9
-        assert all(cmd[:2] == ["docker", "tag"] for cmd in run_commands)
+        assert run_commands[0] == ["sh", "scripts/sync-workflow-fixtures.sh"]
+        assert len(run_commands) == 10
+        assert all(cmd[:2] == ["docker", "tag"] for cmd in run_commands[1:])
         assert deployer._local_image_tags["nv-config-manager-ui"].startswith("sha-")
         targets = {
             command.label: command.cmd[command.cmd.index("--target") + 1]
@@ -853,6 +854,10 @@ class TestImageBuilds:
         monkeypatch.setattr(
             "nv_config_manager_installer.deployer._get_image_digest_tag",
             lambda image: "",
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._run",
+            lambda *args, **kwargs: MagicMock(returncode=0, stdout="", stderr=""),
         )
 
         deployer = Deployer(
@@ -889,6 +894,10 @@ class TestImageBuilds:
         monkeypatch.setattr(
             "nv_config_manager_installer.deployer._get_image_digest_tag",
             lambda image: "",
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._run",
+            lambda *args, **kwargs: MagicMock(returncode=0, stdout="", stderr=""),
         )
 
         deployer = Deployer(

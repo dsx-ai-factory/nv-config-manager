@@ -1477,6 +1477,8 @@ class Deployer:
             return
 
         step = self._start_step("build-images")
+        self.callback.on_log("Generating UI workflow fixtures...")
+        _run(["sh", "scripts/sync-workflow-fixtures.sh"], timeout=30)
         apt_mirror_args: list[str] = []
         for env_var in ("APT_MIRROR", "APT_MIRROR_DEBIAN", "APT_MIRROR_GPG_KEY_URL"):
             val = os.environ.get(env_var, "")

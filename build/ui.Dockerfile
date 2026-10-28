@@ -28,7 +28,7 @@ COPY src/ ./src/
 # Next.js telemetry disabled
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN npm run build
+RUN npm run build:app
 
 # =============================================================================
 # Runtime stage - NVIDIA distroless Node.js

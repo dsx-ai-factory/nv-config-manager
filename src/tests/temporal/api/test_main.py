@@ -95,7 +95,6 @@ def test_shared_workflow_summary_fixtures_match_api_contract() -> None:
     canonical_directory = (
         Path(__file__).resolve().parents[4] / "packages/workflows/tests/fixtures/workflow_summaries"
     )
-    browser_directory = Path(__file__).resolve().parents[4] / "ui/src/mocks/data/workflows/fixtures"
     canonical_paths = sorted(canonical_directory.glob("*.json"))
     input_models = {
         workflow.__name__: workflow.workflow_input_class
@@ -104,12 +103,8 @@ def test_shared_workflow_summary_fixtures_match_api_contract() -> None:
     fixture_workflow_types: set[str] = set()
 
     assert canonical_paths
-    assert [path.name for path in canonical_paths] == sorted(
-        path.name for path in browser_directory.glob("*.json")
-    )
     for canonical_path in canonical_paths:
         collection = json.loads(canonical_path.read_text())
-        assert (browser_directory / canonical_path.name).read_bytes() == canonical_path.read_bytes()
         assert collection["next_page_token"] is None
         assert collection["workflows"]
         workflow_type = collection["workflows"][0]["workflow_type"]
