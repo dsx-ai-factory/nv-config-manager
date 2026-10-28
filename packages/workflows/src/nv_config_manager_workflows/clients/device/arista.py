@@ -57,7 +57,6 @@ logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
 # Lab and engineering builds append the build to the release:
 # "4.34.3M-44102239.4343M (engineering build)" is release 4.34.3M.
 _ENGINEERING_BUILD = re.compile(r"-\d+\.\w+\s+\(engineering build\)$")
-_BANNER_COMMAND = re.compile(r"banner \w+")
 
 # Below the 600 s tech-support activity timeout.
 _TECH_SUPPORT_TIMEOUT_SECONDS = 540
@@ -74,18 +73,6 @@ _ZTP_RELOAD_DELAY = "00:05"
 # reload, two files at three each to restore, the cancel) take 200 s, inside both the
 # reload delay and the five-minute activity deadline.
 _ZTP_REQUEST_TIMEOUT_SECONDS = 20
-
-
-def _strip_session_paths(diff: str) -> str:
-    """Remove session paths in linear time, keeping matches on a single line."""
-    suffix = "-session-config"
-    parts = diff.split(suffix)
-    for index in range(len(parts) - 1):
-        part = parts[index]
-        # Only a prefix after the last newline can pair with this suffix.
-        start = part.find("session:/", part.rfind("\n") + 1)
-        parts[index] = part[:start] if start >= 0 else part + suffix
-    return "".join(parts)
 
 
 def _unrestored_note(names: list[str]) -> str:
@@ -305,33 +292,10 @@ class AristaConnection(NetworkConnection):
 
     def _extract_banner_commands(self, new_configuration: str) -> tuple[str, list[tuple[str, str]]]:
         """Extract banners into multiline commands."""
-        matches: list[tuple[str, str]] = []
-        remaining: list[str] = []
-        cursor = 0
-        while command := _BANNER_COMMAND.search(new_configuration, cursor):
-            end = new_configuration.find("EOF", command.end())
-            command_end = command.end()
-            if end < 0:
-                # A type can contain EOF. Use its last EOF only if no terminator
-                # follows the complete word, keeping at least one type character.
-                end = new_configuration.rfind(
-                    "EOF", command.start() + len("banner ") + 1, command.end()
-                )
-                if end < 0:
-                    break
-                command_end = end
-            remaining.append(new_configuration[cursor : command.start()])
-            matches.append(
-                (
-                    new_configuration[command.start() : command_end],
-                    new_configuration[command_end:end],
-                )
-            )
-            cursor = end + len("EOF")
-            if command_end != command.end():
-                break  # No EOF remains after this command.
-        remaining.append(new_configuration[cursor:])
-        return "".join(remaining), matches
+        pattern = re.compile(r"(banner \w+)(.*?)EOF", flags=re.S)
+        matches = pattern.findall(new_configuration)
+        modified_configuration = pattern.sub("", new_configuration)
+        return modified_configuration, matches
 
     def _load_candidate_config(self, new_configuration: str, partial: bool = False) -> None:
         self._session_id = str(uuid4())
@@ -398,7 +362,8 @@ class AristaConnection(NetworkConnection):
         if diff_b == "":
             # Previous run succeeded to apply but failed on copy run start
             return True
-        return _strip_session_paths(diff_a) == _strip_session_paths(diff_b)
+        pattern = re.compile(r"session:/.*?-session-config")
+        return pattern.sub("", diff_a) == pattern.sub("", diff_b)
 
     def perform_candidate_diff(self, new_configuration: str, partial: bool = False) -> str:
         """Load the candidate configuration and perform a diff."""

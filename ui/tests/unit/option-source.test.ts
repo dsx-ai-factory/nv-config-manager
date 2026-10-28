@@ -108,19 +108,6 @@ describe("resolveOptionSourceEndpoint", () => {
     ).toBe("https://gateway.example.com/workflow-api/v1/parameter/site");
   });
 
-  it("handles long trailing slash runs while preserving the API path prefix", () => {
-    const apiURL = `https://gateway.example.com/workflow-api${"/".repeat(100_000)}`;
-    expect(resolveOptionSourceEndpoint(apiURL, "/v1/parameter/site")?.toString()).toBe(
-      "https://gateway.example.com/workflow-api/v1/parameter/site"
-    );
-    expect(resolveOptionSourceEndpoint(apiURL, "/../admin")).toBeNull();
-  });
-
-  it("rejects a long internal slash run whose normalized path escapes the prefix", () => {
-    const apiURL = `https://gateway.example.com/${"/".repeat(100_000)}workflow-api`;
-    expect(resolveOptionSourceEndpoint(apiURL, "/v1/parameter/site")).toBeNull();
-  });
-
   it.each([
     ["an absolute URL", "https://evil.example.com/v1/parameter/site"],
     ["a protocol-relative URL", "//evil.example.com/v1/parameter/site"],

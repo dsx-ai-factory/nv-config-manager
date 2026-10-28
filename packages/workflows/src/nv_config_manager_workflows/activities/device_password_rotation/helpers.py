@@ -22,8 +22,7 @@ from nv_config_manager_workflows.activities.device_password_rotation.models impo
     ValidatePasswordDiffOutput,
 )
 
-# Whitespace belongs to the separator, never to the captured config path.
-_JUNOS_EDIT_HEADER_RE = re.compile(r"^\[edit\s++(.+)\]$")
+_JUNOS_EDIT_HEADER_RE = re.compile(r"^\[edit\s+(.+)\]$")
 _JUNOS_PASSWORD_LINE_RE = re.compile(
     r'^[+-]\s*encrypted-password\s+"\$[0-9]\$\S+";(\s*##\s*SECRET-DATA)?$'
 )

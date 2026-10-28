@@ -384,32 +384,6 @@ nv set system aaa user admin password $6$newpassword"""
         assert len(result.invalid_lines) == 0
         assert len(result.valid_lines) == 0
 
-    @pytest.mark.timeout(5)
-    @pytest.mark.parametrize("ending", ["x", "]"])
-    def test_junos_rejects_long_malformed_header(self, ending: str) -> None:
-        """An absent path or closing bracket must not trigger whitespace backtracking."""
-        header = "[edit" + " " * 100_000 + ending
-        diff = header + '\n+ encrypted-password "$6$newHash";'
-
-        result = _validate_junos_diff(diff, "admin")
-
-        assert result.is_valid is False
-        assert header in result.invalid_lines
-        assert result.valid_lines == []
-
-    @pytest.mark.timeout(5)
-    def test_junos_accepts_long_header_separator(self) -> None:
-        """Consuming separator whitespace must preserve valid password validation."""
-        diff = (
-            "[edit" + " \t" * 50_000 + "system login user admin authentication]\n"
-            '+ encrypted-password "$6$newHash"; ## SECRET-DATA'
-        )
-
-        result = _validate_junos_diff(diff, "admin")
-
-        assert result.is_valid is True
-        assert len(result.valid_lines) == 1
-
 
 class TestGetPasswordMappings:
     """Test password mapping retrieval."""

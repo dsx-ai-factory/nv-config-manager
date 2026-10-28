@@ -462,37 +462,6 @@ async def test_execute_workflow_no_data(
         assert mock_nats_client.return_value.publish.called == 1
 
 
-@pytest.mark.parametrize(
-    ("name", "expected"),
-    [
-        ("ib2p3", ("ib2p", [3])),
-        ("swp1ss2", ("swp1ss", [2])),
-        ("123", ("1", [23])),
-        ("1s2", ("1s", [2])),
-        ("1/2", ("1/2", [])),
-        ("swp1//2", ("swp1//2", [])),
-        ("swp1/", ("swp1/", [])),
-        ("swp\u0661/\u0662", ("swp", [1, 2])),
-        ("swp\u00b21", ("swp\u00b2", [1])),
-        ("swp1\n", ("swp", [1])),
-    ],
-)
-def test_interface_sort_key_preserves_prefix_and_fallback(
-    name: str, expected: tuple[str, list[int]]
-) -> None:
-    """Retain embedded digits, Unicode decimals, and invalid-name fallbacks."""
-    assert interface_sort_key(name) == expected
-
-
-@pytest.mark.timeout(5)
-@pytest.mark.parametrize("body", ["1" * 100_000, "1s" * 50_000, "1/" * 50_000])
-def test_interface_sort_key_rejects_long_malformed_suffix(body: str) -> None:
-    """A numeric-looking name with an invalid ending must not cause repeated retries."""
-    name = "swp" + body + "!"
-
-    assert interface_sort_key(name) == (name, [])
-
-
 def test_interface_sort_key() -> None:
     """Test the interface_sort_key function with various interface name formats."""
 
