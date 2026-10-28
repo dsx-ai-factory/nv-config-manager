@@ -21,14 +21,14 @@ RUN npm ci
 # =============================================================================
 FROM deps AS builder
 WORKDIR /app
-COPY next-env.d.ts next.config.mjs postcss.config.mjs tailwind.config.ts tsconfig.json ./
+COPY next-env.d.ts next.config.mjs postcss.config.mjs tailwind.config.ts tsconfig.json tsconfig.build.json ./
 COPY public/ ./public/
 COPY src/ ./src/
 
 # Next.js telemetry disabled
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN npm run build:app
+RUN npm run build
 
 # =============================================================================
 # Runtime stage - NVIDIA distroless Node.js

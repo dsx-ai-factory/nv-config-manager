@@ -5,8 +5,7 @@
   "scripts": {
     "dev": "npm run fixtures:workflows && next dev",
     "docs:screenshots": "npm run fixtures:workflows && npx playwright test --config=playwright.docs.config.ts --project=chromium",
-    "build": "npm run fixtures:workflows && npm run build:app",
-    "build:app": "next build",
+    "build": "next build",
     "start": "next start",
     "fixtures:workflows": "sh ../scripts/sync-workflow-fixtures.sh",
     "lint": "npm run fixtures:workflows && eslint src/",

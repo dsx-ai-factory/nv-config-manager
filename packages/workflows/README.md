@@ -989,11 +989,11 @@ response directly rather than maintaining a TypeScript copy.
 `tests/fixtures/workflow_summaries/` contains one canonical JSON file for each
 API workflow exposed through the browser UI with `workflow_form_enabled`.
 Edit only the canonical files. UI commands generate ignored browser copies in
-`ui/src/mocks/data/workflows/fixtures/`, and the UI image targets generate them
-before assembling the `ui/` container context. Python and UI tests require every
-form-enabled workflow to be represented and valid against its registered API
-models. When enabling a workflow form, add its summary and run
-`make docs-ui-screenshots`.
+`ui/src/mocks/data/workflows/fixtures/` for development, tests, and screenshots.
+Production UI builds exclude the mock handlers and do not require the generated
+copies. Python and UI tests require every form-enabled workflow to be represented
+and valid against its registered API models. When enabling a workflow form, add
+its summary and run `make docs-ui-screenshots`.
 
 When an intentional Deploy stage change makes the snapshot stale, regenerate it
 from the repository root and review the JSON diff:

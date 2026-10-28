@@ -424,11 +424,7 @@ clean:
 	find . -type d -name ".cache" -exec rm -rf {} + 2>/dev/null || true
 
 # UI targets
-.PHONY: workflow-fixtures-sync
-workflow-fixtures-sync:
-	sh scripts/sync-workflow-fixtures.sh
-
-ui-install: workflow-fixtures-sync
+ui-install:
 	cd ui && npm install
 
 ui-dev:
@@ -486,7 +482,7 @@ docker-build-kea-admin:
 	@echo "✅ Built nv-config-manager-kea-admin:$(LOCAL_TAG)"
 
 # Build NVIDIA Config Manager UI image
-docker-build-ui: workflow-fixtures-sync
+docker-build-ui:
 	@echo "🏗️  Building NVIDIA Config Manager UI image with tag $(LOCAL_TAG)..."
 	docker build --provenance=false -t nv-config-manager-ui:$(LOCAL_TAG) -f build/ui.Dockerfile ui/
 	@echo "✅ Built nv-config-manager-ui:$(LOCAL_TAG)"
@@ -648,7 +644,7 @@ docker-build-single-kea-admin: ## Builds and pushes KEA Admin image for PLATFORM
 	@echo "✅ nv-config-manager-kea-admin:$(VERSION) built/exported ($(REGISTRY))"
 
 .PHONY: docker-build-single-ui
-docker-build-single-ui: workflow-fixtures-sync ## Builds and pushes UI image for PLATFORM.
+docker-build-single-ui: ## Builds and pushes UI image for PLATFORM.
 	@echo "🏗️  Building nv-config-manager-ui image for $(PLATFORM)..."
 	docker buildx build \
 		--platform $(PLATFORM) \
@@ -783,7 +779,7 @@ docker-build-kea-admin-multiarch: docker-buildx-setup ## Builds and pushes multi
 	@echo "✅ Multi-arch nv-config-manager-kea-admin pushed to $(REGISTRY)"
 
 .PHONY: docker-build-ui-multiarch
-docker-build-ui-multiarch: docker-buildx-setup workflow-fixtures-sync ## Builds and pushes multi-arch NVIDIA Config Manager UI image.
+docker-build-ui-multiarch: docker-buildx-setup ## Builds and pushes multi-arch NVIDIA Config Manager UI image.
 	@echo "🏗️  Building multi-arch nv-config-manager-ui image..."
 	docker buildx build \
 		--platform $(PLATFORMS) \
