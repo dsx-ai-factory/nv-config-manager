@@ -1686,12 +1686,14 @@ networkDhcp:
   # Kea configuration
   kea:
     storkAgentPort: 9457
-    # Per-call deadline (seconds) for Kea control-agent requests made by the
-    # config-sync sidecar (config-set, config-hash-get). Rendered as
-    # CONFIG_SYNC_KEA_TIMEOUT; it bounds both the asyncio.wait_for deadline and
-    # the Kea HTTP client timeout. Raise it if applying a large config under
-    # load takes longer than this, otherwise the sidecar records a failure and
-    # re-sends the full payload on the next pass.
+    # Deadline (seconds) for each config-sync apply, rendered as
+    # CONFIG_SYNC_KEA_TIMEOUT. The sidecar wraps the whole set_config() call
+    # (config-set followed by config-write) in one asyncio.wait_for. Those two
+    # requests share this deadline. The config-hash-get call has its own
+    # asyncio.wait_for with the same value. The Kea HTTP client also receives
+    # this value. Raise it if applying a large config under load takes longer
+    # than this, otherwise the sidecar records a failure and re-sends the full
+    # payload on the next pass.
     configSyncTimeoutSeconds: 15
     # Total HTTP timeout (seconds) for Kea control requests made by the api and
     # config-refresh containers (e.g. config-test of a large config). Rendered as
