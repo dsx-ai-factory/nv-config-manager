@@ -838,6 +838,42 @@ class TestImageBuilds:
             "nv-config-manager-temporal-ui": "ui",
         }
 
+    def test_build_images_skips_fixture_sync_without_builtin_ui(self, monkeypatch):
+        parallel_calls: list[list[_ParallelCommand]] = []
+        run_commands: list[list[str]] = []
+
+        def fake_run_logged_parallel(commands, step, callback, *, max_parallel, **kwargs):
+            parallel_calls.append(commands)
+
+        def fake_run(cmd, **kwargs):
+            run_commands.append(cmd)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(
+            Deployer,
+            "_local_image_builds",
+            lambda self: (("derived", "derived.Dockerfile", "derived", None),),
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._run_logged_parallel",
+            fake_run_logged_parallel,
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._get_image_digest_tag",
+            lambda image: "",
+        )
+        monkeypatch.setattr("nv_config_manager_installer.deployer._run", fake_run)
+
+        deployer = Deployer(
+            _make_config(),
+            DeployOptions(build_images=True),
+            RecordingCallback(),
+        )
+        deployer._build_images()
+
+        assert [command.label for command in parallel_calls[0]] == ["derived"]
+        assert run_commands == []
+
     def test_build_images_loads_buildx_container_outputs(self, monkeypatch):
         parallel_calls: list[list[_ParallelCommand]] = []
 

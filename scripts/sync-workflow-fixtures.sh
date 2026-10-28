@@ -34,7 +34,28 @@ if [ ! -f "$1" ]; then
 fi
 
 mkdir -p "$browser_directory"
-find "$browser_directory" -maxdepth 1 -type f -name '*.json' -exec rm -f {} +
 for fixture in "$canonical_directory"/*.json; do
-    cp "$fixture" "$browser_directory/$(basename "$fixture")"
+    fixture_name=$(basename "$fixture")
+    destination="$browser_directory/$fixture_name"
+
+    if [ -f "$destination" ] && cmp -s "$fixture" "$destination"; then
+        continue
+    fi
+
+    temporary_file=$(mktemp "$browser_directory/.workflow-fixture.XXXXXX")
+    if ! cp "$fixture" "$temporary_file"; then
+        rm -f "$temporary_file"
+        exit 1
+    fi
+    if ! mv -f "$temporary_file" "$destination"; then
+        rm -f "$temporary_file"
+        exit 1
+    fi
+done
+
+for fixture in "$browser_directory"/*.json; do
+    [ -f "$fixture" ] || continue
+    if [ ! -f "$canonical_directory/$(basename "$fixture")" ]; then
+        rm -f "$fixture"
+    fi
 done
