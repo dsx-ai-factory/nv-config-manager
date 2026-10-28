@@ -780,6 +780,7 @@ class TestImageBuilds:
 
     def test_build_images_runs_parallel_builds_and_tags(self, monkeypatch):
         parallel_calls: list[tuple[list[_ParallelCommand], int]] = []
+        logged_commands: list[list[str]] = []
         run_commands: list[list[str]] = []
 
         def fake_run_logged_parallel(commands, step, callback, *, max_parallel, **kwargs):
@@ -790,6 +791,10 @@ class TestImageBuilds:
         def fake_digest(image: str) -> str:
             return f"sha-{image.removeprefix('nv-config-manager-')[:8]}"
 
+        def fake_run_logged(cmd, step, callback, **kwargs):
+            logged_commands.append(cmd)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
         def fake_run(cmd, **kwargs):
             run_commands.append(cmd)
             return MagicMock(returncode=0, stdout="", stderr="")
@@ -799,6 +804,10 @@ class TestImageBuilds:
         monkeypatch.setattr(
             "nv_config_manager_installer.deployer._run_logged_parallel",
             fake_run_logged_parallel,
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._run_logged",
+            fake_run_logged,
         )
         monkeypatch.setattr(
             "nv_config_manager_installer.deployer._get_image_digest_tag",
@@ -823,9 +832,9 @@ class TestImageBuilds:
         assert all("--load" not in command.cmd for command in commands)
         assert all(command.timeout == 900 for command in commands)
         assert all(command.env and command.env["DOCKER_BUILDKIT"] == "1" for command in commands)
-        assert run_commands[0] == ["sh", "scripts/sync-workflow-fixtures.sh"]
-        assert len(run_commands) == 10
-        assert all(cmd[:2] == ["docker", "tag"] for cmd in run_commands[1:])
+        assert logged_commands == [["sh", "scripts/sync-workflow-fixtures.sh"]]
+        assert len(run_commands) == 9
+        assert all(cmd[:2] == ["docker", "tag"] for cmd in run_commands)
         assert deployer._local_image_tags["nv-config-manager-ui"].startswith("sha-")
         targets = {
             command.label: command.cmd[command.cmd.index("--target") + 1]
@@ -840,10 +849,15 @@ class TestImageBuilds:
 
     def test_build_images_skips_fixture_sync_without_builtin_ui(self, monkeypatch):
         parallel_calls: list[list[_ParallelCommand]] = []
+        logged_commands: list[list[str]] = []
         run_commands: list[list[str]] = []
 
         def fake_run_logged_parallel(commands, step, callback, *, max_parallel, **kwargs):
             parallel_calls.append(commands)
+
+        def fake_run_logged(cmd, step, callback, **kwargs):
+            logged_commands.append(cmd)
+            return MagicMock(returncode=0, stdout="", stderr="")
 
         def fake_run(cmd, **kwargs):
             run_commands.append(cmd)
@@ -859,6 +873,10 @@ class TestImageBuilds:
             fake_run_logged_parallel,
         )
         monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._run_logged",
+            fake_run_logged,
+        )
+        monkeypatch.setattr(
             "nv_config_manager_installer.deployer._get_image_digest_tag",
             lambda image: "",
         )
@@ -872,7 +890,38 @@ class TestImageBuilds:
         deployer._build_images()
 
         assert [command.label for command in parallel_calls[0]] == ["derived"]
+        assert logged_commands == []
         assert run_commands == []
+
+    def test_build_images_syncs_fixtures_for_normalized_ui_paths(self, monkeypatch):
+        logged_commands: list[list[str]] = []
+
+        monkeypatch.setattr(
+            Deployer,
+            "_local_image_builds",
+            lambda self: (("nv-config-manager-ui", "./build/ui.Dockerfile", "ui/", None),),
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._run_logged_parallel",
+            lambda *args, **kwargs: None,
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._run_logged",
+            lambda cmd, *args, **kwargs: logged_commands.append(cmd),
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._get_image_digest_tag",
+            lambda image: "",
+        )
+
+        deployer = Deployer(
+            _make_config(),
+            DeployOptions(build_images=True),
+            RecordingCallback(),
+        )
+        deployer._build_images()
+
+        assert logged_commands == [["sh", "scripts/sync-workflow-fixtures.sh"]]
 
     def test_build_images_loads_buildx_container_outputs(self, monkeypatch):
         parallel_calls: list[list[_ParallelCommand]] = []
@@ -892,7 +941,7 @@ class TestImageBuilds:
             lambda image: "",
         )
         monkeypatch.setattr(
-            "nv_config_manager_installer.deployer._run",
+            "nv_config_manager_installer.deployer._run_logged",
             lambda *args, **kwargs: MagicMock(returncode=0, stdout="", stderr=""),
         )
 
@@ -932,7 +981,7 @@ class TestImageBuilds:
             lambda image: "",
         )
         monkeypatch.setattr(
-            "nv_config_manager_installer.deployer._run",
+            "nv_config_manager_installer.deployer._run_logged",
             lambda *args, **kwargs: MagicMock(returncode=0, stdout="", stderr=""),
         )
 

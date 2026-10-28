@@ -1479,11 +1479,17 @@ class Deployer:
         step = self._start_step("build-images")
         image_builds = self._local_image_builds()
         if any(
-            dockerfile == "build/ui.Dockerfile" and context == "ui"
+            Path(dockerfile).resolve() == Path("build/ui.Dockerfile").resolve()
+            and Path(context).resolve() == Path("ui").resolve()
             for _, dockerfile, context, _ in image_builds
         ):
             self.callback.on_log("Generating UI workflow fixtures...")
-            _run(["sh", "scripts/sync-workflow-fixtures.sh"], timeout=30)
+            _run_logged(
+                ["sh", "scripts/sync-workflow-fixtures.sh"],
+                step,
+                self.callback,
+                timeout=30,
+            )
         apt_mirror_args: list[str] = []
         for env_var in ("APT_MIRROR", "APT_MIRROR_DEBIAN", "APT_MIRROR_GPG_KEY_URL"):
             val = os.environ.get(env_var, "")

@@ -39,11 +39,16 @@ for fixture in "$canonical_directory"/*.json; do
     destination="$browser_directory/$fixture_name"
 
     if [ -f "$destination" ] && cmp -s "$fixture" "$destination"; then
+        chmod 0644 "$destination"
         continue
     fi
 
     temporary_file=$(mktemp "$browser_directory/.workflow-fixture.XXXXXX")
     if ! cp "$fixture" "$temporary_file"; then
+        rm -f "$temporary_file"
+        exit 1
+    fi
+    if ! chmod 0644 "$temporary_file"; then
         rm -f "$temporary_file"
         exit 1
     fi
