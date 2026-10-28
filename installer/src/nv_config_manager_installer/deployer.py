@@ -22,6 +22,7 @@ are reserved for tools without clean Python equivalents: ``helm``, ``docker``,
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import io
 import json
@@ -220,12 +221,15 @@ def _hash_content_dir(
 ) -> str:
     """Produce a deterministic SHA-256 of the content that would be uploaded to a PVC.
 
-    Stages files into memory with sorted names and a fixed mtime so the hash is
-    reproducible across runs regardless of filesystem metadata.
+    Uses sorted names and fixed file and gzip timestamps so the hash is
+    reproducible across runs regardless of filesystem metadata or wall-clock time.
     """
     h = hashlib.sha256()
     buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz", compresslevel=1) as tf:
+    with (
+        gzip.GzipFile(fileobj=buf, mode="wb", compresslevel=1, mtime=0) as compressed,
+        tarfile.open(fileobj=compressed, mode="w") as tf,
+    ):
         for src in sorted(paths):
             if not src.exists():
                 continue

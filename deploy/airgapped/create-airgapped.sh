@@ -54,6 +54,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHART_DIR="$(cd "$SCRIPT_DIR/../helm" && pwd)"
 # Repo root is two levels up from deploy/airgapped/
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# Shared version/hash policy; sourcing this file does not install anything.
+. "$REPO_ROOT/deploy/helm/files/python-tooling.sh"
 # Deploy directory (Helm chart, configs, and operator version pins)
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Shared operator/dependency version manifest
@@ -1279,12 +1281,59 @@ copy_deployment_files() {
 
 
 pip_download() {
-    if command -v pip &>/dev/null; then
-        pip download "$@"
-    else
-        uv run --with pip python -m pip download "$@"
+    # The project enforces tool.uv.required-version before uv can access the network.
+    uv run --project "$REPO_ROOT/installer" --no-sync --with "$NVCM_PIP_REQUIREMENT" python -m pip download "$@"
+}
+
+# Digests are pinned from the immutable upstream release, not fetched with the archive.
+# https://github.com/astral-sh/python-build-standalone/releases/tag/20261026
+download_installer_python() {
+    local installer_dest="$1"
+    local triple="$2"
+    local pbs_tag="20261026"
+    local pbs_cpython="3.13.18"
+    local pbs_file="cpython-${pbs_cpython}+${pbs_tag}-${triple}-install_only_stripped.tar.gz"
+    local pbs_url="https://github.com/astral-sh/python-build-standalone/releases/download/${pbs_tag}/${pbs_file}"
+    local pbs_sha256
+    pbs_sha256=$(awk -v file="$pbs_file" '$2 == file {print $1}' "$SCRIPT_DIR/python-runtimes.sha256") || return 1
+    if [[ ! "$pbs_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+        log_error "Missing pinned Python checksum for $triple"
+        return 1
     fi
-    return $?
+    local -a checksum_command
+    if command -v sha256sum &>/dev/null; then
+        checksum_command=(sha256sum -c -)
+    else
+        checksum_command=(shasum -a 256 -c -)
+    fi
+    local pbs_stage
+    pbs_stage=$(mktemp -d "${installer_dest}/.python-${triple}.XXXXXX") || return 1
+    local pbs_archive="$pbs_stage/$pbs_file"
+    log_info "Downloading Python ${pbs_cpython} for ${triple}..."
+    if ! curl -fsSL --output "$pbs_archive" "$pbs_url"; then
+        log_error "Failed to download Python for $triple"
+        rm -rf "$pbs_stage"
+        return 1
+    fi
+    if ! printf '%s  %s\n' "$pbs_sha256" "$pbs_archive" | "${checksum_command[@]}"; then
+        log_error "Python checksum verification failed for $triple"
+        rm -rf "$pbs_stage"
+        return 1
+    fi
+    if ! tar -xz -f "$pbs_archive" -C "$pbs_stage" ||
+        [[ ! -x "$pbs_stage/python/bin/python3" && ! -x "$pbs_stage/python/bin/python3.13" ]]; then
+        log_error "Failed to extract Python runtime for $triple"
+        rm -rf "$pbs_stage"
+        return 1
+    fi
+    local pbs_dest="$installer_dest/python/$triple"
+    if ! mkdir -p "$pbs_dest" || ! mv "$pbs_stage/python" "$pbs_dest/"; then
+        log_error "Failed to package Python runtime for $triple"
+        rm -rf "$pbs_stage" "$pbs_dest"
+        return 1
+    fi
+    rm -rf "$pbs_stage"
+    log_success "Verified and packaged Python ${pbs_cpython} for $triple"
 }
 
 package_installer() {
@@ -1297,9 +1346,8 @@ package_installer() {
     fi
 
     if ! command -v uv &>/dev/null; then
-        log_warn "uv not available, skipping installer packaging"
-        log_warn "Install uv (https://docs.astral.sh/uv/) to include the installer in the bundle"
-        return 0
+        log_error "uv is required to package the installer"
+        return 1
     fi
 
     local installer_dest="$BUILD_DIR/installer"
@@ -1350,9 +1398,6 @@ package_installer() {
     done
     log_success "Vendored dependency wheels"
 
-    local pbs_tag="20260320"
-    local pbs_cpython="3.13.12"
-    local pbs_base="https://github.com/astral-sh/python-build-standalone/releases/download"
     local -a pbs_triples=(
         x86_64-unknown-linux-gnu
         aarch64-unknown-linux-gnu
@@ -1361,45 +1406,8 @@ package_installer() {
     )
 
     for triple in "${pbs_triples[@]}"; do
-        local pbs_file="cpython-${pbs_cpython}+${pbs_tag}-${triple}-install_only_stripped.tar.gz"
-        local pbs_url="${pbs_base}/${pbs_tag}/${pbs_file}"
-        local pbs_dest="$installer_dest/python/${triple}"
-        log_info "Downloading Python ${pbs_cpython} for ${triple}..."
-        mkdir -p "$pbs_dest"
-        if curl -fsSL "$pbs_url" | tar -xz -C "$pbs_dest"; then
-            if [[ -x "$pbs_dest/python/bin/python3" || -x "$pbs_dest/python/bin/python3.13" ]]; then
-                log_success "Downloaded Python for ${triple}"
-            else
-                log_warn "Python binary not found after extracting ${triple}"
-            fi
-        else
-            log_warn "Failed to download Python for ${triple}"
-            rm -rf "$pbs_dest"
-        fi
-    done
-
-    local uv_version
-    uv_version=$(uv --version 2>/dev/null | awk '{print $2}' || echo "0.7.0")
-    for arch in amd64 arm64; do
-        local uv_arch
-        case "$arch" in
-            amd64) uv_arch="x86_64-unknown-linux-gnu" ;;
-            arm64) uv_arch="aarch64-unknown-linux-gnu" ;;
-            *) log_warn "Unsupported arch: $arch"; continue ;;
-        esac
-        local uv_url="https://github.com/astral-sh/uv/releases/download/${uv_version}/uv-${uv_arch}.tar.gz"
-        local uv_dest="$installer_dest/uv-${arch}"
-        log_info "Downloading uv binary for $arch..."
-        if curl -fsSL "$uv_url" | tar -xz -C "$installer_dest" 2>/dev/null; then
-            if mv "$installer_dest/uv-${uv_arch}/uv" "$uv_dest" && chmod +x "$uv_dest" && [[ -x "$uv_dest" ]]; then
-                rm -rf "$installer_dest/uv-${uv_arch}"
-                log_success "Downloaded uv for $arch"
-            else
-                log_warn "Failed to place uv binary for $arch"
-                rm -rf "$installer_dest/uv-${uv_arch}" "$uv_dest" 2>/dev/null || true
-            fi
-        else
-            log_warn "Failed to download uv for $arch (optional)"
+        if ! download_installer_python "$installer_dest" "$triple"; then
+            return 1
         fi
     done
 

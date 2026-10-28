@@ -33,11 +33,12 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: &setup_uv astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          resolution-strategy: lowest
           enable-cache: true
       - name: Setup Go
         uses: &actions_setup_go actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.9"
+          go-version: "1.26.10"
           cache: false
       - name: Sorted list check (keep-sorted)
         run: make sort-check
@@ -76,6 +77,7 @@ jobs:
           python-version: ${{ env.NAUTOBOT_PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          resolution-strategy: lowest
           enable-cache: true
       - name: Lint and build app package
         working-directory: components/nautobot/nautobot-app-overlays
@@ -104,6 +106,7 @@ jobs:
           python-version: ${{ env.NAUTOBOT_PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          resolution-strategy: lowest
           enable-cache: true
       - name: Lint and build app package
         working-directory: components/nautobot/nautobot-nv-config-manager
@@ -130,7 +133,7 @@ jobs:
         run: |
           SPDX_ID="SPDX-License-Identifier: Apache-2.0"
           LICENSE_TEXT="Licensed under the Apache License"
-          CHECK_DIRS="src/ ui/src/ ui/tests/ packages/ plugins/ components/ db/migrations/ scripts/ development/ installer/src/"
+          CHECK_DIRS="src/ ci/tests/ ui/src/ ui/tests/ packages/ plugins/ components/ db/migrations/ scripts/ development/ installer/src/"
           EXTENSIONS="py ts tsx go"
           FAILED=0
           for dir in $CHECK_DIRS; do
@@ -163,8 +166,11 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          resolution-strategy: lowest
           enable-cache: true
       - run: uv sync --frozen
+      - name: CI tooling tests
+        run: make test-ci
       - run: uv run pytest packages/dcim/tests -v
       - run: uv run pytest -n auto --cov=src/nv_config_manager --cov-report=xml:coverage.xml --cov-report=term
       - name: Nautobot tests
@@ -196,6 +202,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          resolution-strategy: lowest
           enable-cache: true
       - name: Test installer
         working-directory: installer
@@ -224,6 +231,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          resolution-strategy: lowest
           enable-cache: true
       - run: uv sync --frozen
       - run: uv run pytest packages/templates/tests -v --cov=nv_config_manager_templates --cov-report=xml:packages/templates/coverage.xml --cov-report=term
@@ -250,6 +258,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          resolution-strategy: lowest
           enable-cache: true
       - name: Test the non-editable workflows package and collect coverage
         run: make test-workflow-package
@@ -277,6 +286,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          resolution-strategy: lowest
           enable-cache: true
       - name: Check workflows package installs and runs outside the workspace
         run: make test-workflow-wheels
@@ -294,13 +304,13 @@ jobs:
         uses: *setup_proxy_cache
       - uses: *actions_setup_go
         with:
-          go-version: "1.26.9"
+          go-version: "1.26.10"
           cache-dependency-path: components/nats-ready/go.sum
       - name: Verify go.mod is tidy
         working-directory: components/nats-ready
         run: |
           go_version="$(go env GOVERSION)"
-          test "${go_version}" = "go1.26.9"
+          test "${go_version}" = "go1.26.10"
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 
@@ -320,6 +330,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          resolution-strategy: lowest
           enable-cache: true
       - name: Install Helm
         run: |
@@ -340,7 +351,7 @@ jobs:
           # PyYAML 6.0.3 cp313 manylinux2014 x86_64 wheel. Update this hash
           # when PYTHON_VERSION or the Helm runner architecture changes.
           PYYAML_SHA256=0f29edc409a6392443abf94b9cf89ce99889a1dd5376d94316ae5145dfedd5d6
-          python -m pip install --disable-pip-version-check --no-deps \
+          uv pip install --system --no-deps \
             --only-binary=:all: --require-hashes \
             -r <(printf 'PyYAML==6.0.3 --hash=sha256:%s\n' "$PYYAML_SHA256")
       - name: Build chart dependencies
@@ -576,6 +587,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
+        with:
+          resolution-strategy: lowest
       - run: uv sync --frozen --only-group promotion-gate --no-install-project --no-install-workspace
       - name: Exercise exact-revision rollout observation
         run: uv run --frozen --only-group promotion-gate --no-sync python .gitlab/ci/scripts/test_wait_for_argocd.py
@@ -598,6 +611,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: *setup_uv
         with:
+          resolution-strategy: lowest
           enable-cache: true
       - uses: *actions_setup_go
         with:

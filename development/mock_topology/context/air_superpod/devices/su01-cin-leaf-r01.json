@@ -305,6 +305,27 @@
           "role": {
             "name": "Downlink"
           }
+        },
+        {
+          "name": "swp2",
+          "type": "400gbase-x-qsfpdd",
+          "status": {
+            "name": "Active"
+          },
+          "enabled": true,
+          "mgmt_only": false,
+          "ip_addresses": [],
+          "description": "su02-hyperreach-host:eth1",
+          "mtu": 9216,
+          "connected_interface": {
+            "name": "eth1",
+            "device": {
+              "name": "su02-hyperreach-host",
+              "role": {
+                "name": "Compute-Tray"
+              }
+            }
+          }
         }
       ],
       "platform": {

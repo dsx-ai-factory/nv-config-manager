@@ -43,6 +43,7 @@ from nv_config_manager.dcim import (
     DCIMReadCancelledError,
     dcim_client_session,
 )
+from nv_config_manager.dhcp.config_hash import write_expected_config_hash
 from nv_config_manager.dhcp.heartbeat import (
     DEFAULT_HEARTBEAT_FILE,
     DEFAULT_MAX_AGE_SECONDS,
@@ -245,26 +246,29 @@ def _mark_verified_sync(
     *,
     recovered: bool,
     log: bool = True,
-) -> None:
+) -> bool:
     """Record a successful verified sync: bump the gauge and log ``in-sync``.
 
     Call only after the running KEA hash matches the desired hash (or after
     ``config-set`` plus ``config-hash-get`` verification succeeds). The gauge
-    is always refreshed so its AGE stays low while healthy; the ``in-sync``
-    log line is emitted when ``log`` is true. ``recovered`` marks a post-drift
-    recovery, which must be logged.
+    and ``in-sync`` log are updated only after the readiness hash is published;
+    a publication failure leaves both stale while the loop retries. ``recovered``
+    marks a post-drift recovery, which must be logged. Return whether the
+    readiness hash was published.
     """
+    if not write_expected_config_hash(running_hash):
+        return False
     DHCP_LAST_SUCCESSFUL_SYNC_TIMESTAMP.labels(ip_version=str(ip_version)).set(time.time())
-    if not log:
-        return
-    _log_sync_state(
-        SyncState.IN_SYNC,
-        "KEA DHCP configuration recovered and in sync"
-        if recovered
-        else "KEA DHCP configuration in sync",
-        ip_version,
-        running_hash=running_hash,
-    )
+    if log:
+        _log_sync_state(
+            SyncState.IN_SYNC,
+            "KEA DHCP configuration recovered and in sync"
+            if recovered
+            else "KEA DHCP configuration in sync",
+            ip_version,
+            running_hash=running_hash,
+        )
+    return True
 
 
 def _start_metrics_server(process: str) -> None:
@@ -722,7 +726,11 @@ async def _sync_kea_configuration_async(
                 # A KEA without config-hash-get verifies trivially with no
                 # digest, so there is no running_hash to publish; the gauge
                 # waits for a KEA that reports one.
-                _mark_verified_sync(ip_version, expected_hash, recovered=False)
+                published = _mark_verified_sync(ip_version, expected_hash, recovered=False)
+                if not published and not refresh_interval:
+                    raise KeaException(
+                        f"Failed to publish verified KEA DHCPv{ip_version} configuration hash."
+                    )
         # Seed the heartbeat immediately so the liveness probe has a fresh
         # marker before the first monitoring iteration completes.
         touch_heartbeat(heartbeat_file)
@@ -877,7 +885,7 @@ async def _sync_kea_configuration_async(
                             verified = True
                             _mark_verified_sync(
                                 ip_version,
-                                kea_running_hash if debug else "",
+                                kea_running_hash,
                                 recovered=False,
                                 log=debug,
                             )

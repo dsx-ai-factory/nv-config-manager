@@ -133,6 +133,7 @@ flowchart TB
 
   subgraph HOSTS["Demo servers and rack mocks"]
     TRAYS["Compute tray mocks"]
+    HYPERREACH["su02-hyperreach-host<br/>Ubuntu LLDP fixture"]
     CONTROL["Control nodes"]
     STORAGE["Storage node"]
   end
@@ -153,6 +154,7 @@ flowchart TB
   TANHL --> TRAYS
   TANSL --> STORAGE
   CINL --> TRAYS
+  CINL -- "swp2 <-> A56p0 / A56p1" --> HYPERREACH
 
   classDef oob fill:#eaf4ff,stroke:#2b6cb0,color:#111;
   classDef tan fill:#edf7ed,stroke:#2f855a,color:#111;
@@ -161,8 +163,49 @@ flowchart TB
   class OOBSRV,OOBML,OOBSP,OOBHL oob;
   class TANSP,TANBL,TANHL,TANSL tan;
   class CINSP,CINL cin;
-  class DSXAIR,TRAYS,CONTROL,STORAGE host;
+  class DSXAIR,TRAYS,HYPERREACH,CONTROL,STORAGE host;
 ```
+
+### SuperPOD hyper-reach LLDP fixture
+
+New SuperPOD simulations include `su02-hyperreach-host` to test cable identity
+through LLDP port descriptions. Existing simulations must be recreated from the
+updated topology to receive this host and its cables.
+
+| CIN leaf | Switch port | Nautobot host interface | Intended label | Observed port ID |
+| :------- | :---------- | :---------------------- | :------------- | :--------------- |
+| su01-cin-leaf-r01 | swp2 | eth1 | C1-2-L1 | A56p0 |
+| su01-cin-leaf-r02 | swp2 | eth2 | C1-2-L2 | A56p1 |
+
+The host advertises `su02-hyperreach-host C1-2-L1` and
+`su02-hyperreach-host C1-2-L2`. The two data interfaces have no IP addresses or
+intended MAC addresses. The original SpX compute hosts and their `swp1` links
+remain available; use those hosts for SpX tests and keep the fixture's `swp2`
+ports out of tenant-change tests.
+
+1. Open the host's console from the DSX Air topology. Wait for
+   `cloud-init status --wait` to complete.
+1. Run [Connected Host Metadata](../connected-host-metadata/index.mdx) against
+   each CIN leaf to compare intended labels with observed descriptions. Then
+   run [Cable Validation](../cable-validation/index.mdx); both `swp2` links
+   should validate even though the observed port IDs differ from Nautobot's
+   interface names.
+1. For a metadata-difference test, run this in the host console:
+
+   ```sh
+   sudo lldpcli configure ports A56p0 lldp portdescription "su02-hyperreach-host A56p0"
+   ```
+
+   Wait for LLDP to refresh, then rerun validation. The first leaf's `swp2`
+   should fail identity validation, with `C1-2-L1` and `A56p0` visible in
+   the report and **Port naming differs** guidance in the Issue column. This flags differing metadata;
+   alternative naming conventions can refer to the same physical lane. The
+   second leaf's `swp2` should remain valid.
+1. Restore the persistent descriptions with `sudo systemctl restart lldpd`,
+   wait for LLDP to refresh, and rerun validation.
+
+The fixture covers description and label matching. It does not model physical
+PCIe line cards or test Nautobot `parent_bay` chassis resolution.
 
 ### Options
 

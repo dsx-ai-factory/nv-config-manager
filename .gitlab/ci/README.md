@@ -36,8 +36,8 @@ the public repository.
 
 | Variable | Purpose |
 | -------- | ------- |
-| `NVCM_IMAGE_TARGETS` | Newline-delimited image targets, one `name\|repository_prefix\|token_variable` record per target |
-| `NVCM_IMAGE_TARGET` | Optional default image target for build/publish jobs; the first `NVCM_IMAGE_TARGETS` record is used when unset |
+| `NVCM_IMAGE_TARGETS` | Newline-delimited image targets, one `name\|repository_prefix\|token_variable` record per target; releases copy to every target |
+| `NVCM_IMAGE_TARGET` | Image target used for builds and as the release copy source; the first `NVCM_IMAGE_TARGETS` record is used when unset |
 | `NVCM_VALUES_IMAGE_TARGET` | Image target name used when publishing charts and updating downstream deployment values |
 | `NVCM_IMAGE_REPOSITORY` | Legacy/default image repository prefix; when `NVCM_IMAGE_TARGETS` is set, jobs derive this from the selected image target |
 | `NVCM_NGC_API_BASE` | Base registry API URL |
@@ -57,6 +57,10 @@ Example image target layout:
 ```text
 NVCM_IMAGE_TARGETS
 internal|registry.example.com/example/team|REGISTRY_TOKEN
+staging|registry.example.com/staging/team|STAGING_REGISTRY_TOKEN
+
+NVCM_IMAGE_TARGET
+internal
 
 NVCM_VALUES_IMAGE_TARGET
 internal
@@ -67,10 +71,33 @@ Example chart target layout:
 ```text
 NVCM_CHART_TARGETS
 oci|registry.example.com/example/components|CHART_REGISTRY_TOKEN
+oci|registry.example.com/staging/components|STAGING_REGISTRY_TOKEN|image_target=staging
 ```
 
 Supported optional chart target options are `org`, `registry`, `username`,
-and `label`.
+`label`, and `image_target`. Set `image_target` to a name in `NVCM_IMAGE_TARGETS`
+when that release chart destination must use a different image namespace. The
+protected tag job passes `--release` to the chart publisher, enabling a package
+with matching image repositories and release tags for each mapped destination.
+The default package retained for promotion is unchanged. Legacy chart lists can
+use the corresponding `NVCM_CHART_PUBLISH_IMAGE_TARGETS` list. PR promotion never
+unpacks or remaps its prevalidated chart: it uploads that package verbatim,
+ignoring per-target image mappings because promotion images are published only
+to `NVCM_VALUES_IMAGE_TARGET`.
+
+Builds and scans use the selected image target. After `update-version` creates
+the release tags there, `publish-images-release` copies all nine project images
+to the other configured image targets. Copies preserve every architecture and
+the source digests, with separate credentials for each destination. Stable
+releases then run `publish-latest-release` under a shared resource lock. That
+job rechecks all versioned image digests before updating any `latest` tag,
+including the build source. It fetches Git tags inside the lock and skips older
+stable versions, preventing overlapping or retried pipelines from moving
+`latest` backward. RCs never update `latest`. Chart publishing waits for image
+copies and, for stable releases, the latest-tag phase to succeed.
+Adding a chart destination alone does not configure an image destination: add
+its image target and `image_target` mapping together. Use masked, protected
+service-key variables for CI publishing.
 
 `deploy/helm/values.yaml` uses `registry.example.com/nvidia/...` placeholders
 for checked-in service image repositories. Internal publishing and deployment
@@ -166,6 +193,15 @@ and only operate on the finished artifacts. Because of that split, **every
 secret CI/CD variable in this project and its groups must be flagged
 Protected** - unprotected variables are visible to the untrusted
 `pull-request/*` builds. Never protect `pull-request/*` refs.
+
+The PR's own certificate audit provides early feedback. Before promotion,
+`test-promote-audit-images` independently checks the image archives using the
+protected main checkout. It passes no CI variables or registry credentials to
+the checker; Node runs without network access or host mounts. GitLab still
+provides protected variables to trusted job orchestration. The push job requires
+this audit to succeed and verifies each downloaded archive against its audit
+hash. Main/tag builds audit both architectures and publish multi-architecture
+manifests from the exact audited digests, without resolving the tags again.
 
 | Variable | Purpose |
 | -------- | ------- |

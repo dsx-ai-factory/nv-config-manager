@@ -22,7 +22,7 @@ import { test, TEST_TIMEOUT } from "./shared/utils";
 import { formPath, runWorkflowFormTests } from "./shared/workflowFormTests";
 
 const isReprovisionable = (device: { platform: string }) =>
-  device.platform === "Cumulus Linux" || device.platform === "NV-OS";
+  ["Cumulus Linux", "NV-OS", "Arista EOS"].includes(device.platform);
 
 runWorkflowFormTests({
   workflow: "ReprovisionWorkflow",

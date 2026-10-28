@@ -52,7 +52,7 @@ from nv_config_manager.common.auth import (
     require_authenticated_identity,
     require_group,
 )
-from nv_config_manager.common.config import clear_config_cache
+from nv_config_manager.common.config.loader import clear_config_cache
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -309,8 +309,10 @@ class TestInstallIdentityProbe:
         @app.get("/state-user")
         async def state_user(request: Request):
             """Expose normalized request identity fields for middleware tests."""
+            identity = request.state.identity
             return {
                 "user": request.state.user,
+                "identity": identity.email if identity is not None else None,
                 "auth_source": request.state.auth_source,
             }
 
@@ -332,7 +334,11 @@ class TestInstallIdentityProbe:
 
         resp = client.get("/state-user", headers={"X-Auth-Request-Email": "alice@example.com"})
         assert resp.status_code == 200
-        assert resp.json() == {"user": "alice", "auth_source": "sso"}
+        assert resp.json() == {
+            "user": "alice",
+            "identity": "alice@example.com",
+            "auth_source": "sso",
+        }
 
     def test_docs_are_protected(self):
         auth_mod._auth_config = load_auth_config(
@@ -352,7 +358,11 @@ class TestInstallIdentityProbe:
 
         resp = client.get("/state-user")
         assert resp.status_code == 200
-        assert resp.json() == {"user": "anonymous", "auth_source": "anonymous"}
+        assert resp.json() == {
+            "user": "anonymous",
+            "identity": "anonymous",
+            "auth_source": "anonymous",
+        }
 
     def test_openapi_describes_default_bearer_auth_and_public_paths(self):
         schema = self._make_app().openapi()

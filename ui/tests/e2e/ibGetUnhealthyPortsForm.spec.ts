@@ -19,7 +19,13 @@
  * The legacy page's "API validation details" toast is now an inline form-level error
  * (structured 422 detail at the request body), covered by the shared suite.
  */
-import { runWorkflowFormTests } from "./shared/workflowFormTests";
+import { expect } from "@playwright/test";
+
+import { DEVICES_LIST, SITES_LIST } from "@/mocks/data";
+
+import { mockServerCatalogAndUser } from "./shared/apiMocks";
+import { test, TEST_TIMEOUT } from "./shared/utils";
+import { formPath, nextPost, runWorkflowFormTests, selected, submit } from "./shared/workflowFormTests";
 
 const isUfm = (device: { platform: string }) => device.platform === "UFM";
 
@@ -31,4 +37,18 @@ runWorkflowFormTests({
   deviceFilter: (devices) => devices.find(isUfm)!,
   forbiddenFilter: (devices) => devices.find(isUfm)!,
   listedDevices: (devices) => devices.filter(isUfm),
+});
+
+test("URL parameters cannot set server-owned workflow inputs", async ({ page }) => {
+  await mockServerCatalogAndUser(page, ["reader", "executor"]);
+  const device = DEVICES_LIST[SITES_LIST.pdx01].find(isUfm)!;
+  await page.goto(
+    `${formPath("InfinibandGetUnhealthyPortsWorkflow")}?site=${SITES_LIST.pdx01}&device-id=${device.id}` +
+      "&user=mallory&user_domain=evil.example&workflow_id=forged"
+  );
+  await expect(selected(page, device.name)).toBeVisible({ timeout: TEST_TIMEOUT });
+
+  const post = nextPost(page, "/v1/workflow/ngc/infiniband_get_unhealthy_ports");
+  await submit(page);
+  expect((await post).postDataJSON()).toEqual({ device_id: device.id });
 });

@@ -107,6 +107,10 @@ def _example_config() -> NVConfigManagerInstallConfig:
     cfg.cluster.hostname = "config-manager.example.com"
     cfg.cluster.environment = "prod"
     cfg.cluster.namespace = "nv-config-manager"
+    cfg.cluster.custom_labels = {
+        "production": "true",
+        "include_in_slo": "true",
+    }
 
     cfg.secrets.method = SecretsMethod.KUBERNETES
     cfg.network_secrets = [

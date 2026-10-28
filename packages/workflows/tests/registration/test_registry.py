@@ -16,7 +16,7 @@
 import dataclasses
 from collections.abc import Iterator, Mapping
 from types import MappingProxyType
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, Any, ClassVar, cast
 
 import pytest
 from pydantic import BaseModel, ConfigDict, GetJsonSchemaHandler
@@ -47,6 +47,7 @@ from nv_config_manager_workflows.registration.registry import (
     SchedulerRegistration,
     WorkflowRegistry,
 )
+from nv_config_manager_workflows.registration.scheduler import WorkflowScheduler
 from nv_config_manager_workflows.stage import StageMixin
 from nv_config_manager_workflows.ui import (
     Dependency,
@@ -255,7 +256,7 @@ def plugin(
         version=version,
         workflows=workflows,
         activities=activities,
-        schedulers=schedulers,
+        schedulers=cast(tuple[type[WorkflowScheduler], ...], schedulers),
     )
 
 

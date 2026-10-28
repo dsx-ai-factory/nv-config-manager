@@ -34,6 +34,17 @@ class InvalidConfigException(NetworkDeviceException):
     """To be thrown if the config cannot be applied."""
 
 
+class ZTPRollbackException(NetworkDeviceException):
+    """A ZTP reset that did not go through left a file moved aside.
+
+    Not retryable: a retry would take the missing file for one an earlier attempt
+    moved and reset the switch again, before anyone has looked at it.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, non_retryable=True)
+
+
 class ConfigApplyFailureException(NetworkDeviceException):
     """To be thrown when config apply fails with ignore_fail state."""
 

@@ -24,20 +24,22 @@ from typing import TYPE_CHECKING
 
 import nats.js
 
-from nv_config_manager.common.config import (
-    NATSConnectionManager,
+from nv_config_manager.common.client.factory import redis_client
+from nv_config_manager.common.config.environment import (
     is_aggregate_environment,
     is_local_environment,
+)
+from nv_config_manager.common.config.nats import (
+    NATSConnectionManager,
     nats_config_manager_api_prefix,
     nats_connection,
     nats_render_change_config,
-    redis_client,
 )
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMClient, dcim_client_session
 
 if TYPE_CHECKING:
-    from nv_config_manager.common.client import RedisClient
+    from nv_config_manager.common.client.redis import RedisClient
 
 
 class DeviceNotEnabledError(Exception):

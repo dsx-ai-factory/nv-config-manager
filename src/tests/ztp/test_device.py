@@ -16,7 +16,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from nv_config_manager.common.config import get_internal_auth_headers
+from nv_config_manager.common.config.http import get_internal_auth_headers
 from nv_config_manager.ztp.device import DeviceData
 
 

@@ -264,7 +264,7 @@ async def test_execute_workflow(
                 },
                 "name": "get_interface_neighbor_data",
                 "output": {
-                    "display": '```\n{\n    "name": "swp1",\n    "macs": [],\n    "device_name": "mock_device",\n    "device_serial": "mock_serial",\n    "device_role": "mock_role",\n    "device_rack": null,\n    "device_position": null,\n    "link_up": true,\n    "ts_info": null\n}\n```',
+                    "display": '```\n{\n    "name": "swp1",\n    "macs": [],\n    "device_name": "mock_device",\n    "device_serial": "mock_serial",\n    "device_role": "mock_role",\n    "device_rack": null,\n    "device_position": null,\n    "link_up": true,\n    "ts_info": null,\n    "port_description": null,\n    "label": null,\n    "chassis_name": null\n}\n```',
                     "interface_neighbor_data": {
                         "device_name": "mock_device",
                         "device_role": "mock_role",
@@ -275,6 +275,9 @@ async def test_execute_workflow(
                         "macs": [],
                         "name": "swp1",
                         "ts_info": None,
+                        "port_description": None,
+                        "label": None,
+                        "chassis_name": None,
                     },
                 },
                 "rejecters": [],
@@ -406,7 +409,10 @@ async def test_execute_workflow(
                     '    "device_rack": null,\n'
                     '    "device_position": null,\n'
                     '    "link_up": true,\n'
-                    '    "ts_info": null\n'
+                    '    "ts_info": null,\n'
+                    '    "port_description": null,\n'
+                    '    "label": null,\n'
+                    '    "chassis_name": null\n'
                     "}\n"
                     "```",
                     "interface_neighbor_data": {
@@ -419,6 +425,9 @@ async def test_execute_workflow(
                         "macs": [],
                         "name": "swp1",
                         "ts_info": None,
+                        "port_description": None,
+                        "label": None,
+                        "chassis_name": None,
                     },
                 },
                 "rejecters": [],
