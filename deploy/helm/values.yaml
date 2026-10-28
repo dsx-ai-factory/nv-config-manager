@@ -1107,9 +1107,7 @@ ui:
   gateway:
     # The UI is served at the base hostname
     hostname: "{{ .Values.gateway.baseHostname }}"
-    # Optional: restrict access to specific groups (values of oidc.groupsClaim).
-    # Enforced by the OIDC proxy; users outside these groups get a 403.
-    # If empty, all authenticated users can load the UI.
+    # Optional: restrict access to specific groups (Azure AD group UUIDs)
     allowedGroups: []
     # The UI is OIDC-only except for its health endpoint, which the
     # blackbox probe must reach without a login redirect.
@@ -2905,9 +2903,7 @@ nautobot:
     hostname: "nautobot.{{ .Values.gateway.baseHostname }}"
     # Hostname: svc-nautobot.<baseHostname> (JWT-only, CLI/machine access)
     svcHostname: "svc-nautobot.{{ .Values.gateway.baseHostname }}"
-    # Optional: restrict browser access to specific groups (values of
-    # oidc.groupsClaim). Enforced by the OIDC proxy, so authBypass paths and
-    # svc-* access are not affected; Nautobot permissions still apply there.
+    # Optional: restrict access to specific groups (Azure AD group UUIDs)
     allowedGroups: []
     # -------------------------------------------------------------------------
     # Auth Bypass Paths

@@ -16,7 +16,7 @@
 {{- /* A dedicated callback proxy keeps OIDC usable when the UI is disabled. */}}
 {{- $proxies = append $proxies (dict "name" "callback" "port" 9109 "upstream" "static://200") }}
 {{- if .Values.ui.enabled }}
-  {{- $proxies = append $proxies (dict "name" "ui" "port" 9100 "upstream" (printf "http://%s:3000" $uiName) "allowedGroups" .Values.ui.gateway.allowedGroups) }}
+  {{- $proxies = append $proxies (dict "name" "ui" "port" 9100 "upstream" (printf "http://%s:3000" $uiName)) }}
 {{- end }}
 {{- if .Values.renderService.enabled }}
   {{- $proxies = append $proxies (dict "name" "render" "port" 9101 "upstream" (printf "http://%s-api:9000" $renderName)) }}
@@ -34,7 +34,7 @@
 {{- end }}
 {{- end }}
 {{- if and .Values.nautobot.enabled .Values.externalServices.nautobot.local }}
-  {{- $proxies = append $proxies (dict "name" "nautobot" "port" 9106 "upstream" (printf "http://%s:80" $nautobotName) "allowedGroups" .Values.nautobot.gateway.allowedGroups) }}
+  {{- $proxies = append $proxies (dict "name" "nautobot" "port" 9106 "upstream" (printf "http://%s:80" $nautobotName)) }}
 {{- end }}
 {{- if .Values.configStore.enabled }}
   {{- $proxies = append $proxies (dict "name" "config-store" "port" 9107 "upstream" (printf "http://%s-api:9000" $configStoreName)) }}
@@ -82,7 +82,7 @@ data:
     set_xauthrequest = true
     oidc_groups_claim = {{ $.Values.oidc.groupsClaim | default "groups" | quote }}
     {{- with $proxy.allowedGroups }}
-    # These upstreams do not check groups themselves, so the proxy must.
+    # Temporal Web does not check groups itself, so the proxy must.
     allowed_groups = [{{ range $i, $group := . }}{{ if $i }}, {{ end }}{{ $group | quote }}{{ end }}]
     {{- end }}
     # Some providers advertise a profile endpoint that does not accept access
