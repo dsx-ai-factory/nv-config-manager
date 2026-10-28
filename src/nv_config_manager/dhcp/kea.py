@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 from configparser import ConfigParser
 from enum import IntEnum
+from math import isfinite
 from typing import Any, Literal
 
 import aiohttp
@@ -121,6 +122,8 @@ class KeaClient:
         ``timeout_seconds`` bounds the total time of each HTTP request. Large
         ``config-set`` payloads can take longer than the default under load.
         """
+        if not isfinite(timeout_seconds):
+            raise ValueError(f"timeout_seconds must be a finite number, got {timeout_seconds}")
         if timeout_seconds <= 0:
             raise ValueError(f"timeout_seconds must be positive, got {timeout_seconds}")
         self.url = f"http://{host}:{port}/"
