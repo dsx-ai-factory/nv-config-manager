@@ -891,6 +891,9 @@ class CiscoIosXrConnection(NetworkConnection):
         # (3) Commit the loaded candidate. With a timer the router rolls back by itself
         # unless step (4) confirms, so a commit that cuts NVCM off heals on its own.
         confirm_seconds = self._COMMIT_CONFIRM_SECONDS if commit_confirm else None
+        # Taken before the RPC: the router starts its timer when it applies the commit, which
+        # can be before the reply reaches us, so this deadline is never later than its expiry.
+        deadline = time.monotonic() + self._COMMIT_CONFIRM_SECONDS
         try:
             session.commit(confirm_seconds=confirm_seconds, timeout=self._APPLY_TIMEOUT_SECONDS)
         except (NetworkDeviceException, *_TRANSPORT_ERRORS) as error:
@@ -909,9 +912,9 @@ class CiscoIosXrConnection(NetworkConnection):
             ) from error
 
         # (4) Second login, second copy-config diff, then the confirming commit. The router's
-        # rollback timer started when the commit succeeded, so the checks race against it.
+        # rollback timer started when the commit was applied, so the checks race against it.
         if commit_confirm:
-            self._verify_then_confirm(text, time.monotonic() + self._COMMIT_CONFIRM_SECONDS)
+            self._verify_then_confirm(text, deadline)
 
     def _verify_then_confirm(self, text: str, deadline: float) -> None:
         """Cancel the rollback timer only if the router is reachable and converged.

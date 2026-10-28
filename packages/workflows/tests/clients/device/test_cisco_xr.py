@@ -495,6 +495,28 @@ def test_apply_does_not_confirm_when_the_checks_used_up_the_commit_timer(
     assert raised.value.non_retryable
 
 
+def test_apply_counts_the_commit_reply_delay_against_the_commit_timer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, probe = FakeSession(), FakeSession({"show clock": "ok"})
+    connection, _ = _connection(session, probe)
+    approved = connection.perform_candidate_diff(CHANGED)
+    now = [1000.0]
+    monkeypatch.setattr(cisco_xr.time, "monotonic", lambda: now[0])
+    fast_commit = session.commit
+
+    def slow_commit(*, confirm_seconds: int | None, timeout: float) -> None:
+        fast_commit(confirm_seconds=confirm_seconds, timeout=timeout)
+        now[0] += connection._COMMIT_CONFIRM_SECONDS  # the reply took the whole timer
+
+    monkeypatch.setattr(session, "commit", slow_commit)
+
+    with pytest.raises(NetworkDeviceException, match="used up the commit timer"):
+        connection.commit_candidate_config(CHANGED, approved)
+
+    assert session.confirmed == 0
+
+
 def test_syntax_error_from_the_router_propagates_and_nothing_is_committed() -> None:
     session = FakeSession()
     connection, _ = _connection(session)
