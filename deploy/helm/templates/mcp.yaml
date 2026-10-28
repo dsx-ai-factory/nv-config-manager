@@ -87,20 +87,9 @@ spec:
         - name: mcp-auth-config
           mountPath: /etc/nv-config-manager-mcp-auth
           readOnly: true
-        livenessProbe:
-          httpGet:
-            path: /healthcheck
-            port: 9000
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-        readinessProbe:
-          httpGet:
-            path: /healthcheck
-            port: 9000
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 3
+        {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 8 "probes" .Values.mcp.api.probes "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9000))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 8 "probes" .Values.mcp.api.probes "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9000))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 8 "probes" .Values.mcp.api.probes "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9000))) }}
       volumes:
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}

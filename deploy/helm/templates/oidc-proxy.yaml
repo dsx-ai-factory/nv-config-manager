@@ -129,7 +129,10 @@ spec:
         app.kubernetes.io/component: oidc-proxy
         {{- include "nv-config-manager.customPodLabels" . | nindent 8 }}
       annotations:
-        checksum/config: {{ dict "proxies" $proxies "oidc" .Values.oidc "redis" .Values.externalServices.redis "baseHostname" .Values.gateway.baseHostname | toJson | sha256sum }}
+        {{- /* Probe settings are part of the pod spec itself (a change already rolls the pods), so keep them out of the config checksum; otherwise merely introducing the probes values would restart the proxy on upgrade. */}}
+        {{- $checksumOidc := set (deepCopy .Values.oidc) "proxy" (omit .Values.oidc.proxy "probes") }}
+        {{- $checksumRedis := omit .Values.externalServices.redis "probes" }}
+        checksum/config: {{ dict "proxies" $proxies "oidc" $checksumOidc "redis" $checksumRedis "baseHostname" .Values.gateway.baseHostname | toJson | sha256sum }}
     spec:
       serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
       {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
@@ -162,14 +165,9 @@ spec:
         ports:
         - name: {{ $proxy.name }}
           containerPort: {{ $proxy.port }}
-        readinessProbe:
-          httpGet:
-            path: /ready
-            port: {{ $proxy.name }}
-        livenessProbe:
-          httpGet:
-            path: /ping
-            port: {{ $proxy.name }}
+        {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 8 "probes" $.Values.oidc.proxy.probes "handler" (dict "httpGet" (dict "path" "/ready" "port" $proxy.name))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 8 "probes" $.Values.oidc.proxy.probes "handler" (dict "httpGet" (dict "path" "/ping" "port" $proxy.name))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 8 "probes" $.Values.oidc.proxy.probes "handler" (dict "httpGet" (dict "path" "/ping" "port" $proxy.name))) }}
         resources:
           {{- toYaml $.Values.oidc.proxy.resources | nindent 10 }}
         securityContext:

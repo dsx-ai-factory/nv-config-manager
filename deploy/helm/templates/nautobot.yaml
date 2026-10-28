@@ -97,18 +97,9 @@ spec:
               mountPath: /etc/nats
             - name: data
               mountPath: /data
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: monitor
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: monitor
-            initialDelaySeconds: 5
-            periodSeconds: 5
+          {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 10 "probes" .Values.nautobotNats.probes "handler" (dict "httpGet" (dict "path" "/healthz" "port" "monitor"))) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 10 "probes" .Values.nautobotNats.probes "handler" (dict "httpGet" (dict "path" "/healthz" "port" "monitor"))) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 10 "probes" .Values.nautobotNats.probes "handler" (dict "httpGet" (dict "path" "/healthz" "port" "monitor"))) }}
         {{- if .Values.nautobotNats.metrics.enabled }}
         # prometheus-nats-exporter: polls the NATS monitoring endpoint (:8222)
         # and re-exposes nats_* Prometheus metrics on :{{ .Values.nautobotNats.metrics.port | default 7777 }}.
@@ -699,27 +690,9 @@ spec:
                 name: {{ $nautobotName }}-env
           resources:
             {{- toYaml .Values.nautobot.server.resources | nindent 12 }}
-          startupProbe:
-            httpGet:
-              path: /health/
-              port: http
-            periodSeconds: 5
-            timeoutSeconds: 5
-            failureThreshold: 60
-          livenessProbe:
-            httpGet:
-              path: /health/
-              port: http
-            periodSeconds: 120
-            timeoutSeconds: 5
-            failureThreshold: 5
-          readinessProbe:
-            httpGet:
-              path: /health/
-              port: http
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
+          {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 10 "probes" .Values.nautobot.server.probes "handler" (dict "httpGet" (dict "path" "/health/" "port" "http"))) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 10 "probes" .Values.nautobot.server.probes "handler" (dict "httpGet" (dict "path" "/health/" "port" "http"))) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 10 "probes" .Values.nautobot.server.probes "handler" (dict "httpGet" (dict "path" "/health/" "port" "http"))) }}
           volumeMounts:
             - name: nautobot-config
               mountPath: /opt/nautobot/uwsgi.ini
@@ -780,17 +753,9 @@ spec:
               name: metrics
           resources:
             {{- toYaml .Values.nautobot.nginx.resources | nindent 12 }}
-          livenessProbe:
-            tcpSocket:
-              port: http-nginx
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /stub_status
-              port: metrics
-            initialDelaySeconds: 5
-            periodSeconds: 10
+          {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 10 "probes" .Values.nautobot.nginx.probes "handler" (dict "tcpSocket" (dict "port" "http-nginx"))) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 10 "probes" .Values.nautobot.nginx.probes "handler" (dict "httpGet" (dict "path" "/stub_status" "port" "metrics"))) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 10 "probes" .Values.nautobot.nginx.probes "handler" (dict "tcpSocket" (dict "port" "http-nginx"))) }}
           volumeMounts:
             - name: nginx-config
               mountPath: /etc/nginx/conf.d
@@ -1017,26 +982,10 @@ spec:
           # nothing reaps.  Dropping the variable from the child's environment keeps
           # prometheus_client in single-process mode for the probe, so it writes none;
           # `celery inspect ping` never touches /metrics, so nothing is lost.
-          livenessProbe:
-            exec:
-              command:
-                - python
-                - -c
-                - "import os, subprocess, sys; os.environ.pop('prometheus_multiproc_dir', None); os.environ.pop('PROMETHEUS_MULTIPROC_DIR', None); sys.exit(subprocess.call(['nautobot-server', 'celery', 'inspect', 'ping', '--destination', 'celery@' + os.environ.get('HOSTNAME', '')]))"
-            initialDelaySeconds: 60
-            periodSeconds: 120
-            timeoutSeconds: 60
-            failureThreshold: 10
-          readinessProbe:
-            exec:
-              command:
-                - python
-                - -c
-                - "import os, subprocess, sys; os.environ.pop('prometheus_multiproc_dir', None); os.environ.pop('PROMETHEUS_MULTIPROC_DIR', None); sys.exit(subprocess.call(['nautobot-server', 'celery', 'inspect', 'ping', '--destination', 'celery@' + os.environ.get('HOSTNAME', '')]))"
-            initialDelaySeconds: 60
-            periodSeconds: 120
-            timeoutSeconds: 60
-            failureThreshold: 10
+          {{- $celeryPingHandler := dict "exec" (dict "command" (list "python" "-c" "import os, subprocess, sys; os.environ.pop('prometheus_multiproc_dir', None); os.environ.pop('PROMETHEUS_MULTIPROC_DIR', None); sys.exit(subprocess.call(['nautobot-server', 'celery', 'inspect', 'ping', '--destination', 'celery@' + os.environ.get('HOSTNAME', '')]))")) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 10 "probes" .Values.nautobot.celery.probes "handler" $celeryPingHandler) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 10 "probes" .Values.nautobot.celery.probes "handler" $celeryPingHandler) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 10 "probes" .Values.nautobot.celery.probes "handler" $celeryPingHandler) }}
       volumes:
         # See the nautobot web pod for why /prom_cache is an emptyDir.
         - name: prom-cache
@@ -1115,15 +1064,10 @@ spec:
                 name: {{ $nautobotName }}-env
           resources:
             {{- toYaml .Values.nautobot.celery.workers.beat.resources | nindent 12 }}
-          livenessProbe:
-            exec:
-              command:
-                - python
-                - -c
-                - "import os, time, sys; f='/tmp/nautobot_celery_beat_heartbeat'; sys.exit(0 if os.path.exists(f) and (time.time() - os.path.getmtime(f)) < 6 else 1)"
-            initialDelaySeconds: 30
-            periodSeconds: 60
-            failureThreshold: 5
+          {{- $beatHeartbeatHandler := dict "exec" (dict "command" (list "python" "-c" "import os, time, sys; f='/tmp/nautobot_celery_beat_heartbeat'; sys.exit(0 if os.path.exists(f) and (time.time() - os.path.getmtime(f)) < 6 else 1)")) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 10 "probes" .Values.nautobot.celery.workers.beat.probes "handler" $beatHeartbeatHandler) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 10 "probes" .Values.nautobot.celery.workers.beat.probes "handler" $beatHeartbeatHandler) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 10 "probes" .Values.nautobot.celery.workers.beat.probes "handler" $beatHeartbeatHandler) }}
       terminationGracePeriodSeconds: 30
 {{- end }}
 {{- end }}

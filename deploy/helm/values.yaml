@@ -30,6 +30,53 @@
 #   - nv-config-manager.nvidia.com/node-type=worker        (Render, ZTP, DHCP, workers)
 #   - nv-config-manager.nvidia.com/node-type=database      (CNPG PostgreSQL clusters)
 # =============================================================================
+# CONTAINER PROBES
+# =============================================================================
+# Each container that has a Kubernetes probe exposes a `probes` map next to its
+# `resources`, with `liveness`, `readiness` and `startup` entries. The defaults
+# in this file reproduce what the chart rendered before probes were
+# configurable. Search for "probes:" to find them:
+#   renderService.api, configStore.api, mcp.api, ui, networkZtp (httpApi,
+#   httpLb, sftp), networkDhcp (kea, healthcheck, api, confgen), temporal
+#   (services.{frontend,history,matching,worker}, api, devUi), nautobot
+#   (server, nginx, celery, celery.workers.beat), nautobotNats,
+#   externalServices.redis, oidc.proxy.
+#
+# Each entry accepts:
+#   enabled: false      omit the probe entirely (default true when unset).
+#                       startup probes are off by default except where one
+#                       already existed (ui, networkZtp http, nautobot web).
+#   <any probe field>   copied onto the Kubernetes probe as-is:
+#                       initialDelaySeconds, periodSeconds, timeoutSeconds,
+#                       successThreshold, failureThreshold,
+#                       terminationGracePeriodSeconds. Zero is honored.
+#                       Set a field to null to drop a default, e.g.
+#                       --set ui.probes.startup.initialDelaySeconds=null
+#   httpGet | tcpSocket | exec | grpc
+#                       replaces the chart's default handler. The same handler
+#                       type is merged over the default (override only
+#                       `httpGet.path` and `port` is kept); a different type
+#                       replaces it. Only change a handler if the container
+#                       serves what you point it at.
+#
+# Examples:
+#   # Give render more room under load and add a startup probe
+#   renderService:
+#     api:
+#       probes:
+#         startup:   { enabled: true, periodSeconds: 5, failureThreshold: 60 }
+#         liveness:  { timeoutSeconds: 5, failureThreshold: 6 }
+#         readiness: { timeoutSeconds: 3 }
+#   # Drop the Nautobot web liveness probe
+#   nautobot:
+#     server:
+#       probes:
+#         liveness: { enabled: false }
+#
+# Not covered (no probe today, no probes values): the config-manager Temporal
+# worker, scheduler and archive, render consumers, config-store cache-refresh,
+# the template updater, auxiliary sidecars, and CNPG-managed Postgres.
+# =============================================================================
 
 nameOverride: ""
 fullnameOverride: ""
@@ -631,6 +678,20 @@ externalServices:
     socketTimeout: 5
     socketConnectTimeout: 5
     # Local Redis deployment configuration (when local=true)
+    # Container probes for the local Redis container (see "Container probes" near the top of this file).
+    probes:
+      liveness:
+        enabled: true
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 5
+      readiness:
+        enabled: true
+        initialDelaySeconds: 5
+        periodSeconds: 5
+        timeoutSeconds: 3
+      startup:
+        enabled: false
     resources:
       requests:
         cpu: 500m
@@ -1045,6 +1106,14 @@ oidc:
     # Allow an ID token that omits email_verified. Signature, issuer, audience,
     # and nonce validation remain enabled.
     insecureAllowUnverifiedEmail: false
+    # Container probes applied to every oauth2-proxy container (see "Container probes" near the top of this file).
+    probes:
+      readiness:
+        enabled: true
+      liveness:
+        enabled: true
+      startup:
+        enabled: false
     image:
       repository: quay.io/oauth2-proxy/oauth2-proxy
       tag: v7.15.5
@@ -1115,6 +1184,24 @@ ui:
       enabled: true
       paths:
         - /api/health
+  # Container probes (see "Container probes" near the top of this file).
+  probes:
+    startup:
+      enabled: true
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 30
+    liveness:
+      enabled: true
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+    readiness:
+      enabled: true
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
   # Resource limits
   resources:
     requests:
@@ -1157,6 +1244,16 @@ renderService:
   # API configuration
   api:
     replicas: 3
+    # Container probes for the api container (see "Container probes" near the
+    # top of this file). Unset timing fields use Kubernetes defaults, matching
+    # the chart's historical behavior. startup is off by default.
+    probes:
+      liveness:
+        enabled: true
+      readiness:
+        enabled: true
+      startup:
+        enabled: false
     resources:
       requests:
         cpu: 500m
@@ -1457,6 +1554,60 @@ networkZtp:
       metricsPort: 9100
   # Deployment configuration
   replicas: 3
+  # Container probes (see "Container probes" near the top of this file).
+  # httpApi = the gateway-facing http-api container (:9000); httpLb = the
+  # device-facing http-lb container (:8000, only rendered when an ingress
+  # nlb/cilium/metallb is configured); sftp = the sftp container.
+  # /healthcheck only proves the event loop can accept a request, so the HTTP
+  # timings are deliberately lenient to ride out boot-storm stalls; startup
+  # covers slow starts so liveness does not race them.
+  probes:
+    httpApi:
+      startup:
+        enabled: true
+        timeoutSeconds: 5
+        periodSeconds: 5
+        failureThreshold: 30
+      liveness:
+        enabled: true
+        timeoutSeconds: 5
+        periodSeconds: 15
+        failureThreshold: 6
+      readiness:
+        enabled: true
+        timeoutSeconds: 3
+        periodSeconds: 10
+        failureThreshold: 3
+    httpLb:
+      startup:
+        enabled: true
+        timeoutSeconds: 5
+        periodSeconds: 5
+        failureThreshold: 30
+      liveness:
+        enabled: true
+        timeoutSeconds: 5
+        periodSeconds: 15
+        failureThreshold: 6
+      readiness:
+        enabled: true
+        timeoutSeconds: 3
+        periodSeconds: 10
+        failureThreshold: 3
+    sftp:
+      # No startup probe by default.
+      startup:
+        enabled: false
+      liveness:
+        enabled: true
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+      readiness:
+        enabled: true
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 5
   # Resources per container type
   resources:
     http:
@@ -1643,6 +1794,68 @@ networkDhcp:
         allowedGroups: []
   # Deployment configuration
   replicas: 3
+  # Container probes (see "Container probes" near the top of this file), keyed
+  # by container: kea, healthcheck, api, confgen. Keep these invariants unless
+  # you know what you are doing:
+  #   - liveness uses /livez (Kea process health) and must NOT use the strict
+  #     /healthcheck endpoint: a config mismatch must never restart Kea.
+  #   - readiness on healthcheck/api is the strict /healthcheck (Kea online AND
+  #     desired config applied); the external DHCP NLB targets it.
+  #   - confgen liveness is a heartbeat exec probe; its thresholds are looser
+  #     than the others (10 x 30s) so in-loop recovery wins over a restart.
+  probes:
+    kea:
+      liveness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 120
+        periodSeconds: 10
+        timeoutSeconds: 3
+      readiness:
+        enabled: false
+      startup:
+        enabled: false
+    healthcheck:
+      liveness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 120
+        periodSeconds: 10
+        timeoutSeconds: 3
+      readiness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 3
+      startup:
+        enabled: false
+    api:
+      liveness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 120
+        periodSeconds: 10
+        timeoutSeconds: 3
+      readiness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 3
+      startup:
+        enabled: false
+    confgen:
+      liveness:
+        enabled: true
+        initialDelaySeconds: 180
+        periodSeconds: 30
+        timeoutSeconds: 10
+        failureThreshold: 10
+      readiness:
+        enabled: false
+      startup:
+        enabled: false
   # Resources
   resources:
     dhcp:
@@ -1731,6 +1944,18 @@ temporal:
     replicas: 2
     # Codec endpoint for payload decode in UI. Builds from gateway.baseHostname when set.
     codecEndpoint: "https://workflow.{{ .Values.gateway.baseHostname }}/v1/codec"
+    # Container probes (see "Container probes" near the top of this file).
+    probes:
+      liveness:
+        enabled: true
+        initialDelaySeconds: 10
+        periodSeconds: 10
+      readiness:
+        enabled: true
+        initialDelaySeconds: 5
+        periodSeconds: 5
+      startup:
+        enabled: false
     resources:
       requests:
         cpu: 50m
@@ -1746,6 +1971,15 @@ temporal:
       replicas: 3
       port: 7233
       membershipPort: 8233
+      # Container probes (see "Container probes" near the top of this file).
+      probes:
+        liveness:
+          enabled: true
+          initialDelaySeconds: 150
+        readiness:
+          enabled: false
+        startup:
+          enabled: false
       resources:
         requests:
           cpu: 200m
@@ -1769,6 +2003,15 @@ temporal:
       replicas: 4
       port: 7234
       membershipPort: 8234
+      # Container probes (see "Container probes" near the top of this file).
+      probes:
+        liveness:
+          enabled: true
+          initialDelaySeconds: 150
+        readiness:
+          enabled: false
+        startup:
+          enabled: false
       resources:
         requests:
           cpu: 1
@@ -1792,6 +2035,15 @@ temporal:
       replicas: 3
       port: 7235
       membershipPort: 8235
+      # Container probes (see "Container probes" near the top of this file).
+      probes:
+        liveness:
+          enabled: true
+          initialDelaySeconds: 150
+        readiness:
+          enabled: false
+        startup:
+          enabled: false
       resources:
         requests:
           cpu: 200m
@@ -1815,6 +2067,15 @@ temporal:
       replicas: 3
       port: 7239
       membershipPort: 8239
+      # Container probes (see "Container probes" near the top of this file).
+      probes:
+        liveness:
+          enabled: false
+          initialDelaySeconds: 150
+        readiness:
+          enabled: false
+        startup:
+          enabled: false
       resources:
         requests:
           cpu: 200m
@@ -1837,6 +2098,19 @@ temporal:
   # NVIDIA Config Manager Temporal API (scales independently of configManagerWorker)
   api:
     replicas: 3
+    # Container probes for the api container (see "Container probes" near the
+    # top of this file). Only liveness is enabled by default.
+    probes:
+      liveness:
+        enabled: true
+        initialDelaySeconds: 30
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+      readiness:
+        enabled: false
+      startup:
+        enabled: false
     resources:
       requests:
         cpu: 100m
@@ -2007,6 +2281,21 @@ configStore:
   # API service
   api:
     replicas: 3
+    # Container probes for the api container (see "Container probes" near the
+    # top of this file). startup is off by default.
+    probes:
+      liveness:
+        enabled: true
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+      readiness:
+        enabled: true
+        initialDelaySeconds: 10
+        periodSeconds: 5
+        timeoutSeconds: 3
+      startup:
+        enabled: false
     resources:
       requests:
         cpu: 500m
@@ -2111,6 +2400,21 @@ mcp:
       jwksUri: ""
   api:
     replicas: 2
+    # Container probes for the api container (see "Container probes" near the
+    # top of this file). startup is off by default.
+    probes:
+      liveness:
+        enabled: true
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+      readiness:
+        enabled: true
+        initialDelaySeconds: 10
+        periodSeconds: 5
+        timeoutSeconds: 3
+      startup:
+        enabled: false
     resources:
       requests:
         cpu: 100m
@@ -2783,6 +3087,23 @@ nautobot:
   # Nautobot Server Configuration
   server:
     replicas: 3
+    # Container probes for the nautobot web container (see "Container probes" near the top of this file).
+    probes:
+      startup:
+        enabled: true
+        periodSeconds: 5
+        timeoutSeconds: 5
+        failureThreshold: 60
+      liveness:
+        enabled: true
+        periodSeconds: 120
+        timeoutSeconds: 5
+        failureThreshold: 5
+      readiness:
+        enabled: true
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
     resources:
       requests:
         cpu: 1
@@ -2842,6 +3163,24 @@ nautobot:
   celery:
     enabled: true
     replicas: 3
+    # Container probes for the celery worker container (see "Container probes" near the top of this file).
+    # Both run `celery inspect ping`, which is slow under load, hence the long
+    # timeout/period.
+    probes:
+      liveness:
+        enabled: true
+        initialDelaySeconds: 60
+        periodSeconds: 120
+        timeoutSeconds: 60
+        failureThreshold: 10
+      readiness:
+        enabled: true
+        initialDelaySeconds: 60
+        periodSeconds: 120
+        timeoutSeconds: 60
+        failureThreshold: 10
+      startup:
+        enabled: false
     resources:
       requests:
         cpu: 1
@@ -2857,6 +3196,17 @@ nautobot:
       beat:
         enabled: true
         replicas: 1 # Beat can only have 1 replica
+        # Container probes for the celery-beat container (see "Container probes" near the top of this file).
+        probes:
+          liveness:
+            enabled: true
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            failureThreshold: 5
+          readiness:
+            enabled: false
+          startup:
+            enabled: false
         resources:
           requests:
             cpu: "100m"
@@ -2888,6 +3238,18 @@ nautobot:
       repository: nginxinc/nginx-unprivileged
       tag: "1.27"
       pullPolicy: Always
+    # Container probes for the nginx sidecar (see "Container probes" near the top of this file).
+    probes:
+      liveness:
+        enabled: true
+        initialDelaySeconds: 5
+        periodSeconds: 10
+      readiness:
+        enabled: true
+        initialDelaySeconds: 5
+        periodSeconds: 10
+      startup:
+        enabled: false
     resources:
       requests:
         cpu: ".001"
@@ -3030,6 +3392,18 @@ nautobotNats:
         memory: 32Mi
       limits:
         memory: 128Mi
+  # Container probes for the NATS container (see "Container probes" near the top of this file).
+  probes:
+    liveness:
+      enabled: true
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      initialDelaySeconds: 5
+      periodSeconds: 5
+    startup:
+      enabled: false
   # NATS resources
   resources:
     requests:

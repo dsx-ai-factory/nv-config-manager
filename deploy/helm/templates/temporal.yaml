@@ -255,12 +255,9 @@ spec:
         - name: metrics
           containerPort: 8000
           protocol: TCP
-        {{- if ne $service "worker" }}
-        livenessProbe:
-          initialDelaySeconds: 150
-          tcpSocket:
-            port: rpc
-        {{- end }}
+        {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 8 "probes" $serviceValues.probes "handler" (dict "tcpSocket" (dict "port" "rpc"))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 8 "probes" $serviceValues.probes "handler" (dict "tcpSocket" (dict "port" "rpc"))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 8 "probes" $serviceValues.probes "handler" (dict "tcpSocket" (dict "port" "rpc"))) }}
         volumeMounts:
         - name: rendered-config
           mountPath: /etc/temporal/config
@@ -547,14 +544,9 @@ spec:
           readOnly: true
         {{- end }}
         {{- include "nv-config-manager.authVolumeMounts" . | nindent 8 }}
-        livenessProbe:
-          httpGet:
-            path: /healthcheck
-            port: 9000
-          initialDelaySeconds: 30
-          periodSeconds: 30
-          timeoutSeconds: 5
-          failureThreshold: 3
+        {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 8 "probes" .Values.temporal.api.probes "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9000))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 8 "probes" .Values.temporal.api.probes "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9000))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 8 "probes" .Values.temporal.api.probes "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9000))) }}
       {{- /* SPIFFE helper sidecar for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar" (dict "root" . "serviceName" "nv-config-manager-temporal-api") | nindent 6 }}
       volumes:
@@ -866,18 +858,9 @@ spec:
         - name: http
           containerPort: 8080
           protocol: TCP
-        livenessProbe:
-          httpGet:
-            path: /healthz
-            port: 8080
-          initialDelaySeconds: 10
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /healthz
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 5
+        {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 8 "probes" .Values.temporal.devUi.probes "handler" (dict "httpGet" (dict "path" "/healthz" "port" 8080))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 8 "probes" .Values.temporal.devUi.probes "handler" (dict "httpGet" (dict "path" "/healthz" "port" 8080))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 8 "probes" .Values.temporal.devUi.probes "handler" (dict "httpGet" (dict "path" "/healthz" "port" 8080))) }}
         resources:
           {{- toYaml (.Values.temporal.devUi.resources | default (dict "requests" (dict "cpu" "50m" "memory" "64Mi") "limits" (dict "cpu" "200m" "memory" "128Mi"))) | nindent 10 }}
         {{- include "nv-config-manager.containerSecurityContext" . | nindent 8 }}
