@@ -1286,12 +1286,12 @@ pip_download() {
 }
 
 # Digests are pinned from the immutable upstream release, not fetched with the archive.
-# https://github.com/astral-sh/python-build-standalone/releases/tag/20261021
+# https://github.com/astral-sh/python-build-standalone/releases/tag/20261026
 download_installer_python() {
     local installer_dest="$1"
     local triple="$2"
-    local pbs_tag="20261021"
-    local pbs_cpython="3.13.17"
+    local pbs_tag="20261026"
+    local pbs_cpython="3.13.18"
     local pbs_file="cpython-${pbs_cpython}+${pbs_tag}-${triple}-install_only_stripped.tar.gz"
     local pbs_url="https://github.com/astral-sh/python-build-standalone/releases/download/${pbs_tag}/${pbs_file}"
     local pbs_sha256
