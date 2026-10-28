@@ -785,12 +785,12 @@ jobs:
         uses: *actions_cache
         with:
           path: ui/.next/cache
-          key: ui-next-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}-${{ hashFiles('ui/src/**', 'ui/public/**', 'ui/*.config.*', 'ui/tsconfig.json') }}
+          key: ui-next-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}-${{ hashFiles('ui/src/**', 'ui/public/**', 'ui/*.config.*', 'ui/tsconfig.json', 'ui/tsconfig.build.json') }}
           restore-keys: |
             ui-next-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}-
       - run: npm ci --prefer-offline
-      - run: npm run test:unit
       - run: npm run build
+      - run: npm run test:unit
       - run: npm run test:e2e:ci
       - uses: *upload_artifact
         if: always()
