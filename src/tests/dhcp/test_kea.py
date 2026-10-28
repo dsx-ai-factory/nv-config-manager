@@ -20,7 +20,13 @@ from aiohttp import ClientResponseError
 from aioresponses import aioresponses
 from yarl import URL
 
-from nv_config_manager.dhcp.kea import KEA_PORT_ENV, KEA_SERVER_ENV, KeaClient, KeaException
+from nv_config_manager.dhcp.kea import (
+    DEFAULT_TIMEOUT_SECONDS,
+    KEA_PORT_ENV,
+    KEA_SERVER_ENV,
+    KeaClient,
+    KeaException,
+)
 
 
 def _kea_config(server: str = "dhcp-internal", port: str = "8000") -> ConfigParser:
@@ -62,6 +68,40 @@ def test_from_config_attached_ignores_env_override(monkeypatch) -> None:
     client = KeaClient.from_config(_kea_config("dhcp-internal", "8000"), attached=True)
 
     assert client.url == "http://localhost:8000/"
+
+
+def test_timeout_defaults_to_ten_seconds() -> None:
+    """Without an explicit value, the client keeps its historical 10s timeout."""
+    assert DEFAULT_TIMEOUT_SECONDS == 10.0
+    assert KeaClient(host="kea").timeout_seconds == DEFAULT_TIMEOUT_SECONDS
+
+
+def test_from_config_passes_timeout_to_client(monkeypatch) -> None:
+    """from_config forwards timeout_seconds, for attached and non-attached clients."""
+    monkeypatch.delenv(KEA_SERVER_ENV, raising=False)
+    monkeypatch.delenv(KEA_PORT_ENV, raising=False)
+
+    default = KeaClient.from_config(_kea_config())
+    detached = KeaClient.from_config(_kea_config(), timeout_seconds=45)
+    attached = KeaClient.from_config(_kea_config(), attached=True, timeout_seconds=45)
+
+    assert default.timeout_seconds == DEFAULT_TIMEOUT_SECONDS
+    assert detached.timeout_seconds == 45
+    assert attached.timeout_seconds == 45
+
+
+@pytest.mark.parametrize("bad_timeout", [0, -1])
+def test_non_positive_timeout_is_rejected(bad_timeout: float) -> None:
+    """A zero or negative timeout would fail every request, so reject it up front."""
+    with pytest.raises(ValueError, match="timeout_seconds"):
+        KeaClient(host="kea", timeout_seconds=bad_timeout)
+
+
+async def test_session_uses_configured_timeout() -> None:
+    """The aiohttp session's total timeout comes from the client's timeout_seconds."""
+    async with KeaClient(host="kea", timeout_seconds=42) as client:
+        session = await client._get_session()
+        assert session.timeout.total == 42
 
 
 @pytest.mark.parametrize(

@@ -35,6 +35,11 @@ from nv_config_manager.common.config.loader import load_config
 KEA_SERVER_ENV = "NV_CONFIG_MANAGER_KEA_SERVER"
 KEA_PORT_ENV = "NV_CONFIG_MANAGER_KEA_PORT"
 
+# Default total HTTP timeout for a single Kea control request. Callers that wrap
+# Kea calls in their own deadline (e.g. config-sync) should pass a value at or
+# above it so this inner timeout never fires first.
+DEFAULT_TIMEOUT_SECONDS = 10.0
+
 
 class IpVersion(IntEnum):
     """Supported DHCP address families."""
@@ -58,7 +63,11 @@ class KeaClient:
     """Async KEA REST Client."""
 
     @staticmethod
-    def from_config(config: ConfigParser | None = None, attached: bool = False) -> KeaClient:
+    def from_config(
+        config: ConfigParser | None = None,
+        attached: bool = False,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> KeaClient:
         """Create a KEA client from the configured server and port.
 
         When ``attached`` is set, the client always targets the co-located Kea
@@ -70,6 +79,8 @@ class KeaClient:
         uses this override to reach Kea through the internal bootstrap/validation
         Service so it can run ``config-test`` and seed Redis before pods are
         Ready, without weakening readiness for anyone else.
+
+        ``timeout_seconds`` is the total HTTP timeout applied to each request.
         """
         if config is None:
             config = load_config()
@@ -79,17 +90,29 @@ class KeaClient:
         else:
             host = os.environ.get(KEA_SERVER_ENV) or config["dhcp.kea"]["server"]
             port = int(os.environ.get(KEA_PORT_ENV) or config["dhcp.kea"]["port"])
-        return KeaClient(host=host, port=port)
+        return KeaClient(host=host, port=port, timeout_seconds=timeout_seconds)
 
-    def __init__(self, host: str | None = None, port: int = 8000) -> None:
-        """Initialize a KEA REST Client."""
+    def __init__(
+        self,
+        host: str | None = None,
+        port: int = 8000,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> None:
+        """Initialize a KEA REST Client.
+
+        ``timeout_seconds`` bounds the total time of each HTTP request. Large
+        ``config-set`` payloads can take longer than the default under load.
+        """
+        if timeout_seconds <= 0:
+            raise ValueError(f"timeout_seconds must be positive, got {timeout_seconds}")
         self.url = f"http://{host}:{port}/"
+        self.timeout_seconds = timeout_seconds
         self._session: aiohttp.ClientSession | None = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create the aiohttp session."""
         if self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(total=10)
+            timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
             connector = aiohttp.TCPConnector()
             self._session = aiohttp.ClientSession(
                 timeout=timeout,
