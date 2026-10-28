@@ -91,7 +91,8 @@ clients. Connections have no request timeout and close after
 which is longer than the default NATS ping interval.
 
 When the chart creates the Gateway, the NATS route serves only its HTTPS
-listener. Plain HTTP requests to the NATS hostname match no route.
+listener. Plain HTTP requests to the NATS hostname receive an HTTP 301 redirect
+to HTTPS.
 On kgateway the chart also enables WebSocket upgrades on that Gateway. A
 shared kgateway Gateway (`gateway.create=false`) needs its owner to enable
 them, or the handshake fails with 403.

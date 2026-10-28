@@ -95,6 +95,10 @@ def _nats_route(docs: list[dict[str, Any]]) -> dict[str, Any] | None:
     return _find(docs, "HTTPRoute", _NATS_NAME)
 
 
+def _redirect_route(docs: list[dict[str, Any]]) -> dict[str, Any] | None:
+    return _find(docs, "HTTPRoute", f"{_NATS_NAME}-redirect-http")
+
+
 def _nats_probe_target(docs: list[dict[str, Any]]) -> str | None:
     probe = _find(docs, "Probe", _NATS_NAME)
     return None if probe is None else probe["spec"]["targets"]["staticConfig"]["static"][0]
@@ -127,9 +131,8 @@ def test_probe_uses_gateway_route_by_default() -> None:
 
 
 def test_one_route_serves_websocket_and_exact_get_healthz() -> None:
-    docs = _render()
-    [route] = _nats_routes(docs)
-    assert route["metadata"]["name"] == _NATS_NAME
+    route = _nats_route(_render())
+    assert route is not None
     assert route["spec"]["hostnames"] == ["nats.cell.example.test"]
     assert route["metadata"]["labels"]["nv-config-manager.nvidia.com/timeout-profile"] == "stream"
     websocket, health = route["spec"]["rules"]
@@ -147,6 +150,24 @@ def test_route_attaches_only_to_https_listener() -> None:
     assert parent["sectionName"] == "https"
 
 
+def test_http_listener_redirects_to_https() -> None:
+    docs = _render()
+    redirect = _redirect_route(docs)
+    assert redirect is not None
+    assert {r["metadata"]["name"] for r in _nats_routes(docs)} == {
+        _NATS_NAME,
+        f"{_NATS_NAME}-redirect-http",
+    }
+    assert redirect["spec"]["hostnames"] == ["nats.cell.example.test"]
+    [parent] = redirect["spec"]["parentRefs"]
+    assert parent["sectionName"] == "http"
+    [rule] = redirect["spec"]["rules"]
+    assert "backendRefs" not in rule
+    assert rule["filters"] == [
+        {"type": "RequestRedirect", "requestRedirect": {"scheme": "https", "statusCode": 301}}
+    ]
+
+
 @pytest.mark.parametrize(
     "set_args",
     [
@@ -154,7 +175,9 @@ def test_route_attaches_only_to_https_listener() -> None:
         ("gateway.sectionName=shared-https",),
     ],
 )
-def test_shared_gateway_keeps_default_parent_ref(set_args: tuple[str, ...]) -> None:
+def test_shared_gateway_keeps_default_parent_ref_without_redirect(
+    set_args: tuple[str, ...],
+) -> None:
     [route] = _nats_routes(_render(*set_args))
     [parent] = route["spec"]["parentRefs"]
     assert parent.get("sectionName") == ("shared-https" if "sectionName" in set_args[0] else None)

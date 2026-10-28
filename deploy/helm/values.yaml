@@ -3019,7 +3019,7 @@ nautobotNats:
   # passwords as in-cluster clients. TLS terminates at the gateway. The native
   # client port (4222) and the rest of the monitoring port (varz, connz, jsz)
   # are never routed. When the chart creates the Gateway, the route attaches
-  # only to its HTTPS listener, so plain HTTP to this hostname gets no route.
+  # only to its HTTPS listener and each HTTP listener answers with a 301 to https.
   # With kgateway the chart enables WebSocket upgrades on the Gateway it
   # creates; on a shared kgateway Gateway (gateway.create=false) the Gateway
   # owner must enable them, or the handshake gets a 403.
