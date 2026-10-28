@@ -25,7 +25,7 @@ nats.conf: |
   http_port: 8222
   
   max_payload: {{ printf "%.0f" .Values.nautobotNats.maxPayload }}
-  {{- if include "nv-config-manager.natsWebsocketEnabled" . }}
+  {{- if include "nv-config-manager.natsGatewayHostname" . }}
 
   # Client protocol over WebSocket; TLS terminates at the gateway.
   websocket {

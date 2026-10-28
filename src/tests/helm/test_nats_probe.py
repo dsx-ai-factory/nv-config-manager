@@ -14,11 +14,11 @@
 # limitations under the License.
 """Helm rendering tests for bundled NATS gateway access and its blackbox Probe.
 
-An exporter outside the cluster cannot resolve the in-cluster NATS service, so
-the Probe goes through a /healthz-only rule on the NATS gateway route when one
-is rendered. Client access over WebSocket is a separate, opt-in rule on the
-same route. These tests skip cleanly when ``helm`` is unavailable or chart
-dependencies have not been vendored.
+With the gateway enabled, bundled NATS gets one HTTPRoute that serves an exact
+GET /healthz for the Probe and the NATS client protocol over WebSocket. An
+exporter outside the cluster cannot resolve the in-cluster NATS service, so the
+Probe goes through that route. These tests skip cleanly when ``helm`` is
+unavailable or chart dependencies have not been vendored.
 """
 
 from __future__ import annotations
@@ -45,8 +45,8 @@ _BASE_SET = (
     "monitoring.probes.enabled=true",
     "monitoring.probes.blackboxExporterUrl=exporter.example:443",
 )
-_WEBSOCKET_ON = "nautobotNats.gateway.websocket.enabled=true"
 _KGATEWAY = ("gateway.type=kgateway", "gateway.createGatewayClass=false")
+_LISTENER_POLICY = "test-nv-config-manager-websocket-upgrades"
 _HEALTH_MATCH = [{"path": {"type": "Exact", "value": "/healthz"}, "method": "GET"}]
 _WEBSOCKET_MATCH = [{"path": {"type": "PathPrefix", "value": "/"}}]
 
@@ -83,17 +83,16 @@ def _find(docs: list[dict[str, Any]], kind: str, name: str) -> dict[str, Any] | 
     return None
 
 
+def _nats_routes(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        doc
+        for doc in docs
+        if doc["kind"] == "HTTPRoute" and doc["metadata"]["name"].startswith(_NATS_NAME)
+    ]
+
+
 def _nats_route(docs: list[dict[str, Any]]) -> dict[str, Any] | None:
     return _find(docs, "HTTPRoute", _NATS_NAME)
-
-
-def _redirect_route(docs: list[dict[str, Any]]) -> dict[str, Any] | None:
-    return _find(docs, "HTTPRoute", f"{_NATS_NAME}-redirect-http")
-
-
-def _route_matches(docs: list[dict[str, Any]]) -> list[Any]:
-    route = _nats_route(docs)
-    return [] if route is None else [rule["matches"] for rule in route["spec"]["rules"]]
 
 
 def _nats_probe_target(docs: list[dict[str, Any]]) -> str | None:
@@ -121,42 +120,31 @@ def _service_ports(docs: list[dict[str, Any]]) -> dict[str, int]:
     return {p["name"]: p["port"] for p in service["spec"]["ports"]}
 
 
-def test_probe_uses_gateway_health_rule_by_default() -> None:
+def test_probe_uses_gateway_route_by_default() -> None:
     docs = _render()
     assert _nats_probe_target(docs) == "https://nats.cell.example.test/healthz"
     assert not _monitor_port_open_to_prometheus(docs)
 
 
-def test_health_rule_exposes_only_exact_get_healthz() -> None:
-    route = _nats_route(_render())
-    assert route is not None
+def test_one_route_serves_websocket_and_exact_get_healthz() -> None:
+    docs = _render()
+    [route] = _nats_routes(docs)
+    assert route["metadata"]["name"] == _NATS_NAME
     assert route["spec"]["hostnames"] == ["nats.cell.example.test"]
-    assert route["metadata"]["labels"]["nv-config-manager.nvidia.com/timeout-profile"] == "default"
-    [rule] = route["spec"]["rules"]
-    assert rule["matches"] == _HEALTH_MATCH
-    assert rule["backendRefs"] == [{"name": _NATS_NAME, "port": 8222}]
+    assert route["metadata"]["labels"]["nv-config-manager.nvidia.com/timeout-profile"] == "stream"
+    websocket, health = route["spec"]["rules"]
+    assert websocket["matches"] == _WEBSOCKET_MATCH
+    assert websocket["backendRefs"] == [{"name": _NATS_NAME, "port": 8080}]
+    assert health["matches"] == _HEALTH_MATCH
+    assert health["backendRefs"] == [{"name": _NATS_NAME, "port": 8222}]
 
 
 def test_route_attaches_only_to_https_listener() -> None:
-    docs = _render()
-    route = _nats_route(docs)
+    route = _nats_route(_render())
     assert route is not None
     [parent] = route["spec"]["parentRefs"]
     assert parent["name"] == _GATEWAY_NAME
     assert parent["sectionName"] == "https"
-
-
-def test_http_listener_redirects_to_https() -> None:
-    redirect = _redirect_route(_render())
-    assert redirect is not None
-    assert redirect["spec"]["hostnames"] == ["nats.cell.example.test"]
-    [parent] = redirect["spec"]["parentRefs"]
-    assert parent["sectionName"] == "http"
-    [rule] = redirect["spec"]["rules"]
-    assert "backendRefs" not in rule
-    assert rule["filters"] == [
-        {"type": "RequestRedirect", "requestRedirect": {"scheme": "https", "statusCode": 301}}
-    ]
 
 
 @pytest.mark.parametrize(
@@ -167,27 +155,9 @@ def test_http_listener_redirects_to_https() -> None:
     ],
 )
 def test_shared_gateway_keeps_default_parent_ref(set_args: tuple[str, ...]) -> None:
-    docs = _render(*set_args)
-    route = _nats_route(docs)
-    assert route is not None
+    [route] = _nats_routes(_render(*set_args))
     [parent] = route["spec"]["parentRefs"]
     assert parent.get("sectionName") == ("shared-https" if "sectionName" in set_args[0] else None)
-    assert _redirect_route(docs) is None
-
-
-def test_probe_falls_back_to_in_cluster_without_health_rule() -> None:
-    docs = _render("nautobotNats.gateway.healthRoute.enabled=false")
-    assert _nats_route(docs) is None
-    assert _redirect_route(docs) is None
-    assert _nats_probe_target(docs) == f"http://{_NATS_NAME}.nv-config-manager-ci.svc:8222/healthz"
-    assert _monitor_port_open_to_prometheus(docs)
-
-
-def test_explicit_target_replaces_health_rule() -> None:
-    docs = _render("monitoring.probes.nats.target=http://nats.example/healthz")
-    assert _nats_probe_target(docs) == "http://nats.example/healthz"
-    assert _nats_route(docs) is None
-    assert not _monitor_port_open_to_prometheus(docs)
 
 
 @pytest.mark.parametrize(
@@ -199,39 +169,36 @@ def test_explicit_target_replaces_health_rule() -> None:
         "monitoring.enabled=false",
     ],
 )
-def test_no_route_without_nats_probe(set_arg: str) -> None:
+def test_route_renders_without_nats_probe(set_arg: str) -> None:
     docs = _render(set_arg)
     assert _nats_probe_target(docs) is None
-    assert _nats_route(docs) is None
-    assert _redirect_route(docs) is None
+    assert _nats_route(docs) is not None
+
+
+def test_explicit_target_overrides_gateway_route() -> None:
+    docs = _render("monitoring.probes.nats.target=http://nats.example/healthz")
+    assert _nats_probe_target(docs) == "http://nats.example/healthz"
+    assert _nats_route(docs) is not None
+    assert not _monitor_port_open_to_prometheus(docs)
+
+
+def test_probe_falls_back_to_in_cluster_without_gateway() -> None:
+    docs = _render("gateway.enabled=false")
+    assert _nats_routes(docs) == []
+    assert _nats_probe_target(docs) == f"http://{_NATS_NAME}.nv-config-manager-ci.svc:8222/healthz"
+    assert _monitor_port_open_to_prometheus(docs)
+    assert "websocket" not in _nats_conf(docs)
+    assert "websocket" not in _service_ports(docs)
 
 
 def test_no_route_or_probe_without_bundled_nats() -> None:
-    docs = _render(
-        "nautobotNats.enabled=false",
-        "externalServices.nats.local=false",
-        _WEBSOCKET_ON,
-    )
-    assert _nats_route(docs) is None
-    assert _redirect_route(docs) is None
+    docs = _render("nautobotNats.enabled=false", "externalServices.nats.local=false")
+    assert _nats_routes(docs) == []
     assert _nats_probe_target(docs) is None
 
 
-def test_websocket_off_by_default() -> None:
+def test_nats_serves_websocket_listener_for_the_route() -> None:
     docs = _render()
-    assert _route_matches(docs) == [_HEALTH_MATCH]
-    assert "websocket" not in _nats_conf(docs)
-    assert "websocket" not in _service_ports(docs)
-    assert _find(docs, "BackendTrafficPolicy", f"{_NATS_NAME}-websocket-policy") is None
-
-
-def test_websocket_rule_joins_health_rule() -> None:
-    docs = _render(_WEBSOCKET_ON)
-    route = _nats_route(docs)
-    assert route is not None
-    assert route["metadata"]["labels"]["nv-config-manager.nvidia.com/timeout-profile"] == "stream"
-    assert _route_matches(docs) == [_WEBSOCKET_MATCH, _HEALTH_MATCH]
-    assert route["spec"]["rules"][0]["backendRefs"] == [{"name": _NATS_NAME, "port": 8080}]
     assert _service_ports(docs)["websocket"] == 8080
     conf = _nats_conf(docs)
     assert "websocket {" in conf
@@ -239,31 +206,18 @@ def test_websocket_rule_joins_health_rule() -> None:
     assert "no_tls: true" in conf
 
 
-def test_websocket_rule_without_nats_probe() -> None:
-    docs = _render(_WEBSOCKET_ON, "monitoring.probes.enabled=false")
-    assert _route_matches(docs) == [_WEBSOCKET_MATCH]
-    assert _redirect_route(docs) is not None
-
-
-def test_websocket_listener_without_gateway_has_no_route() -> None:
-    docs = _render(_WEBSOCKET_ON, "gateway.enabled=false")
-    assert _nats_route(docs) is None
-    assert "websocket {" in _nats_conf(docs)
-    assert _service_ports(docs)["websocket"] == 8080
-
-
 def test_websocket_timeouts_envoy_gateway() -> None:
-    docs = _render(_WEBSOCKET_ON)
+    docs = _render()
     policy = _find(docs, "BackendTrafficPolicy", f"{_NATS_NAME}-websocket-policy")
     assert policy is not None
     assert policy["spec"]["targetRef"]["name"] == _NATS_NAME
     assert policy["spec"]["timeout"]["http"]["requestTimeout"] == "0s"
     assert policy["spec"]["timeout"]["http"]["connectionIdleTimeout"] == "300s"
-    assert _find(docs, "ListenerPolicy", "test-nv-config-manager-websocket-upgrades") is None
+    assert _find(docs, "ListenerPolicy", _LISTENER_POLICY) is None
 
 
 def test_websocket_timeouts_kgateway() -> None:
-    docs = _render(_WEBSOCKET_ON, *_KGATEWAY)
+    docs = _render(*_KGATEWAY)
     policy = _find(docs, "TrafficPolicy", "test-nv-config-manager-stream-timeouts")
     assert policy is not None
     [selector] = policy["spec"]["targetSelectors"]
@@ -272,8 +226,8 @@ def test_websocket_timeouts_kgateway() -> None:
 
 
 def test_websocket_upgrades_enabled_on_kgateway_listener() -> None:
-    docs = _render(_WEBSOCKET_ON, *_KGATEWAY)
-    policy = _find(docs, "ListenerPolicy", "test-nv-config-manager-websocket-upgrades")
+    docs = _render(*_KGATEWAY)
+    policy = _find(docs, "ListenerPolicy", _LISTENER_POLICY)
     assert policy is not None
     assert policy["spec"]["targetRefs"] == [
         {"group": "gateway.networking.k8s.io", "kind": "Gateway", "name": _GATEWAY_NAME}
@@ -286,12 +240,12 @@ def test_websocket_upgrades_enabled_on_kgateway_listener() -> None:
 @pytest.mark.parametrize(
     "set_args",
     [
-        _KGATEWAY,
-        (_WEBSOCKET_ON, *_KGATEWAY, "gateway.create=false"),
+        (*_KGATEWAY, "gateway.create=false"),
+        (*_KGATEWAY, "nautobotNats.enabled=false", "externalServices.nats.local=false"),
     ],
 )
-def test_no_kgateway_listener_policy_without_owned_websocket_gateway(
+def test_no_kgateway_listener_policy_without_owned_gateway_or_bundled_nats(
     set_args: tuple[str, ...],
 ) -> None:
     docs = _render(*set_args)
-    assert _find(docs, "ListenerPolicy", "test-nv-config-manager-websocket-upgrades") is None
+    assert _find(docs, "ListenerPolicy", _LISTENER_POLICY) is None

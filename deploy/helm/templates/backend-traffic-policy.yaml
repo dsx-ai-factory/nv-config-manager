@@ -95,7 +95,7 @@ spec:
       connectTimeout: {{ .Values.gateway.timeout.connectTimeout | default "10s" }}
 {{- end }}
 {{- end }}
-{{- if include "nv-config-manager.natsWebsocketHostname" . }}
+{{- if include "nv-config-manager.natsGatewayHostname" . }}
 {{- $natsName := include "nv-config-manager.componentName" (dict "root" . "component" "nats") }}
 ---
 apiVersion: gateway.envoyproxy.io/v1alpha1

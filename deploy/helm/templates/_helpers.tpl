@@ -2008,7 +2008,8 @@ labels:
 
 {{/*
 Yields the rendered nautobotNats.gateway.hostname when bundled NATS and the
-gateway are both enabled, or nothing.
+gateway are both enabled, or nothing. The NATS HTTPRoute, its WebSocket
+listener and its timeout policies all render exactly when this is non-empty.
 */}}
 {{- define "nv-config-manager.natsGatewayHostname" -}}
 {{- $gw := .Values.nautobotNats.gateway | default dict -}}
@@ -2016,48 +2017,6 @@ gateway are both enabled, or nothing.
 {{- if and $bundled .Values.gateway.enabled $gw.hostname -}}
 {{- tpl $gw.hostname . -}}
 {{- end -}}
-{{- end -}}
-
-{{/*
-Yields the hostname of the bundled NATS /healthz HTTPRoute, or nothing when the
-route is not rendered. The route exists only for the NATS Probe, so it renders
-only when that Probe is rendered and has no explicit target.
-*/}}
-{{- define "nv-config-manager.natsHealthHostname" -}}
-{{- $route := (.Values.nautobotNats.gateway | default dict).healthRoute | default dict -}}
-{{- $nats := (.Values.monitoring.probes | default dict).nats | default dict -}}
-{{- if and (include "nv-config-manager.natsProbeEnabled" .) (not $nats.target) $route.enabled -}}
-{{- include "nv-config-manager.natsGatewayHostname" . -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
-Yields "true" when bundled NATS serves the client protocol over WebSocket.
-*/}}
-{{- define "nv-config-manager.natsWebsocketEnabled" -}}
-{{- $ws := (.Values.nautobotNats.gateway | default dict).websocket | default dict -}}
-{{- $bundled := or .Values.nautobotNats.enabled .Values.externalServices.nats.local -}}
-{{- if and $bundled $ws.enabled -}}
-true
-{{- end -}}
-{{- end -}}
-
-{{/*
-Yields the hostname of the bundled NATS WebSocket HTTPRoute, or nothing when
-the route is not rendered.
-*/}}
-{{- define "nv-config-manager.natsWebsocketHostname" -}}
-{{- if include "nv-config-manager.natsWebsocketEnabled" . -}}
-{{- include "nv-config-manager.natsGatewayHostname" . -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
-Yields the hostname of the bundled NATS HTTPRoute when it has at least one
-rule (health or WebSocket), or nothing.
-*/}}
-{{- define "nv-config-manager.natsRouteHostname" -}}
-{{- include "nv-config-manager.natsHealthHostname" . | default (include "nv-config-manager.natsWebsocketHostname" .) -}}
 {{- end -}}
 
 {{/*
@@ -2092,13 +2051,13 @@ true
 
 {{/*
 Yields "true" when the NATS Probe targets the in-cluster monitoring endpoint
-rather than an explicit target or the gateway health route. The
+rather than an explicit target or the NATS gateway route. The
 namespace-isolation NetworkPolicy uses it to open the NATS monitoring port to
 the exporter.
 */}}
 {{- define "nv-config-manager.natsProbeInCluster" -}}
 {{- $nats := (.Values.monitoring.probes | default dict).nats | default dict -}}
-{{- if and (include "nv-config-manager.natsProbeEnabled" .) (not $nats.target) (not (include "nv-config-manager.natsHealthHostname" .)) -}}
+{{- if and (include "nv-config-manager.natsProbeEnabled" .) (not $nats.target) (not (include "nv-config-manager.natsGatewayHostname" .)) -}}
 true
 {{- end -}}
 {{- end -}}

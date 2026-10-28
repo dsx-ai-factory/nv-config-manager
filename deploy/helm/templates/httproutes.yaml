@@ -639,18 +639,16 @@ spec:
 
 # Bundled NATS HTTPRoute: unauthenticated exact GET /healthz for the Probe,
 # and the NATS client protocol over WebSocket (NATS authenticates).
-{{- with include "nv-config-manager.natsRouteHostname" . }}
+{{- with include "nv-config-manager.natsGatewayHostname" . }}
 {{- $hostname := . }}
 {{- $httpsListener := include "nv-config-manager.natsHttpsListener" $ }}
-{{- $health := include "nv-config-manager.natsHealthHostname" $ }}
-{{- $websocket := include "nv-config-manager.natsWebsocketHostname" $ }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: {{ $natsName }}
   namespace: {{ $.Values.global.namespace }}
-  {{- include "nv-config-manager.httpRoutePolicyLabels" (dict "root" $ "timeoutProfile" (ternary "stream" "default" (not (empty $websocket)))) | nindent 2 }}
+  {{- include "nv-config-manager.httpRoutePolicyLabels" (dict "root" $ "timeoutProfile" "stream") | nindent 2 }}
   annotations:
     nv-config-manager.nvidia.com/no-auth: "true"
 spec:
@@ -665,7 +663,6 @@ spec:
   hostnames:
   - {{ $hostname | quote }}
   rules:
-  {{- if $websocket }}
   - matches:
     - path:
         type: PathPrefix
@@ -674,8 +671,6 @@ spec:
     backendRefs:
     - name: {{ $natsName }}
       port: {{ $.Values.nautobotNats.gateway.websocket.port | default 8080 }}
-  {{- end }}
-  {{- if $health }}
   {{- /* Exact match: the monitoring port also serves varz, connz and jsz. */}}
   - matches:
     - path:
@@ -686,39 +681,6 @@ spec:
     backendRefs:
     - name: {{ $natsName }}
       port: 8222
-  {{- end }}
-{{- if $httpsListener }}
-{{- range $.Values.gateway.listeners | default list }}
-{{- if eq .protocol "HTTP" }}
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: {{ $natsName }}-redirect-{{ .name }}
-  namespace: {{ $.Values.global.namespace }}
-  {{- include "nv-config-manager.httpRoutePolicyLabels" (dict "root" $) | nindent 2 }}
-  annotations:
-    nv-config-manager.nvidia.com/no-auth: "true"
-spec:
-  parentRefs:
-  - name: {{ $.Values.gateway.name }}
-    namespace: {{ $.Values.gateway.namespace | default $.Values.global.namespace }}
-    sectionName: {{ .name }}
-  hostnames:
-  - {{ $hostname | quote }}
-  rules:
-  - matches:
-    - path:
-        type: PathPrefix
-        value: /
-    filters:
-    - type: RequestRedirect
-      requestRedirect:
-        scheme: https
-        statusCode: 301
-{{- end }}
-{{- end }}
-{{- end }}
 {{- end }}
 
 {{- end }}

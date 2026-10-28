@@ -202,14 +202,14 @@
 {{- end }}{{- /* end hasIngress check */}}
 
 {{- /*
-  Bundled NATS is probed through its /healthz-only gateway route when that is
-  rendered, so exporters outside the cluster can reach it; otherwise through
+  Bundled NATS is probed at /healthz on its gateway route when the gateway is
+  enabled, so exporters outside the cluster can reach it; otherwise through
   the in-cluster monitoring endpoint.
 */}}
 {{- $natsProbe := .Values.monitoring.probes.nats | default dict }}
 {{- if include "nv-config-manager.natsProbeEnabled" . }}
 {{- $natsTarget := printf "http://%s.%s.svc:8222/healthz" $natsName $namespace }}
-{{- with include "nv-config-manager.natsHealthHostname" . }}
+{{- with include "nv-config-manager.natsGatewayHostname" . }}
 {{- $natsTarget = printf "%s://%s/healthz" $probeScheme . }}
 {{- end }}
 {{ include "nv-config-manager.blackboxProbe" (dict

@@ -40,7 +40,7 @@ spec:
     streamIdle: {{ .Values.networkZtp.upload.idleTimeout | default "300s" }}
 {{- end }}
 
-{{- if include "nv-config-manager.natsWebsocketHostname" . }}
+{{- if include "nv-config-manager.natsGatewayHostname" . }}
 ---
 apiVersion: gateway.kgateway.dev/v1alpha1
 kind: TrafficPolicy
