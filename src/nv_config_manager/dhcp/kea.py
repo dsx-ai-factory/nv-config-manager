@@ -35,6 +35,11 @@ from nv_config_manager.common.config.loader import load_config
 KEA_SERVER_ENV = "NV_CONFIG_MANAGER_KEA_SERVER"
 KEA_PORT_ENV = "NV_CONFIG_MANAGER_KEA_PORT"
 
+# Per-container override for the total HTTP timeout (seconds) of each Kea
+# control request, used when the caller does not pass ``timeout_seconds``
+# explicitly. Applies to attached and non-attached clients alike.
+KEA_TIMEOUT_ENV = "NV_CONFIG_MANAGER_KEA_TIMEOUT"
+
 # Default total HTTP timeout for a single Kea control request. Callers that wrap
 # Kea calls in their own deadline (e.g. config-sync) should pass a value at or
 # above it so this inner timeout never fires first.
@@ -66,7 +71,7 @@ class KeaClient:
     def from_config(
         config: ConfigParser | None = None,
         attached: bool = False,
-        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        timeout_seconds: float | None = None,
     ) -> KeaClient:
         """Create a KEA client from the configured server and port.
 
@@ -81,7 +86,20 @@ class KeaClient:
         Ready, without weakening readiness for anyone else.
 
         ``timeout_seconds`` is the total HTTP timeout applied to each request.
+        An explicit value wins; otherwise ``NV_CONFIG_MANAGER_KEA_TIMEOUT`` is
+        used when set, falling back to ``DEFAULT_TIMEOUT_SECONDS``.
         """
+        if timeout_seconds is None:
+            raw_timeout = os.environ.get(KEA_TIMEOUT_ENV)
+            if raw_timeout:
+                try:
+                    timeout_seconds = float(raw_timeout)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"{KEA_TIMEOUT_ENV} must be a number of seconds, got {raw_timeout!r}"
+                    ) from exc
+            else:
+                timeout_seconds = DEFAULT_TIMEOUT_SECONDS
         if config is None:
             config = load_config()
         if attached:

@@ -24,6 +24,7 @@ from nv_config_manager.dhcp.kea import (
     DEFAULT_TIMEOUT_SECONDS,
     KEA_PORT_ENV,
     KEA_SERVER_ENV,
+    KEA_TIMEOUT_ENV,
     KeaClient,
     KeaException,
 )
@@ -70,16 +71,20 @@ def test_from_config_attached_ignores_env_override(monkeypatch) -> None:
     assert client.url == "http://localhost:8000/"
 
 
-def test_timeout_defaults_to_ten_seconds() -> None:
+def test_timeout_defaults_to_ten_seconds(monkeypatch) -> None:
     """Without an explicit value, the client keeps its historical 10s timeout."""
+    monkeypatch.delenv(KEA_TIMEOUT_ENV, raising=False)
     assert DEFAULT_TIMEOUT_SECONDS == 10.0
     assert KeaClient(host="kea").timeout_seconds == DEFAULT_TIMEOUT_SECONDS
+    assert KeaClient.from_config(_kea_config()).timeout_seconds == DEFAULT_TIMEOUT_SECONDS
 
 
 def test_from_config_passes_timeout_to_client(monkeypatch) -> None:
     """from_config forwards timeout_seconds, for attached and non-attached clients."""
     monkeypatch.delenv(KEA_SERVER_ENV, raising=False)
     monkeypatch.delenv(KEA_PORT_ENV, raising=False)
+
+    monkeypatch.delenv(KEA_TIMEOUT_ENV, raising=False)
 
     default = KeaClient.from_config(_kea_config())
     detached = KeaClient.from_config(_kea_config(), timeout_seconds=45)
@@ -88,6 +93,30 @@ def test_from_config_passes_timeout_to_client(monkeypatch) -> None:
     assert default.timeout_seconds == DEFAULT_TIMEOUT_SECONDS
     assert detached.timeout_seconds == 45
     assert attached.timeout_seconds == 45
+
+
+def test_from_config_timeout_env_applies_when_no_explicit_value(monkeypatch) -> None:
+    """NV_CONFIG_MANAGER_KEA_TIMEOUT sets the timeout for attached and detached clients."""
+    monkeypatch.setenv(KEA_TIMEOUT_ENV, "30")
+
+    assert KeaClient.from_config(_kea_config()).timeout_seconds == 30
+    assert KeaClient.from_config(_kea_config(), attached=True).timeout_seconds == 30
+
+
+def test_from_config_explicit_timeout_beats_env(monkeypatch) -> None:
+    """A caller-supplied timeout (config-sync's outer deadline) overrides the env var."""
+    monkeypatch.setenv(KEA_TIMEOUT_ENV, "30")
+
+    assert KeaClient.from_config(_kea_config(), timeout_seconds=45).timeout_seconds == 45
+
+
+@pytest.mark.parametrize("bad_value", ["abc", "0", "-5"])
+def test_from_config_rejects_invalid_timeout_env(monkeypatch, bad_value: str) -> None:
+    """A malformed or non-positive env value fails loudly instead of being ignored."""
+    monkeypatch.setenv(KEA_TIMEOUT_ENV, bad_value)
+
+    with pytest.raises(ValueError, match="(?i)timeout"):
+        KeaClient.from_config(_kea_config())
 
 
 @pytest.mark.parametrize("bad_timeout", [0, -1])
