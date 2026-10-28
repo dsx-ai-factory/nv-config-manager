@@ -16,7 +16,7 @@
 {{- /* A dedicated callback proxy keeps OIDC usable when the UI is disabled. */}}
 {{- $proxies = append $proxies (dict "name" "callback" "port" 9109 "upstream" "static://200") }}
 {{- if .Values.ui.enabled }}
-  {{- $proxies = append $proxies (dict "name" "ui" "port" 9100 "upstream" (printf "http://%s:3000" $uiName)) }}
+  {{- $proxies = append $proxies (dict "name" "ui" "port" 9100 "upstream" (printf "http://%s:3000" $uiName) "allowedGroups" .Values.ui.gateway.allowedGroups) }}
 {{- end }}
 {{- if .Values.renderService.enabled }}
   {{- $proxies = append $proxies (dict "name" "render" "port" 9101 "upstream" (printf "http://%s-api:9000" $renderName)) }}
@@ -30,11 +30,11 @@
 {{- if .Values.temporal.enabled }}
   {{- $proxies = append $proxies (dict "name" "workflow" "port" 9104 "upstream" (printf "http://%s-api:9000" $temporalName)) }}
 {{- if .Values.temporal.server.enabled }}
-  {{- $proxies = append $proxies (dict "name" "temporal" "port" 9105 "upstream" (printf "http://%s-web-service:8080" $temporalName)) }}
+  {{- $proxies = append $proxies (dict "name" "temporal" "port" 9105 "upstream" (printf "http://%s-web-service:8080" $temporalName) "allowedGroups" .Values.temporal.gateway.devUi.allowedGroups) }}
 {{- end }}
 {{- end }}
 {{- if and .Values.nautobot.enabled .Values.externalServices.nautobot.local }}
-  {{- $proxies = append $proxies (dict "name" "nautobot" "port" 9106 "upstream" (printf "http://%s:80" $nautobotName)) }}
+  {{- $proxies = append $proxies (dict "name" "nautobot" "port" 9106 "upstream" (printf "http://%s:80" $nautobotName) "allowedGroups" .Values.nautobot.gateway.allowedGroups) }}
 {{- end }}
 {{- if .Values.configStore.enabled }}
   {{- $proxies = append $proxies (dict "name" "config-store" "port" 9107 "upstream" (printf "http://%s-api:9000" $configStoreName)) }}
@@ -81,6 +81,10 @@ data:
     set_authorization_header = true
     set_xauthrequest = true
     oidc_groups_claim = {{ $.Values.oidc.groupsClaim | default "groups" | quote }}
+    {{- with $proxy.allowedGroups }}
+    # These upstreams do not check groups themselves, so the proxy must.
+    allowed_groups = [{{ range $i, $group := . }}{{ if $i }}, {{ end }}{{ $group | quote }}{{ end }}]
+    {{- end }}
     # Some providers advertise a profile endpoint that does not accept access
     # tokens issued for a custom API audience (for example, Entra UserInfo).
     skip_claims_from_profile_url = {{ $.Values.oidc.proxy.skipClaimsFromProfileURL }}
