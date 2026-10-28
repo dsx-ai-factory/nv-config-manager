@@ -84,7 +84,7 @@ RUN mkdir -p /opt/nautobot/static \
 # =============================================================================
 # Runtime stage - NVIDIA distroless Python
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/python:3.11-v4.1.9@sha256:eb991e90dc0cd5b61bf72cafd3bbfb4aec37dabc6e10f0ddb4332ca92dd1c773
+FROM nvcr.io/nvidia/distroless/python:3.11-v4.1.10@sha256:f7190d4046f9f30ea842604a1c7cc71be03ab27fe78cbfbb15c876f3b7c80641
 
 # Replace the pinned runtime's trust store, including hashed certificate paths.
 # Copying only the bundle would leave distrusted roots reachable through capath.
