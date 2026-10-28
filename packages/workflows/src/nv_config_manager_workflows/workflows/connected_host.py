@@ -90,26 +90,21 @@ def interface_sort_key(interface_name: str) -> tuple[str, list[int]]:
 
     Returns a tuple of (prefix, [numeric_parts]) for proper sorting.
     """
-    # Pattern to match interface names with numeric components
-    # Matches: prefix + numbers separated by / or s
-    pattern = r"^([\w\-]+?)(\d+(?:[\/s]\d+)*)?$"
-    match = re.match(pattern, interface_name)
+    # Reserve the first character for the required, nonempty prefix. Tokenize
+    # digit runs once, then walk backwards over the numeric suffix; the prefix
+    # and suffix must never retry matching the same long run of digits.
+    name = interface_name.removesuffix("\n")
+    parts = re.split(r"(\d+)", name[1:])
+    numeric_start = len(parts)
+    if len(parts) > 1 and parts[-1] == "":
+        numeric_start -= 2
+        while numeric_start > 1 and parts[numeric_start - 1] in ("/", "s"):
+            numeric_start -= 2
 
-    if not match:
-        # If no match, return original string for fallback sorting
+    prefix = name[:1] + "".join(parts[:numeric_start])
+    if not re.fullmatch(r"[\w-]+", prefix):
         return (interface_name, [])
-
-    prefix, numeric_part = match.groups()
-
-    # Extract all numeric components
-    # Split by / or s and convert to integers
-    numeric_parts = []
-    if numeric_part:
-        # Split by / or s, filter out empty strings, convert to int
-        parts = re.split(r"[\/s]", numeric_part)
-        numeric_parts = [int(part) for part in parts if part.isdigit()]
-
-    return (prefix, numeric_parts)
+    return (prefix, [int(part) for part in parts[numeric_start::2]])
 
 
 class ConnectedHostWorkflowInput(BaseModel):

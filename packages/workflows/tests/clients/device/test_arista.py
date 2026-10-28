@@ -44,6 +44,81 @@ def _arista_connection() -> AristaConnection:
     return conn
 
 
+@pytest.mark.parametrize(
+    ("configuration", "remaining", "banners"),
+    [
+        ("hostname leaf1", "hostname leaf1", []),
+        ("banner motd\nHello\nEOF\nend", "\nend", [("banner motd", "\nHello\n")]),
+        (
+            "banner login\nOne\nEOF\nbanner motd\nTwo\nEOF",
+            "\n",
+            [("banner login", "\nOne\n"), ("banner motd", "\nTwo\n")],
+        ),
+        ("banner motdEOF", "", [("banner motd", "")]),
+        ("banner EOF", "banner EOF", []),
+        ("banner motdEOF\nbody\nEOF", "", [("banner motdEOF", "\nbody\n")]),
+        ("banner motdEOFEOFtail", "tail", [("banner motdEOF", "")]),
+        (
+            "banner motd\nEOF\nbanner login\nunfinished",
+            "\nbanner login\nunfinished",
+            [("banner motd", "\n")],
+        ),
+    ],
+)
+def test_extract_banner_commands(
+    configuration: str, remaining: str, banners: list[tuple[str, str]]
+) -> None:
+    """Keep banner bodies, command greediness, and incomplete banners unchanged."""
+    conn = _arista_connection()
+
+    assert conn._extract_banner_commands(configuration) == (remaining, banners)
+
+
+@pytest.mark.timeout(5)
+@pytest.mark.parametrize(
+    "configuration",
+    ["banner " + "x" * 100_000, "banner motd\nunfinished\n" * 10_000],
+    ids=["long-type", "many-starts"],
+)
+def test_extract_unterminated_banners_in_bounded_time(configuration: str) -> None:
+    """A missing EOF must not rescan the rest of the configuration for every start."""
+    conn = _arista_connection()
+
+    assert conn._extract_banner_commands(configuration) == (configuration, [])
+
+
+@pytest.mark.parametrize(
+    ("diff_a", "diff_b", "equal"),
+    [
+        ("session:/first-session-config", "session:/second-session-config", True),
+        ("session:/first-session-config\n-old\n+new", "\n-old\n+other", False),
+        ("session:/firstsession:/second-session-config", "", True),
+        ("session:/firstsession:/second-session-config", "session:/third-session-config", True),
+        ("session:/unfinished\n-session-config", "\n-session-config", False),
+        ("session:/unfinished\nsession:/valid-session-config", "session:/unfinished\n", True),
+        ("a-session-configsession:/b-session-config", "a-session-config", True),
+        ("changed", "", True),
+    ],
+)
+def test_diff_eq_normalizes_only_complete_session_paths(
+    diff_a: str, diff_b: str, equal: bool
+) -> None:
+    """Ignore session IDs while preserving actual changes and unmatched text."""
+    conn = _arista_connection()
+
+    assert conn._diff_eq(diff_a, diff_b) is equal
+
+
+@pytest.mark.timeout(5)
+def test_diff_eq_handles_many_unterminated_session_paths() -> None:
+    """Repeated prefixes without a suffix must remain unchanged in bounded time."""
+    conn = _arista_connection()
+    diff = "session:/unfinished" * 20_000
+
+    assert conn._diff_eq(diff, diff) is True
+    assert conn._diff_eq(diff, diff + "changed") is False
+
+
 def test_commit_preserves_diff_changed_exception() -> None:
     """A mismatched approved diff raises DiffChangedException, not a wrapped failure."""
     conn = _arista_connection()

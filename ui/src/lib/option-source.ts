@@ -178,7 +178,11 @@ export const resolveOptionSourceEndpoint = (
   if (resolved.origin !== base.origin || resolved.username || resolved.password) {
     return null;
   }
-  const basePath = base.pathname.replace(/\/+$/, "");
+  // Scan backwards so an internal run of slashes cannot cause repeated retries.
+  const pathname = base.pathname;
+  let pathEnd = pathname.length;
+  while (pathEnd > 0 && pathname[pathEnd - 1] === "/") pathEnd -= 1;
+  const basePath = pathname.slice(0, pathEnd);
   if (resolved.pathname !== basePath && !resolved.pathname.startsWith(`${basePath}/`)) {
     return null;
   }
