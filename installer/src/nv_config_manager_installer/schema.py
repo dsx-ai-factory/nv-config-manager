@@ -560,14 +560,22 @@ class KeaMultiThreadingConfig(BaseModel):
     With everything left at its default Kea auto-detects the worker count
     (``thread-pool-size`` 0) and keeps a 64-packet queue. ``size_from_cpu_request``
     sizes the pool from the DHCP container CPU request instead, rounding up to
-    at least one thread. An explicit ``thread_pool_size`` overrides that, and
-    the queue defaults to eight packets per worker unless
-    ``packet_queue_size`` is set.
+    at least one thread. It cannot be combined with an explicit
+    ``thread_pool_size``, which the chart also rejects. The queue defaults to
+    eight packets per worker unless ``packet_queue_size`` is set.
     """
 
     size_from_cpu_request: bool = False
     thread_pool_size: int | None = Field(default=None, ge=0)
     packet_queue_size: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _validate_pool_sizing(self) -> KeaMultiThreadingConfig:
+        if self.size_from_cpu_request and self.thread_pool_size is not None:
+            raise ValueError(
+                "size_from_cpu_request and thread_pool_size are mutually exclusive; set only one"
+            )
+        return self
 
 
 class DHCPConfig(BaseModel):

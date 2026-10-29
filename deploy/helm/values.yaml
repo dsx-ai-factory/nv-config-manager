@@ -1690,8 +1690,9 @@ networkDhcp:
     # packet-queue-size 64. Set sizeFromCpuRequest to size the pool from
     # networkDhcp.resources.dhcp.requests.cpu, rounding fractional requests up
     # to at least one thread, and the queue to eight times that pool.
-    # threadPoolSize may be 0 to keep auto-detection. packetQueueSize, when
-    # set, must be a positive integer.
+    # threadPoolSize may be 0 to keep auto-detection, but setting it together
+    # with sizeFromCpuRequest fails the render. packetQueueSize, when set, must
+    # be a positive integer.
     # ISC recommendations on multi-threading settings:
     # https://kea.readthedocs.io/en/kea-3.2.0/arm/dhcp4-srv.html#multi-threading-settings
     multiThreading:

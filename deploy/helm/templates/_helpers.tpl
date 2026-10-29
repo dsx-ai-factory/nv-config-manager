@@ -2253,13 +2253,17 @@ true
 {{/*
 Kea worker count. An empty threadPoolSize keeps Kea auto-detection (0) unless
 sizeFromCpuRequest is set, in which case the DHCP CPU request is rounded up
-to at least one thread.
+to at least one thread. Setting both is ambiguous, so the render fails; an
+explicit threadPoolSize of 0 counts as set.
 */}}
 {{- define "nv-config-manager.dhcp.threadPoolSize" -}}
 {{- $override := include "nv-config-manager.dhcp.threadingOverride" (dict "root" . "name" "threadPoolSize" "allowZero" true) -}}
-{{- if ne $override "" -}}
+{{- $sizeFromCpu := include "nv-config-manager.dhcp.sizeFromCpuRequest" . -}}
+{{- if and (ne $override "") $sizeFromCpu -}}
+{{- fail "networkDhcp.kea.multiThreading.sizeFromCpuRequest and threadPoolSize are mutually exclusive; set only one" -}}
+{{- else if ne $override "" -}}
 {{- $override -}}
-{{- else if include "nv-config-manager.dhcp.sizeFromCpuRequest" . -}}
+{{- else if $sizeFromCpu -}}
 {{- $millis := include "nv-config-manager.dhcp.cpuMillicores" .Values.networkDhcp.resources.dhcp.requests.cpu | int -}}
 {{- div (add $millis 999) 1000 -}}
 {{- else -}}

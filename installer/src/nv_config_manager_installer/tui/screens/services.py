@@ -79,7 +79,7 @@ class ServicesScreen(Container):
             id="kea-size-from-cpu",
         )
         yield Label(
-            "Thread pool size (0 = auto-detect; overrides CPU sizing)", classes="field-label"
+            "Thread pool size (0 = auto-detect; not with CPU sizing)", classes="field-label"
         )
         yield Input(
             value=_int_text(kea.thread_pool_size), placeholder="auto", id="kea-thread-pool-size"

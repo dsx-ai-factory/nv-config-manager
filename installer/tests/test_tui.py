@@ -717,7 +717,6 @@ async def test_services_screen_collects_kea_multi_threading() -> None:
         app.switch_section("services")
         screen = app._screens["services"]
         screen.query_one("#kea-size-from-cpu", LabeledSwitch).value = True
-        screen.query_one("#kea-thread-pool-size", Input).value = "0"
         screen.query_one("#kea-packet-queue-size", Input).value = " 32 "
         await pilot.pause()
 
@@ -725,7 +724,7 @@ async def test_services_screen_collects_kea_multi_threading() -> None:
 
         kea = config.dhcp.kea_multi_threading
         assert kea.size_from_cpu_request is True
-        assert kea.thread_pool_size == 0
+        assert kea.thread_pool_size is None
         assert kea.packet_queue_size == 32
 
 
@@ -764,6 +763,24 @@ async def test_invalid_kea_multi_threading_blocks_navigation(input_id: str, valu
         app.switch_section("services")
         screen = app._screens["services"]
         screen.query_one(input_id, Input).value = value
+        await pilot.pause()
+
+        app.switch_section("cluster")
+
+        assert app.active_section == "services"
+        assert config.dhcp.kea_multi_threading == KeaMultiThreadingConfig()
+
+
+@pytest.mark.asyncio
+async def test_kea_cpu_sizing_with_thread_pool_blocks_navigation() -> None:
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        app.switch_section("services")
+        screen = app._screens["services"]
+        screen.query_one("#kea-size-from-cpu", LabeledSwitch).value = True
+        screen.query_one("#kea-thread-pool-size", Input).value = "4"
         await pilot.pause()
 
         app.switch_section("cluster")

@@ -77,7 +77,7 @@ values, or with `dhcp.kea_multi_threading` in the installer configuration.
 | Helm value | Installer field | Description |
 | :--------- | :-------------- | :---------- |
 | `sizeFromCpuRequest` | `size_from_cpu_request` | Size the thread pool from `networkDhcp.resources.dhcp.requests.cpu`, rounded up to at least one thread. Defaults to `false`. |
-| `threadPoolSize` | `thread_pool_size` | Explicit worker count. `0` keeps Kea auto-detection. Overrides CPU sizing. Blank means unset. |
+| `threadPoolSize` | `thread_pool_size` | Explicit worker count. `0` keeps Kea auto-detection. Cannot be combined with `sizeFromCpuRequest`; setting both fails the Helm render. Blank means unset. |
 | `packetQueueSize` | `packet_queue_size` | Explicit queue length, a positive integer. Blank defaults to 64 while the pool is auto-detected, otherwise eight packets per thread. |
 
 ```yaml

@@ -329,6 +329,20 @@ def test_explicit_packet_queue_overrides_derived_queue() -> None:
         (("networkDhcp.kea.multiThreading.threadPoolSize=-1",), "threadPoolSize"),
         (("networkDhcp.kea.multiThreading.packetQueueSize=0",), "packetQueueSize"),
         (("networkDhcp.kea.multiThreading.sizeFromCpuRequest=yes",), "sizeFromCpuRequest"),
+        (
+            (
+                "networkDhcp.kea.multiThreading.sizeFromCpuRequest=true",
+                "networkDhcp.kea.multiThreading.threadPoolSize=3",
+            ),
+            "mutually exclusive",
+        ),
+        (
+            (
+                "networkDhcp.kea.multiThreading.sizeFromCpuRequest=true",
+                "networkDhcp.kea.multiThreading.threadPoolSize=0",
+            ),
+            "mutually exclusive",
+        ),
     ],
 )
 def test_invalid_kea_threading_input_fails_rendering(

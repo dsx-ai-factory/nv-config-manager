@@ -65,7 +65,7 @@ The screen also tunes Kea DHCP multi-threading. Blank fields keep Kea's defaults
 | Field | Description |
 | :---- | :---------- |
 | Size threads from DHCP CPU request | Sizes the Kea thread pool from the DHCP CPU request |
-| Thread pool size | Optional. `0` keeps auto-detection and a set value overrides CPU sizing |
+| Thread pool size | Optional. `0` keeps auto-detection. Cannot be combined with CPU sizing |
 | Packet queue size | Optional positive integer. Defaults to 64, or eight packets per thread |
 
 ![Services section screen](../assets/images/installer/02-services.svg)

@@ -828,6 +828,11 @@ class TestKeaMultiThreadingConfig:
         with pytest.raises(ValidationError):
             KeaMultiThreadingConfig(**{field: value})
 
+    @pytest.mark.parametrize("pool_size", [0, 4])
+    def test_rejects_cpu_sizing_with_explicit_thread_pool(self, pool_size):
+        with pytest.raises(ValidationError, match="mutually exclusive"):
+            KeaMultiThreadingConfig(size_from_cpu_request=True, thread_pool_size=pool_size)
+
     def test_yaml_round_trip(self, tmp_path):
         config = NVConfigManagerInstallConfig(
             dhcp=DHCPConfig(
