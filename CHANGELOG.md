@@ -8,6 +8,14 @@ version before the selected release candidate is promoted.
 
 ## Unreleased
 
+### Added
+
+- DHCP container probes (liveness, readiness, startup) are now configurable per
+  container (`kea`, `healthcheck`, `api`, `confgen`) through
+  `networkDhcp.probes` in the Helm values. Any Kubernetes probe field can be
+  set, probes can be disabled with `enabled: false`, and off-by-default probes
+  can be enabled. Defaults render exactly as before.
+
 ### Fixed
 
 - Installer content hashes no longer depend on wall-clock time, preventing

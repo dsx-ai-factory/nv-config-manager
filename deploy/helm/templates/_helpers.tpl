@@ -2172,3 +2172,67 @@ Fails fast when neither is available so pods never point at a dead OTLP target.
 - name: OTEL_SERVICE_NAME
   value: {{ .serviceName | quote }}
 {{- end -}}
+
+{{/*
+Render one container probe (livenessProbe / readinessProbe / startupProbe) from
+a chart-provided default handler plus operator-supplied values.
+
+  Context: (dict "kind" "liveness" "handler" <dict> "probes" <values map> "indent" <int>)
+
+  kind     liveness | readiness | startup; rendered as "<kind>Probe:".
+  handler  The probe's default action as a dict, e.g.
+           (dict "httpGet" (dict "path" "/healthcheck" "port" 9000)). Owned by the
+           template because it is tied to what the container actually serves.
+  probes   The container's values map holding the liveness / readiness / startup
+           entries (e.g. .Values.networkDhcp.probes.api); the entry named by
+           `kind` is used. May be nil/empty (the probe is then rendered with the
+           default handler and no timing fields).
+  indent   Spaces to indent the rendered block (it starts on a new line).
+
+Entry in the probes map:
+  enabled  false omits the probe entirely (default true when the key is absent).
+  Any other key is copied verbatim onto the Kubernetes probe, so every field the
+  Kubernetes API supports is available (initialDelaySeconds, periodSeconds,
+  timeoutSeconds, successThreshold, failureThreshold,
+  terminationGracePeriodSeconds, ...). Zero values are honored.
+  httpGet / tcpSocket / exec / grpc
+           When set, replaces the chart's default handler. If the chosen handler is
+           the same type as the default, its sub-keys are merged over the default's
+           (e.g. override only `httpGet.path`; `port` is kept). A different handler
+           type replaces the default one outright.
+
+Renders nothing when the probe is disabled.
+*/}}
+{{- define "nv-config-manager.probe" -}}
+{{- $handlerKeys := list "httpGet" "tcpSocket" "exec" "grpc" -}}
+{{- $user := deepCopy (get (.probes | default dict) .kind | default dict) -}}
+{{- $enabled := true -}}
+{{- if hasKey $user "enabled" -}}
+{{- $enabled = $user.enabled -}}
+{{- $_ := unset $user "enabled" -}}
+{{- end -}}
+{{- if $enabled -}}
+{{- $userHandler := false -}}
+{{- range $k := $handlerKeys -}}
+{{- if hasKey $user $k -}}
+{{- $userHandler = true -}}
+{{- end -}}
+{{- end -}}
+{{- $probe := dict -}}
+{{- if not $userHandler -}}
+{{- $probe = deepCopy .handler -}}
+{{- end -}}
+{{- range $k, $v := $user -}}
+{{- if and (has $k $handlerKeys) (kindIs "map" $v) (kindIs "map" (get $.handler $k)) -}}
+{{- $merged := deepCopy (get $.handler $k) -}}
+{{- range $hk, $hv := $v -}}
+{{- $_ := set $merged $hk $hv -}}
+{{- end -}}
+{{- $_ := set $probe $k $merged -}}
+{{- else -}}
+{{- $_ := set $probe $k $v -}}
+{{- end -}}
+{{- end -}}
+{{- printf "%sProbe:\n%s" .kind (toYaml $probe | indent 2) | nindent (int .indent) -}}
+{{- end -}}
+{{- end -}}
