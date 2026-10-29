@@ -25,8 +25,8 @@ from pathlib import Path
 
 import pytest
 
-_POLICY = Path(__file__).resolve().parents[3] / "deploy/helm/files/python-tooling.sh"
-_SCRIPT = Path(__file__).resolve().parents[3] / "deploy/airgapped/create-airgapped.sh"
+_POLICY = Path(__file__).resolve().parents[2] / "deploy/helm/files/python-tooling.sh"
+_SCRIPT = Path(__file__).resolve().parents[2] / "deploy/airgapped/create-airgapped.sh"
 _RUNTIME_HASHES = _SCRIPT.with_name("python-runtimes.sha256")
 
 
@@ -121,8 +121,8 @@ def test_python_checksum_is_verified_before_extraction(
 ) -> None:
     result, destination = _download_python(tmp_path, triple, "checksum" if corrupt else "")
     assert (tmp_path / "url").read_text().strip() == (
-        "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/"
-        f"cpython-3.13.17+20261021-{triple}-install_only_stripped.tar.gz"
+        "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/"
+        f"cpython-3.13.18+20261026-{triple}-install_only_stripped.tar.gz"
     )
     if corrupt:
         assert result.returncode != 0
