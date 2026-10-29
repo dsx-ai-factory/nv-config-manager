@@ -2226,7 +2226,11 @@ Renders nothing when the probe is disabled.
 {{- if and (has $k $handlerKeys) (kindIs "map" $v) (kindIs "map" (get $.handler $k)) -}}
 {{- $merged := deepCopy (get $.handler $k) -}}
 {{- range $hk, $hv := $v -}}
+{{- if eq $hv nil -}}
+{{- $_ := unset $merged $hk -}}
+{{- else -}}
 {{- $_ := set $merged $hk $hv -}}
+{{- end -}}
 {{- end -}}
 {{- $_ := set $probe $k $merged -}}
 {{- else -}}
