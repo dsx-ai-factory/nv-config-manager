@@ -808,14 +808,7 @@ class CiscoIosXrConnection(NetworkConnection):
 
     def _router_diff(self, raw: str) -> str:
         """The router's diff without its headers; empty when nothing would change."""
-        diff, ignored = iosxr_config.parse_router_diff(raw)
-        if ignored:
-            logger.info(
-                "%s listed %d '#' lines in its configuration diff; they are left out of the diff",
-                self._host,
-                ignored,
-            )
-        return diff
+        return iosxr_config.parse_router_diff(raw)
 
     def perform_candidate_diff(self, new_configuration: str, partial: bool = False) -> str:
         """Return the router's diff between the running configuration and the intended one.

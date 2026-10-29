@@ -337,7 +337,7 @@ def test_replacement_text_adds_one_closing_end() -> None:
 def test_router_diff_of_an_unchanged_configuration_is_empty() -> None:
     raw = "!! Building configuration...\n!! IOS XR Configuration 26.4.1.03I\nend\n"
 
-    assert xr.parse_router_diff(raw) == ("", 0)
+    assert xr.parse_router_diff(raw) == ""
 
 
 def test_router_diff_keeps_marked_lines_and_drops_headers_and_end() -> None:
@@ -351,19 +351,27 @@ def test_router_diff_keeps_marked_lines_and_drops_headers_and_end() -> None:
         "end\n"
     )
 
-    diff, ignored = xr.parse_router_diff(raw)
+    diff = xr.parse_router_diff(raw)
 
     assert diff == "+  interface Loopback99\n+   description probe\n   !\n-  hostname xr-router-1\n"
-    assert ignored == 0
 
 
-def test_router_diff_counts_and_drops_hash_lines() -> None:
-    raw = "!! IOS XR Configuration 26.4.1.03I\n#  prefix-set P\n#    10.0.0.0/8\n#  end-set\nend\n"
+def test_router_diff_keeps_a_hash_pair_as_a_change() -> None:
+    """A line changed in place is listed as ``#`` old, ``#`` new (seen on a lab router)."""
+    raw = (
+        "!! IOS XR Configuration 26.4.1.03I\n"
+        "#  hostname xr-router-1\n"
+        "#  hostname xr-router-1-x\n"
+        "end\n"
+    )
 
-    assert xr.parse_router_diff(raw) == ("", 3)
-    diff, ignored = xr.parse_router_diff(raw.replace("end\n", "+  hostname b\nend\n"))
-    assert diff == "+  hostname b\n"
-    assert ignored == 3
+    assert xr.parse_router_diff(raw) == "#  hostname xr-router-1\n#  hostname xr-router-1-x\n"
+
+
+def test_router_diff_keeps_hash_lines_next_to_added_and_removed_lines() -> None:
+    raw = "!! IOS XR Configuration 26.4.1.03I\n#  hostname a\n#  hostname b\n+  interface Loopback99\nend\n"
+
+    assert xr.parse_router_diff(raw) == "#  hostname a\n#  hostname b\n+  interface Loopback99\n"
 
 
 IPV6_HOST = "2001:db8::7"

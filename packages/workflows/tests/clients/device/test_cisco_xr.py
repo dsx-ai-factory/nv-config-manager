@@ -351,13 +351,15 @@ def test_diff_lists_the_routers_marked_lines_without_its_headers() -> None:
     assert not any(line.startswith("!!") or line == "end" for line in lines)
 
 
-def test_hash_lines_in_the_routers_diff_do_not_make_a_diff() -> None:
+def test_hash_lines_in_the_routers_diff_are_a_change() -> None:
     session = FakeSession()
-    session.extra_diff_lines = "#  prefix-set A\n#    10.0.0.0/8\n#  end-set\n"
+    session.extra_diff_lines = "#  hostname xr-router-1\n#  hostname xr-router-1-x\n"
     connection, _ = _connection(session)
 
-    assert connection.perform_candidate_diff(INTENDED) == ""
-    assert "#" not in connection.perform_candidate_diff(CHANGED)
+    diff = connection.perform_candidate_diff(INTENDED)
+
+    assert diff == "#  hostname xr-router-1\n#  hostname xr-router-1-x\n"
+    assert "#  hostname xr-router-1-x" in connection.perform_candidate_diff(CHANGED)
 
 
 def test_partial_diff_is_rejected() -> None:

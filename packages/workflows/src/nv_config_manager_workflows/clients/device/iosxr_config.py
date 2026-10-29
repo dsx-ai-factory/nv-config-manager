@@ -132,29 +132,25 @@ def replacement_text(text: str) -> str:
     return "\n".join(kept) + "\n"
 
 
-def parse_router_diff(raw: str) -> tuple[str, int]:
-    """Turn the router's ``get-cli-config-diff`` reply into (diff text, ignored lines).
+def parse_router_diff(raw: str) -> str:
+    """Turn the router's ``get-cli-config-diff`` reply into the diff text.
 
     The router prints ``!!`` header lines, the changed lines marked ``+`` and ``-``
     with the unchanged lines around them, and a closing ``end``. The headers and the
-    ``end`` are dropped. Lines marked ``#`` are dropped and counted: a diff of an
-    unchanged configuration can still carry them (one prefix-set was listed twice on a
-    lab router with no other difference) and their meaning is not documented. The diff
-    is empty when no line is marked ``+`` or ``-``.
+    ``end`` are dropped. A line that exists on both sides with different text is
+    listed as a pair marked ``#`` (``#  hostname OLD`` then ``#  hostname NEW``), not
+    with ``+`` and ``-``, so ``#`` lines are changes and are kept. The diff is empty
+    when no line is marked ``+``, ``-`` or ``#``.
     """
     kept: list[str] = []
-    ignored = 0
     for raw_line in raw.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         line = raw_line.rstrip()
         if not line.strip() or line.startswith("!!") or line == "end":
             continue
-        if line.startswith("#"):
-            ignored += 1
-            continue
         kept.append(line)
-    if not any(line.startswith(("+", "-")) for line in kept):
-        return "", ignored
-    return "\n".join(kept) + "\n", ignored
+    if not any(line.startswith(("+", "-", "#")) for line in kept):
+        return ""
+    return "\n".join(kept) + "\n"
 
 
 # ---------------------------------------------------------------------------
