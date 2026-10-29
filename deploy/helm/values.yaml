@@ -1718,7 +1718,10 @@ temporal:
     devUi:
       # Hostname: temporal.<baseHostname> (Temporal native UI)
       hostname: "temporal.{{ .Values.gateway.baseHostname }}"
-      # Optional: restrict access to specific groups
+      # Optional: restrict access to specific groups (values of oidc.groupsClaim).
+      # Enforced by the OIDC proxy. Temporal Web has no authorization of its
+      # own, so if empty every authenticated user can view and act on every
+      # workflow.
       allowedGroups: []
       # Temporal Web is OIDC-only except for its health endpoint, which the
       # blackbox probe must reach without a login redirect.
