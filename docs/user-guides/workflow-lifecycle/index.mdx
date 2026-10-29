@@ -19,6 +19,8 @@ For per-workflow specifics, follow the link in each workflow's guide; this page 
 
 The Approve / Reject / Retry buttons live on the **stage details** panel for the selected stage. The Terminate button lives at the top of the **workflow details** panel, next to the workflow status badge.
 
+![Running Configuration Deploy workflow awaiting approval](../../assets/images/workflows/deployworkflow-running.png)
+
 ## Approve
 
 Use when a `PENDING_APPROVAL` stage is showing you the right diff or the right plan and you want the workflow to continue. Approve sends a signal to that specific stage; the workflow records the approver in its audit log and the next stage starts.

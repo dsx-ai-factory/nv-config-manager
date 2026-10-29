@@ -16,6 +16,12 @@ version before the selected release candidate is promoted.
   set, probes can be disabled with `enabled: false`, and off-by-default probes
   can be enabled. Defaults render exactly as before.
 
+### Changed
+- Updated the
+ managed Temporal server and bootstrap tools from 1.30.8 to 1.31.4.
+  The frontend init container upgrades PostgreSQL core/visibility schemas to
+  1.19/1.14; see the [upgrade and rollback notes](docs/temporal/temporal-deployment.mdx#upgrading-from-temporal-1308-to-1314).
+
 ### Fixed
 
 - Installer content hashes no longer depend on wall-clock time, preventing

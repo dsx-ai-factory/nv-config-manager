@@ -6,10 +6,10 @@
 
 # Keep this source line aligned with the currently approved production server
 # version.  Changing it requires the Temporal database-upgrade procedure.
-ARG TEMPORAL_SERVER_VERSION=1.30.8@sha256:54c59485b185ad787061f9a2ed72bd31c8efeae2d4144c61f22873df52c3c781
+ARG TEMPORAL_SERVER_VERSION=1.31.4@sha256:1986d4554cc0da8cf09ddcaa10bc348f22f192972b4c2ec1f768f7307c5892e6
 # The bootstrap-only admin-tools image supplies Temporal's schema files and
 # command-line tools.
-ARG TEMPORAL_ADMIN_TOOLS_VERSION=1.30.8@sha256:22d417fd0d541da6b18486912a546b3203f516f0bf9f8b2f27611506fca2507c
+ARG TEMPORAL_ADMIN_TOOLS_VERSION=1.31.4@sha256:c286fe515148587228d692806bc6f7652be5febc384a73dfd16379aed69f7d87
 # The UI is independently deployable and does not change Temporal persistence.
 ARG TEMPORAL_UI_VERSION=2.54.1@sha256:ff0943fe532b8e33c46cd28b29e81e0ce0b6f55b9ee50a38ef1b437cc4de3fa5
 
@@ -57,7 +57,7 @@ ENTRYPOINT ["/usr/local/bin/temporal-server"]
 # =============================================================================
 # Temporal Bootstrap
 # =============================================================================
-# This image carries Temporal's v1.30 schema files plus NVIDIA Config Manager's
+# This image carries Temporal's v1.31 schema files plus NVIDIA Config Manager's
 # bootstrap binary. It runs only as a chart-managed init container.
 FROM nvcr.io/nvidia/distroless/go:v4.1.7@sha256:9ef7b9ac43cbf4c833fd5d98689dc09b06a29e5ec3451796b037aa27928fe532 AS bootstrap
 COPY --from=admin-tools-upstream /usr/local/bin/temporal /usr/local/bin/temporal
