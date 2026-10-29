@@ -787,6 +787,24 @@ services:
   nautobot: true
 ```
 
+### Kea DHCP Multi-Threading
+
+By default Kea auto-detects its worker count and keeps a 64-packet queue. The
+optional `dhcp.kea_multi_threading` block tunes this and maps to
+`networkDhcp.kea.multiThreading` in the Helm values. Nothing is emitted unless
+a field is set.
+
+```yaml
+dhcp:
+  kea_multi_threading:
+    size_from_cpu_request: true   # size the pool from networkDhcp.resources.dhcp.requests.cpu
+    thread_pool_size: 4           # optional; overrides CPU sizing, 0 keeps Kea auto-detection
+    packet_queue_size: 32         # optional; positive integer
+```
+
+With `size_from_cpu_request`, the CPU request is rounded up to whole cores (at
+least one thread) and the queue defaults to eight packets per thread.
+
 ### File Storage Example (on-prem with OS images)
 
 ```yaml

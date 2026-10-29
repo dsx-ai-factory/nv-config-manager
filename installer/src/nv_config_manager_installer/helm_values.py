@@ -827,6 +827,19 @@ def _build_ztp_storage(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
     return storage
 
 
+def _build_kea_multi_threading(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
+    """Build ``networkDhcp.kea.multiThreading``, omitting chart defaults."""
+    kea = config.dhcp.kea_multi_threading
+    values: dict[str, Any] = {}
+    if kea.size_from_cpu_request:
+        values["sizeFromCpuRequest"] = True
+    if kea.thread_pool_size is not None:
+        values["threadPoolSize"] = kea.thread_pool_size
+    if kea.packet_queue_size is not None:
+        values["packetQueueSize"] = kea.packet_queue_size
+    return values
+
+
 def _build_lb_ingress(
     config: NVConfigManagerInstallConfig,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -838,6 +851,9 @@ def _build_lb_ingress(
     if config.infrastructure.ztp_storage.node_selector:
         ztp["nodeSelector"] = dict(config.infrastructure.ztp_storage.node_selector)
     dhcp: dict[str, Any] = {"enabled": svc.dhcp}
+    multi_threading = _build_kea_multi_threading(config)
+    if multi_threading:
+        dhcp["kea"] = {"multiThreading": multi_threading}
 
     if lb.provider == LBProvider.NLB:
         ztp_nlb = _build_nlb_service_values(lb.nlb_ztp)

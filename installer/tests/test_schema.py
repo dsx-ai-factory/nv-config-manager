@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from nv_config_manager_installer.schema import (
     ClusterConfig,
@@ -28,6 +29,7 @@ from nv_config_manager_installer.schema import (
     ContentConfig,
     DCIMConfig,
     DeploySize,
+    DHCPConfig,
     ExternalPostgresConfig,
     ExternalRedisConfig,
     ExternalServicesConfig,
@@ -39,6 +41,7 @@ from nv_config_manager_installer.schema import (
     ImagesConfig,
     ImageSource,
     InfrastructureConfig,
+    KeaMultiThreadingConfig,
     LBProvider,
     LoadBalancerConfig,
     MonitoringConfig,
@@ -807,3 +810,35 @@ class TestGitTokenConfig:
         assert loaded.redfish.enabled is True
         assert loaded.redfish.vendors["lenovo"].default_user == "admin"
         assert loaded.redfish.vendors["lenovo"].config_manager_password == "kpw"
+
+
+class TestKeaMultiThreadingConfig:
+    def test_defaults_keep_kea_auto_detection(self):
+        kea = NVConfigManagerInstallConfig().dhcp.kea_multi_threading
+
+        assert kea.size_from_cpu_request is False
+        assert kea.thread_pool_size is None
+        assert kea.packet_queue_size is None
+
+    @pytest.mark.parametrize(
+        "field, value",
+        [("thread_pool_size", -1), ("packet_queue_size", 0)],
+    )
+    def test_rejects_out_of_range_sizes(self, field, value):
+        with pytest.raises(ValidationError):
+            KeaMultiThreadingConfig(**{field: value})
+
+    def test_yaml_round_trip(self, tmp_path):
+        config = NVConfigManagerInstallConfig(
+            dhcp=DHCPConfig(
+                kea_multi_threading=KeaMultiThreadingConfig(
+                    size_from_cpu_request=True, packet_queue_size=32
+                )
+            )
+        )
+        path = tmp_path / "config.yaml"
+
+        config.to_yaml(path)
+
+        loaded = NVConfigManagerInstallConfig.from_yaml(path)
+        assert loaded.dhcp == config.dhcp
