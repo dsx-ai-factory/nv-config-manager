@@ -28,10 +28,12 @@ from nv_config_manager_installer.deployer import Deployer, DeployOptions, Deploy
 from nv_config_manager_installer.schema import (
     BUILT_IN_NAUTOBOT_PROVIDER,
     ClusterConfig,
+    DHCPConfig,
     ExternalRedisConfig,
     ExternalServicesConfig,
     ImageSource,
     InfrastructureConfig,
+    KeaMultiThreadingConfig,
     MonitoringConfig,
     NATSAuthMethod,
     NetworkSecretEntry,
@@ -704,3 +706,67 @@ async def test_app_secrets_jwt_presence_guidance_requires_environment_token(monk
         await app.workers.wait_for_complete()
         status = app._screens["secrets"].query_one("#vault-presence-status")
         assert "JWT presence checks require VAULT_TOKEN or OPENBAO_TOKEN" in str(status.render())
+
+
+@pytest.mark.asyncio
+async def test_services_screen_collects_kea_multi_threading() -> None:
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        app.switch_section("services")
+        screen = app._screens["services"]
+        screen.query_one("#kea-size-from-cpu", LabeledSwitch).value = True
+        screen.query_one("#kea-thread-pool-size", Input).value = "0"
+        screen.query_one("#kea-packet-queue-size", Input).value = " 32 "
+        await pilot.pause()
+
+        assert app.collect_config() is True
+
+        kea = config.dhcp.kea_multi_threading
+        assert kea.size_from_cpu_request is True
+        assert kea.thread_pool_size == 0
+        assert kea.packet_queue_size == 32
+
+
+@pytest.mark.asyncio
+async def test_services_screen_blank_kea_fields_mean_unset() -> None:
+    config = NVConfigManagerInstallConfig(
+        dhcp=DHCPConfig(kea_multi_threading=KeaMultiThreadingConfig(thread_pool_size=4))
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        screen = app._screens["services"]
+        assert screen.query_one("#kea-thread-pool-size", Input).value == "4"
+        screen.query_one("#kea-thread-pool-size", Input).value = ""
+        await pilot.pause()
+
+        assert app.collect_config() is True
+
+        assert config.dhcp.kea_multi_threading.thread_pool_size is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("input_id", "value"),
+    [
+        ("#kea-thread-pool-size", "-1"),
+        ("#kea-thread-pool-size", "auto"),
+        ("#kea-packet-queue-size", "0"),
+    ],
+)
+async def test_invalid_kea_multi_threading_blocks_navigation(input_id: str, value: str) -> None:
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        app.switch_section("services")
+        screen = app._screens["services"]
+        screen.query_one(input_id, Input).value = value
+        await pilot.pause()
+
+        app.switch_section("cluster")
+
+        assert app.active_section == "services"
+        assert config.dhcp.kea_multi_threading == KeaMultiThreadingConfig()

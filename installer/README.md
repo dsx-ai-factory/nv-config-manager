@@ -315,6 +315,16 @@ Toggle individual NVIDIA Config Manager services on or off.
 When Nautobot is disabled, configure an external Nautobot URL in the
 [External Services](#3-external-services) section.
 
+**Kea DHCP multi-threading** (below the service toggles)
+
+| Field | Description |
+|-------|-------------|
+| Size threads from DHCP CPU request | Toggle — sizes the Kea thread pool from the DHCP CPU request |
+| Thread pool size | Optional; `0` keeps Kea auto-detection and overrides CPU sizing when set |
+| Packet queue size | Optional positive integer; defaults to 64, or eight packets per thread |
+
+Blank fields keep Kea's defaults. Invalid values block navigation until corrected.
+
 For an independently packaged DCIM provider, set `dcim.provider`,
 `dcim.server`, and `services.nautobot: false` in the installer YAML. Provider
 wheel images are configured with `dcim.provider_packages`, and

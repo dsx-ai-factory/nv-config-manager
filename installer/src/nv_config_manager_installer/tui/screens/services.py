@@ -18,14 +18,32 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Container
-from textual.widgets import Label
+from textual.widgets import Input, Label
 
-from nv_config_manager_installer.schema import NVConfigManagerInstallConfig
+from nv_config_manager_installer.schema import (
+    KeaMultiThreadingConfig,
+    NVConfigManagerInstallConfig,
+)
 from nv_config_manager_installer.tui.widgets import LabeledSwitch
 
 
+def _optional_int(raw: str, label: str) -> int | None:
+    """Parse a blank-able integer input; blank means unset."""
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{label} must be a whole number") from exc
+
+
+def _int_text(value: int | None) -> str:
+    return "" if value is None else str(value)
+
+
 class ServicesScreen(Container):
-    """Toggle DHCP, Temporal, and Config Store on/off."""
+    """Toggle services on/off and tune Kea DHCP multi-threading."""
 
     def __init__(self, config: NVConfigManagerInstallConfig, **kwargs: object) -> None:
         super().__init__(**kwargs)
@@ -47,12 +65,48 @@ class ServicesScreen(Container):
         yield LabeledSwitch("Temporal (Workflow Engine)", value=svc.temporal, id="svc-temporal")
         yield LabeledSwitch("Config Store", value=svc.config_store, id="svc-config-store")
 
+        kea = self._config.dhcp.kea_multi_threading
+        yield Label("Kea DHCP Multi-Threading", classes="section-title")
+        yield Label("─" * 40, classes="section-divider")
+        yield Label(
+            "Leave the fields blank to keep Kea's auto-detected worker count and 64-packet queue. "
+            "CPU sizing uses the DHCP CPU request, rounded up to whole cores, and queues "
+            "eight packets per thread."
+        )
+        yield LabeledSwitch(
+            "Size threads from DHCP CPU request",
+            value=kea.size_from_cpu_request,
+            id="kea-size-from-cpu",
+        )
+        yield Label(
+            "Thread pool size (0 = auto-detect; overrides CPU sizing)", classes="field-label"
+        )
+        yield Input(
+            value=_int_text(kea.thread_pool_size), placeholder="auto", id="kea-thread-pool-size"
+        )
+        yield Label("Packet queue size (positive integer)", classes="field-label")
+        yield Input(
+            value=_int_text(kea.packet_queue_size),
+            placeholder="default",
+            id="kea-packet-queue-size",
+        )
+
     def write_to_config(self, config: NVConfigManagerInstallConfig) -> None:
         config.services.render = self.query_one("#svc-render", LabeledSwitch).value
         config.services.ztp = self.query_one("#svc-ztp", LabeledSwitch).value
         config.services.dhcp = self.query_one("#svc-dhcp", LabeledSwitch).value
         config.services.temporal = self.query_one("#svc-temporal", LabeledSwitch).value
         config.services.config_store = self.query_one("#svc-config-store", LabeledSwitch).value
+        # Build the model first so invalid input raises before touching the config.
+        config.dhcp.kea_multi_threading = KeaMultiThreadingConfig(
+            size_from_cpu_request=self.query_one("#kea-size-from-cpu", LabeledSwitch).value,
+            thread_pool_size=_optional_int(
+                self.query_one("#kea-thread-pool-size", Input).value, "Thread pool size"
+            ),
+            packet_queue_size=_optional_int(
+                self.query_one("#kea-packet-queue-size", Input).value, "Packet queue size"
+            ),
+        )
 
     def sync_from_config(self, config: NVConfigManagerInstallConfig) -> None:
         svc = config.services
@@ -61,6 +115,10 @@ class ServicesScreen(Container):
         self.query_one("#svc-dhcp", LabeledSwitch).value = svc.dhcp
         self.query_one("#svc-temporal", LabeledSwitch).value = svc.temporal
         self.query_one("#svc-config-store", LabeledSwitch).value = svc.config_store
+        kea = config.dhcp.kea_multi_threading
+        self.query_one("#kea-size-from-cpu", LabeledSwitch).value = kea.size_from_cpu_request
+        self.query_one("#kea-thread-pool-size", Input).value = _int_text(kea.thread_pool_size)
+        self.query_one("#kea-packet-queue-size", Input).value = _int_text(kea.packet_queue_size)
 
     def get_status(self, config: NVConfigManagerInstallConfig) -> str:
         return "[*]"
