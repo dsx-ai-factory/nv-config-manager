@@ -168,17 +168,26 @@ flowchart TB
 
 ### SuperPOD hyper-reach LLDP fixture
 
-New SuperPOD simulations include `su02-hyperreach-host` to test cable identity
-through LLDP port descriptions. Existing simulations must be recreated from the
-updated topology to receive this host and its cables.
+New SuperPOD simulations include `su02-hyperreach-host`, an Ubuntu LLDP host
+installed in DeviceBay `line-card-1` of `su02-hyperreach-chassis` in Nautobot.
+The chassis is an inventory record, not another Air VM. This fixture tests
+parent-chassis identity and cable-lane matching through LLDP port descriptions.
+
+Recreate simulations without `su02-hyperreach-host` from the updated topology.
+If the host already exists, reload the updated Mock Network Topology job to
+create the chassis and DeviceBay association. In the host console, update the
+two port descriptions in `/etc/lldpd.d/90-nvcm-demo.conf` to
+`su02-hyperreach-chassis C1-2-L1` and `su02-hyperreach-chassis C1-2-L2`, then
+restart `lldpd`.
 
 | CIN leaf | Switch port | Nautobot host interface | Intended label | Observed port ID |
 | :------- | :---------- | :---------------------- | :------------- | :--------------- |
 | su01-cin-leaf-r01 | swp2 | eth1 | C1-2-L1 | A56p0 |
 | su01-cin-leaf-r02 | swp2 | eth2 | C1-2-L2 | A56p1 |
 
-The host advertises `su02-hyperreach-host C1-2-L1` and
-`su02-hyperreach-host C1-2-L2`. The two data interfaces have no IP addresses or
+The host advertises `su02-hyperreach-chassis C1-2-L1` and
+`su02-hyperreach-chassis C1-2-L2` as its LLDP port descriptions. Its LLDP system
+name remains `su02-hyperreach-host`. The two data interfaces have no IP addresses or
 intended MAC addresses. The original SpX compute hosts and their `swp1` links
 remain available; use those hosts for SpX tests and keep the fixture's `swp2`
 ports out of tenant-change tests.
@@ -193,7 +202,7 @@ ports out of tenant-change tests.
 1. For a metadata-difference test, run this in the host console:
 
    ```sh
-   sudo lldpcli configure ports A56p0 lldp portdescription "su02-hyperreach-host A56p0"
+   sudo lldpcli configure ports A56p0 lldp portdescription "su02-hyperreach-chassis A56p0"
    ```
 
    Wait for LLDP to refresh, then rerun validation. The first leaf's `swp2`
@@ -204,8 +213,10 @@ ports out of tenant-change tests.
 1. Restore the persistent descriptions with `sudo systemctl restart lldpd`,
    wait for LLDP to refresh, and rerun validation.
 
-The fixture covers description and label matching. It does not model physical
-PCIe line cards or test Nautobot `parent_bay` chassis resolution.
+The fixture tests Nautobot `parent_bay` chassis resolution: the description
+identifies the parent chassis while the cable terminates on the child host.
+Different interface names and absent intended MAC addresses prevent the other
+identity checks from masking this path. It does not emulate physical PCIe hardware.
 
 ### Options
 
