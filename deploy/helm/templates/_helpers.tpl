@@ -2176,13 +2176,13 @@ Fails fast when neither is available so pods never point at a dead OTLP target.
 {{/*
 Convert a Kubernetes CPU quantity to whole millicores.
 
-Accepts decimal cores ("1", "1.5"), exponent cores ("1e0", "1.5e0"), and
+Accepts decimal cores ("1", "1.5", "+1"), exponent cores ("1e0", "1.5e0"), and
 millicore quantities ("500m", "1500m"). An exponent and a suffix together,
 such as "1e3m", are not a valid quantity.
 */}}
 {{- define "nv-config-manager.dhcp.cpuMillicores" -}}
 {{- $raw := . | toString | trim -}}
-{{- if not (regexMatch `^([0-9]+(\.[0-9]*)?|\.[0-9]+)(([eE][+-]?[0-9]+)|m)?$` $raw) -}}
+{{- if not (regexMatch `^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)(([eE][+-]?[0-9]+)|m)?$` $raw) -}}
 {{- fail (printf "networkDhcp.resources.dhcp.requests.cpu %q is not a valid CPU quantity" $raw) -}}
 {{- end -}}
 {{- if hasSuffix "m" $raw -}}

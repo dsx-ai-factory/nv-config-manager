@@ -254,6 +254,30 @@ def test_empty_threading_overrides_keep_historical_kea_config() -> None:
     assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "64"
 
 
+def test_empty_threading_overrides_keep_cpu_derived_sizing() -> None:
+    """Blank overrides fall through to CPU sizing when it is enabled."""
+    env = _refresh_env(
+        "networkDhcp.kea.multiThreading.sizeFromCpuRequest=true",
+        "networkDhcp.resources.dhcp.requests.cpu=1500m",
+        "networkDhcp.kea.multiThreading.threadPoolSize=",
+        "networkDhcp.kea.multiThreading.packetQueueSize=",
+    )
+
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "2"
+    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "16"
+
+
+def test_signed_dhcp_cpu_request_is_accepted() -> None:
+    """A leading plus sign is a valid Kubernetes quantity."""
+    env = _refresh_env(
+        "networkDhcp.kea.multiThreading.sizeFromCpuRequest=true",
+        set_string=("networkDhcp.resources.dhcp.requests.cpu=+1",),
+    )
+
+    assert env["NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE"] == "1"
+    assert env["NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE"] == "8"
+
+
 def test_empty_thread_pool_keeps_an_explicit_packet_queue() -> None:
     """A blank thread pool stays at auto-detect while an explicit queue is kept."""
     env = _refresh_env(
