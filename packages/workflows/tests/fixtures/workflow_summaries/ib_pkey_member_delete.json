@@ -1,0 +1,33 @@
+{
+  "workflows": [
+    {
+      "id": "docs-ib-pkey-member-delete-01",
+      "workflow_type": "IBPKeyMemberDeleteWorkflow",
+      "workflow_input": {
+        "host": "ufm-01",
+        "pkey": "0x1234",
+        "guids": ["0x0011223344556677"]
+      },
+      "started_by": "demo",
+      "start_time": "2025-03-04T03:10:00Z",
+      "close_time": "2025-03-04T03:11:00Z",
+      "status": "COMPLETED",
+      "pending_approval": false,
+      "search_attributes": {
+        "Site": ["PDX01"],
+        "DeviceName": ["ufm-01"],
+        "User": ["demo"],
+        "DeviceID": ["ufm-01"],
+        "DeviceRole": ["ufm"],
+        "DevicePlatform": ["ufm"],
+        "PendingApproval": [false],
+        "FailedStage": [false],
+        "ReadRoles": ["all"],
+        "ExecuteRoles": ["all"]
+      },
+      "href": "https://temporal-ui.example.com/namespaces/default/workflows/docs-ib-pkey-member-delete-01",
+      "failed_stage": false
+    }
+  ],
+  "next_page_token": null
+}

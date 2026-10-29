@@ -18,6 +18,7 @@ import { expect } from "@playwright/test";
 import { test } from "./shared/utils";
 import { FORBIDDEN_WORKFLOW_ID } from "@/mocks/data";
 import { createGenericWorkflow } from "@/mocks/data/workflows/genericWorkflow";
+import { DEPLOY_PENDING_APPROVAL_WORKFLOW } from "../shared/deployPendingApprovalFixture";
 
 const createWorkflowWithStage = ({
   id,
@@ -72,6 +73,37 @@ const createWorkflowWithStage = ({
 };
 
 test.describe("Workflow Detail Page", () => {
+  test("renders the shared running Deploy fixture", async ({ page }) => {
+    await page.goto(`/workflows/${DEPLOY_PENDING_APPROVAL_WORKFLOW.id}`);
+
+    await expect(
+      page.getByRole("heading", { name: "Workflow Details" })
+    ).toBeVisible();
+    await expect(page.getByText("RUNNING", { exact: true })).toBeVisible();
+    await expect(page.getByText(/Device:\s*mock_device/)).toBeVisible();
+
+    await page
+      .getByRole("button", {
+        name: "Select Retrieve the configuration diff.",
+      })
+      .click();
+
+    await expect(
+      page
+        .getByRole("heading", {
+          name: "Retrieve the configuration diff.",
+          exact: true,
+        })
+        .last()
+    ).toBeVisible();
+    await expect(
+      page.getByText("PENDING_APPROVAL", { exact: true }).last()
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Approve" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reject" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Terminate" })).toBeEnabled();
+  });
+
   test("Test workflow detail page loads correctly", async ({ page }) => {
     await page.goto("/workflows/some-workflow-id");
 
