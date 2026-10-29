@@ -804,16 +804,26 @@ optional `dhcp.kea_multi_threading` block tunes this and maps to
 `networkDhcp.kea.multiThreading` in the Helm values. Nothing is emitted unless
 a field is set.
 
+Size the pool from the DHCP CPU request:
+
 ```yaml
 dhcp:
   kea_multi_threading:
     size_from_cpu_request: true   # size the pool from networkDhcp.resources.dhcp.requests.cpu
-    thread_pool_size: 4           # optional; overrides CPU sizing, 0 keeps Kea auto-detection
-    packet_queue_size: 32         # optional; positive integer
 ```
 
-With `size_from_cpu_request`, the CPU request is rounded up to whole cores (at
-least one thread) and the queue defaults to eight packets per thread.
+The CPU request is rounded up to whole cores (at least one thread) and the queue
+defaults to eight packets per thread.
+
+Or set the sizes explicitly. An explicit `thread_pool_size` overrides CPU
+sizing, so leave `size_from_cpu_request` off when you set it:
+
+```yaml
+dhcp:
+  kea_multi_threading:
+    thread_pool_size: 4           # 0 keeps Kea auto-detection
+    packet_queue_size: 32         # positive integer
+```
 
 ### File Storage Example (on-prem with OS images)
 
