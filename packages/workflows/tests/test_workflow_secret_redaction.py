@@ -153,3 +153,54 @@ def test_iosxr_key_string_with_the_type_attached_to_the_keyword_is_redacted() ->
     assert "   key-string clear <redacted>\n" in result
     assert "0822455D0A16" not in result and "secretvalue" not in result
     assert "cryptographic-algorithm aes-256-cmac" in result
+
+
+def test_iosxr_encrypted_secrets_and_md5_keys_are_redacted() -> None:
+    text = (
+        "username ops\n"
+        " password encrypted 0A1B2C3D4E5F\n"
+        "username admin secret encrypted 6F5E4D3C2B1A\n"
+        "ntp authentication-key 1 md5 encrypted 1A2B3C4D5E6F\n"
+        " message-digest-key 10 md5 encrypted 9F8E7D6C5B4A\n"
+        " message-digest-key 11 md5 7 0822455D0A16\n"
+        "   key-string password encrypted 7C6B5A493827\n"
+        "description encrypted link to pe1\n"
+        "hostname r1\n"
+    )
+
+    result = redact_iosxr_secrets(text)
+
+    for leaked in (
+        "0A1B2C3D4E5F",
+        "6F5E4D3C2B1A",
+        "1A2B3C4D5E6F",
+        "9F8E7D6C5B4A",
+        "0822455D0A16",
+        "7C6B5A493827",
+    ):
+        assert leaked not in result
+    assert " password encrypted <redacted>\n" in result
+    assert "username admin secret encrypted <redacted>\n" in result
+    assert "ntp authentication-key 1 md5 encrypted <redacted>\n" in result
+    assert " message-digest-key 10 md5 encrypted <redacted>\n" in result
+    assert " message-digest-key 11 md5 7 <redacted>\n" in result
+    assert "   key-string password encrypted <redacted>\n" in result
+    assert "description encrypted link to pe1\n" in result
+    assert "hostname r1\n" in result
+
+
+def test_iosxr_secrets_on_diff_marker_lines_are_redacted() -> None:
+    diff = (
+        "-   secret 10 $6$old$aaaa\n"
+        "+   secret 10 $6$new$bbbb\n"
+        "#   secret 10 $6$old$cccc\n"
+        "#   secret 10 $6$new$dddd\n"
+        "#  ntp authentication-key 1 md5 encrypted 1A2B3C4D5E6F\n"
+        "#  snmp-server community topsecretstring RO\n"
+    )
+
+    result = redact_iosxr_secrets(diff)
+
+    for leaked in ("aaaa", "bbbb", "cccc", "dddd", "1A2B3C4D5E6F", "topsecretstring"):
+        assert leaked not in result
+    assert result.count("<redacted>") == 6
