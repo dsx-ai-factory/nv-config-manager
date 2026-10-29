@@ -20,6 +20,10 @@ version before the selected release candidate is promoted.
   unchanged jobs and templates from being detected as changed across runs.
 - The AIR Hyper-reach fixture now installs its LLDP host in a chassis DeviceBay
   and advertises the chassis name, enabling parent-chassis validation in simulation.
+- `temporal.gateway.devUi.allowedGroups` is now enforced by the OIDC proxy. It
+  was previously ignored, so every authenticated user could open Temporal Web
+  and act on any workflow. Deployments that set it will start returning 403 to
+  users outside the listed groups.
 
 ## 1.4.0
 
