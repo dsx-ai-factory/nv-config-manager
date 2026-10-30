@@ -16,7 +16,11 @@
 
 import pytest
 
-from nv_config_manager_workflows.secret_redaction import redact_junos_secrets
+from nv_config_manager_workflows.secret_redaction import (
+    redact_device_secrets,
+    redact_junos_secrets,
+    redact_secrets_in_data,
+)
 
 
 @pytest.mark.parametrize(
@@ -78,3 +82,88 @@ def test_preserves_non_secret_text() -> None:
 
 def test_empty_string_is_unchanged() -> None:
     assert redact_junos_secrets("") == ""
+
+
+@pytest.mark.parametrize(
+    ("line", "secret", "kept"),
+    [
+        (
+            "nv set system aaa user admin hashed-password $6$salt$hashvalue",
+            "$6$salt$hashvalue",
+            "nv set system aaa user admin hashed-password <redacted>",
+        ),
+        (
+            "nv unset system aaa user admin password Plaintext1!",
+            "Plaintext1!",
+            "nv unset system aaa user admin password <redacted>",
+        ),
+        (
+            "nv set vrf default router bgp neighbor 10.0.0.1 password BgpSecret",
+            "BgpSecret",
+            "neighbor 10.0.0.1 password <redacted>",
+        ),
+        (
+            "+username admin privilege 15 role network-admin secret sha512 $6$abc$def",
+            "$6$abc$def",
+            "secret sha512 <redacted>",
+        ),
+        ("+   neighbor 10.0.0.1 password 7 AbCdEf==", "AbCdEf==", "password 7 <redacted>"),
+        ("+tacacs-server host 10.1.1.1 key 7 0A1B2C3D", "0A1B2C3D", "key 7 <redacted>"),
+        ("+snmp-server community s3cr3t ro", "s3cr3t", "community <redacted> ro"),
+        (
+            "username admin password 7 $6$onyxsalt$onyxhash",
+            "$6$onyxsalt$onyxhash",
+            "username admin password 7 <redacted>",
+        ),
+        (
+            '+    encrypted-password "$6$jsalt$jhash"; ## SECRET-DATA',
+            "jhash",
+            "encrypted-password <redacted>; ## SECRET-DATA",
+        ),
+    ],
+)
+def test_redact_device_secrets_covers_every_platform_format(
+    line: str,
+    secret: str,
+    kept: str,
+) -> None:
+    result = redact_device_secrets(line)
+
+    assert secret not in result
+    assert kept in result
+
+
+def test_redact_device_secrets_preserves_non_secret_text() -> None:
+    text = (
+        "nv set interface swp1 link mtu 9216\n"
+        "Password Rotation Configuration Diff (Auto-Approved password-only changes)"
+    )
+
+    assert redact_device_secrets(text) == text
+
+
+def test_redact_secrets_in_data_walks_nested_workflow_details() -> None:
+    details = {
+        "id": "wf-1",
+        "status": "Completed",
+        "stages": [
+            {
+                "output": {
+                    "diff": "nv set system aaa user admin hashed-password $6$s$h",
+                    "approved": True,
+                }
+            }
+        ],
+        "search_attributes": {"Site": ["jhb01"]},
+        "close_time": None,
+    }
+
+    result = redact_secrets_in_data(details)
+
+    assert result["stages"][0]["output"]["diff"] == (
+        "nv set system aaa user admin hashed-password <redacted>"
+    )
+    assert result["stages"][0]["output"]["approved"] is True
+    assert result["search_attributes"] == {"Site": ["jhb01"]}
+    assert result["close_time"] is None
+    assert result["id"] == "wf-1"
