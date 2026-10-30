@@ -16,7 +16,7 @@
 
 import pytest
 
-from nv_config_manager_workflows.clients.device import iosxr_config as xr
+from nv_config_manager_workflows.clients.device.cisco_xr import config as xr
 
 from .iosxr_fixtures import HOST, INTENDED, RUNNING, USERNAME
 
@@ -402,6 +402,17 @@ def test_router_diff_keeps_a_hash_pair_as_a_change() -> None:
     )
 
     assert xr.parse_router_diff(raw) == "#  hostname xr-router-1\n#  hostname xr-router-1-x\n"
+
+
+def test_router_diff_splits_lines_on_newline_carriage_return_and_both() -> None:
+    expected = "+  interface Loopback99\n-  hostname a\n"
+
+    for separator in ("\n", "\r\n", "\r"):
+        raw = separator.join(
+            ["!! IOS XR Configuration", "+  interface Loopback99", "-  hostname a", "end", ""]
+        )
+
+        assert xr.parse_router_diff(raw) == expected
 
 
 def test_router_diff_keeps_hash_lines_next_to_added_and_removed_lines() -> None:

@@ -172,7 +172,7 @@ def parse_router_diff(raw: str) -> str:
     when no line is marked ``+``, ``-`` or ``#``.
     """
     kept: list[str] = []
-    for raw_line in raw.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+    for raw_line in raw.splitlines():
         line = raw_line.rstrip()
         if not line.strip() or line.startswith("!!") or line == "end":
             continue

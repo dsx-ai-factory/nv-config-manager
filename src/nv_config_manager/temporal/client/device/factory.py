@@ -30,7 +30,7 @@ from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
 from nv_config_manager_workflows.clients.device.arista import (
     AristaConnection as _AristaConnection,
 )
-from nv_config_manager_workflows.clients.device.cisco_xr import (
+from nv_config_manager_workflows.clients.device.cisco_xr.connection import (
     CiscoIosXrConnection as _CiscoIosXrConnection,
 )
 

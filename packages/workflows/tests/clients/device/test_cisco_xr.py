@@ -24,15 +24,16 @@ from unittest.mock import MagicMock
 import pytest
 from ncclient.transport.errors import AuthenticationError, SSHError  # type: ignore[import-untyped]
 
-from nv_config_manager_workflows.clients.device import cisco_xr, iosxr_config
-from nv_config_manager_workflows.clients.device.cisco_xr import (
-    _FILTER_ARP,
-    _FILTER_LINKS,
-    _FILTER_LLDP,
-    _FILTER_UPTIME,
-    _FILTER_VERSION,
-    CiscoIosXrConnection,
-    NetconfIosXrSession,
+from nv_config_manager_workflows.clients.device.cisco_xr import config as iosxr_config
+from nv_config_manager_workflows.clients.device.cisco_xr import connection as xr_connection
+from nv_config_manager_workflows.clients.device.cisco_xr.connection import CiscoIosXrConnection
+from nv_config_manager_workflows.clients.device.cisco_xr.netconf import NetconfIosXrSession
+from nv_config_manager_workflows.clients.device.cisco_xr.operational import (
+    FILTER_ARP,
+    FILTER_LINKS,
+    FILTER_LLDP,
+    FILTER_UPTIME,
+    FILTER_VERSION,
 )
 from nv_config_manager_workflows.clients.device.exceptions import (
     ConfigSyntaxException,
@@ -250,7 +251,7 @@ def test_empty_running_configuration_is_an_error() -> None:
 
 
 def test_hostname_image_and_uptime() -> None:
-    session = FakeSession(gets={_FILTER_VERSION: VERSION_XML, _FILTER_UPTIME: UPTIME_XML})
+    session = FakeSession(gets={FILTER_VERSION: VERSION_XML, FILTER_UPTIME: UPTIME_XML})
     connection, _ = _connection(session)
 
     assert connection.get_hostname() == "xr-router-1"
@@ -261,21 +262,19 @@ def test_hostname_image_and_uptime() -> None:
 
 def test_unparseable_version_and_uptime_replies_are_errors() -> None:
     empty = _REPLY.format("")
-    connection, _ = _connection(FakeSession(gets={_FILTER_VERSION: empty, _FILTER_UPTIME: empty}))
+    connection, _ = _connection(FakeSession(gets={FILTER_VERSION: empty, FILTER_UPTIME: empty}))
 
     with pytest.raises(NetworkDeviceException, match="IOS-XR package version"):
         connection.get_running_image()
     with pytest.raises(NetworkDeviceException, match="uptime"):
         connection.get_uptime()
-    connection2, _ = _connection(FakeSession(gets={_FILTER_VERSION: "not xml"}))
+    connection2, _ = _connection(FakeSession(gets={FILTER_VERSION: "not xml"}))
     with pytest.raises(NetworkDeviceException, match="Unreadable"):
         connection2.get_running_image()
 
 
 def test_lldp_and_link_states() -> None:
-    connection, _ = _connection(
-        FakeSession(gets={_FILTER_LLDP: LLDP_XML, _FILTER_LINKS: LINKS_XML})
-    )
+    connection, _ = _connection(FakeSession(gets={FILTER_LLDP: LLDP_XML, FILTER_LINKS: LINKS_XML}))
 
     data = connection.get_interface_connections()
 
@@ -291,14 +290,14 @@ def test_duplicate_lldp_neighbors_on_one_interface_are_an_error() -> None:
         _lldp_device("HundredGigE0/0/0/0", "a", "one"),
         _lldp_device("HundredGigE0/0/0/0", "b", "two"),
     )
-    connection, _ = _connection(FakeSession(gets={_FILTER_LLDP: doubled}))
+    connection, _ = _connection(FakeSession(gets={FILTER_LLDP: doubled}))
 
     with pytest.raises(NetworkDeviceException, match="multiple LLDP neighbors"):
         connection.get_lldp_data("HundredGigE0/0/0/0")
 
 
 def test_arp_table_skips_unresolved_entries_and_the_mac_table_is_empty() -> None:
-    connection, _ = _connection(FakeSession(gets={_FILTER_ARP: ARP_XML}))
+    connection, _ = _connection(FakeSession(gets={FILTER_ARP: ARP_XML}))
 
     arp = connection.get_arp_table()
 
@@ -488,7 +487,7 @@ def test_apply_does_not_confirm_when_the_checks_used_up_the_commit_timer(
     connection, _ = _connection(session, probe)
     approved = connection.perform_candidate_diff(CHANGED)
     clock = iter([1000.0, 1000.0 + connection._COMMIT_CONFIRM_SECONDS])  # commit, then pre-confirm
-    monkeypatch.setattr(cisco_xr.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(xr_connection.time, "monotonic", lambda: next(clock))
 
     with pytest.raises(NetworkDeviceException, match="used up the commit timer") as raised:
         connection.commit_candidate_config(CHANGED, approved)
@@ -504,7 +503,7 @@ def test_apply_counts_the_commit_reply_delay_against_the_commit_timer(
     connection, _ = _connection(session, probe)
     approved = connection.perform_candidate_diff(CHANGED)
     now = [1000.0]
-    monkeypatch.setattr(cisco_xr.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(xr_connection.time, "monotonic", lambda: now[0])
     fast_commit = session.commit
 
     def slow_commit(*, confirm_seconds: int | None, timeout: float) -> None:
@@ -709,7 +708,7 @@ def test_execute_ztp_reports_a_refused_action() -> None:
 
 
 def test_diagnostics_dispatch() -> None:
-    connection, _ = _connection(FakeSession(gets={_FILTER_VERSION: VERSION_XML}))
+    connection, _ = _connection(FakeSession(gets={FILTER_VERSION: VERSION_XML}))
 
     output = connection.run_diagnostic_command("show_version")
     assert "26.4.1.03I" in output

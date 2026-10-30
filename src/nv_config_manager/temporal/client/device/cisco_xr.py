@@ -18,7 +18,7 @@ from typing import Any
 from ncclient import manager  # type: ignore[import-untyped]
 
 from nv_config_manager.temporal.client.device.base import NetworkConnection
-from nv_config_manager_workflows.clients.device.cisco_xr import (
+from nv_config_manager_workflows.clients.device.cisco_xr.connection import (
     CiscoIosXrConnection as _CiscoIosXrConnection,
 )
 

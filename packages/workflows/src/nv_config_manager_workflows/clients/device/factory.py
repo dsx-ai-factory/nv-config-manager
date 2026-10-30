@@ -22,7 +22,7 @@ from nv_config_manager_dcim.workflow_models import Platform
 
 from nv_config_manager_workflows.clients.device.arista import AristaConnection
 from nv_config_manager_workflows.clients.device.base import NetworkConnection
-from nv_config_manager_workflows.clients.device.cisco_xr import CiscoIosXrConnection
+from nv_config_manager_workflows.clients.device.cisco_xr.connection import CiscoIosXrConnection
 from nv_config_manager_workflows.clients.device.cumulus import CumulusConnection, NVOSConnection
 from nv_config_manager_workflows.clients.device.juniper import JuniperConnection
 from nv_config_manager_workflows.clients.device.mellanox import MellanoxConnection

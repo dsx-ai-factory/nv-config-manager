@@ -46,7 +46,7 @@ from nv_config_manager_workflows.clients.device.arista import (
     AristaConnection as WorkflowAristaConnection,
 )
 from nv_config_manager_workflows.clients.device.base import COMMIT_CONFIRM_ROLLBACK_SECONDS
-from nv_config_manager_workflows.clients.device.cisco_xr import (
+from nv_config_manager_workflows.clients.device.cisco_xr.connection import (
     CiscoIosXrConnection as WorkflowCiscoIosXrConnection,
 )
 

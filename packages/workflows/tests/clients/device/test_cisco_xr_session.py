@@ -21,10 +21,10 @@ from lxml import etree  # type: ignore[import-untyped]  # ty: ignore[unresolved-
 from ncclient.operations import RPCError  # type: ignore[import-untyped]
 from ncclient.transport.errors import SSHError  # type: ignore[import-untyped]
 
-from nv_config_manager_workflows.clients.device.cisco_xr import (
-    _CLI_CFG_NS,
-    _DIFF_NS,
-    _NETCONF_BASE_NS,
+from nv_config_manager_workflows.clients.device.cisco_xr.netconf import (
+    CLI_CFG_NS,
+    DIFF_NS,
+    NETCONF_BASE_NS,
     NetconfIosXrSession,
 )
 from nv_config_manager_workflows.clients.device.exceptions import (
@@ -55,7 +55,7 @@ class _RpcError(RPCError):  # type: ignore[misc]
 
 def _running_reply(text: str) -> MagicMock:
     data = etree.Element("data")
-    etree.SubElement(data, f"{{{_CLI_CFG_NS}}}cli", nsmap={None: _CLI_CFG_NS}).text = text
+    etree.SubElement(data, f"{{{CLI_CFG_NS}}}cli", nsmap={None: CLI_CFG_NS}).text = text
     reply = MagicMock()
     reply.xml = etree.tostring(data, encoding="unicode")
     return reply
@@ -63,7 +63,7 @@ def _running_reply(text: str) -> MagicMock:
 
 def _diff_reply(text: str) -> str:
     reply = etree.Element("rpc-reply")
-    etree.SubElement(reply, f"{{{_DIFF_NS}}}response", nsmap={None: _DIFF_NS}).text = text
+    etree.SubElement(reply, f"{{{DIFF_NS}}}response", nsmap={None: DIFF_NS}).text = text
     return str(etree.tostring(reply, encoding="unicode"))
 
 
@@ -82,7 +82,7 @@ def test_show_running_config_reads_the_cli_leaf_with_get_config() -> None:
 
     kwargs = manager.get_config.call_args.kwargs
     assert kwargs["source"] == "running"
-    assert kwargs["filter"].find(f"{{{_CLI_CFG_NS}}}cli") is not None
+    assert kwargs["filter"].find(f"{{{CLI_CFG_NS}}}cli") is not None
     # the per-call timeout is applied for the RPC and restored afterwards
     assert manager.timeout == 30
 
@@ -158,11 +158,11 @@ def test_load_replacement_locks_copies_the_text_onto_the_candidate_and_returns_t
     kwargs = manager.copy_config.call_args.kwargs
     assert kwargs["target"] == "candidate"
     source = etree.fromstring(kwargs["source"])
-    assert source.tag == f"{{{_NETCONF_BASE_NS}}}source"
-    leaf = source.find(f"{{{_NETCONF_BASE_NS}}}config").find(f"{{{_CLI_CFG_NS}}}cli")
+    assert source.tag == f"{{{NETCONF_BASE_NS}}}source"
+    leaf = source.find(f"{{{NETCONF_BASE_NS}}}config").find(f"{{{CLI_CFG_NS}}}cli")
     assert leaf.text == TEXT
     # the diff is the router's get-cli-config-diff action
-    assert manager.dispatch.call_args.args[0].tag == f"{{{_DIFF_NS}}}get-cli-config-diff"
+    assert manager.dispatch.call_args.args[0].tag == f"{{{DIFF_NS}}}get-cli-config-diff"
     # the candidate stays locked and loaded for the commit
     manager.unlock.assert_not_called()
     manager.edit_config.assert_not_called()

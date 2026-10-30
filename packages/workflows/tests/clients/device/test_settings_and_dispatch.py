@@ -24,7 +24,7 @@ from nv_config_manager_dcim.workflow_models import Platform
 import nv_config_manager_workflows.clients.device as device_clients
 import nv_config_manager_workflows.clients.device.factory as device_factory
 from nv_config_manager_workflows.clients.device.arista import AristaConnection
-from nv_config_manager_workflows.clients.device.cisco_xr import CiscoIosXrConnection
+from nv_config_manager_workflows.clients.device.cisco_xr.connection import CiscoIosXrConnection
 from nv_config_manager_workflows.clients.device.cumulus import CumulusConnection, NVOSConnection
 from nv_config_manager_workflows.clients.device.exceptions import NetworkDeviceException
 from nv_config_manager_workflows.clients.device.factory import (
