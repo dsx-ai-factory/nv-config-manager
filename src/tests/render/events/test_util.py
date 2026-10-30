@@ -199,10 +199,17 @@ def _jetstream() -> MagicMock:
     return jetstream
 
 
+def _enable_device(dcim_client: AsyncMock) -> None:
+    dcim_client.get_render_device_status.return_value = RenderDeviceStatus(
+        render_enabled=True, is_aggregate_managed=False
+    )
+
+
 @pytest.mark.asyncio
 async def test_enqueue_skips_device_already_queued(mock_dcim_client, custom_ini):
-    """A device another producer already claimed is neither checked nor published."""
+    """A device another producer already claimed is not published again."""
     custom_ini("[nats]\n")
+    _enable_device(mock_dcim_client)
     redis = _enqueue_redis(claimed=False)
     jetstream = _jetstream()
 
@@ -212,13 +219,12 @@ async def test_enqueue_skips_device_already_queued(mock_dcim_client, custom_ini)
 
     assert result is EnqueueResult.ALREADY_QUEUED
     jetstream.publish.assert_not_awaited()
-    mock_dcim_client.get_render_device_status.assert_not_awaited()
     redis.delete.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_enqueue_releases_claim_for_disabled_device(mock_dcim_client, custom_ini):
-    """A device that is not enabled does not keep the flag it was just given."""
+async def test_enqueue_does_not_claim_disabled_device(mock_dcim_client, custom_ini):
+    """A disabled device never takes the flag, so it cannot suppress a concurrent request."""
     custom_ini("[nats]\n")
     redis = _enqueue_redis(claimed=True)
     jetstream = _jetstream()
@@ -230,13 +236,15 @@ async def test_enqueue_releases_claim_for_disabled_device(mock_dcim_client, cust
     assert isinstance(result, dict)
     assert "not enabled" in result["error"]
     jetstream.publish.assert_not_awaited()
-    redis.delete.assert_awaited_once_with("device_queued")
+    redis.redis.set.assert_not_awaited()
+    redis.delete.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_enqueue_failure_keeps_another_producers_flag(mock_dcim_client, custom_ini):
     """An error before this producer claimed the device leaves the existing flag alone."""
     custom_ini("[nats]\n")
+    _enable_device(mock_dcim_client)
     redis = _enqueue_redis(claimed=True)
     redis.redis.set.side_effect = ConnectionError("redis down")
 
@@ -254,6 +262,7 @@ async def test_queue_render_does_not_report_skipped_duplicate_as_published(
 ):
     """The publish log line only appears when a message was actually published."""
     custom_ini("[nats]\n")
+    _enable_device(mock_dcim_client)
     logger = MagicMock()
     with (
         patch(

@@ -448,6 +448,7 @@ class PullConsumer:
                         ),
                     )
                 raise
+            self.max_deliver = CONSUMER_MAX_DELIVER
             self.logger.info("Consumer %s created successfully", self.queue)
         except Exception as e:
             if is_nats_permissions_error(e) or self._last_permission_error is not None:

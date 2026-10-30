@@ -149,6 +149,14 @@ async def _process_single_device_enqueue(
     """
     claimed = False
     try:
+        # Checked before claiming: a claim that is then dropped would make a
+        # concurrent request for a newly enabled device skip as a duplicate.
+        if not await should_run(device_uuid, dcim_client):
+            return {
+                "device_uuid": device_uuid,
+                "error": f"{device_uuid} is not enabled for configuration renders.",
+            }
+
         claimed = await claim_queued(device_uuid, queue_client)
         if not claimed:
             logger.info(
@@ -156,13 +164,6 @@ async def _process_single_device_enqueue(
                 device_uuid,
             )
             return EnqueueResult.ALREADY_QUEUED
-
-        if not await should_run(device_uuid, dcim_client):
-            await clear_queued(device_uuid, queue_client)
-            return {
-                "device_uuid": device_uuid,
-                "error": f"{device_uuid} is not enabled for configuration renders.",
-            }
 
         # Publish message using provided jetstream connection
         message = {

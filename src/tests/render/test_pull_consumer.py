@@ -25,6 +25,7 @@ from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 from nats.js.errors import NotFoundError
 from redis.asyncio.lock import Lock as AsyncRedisLock
 
+from nv_config_manager.common.nats_admin import CONSUMER_MAX_DELIVER
 from nv_config_manager.render.events.util import DeviceNotEnabledError
 from nv_config_manager.render.pull_consumer import (
     CONSUMER_ACK_PENDING,
@@ -660,6 +661,24 @@ async def test_missing_consumer_is_created(custom_ini, mock_jetstream):
     assert config.filter_subject == "test_subject"
     assert config.deliver_policy == DeliverPolicy.NEW
     mock_jetstream.delete_consumer.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_recreated_consumer_replaces_previous_delivery_limit(custom_ini, mock_jetstream):
+    """A durable recreated after a reset is given up on at its own limit, not the old one."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(
+        stream="test_stream",
+        subject="test_subject",
+        queue_suffix="test_queue",
+    )
+    consumer.jetstream = mock_jetstream
+    consumer.max_deliver = 5
+    mock_jetstream.consumer_info.side_effect = NotFoundError
+
+    await consumer._ensure_consumer_exists()
+
+    assert consumer.max_deliver == CONSUMER_MAX_DELIVER
 
 
 @pytest.mark.asyncio

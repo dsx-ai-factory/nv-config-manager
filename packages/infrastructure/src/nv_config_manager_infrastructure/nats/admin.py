@@ -19,9 +19,11 @@ from nats.js.errors import APIError
 
 CONSUMER_ACK_WAIT_SECONDS = 360
 # Bounded so that a message which can never be processed stops circulating.
-# Lock contention naks count as delivery attempts, so this has to stay well
-# above the retry depth a healthy render needs.
-CONSUMER_MAX_DELIVER = 1000
+# With the render consumers' 1s-to-60s backoff, 20 deliveries ride out about
+# 14 minutes of dependency outage. Bad data needs no longer: fixing it triggers
+# a new render. Lock contention naks also count, at 5s each, so a render gives
+# up after waiting about 95 seconds for another render's device lock.
+CONSUMER_MAX_DELIVER = 20
 
 
 def is_nats_permissions_error(exc: Exception) -> bool:
