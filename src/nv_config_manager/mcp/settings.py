@@ -56,6 +56,11 @@ class MCPSettings:
     nautobot_mcp_enabled: bool = False
     use_internal_endpoints: bool = True
 
+    @property
+    def dhcp_enabled(self) -> bool:
+        """Whether the cell deploys the DHCP service."""
+        return bool(self.dhcp_api_url)
+
     @classmethod
     def from_config(cls, config: ConfigParser | None = None) -> MCPSettings:
         """Resolve MCP settings from nv-config-manager.ini."""
@@ -87,7 +92,7 @@ class MCPSettings:
             workflow_api_url=_service_url(config, "temporal", use_internal),
             workflow_ui_url=_workflow_ui_url(config),
             config_store_api_url=_service_url(config, "config_store.client", use_internal),
-            dhcp_api_url=_service_url(config, "dhcp", use_internal),
+            dhcp_api_url=_optional_service_url(config, "dhcp", use_internal),
             nautobot_url=nautobot_url,
             nautobot_read_only_token=_get_value(config, "mcp", "nautobot_read_only_token", ""),
             nautobot_verify=nautobot_verify,
@@ -237,6 +242,13 @@ def _get_int(config: ConfigParser, section: str, key: str, fallback: int) -> int
 def _service_url(config: ConfigParser, section: str, use_internal: bool) -> str:
     key = "api_service" if use_internal else "api_url"
     return _get_required(config, section, key).rstrip("/")
+
+
+def _optional_service_url(config: ConfigParser, section: str, use_internal: bool) -> str:
+    """Return the service URL, or an empty string when the section is absent."""
+    if not config.has_section(section):
+        return ""
+    return _service_url(config, section, use_internal)
 
 
 def _workflow_ui_url(config: ConfigParser) -> str:
