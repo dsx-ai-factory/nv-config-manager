@@ -259,10 +259,26 @@ class NetconfIosXrSession:
             self._session.timeout = previous
 
     def _candidate_diff_text(self, timeout: float) -> str:
-        """The router's CLI diff of the candidate against running (``get-cli-config-diff``)."""
+        """The router's CLI diff of the candidate against running (``get-cli-config-diff``).
+
+        An empty ``<response>`` is the router saying there is no difference. A reply with
+        no ``<response>`` element, or that is not XML, is an error: reading it as "no
+        difference" would let the post-commit check confirm a change it never verified.
+        """
         reply = self.action(DIFF_NS, "get-cli-config-diff", read_timeout=timeout)
-        node = etree.fromstring(reply.encode()).find(f".//{{{DIFF_NS}}}response")
-        return "" if node is None or node.text is None else str(node.text)
+        try:
+            node = etree.fromstring(reply.encode()).find(f".//{{{DIFF_NS}}}response")
+        except etree.XMLSyntaxError as error:
+            raise NetworkDeviceException(
+                f"The router's get-cli-config-diff reply is not valid XML: {error}",
+                non_retryable=True,
+            ) from error
+        if node is None:
+            raise NetworkDeviceException(
+                "The router's get-cli-config-diff reply has no <response> element.",
+                non_retryable=True,
+            )
+        return "" if node.text is None else str(node.text)
 
     def load_replacement(self, text: str, *, timeout: float) -> str:
         """Lock the candidate, replace it with ``text`` and return the router's diff.

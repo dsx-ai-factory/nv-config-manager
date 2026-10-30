@@ -468,6 +468,21 @@ def test_apply_does_not_confirm_when_the_router_does_not_match_the_intended_conf
     assert raised.value.non_retryable
 
 
+def test_apply_does_not_confirm_when_the_verification_diff_cannot_be_read() -> None:
+    session, probe = FakeSession(), FakeSession({"show clock": "ok"})
+    connection, _ = _connection(session, probe)
+    approved = connection.perform_candidate_diff(CHANGED)
+    session.remaining_diff = MagicMock(  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+        side_effect=NetworkDeviceException("reply has no <response> element")
+    )
+
+    with pytest.raises(NetworkDeviceException, match="not confirmed") as raised:
+        connection.commit_candidate_config(CHANGED, approved)
+
+    assert session.confirmed == 0
+    assert raised.value.non_retryable
+
+
 def test_failure_to_confirm_is_reported_and_not_retryable() -> None:
     session, probe = FakeSession(), FakeSession({"show clock": "ok"})
     session.confirm_error = NetworkDeviceException("session dropped")

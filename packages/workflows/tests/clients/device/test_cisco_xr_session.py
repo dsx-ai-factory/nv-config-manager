@@ -212,6 +212,42 @@ def test_a_router_that_rejects_copy_config_is_a_non_retryable_error_naming_the_c
     manager.unlock.assert_called_once_with("candidate")
 
 
+def test_an_empty_diff_response_is_no_difference() -> None:
+    session, manager = _session()
+    manager.dispatch.return_value.xml = _diff_reply("")
+
+    assert session.load_replacement(TEXT, timeout=45) == ""
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        '<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"><ok/></rpc-reply>',
+        "<rpc-reply/>",
+        "not xml",
+    ],
+)
+def test_a_diff_reply_without_a_response_element_is_an_error_not_an_empty_diff(
+    reply: str,
+) -> None:
+    session, manager = _session()
+    manager.dispatch.return_value.xml = reply
+
+    with pytest.raises(NetworkDeviceException, match="get-cli-config-diff reply") as raised:
+        session.load_replacement(TEXT, timeout=45)
+
+    assert raised.value.non_retryable
+    manager.unlock.assert_called_once_with("candidate")
+
+
+def test_the_verification_diff_without_a_response_element_is_an_error() -> None:
+    session, manager = _session()
+    manager.dispatch.return_value.xml = "<rpc-reply/>"
+
+    with pytest.raises(NetworkDeviceException, match="no <response> element"):
+        session.remaining_diff(TEXT, timeout=120)
+
+
 def test_a_failed_diff_action_discards_and_unlocks() -> None:
     session, manager = _session()
     manager.dispatch.side_effect = _RpcError("diff failed")
