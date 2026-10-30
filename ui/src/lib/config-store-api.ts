@@ -95,8 +95,9 @@ export async function searchDevices(
   includeInactive: boolean = false,
 ) {
   const params = new URLSearchParams({ limit: limit.toString(), file_type: fileType });
-  if (query) {
-    params.set('q', query);
+  const trimmedQuery = query.trim();
+  if (trimmedQuery) {
+    params.set('q', trimmedQuery);
   }
   if (includeInactive) {
     params.set('include_inactive', 'true');
