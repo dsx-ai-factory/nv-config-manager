@@ -1,0 +1,27 @@
+{
+  "workflows": [
+    {
+      "id": "docs-site-backup-01",
+      "workflow_type": "SiteBackupWorkflow",
+      "workflow_input": {
+        "site": "PDX01"
+      },
+      "started_by": "demo",
+      "start_time": "2025-03-04T03:22:00Z",
+      "close_time": "2025-03-04T03:23:00Z",
+      "status": "COMPLETED",
+      "pending_approval": false,
+      "search_attributes": {
+        "Site": ["PDX01"],
+        "User": ["demo"],
+        "PendingApproval": [false],
+        "FailedStage": [false],
+        "ReadRoles": ["all"],
+        "ExecuteRoles": ["all"]
+      },
+      "href": "https://temporal-ui.example.com/namespaces/default/workflows/docs-site-backup-01",
+      "failed_stage": false
+    }
+  ],
+  "next_page_token": null
+}
