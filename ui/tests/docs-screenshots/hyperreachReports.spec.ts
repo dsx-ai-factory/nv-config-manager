@@ -33,7 +33,7 @@ const examples = [
     description: STAGE_DESCRIPTION,
     display: reports.cableValidation,
     image: "cable-validation-report-example.png",
-    observedDescription: "su02-hyperreach-host A56p0",
+    observedDescription: "su02-hyperreach-chassis A56p0",
   },
   {
     id: "docs-hyperreach-connected-host",
@@ -42,7 +42,7 @@ const examples = [
     description: "Get connected host data",
     display: reports.connectedHostMetadata,
     image: "workflows/connected-host-metadata-result.png",
-    observedDescription: "su02-hyperreach-host C1-2-L1",
+    observedDescription: "su02-hyperreach-chassis C1-2-L1",
   },
 ];
 
