@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from datetime import UTC, datetime
 
 from nv_config_manager_templates.render import Renderer
@@ -30,6 +29,7 @@ from nv_config_manager.common.config.client_settings.config_store import (
     config_store_ui_url,
 )
 from nv_config_manager.common.config.environment import is_aggregate_environment
+from nv_config_manager.common.config.identity import default_user_domain
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import (
     DCIMClient,
@@ -156,7 +156,7 @@ async def execute_render(device_uuid: str, commit_message: str, user: str) -> li
         device_uuid,
         commit_message,
     )
-    user_domain = os.getenv("NV_CONFIG_MANAGER_DOMAIN", "local.config-manager.example.com")
+    user_domain = default_user_domain() or "local.config-manager.example.com"
 
     async with dcim_client_session() as dcim_client:
         aggregate = is_aggregate_environment()

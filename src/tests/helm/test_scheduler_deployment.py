@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import io
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -59,7 +60,7 @@ def _helm_command(
     *set_args: str,
     set_string_args: tuple[str, ...] = (),
     extra_values: tuple[str, ...] = (),
-    templates: tuple[str, ...] = (_TEMPORAL_TEMPLATE,),
+    templates: tuple[str, ...] = (),
 ) -> list[str]:
     """Build the scheduler template command from the required CI values."""
     if shutil.which("helm") is None:
@@ -75,6 +76,17 @@ def _helm_command(
         "--values",
         str(_CHART_DIR / "values-ci.yaml"),
     ]
+    if not templates:
+        secret_method = next(
+            (pair.split("=", 1)[1] for pair in set_args if pair.startswith("secrets.method=")),
+            "eso",
+        )
+        ini_template = {
+            "eso": _VAULT_SECRETS_TEMPLATE,
+            "kubernetes": _KUBERNETES_SECRETS_TEMPLATE,
+            "vault-agent": _VAULT_AGENT_CONFIGMAP_TEMPLATE,
+        }[secret_method]
+        templates = (_TEMPORAL_TEMPLATE, ini_template)
     for template in templates:
         command += ["--show-only", template]
     for values_file in extra_values:
@@ -90,7 +102,7 @@ def _render(
     *set_args: str,
     set_string_args: tuple[str, ...] = (),
     extra_values: tuple[str, ...] = (),
-    templates: tuple[str, ...] = (_TEMPORAL_TEMPLATE,),
+    templates: tuple[str, ...] = (),
 ) -> str:
     """Render selected templates and fail on template regressions."""
     result = subprocess.run(
@@ -166,10 +178,14 @@ def _environment(container: dict[str, Any]) -> dict[str, Any]:
     return {item["name"]: item.get("value") for item in container["env"]}
 
 
-def _selected_schedulers(deployment: dict[str, Any] | None) -> str:
-    """Return the scheduler selection Helm passes to the host."""
+def _selected_schedulers(rendered: str) -> str:
+    """Return the selection written to INI and require no environment override."""
+    deployment = _scheduler_deployment(rendered)
     assert deployment is not None, "scheduler Deployment was not rendered"
-    return _environment(_scheduler_container(deployment))["NVCM_ENABLED_SCHEDULERS"]
+    assert "NVCM_ENABLED_SCHEDULERS" not in _environment(_scheduler_container(deployment))
+    matches = re.findall(r"^\s*enabled_schedulers =([^\n]*)$", rendered, re.MULTILINE)
+    assert len(matches) == 1
+    return matches[0].strip()
 
 
 def _init_container_names(deployment: dict[str, Any]) -> set[str]:
@@ -181,7 +197,8 @@ def _init_container_names(deployment: dict[str, Any]) -> set[str]:
 
 
 def test_nautobot_renders_backup_scheduler_deployment() -> None:
-    deployment = _scheduler_deployment(_render())
+    rendered = _render()
+    deployment = _scheduler_deployment(rendered)
 
     assert deployment is not None
     assert deployment["spec"]["replicas"] == 1
@@ -189,10 +206,10 @@ def test_nautobot_renders_backup_scheduler_deployment() -> None:
     assert "wait-for-nautobot" in {container["name"] for container in pod_spec["initContainers"]}
     scheduler = _scheduler_container(deployment)
     assert scheduler["command"] == ["nv-config-manager-temporal-scheduler"]
-    assert _environment(scheduler)["NVCM_ENABLED_SCHEDULERS"] == "builtin.backup"
+    assert _selected_schedulers(rendered) == "builtin.backup"
 
 
-def test_default_user_domain_is_shared_by_attribution_workloads() -> None:
+def test_attribution_workloads_use_ini_instead_of_domain_env() -> None:
     rendered = _render(
         set_string_args=("global.defaultUserDomain=ci.example.com",),
         templates=(_TEMPORAL_TEMPLATE, _RENDER_TEMPLATE),
@@ -200,7 +217,7 @@ def test_default_user_domain_is_shared_by_attribution_workloads() -> None:
 
     for kind, workload, container in _ATTRIBUTION_WORKLOADS:
         environment = _environment(_workload_container(rendered, kind, workload, container))
-        assert environment["NV_CONFIG_MANAGER_DOMAIN"] == "ci.example.com"
+        assert "NV_CONFIG_MANAGER_DOMAIN" not in environment
 
 
 def test_unset_user_domain_is_not_injected() -> None:
@@ -229,6 +246,83 @@ def test_default_user_domain_is_written_to_unified_ini(secret_method: str, templ
     assert "user_domain = ci.example.com" in rendered
 
 
+@pytest.mark.parametrize(
+    ("secret_method", "template"),
+    [
+        ("eso", _VAULT_SECRETS_TEMPLATE),
+        ("kubernetes", _KUBERNETES_SECRETS_TEMPLATE),
+        ("vault-agent", _VAULT_AGENT_CONFIGMAP_TEMPLATE),
+    ],
+)
+def test_application_settings_reach_every_ini_delivery_path(
+    secret_method: str, template: str
+) -> None:
+    rendered = _render(
+        f"secrets.method={secret_method}",
+        "renderService.templateUpdater.concurrency=3",
+        "renderService.templateUpdater.lockTimeoutSeconds=27",
+        "monitoring.groupFastApiStatusCodes=false",
+        "localDev.enableLocalTestWorkflows=true",
+        f"{_FIXTURE_ENABLED}=true",
+        templates=(template,),
+    )
+
+    for section, option, expected in (
+        ("monitoring", "group_fastapi_status_codes", "false"),
+        ("render.template_updater", "concurrency", "3"),
+        ("render.template_updater", "lock_timeout", "27"),
+        ("temporal.worker", "enable_local_test_workflows", "true"),
+        ("temporal.scheduler", "enabled_schedulers", "builtin.backup,fixture.cleanup"),
+    ):
+        block = re.search(rf"\[{re.escape(section)}\]([^\[]*)", rendered)
+        assert block is not None
+        assert re.search(rf"^\s*{option} = {re.escape(expected)}\s*$", block[1], re.MULTILINE)
+
+
+@pytest.mark.parametrize(
+    ("secret_method", "template"),
+    [
+        ("eso", _VAULT_SECRETS_TEMPLATE),
+        ("kubernetes", _KUBERNETES_SECRETS_TEMPLATE),
+        ("vault-agent", _VAULT_AGENT_CONFIGMAP_TEMPLATE),
+    ],
+)
+def test_domain_remains_in_ini_without_temporal(secret_method: str, template: str) -> None:
+    rendered = _render(
+        f"secrets.method={secret_method}",
+        "temporal.enabled=false",
+        set_string_args=("global.defaultUserDomain=ci.example.com",),
+        templates=(template,),
+    )
+
+    assert "user_domain = ci.example.com" in rendered
+    assert re.search(r"^\s*enabled_schedulers =\s*$", rendered, re.MULTILINE)
+
+
+def test_migrated_and_unused_settings_are_not_workload_env_vars() -> None:
+    rendered = _render(
+        "localDev.enableLocalTestWorkflows=true",
+        templates=(
+            _TEMPORAL_TEMPLATE,
+            _RENDER_TEMPLATE,
+            "templates/config-store.yaml",
+            "templates/dhcp.yaml",
+            "templates/ztp.yaml",
+        ),
+    )
+    for name in (
+        "NV_CONFIG_MANAGER_DOMAIN",
+        "NV_CONFIG_MANAGER_TEMPLATE_UPDATE_CONCURRENCY",
+        "NV_CONFIG_MANAGER_TEMPLATE_UPDATE_LOCK_TIMEOUT",
+        "NV_CONFIG_MANAGER_GROUP_FASTAPI_STATUS_CODES",
+        "NVCM_ENABLED_SCHEDULERS",
+        "NVCM_ENABLE_LOCAL_TEST_WORKFLOWS",
+        "NV_CONFIG_MANAGER_DEV_SALT",
+        "RETENTION_DAYS",
+    ):
+        assert f"name: {name}" not in rendered
+
+
 def test_scheduler_keeps_the_shared_deployment_strategy() -> None:
     # Changing a live Deployment from the server-defaulted strategy to Recreate is
     # rejected under server-side apply, so the scheduler must follow the chart-wide
@@ -250,9 +344,10 @@ def test_scheduler_deployment_can_be_disabled() -> None:
 
 
 def test_enabling_a_plugin_scheduler_keeps_the_builtin_default() -> None:
-    deployment = _scheduler_deployment(_render(f"{_FIXTURE_ENABLED}=true"))
+    rendered = _render(f"{_FIXTURE_ENABLED}=true")
+    deployment = _scheduler_deployment(rendered)
 
-    assert _selected_schedulers(deployment) == "builtin.backup,fixture.cleanup"
+    assert _selected_schedulers(rendered) == "builtin.backup,fixture.cleanup"
     assert "wait-for-nautobot" in _init_container_names(deployment)
 
 
@@ -262,20 +357,20 @@ def test_non_nautobot_default_renders_no_scheduler_deployment() -> None:
 
 
 def test_non_nautobot_plugin_scheduler_runs_without_nautobot_wait() -> None:
-    deployment = _scheduler_deployment(_render(*_NON_NAUTOBOT, f"{_FIXTURE_ENABLED}=true"))
+    rendered = _render(*_NON_NAUTOBOT, f"{_FIXTURE_ENABLED}=true")
+    deployment = _scheduler_deployment(rendered)
 
-    assert _selected_schedulers(deployment) == "fixture.cleanup"
+    assert _selected_schedulers(rendered) == "fixture.cleanup"
     assert "wait-for-nautobot" not in _init_container_names(deployment)
 
 
 def test_builtin_backup_can_be_disabled_while_plugin_schedulers_run() -> None:
     # Only built-in schedulers receive DCIM access, so plugin schedulers must keep
     # starting while Nautobot is unavailable.
-    deployment = _scheduler_deployment(
-        _render(f"{_BACKUP_ENABLED}=false", f"{_FIXTURE_ENABLED}=true")
-    )
+    rendered = _render(f"{_BACKUP_ENABLED}=false", f"{_FIXTURE_ENABLED}=true")
+    deployment = _scheduler_deployment(rendered)
 
-    assert _selected_schedulers(deployment) == "fixture.cleanup"
+    assert _selected_schedulers(rendered) == "fixture.cleanup"
     assert "wait-for-nautobot" not in _init_container_names(deployment)
 
 
@@ -295,18 +390,17 @@ def test_no_selected_schedulers_renders_no_scheduler_deployment() -> None:
 def test_plugin_scheduler_provider_requirement(
     provider_args: tuple[str, ...], requirement: str, expected: str | None
 ) -> None:
-    deployment = _scheduler_deployment(
-        _render(
-            *provider_args,
-            f"{_FIXTURE_ENABLED}=true",
-            set_string_args=(f"{_FIXTURE_REQUIREMENT}={requirement}",),
-        )
+    rendered = _render(
+        *provider_args,
+        f"{_FIXTURE_ENABLED}=true",
+        set_string_args=(f"{_FIXTURE_REQUIREMENT}={requirement}",),
     )
+    deployment = _scheduler_deployment(rendered)
 
     if expected is None:
         assert deployment is None
     else:
-        assert _selected_schedulers(deployment) == expected
+        assert _selected_schedulers(rendered) == expected
 
 
 def test_null_requirement_removes_the_builtin_provider_rule() -> None:
@@ -315,17 +409,19 @@ def test_null_requirement_removes_the_builtin_provider_rule() -> None:
     The scheduler host is provider-neutral, so it then runs builtin.backup against
     the configured DCIM provider rather than skipping it.
     """
-    deployment = _scheduler_deployment(_render(*_NON_NAUTOBOT, f"{_BACKUP_REQUIREMENT}=null"))
+    rendered = _render(*_NON_NAUTOBOT, f"{_BACKUP_REQUIREMENT}=null")
+    deployment = _scheduler_deployment(rendered)
 
-    assert _selected_schedulers(deployment) == "builtin.backup"
+    assert _selected_schedulers(rendered) == "builtin.backup"
     assert "wait-for-nautobot" not in _init_container_names(deployment)
 
 
 def test_null_requirement_keeps_the_nautobot_wait_for_builtin_backup() -> None:
     # The wait follows the built-in DCIM dependency, not the selection requirement.
-    deployment = _scheduler_deployment(_render(f"{_BACKUP_REQUIREMENT}=null"))
+    rendered = _render(f"{_BACKUP_REQUIREMENT}=null")
+    deployment = _scheduler_deployment(rendered)
 
-    assert _selected_schedulers(deployment) == "builtin.backup"
+    assert _selected_schedulers(rendered) == "builtin.backup"
     assert "wait-for-nautobot" in _init_container_names(deployment)
 
 
@@ -374,9 +470,10 @@ def test_missing_schedulers_map_is_allowed_when_scheduler_is_disabled() -> None:
 
 
 def test_observability_overlay_renders_scheduler_telemetry() -> None:
-    deployment = _scheduler_deployment(_render(extra_values=("values-observability.yaml",)))
+    rendered = _render(extra_values=("values-observability.yaml",))
+    deployment = _scheduler_deployment(rendered)
 
     assert deployment is not None
     environment = _environment(_scheduler_container(deployment))
     assert environment["OTEL_SERVICE_NAME"] == "nv-config-manager-temporal-scheduler"
-    assert environment["NVCM_ENABLED_SCHEDULERS"] == "builtin.backup"
+    assert _selected_schedulers(rendered) == "builtin.backup"

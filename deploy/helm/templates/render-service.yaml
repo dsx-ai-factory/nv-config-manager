@@ -70,14 +70,7 @@ spec:
           value: "render"
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
-        {{- with .Values.global.defaultUserDomain }}
-        - name: NV_CONFIG_MANAGER_DOMAIN
-          value: {{ . | quote }}
-        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
-        {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
-        - name: NV_CONFIG_MANAGER_DEV_SALT
-          value: "W585uq6K"
         {{- if .Values.secrets.vault.configSecrets.enabled }}
         - name: NV_CONFIG_MANAGER_CONFIG_SECRET_PATH
           value: {{ include "nv-config-manager.vaultAgent.configSecretsFilePath" (dict "root" . "path" .Values.renderService.configSecrets.path) | quote }}
@@ -213,13 +206,7 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
-        {{- with .Values.global.defaultUserDomain }}
-        - name: NV_CONFIG_MANAGER_DOMAIN
-          value: {{ . | quote }}
-        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
-        - name: NV_CONFIG_MANAGER_DEV_SALT
-          value: "W585uq6K"
         - name: NATS_CONSUMER
           value: "dcim"
         {{- if .Values.secrets.vault.configSecrets.enabled }}
@@ -328,13 +315,7 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
-        {{- with .Values.global.defaultUserDomain }}
-        - name: NV_CONFIG_MANAGER_DOMAIN
-          value: {{ . | quote }}
-        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
-        - name: NV_CONFIG_MANAGER_DEV_SALT
-          value: "W585uq6K"
         - name: NATS_CONSUMER
           value: "device"
         {{- if .Values.secrets.vault.configSecrets.enabled }}
@@ -445,17 +426,7 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
-        {{- with .Values.global.defaultUserDomain }}
-        - name: NV_CONFIG_MANAGER_DOMAIN
-          value: {{ . | quote }}
-        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
-        - name: NV_CONFIG_MANAGER_DEV_SALT
-          value: "W585uq6K"
-        - name: NV_CONFIG_MANAGER_TEMPLATE_UPDATE_CONCURRENCY
-          value: {{ .Values.renderService.templateUpdater.concurrency | quote }}
-        - name: NV_CONFIG_MANAGER_TEMPLATE_UPDATE_LOCK_TIMEOUT
-          value: {{ .Values.renderService.templateUpdater.lockTimeoutSeconds | quote }}
         {{- if .Values.secrets.vault.configSecrets.enabled }}
         - name: NV_CONFIG_MANAGER_CONFIG_SECRET_PATH
           value: {{ include "nv-config-manager.vaultAgent.configSecretsFilePath" (dict "root" . "path" .Values.renderService.configSecrets.path) | quote }}

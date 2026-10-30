@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from types import TracebackType
 from typing import cast
 
@@ -42,6 +41,7 @@ from nv_config_manager.common.config.client_settings.ticketing import (
 )
 from nv_config_manager.common.config.client_settings.ztp import ztp_client_settings
 from nv_config_manager.common.config.environment import is_aggregate_environment
+from nv_config_manager.common.config.identity import default_user_domain
 from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.config.nats import nats_archive_config
 from nv_config_manager.common.config.storage import get_storage_client
@@ -175,10 +175,6 @@ def _config_store_runtime() -> ConfigStoreRuntime:
     """Build Config Store dependencies from one current configuration snapshot."""
     config = load_config()
     ui_url = config["config_store.client"]["ui_url"]
-    default_user_domain = os.getenv(
-        "NV_CONFIG_MANAGER_DOMAIN",
-        "local.config-manager.example.com",
-    )
 
     def client_factory(file_type: ConfigStoreType) -> ConfigStoreClient:
         return ConfigStoreClient(**config_store_client_settings(config, file_type=file_type))
@@ -186,7 +182,7 @@ def _config_store_runtime() -> ConfigStoreRuntime:
     return ConfigStoreRuntime(
         client_factory=client_factory,
         ui_url=ui_url,
-        default_user_domain=default_user_domain,
+        default_user_domain=default_user_domain(config) or "local.config-manager.example.com",
     )
 
 

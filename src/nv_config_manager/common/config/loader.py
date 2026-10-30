@@ -69,3 +69,19 @@ def resolve_config(config: ConfigParser | None) -> ConfigParser:
 def resolve_section(section: str, config: ConfigParser | None = None) -> SectionProxy:
     """Return the configuration section from the resolved configuration."""
     return resolve_config(config)[section]
+
+
+def application_setting(
+    section: str,
+    option: str,
+    *,
+    legacy_env: str,
+    config: ConfigParser | None = None,
+    fallback: str | None = None,
+) -> str | None:
+    """Read an INI setting, accepting its former env name for older deployments.
+
+    Explicit INI values, including empty strings and false, take precedence.
+    Helm emits only INI settings; the environment fallback is for compatibility.
+    """
+    return resolve_config(config).get(section, option, fallback=os.getenv(legacy_env, fallback))

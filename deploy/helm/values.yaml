@@ -89,6 +89,7 @@ global:
   environment: dev
   # Optional fallback domain for server-generated attribution identities. This
   # does not affect service hostnames; configure those with gateway.baseHostname.
+  # Written to [temporal] user_domain in the unified INI for all attribution workloads.
   defaultUserDomain: ""
   # Whether this is an aggregate deployment
   aggregate: false
@@ -1227,6 +1228,7 @@ renderService:
 
   # Template updater job
   templateUpdater:
+    # Written to [render.template_updater] in the unified INI.
     concurrency: 8
     lockTimeoutSeconds: 120
     ttlSecondsAfterFinished: 86400
@@ -3079,6 +3081,7 @@ monitoring:
   # Master switch for all monitoring resources
   enabled: false
   # Group FastAPI response status labels into classes such as 2xx and 5xx.
+  # Written to [monitoring] group_fastapi_status_codes in the unified INI.
   groupFastApiStatusCodes: true
   # External Grafana URL. This is evaluated as a Helm template so the dashboard
   # variables can follow the deployment's namespace.

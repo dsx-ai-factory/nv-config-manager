@@ -62,9 +62,11 @@ def _service_config() -> ConfigParser:
     return config
 
 
+@pytest.mark.parametrize("domain_source", ["ini", "legacy_env"])
 def test_config_store_adapter_uses_one_snapshot_and_current_domain(
     monkeypatch: pytest.MonkeyPatch,
     mocker: MockerFixture,
+    domain_source: str,
 ) -> None:
     """A runtime value binds client settings and scalar values to one config read."""
     config = _service_config()
@@ -89,6 +91,9 @@ def test_config_store_adapter_uses_one_snapshot_and_current_domain(
         return_value=client,
     )
     monkeypatch.setenv("NV_CONFIG_MANAGER_DOMAIN", "current.example")
+    if domain_source == "ini":
+        config.read_dict({"temporal": {"user_domain": "current.example"}})
+        monkeypatch.setenv("NV_CONFIG_MANAGER_DOMAIN", "legacy.example")
 
     runtime = service_runtime._config_store_runtime()
 

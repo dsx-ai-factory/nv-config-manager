@@ -220,9 +220,10 @@ async def test_endpoint_uses_authenticated_email_domain(mocker, monkeypatch, val
 
 
 @pytest.mark.parametrize("identity", ["trusted", "trusted @ partner.example"])
+@pytest.mark.parametrize("domain_source", ["ini", "legacy_env"])
 @pytest.mark.asyncio
 async def test_endpoint_uses_configured_domain_without_usable_identity_domain(
-    mocker, monkeypatch, identity
+    mocker, monkeypatch, custom_ini, identity, domain_source
 ):
     """Deployment configuration supplies the domain when identity has no usable domain."""
     captured: dict[str, BaseModel] = {}
@@ -232,6 +233,9 @@ async def test_endpoint_uses_configured_domain_without_usable_identity_domain(
         return "wid-1"
 
     monkeypatch.setenv("NV_CONFIG_MANAGER_DOMAIN", "deployment.example")
+    if domain_source == "ini":
+        custom_ini("[temporal]\nuser_domain = deployment.example")
+        monkeypatch.setenv("NV_CONFIG_MANAGER_DOMAIN", "legacy.example")
     mocker.patch.object(dynamic_endpoints, "start_workflow", new=_fake_start)
     endpoint = create_workflow_endpoint(_AttributedWorkflow, _CallerOwnedInput, "/attributed")
     request = MagicMock()

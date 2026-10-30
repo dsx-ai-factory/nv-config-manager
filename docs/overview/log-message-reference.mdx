@@ -278,9 +278,9 @@ Warning and error messages:
 | ERROR | `"Workflow scheduler %s from plugin %s failed: %s"` |
 | ERROR | `"Workflow scheduler %s from plugin %s returned unexpectedly"` |
 
-The `"Scheduler host enabled with no selected scheduler contributions"` warning occurs only when the host runs outside Helm with `NVCM_ENABLED_SCHEDULERS` set to an empty value; Helm does not render the scheduler Deployment when no scheduler is selected.
+The `"Scheduler host enabled with no selected scheduler contributions"` warning occurs only when the host runs outside Helm with `[temporal.scheduler] enabled_schedulers` set to an empty value; Helm does not render the scheduler Deployment when no scheduler is selected.
 
-The host exits with a `SchedulerHostError` traceback instead of a log record, before any scheduler starts, when `NVCM_ENABLED_SCHEDULERS` lists an identity more than once or names an unregistered identity (`"Unknown enabled workflow scheduler identities: ..."`).
+The host exits with a `SchedulerHostError` traceback instead of a log record, before any scheduler starts, when `[temporal.scheduler] enabled_schedulers` lists an identity more than once or names an unregistered identity (`"Unknown enabled workflow scheduler identities: ..."`).
 
 ### `temporal.activity`
 

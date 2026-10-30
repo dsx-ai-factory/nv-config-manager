@@ -92,7 +92,7 @@ The package exposes its 33 built-in workflows and built-in activities through th
 their workflow and activity catalogs. The NVIDIA Config Manager worker registers
 the registry's workflows and activities. The local-only `HelloWorldRunning`
 latency fixture is kept out of the built-in plugin; the worker appends it only
-when `NVCM_ENABLE_LOCAL_TEST_WORKFLOWS` is enabled.
+when `[temporal.worker] enable_local_test_workflows = true` in the service INI.
 
 ### Registering a workflow plugin
 
@@ -295,15 +295,22 @@ The scheduler host runs only the identities selected in the Helm
 See [Workflow Schedulers](../../docs/temporal/temporal-deployment.mdx#workflow-schedulers)
 for the operator selection rules.
 
-To run the scheduler host locally, outside Helm, select identities with the
-comma-separated `NVCM_ENABLED_SCHEDULERS` variable. If it is unset, the host runs
-`builtin.backup`; if it is empty, the host runs no schedulers and waits for
-shutdown. The host needs the same Temporal and DCIM configuration as the worker.
+To run the scheduler host locally, outside Helm, select identities in the service
+INI. If the key is absent, the host runs `builtin.backup`; an explicitly empty
+value runs no schedulers and waits for shutdown. The host needs the same Temporal
+and DCIM configuration as the worker.
+
+```ini
+[temporal.scheduler]
+enabled_schedulers = example-plugin.cleanup
+```
 
 ```bash
-NVCM_ENABLED_SCHEDULERS=example-plugin.cleanup \
-  uv run python -m nv_config_manager.temporal.scheduler.main
+uv run python -m nv_config_manager.temporal.scheduler.main
 ```
+
+The former `NVCM_ENABLED_SCHEDULERS` and `NVCM_ENABLE_LOCAL_TEST_WORKFLOWS`
+variables remain compatibility fallbacks only when their INI keys are absent.
 
 The `nv-config-manager-temporal-scheduler` console script runs the same entry
 point. The pre-move module, `nv_config_manager.temporal.ngc.schedulers.backup`,

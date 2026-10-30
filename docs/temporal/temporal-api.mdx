@@ -172,7 +172,9 @@ even when the caller submits another value. Unmarked legacy `user` and
 The API resolves an empty, declared `user_domain` in this order:
 
 1. A usable domain from the full authenticated identity.
-1. The deployment default in `NV_CONFIG_MANAGER_DOMAIN`.
+1. The deployment default in `[temporal] user_domain` in the unified INI
+   (falling back to the former `NV_CONFIG_MANAGER_DOMAIN` variable only when
+   the INI key is absent).
 1. `None` when neither source supplies a domain and the input field is nullable;
    otherwise, the request is rejected with `422`.
 

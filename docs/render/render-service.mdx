@@ -133,7 +133,12 @@ The service is configured using a configuration file (`config.py`). The configur
 
 Set `global.defaultUserDomain` in Helm to supply the fallback domain used for
 Config Store attribution by the Render API, consumers, and template updater.
-The chart exposes it to these workloads as `NV_CONFIG_MANAGER_DOMAIN`.
+The chart writes it to `[temporal] user_domain` in the unified INI, shared by all
+attribution workloads. The domain remains available when Temporal is disabled.
+Template-updater concurrency and lock timeout are read from
+`[render.template_updater] concurrency` and `lock_timeout` (seconds); the existing
+Helm values `renderService.templateUpdater.concurrency` and `lockTimeoutSeconds`
+configure those keys.
 
 ## Monitoring
 

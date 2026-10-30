@@ -274,6 +274,7 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           # =================================================================
 
           {{ include "nv-config-manager.authIniSections" $root | nindent 10 }}
+          {{ include "nv-config-manager.applicationIniSettings" $root | nindent 10 }}
 
           # -----------------------------------------------------------------
           # Nautobot Configuration (shared by all services)
@@ -412,11 +413,12 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           use_internal_endpoint = {{ $root.Values.configStore.client.useInternalEndpoint | default true }}
           verify = {{ $root.Values.configStore.client.verify | default true }}
 
-          {{- if $root.Values.temporal.enabled }}
           # -----------------------------------------------------------------
           # Temporal/Workflow Configuration
           # -----------------------------------------------------------------
           [temporal]
+          user_domain = {{ $root.Values.global.defaultUserDomain }}
+          {{- if $root.Values.temporal.enabled }}
           # Internal: Temporal gRPC frontend (for workers, SDK clients)
           grpc_service = {{ include "nv-config-manager.temporalGrpcAddress" $root }}
           namespace = {{ $root.Values.temporal.client.namespace | default "default" }}
@@ -434,7 +436,6 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           api_url = https://{{ tpl $root.Values.temporal.gateway.api.hostname $root }}
           temporal_ui_url = https://{{ tpl $root.Values.temporal.gateway.devUi.hostname $root }}
           ui_url = https://{{ $root.Values.gateway.baseHostname }}
-          user_domain = {{ $root.Values.global.defaultUserDomain }}
           # Set to true for internal cluster communication (uses api_service)
           # Set to false for external mTLS communication (uses api_url)
           use_internal_endpoint = {{ $root.Values.temporal.client.useInternalEndpoint | default true }}

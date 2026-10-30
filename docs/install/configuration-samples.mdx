@@ -220,3 +220,27 @@ sites:
   - name: dc02
     vault_path: secrets/nv-config-manager/site/dc02/config_secrets
 ```
+
+## Shared application INI settings
+
+Helm writes these application settings into the unified `nv-config-manager.ini`
+for Kubernetes Secrets, External Secrets, and Vault Agent. The Helm values remain
+unchanged; individual containers no longer receive these environment variables.
+Use an application image containing the corresponding INI readers with this chart.
+
+| Helm value | INI section and key | Former environment variable |
+| --- | --- | --- |
+| `global.defaultUserDomain` | `[temporal] user_domain` | `NV_CONFIG_MANAGER_DOMAIN` |
+| `renderService.templateUpdater.concurrency` | `[render.template_updater] concurrency` | `NV_CONFIG_MANAGER_TEMPLATE_UPDATE_CONCURRENCY` |
+| `renderService.templateUpdater.lockTimeoutSeconds` | `[render.template_updater] lock_timeout` | `NV_CONFIG_MANAGER_TEMPLATE_UPDATE_LOCK_TIMEOUT` |
+| `monitoring.groupFastApiStatusCodes` | `[monitoring] group_fastapi_status_codes` | `NV_CONFIG_MANAGER_GROUP_FASTAPI_STATUS_CODES` |
+| `temporal.scheduler.schedulers` | `[temporal.scheduler] enabled_schedulers` | `NVCM_ENABLED_SCHEDULERS` |
+| `localDev.enableLocalTestWorkflows` | `[temporal.worker] enable_local_test_workflows` | `NVCM_ENABLE_LOCAL_TEST_WORKFLOWS` |
+
+INI values take precedence, including explicit empty values and `false`. Older
+deployments may continue using the former environment variables when the INI keys
+are absent. Scheduler identities are filtered by the existing Helm enablement and
+DCIM-provider rules before being written to INI.
+
+Bootstrap file paths, standard runtime variables, and container-specific overrides
+such as the Kea refresh bootstrap endpoint remain environment variables.
