@@ -95,7 +95,11 @@ The chart points each service's OTel SDK at an existing OTLP collector:
 
 Temporal also exports built-in runtime metrics (workflow completion, activity latency, and similar) to the same OTLP endpoint when tracing is enabled.
 
-**Local development:** layer `deploy/helm/values-observability.yaml` on your values file. It enables the bundled Alloy OTLP receiver and Tempo, sets `observability.enabled: true`, and leaves `otlpEndpoint` empty so traces flow:
+**Local development:** apply your baseline values first and
+`deploy/helm/values-observability.yaml` second. It enables the bundled Alloy
+OTLP receiver and Tempo, sets `observability.enabled: true`, and leaves
+`otlpEndpoint` empty so traces flow. If you configure custom monitoring
+endpoints, add an endpoint-only override after the observability file.
 
 ```text
 HTTP APIs + Temporal pods → Alloy (OTLP) → Tempo → Grafana
@@ -112,6 +116,24 @@ observability:
 ## Local Observability Stack
 
 For Kind and airgapped demo environments, the installer can deploy a local observability stack by setting `infrastructure.monitoring.observability_enabled: true` or by toggling **Enable local observability stack** on the TUI Infrastructure screen.
+
+The installer merges the selected size profile, then `values-observability.yaml`,
+then installer-generated settings into one `values-generated.yaml` file. Both
+`generate-values` and `deploy` therefore preserve configured monitoring
+endpoints without depending on Helm values-file argument order.
+
+For manual Helm commands, use this order:
+
+```bash
+helm template test deploy/helm \
+  --values deploy/helm/values-ci.yaml \
+  --values deploy/helm/values-observability.yaml \
+  --values values-monitoring-endpoints.yaml
+```
+
+The final file is optional when the built-in local endpoints are desired. Helm
+gives the rightmost values file precedence, so a custom endpoint override must
+come last.
 
 This path is for local development and demos only. It installs:
 

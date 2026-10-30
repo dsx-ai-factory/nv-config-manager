@@ -275,8 +275,16 @@ Configure gateway behavior, TLS, database backups, monitoring resources, and loa
 | CNPG S3 Backup | CloudNativePG PostgreSQL backups to S3 |
 | Monitoring | PodMonitors and monitoring resources |
 | Prometheus namespace | Namespace allowed through network policy for Prometheus scraping (defaults to `monitoring`) |
-| Enable local observability stack | Enable Grafana and Loki for local development |
+| Grafana dashboard URL | Optional absolute HTTP(S) dashboard URL linked from the UI splash page |
+| Blackbox exporter address | Optional `host:port` used by generated Prometheus Probe resources |
+| Enable local observability stack | Enable Prometheus and Grafana Alloy for local development |
 | Enable local Redis metrics exporter | Export metrics from bundled Redis; disabled when external Redis is configured |
+
+The installer maps these optional endpoint fields to `monitoring.grafanaUrl`
+and `monitoring.probes.blackboxExporterUrl` in generated Helm values. The
+blackbox exporter field intentionally omits a URL scheme because the
+Prometheus Operator Probe API accepts a separate scheme and a `host:port`
+prober address.
 
 The Redis metrics switch stores only the explicit preference to enable the metrics exporter on the bundled Redis instance.
 Turning on local monitoring automatically enables both the Redis metrics exporter and the Redis PodMonitor without changing that preference.
