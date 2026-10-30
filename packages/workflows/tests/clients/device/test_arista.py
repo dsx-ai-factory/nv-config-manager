@@ -917,3 +917,228 @@ def test_get_ztp_status_is_success_once_zerotouch_is_disabled() -> None:
 
     conn._node = _eapi_node({"mode": "enabled", "scriptTimeout": 900})
     assert conn.get_ztp_status() == "enabled"
+
+
+# ``show system environment ...`` and ``show inventory`` as a CCS-720XP-48ZC2 on EOS 4.34
+# reports them, reduced to one entry per kind.
+_COOLING = {
+    "systemStatus": "coolingOk",
+    "fansStatus": "fanAlarmOk",
+    "ambientTemperature": 26.125,
+    "airflowDirection": "frontToBackAirflow",
+    "fanTraySlots": [
+        {
+            "label": "1",
+            "status": "ok",
+            "speed": 30,
+            "fans": [
+                {
+                    "label": "1/1",
+                    "maxSpeed": 17500,
+                    "configuredSpeed": 30,
+                    "actualSpeed": 30,
+                    "status": "ok",
+                    "speedStable": True,
+                }
+            ],
+        }
+    ],
+    "powerSupplySlots": [
+        {
+            "label": "PowerSupply1",
+            "status": "ok",
+            "speed": 30,
+            "fans": [
+                {
+                    "label": "PowerSupply1/1",
+                    "maxSpeed": 23000,
+                    "configuredSpeed": 30,
+                    "actualSpeed": 29,
+                    "status": "failed",
+                }
+            ],
+        }
+    ],
+}
+_POWER = {
+    "powerSupplies": {
+        "1": {
+            "modelName": "PWR-1021-AC-RED",
+            "capacity": 1050.0,
+            "dominant": False,
+            "inputCurrent": 0.46484375,
+            "outputCurrent": 1.5234375,
+            "inputVoltage": 207.25,
+            "outputVoltage": 55.55859375,
+            "outputPower": 84.625,
+            "state": "ok",
+            "fans": {"FanP1/1": {"status": "ok", "speed": 29}},
+            "tempSensors": {"TempSensorP1/2": {"status": "ok", "temperature": 26.03125}},
+            "managed": True,
+        }
+    }
+}
+_INVENTORY = {
+    "systemInformation": {
+        "name": "CCS-720XP-48ZC2",
+        "description": "48 MGig Base-T with 2x100G",
+        "hardwareRev": "11.23",
+        "serialNum": "HBG00000000",
+        "mfgDate": "2024-09-10",
+    },
+    "powerSupplySlots": {
+        "1": {"name": "PWR-1021-AC-RED", "serialNum": "GGJT00000000"},
+        "2": {"name": "Not Inserted", "serialNum": ""},
+    },
+    "fanTraySlots": {"1": {"numFans": 1, "name": "FAN-7000-F", "serialNum": "N/A"}},
+    "xcvrSlots": {
+        "1": {
+            "mfgName": "Arista Networks",
+            "modelName": "CCS-720XP-48ZC2",
+            "serialNum": "",
+            "hardwareRev": "",
+        },
+        "49": {
+            "mfgName": "Arista Networks",
+            "modelName": "QSFP-100G-SR4",
+            "serialNum": "XMD00000000",
+            "hardwareRev": "20",
+        },
+    },
+    "storageDevices": {},
+}
+
+
+def test_get_platform_describes_the_chassis() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(
+        {
+            "mfgName": "Arista",
+            "modelName": "CCS-720XP-48ZC2",
+            "hardwareRevision": "11.23",
+            "serialNumber": "HBG00000000",
+            "systemMacAddress": "68:bf:6c:00:00:01",
+            "version": "4.34.3M-44102239.4343M (engineering build)",
+            "architecture": "x86_64",
+            "memTotal": 3970240,
+        }
+    )
+
+    assert conn.get_platform() == {
+        "manufacturer": "Arista",
+        "product-name": "CCS-720XP-48ZC2",
+        "serial-number": "HBG00000000",
+        "system-mac": "68:bf:6c:00:00:01",
+        "hardware-version": "11.23",
+        "architecture": "x86_64",
+        "os-version": "4.34.3M",
+        "memory": "3877 MiB",
+    }
+
+
+def test_fan_report_covers_tray_and_power_supply_fans() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(_COOLING)
+
+    fans = conn.get_platform_environment_fan()
+
+    assert fans == {
+        "Fan1/1": {
+            "state": "ok",
+            "current-speed": 30,
+            "configured-speed": 30,
+            "max-speed": 17500,
+            "direction": "frontToBackAirflow",
+        },
+        "PowerSupply1/1": {
+            "state": "failed",
+            "current-speed": 29,
+            "configured-speed": 30,
+            "max-speed": 23000,
+            "direction": "frontToBackAirflow",
+        },
+    }
+    conn._node.enable.assert_called_once_with("show system environment cooling", encoding="json")
+
+
+def test_psu_and_voltage_reports_share_the_power_data() -> None:
+    conn = _arista_connection()
+    conn._node = MagicMock()
+    conn._node.enable.return_value = [{"result": _POWER}]
+
+    assert conn.get_platform_environment_psu() == {
+        "PSU1": {
+            "state": "ok",
+            "model": "PWR-1021-AC-RED",
+            "capacity": 1050.0,
+            "current": 0.46484375,
+            "voltage": 207.25,
+            "power": 84.625,
+        }
+    }
+    assert conn.get_platform_environment_voltage() == {
+        "PSU1/input": {"state": "ok", "actual": 207.25},
+        "PSU1/output": {"state": "ok", "actual": 55.55859375},
+    }
+
+
+def test_environment_without_power_supplies_is_empty_not_an_error() -> None:
+    """A switch without power supplies, such as vEOS, fails ``show system environment power``."""
+    conn = _arista_connection()
+    conn._node = _eapi_node(
+        pyeapi.eapilib.CommandError(1000, "could not run command"),
+        pyeapi.eapilib.CommandError(1000, "could not run command"),
+    )
+
+    assert conn.get_platform_environment_psu() == {}
+    assert conn.get_platform_environment_voltage() == {}
+    assert conn.get_platform_environment_led() == {}
+
+
+def test_inventory_lists_chassis_supplies_trays_and_pluggables() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(_INVENTORY)
+
+    inventory = conn.get_platform_inventory()
+
+    assert inventory == {
+        "Chassis": {
+            "type": "switch",
+            "model": "CCS-720XP-48ZC2",
+            "serial": "HBG00000000",
+            "hardware-version": "11.23",
+            "state": "ok",
+        },
+        "PSU1": {
+            "type": "psu",
+            "model": "PWR-1021-AC-RED",
+            "serial": "GGJT00000000",
+            "hardware-version": "",
+            "state": "ok",
+        },
+        "PSU2": {
+            "type": "psu",
+            "model": "Not Inserted",
+            "serial": "",
+            "hardware-version": "",
+            "state": "not-inserted",
+        },
+        "FanTray1": {
+            "type": "fan",
+            "model": "FAN-7000-F",
+            "serial": "N/A",
+            "hardware-version": "",
+            "state": "ok",
+        },
+        # Fixed copper ports report the chassis in xcvrSlots without a serial and are skipped.
+        "Ethernet49": {
+            "type": "transceiver",
+            "model": "QSFP-100G-SR4",
+            "manufacturer": "Arista Networks",
+            "serial": "XMD00000000",
+            "hardware-version": "20",
+            "state": "ok",
+        },
+    }
+    # Every state the validation flags on is a string, as the workflow requires.
+    assert all(isinstance(item["state"], str) for item in inventory.values())

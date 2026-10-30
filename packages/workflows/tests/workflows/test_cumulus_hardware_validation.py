@@ -19,8 +19,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from io import BytesIO
-from typing import Any
-from unittest.mock import patch
+from typing import Any, cast
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -45,9 +45,13 @@ from nv_config_manager_workflows.activities.hardware_validation import (
     HardwareValidationInput,
     HardwareValidationOutput,
     HardwareValidationResult,
+    NetworkDeviceData,
 )
 from nv_config_manager_workflows.activities.nats import PublishNatsInput
 from nv_config_manager_workflows.workflows.cumulus_hardware_validation import (
+    ARISTA_EOS_PATCH_ID,
+    PER_DEVICE_FAILURES_PATCH_ID,
+    SUPPORTED_PLATFORMS,
     ValidateHardwareInput,
     ValidateHardwareWorkflow,
 )
@@ -496,3 +500,144 @@ async def test_cumulus_hardware_validation_workflow_invalid_filter(
         discovery_stage = next(s for s in stages if s["name"] == "get_devices_to_validate")
         assert discovery_stage["output"]["invalid_filter"] is True
         assert "tenant: Select a valid choice" in discovery_stage["output"]["display"]
+
+
+# ---------------------------------------------------------------------------
+# Platform selection and per-device failures, with the activities mocked out
+# ---------------------------------------------------------------------------
+
+_WORKFLOW_MODULE = "nv_config_manager_workflows.workflows.cumulus_hardware_validation"
+
+
+def _device_on(platform: Platform, name: str) -> NetworkDeviceData:
+    device = TEST_DEVICE.model_copy()
+    device.id = f"{name}-id"
+    device.name = name
+    device.platform = platform
+    return device
+
+
+def _workflow_instance() -> ValidateHardwareWorkflow:
+    with patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=0.0):
+        return ValidateHardwareWorkflow()
+
+
+async def _devices_to_validate(
+    execute_activity: AsyncMock, patched: MagicMock
+) -> ValidateHardwareWorkflow.GetDevicesToValidateStageOutput:
+    with (
+        patch(f"{_WORKFLOW_MODULE}.workflow.execute_activity", new=execute_activity),
+        patch(f"{_WORKFLOW_MODULE}.workflow.patched", new=patched),
+    ):
+        return cast(
+            ValidateHardwareWorkflow.GetDevicesToValidateStageOutput,
+            await cast(Any, ValidateHardwareWorkflow.get_devices_to_validate).__wrapped__(
+                _workflow_instance(),
+                ValidateHardwareWorkflow.GetDevicesToValidateStageInput(
+                    site="site-1", roles=[], status=["Active"], tenant=None, device_type_ids=[]
+                ),
+            ),
+        )
+
+
+def _dcim_returning(*devices: NetworkDeviceData) -> AsyncMock:
+    return AsyncMock(return_value=GetNetworkDevicesOutput(devices=list(devices)))
+
+
+@pytest.mark.asyncio
+async def test_devices_are_restricted_to_supported_platforms() -> None:
+    """Arista EOS is validated like Cumulus Linux; other platforms are skipped."""
+    execute_activity = _dcim_returning(
+        _device_on(Platform.CUMULUS_LINUX, "leaf-1"),
+        _device_on(Platform.ARISTA_EOS, "mgmt-leaf-1"),
+        _device_on(Platform.JUNIPER_JUNOS, "border-1"),
+    )
+    patched = MagicMock(return_value=True)
+
+    output = await _devices_to_validate(execute_activity, patched)
+
+    patched.assert_called_once_with(ARISTA_EOS_PATCH_ID)
+    assert [device.name for device in output.devices] == ["leaf-1", "mgmt-leaf-1"]
+    assert output.display == "Found 2 Cumulus Linux and Arista EOS devices."
+    # The DCIM is asked for the supported platforms only.
+    [query] = [call.args[1] for call in execute_activity.await_args_list]
+    assert query.platforms == SUPPORTED_PLATFORMS
+
+
+@pytest.mark.asyncio
+async def test_devices_recorded_before_the_patch_stay_cumulus_only() -> None:
+    """A history from before Arista EOS support replays with its Cumulus-only selection."""
+    execute_activity = _dcim_returning(
+        _device_on(Platform.CUMULUS_LINUX, "leaf-1"),
+        _device_on(Platform.ARISTA_EOS, "mgmt-leaf-1"),
+    )
+
+    output = await _devices_to_validate(execute_activity, MagicMock(return_value=False))
+
+    assert [device.name for device in output.devices] == ["leaf-1"]
+    assert output.display == "Found 1 Cumulus Linux devices."
+
+
+@pytest.mark.asyncio
+async def test_no_supported_device_names_the_supported_platforms() -> None:
+    execute_activity = _dcim_returning(_device_on(Platform.JUNIPER_JUNOS, "border-1"))
+
+    output = await _devices_to_validate(execute_activity, MagicMock(return_value=True))
+
+    assert output.devices == []
+    assert "No Cumulus Linux and Arista EOS devices matched" in output.display
+    assert "only runs against Cumulus Linux and Arista EOS devices." in output.display
+
+
+_PSU_AND_INVENTORY_STAGES = [
+    ValidateHardwareWorkflow.get_environment_psu_stage,
+    ValidateHardwareWorkflow.get_inventory_stage,
+]
+
+
+async def _run_with_one_failing_device(
+    stage: Any, patched: MagicMock
+) -> ValidateHardwareWorkflow.GetPlatformInfoStageOutput:
+    healthy = _device_on(Platform.ARISTA_EOS, "mgmt-leaf-1")
+    broken = _device_on(Platform.ARISTA_EOS, "mgmt-leaf-2")
+    execute_activity = AsyncMock(
+        side_effect=[
+            HardwareValidationOutput(info={"PSU1": {"state": "ok"}}),
+            RuntimeError("eAPI unreachable"),
+        ]
+    )
+    with (
+        patch(f"{_WORKFLOW_MODULE}.workflow.execute_activity", new=execute_activity),
+        patch(f"{_WORKFLOW_MODULE}.workflow.patched", new=patched),
+    ):
+        return cast(
+            ValidateHardwareWorkflow.GetPlatformInfoStageOutput,
+            await stage.__wrapped__(
+                _workflow_instance(),
+                ValidateHardwareWorkflow.GetPlatformInfoStageInput(
+                    devices_data={healthy.id: healthy, broken.id: broken}
+                ),
+            ),
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", _PSU_AND_INVENTORY_STAGES, ids=["psu", "inventory"])
+async def test_one_failing_device_does_not_fail_the_psu_or_inventory_stage(stage: Any) -> None:
+    """Every collector records a failed device as an error row, as the fan stage always did."""
+    patched = MagicMock(return_value=True)
+
+    output = await _run_with_one_failing_device(stage, patched)
+
+    patched.assert_called_once_with(PER_DEVICE_FAILURES_PATCH_ID)
+    assert output.devices_info == {"mgmt-leaf-1-id": {"PSU1": {"state": "ok"}}}
+    assert output.devices_data_and_results["mgmt-leaf-2-id"]["error"] == "eAPI unreachable"
+    assert "1/2 devices validated" in output.display
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", _PSU_AND_INVENTORY_STAGES, ids=["psu", "inventory"])
+async def test_failing_device_recorded_before_the_patch_still_fails_the_stage(stage: Any) -> None:
+    """A history from before the patch replays with the stage failure it recorded."""
+    with pytest.raises(RuntimeError, match="eAPI unreachable"):
+        await _run_with_one_failing_device(stage, MagicMock(return_value=False))

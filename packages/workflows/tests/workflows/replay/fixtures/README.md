@@ -58,6 +58,18 @@ Redfish provisioning with authenticated and DPU operations. They are fixed
 compatibility fixtures. `test_device_operations.py` replays them and
 separately freezes their scheduled activity names and serialized arguments.
 
+Two more hardware validation histories cover its Temporal patches:
+
+- `hardware_validation_arista_eos.json`: a Cumulus Linux and an Arista EOS
+  device after `hardware-validation-arista-eos-v1` and
+  `hardware-validation-per-device-failures-v1`. The Arista device's PSU read
+  fails and is reported for that device, and the run completes.
+- `hardware_validation_arista_eos_pre_change.json`: the run before both
+  patches. The DCIM returned two Cumulus Linux devices and an Arista EOS
+  device, and only the Cumulus devices were validated. One device's PSU read
+  failed while the other's was still running, the PSU stage failed and the run
+  waited for a retry signal.
+
 ## Diagnostics fixtures
 
 The two diagnostics histories capture a complete ticketed run

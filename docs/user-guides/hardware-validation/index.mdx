@@ -4,7 +4,7 @@ sidebar-title: Hardware Validation
 position: 10
 ---
 
-The Hardware Validation workflow performs health checks on Cumulus Linux network devices in a site, collecting platform, environmental, and inventory data from each device in parallel and consolidating the results into a single Excel report. It is the standard tool for spotting hardware issues, such as failed fans, bad PSUs, off-spec voltages, non-green status LEDs, and unexpected inventory, across a fleet of switches without logging into each device by hand.
+The Hardware Validation workflow performs health checks on Cumulus Linux and Arista EOS network devices in a site, collecting platform, environmental, and inventory data from each device in parallel and consolidating the results into a single Excel report. It is the standard tool for spotting hardware issues, such as failed fans, bad PSUs, off-spec voltages, non-green status LEDs, and unexpected inventory, across a fleet of switches without logging into each device by hand.
 
 The workflow runs end-to-end against the devices Nautobot already knows about; no per-device input is required.
 
@@ -12,8 +12,8 @@ The workflow runs end-to-end against the devices Nautobot already knows about; n
 
 Before running Hardware Validation, confirm the following are in place:
 
-- **Devices exist in Nautobot** with platform set to a Cumulus Linux value, a primary IPv4, and any required config contexts. The workflow filters its target list down to Cumulus devices, so non-Cumulus platforms are silently skipped.
-- **Devices are reachable** from Config Manager over the management network, and credentials for the site are present in the secrets store. Each collector uses NVUE / NV CLI over the device's management API to read platform and environment data.
+- **Devices exist in Nautobot** with platform set to Cumulus Linux or Arista EOS, a primary IPv4, and any required config contexts. The workflow filters its target list down to those platforms, so other platforms are silently skipped.
+- **Devices are reachable** from Config Manager over the management network, and credentials for the site are present in the secrets store. Each collector reads platform and environment data over the device's management API: NVUE / NV CLI on Cumulus Linux, eAPI on Arista EOS.
 - **Devices are provisioned.** The collectors expect to talk to a configured device. Devices still in ZTP, in maintenance with the management interface down, or otherwise unreachable will return errors rather than results and will appear in the report's error section.
 - **Filter criteria are known.** You need a site, a tenant, and the set of roles, statuses, and (optionally) device types to include. These are the standard Nautobot filter fields used across Config Manager workflows.
 
@@ -34,7 +34,7 @@ After submission, a status page appears showing each stage as it runs. The six c
 
 ## What gets checked
 
-The six collector stages each query a different NVUE / NV CLI endpoint on the device. State values other than `ok` (or, for LEDs, colors other than `green`) are flagged in the per-stage display and surface in the consolidated report.
+The six collector stages each query a different endpoint on the device. State values other than `ok` (or, for LEDs, colors other than `green`) are flagged in the per-stage display and surface in the consolidated report. The commands below are the Cumulus Linux ones; the Arista EOS equivalents follow.
 
 - **Device info** — Pulled from Nautobot. Provides device name, rack, rack position, role, and platform; used to label every row in the report.
 - **Platform** — `nv show platform`. Model, serial number, ASIC, system memory, and other top-level platform attributes.
@@ -44,11 +44,13 @@ The six collector stages each query a different NVUE / NV CLI endpoint on the de
 - **Voltage** — `nv show platform environment voltage`. Per-rail voltage measurements with min/max thresholds. Out-of-range rails are flagged with actual/min/max details.
 - **Inventory** — `nv show platform inventory`. Optics, modules, and other field-replaceable units present on the device.
 
+On Arista EOS the collectors use `show version` (platform), `show system environment cooling` (fans, including power-supply fans), `show system environment power` (PSUs, and the input and output voltage of each supply for the Voltage sheet, since EOS exposes no rail voltages over eAPI) and `show inventory` (chassis, power supplies, fan trays and pluggables with a serial number). EOS reports no LED state over eAPI, so the LED sheet has no rows for EOS devices. The results use the same field names as the Cumulus data, so flagging and the report work the same way; a power-supply slot reported as `Not Inserted` appears in Inventory with state `not-inserted`.
+
 ## Execution stages
 
 The workflow defines nine stages. The first two run sequentially to build the device set; the six collectors then run in parallel; the report stage waits on all six. None of the stages require manual approval.
 
-1. **`get_devices_to_validate` — Query devices by filter criteria.** Calls Nautobot with the supplied site, tenant, roles, statuses, and device-type IDs, then filters the result to devices whose platform contains `cumulus`. The display reports how many Cumulus Linux devices were found.
+1. **`get_devices_to_validate` — Query devices by filter criteria.** Calls Nautobot with the supplied site, tenant, roles, statuses, and device-type IDs, restricted to the supported platforms (Cumulus Linux and Arista EOS). The display reports how many devices were found.
 
 1. **`get_device_info` — Index device records by ID.** Builds the in-memory map of device IDs to Nautobot device data that every collector stage iterates over.
 
@@ -85,11 +87,11 @@ The display for each collector stage also surfaces three error buckets up front:
 
 **No devices found.**
 
-The filter returned no Cumulus Linux devices. Confirm the site, tenant, roles, and statuses match what is in Nautobot, and that the devices have their platform field populated to a Cumulus value. Devices on other NOS platforms are intentionally skipped.
+The filter returned no Cumulus Linux or Arista EOS devices. Confirm the site, tenant, roles, and statuses match what is in Nautobot, and that the devices have their platform field populated. Devices on other NOS platforms are intentionally skipped.
 
 **A collector reports `Unsupported endpoints` for some devices.**
 
-Older Cumulus releases (or certain platforms) do not implement every NVUE endpoint the collectors call. Those devices succeed on the categories they support and surface here on the ones they do not. Upgrade the device to a supported Cumulus Linux release if the missing data is needed.
+Older Cumulus releases (or certain platforms) do not implement every NVUE endpoint the collectors call. Those devices succeed on the categories they support and surface here on the ones they do not. Upgrade the device to a supported Cumulus Linux release if the missing data is needed. Arista EOS devices without power supplies (virtual EOS, for example) report empty PSU and Voltage results rather than an error.
 
 **A collector reports `Connectivity issues` for some devices.**
 
@@ -97,7 +99,7 @@ The device was not reachable from Config Manager over the management network dur
 
 **Flagged hardware that turns out to be a false positive.**
 
-Re-run the workflow first; transient sensor reads occasionally trip the threshold check. If a rail or fan continues to flag, log into the device and re-run the underlying `nv show platform environment ...` command interactively to confirm the reading before opening a vendor RMA.
+Re-run the workflow first; transient sensor reads occasionally trip the threshold check. If a rail or fan continues to flag, log into the device and re-run the underlying `nv show platform environment ...` (or `show system environment ...` on EOS) command interactively to confirm the reading before opening a vendor RMA.
 
 **The Excel attachment is missing from the report stage.**
 
