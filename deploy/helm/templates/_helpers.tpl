@@ -2007,15 +2007,57 @@ labels:
 {{- end -}}
 
 {{/*
-Yields "true" when the bundled NATS blackbox Probe is rendered. The
-namespace-isolation NetworkPolicy uses the same condition to open the NATS
-monitoring port to the exporter.
+Yields the rendered nautobotNats.gateway.hostname when bundled NATS and the
+gateway are both enabled, or nothing. The NATS HTTPRoute, its WebSocket
+listener and its timeout policies all render exactly when this is non-empty.
+*/}}
+{{- define "nv-config-manager.natsGatewayHostname" -}}
+{{- $gw := .Values.nautobotNats.gateway | default dict -}}
+{{- $bundled := or .Values.nautobotNats.enabled .Values.externalServices.nats.local -}}
+{{- if and $bundled .Values.gateway.enabled $gw.hostname -}}
+{{- tpl $gw.hostname . -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Yields the name of the chart-created Gateway's first HTTPS listener, or
+nothing. The NATS route attaches only to that listener so NATS credentials
+never cross plain HTTP; a shared Gateway (gateway.create=false) or an explicit
+gateway.sectionName keeps the usual parentRef.
+*/}}
+{{- define "nv-config-manager.natsHttpsListener" -}}
+{{- if and .Values.gateway.create (not .Values.gateway.sectionName) -}}
+{{- $names := list -}}
+{{- range .Values.gateway.listeners | default list -}}
+{{- if eq .protocol "HTTPS" -}}
+{{- $names = append $names .name -}}
+{{- end -}}
+{{- end -}}
+{{- first $names | default "" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Yields "true" when the bundled NATS blackbox Probe is rendered.
 */}}
 {{- define "nv-config-manager.natsProbeEnabled" -}}
 {{- $probes := .Values.monitoring.probes | default dict -}}
 {{- $nats := $probes.nats | default dict -}}
 {{- $bundled := or .Values.nautobotNats.enabled .Values.externalServices.nats.local -}}
 {{- if and .Values.monitoring.enabled $probes.enabled $probes.blackboxExporterUrl $bundled ($nats.enabled | default false) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Yields "true" when the NATS Probe targets the in-cluster monitoring endpoint
+rather than an explicit target or the NATS gateway route. The
+namespace-isolation NetworkPolicy uses it to open the NATS monitoring port to
+the exporter.
+*/}}
+{{- define "nv-config-manager.natsProbeInCluster" -}}
+{{- $nats := (.Values.monitoring.probes | default dict).nats | default dict -}}
+{{- if and (include "nv-config-manager.natsProbeEnabled" .) (not $nats.target) (not (include "nv-config-manager.natsGatewayHostname" .)) -}}
 true
 {{- end -}}
 {{- end -}}

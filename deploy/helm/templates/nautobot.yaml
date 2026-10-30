@@ -71,6 +71,10 @@ spec:
               name: client
             - containerPort: 8222
               name: monitor
+            {{- if include "nv-config-manager.natsGatewayHostname" . }}
+            - containerPort: {{ .Values.nautobotNats.gateway.websocket.port | default 8080 }}
+              name: websocket
+            {{- end }}
           env:
             - name: SYS_PASSWORD
               valueFrom:
@@ -158,6 +162,11 @@ spec:
     - port: 8222
       targetPort: monitor
       name: monitor
+    {{- if include "nv-config-manager.natsGatewayHostname" . }}
+    - port: {{ .Values.nautobotNats.gateway.websocket.port | default 8080 }}
+      targetPort: websocket
+      name: websocket
+    {{- end }}
   selector:
     app.kubernetes.io/name: {{ $natsName }}
     app.kubernetes.io/instance: {{ .Release.Name }}

@@ -40,6 +40,50 @@ spec:
     streamIdle: {{ .Values.networkZtp.upload.idleTimeout | default "300s" }}
 {{- end }}
 
+{{- if include "nv-config-manager.natsGatewayHostname" . }}
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: {{ include "nv-config-manager.componentName" (dict "root" . "component" "stream-timeouts") }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+spec:
+  # Long-lived NATS client connections: no request timeout, and an idle timeout
+  # longer than the NATS ping interval.
+  targetSelectors:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    matchLabels:
+      nv-config-manager.nvidia.com/timeout-profile: stream
+  timeouts:
+    request: "0s"
+    streamIdle: {{ .Values.nautobotNats.gateway.websocket.idleTimeout | default "300s" }}
+{{- if .Values.gateway.create }}
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: ListenerPolicy
+metadata:
+  name: {{ include "nv-config-manager.componentName" (dict "root" . "component" "websocket-upgrades") }}
+  namespace: {{ .Values.gateway.namespace | default .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+spec:
+  # kgateway rejects WebSocket upgrades with 403 unless the listener enables
+  # them. Through v2.3, a TrafficPolicy cannot enable upgrades per route.
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: {{ .Values.gateway.name }}
+  default:
+    httpSettings:
+      upgradeConfig:
+        enabledUpgrades:
+        - websocket
+{{- end }}
+{{- end }}
+
 ---
 apiVersion: gateway.kgateway.dev/v1alpha1
 kind: BackendConfigPolicy

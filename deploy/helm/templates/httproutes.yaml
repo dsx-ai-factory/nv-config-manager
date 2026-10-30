@@ -635,4 +635,85 @@ spec:
     {{- include "nv-config-manager.browserBackendRefs" (dict "root" . "backendName" $mcpName "backendPort" 9000 "proxyPort" 9108) | nindent 4 }}
 {{- end }}
 
+{{- $natsName := include "nv-config-manager.componentName" (dict "root" . "component" "nats") }}
+
+# Bundled NATS HTTPRoute: unauthenticated exact GET /healthz for the Probe,
+# and the NATS client protocol over WebSocket (NATS authenticates).
+{{- with include "nv-config-manager.natsGatewayHostname" . }}
+{{- $hostname := . }}
+{{- $httpsListener := include "nv-config-manager.natsHttpsListener" $ }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $natsName }}
+  namespace: {{ $.Values.global.namespace }}
+  {{- include "nv-config-manager.httpRoutePolicyLabels" (dict "root" $ "timeoutProfile" "stream") | nindent 2 }}
+  annotations:
+    nv-config-manager.nvidia.com/no-auth: "true"
+spec:
+  parentRefs:
+  {{- if $httpsListener }}
+  - name: {{ $.Values.gateway.name }}
+    namespace: {{ $.Values.gateway.namespace | default $.Values.global.namespace }}
+    sectionName: {{ $httpsListener }}
+  {{- else }}
+  {{- include "nv-config-manager.gatewayParentRef" $ | nindent 2 }}
+  {{- end }}
+  hostnames:
+  - {{ $hostname | quote }}
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    {{- include "nv-config-manager.stripIdentityHeaders" $ | nindent 4 }}
+    backendRefs:
+    - name: {{ $natsName }}
+      port: {{ $.Values.nautobotNats.gateway.websocket.port | default 8080 }}
+  {{- /* Exact match: the monitoring port also serves varz, connz and jsz. */}}
+  - matches:
+    - path:
+        type: Exact
+        value: /healthz
+      method: GET
+    {{- include "nv-config-manager.stripIdentityHeaders" $ | nindent 4 }}
+    backendRefs:
+    - name: {{ $natsName }}
+      port: 8222
+{{- if $httpsListener }}
+{{- range $.Values.gateway.listeners | default list }}
+{{- if eq .protocol "HTTP" }}
+---
+# Plain HTTP on the NATS hostname gets a 301 to https.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $natsName }}-redirect-{{ .name }}
+  namespace: {{ $.Values.global.namespace }}
+  {{- include "nv-config-manager.httpRoutePolicyLabels" (dict "root" $) | nindent 2 }}
+  annotations:
+    nv-config-manager.nvidia.com/no-auth: "true"
+spec:
+  parentRefs:
+  - name: {{ $.Values.gateway.name }}
+    namespace: {{ $.Values.gateway.namespace | default $.Values.global.namespace }}
+    sectionName: {{ .name }}
+  hostnames:
+  - {{ $hostname | quote }}
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    filters:
+    - type: RequestRedirect
+      requestRedirect:
+        scheme: https
+        statusCode: 301
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- end }}
