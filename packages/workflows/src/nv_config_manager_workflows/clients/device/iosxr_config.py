@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------------
@@ -86,6 +87,27 @@ def _canonical_address_line(line: str) -> str:
     return f"{match.group('lead')}{match.group('ip')} {mask}{match.group('rest')}"
 
 
+def _lines_with_banners(text: str) -> Iterator[tuple[str, bool]]:
+    """Yield each line of ``text`` with whether it is inside a multi-line banner.
+
+    A banner runs from the line after ``banner <type> <delimiter>`` up to and including
+    the first line that holds the delimiter again. Its lines are text for the router,
+    not configuration syntax: a closing ``!`` delimiter, blank lines and lines that
+    look like comments or ``end`` must reach the router as they are.
+    """
+    delimiter: str | None = None
+    for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if delimiter is not None:
+            yield raw, True
+            if delimiter in raw:
+                delimiter = None
+            continue
+        banner = _BANNER_RE.match(_collapse(raw))
+        if banner and banner.group(1) not in banner.group(2):
+            delimiter = banner.group(1)
+        yield raw, False
+
+
 def normalize_config(text: str) -> str:
     """Return ``text`` without the lines that are not configuration.
 
@@ -94,10 +116,14 @@ def normalize_config(text: str) -> str:
     every other line that starts with ``!`` (block separators and comments),
     blank lines, the trailing ``end``, carriage returns and trailing blanks.
     ``ipv4 address A.B.C.D/N`` becomes the netmask form.
-    Indentation is kept because it carries the hierarchy.
+    Indentation is kept because it carries the hierarchy. The lines of a multi-line
+    banner are kept exactly, including its closing delimiter and blank lines.
     """
     kept: list[str] = []
-    for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+    for raw, in_banner in _lines_with_banners(text):
+        if in_banner:
+            kept.append(raw)
+            continue
         line = raw.rstrip()
         stripped = line.strip()
         if not stripped or stripped.startswith("!"):
@@ -116,10 +142,13 @@ def replacement_text(text: str) -> str:
     running-config`` output in this form is accepted back unchanged. Only the lines
     that are not part of a configuration (clock line, ``Building configuration...``,
     ``Current configuration``, ``!!`` comments), carriage returns and trailing blanks
-    are removed.
+    are removed. The lines of a multi-line banner are kept exactly.
     """
     kept: list[str] = []
-    for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+    for raw, in_banner in _lines_with_banners(text):
+        if in_banner:
+            kept.append(raw)
+            continue
         line = raw.rstrip()
         stripped = line.strip()
         if not stripped or stripped.startswith("!!"):

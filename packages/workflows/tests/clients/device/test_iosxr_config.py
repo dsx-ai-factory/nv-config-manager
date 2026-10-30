@@ -173,6 +173,42 @@ def test_parse_keeps_multiline_banner_as_one_unit() -> None:
     assert tree[1].line == "hostname a"
 
 
+def test_parse_accepts_a_banner_whose_delimiter_is_an_exclamation_mark() -> None:
+    text = "banner motd !\n Authorized use only\n\n Log off now\n!\nhostname a\n"
+
+    tree = xr.parse_config(text)
+
+    assert tree[0].atomic
+    assert tree[0].body == ("Authorized use only", "", "Log off now", "!")
+    assert tree[1].line == "hostname a"
+
+
+def test_normalize_keeps_the_lines_of_a_banner_as_they_are() -> None:
+    text = (
+        "banner motd #\n"
+        " first\n"
+        "\n"
+        "!! not a comment here\n"
+        "end\n"
+        "Building configuration...\n"
+        "#\n"
+        "hostname a\n"
+    )
+
+    normalized = xr.normalize_config(text)
+
+    assert normalized == text
+
+
+def test_replacement_text_keeps_the_lines_of_a_banner_as_they_are() -> None:
+    banner = "banner motd !\n first\n\n!! not a comment here\n second\n!\n"
+
+    sent = xr.replacement_text("hostname a\n!\n" + banner + "hostname b\n")
+
+    assert banner in sent
+    assert sent.endswith("hostname b\nend\n")
+
+
 # --- commands --------------------------------------------------------------
 
 
