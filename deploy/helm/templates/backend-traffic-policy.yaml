@@ -63,6 +63,12 @@ spec:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
     name: {{ $ztpName }}
+  {{- /* Without this, targeting a route replaces the Gateway policy outright
+       instead of layering on it, so this route would serve with no rateLimit
+       at all whenever gateway.rateLimit.enabled is set. Merging keeps the
+       longer upload timeouts below winning, because the route policy is the
+       patch and the Gateway policy the base. */}}
+  mergeType: StrategicMerge
   timeout:
     http:
       # Allow up to 1 hour for 5GB uploads on slower connections
@@ -86,6 +92,9 @@ spec:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
     name: {{ $ztpName }}-svc
+  # Same reason as the policy above: without merging, this route loses the
+  # Gateway policy's rateLimit entirely.
+  mergeType: StrategicMerge
   timeout:
     http:
       requestTimeout: {{ $uploadTimeout }}
