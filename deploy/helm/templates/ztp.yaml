@@ -7,6 +7,8 @@
 {{- $ztpVaultAgentJwt := and (eq .Values.secrets.method "vault-agent") (eq (.Values.secrets.vaultAgent.autoAuthMethod | default "kubernetes") "jwt") }}
 {{- $downloads := .Values.networkZtp.downloads | default dict }}
 {{- $sftpDownloads := $downloads.sftp | default dict }}
+{{- /* sftp probes exec an sftp client against the in-pod "healthcheck" user. */}}
+{{- $sftpProbeHandler := dict "exec" (dict "command" (list "sshpass" "-p" "" "sftp" "-o" "StrictHostKeyChecking=no" "-o" "UserKnownHostsFile=/dev/null" "-P" "2222" "healthcheck@localhost:/healthcheck" "/dev/null")) }}
 ---
 # Network ZTP Deployment
 apiVersion: apps/v1
@@ -101,27 +103,10 @@ spec:
         # so the lenient liveness probe does not race them. Generous
         # timeout/period/failureThreshold ride out transient event-loop stalls;
         # readiness still drops the pod from the Service after ~30s of misses.
-        startupProbe:
-          httpGet:
-            path: /healthcheck
-            port: 9000
-          timeoutSeconds: 5
-          periodSeconds: 5
-          failureThreshold: 30
-        livenessProbe:
-          httpGet:
-            path: /healthcheck
-            port: 9000
-          timeoutSeconds: 5
-          periodSeconds: 15
-          failureThreshold: 6
-        readinessProbe:
-          httpGet:
-            path: /healthcheck
-            port: 9000
-          timeoutSeconds: 3
-          periodSeconds: 10
-          failureThreshold: 3
+        # The timings live in values.yaml (networkZtp.probes.httpApi / httpLb).
+        {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 8 "probes" .Values.networkZtp.probes.httpApi "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9000))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 8 "probes" .Values.networkZtp.probes.httpApi "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9000))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 8 "probes" .Values.networkZtp.probes.httpApi "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9000))) }}
 
       # HTTP API container for device access via LoadBalancer (IP-based authorization)
       {{- if or .Values.networkZtp.ingress.nlb .Values.networkZtp.ingress.cilium .Values.networkZtp.ingress.metallb }}
@@ -167,27 +152,9 @@ spec:
         {{- end }}
         # Same timings as http-api: liveness must survive event-loop lag under
         # load rather than restarting a busy listener. startupProbe covers slow starts.
-        startupProbe:
-          httpGet:
-            path: /healthcheck
-            port: 8000
-          timeoutSeconds: 5
-          periodSeconds: 5
-          failureThreshold: 30
-        livenessProbe:
-          httpGet:
-            path: /healthcheck
-            port: 8000
-          timeoutSeconds: 5
-          periodSeconds: 15
-          failureThreshold: 6
-        readinessProbe:
-          httpGet:
-            path: /healthcheck
-            port: 8000
-          timeoutSeconds: 3
-          periodSeconds: 10
-          failureThreshold: 3
+        {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 8 "probes" .Values.networkZtp.probes.httpLb "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 8000))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 8 "probes" .Values.networkZtp.probes.httpLb "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 8000))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 8 "probes" .Values.networkZtp.probes.httpLb "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 8000))) }}
       {{- end }}
 
       # SFTP server container
@@ -226,42 +193,9 @@ spec:
           readOnly: true
         {{- end }}
         {{- end }}
-        livenessProbe:
-          exec:
-            command:
-            - sshpass
-            - -p
-            - ""
-            - sftp
-            - -o
-            - StrictHostKeyChecking=no
-            - -o
-            - UserKnownHostsFile=/dev/null
-            - -P
-            - "2222"
-            - healthcheck@localhost:/healthcheck
-            - /dev/null
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-        readinessProbe:
-          exec:
-            command:
-            - sshpass
-            - -p
-            - ""
-            - sftp
-            - -o
-            - StrictHostKeyChecking=no
-            - -o
-            - UserKnownHostsFile=/dev/null
-            - -P
-            - "2222"
-            - healthcheck@localhost:/healthcheck
-            - /dev/null
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 5
+        {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 8 "probes" .Values.networkZtp.probes.sftp "handler" $sftpProbeHandler) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 8 "probes" .Values.networkZtp.probes.sftp "handler" $sftpProbeHandler) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 8 "probes" .Values.networkZtp.probes.sftp "handler" $sftpProbeHandler) }}
       
       {{- /* SPIFFE helper sidecar for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar" (dict "root" . "serviceName" "network-ztp") | nindent 6 }}

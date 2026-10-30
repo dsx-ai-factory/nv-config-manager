@@ -92,24 +92,10 @@ spec:
             - $(REDIS_PASSWORD)
           resources:
             {{- toYaml .Values.externalServices.redis.resources | nindent 12 }}
-          livenessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - REDISCLI_AUTH=$REDIS_PASSWORD redis-cli ping | grep -q PONG
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 5
-          readinessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - REDISCLI_AUTH=$REDIS_PASSWORD redis-cli ping | grep -q PONG
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 3
+          {{- $redisPingHandler := dict "exec" (dict "command" (list "sh" "-c" "REDISCLI_AUTH=$REDIS_PASSWORD redis-cli ping | grep -q PONG")) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 10 "probes" .Values.externalServices.redis.probes "handler" $redisPingHandler) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 10 "probes" .Values.externalServices.redis.probes "handler" $redisPingHandler) }}
+          {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 10 "probes" .Values.externalServices.redis.probes "handler" $redisPingHandler) }}
           volumeMounts:
             - name: {{ $redisName }}-data
               mountPath: /data

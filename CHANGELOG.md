@@ -8,7 +8,12 @@ version before the selected release candidate is promoted.
 
 ## Unreleased
 
-### Changed
+- Helm container probes (liveness, readiness, startup) are now configurable
+  per container through a `probes` map next to each component's `resources`
+  in `values.yaml`. Any Kubernetes probe field can be set, probes can be
+  disabled with `enabled: false`, and off-by-default probes can be enabled.
+  Defaults render exactly as before; see "Container probes" at the top of
+  `deploy/helm/values.yaml`.
 
 - Updated the managed Temporal server and bootstrap tools from 1.30.8 to 1.31.4.
   The frontend init container upgrades PostgreSQL core/visibility schemas to

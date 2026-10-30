@@ -103,14 +103,9 @@ spec:
         {{- end }}
         {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- include "nv-config-manager.authVolumeMounts" . | nindent 8 }}
-        livenessProbe:
-          httpGet:
-            path: /healthcheck
-            port: 9000
-        readinessProbe:
-          httpGet:
-            path: /healthcheck
-            port: 9000
+        {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 8 "probes" .Values.renderService.api.probes "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9000))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 8 "probes" .Values.renderService.api.probes "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9000))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 8 "probes" .Values.renderService.api.probes "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9000))) }}
       {{- /* SPIFFE helper sidecar for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar" (dict "root" . "serviceName" "render-service-api") | nindent 6 }}
       volumes:
