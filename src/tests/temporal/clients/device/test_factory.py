@@ -23,6 +23,7 @@ from nv_config_manager.temporal.client import device as service_device
 # isort: off
 from nv_config_manager.temporal.client.device import (
     AristaConnection,
+    CiscoIosXrConnection,
     CumulusConnection,
     JuniperConnection,
     MellanoxConnection,
@@ -31,6 +32,7 @@ from nv_config_manager.temporal.client.device import (
     NVOSConnection,
     arista as service_arista,
     base as service_base,
+    cisco_xr as service_cisco_xr,
     cumulus as service_cumulus,
     juniper as service_juniper,
     mellanox as service_mellanox,
@@ -44,6 +46,9 @@ from nv_config_manager_workflows.clients.device.arista import (
     AristaConnection as WorkflowAristaConnection,
 )
 from nv_config_manager_workflows.clients.device.base import COMMIT_CONFIRM_ROLLBACK_SECONDS
+from nv_config_manager_workflows.clients.device.cisco_xr.connection import (
+    CiscoIosXrConnection as WorkflowCiscoIosXrConnection,
+)
 
 # isort: off
 from nv_config_manager_workflows.clients.device.cumulus import (
@@ -65,6 +70,7 @@ from nv_config_manager_workflows.clients.device.mock import (
 _EXPECTED_PUBLIC_EXPORTS = [
     "COMMIT_CONFIRM_ROLLBACK_SECONDS",
     "AristaConnection",
+    "CiscoIosXrConnection",
     "ConfigApplyFailureException",
     "ConfigSyntaxException",
     "CumulusConnection",
@@ -152,6 +158,12 @@ def test_service_package_public_exports_match_main() -> None:
             WorkflowJuniperConnection,
         ),
         (
+            service_cisco_xr,
+            "CiscoIosXrConnection",
+            CiscoIosXrConnection,
+            WorkflowCiscoIosXrConnection,
+        ),
+        (
             service_mellanox,
             "MellanoxConnection",
             MellanoxConnection,
@@ -203,6 +215,14 @@ def test_from_device_data_returns_juniper_when_mock_false():
     assert conn._port == 830
 
 
+def test_from_device_data_returns_cisco_xr_on_the_netconf_port():
+    """Config with mock = false + cisco-ios-xr platform → CiscoIosXrConnection on the NETCONF port 830."""
+    device = _JUNIPER_DEVICE.model_copy(update={"platform": "cisco-ios-xr"})
+    conn = from_device_data(device, config=_mock_config(mock=False))
+    assert isinstance(conn, CiscoIosXrConnection)
+    assert conn._port == 830
+
+
 def test_from_device_data_selects_platform_when_mock_option_missing():
     """A [device] section without mock continues with normal platform selection."""
     config = _mock_config(mock=None)
@@ -218,6 +238,7 @@ def test_from_device_data_selects_platform_when_mock_option_missing():
         (Platform.NV_OS, NVOSConnection),
         (Platform.MLNX_OS, MellanoxConnection),
         (Platform.JUNIPER_JUNOS, JuniperConnection),
+        (Platform.CISCO_IOS_XR, CiscoIosXrConnection),
     ],
 )
 def test_from_device_data_maps_every_workflow_selection_to_service_adapter(

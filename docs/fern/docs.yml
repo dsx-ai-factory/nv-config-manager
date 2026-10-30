@@ -96,6 +96,8 @@ navigation:
         path: ../user-guides/multi-deploy/index.mdx
       - page: Batch Deploy
         path: ../user-guides/batch-deploy/index.mdx
+      - page: Cisco IOS XR
+        path: ../user-guides/cisco-ios-xr/index.mdx
     - section: Validation
       collapsible: true
       collapsed-by-default: true
