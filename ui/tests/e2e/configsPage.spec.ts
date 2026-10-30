@@ -141,6 +141,60 @@ test.describe("Device Configurations Page", () => {
     await expect(page).toHaveURL(/\/device\/device-uuid-1/);
   });
 
+  test("navigates to device detail page when clicking elsewhere in the row", async ({
+    page,
+  }) => {
+    const deviceRow = page.locator("tbody tr").filter({ hasText: "spine-001" });
+    await expect(deviceRow).toBeVisible({ timeout: TEST_TIMEOUT });
+
+    await deviceRow.locator("td").nth(3).click();
+
+    await page.waitForURL("**/device/**");
+    await expect(page).toHaveURL(/\/device\/device-uuid-1\?file_type=intended/);
+  });
+
+  test("keeps the backup file type when clicking elsewhere in the row", async ({
+    page,
+  }) => {
+    await page.getByRole("tab", { name: "Backup Configs" }).click();
+    const deviceRow = page.locator("tbody tr").filter({ hasText: "spine-001" });
+    await expect(deviceRow).toBeVisible({ timeout: TEST_TIMEOUT });
+
+    await deviceRow.locator("td").nth(3).click();
+
+    await page.waitForURL("**/device/**");
+    await expect(page).toHaveURL(/\/device\/device-uuid-1\?file_type=backup/);
+  });
+
+  test("stays on the configs page when selecting text in a row", async ({
+    page,
+  }) => {
+    const authorCell = page
+      .locator("tbody tr")
+      .filter({ hasText: "spine-001" })
+      .locator("td")
+      .nth(3);
+    await expect(authorCell).toBeVisible({ timeout: TEST_TIMEOUT });
+    const box = await authorCell.boundingBox();
+    const y = (box?.y ?? 0) + (box?.height ?? 0) / 2;
+    const navigated = page
+      .waitForURL("**/device/**", { timeout: 5000 })
+      .then(
+        () => true,
+        () => false
+      );
+
+    await page.mouse.move((box?.x ?? 0) + 2, y);
+    await page.mouse.down();
+    await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) - 2, y, { steps: 5 });
+    await page.mouse.up();
+
+    expect(
+      await page.evaluate(() => globalThis.getSelection()?.toString())
+    ).not.toBe("");
+    expect(await navigated).toBe(false);
+  });
+
   test("shows correct result count in table header", async ({ page }) => {
     // Check for "All Devices" heading with count
     await expect(page.getByText(/All Devices \(\d+\)/)).toBeVisible({
@@ -285,6 +339,24 @@ test.describe("Device Configurations Page", () => {
     await expect(page.getByRole("button", { name: "Delete Permanently" })).toBeVisible({
       timeout: TEST_TIMEOUT,
     });
+  });
+
+  test("clicking delete button stays on the configs page", async ({ page }) => {
+    await page.getByLabel("Show inactive devices").click();
+    await expect(page.getByRole("link", { name: "decomm-001" })).toBeVisible({
+      timeout: TEST_TIMEOUT,
+    });
+    const navigated = page
+      .waitForURL("**/device/**", { timeout: 5000 })
+      .then(
+        () => true,
+        () => false
+      );
+
+    const inactiveRow = page.locator("tr").filter({ hasText: "decomm-001" });
+    await inactiveRow.locator("button").filter({ has: page.locator("svg") }).first().click();
+
+    expect(await navigated).toBe(false);
   });
 
   test("cancel button in delete dialog closes it without deleting", async ({
