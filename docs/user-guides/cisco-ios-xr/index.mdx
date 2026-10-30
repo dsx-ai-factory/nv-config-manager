@@ -63,6 +63,7 @@ Both `snmp_communities` and `macsec_key_chains` must exist on the device (an emp
 
 - Partial configuration is not supported; supply the full desired state. The copy replaces the whole candidate, so a partial configuration would remove everything it omits.
 - The router can list stanzas such as prefix-sets in the commit with the same entries in a different order. These reorder-only rewrites are not in the approval diff, so a commit can be larger than the diff shown. Lines that start with `#` are shown in the diff and count as changes.
+- A Deploy with the commit timer does not report success when the router already matches an approved diff. An earlier attempt may have sent the confirmed commit and ended before confirming it, and the router rolls back when the timer expires. The run fails with a message; wait for the timer to expire, then run Config Diff. An empty diff means the change is permanent; otherwise run Deploy again.
 - The Diagnostics workflow offers version, interfaces, LLDP neighbors and ARP table for IOS XR. The route table and BGP summary are not available yet.
 - Rescue configuration and the rollback diff are not supported for IOS XR: the router has copy and delete actions but none that reads or loads a file. Numbered rollback and ZTP initiation use the router's YANG actions; rollback commits at once and has no timer.
 - [Switch OS Upgrade](../switch-os-upgrade/index.mdx) rejects IOS XR devices: it needs an image install, which Config Manager does not do for XR yet.

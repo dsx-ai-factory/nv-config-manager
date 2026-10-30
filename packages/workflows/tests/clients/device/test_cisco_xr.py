@@ -390,6 +390,33 @@ def test_a_router_error_while_loading_the_diff_propagates() -> None:
 # --- apply -------------------------------------------------------------------
 
 
+def test_apply_of_an_approved_diff_that_is_already_in_place_is_not_reported_as_success() -> None:
+    """A retry after an unconfirmed commit sees the trial configuration, not a finished change."""
+    session = FakeSession()
+    connection, _ = _connection(session)
+    approved = connection.perform_candidate_diff(CHANGED)
+    session.shows["show running-config"] = CHANGED  # the earlier attempt's trial commit is running
+
+    with pytest.raises(NetworkDeviceException, match="may still be waiting") as raised:
+        connection.commit_candidate_config(CHANGED, approved)
+
+    assert raised.value.non_retryable
+    assert session.committed == []
+    assert session.confirmed == 0
+    assert session.discarded >= 1
+
+
+def test_apply_of_an_approved_diff_that_is_already_in_place_is_a_no_op_without_a_timer() -> None:
+    session = FakeSession()
+    connection, _ = _connection(session)
+    approved = connection.perform_candidate_diff(CHANGED)
+    session.shows["show running-config"] = CHANGED
+
+    connection.commit_candidate_config(CHANGED, approved, commit_confirm=False)
+
+    assert session.committed == []
+
+
 def test_apply_with_empty_diff_commits_nothing_and_releases_the_candidate() -> None:
     session = FakeSession()
     connection, _ = _connection(session)

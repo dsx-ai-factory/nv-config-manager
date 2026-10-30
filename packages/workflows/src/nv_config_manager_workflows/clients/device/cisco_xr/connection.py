@@ -432,8 +432,22 @@ class CiscoIosXrConnection(NetworkConnection):
         try:
             diff = self._router_diff(raw)
             if not diff:
-                # Router already matches the intended configuration: nothing to commit.
                 session.discard()
+                if approved_diff and commit_confirm:
+                    # A diff was approved, yet the router already matches: an earlier attempt
+                    # of this apply may have sent the confirmed commit and died before
+                    # confirming it, and the router rolls back when its timer expires.
+                    # Reporting success here would hide that, and nothing in this session
+                    # can tell a pending trial commit from a confirmed one.
+                    raise NetworkDeviceException(
+                        f"{self._host} already matches the intended configuration, but this "
+                        "attempt did not make the change and an earlier confirmed commit may "
+                        "still be waiting for its confirmation, after which the router rolls "
+                        "back. Wait for the commit timer to expire, then run Config Diff: an "
+                        "empty diff means the change is permanent; otherwise run Deploy again.",
+                        non_retryable=True,
+                    )
+                # Nothing was approved, or a plain commit (no timer): nothing to commit.
                 return
             # (2) The router must still propose exactly what a person approved.
             if diff != approved_diff:
