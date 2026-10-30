@@ -20,6 +20,7 @@ import ipaddress
 import os
 import random
 import time as _time
+from configparser import ConfigParser
 from typing import Any, cast
 
 import macaddress
@@ -41,6 +42,14 @@ logger = get_logger(__name__, category=LogCategory.DHCP_DATA)
 
 class DhcpConfigGenerationError(Exception):
     """DHCP Configuration Generation Error."""
+
+
+_KEA_SECTION = "dhcp.kea"
+_THREAD_POOL_SIZE_OPTION = "thread_pool_size"
+_PACKET_QUEUE_SIZE_OPTION = "packet_queue_size"
+_DEFAULT_THREAD_POOL_SIZE = 0
+_DEFAULT_PACKET_QUEUE_SIZE = 64
+_PACKETS_PER_THREAD = 8
 
 
 _DHCP4_OPTION_SPACE = "dhcp4"
@@ -721,6 +730,53 @@ def _extract_hooks_path(kea_config: dict[str, Any], version: int = 4) -> str:
     return default_path
 
 
+def _int_option(config: ConfigParser, option: str, default: int, *, minimum: int) -> int:
+    """Return a [dhcp.kea] integer at or above ``minimum``."""
+    raw = ""
+    if config.has_section(_KEA_SECTION):
+        raw = config.get(_KEA_SECTION, option, fallback="").strip()
+    if not raw:
+        return default
+    bound = "zero or a positive integer" if minimum == 0 else "a positive integer"
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise DhcpConfigGenerationError(f"[dhcp.kea] {option} must be {bound}") from exc
+    if value < minimum:
+        raise DhcpConfigGenerationError(f"[dhcp.kea] {option} must be {bound}")
+    return value
+
+
+def _multi_threading_config(config: ConfigParser) -> dict[str, Any]:
+    """Build the Kea worker settings published by config refresh.
+
+    Missing [dhcp.kea] settings keep Kea's historical block: auto-detected
+    workers (thread-pool-size 0) and a 64-packet queue. An explicit positive
+    thread pool defaults the queue to eight packets per worker.
+    """
+    thread_pool_size = _int_option(
+        config,
+        _THREAD_POOL_SIZE_OPTION,
+        _DEFAULT_THREAD_POOL_SIZE,
+        minimum=0,
+    )
+    default_queue = (
+        _DEFAULT_PACKET_QUEUE_SIZE
+        if thread_pool_size == 0
+        else thread_pool_size * _PACKETS_PER_THREAD
+    )
+    return {
+        "enable-multi-threading": True,
+        "thread-pool-size": thread_pool_size,
+        "packet-queue-size": _int_option(
+            config,
+            _PACKET_QUEUE_SIZE_OPTION,
+            default_queue,
+            minimum=1,
+        ),
+    }
+
+
 async def generate_config(
     dcim_client: DCIMClient,
     redis_client: RedisClient | None = None,
@@ -737,6 +793,7 @@ async def generate_config(
     """
     _start = _time.monotonic()
     config = load_config()
+    multi_threading = _multi_threading_config(config)
     is_aggregate = config.getboolean("general", "aggregate", fallback=False)
 
     # Get hooks path from existing Kea config (architecture-specific path set at build time)
@@ -768,6 +825,7 @@ async def generate_config(
                 {"library": f"{hooks_path}/libdhcp_lease_cmds.so"},
                 {"library": f"{hooks_path}/libdhcp_stat_cmds.so"},
             ],
+            "multi-threading": multi_threading,
             "option-def": site_dhcp_options,
             "reservations-global": True,
             "reservations": [],

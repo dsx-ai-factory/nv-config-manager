@@ -185,6 +185,90 @@ async def test_expected_config():
 
 
 @pytest.mark.asyncio
+async def test_generate_config_uses_explicit_multi_threading(kea_ini) -> None:
+    """Explicit [dhcp.kea] settings replace both derived Kea threading values."""
+    kea_ini(thread_pool_size="4", packet_queue_size="10")
+
+    config = await generate_config(
+        MockNautobotClient("https://nautobot.example.com/", "dummy"),
+        version=4,
+    )
+
+    assert config["Dhcp4"]["multi-threading"] == {
+        "enable-multi-threading": True,
+        "thread-pool-size": 4,
+        "packet-queue-size": 10,
+    }
+
+
+@pytest.mark.asyncio
+async def test_generate_config_derives_packet_queue_from_thread_pool(kea_ini) -> None:
+    """A configured thread pool gets eight queued packets per thread by default."""
+    kea_ini(thread_pool_size="3")
+
+    config = await generate_config(
+        MockNautobotClient("https://nautobot.example.com/", "dummy"),
+        version=4,
+    )
+
+    assert config["Dhcp4"]["multi-threading"]["thread-pool-size"] == 3
+    assert config["Dhcp4"]["multi-threading"]["packet-queue-size"] == 24
+
+
+@pytest.mark.asyncio
+async def test_generate_config_defaults_multi_threading_without_settings() -> None:
+    """Unset settings keep Kea's historical auto-detected pool and 64-packet queue."""
+    config = await generate_config(
+        MockNautobotClient("https://nautobot.example.com/", "dummy"),
+        version=4,
+    )
+
+    assert config["Dhcp4"]["multi-threading"] == {
+        "enable-multi-threading": True,
+        "thread-pool-size": 0,
+        "packet-queue-size": 64,
+    }
+
+
+@pytest.mark.asyncio
+async def test_generate_config_accepts_explicit_auto_thread_pool(kea_ini) -> None:
+    """thread-pool-size 0 is Kea auto-detection and keeps the 64-packet queue."""
+    kea_ini(thread_pool_size="0")
+
+    config = await generate_config(
+        MockNautobotClient("https://nautobot.example.com/", "dummy"),
+        version=4,
+    )
+
+    assert config["Dhcp4"]["multi-threading"]["thread-pool-size"] == 0
+    assert config["Dhcp4"]["multi-threading"]["packet-queue-size"] == 64
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("thread_pool_size", "-1"),
+        ("thread_pool_size", "auto"),
+        ("packet_queue_size", "0"),
+    ],
+)
+async def test_generate_config_rejects_invalid_multi_threading_settings(
+    kea_ini,
+    option: str,
+    value: str,
+) -> None:
+    """Invalid configured sizes fail generation instead of falling back silently."""
+    kea_ini(**{option: value})
+
+    with pytest.raises(DhcpConfigGenerationError, match=option):
+        await generate_config(
+            MockNautobotClient("https://nautobot.example.com/", "dummy"),
+            version=4,
+        )
+
+
+@pytest.mark.asyncio
 async def test_subnet_id_preservation():
     """Test that subnet IDs are preserved correctly."""
     # Generate config with mock clients

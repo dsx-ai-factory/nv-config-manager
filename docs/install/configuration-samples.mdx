@@ -110,6 +110,28 @@ observability automatically enables both settings without changing the saved
 `redis_metrics_enabled` preference. Configuring external Redis suppresses the
 exporter and PodMonitor.
 
+## Kea DHCP multi-threading
+
+```yaml
+version: "1"
+cluster:
+  hostname: nv-config-manager.local
+  environment: local
+  namespace: nv-config-manager
+  size: small
+dhcp:
+  kea_multi_threading:
+    size_from_cpu_request: true
+    packet_queue_size: 32
+sites:
+  - name: dc01
+```
+
+The installer writes these settings to `networkDhcp.kea.multiThreading` in the
+generated Helm values and emits nothing when they are unset. See
+[Kea Multi-Threading](../dhcp/index.mdx#kea-multi-threading) for how the thread
+pool and queue sizes are derived.
+
 ## File storage with OS images
 
 ```yaml

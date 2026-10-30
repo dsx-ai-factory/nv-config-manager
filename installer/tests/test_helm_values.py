@@ -30,6 +30,7 @@ from nv_config_manager_installer.schema import (
     ContentConfig,
     DCIMConfig,
     DCIMProviderPackage,
+    DHCPConfig,
     ExternalNATSConfig,
     ExternalRedisConfig,
     ExternalServicesConfig,
@@ -45,6 +46,7 @@ from nv_config_manager_installer.schema import (
     JobsConfig,
     JWTProvider,
     K8sSecretGroup,
+    KeaMultiThreadingConfig,
     KubernetesSecretsConfig,
     LBProvider,
     LoadBalancerConfig,
@@ -690,6 +692,36 @@ class TestGenerateHelmValues:
         assert values["networkDhcp"]["enabled"] is False
         assert values["networkZtp"]["enabled"] is True
         assert values["mcp"]["enabled"] is False
+
+    def test_kea_multi_threading_omitted_by_default(self):
+        values = _gen(_make_config())
+
+        assert "kea" not in values["networkDhcp"]
+
+    def test_kea_multi_threading_size_from_cpu_request(self):
+        config = _make_config(
+            dhcp=DHCPConfig(kea_multi_threading=KeaMultiThreadingConfig(size_from_cpu_request=True))
+        )
+
+        values = _gen(config)
+
+        assert values["networkDhcp"]["kea"]["multiThreading"] == {"sizeFromCpuRequest": True}
+
+    def test_kea_multi_threading_explicit_overrides(self):
+        config = _make_config(
+            dhcp=DHCPConfig(
+                kea_multi_threading=KeaMultiThreadingConfig(
+                    thread_pool_size=0, packet_queue_size=10
+                )
+            )
+        )
+
+        values = _gen(config)
+
+        assert values["networkDhcp"]["kea"]["multiThreading"] == {
+            "threadPoolSize": 0,
+            "packetQueueSize": 10,
+        }
 
     def test_nodeport_when_no_lb(self):
         config = _make_config(
