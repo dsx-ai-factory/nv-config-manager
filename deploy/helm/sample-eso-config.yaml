@@ -132,6 +132,7 @@ secrets:
         keys:
           baseUrl: "base_url"
           apiToken: "api_token"
+          email: "email"  # Optional: Cloud Basic auth account
 
       # Nautobot app secrets
       nautobotApp:
