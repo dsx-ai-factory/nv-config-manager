@@ -69,9 +69,10 @@ class ServicesScreen(Container):
         yield Label("Kea DHCP Multi-Threading", classes="section-title")
         yield Label("─" * 40, classes="section-divider")
         yield Label(
-            "Leave the fields blank to keep Kea's auto-detected worker count and 64-packet queue. "
-            "CPU sizing uses the DHCP CPU request, rounded up to whole cores, and queues "
-            "eight packets per thread."
+            "With CPU sizing off, leave the fields blank to keep Kea's auto-detected "
+            "worker count and 64-packet queue. With CPU sizing on, a blank pool follows "
+            "the DHCP CPU request and a blank queue is eight packets per thread. "
+            "An explicit pool of 0 keeps the queue at 64."
         )
         yield LabeledSwitch(
             "Size threads from DHCP CPU request",

@@ -93,8 +93,8 @@ networkDhcp:
 
 This example gives two threads and a queue of 16. Invalid values fail the Helm
 render, and the configuration generator rejects them at refresh time. The
-settings reach the refresh container as `NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE`
-and `NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE`. See the
+resolved sizes are written to the shared `[dhcp.kea]` section as
+`thread_pool_size` and `packet_queue_size`. See the
 [ISC multi-threading guidance](https://kea.readthedocs.io/en/kea-3.2.0/arm/dhcp4-srv.html#multi-threading-settings)
 for sizing recommendations.
 

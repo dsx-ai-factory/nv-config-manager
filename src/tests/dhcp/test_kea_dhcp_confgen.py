@@ -185,12 +185,9 @@ async def test_expected_config():
 
 
 @pytest.mark.asyncio
-async def test_generate_config_uses_explicit_multi_threading(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Explicit refresh settings replace both derived Kea threading values."""
-    monkeypatch.setenv("NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE", "4")
-    monkeypatch.setenv("NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE", "10")
+async def test_generate_config_uses_explicit_multi_threading(kea_ini) -> None:
+    """Explicit [dhcp.kea] settings replace both derived Kea threading values."""
+    kea_ini(thread_pool_size="4", packet_queue_size="10")
 
     config = await generate_config(
         MockNautobotClient("https://nautobot.example.com/", "dummy"),
@@ -205,12 +202,9 @@ async def test_generate_config_uses_explicit_multi_threading(
 
 
 @pytest.mark.asyncio
-async def test_generate_config_derives_packet_queue_from_thread_pool(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_generate_config_derives_packet_queue_from_thread_pool(kea_ini) -> None:
     """A configured thread pool gets eight queued packets per thread by default."""
-    monkeypatch.setenv("NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE", "3")
-    monkeypatch.delenv("NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE", raising=False)
+    kea_ini(thread_pool_size="3")
 
     config = await generate_config(
         MockNautobotClient("https://nautobot.example.com/", "dummy"),
@@ -222,13 +216,8 @@ async def test_generate_config_derives_packet_queue_from_thread_pool(
 
 
 @pytest.mark.asyncio
-async def test_generate_config_defaults_multi_threading_without_settings(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_generate_config_defaults_multi_threading_without_settings() -> None:
     """Unset settings keep Kea's historical auto-detected pool and 64-packet queue."""
-    monkeypatch.delenv("NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE", raising=False)
-    monkeypatch.delenv("NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE", raising=False)
-
     config = await generate_config(
         MockNautobotClient("https://nautobot.example.com/", "dummy"),
         version=4,
@@ -242,12 +231,9 @@ async def test_generate_config_defaults_multi_threading_without_settings(
 
 
 @pytest.mark.asyncio
-async def test_generate_config_accepts_explicit_auto_thread_pool(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_generate_config_accepts_explicit_auto_thread_pool(kea_ini) -> None:
     """thread-pool-size 0 is Kea auto-detection and keeps the 64-packet queue."""
-    monkeypatch.setenv("NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE", "0")
-    monkeypatch.delenv("NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE", raising=False)
+    kea_ini(thread_pool_size="0")
 
     config = await generate_config(
         MockNautobotClient("https://nautobot.example.com/", "dummy"),
@@ -260,22 +246,22 @@ async def test_generate_config_accepts_explicit_auto_thread_pool(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("name", "value"),
+    ("option", "value"),
     [
-        ("NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE", "-1"),
-        ("NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE", "auto"),
-        ("NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE", "0"),
+        ("thread_pool_size", "-1"),
+        ("thread_pool_size", "auto"),
+        ("packet_queue_size", "0"),
     ],
 )
 async def test_generate_config_rejects_invalid_multi_threading_settings(
-    monkeypatch: pytest.MonkeyPatch,
-    name: str,
+    kea_ini,
+    option: str,
     value: str,
 ) -> None:
     """Invalid configured sizes fail generation instead of falling back silently."""
-    monkeypatch.setenv(name, value)
+    kea_ini(**{option: value})
 
-    with pytest.raises(DhcpConfigGenerationError, match=name):
+    with pytest.raises(DhcpConfigGenerationError, match=option):
         await generate_config(
             MockNautobotClient("https://nautobot.example.com/", "dummy"),
             version=4,

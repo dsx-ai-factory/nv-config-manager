@@ -300,10 +300,6 @@ spec:
           value: {{ $dhcpName }}-kea-bootstrap
         - name: NV_CONFIG_MANAGER_KEA_PORT
           value: "8000"
-        - name: NV_CONFIG_MANAGER_KEA_THREAD_POOL_SIZE
-          value: {{ include "nv-config-manager.dhcp.threadPoolSize" . | quote }}
-        - name: NV_CONFIG_MANAGER_KEA_PACKET_QUEUE_SIZE
-          value: {{ include "nv-config-manager.dhcp.packetQueueSize" . | quote }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         ports:
         # config_generation / config_test failures are counted in this process's
