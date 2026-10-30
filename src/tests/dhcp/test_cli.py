@@ -595,6 +595,28 @@ async def test_startup_survives_a_redis_outage(mocker: Any) -> None:
     kea_client.set_config.assert_awaited_once()
 
 
+async def test_sync_client_timeout_follows_kea_op_timeout(mocker: Any) -> None:
+    """The Kea client's HTTP timeout must track CONFIG_SYNC_KEA_TIMEOUT.
+
+    Otherwise a shorter inner client timeout fires before the asyncio.wait_for
+    deadline and raising CONFIG_SYNC_KEA_TIMEOUT has no effect.
+    """
+    config = {"Dhcp4": {"subnet4": []}}
+    kea_client, redis_client = _make_clients(load_side_effect=[config, config])
+    mocker.patch.object(cli, "KEA_OP_TIMEOUT_SECONDS", 37.0)
+    _patch_sleep_after_one_retry(mocker)
+
+    with (
+        patch.object(cli.KeaClient, "from_config", return_value=kea_client) as from_config,
+        patch.object(cli.RedisClient, "from_config", return_value=redis_client),
+        pytest.raises(_StopLoop),
+    ):
+        await cli._sync_kea_configuration_async(4, 1, False)
+
+    assert from_config.call_args.kwargs["timeout_seconds"] == 37.0
+    assert from_config.call_args.kwargs["attached"] is True
+
+
 async def test_startup_survives_a_kea_outage(mocker: Any) -> None:
     """Kea not yet listening before the first apply must not exit the sidecar."""
     config = {"Dhcp4": {"subnet4": []}}
