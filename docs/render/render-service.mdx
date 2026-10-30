@@ -89,7 +89,13 @@ When `temporal.archive.enabled=true`, the archive service consumes `archiveSubje
 
 Clients specify their stream explicitly and do not request `STREAM.INFO` for externally managed streams. Stream creation, mutation, and inspection therefore remain administrator operations. When `externalServices.nats.local=true`, the application retains its existing stream setup behavior for local development.
 
-An administrator-provisioned consumer should use the configured stream and filter subject with the fixed durable name, `deliver_policy=new`, `ack_policy=explicit`, `ack_wait=360s`, and `max_deliver=-1`. The application validates operational settings but does not change an existing consumer or require its delivery policy to match; the owner can retain the delivery policy chosen for a migration boundary.
+An administrator-provisioned consumer should use the configured stream and filter subject with the fixed durable name, `deliver_policy=new`, `ack_policy=explicit`, `ack_wait=360s`, and `max_deliver=1000`. The application validates operational settings but does not change an existing consumer or require its delivery policy to match; the owner can retain the delivery policy chosen for a migration boundary.
+
+The device render consumer follows the `max_deliver` of the durable it finds. On the final delivery that durable allows, it terminates the message and releases the device's render queue claim. A lower limit is therefore safe but shortens how long a render keeps retrying, and `max_deliver=-1` retries indefinitely. A render that fails is redelivered after a delay that doubles from 1 second up to 60 seconds, so a dependency outage does not consume the delivery limit in seconds.
+
+Producers of render requests, the render API and the DCIM consumer, also read the device render consumer's INFO. A producer that finds a device already claimed uses it to tell whether the claim's message is still waiting or has passed the consumer's ack floor without releasing the claim, and takes such a claim over. Without that permission, an abandoned claim suppresses renders for its device until the claim's one-hour TTL expires.
+
+When upgrading from a release whose render requests carry no queue claim, requests queued by that release do not release the newer claims; the flags those releases wrote expire within 60 seconds.
 
 If create permission is omitted and the durable is absent, the consumer logs the exact provisioning request. If delete permission is omitted, the reset API returns instructions to delete and recreate the exact durable at the stream head. Configuration mismatches likewise produce an administrator-ready update request in the consumer log.
 
