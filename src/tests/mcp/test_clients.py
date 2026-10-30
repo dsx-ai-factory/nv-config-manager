@@ -14,6 +14,7 @@
 # limitations under the License.
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 import pytest
@@ -182,6 +183,17 @@ async def test_nautobot_graphql_uses_provider_owned_adapter(
         "variables": None,
     }
     assert dcim_client.closed is True
+
+
+async def test_fetch_dhcp_config_reports_a_cell_without_dhcp(settings: MCPSettings) -> None:
+    no_dhcp = dataclasses.replace(settings, dhcp_api_url="")
+
+    with pytest.raises(clients.MCPClientError, match="DHCP is not deployed"):
+        await clients.fetch_dhcp_config(no_dhcp, 4)
+
+
+def test_dhcp_client_is_built_when_the_cell_has_dhcp(settings: MCPSettings) -> None:
+    assert clients.dhcp_client(settings) is not None
 
 
 async def test_nautobot_rest_get_uses_provider_owned_adapter(
