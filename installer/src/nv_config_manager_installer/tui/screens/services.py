@@ -93,13 +93,7 @@ class ServicesScreen(Container):
         )
 
     def write_to_config(self, config: NVConfigManagerInstallConfig) -> None:
-        config.services.render = self.query_one("#svc-render", LabeledSwitch).value
-        config.services.ztp = self.query_one("#svc-ztp", LabeledSwitch).value
-        config.services.dhcp = self.query_one("#svc-dhcp", LabeledSwitch).value
-        config.services.temporal = self.query_one("#svc-temporal", LabeledSwitch).value
-        config.services.config_store = self.query_one("#svc-config-store", LabeledSwitch).value
-        # Build the model first so invalid input raises before touching the config.
-        config.dhcp.kea_multi_threading = KeaMultiThreadingConfig(
+        kea = KeaMultiThreadingConfig(
             size_from_cpu_request=self.query_one("#kea-size-from-cpu", LabeledSwitch).value,
             thread_pool_size=_optional_int(
                 self.query_one("#kea-thread-pool-size", Input).value, "Thread pool size"
@@ -108,6 +102,12 @@ class ServicesScreen(Container):
                 self.query_one("#kea-packet-queue-size", Input).value, "Packet queue size"
             ),
         )
+        config.services.render = self.query_one("#svc-render", LabeledSwitch).value
+        config.services.ztp = self.query_one("#svc-ztp", LabeledSwitch).value
+        config.services.dhcp = self.query_one("#svc-dhcp", LabeledSwitch).value
+        config.services.temporal = self.query_one("#svc-temporal", LabeledSwitch).value
+        config.services.config_store = self.query_one("#svc-config-store", LabeledSwitch).value
+        config.dhcp.kea_multi_threading = kea
 
     def sync_from_config(self, config: NVConfigManagerInstallConfig) -> None:
         svc = config.services

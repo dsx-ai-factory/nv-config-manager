@@ -787,3 +787,23 @@ async def test_kea_cpu_sizing_with_thread_pool_blocks_navigation() -> None:
 
         assert app.active_section == "services"
         assert config.dhcp.kea_multi_threading == KeaMultiThreadingConfig()
+
+
+@pytest.mark.asyncio
+async def test_invalid_kea_input_does_not_save_service_toggles() -> None:
+    """A rejected Kea field must not leave the service toggles half-written."""
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        app.switch_section("services")
+        screen = app._screens["services"]
+        screen.query_one("#svc-dhcp", LabeledSwitch).value = False
+        screen.query_one("#kea-thread-pool-size", Input).value = "auto"
+        await pilot.pause()
+
+        with pytest.raises(ValueError, match="Thread pool size"):
+            screen.write_to_config(config)
+
+        assert config.services.dhcp is True
+        assert config.dhcp.kea_multi_threading == KeaMultiThreadingConfig()
