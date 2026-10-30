@@ -510,6 +510,45 @@ def test_apply_does_not_confirm_when_the_verification_diff_cannot_be_read() -> N
     assert raised.value.non_retryable
 
 
+@pytest.mark.parametrize("step", ["remaining_diff", "confirm"])
+def test_an_unexpected_error_after_the_commit_is_wrapped_and_not_retryable(step: str) -> None:
+    session, probe = FakeSession(), FakeSession({"show clock": "ok"})
+    connection, _ = _connection(session, probe)
+    approved = connection.perform_candidate_diff(CHANGED)
+    cause = ValueError("unexpected reply shape")
+    setattr(session, step, MagicMock(side_effect=cause))
+
+    with pytest.raises(NetworkDeviceException, match="not confirmed") as raised:
+        connection.commit_candidate_config(CHANGED, approved)
+
+    assert raised.value.non_retryable
+    assert raised.value.__cause__ is cause
+    assert session.confirmed == 0
+
+
+def test_an_unexpected_error_in_the_fresh_login_check_is_wrapped_and_not_retryable() -> None:
+    session = FakeSession()
+    connection, _ = _connection(session)
+    approved = connection.perform_candidate_diff(CHANGED)
+    connection._open_session = MagicMock(side_effect=KeyError("boom"))  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+    with pytest.raises(NetworkDeviceException, match="not confirmed") as raised:
+        connection.commit_candidate_config(CHANGED, approved)
+
+    assert raised.value.non_retryable
+    assert session.confirmed == 0
+
+
+def test_an_unexpected_error_from_a_plain_commit_is_not_wrapped() -> None:
+    session = FakeSession()
+    session.commit_error = ValueError("odd")
+    connection, _ = _connection(session)
+    approved = connection.perform_candidate_diff(CHANGED)
+
+    with pytest.raises(ValueError, match="odd"):
+        connection.commit_candidate_config(CHANGED, approved, commit_confirm=False)
+
+
 def test_failure_to_confirm_is_reported_and_not_retryable() -> None:
     session, probe = FakeSession(), FakeSession({"show clock": "ok"})
     session.confirm_error = NetworkDeviceException("session dropped")
@@ -587,8 +626,8 @@ def test_commit_failure_propagates() -> None:
 
 @pytest.mark.parametrize(
     "error",
-    [NetworkDeviceException("Commit failed"), SSHError("connection lost")],
-    ids=["device-exception", "transport-error"],
+    [NetworkDeviceException("Commit failed"), SSHError("connection lost"), ValueError("odd")],
+    ids=["device-exception", "transport-error", "unexpected-error"],
 )
 def test_a_failed_confirmed_commit_is_not_retryable(error: Exception) -> None:
     """The confirmed commit may have reached the router, so a retry could report a false success."""

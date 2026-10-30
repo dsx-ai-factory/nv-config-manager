@@ -465,15 +465,18 @@ class CiscoIosXrConnection(NetworkConnection):
         deadline = time.monotonic() + self._COMMIT_CONFIRM_SECONDS
         try:
             session.commit(confirm_seconds=confirm_seconds, timeout=self._APPLY_TIMEOUT_SECONDS)
-        except (NetworkDeviceException, *TRANSPORT_ERRORS) as error:
+        except Exception as error:  # noqa: BLE001 - any failure of a confirmed commit is wrapped
             if not commit_confirm:
                 if isinstance(error, NetworkDeviceException):
                     raise
-                raise NetworkDeviceException(
-                    f"Failed to apply candidate configuration on {self._host}: {error}"
-                ) from error
+                if isinstance(error, TRANSPORT_ERRORS):
+                    raise NetworkDeviceException(
+                        f"Failed to apply candidate configuration on {self._host}: {error}"
+                    ) from error
+                raise
             # A failed confirmed commit may still have reached the router: a retry could
             # find an empty diff and report success while the rollback timer is running.
+            # That holds for an unexpected error too, so every exception is wrapped.
             raise NetworkDeviceException(
                 f"Confirmed commit on {self._host} failed or its result is unknown ({error}); "
                 "the router rolls back when the commit timer expires.",
@@ -488,9 +491,10 @@ class CiscoIosXrConnection(NetworkConnection):
     def _verify_then_confirm(self, text: str, deadline: float) -> None:
         """Cancel the rollback timer only if the router is reachable and converged.
 
-        Every failure here is non-retryable: a retried apply would find the
-        trial configuration already running, compute an empty diff and return
-        success while the timer is still counting down to a rollback.
+        Every failure here is non-retryable, including an unexpected exception (the
+        original is kept as the cause): a retried apply would find the trial
+        configuration already running, compute an empty diff and return success while
+        the timer is still counting down to a rollback.
 
         A fresh NETCONF login proves the account and the management path survived
         the commit; a second router diff of the intended configuration with no changed
@@ -502,7 +506,7 @@ class CiscoIosXrConnection(NetworkConnection):
             remaining = self._router_diff(
                 self._get_session().remaining_diff(text, timeout=self._APPLY_TIMEOUT_SECONDS)
             )
-        except (NetworkDeviceException, *TRANSPORT_ERRORS) as error:
+        except Exception as error:  # noqa: BLE001 - nothing after the commit may be retried
             raise NetworkDeviceException(
                 f"Commit on {self._host} was not confirmed ({error}); "
                 "the router will roll back when the commit timer expires.",
@@ -526,7 +530,7 @@ class CiscoIosXrConnection(NetworkConnection):
             )
         try:
             self._get_session().confirm()
-        except (NetworkDeviceException, *TRANSPORT_ERRORS) as error:
+        except Exception as error:  # noqa: BLE001 - nothing after the commit may be retried
             raise NetworkDeviceException(
                 f"Commit on {self._host} was not confirmed ({error}); "
                 "the router will roll back when the commit timer expires.",
