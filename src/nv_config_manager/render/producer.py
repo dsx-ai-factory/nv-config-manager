@@ -15,11 +15,11 @@
 """Template updater for template version changes."""
 
 import asyncio
-import os
 
 from nv_config_manager_templates.version import TemplateVersion
 
 from nv_config_manager.common.config.environment import is_aggregate_environment
+from nv_config_manager.common.config.loader import application_setting
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import dcim_client_session
 from nv_config_manager.render.lock import create_lock
@@ -58,14 +58,18 @@ async def load_stale_renders(desired_version: TemplateVersion | str) -> list[str
 
 def template_update_concurrency() -> int:
     """Return the configured template updater render concurrency."""
-    configured = os.getenv("NV_CONFIG_MANAGER_TEMPLATE_UPDATE_CONCURRENCY")
+    configured = application_setting(
+        "render.template_updater",
+        "concurrency",
+        legacy_env="NV_CONFIG_MANAGER_TEMPLATE_UPDATE_CONCURRENCY",
+    )
     if configured is None:
         return DEFAULT_TEMPLATE_UPDATE_CONCURRENCY
     try:
         return max(1, int(configured))
     except ValueError:
         logger.warning(
-            "Invalid NV_CONFIG_MANAGER_TEMPLATE_UPDATE_CONCURRENCY=%s, using default %s",
+            "Invalid template updater concurrency=%s, using default %s",
             configured,
             DEFAULT_TEMPLATE_UPDATE_CONCURRENCY,
         )
@@ -74,14 +78,18 @@ def template_update_concurrency() -> int:
 
 def template_update_lock_timeout() -> int:
     """Return the configured per-device render lock wait timeout."""
-    configured = os.getenv("NV_CONFIG_MANAGER_TEMPLATE_UPDATE_LOCK_TIMEOUT")
+    configured = application_setting(
+        "render.template_updater",
+        "lock_timeout",
+        legacy_env="NV_CONFIG_MANAGER_TEMPLATE_UPDATE_LOCK_TIMEOUT",
+    )
     if configured is None:
         return DEFAULT_TEMPLATE_UPDATE_LOCK_TIMEOUT
     try:
         return max(1, int(configured))
     except ValueError:
         logger.warning(
-            "Invalid NV_CONFIG_MANAGER_TEMPLATE_UPDATE_LOCK_TIMEOUT=%s, using default %s",
+            "Invalid template updater lock_timeout=%s, using default %s",
             configured,
             DEFAULT_TEMPLATE_UPDATE_LOCK_TIMEOUT,
         )

@@ -124,7 +124,6 @@ spec:
         - name: NV_CONFIG_MANAGER_REJECT_IDENTITY_HEADERS
           value: "true"
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
-        {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
         ports:
         - containerPort: 9090
           name: healthcheck
@@ -169,7 +168,6 @@ spec:
         - name: NV_CONFIG_MANAGER_SERVICE
           value: "dhcp"
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
-        {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-dhcp") | nindent 8 }}
         {{- end }}

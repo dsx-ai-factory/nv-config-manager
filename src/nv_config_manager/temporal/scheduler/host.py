@@ -15,10 +15,10 @@
 """Selection, supervision, and signal handling for workflow schedulers."""
 
 import asyncio
-import os
 import signal
 from collections.abc import Sequence
 
+from nv_config_manager.common.config.loader import application_setting
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager_workflows.registration import (
     SchedulerRegistration,
@@ -41,9 +41,9 @@ class _SchedulerShutdown(Exception):
 
 
 def configured_scheduler_identities() -> tuple[str, ...]:
-    """Return the stable scheduler identities enabled by ``NVCM_ENABLED_SCHEDULERS``.
+    """Return the stable scheduler identities enabled in ``[temporal.scheduler]``.
 
-    Helm sets the variable from ``temporal.scheduler.schedulers``. When it is
+    Helm sets ``enabled_schedulers`` from ``temporal.scheduler.schedulers``. When it is
     unset, such as when running the console script without Helm, only the
     built-in backup scheduler is enabled. When it is set but empty, no
     identities are returned and the host waits for shutdown. Otherwise the
@@ -52,14 +52,16 @@ def configured_scheduler_identities() -> tuple[str, ...]:
     Raises:
         SchedulerHostError: If an identity appears more than once.
     """
-    configured = os.environ.get(ENABLED_SCHEDULERS_ENV)
+    configured = application_setting(
+        "temporal.scheduler", "enabled_schedulers", legacy_env=ENABLED_SCHEDULERS_ENV
+    )
     if configured is None:
         return (BackupScheduler.scheduler_identity,)
 
     identities = tuple(identity.strip() for identity in configured.split(",") if identity.strip())
     if len(set(identities)) != len(identities):
         raise SchedulerHostError(
-            f"{ENABLED_SCHEDULERS_ENV} contains a scheduler identity more than once"
+            "[temporal.scheduler] enabled_schedulers contains a scheduler identity more than once"
         )
     return identities
 

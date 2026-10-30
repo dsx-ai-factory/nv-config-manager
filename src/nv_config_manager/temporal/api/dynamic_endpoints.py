@@ -14,7 +14,6 @@
 # limitations under the License.
 """Dynamic API endpoint generation from workflow metadata."""
 
-import os
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, cast
 
@@ -23,6 +22,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError, computed_field
 from temporalio.exceptions import ApplicationError
 
 from nv_config_manager.common.auth import get_sso_user
+from nv_config_manager.common.config.identity import default_user_domain
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.temporal.api.links import temporal_ui_workflow_href
 from nv_config_manager.temporal.api.workflow_catalog import WORKFLOW_API_CATALOG
@@ -49,7 +49,7 @@ def _authenticated_user_domain(request: Request) -> str | None:
         if local_part and domain:
             return domain
 
-    return os.getenv("NV_CONFIG_MANAGER_DOMAIN", "").strip() or None
+    return default_user_domain()
 
 
 class WorkflowResponse(BaseModel):

@@ -15,7 +15,6 @@
 """Temporal Worker — NVIDIA Config Manager."""
 
 import asyncio
-import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -23,6 +22,7 @@ from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
 
+from nv_config_manager.common.config.loader import application_setting
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
 from nv_config_manager.temporal.converter import get_data_converter
@@ -38,15 +38,18 @@ from nv_config_manager_workflows.workflows import LOCAL_TEST_WORKFLOWS
 configure_logging(service="temporal-worker")
 
 
-def _enabled_env_flag(name: str) -> bool:
-    """Return true when an environment flag is explicitly enabled."""
-    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _registered_workflows(registry: WorkflowRegistry) -> list[type[Any]]:
     """Return a copy of the registry's workflows, plus the local-test workflows when opted in."""
     workflows: list[type[Any]] = list(registry.all_workflows)
-    if _enabled_env_flag("NVCM_ENABLE_LOCAL_TEST_WORKFLOWS"):
+    enabled = (
+        application_setting(
+            "temporal.worker",
+            "enable_local_test_workflows",
+            legacy_env="NVCM_ENABLE_LOCAL_TEST_WORKFLOWS",
+        )
+        or ""
+    )
+    if enabled.strip().lower() in {"1", "true", "yes", "on"}:
         workflows.extend(LOCAL_TEST_WORKFLOWS)
     return workflows
 

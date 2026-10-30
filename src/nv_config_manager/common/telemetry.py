@@ -34,6 +34,8 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from nv_config_manager.common.config.loader import application_setting
+
 logger = logging.getLogger(__name__)
 
 HTTP_TRACE_EXCLUDED_URLS = r"/(?:healthcheck|livez|metrics)/?$"
@@ -52,7 +54,15 @@ GROUP_FASTAPI_STATUS_CODES_ENV = "NV_CONFIG_MANAGER_GROUP_FASTAPI_STATUS_CODES"
 
 def group_fastapi_status_codes() -> bool:
     """Return whether Prometheus FastAPI metrics should group status codes."""
-    configured = os.getenv(GROUP_FASTAPI_STATUS_CODES_ENV, "true")
+    configured = (
+        application_setting(
+            "monitoring",
+            "group_fastapi_status_codes",
+            legacy_env=GROUP_FASTAPI_STATUS_CODES_ENV,
+            fallback="true",
+        )
+        or ""
+    )
     return configured.strip().lower() in {"1", "true", "yes", "on"}
 
 

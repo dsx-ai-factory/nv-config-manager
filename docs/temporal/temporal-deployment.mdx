@@ -29,10 +29,10 @@ global:
 
 The setting is used for backend workflow attribution; it is not a UI display
 setting. The chart writes it to `[temporal].user_domain` in the unified
-`nv-config-manager.ini` and passes it to the Temporal API, worker, and Render
-workloads as `NV_CONFIG_MANAGER_DOMAIN`. For deployments that do not use this
-Helm chart, set the INI value for Temporal clients and
-`NV_CONFIG_MANAGER_DOMAIN` for those processes. If it is unset, the Workflow
+`nv-config-manager.ini`, shared by the Temporal API, worker, and Render
+workloads. For deployments that do not use this Helm chart, set the same INI
+key. The former `NV_CONFIG_MANAGER_DOMAIN` variable is accepted only when
+the INI key is absent. If it is unset, the Workflow
 API leaves nullable `user_domain` fields as `None` and rejects unresolved
 non-nullable fields with `422`.
 Explicit caller-owned domain values are preserved, while fields declared
@@ -202,7 +202,7 @@ Selection rules:
 - The host constructs every selected scheduler before starting any. If a constructor raises, the host logs `Failed to construct workflow scheduler <identity> from plugin <plugin>` and exits nonzero before any scheduler runs. On SIGTERM or SIGINT, the host logs `Received signal <signal>, stopping workflow schedulers`, cancels every scheduler, and exits 0.
 - Selected schedulers share one pod and fail together. If any scheduler raises an unhandled exception or returns, the host stops every other scheduler, including `builtin.backup`, and exits nonzero so that Kubernetes restarts the pod. The `Workflow scheduler <identity> from plugin <plugin> failed` or `... returned unexpectedly` log message names the failing scheduler; set its entry to `enabled: false` to keep the others running.
 - `temporal.scheduler.enabled: false` removes the Deployment entirely.
-- The host reads `NVCM_ENABLED_SCHEDULERS` as a comma-separated list of identities, which Helm sets from the selected entries. An identity listed more than once stops the scheduler host at startup with `NVCM_ENABLED_SCHEDULERS contains a scheduler identity more than once`. When you run `nv-config-manager-temporal-scheduler` directly, outside Helm, and the variable is unset, the host runs `builtin.backup` against the configured DCIM provider. If it is set to an empty value, the host runs no schedulers, logs a warning, and waits for shutdown.
+- The host reads `[temporal.scheduler] enabled_schedulers` as a comma-separated list of identities, which Helm sets from the selected entries. An identity listed more than once stops the scheduler host at startup. Outside Helm, an absent setting runs `builtin.backup`; an explicitly empty value runs no schedulers and waits for shutdown. The former `NVCM_ENABLED_SCHEDULERS` variable is accepted only when the INI key is absent.
 
 The host logs the workflow plugin manifest and the selected scheduler identities at startup:
 

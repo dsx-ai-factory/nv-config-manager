@@ -1792,16 +1792,6 @@ Usage: {{ include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
 {{- end -}}
 
 {{/*
-FastAPI metrics env var -- controls whether response status labels are grouped
-into classes such as 2xx and 5xx.
-Usage: {{ include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
-*/}}
-{{- define "nv-config-manager.fastApiMetricsEnv" -}}
-- name: NV_CONFIG_MANAGER_GROUP_FASTAPI_STATUS_CODES
-  value: {{ .Values.monitoring.groupFastApiStatusCodes | quote }}
-{{- end -}}
-
-{{/*
 Network ZTP storage env vars. Only Ceph uses env refs because Rook generates
 the endpoint and credentials Secret at runtime. Other storage settings render
 into the main INI.
@@ -2171,4 +2161,53 @@ Fails fast when neither is available so pods never point at a dead OTLP target.
   value: {{ $endpoint | quote }}
 - name: OTEL_SERVICE_NAME
   value: {{ .serviceName | quote }}
+{{- end -}}
+
+{{/* Shared scheduler selection for the Deployment and every INI generator. */}}
+{{- define "nv-config-manager.temporal.schedulerSelection" -}}
+{{- $selectedSchedulerIdentities := list }}
+{{- $waitForNautobot := false }}
+{{- if and .Values.temporal.enabled .Values.temporal.scheduler.enabled }}
+{{- if not (hasKey .Values.temporal.scheduler "schedulers") }}
+{{- fail "temporal.scheduler.schedulers is missing, usually because helm upgrade --reuse-values kept values from an older chart. Upgrade without --reuse-values, or pass --set 'temporal.scheduler.schedulers.builtin\\.backup.enabled=true' --set 'temporal.scheduler.schedulers.builtin\\.backup.requiresDcimProvider=nautobot-2x' to keep the chart default. To run no schedulers, set temporal.scheduler.enabled=false." }}
+{{- end }}
+{{- $dcimProvider := .Values.dcim.provider | default "nautobot-2x" }}
+{{- range $identity, $settings := .Values.temporal.scheduler.schedulers }}
+{{- if not (kindIs "map" $settings) }}
+{{- fail (printf "temporal.scheduler.schedulers.%s must be a map with an enabled flag" $identity) }}
+{{- end }}
+{{- if not (kindIs "bool" $settings.enabled) }}
+{{- fail (printf "temporal.scheduler.schedulers.%s.enabled must be true or false" $identity) }}
+{{- end }}
+{{- $requiredProvider := index $settings "requiresDcimProvider" }}
+{{- $hasRequirement := not (kindIs "invalid" $requiredProvider) }}
+{{- if and $hasRequirement (or (not (kindIs "string" $requiredProvider)) (empty $requiredProvider)) }}
+{{- fail (printf "temporal.scheduler.schedulers.%s.requiresDcimProvider must be a non-empty string or null" $identity) }}
+{{- end }}
+{{- if and $settings.enabled (or (not $hasRequirement) (eq $requiredProvider $dcimProvider)) }}
+{{- $selectedSchedulerIdentities = append $selectedSchedulerIdentities $identity }}
+{{- if and (hasPrefix "builtin." $identity) (eq $dcimProvider "nautobot-2x") }}
+{{- $waitForNautobot = true }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- dict "identities" $selectedSchedulerIdentities "waitForNautobot" $waitForNautobot | toJson }}
+{{- end -}}
+
+{{/* Application settings shared by all containers, independent of secret delivery. */}}
+{{- define "nv-config-manager.applicationIniSettings" -}}
+{{- $schedulerSelection := include "nv-config-manager.temporal.schedulerSelection" . | fromJson }}
+[monitoring]
+group_fastapi_status_codes = {{ .Values.monitoring.groupFastApiStatusCodes }}
+
+[render.template_updater]
+concurrency = {{ .Values.renderService.templateUpdater.concurrency }}
+lock_timeout = {{ .Values.renderService.templateUpdater.lockTimeoutSeconds }}
+
+[temporal.worker]
+enable_local_test_workflows = {{ .Values.localDev.enableLocalTestWorkflows }}
+
+[temporal.scheduler]
+enabled_schedulers = {{ join "," $schedulerSelection.identities }}
 {{- end -}}

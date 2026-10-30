@@ -87,6 +87,27 @@ python -m pytest tests/
 
 ## Helm Charts (`deploy/helm/`)
 
+### Application configuration belongs in INI
+
+Put NVCM application settings in the unified `nv-config-manager.ini`, not in
+container environment variables. Reuse an existing INI key or add a service
+section; a setting used by only one service still belongs in INI. Do not duplicate
+the same setting in INI and Helm container `env` entries.
+
+Environment variables are appropriate for bootstrap file locations such as
+`NV_CONFIG_MANAGER_INI`, standard runtime or third-party configuration contracts,
+and per-container overrides when containers need different behavior that cannot
+share an INI section. Document the reason beside a new application-specific env
+override; the Kea refresh bootstrap endpoint is an existing example.
+
+When adding or migrating a setting, update its application readers and all three
+INI delivery paths (Kubernetes Secrets, External Secrets, and Vault Agent),
+preferably through a shared chart helper. Update the sample INI and documentation
+and cover the generated configuration and application behavior with relevant
+tests. Compatibility reads of old env names may remain, but INI must take
+precedence, including explicit empty and false values; new Helm templates must
+not emit the old env entries.
+
 When running `helm template` for testing or dry-run validation, always use `values-ci.yaml`:
 
 ```bash

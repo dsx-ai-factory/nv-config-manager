@@ -405,16 +405,8 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
-        {{- with .Values.global.defaultUserDomain }}
-        - name: NV_CONFIG_MANAGER_DOMAIN
-          value: {{ . | quote }}
-        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.workflowPythonPath" . | nindent 8 }}
-        {{- if .Values.localDev.enableLocalTestWorkflows }}
-        - name: NVCM_ENABLE_LOCAL_TEST_WORKFLOWS
-          value: "true"
-        {{- end }}
         {{- if .Values.secrets.vault.configSecrets.enabled }}
         - name: NV_CONFIG_MANAGER_CONFIG_SECRET_PATH
           value: {{ include "nv-config-manager.vaultAgent.configSecretsFilePath" (dict "root" . "path" .Values.temporal.configManagerWorker.configSecrets.path) | quote }}
@@ -521,12 +513,7 @@ spec:
           value: "temporal.api"
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
-        {{- with .Values.global.defaultUserDomain }}
-        - name: NV_CONFIG_MANAGER_DOMAIN
-          value: {{ . | quote }}
-        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
-        {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.workflowPythonPath" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-temporal-api") | nindent 8 }}
@@ -591,40 +578,9 @@ spec:
     app: {{ $temporalName }}
     component: api
 {{- if .Values.temporal.scheduler.enabled }}
-{{- /*
-Select schedulers from declarative values only; scheduler names never appear here.
-An entry is selected when it is enabled and its optional requiresDcimProvider matches
-dcim.provider. A null requirement (Helm's way to delete a default key) means none.
-The scheduler host does not check providers; this is the only provider gate.
-A missing map (e.g. --reuse-values from an older chart) fails rather than selecting none.
-Only schedulers in the reserved builtin. namespace receive DCIM access from the host,
-so the pod waits for Nautobot only when one of them is selected on nautobot-2x.
-*/}}
-{{- if not (hasKey .Values.temporal.scheduler "schedulers") }}
-{{- fail "temporal.scheduler.schedulers is missing, usually because helm upgrade --reuse-values kept values from an older chart. Upgrade without --reuse-values, or pass --set 'temporal.scheduler.schedulers.builtin\\.backup.enabled=true' --set 'temporal.scheduler.schedulers.builtin\\.backup.requiresDcimProvider=nautobot-2x' to keep the chart default. To run no schedulers, set temporal.scheduler.enabled=false." }}
-{{- end }}
-{{- $dcimProvider := .Values.dcim.provider | default "nautobot-2x" }}
-{{- $selectedSchedulerIdentities := list }}
-{{- $waitForNautobot := false }}
-{{- range $identity, $settings := .Values.temporal.scheduler.schedulers }}
-{{- if not (kindIs "map" $settings) }}
-{{- fail (printf "temporal.scheduler.schedulers.%s must be a map with an enabled flag" $identity) }}
-{{- end }}
-{{- if not (kindIs "bool" $settings.enabled) }}
-{{- fail (printf "temporal.scheduler.schedulers.%s.enabled must be true or false" $identity) }}
-{{- end }}
-{{- $requiredProvider := index $settings "requiresDcimProvider" }}
-{{- $hasRequirement := not (kindIs "invalid" $requiredProvider) }}
-{{- if and $hasRequirement (or (not (kindIs "string" $requiredProvider)) (empty $requiredProvider)) }}
-{{- fail (printf "temporal.scheduler.schedulers.%s.requiresDcimProvider must be a non-empty string or null" $identity) }}
-{{- end }}
-{{- if and $settings.enabled (or (not $hasRequirement) (eq $requiredProvider $dcimProvider)) }}
-{{- $selectedSchedulerIdentities = append $selectedSchedulerIdentities $identity }}
-{{- if and (hasPrefix "builtin." $identity) (eq $dcimProvider "nautobot-2x") }}
-{{- $waitForNautobot = true }}
-{{- end }}
-{{- end }}
-{{- end }}
+{{- $schedulerSelection := include "nv-config-manager.temporal.schedulerSelection" . | fromJson }}
+{{- $selectedSchedulerIdentities := $schedulerSelection.identities }}
+{{- $waitForNautobot := $schedulerSelection.waitForNautobot }}
 {{- if $selectedSchedulerIdentities }}
 ---
 # NVIDIA Config Manager Temporal Scheduler Host Deployment
@@ -699,8 +655,6 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
-        - name: NVCM_ENABLED_SCHEDULERS
-          value: {{ join "," $selectedSchedulerIdentities | quote }}
         {{- include "nv-config-manager.workflowPythonPath" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-temporal-scheduler") | nindent 8 }}
