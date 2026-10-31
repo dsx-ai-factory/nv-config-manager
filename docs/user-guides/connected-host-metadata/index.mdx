@@ -18,7 +18,7 @@ Before running the workflow, confirm the following are in place:
 ## Running the workflow
 
 1. Navigate to the Config Manager URL for your environment.
-1. Click the **+** in the top right and select **ConnectedHostMetadataWorkflow**.
+1. Click the **+** in the top right and select **Connected Host Metadata**.
 1. Fill in the form using the field reference below and submit.
 
 | Field | Description | Required |
@@ -62,7 +62,7 @@ The workflow archives the result before completing. Activity timeouts are short 
 
 If the intended-label lookup fails, discovery continues with labels shown as `--`. Observed LLDP data remains available.
 
-For the SuperPOD demo's hyper-reach host, the observed **Connected Interface** is `A56p0`, while **Intended Interface Label** is `C1-2-L1` and **LLDP Port Description** is `su02-hyperreach-host C1-2-L1`. Both matching and mismatched values are displayed as reported. This workflow does not mark a connection valid; run [Cable Validation](../cable-validation/index.mdx) to check the intended topology against observed data.
+In the SuperPOD hyper-reach demo, **Connected Interface** shows `A56p0` and **Intended Interface Label** shows `C1-2-L1`. **LLDP Port Description** shows `su02-hyperreach-chassis C1-2-L1`. The LLDP system name remains `su02-hyperreach-host`; the port description identifies its parent chassis in Nautobot. Both matching and mismatched values are displayed as reported. This workflow does not mark a connection valid; run [Cable Validation](../cable-validation/index.mdx) to check the intended topology against observed data.
 
 ![Connected Host Metadata result showing the intended lane label beside the observed interface and LLDP port description](../../assets/images/workflows/connected-host-metadata-result.png)
 

@@ -1643,6 +1643,87 @@ networkDhcp:
         allowedGroups: []
   # Deployment configuration
   replicas: 3
+  # Container probes, keyed by container: kea, healthcheck, api, confgen.
+  # The defaults below reproduce the probes the chart has always rendered.
+  # Each of liveness / readiness / startup accepts:
+  #   enabled: false      omit the probe (default true when unset).
+  #   <any probe field>   copied onto the Kubernetes probe as-is:
+  #                       initialDelaySeconds, periodSeconds, timeoutSeconds,
+  #                       successThreshold, failureThreshold,
+  #                       terminationGracePeriodSeconds. Zero is honored; set a
+  #                       field to null to drop a default.
+  #   httpGet | tcpSocket | exec | grpc
+  #                       replaces the default handler. The same type is merged
+  #                       over the default (override only `httpGet.path` and the
+  #                       port is kept); a different type replaces it.
+  # Keep these invariants unless you know what you are doing:
+  #   - liveness uses /livez (Kea process health) and must NOT use the strict
+  #     /healthcheck endpoint: a config mismatch must never restart Kea.
+  #   - readiness on healthcheck/api is the strict /healthcheck (Kea online AND
+  #     desired config applied); the external DHCP NLB targets it.
+  #   - confgen liveness is a heartbeat exec probe; its thresholds are looser
+  #     than the others (10 x 30s) so in-loop recovery wins over a restart.
+  # readiness and startup are off by default where no such probe existed
+  # (kea, confgen) and startup everywhere; enabling one uses the container's
+  # default handler.
+  # Example (give the api container more room before a restart):
+  #   networkDhcp:
+  #     probes:
+  #       api:
+  #         liveness: { failureThreshold: 20 }
+  probes:
+    kea:
+      liveness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 120
+        periodSeconds: 10
+        timeoutSeconds: 3
+      readiness:
+        enabled: false
+      startup:
+        enabled: false
+    healthcheck:
+      liveness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 120
+        periodSeconds: 10
+        timeoutSeconds: 3
+      readiness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 3
+      startup:
+        enabled: false
+    api:
+      liveness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 120
+        periodSeconds: 10
+        timeoutSeconds: 3
+      readiness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 3
+      startup:
+        enabled: false
+    confgen:
+      liveness:
+        enabled: true
+        initialDelaySeconds: 180
+        periodSeconds: 30
+        timeoutSeconds: 10
+        failureThreshold: 10
+      readiness:
+        enabled: false
+      startup:
+        enabled: false
   # Resources
   resources:
     dhcp:
@@ -1718,7 +1799,10 @@ temporal:
     devUi:
       # Hostname: temporal.<baseHostname> (Temporal native UI)
       hostname: "temporal.{{ .Values.gateway.baseHostname }}"
-      # Optional: restrict access to specific groups
+      # Optional: restrict access to specific groups (values of oidc.groupsClaim).
+      # Enforced by the OIDC proxy. Temporal Web has no authorization of its
+      # own, so if empty every authenticated user can view and act on every
+      # workflow.
       allowedGroups: []
       # Temporal Web is OIDC-only except for its health endpoint, which the
       # blackbox probe must reach without a login redirect.

@@ -78,10 +78,14 @@ pr-build-image:
       - NVCM_PR_TARGET: temporal-ui
         NVCM_PR_IMAGE: nv-config-manager-temporal-ui
   before_script:
-    - apk add -q make bash git curl coreutils
+    - apk add -q make bash git curl coreutils python3
     - docker info
     # Fail fast if the PR moved or closed while this pipeline was queued.
     - bash .gitlab/ci/scripts/pr_ref_guard.sh
+    # Copy the pinned static uv binary; the Docker job image has no Python tooling.
+    - uv_container="$(docker create "$NVCM_CI_IMAGE_UV" /uv)"
+    - docker cp "$uv_container:/uv" /usr/local/bin/uv
+    - docker rm "$uv_container"
     # TEMPLATE_ENGINE_VERSION derivation matches .docker-build-native-template
     # (build.yml), minus the registry login that template performs.
     - git fetch --tags --force
@@ -106,6 +110,15 @@ pr-build-image:
       REGISTRY=pr-local
       TEMPLATE_ENGINE_VERSION="${TEMPLATE_ENGINE_VERSION}"
       DOCKER_BUILD_OUTPUT="--output type=docker,dest=${CI_PROJECT_DIR}/images/${NVCM_PR_IMAGE}.tar"
+    # Early PR feedback only: protected main independently audits these exact
+    # archives before promotion, since the PR controls the scripts used here.
+    - docker load --input "images/${NVCM_PR_IMAGE}.tar"
+    - |
+      if [ "$NVCM_PR_TARGET" = ui ]; then
+        build/check-image-trust.sh "pr-local/${NVCM_PR_IMAGE}:${CI_COMMIT_SHORT_SHA}" --node
+      else
+        build/check-image-trust.sh "pr-local/${NVCM_PR_IMAGE}:${CI_COMMIT_SHORT_SHA}"
+      fi
     # Artifact zip barely compresses image tars; pre-gzip is the effective
     # compression (docker load reads .tar.gz directly).
     - gzip -1 "images/${NVCM_PR_IMAGE}.tar"

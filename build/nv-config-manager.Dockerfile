@@ -12,7 +12,7 @@
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim@sha256:531f855bda2c73cd6ef67d56b733b357cea384185b3022bd09f05e002cd144ca AS builder
 
 # Use the emSign remediation release instead of the base image's bundled uv.
-COPY --from=ghcr.io/astral-sh/uv:0.13.4@sha256:9f130421e930bfbdc563c00740466603f8723158e90297d07957c2294640262b /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff /uv /uvx /usr/local/bin/
 
 ARG APT_MIRROR_DEBIAN=""
 ARG APT_MIRROR_GPG_KEY_URL=""
@@ -93,7 +93,7 @@ RUN --mount=type=cache,id=nvcm-uv-cache,target=/root/.cache/uv \
 # =============================================================================
 # Runtime stage - NVIDIA distroless Python
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/python:3.13-v4.1.4@sha256:eb5be985571eab7eac5e2ff722ed17eedbf64d4cf584ae0cef34cc6497592556
+FROM nvcr.io/nvidia/distroless/python:3.13-v4.1.10@sha256:c718fc9571456bdb18a964450aa77025898747e3a5f92b7d4d81b194413bc09d
 
 # Replace the pinned runtime's trust store, including hashed certificate paths.
 # Copying only the bundle would leave distrusted roots reachable through capath.

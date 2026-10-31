@@ -14,42 +14,73 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { CONFIG_BACKUP_WORKFLOWS } from "./configBackupWorkflows";
-import { CONNECTED_HOST_METADATA_WORKFLOWS } from "./connectedHostMetadataWorkflows";
-import { CONFIG_DEPLOY_WORKFLOWS } from "./configDeployWorkflows";
-import { DEVICE_CABLE_VALIDATION_WORKFLOWS } from "./deviceCableValidationWorkflows";
-import { SITE_CABLE_VALIDATION_WORKFLOWS } from "./siteCableValidationWorkflows";
-import { PORT_LLDP_INFO_WORKFLOWS } from "./portLldpInfoWorkflows";
-import { SPX_OVERLAY_CREATION_WORKFLOWS } from "./spxOverlayCreationWorkflows";
-import { SPX_OVERLAY_DELETION_WORKFLOWS } from "./spxOverlayDeletionWorkflow";
-import { INFINIBAND_GET_UNHEALTHY_PORTS_WORKFLOWS } from "./infinibandGetUnhealthyWorkflows";
-import { REPROVISION_WORKFLOWS } from "./reprovisionWorkflow";
+import type { Workflow } from "@/types/data-table.types";
+import backupWorkflows from "./fixtures/backup.json";
+import configDiffWorkflows from "./fixtures/config_diff.json";
+import connectedHostMetadataWorkflows from "./fixtures/connected_host_metadata.json";
+import deployWorkflows from "./fixtures/deploy.json";
+import deviceCableValidationWorkflows from "./fixtures/device_cable_validation.json";
+import devicePasswordRotationWorkflows from "./fixtures/device_password_rotation.json";
+import diagnosticsWorkflows from "./fixtures/diagnostics.json";
+import ibPkeyCreationWorkflows from "./fixtures/ib_pkey_creation.json";
+import ibPkeyMemberAddWorkflows from "./fixtures/ib_pkey_member_add.json";
+import ibPkeyMemberDeleteWorkflows from "./fixtures/ib_pkey_member_delete.json";
+import ibPkeyMemberUpdateWorkflows from "./fixtures/ib_pkey_member_update.json";
+import ibPortGuidDiscoveryWorkflows from "./fixtures/ib_port_guid_discovery.json";
+import infinibandCableValidationWorkflows from "./fixtures/infiniband_cable_validation.json";
+import infinibandGetUnhealthyPortsWorkflows from "./fixtures/infiniband_get_unhealthy_ports.json";
+import infinibandMlnxOsUpgradeWorkflows from "./fixtures/infiniband_mlnx_os_upgrade.json";
+import multiDeployWorkflows from "./fixtures/multi_deploy.json";
+import portLldpInfoWorkflows from "./fixtures/port_lldp_info.json";
+import reprovisionWorkflows from "./fixtures/reprovision.json";
+import siteBackupWorkflows from "./fixtures/site_backup.json";
+import siteCableValidationWorkflows from "./fixtures/site_cable_validation.json";
+import sitePasswordRotationWorkflows from "./fixtures/site_password_rotation.json";
+import spxOverlayCreationWorkflows from "./fixtures/spx_overlay_creation.json";
+import spxOverlayDeletionWorkflows from "./fixtures/spx_overlay_deletion.json";
+import spxOverlayTenantChangeWorkflows from "./fixtures/spx_overlay_tenant_change.json";
+import switchOsUpgradeWorkflows from "./fixtures/switch_os_upgrade.json";
+import validateHardwareWorkflows from "./fixtures/validate_hardware.json";
 
-export const ALL_WORKFLOW_DATA = {
-  workflows: [
-    ...CONFIG_BACKUP_WORKFLOWS.workflows,
-    ...CONNECTED_HOST_METADATA_WORKFLOWS.workflows,
-    ...CONFIG_DEPLOY_WORKFLOWS.workflows,
-    ...DEVICE_CABLE_VALIDATION_WORKFLOWS.workflows,
-    ...SITE_CABLE_VALIDATION_WORKFLOWS.workflows,
-    ...PORT_LLDP_INFO_WORKFLOWS.workflows,
-    ...SPX_OVERLAY_CREATION_WORKFLOWS.workflows,
-    ...SPX_OVERLAY_DELETION_WORKFLOWS.workflows,
-    ...INFINIBAND_GET_UNHEALTHY_PORTS_WORKFLOWS.workflows,
-    ...REPROVISION_WORKFLOWS.workflows,
-  ],
-  next_page_token: null,
+type WorkflowSummaryCollection = {
+  workflows: Array<Omit<Workflow, "result" | "stages">>;
+  next_page_token: string | null;
 };
 
-export const workflowsMockData = {
-  BackupWorkflow: CONFIG_BACKUP_WORKFLOWS,
-  ConnectedHostMetadataWorkflow: CONNECTED_HOST_METADATA_WORKFLOWS,
-  DeployWorkflow: CONFIG_DEPLOY_WORKFLOWS,
-  DeviceCableValidationWorkflow: DEVICE_CABLE_VALIDATION_WORKFLOWS,
-  SiteCableValidationWorkflow: SITE_CABLE_VALIDATION_WORKFLOWS,
-  PortLLDPInfoWorkflow: PORT_LLDP_INFO_WORKFLOWS,
-  SpXOverlayCreationWorkflow: SPX_OVERLAY_CREATION_WORKFLOWS,
-  SpXOverlayDeletionWorkflow: SPX_OVERLAY_DELETION_WORKFLOWS,
-  InfinibandGetUnhealthyPortsWorkflow: INFINIBAND_GET_UNHEALTHY_PORTS_WORKFLOWS,
-  ReprovisionWorkflow: REPROVISION_WORKFLOWS,
+export const workflowsMockData = Object.fromEntries(
+  [
+    backupWorkflows,
+    connectedHostMetadataWorkflows,
+    deployWorkflows,
+    deviceCableValidationWorkflows,
+    siteCableValidationWorkflows,
+    portLldpInfoWorkflows,
+    spxOverlayCreationWorkflows,
+    spxOverlayDeletionWorkflows,
+    infinibandGetUnhealthyPortsWorkflows,
+    reprovisionWorkflows,
+    configDiffWorkflows,
+    devicePasswordRotationWorkflows,
+    diagnosticsWorkflows,
+    ibPkeyCreationWorkflows,
+    ibPkeyMemberAddWorkflows,
+    ibPkeyMemberDeleteWorkflows,
+    ibPkeyMemberUpdateWorkflows,
+    ibPortGuidDiscoveryWorkflows,
+    infinibandCableValidationWorkflows,
+    infinibandMlnxOsUpgradeWorkflows,
+    multiDeployWorkflows,
+    siteBackupWorkflows,
+    sitePasswordRotationWorkflows,
+    spxOverlayTenantChangeWorkflows,
+    switchOsUpgradeWorkflows,
+    validateHardwareWorkflows,
+  ].map((collection) => [collection.workflows[0].workflow_type, collection])
+) as Record<string, WorkflowSummaryCollection>;
+
+export const ALL_WORKFLOW_DATA = {
+  workflows: Object.values(workflowsMockData).flatMap(
+    ({ workflows }) => workflows
+  ),
+  next_page_token: null,
 };

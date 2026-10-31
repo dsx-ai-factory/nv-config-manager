@@ -198,9 +198,10 @@ def main() -> None:
         const=logging.INFO,
     )
     args = parser.parse_args()
+    log_level: int = args.loglevel
     os.environ.setdefault(
         "LOG_LEVEL",
-        logging.getLevelName(args.loglevel),
+        logging.getLevelName(log_level),
     )
     configure_logging(service="temporal-archive")
     setup_telemetry("nv-config-manager-temporal-archive")

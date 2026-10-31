@@ -25,8 +25,8 @@ from pathlib import Path
 
 import pytest
 
-_POLICY = Path(__file__).resolve().parents[3] / "deploy/helm/files/python-tooling.sh"
-_SCRIPT = Path(__file__).resolve().parents[3] / "deploy/airgapped/create-airgapped.sh"
+_POLICY = Path(__file__).resolve().parents[2] / "deploy/helm/files/python-tooling.sh"
+_SCRIPT = Path(__file__).resolve().parents[2] / "deploy/airgapped/create-airgapped.sh"
 _RUNTIME_HASHES = _SCRIPT.with_name("python-runtimes.sha256")
 
 
@@ -121,8 +121,8 @@ def test_python_checksum_is_verified_before_extraction(
 ) -> None:
     result, destination = _download_python(tmp_path, triple, "checksum" if corrupt else "")
     assert (tmp_path / "url").read_text().strip() == (
-        "https://github.com/astral-sh/python-build-standalone/releases/download/20260320/"
-        f"cpython-3.13.12+20260320-{triple}-install_only_stripped.tar.gz"
+        "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/"
+        f"cpython-3.13.18+20261026-{triple}-install_only_stripped.tar.gz"
     )
     if corrupt:
         assert result.returncode != 0
@@ -166,6 +166,11 @@ uv() { printf '%s\n' "$*" > "$UV_TEST_CALLS"; }
         text=True,
     )
     assert result.returncode == 0, result.stderr
+    pip_requirement = next(
+        line.split("=", 1)[1].strip("'")
+        for line in _POLICY.read_text().splitlines()
+        if line.startswith("NVCM_PIP_REQUIREMENT=")
+    )
     assert log.read_text().splitlines() == [
-        f"run --project {tmp_path}/installer --no-sync --with pip==26.2.2 python -m pip download fixture.whl"
+        f"run --project {tmp_path}/installer --no-sync --with {pip_requirement} python -m pip download fixture.whl"
     ]

@@ -884,7 +884,7 @@ def _install_openapi_auth_schema(
 
         return schema
 
-    app.openapi: Callable[[], dict[str, Any]] = openapi_with_auth  # type: ignore[misc,method-assign]
+    app.openapi = openapi_with_auth  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
 # ── FastAPI dependencies ──────────────────────────────────────────────────

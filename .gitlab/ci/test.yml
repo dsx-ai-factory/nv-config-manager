@@ -50,9 +50,11 @@ test-main-py:
     # Improve performance with overlayfs.
     DOCKER_DRIVER: overlay2
   before_script:
+    - apt-get update && apt-get install -y --no-install-recommends jq
     - . deploy/helm/files/python-tooling.sh && nvcm_bootstrap_uv
     - uv sync --frozen
   script:
+    - make test-ci
     - uv run pytest packages/dcim/tests -v
     - uv run pytest -n auto --cov=src/nv_config_manager --cov-report=xml:coverage.xml --cov-report=term
     - *nautobot-coverage-script

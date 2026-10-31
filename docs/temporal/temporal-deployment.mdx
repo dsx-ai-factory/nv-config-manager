@@ -54,6 +54,26 @@ connection](external-temporal.mdx) instead. The chart does not run the server,
 UI, database schema, namespace, or search-attribute bootstrap workloads in
 that mode.
 
+### Upgrading from Temporal 1.30.8 to 1.31.4
+
+Upgrade the server and bootstrap images together. Temporal 1.31 requires
+PostgreSQL core schema `1.19` and visibility schema `1.14`. The chart's frontend
+`schema-setup` init container runs the matching bootstrap image to update both
+databases before that frontend starts. The same images are built for Kind
+integration testing.
+
+Before upgrading, take recoverable backups of both databases. After deployment,
+check the frontend's `schema-setup` logs and confirm both `schema_version` tables
+report the required versions. The other server roles can restart while the
+frontend applies the migration; their TCP wait does not prove the new schema
+has finished applying during a rolling upgrade.
+
+Rolling back the images does not undo database migrations. Keep new CHASM
+applications and standalone activities disabled while rollback to 1.30.8 is
+required; restoring database backups is a separate recovery operation. See the
+[Temporal 1.31 release notes](https://github.com/temporalio/temporal/releases/tag/v1.31.0)
+and [server upgrade guide](https://docs.temporal.io/self-hosted-guide/upgrade-server).
+
 ## Verify Temporal
 
 After deployment, verify the workflow API and Temporal Web routes:
