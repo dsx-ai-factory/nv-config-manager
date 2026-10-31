@@ -202,22 +202,30 @@ def _event_prefix(object_type: str, operation: str = "update") -> str:
 
 
 def _queue_status(render_api_url: str, render_client: requests.Session) -> tuple[int, int]:
-    """Return pending and acknowledged-in-flight JetStream render messages."""
+    """Return pending and acknowledged-in-flight messages across the render consumers.
+
+    The DCIM event consumers count too: an event still waiting there will queue a
+    device render later, and the queued flag then folds a test's own change into it.
+    """
     response = render_client.get(f"{render_api_url}/v1/admin/consumers", timeout=10)
     response.raise_for_status()
+    consumers = response.json().get("consumers", [])
+
+    def reported(consumer: dict[str, Any]) -> bool:
+        return bool(
+            consumer.get("num_pending", -1) >= 0 and consumer.get("num_ack_pending", -1) >= 0
+        )
+
     device_consumers = [
-        consumer
-        for consumer in response.json().get("consumers", [])
-        if str(consumer.get("name", "")).endswith("-device")
+        consumer for consumer in consumers if str(consumer.get("name", "")).endswith("-device")
     ]
-    if not device_consumers or any(
-        consumer.get("num_pending", -1) < 0 or consumer.get("num_ack_pending", -1) < 0
-        for consumer in device_consumers
-    ):
+    if not device_consumers or not all(reported(consumer) for consumer in device_consumers):
         return -1, -1
+    # An event consumer that is not deployed has no durable and reports -1.
+    active = [consumer for consumer in consumers if reported(consumer)]
     return (
-        sum(consumer["num_pending"] for consumer in device_consumers),
-        sum(consumer["num_ack_pending"] for consumer in device_consumers),
+        sum(consumer["num_pending"] for consumer in active),
+        sum(consumer["num_ack_pending"] for consumer in active),
     )
 
 
@@ -290,6 +298,7 @@ def _patch_and_assert_event(
     restore_changes: dict[str, Any],
 ) -> None:
     """Mutate, observe, and restore one Nautobot event-producing record."""
+    _wait_for_queues_to_drain(render_api_url, render_client)
     previous_message = _event_message_for_device(nautobot_url, nautobot_client, target_device_id)
     rendered_message = previous_message
     response = nautobot_client.patch(f"{nautobot_url}/api/{path}/", json=changes, timeout=30)
@@ -614,6 +623,7 @@ class TestNautobotProviderEvents:
         if relationship is None or not addresses:
             pytest.fail("Mock topology lacks the VLAN helper relationship or an IP address")
 
+        _wait_for_queues_to_drain(render_api_url, render_client)
         previous_message = _event_message_for_device(nautobot_url, nautobot_client, target["id"])
         rendered_message = previous_message
         response = nautobot_client.post(
