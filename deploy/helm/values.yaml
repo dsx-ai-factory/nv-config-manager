@@ -87,6 +87,9 @@ global:
   baseDomain: config-manager.example.com
   # Environment identifier (dev, test, staging, agg-prod, etc.)
   environment: dev
+  # Optional fallback domain for server-generated attribution identities. This
+  # does not affect service hostnames; configure those with gateway.baseHostname.
+  defaultUserDomain: ""
   # Whether this is an aggregate deployment
   aggregate: false
   # Kubernetes namespace for all services
@@ -1640,6 +1643,87 @@ networkDhcp:
         allowedGroups: []
   # Deployment configuration
   replicas: 3
+  # Container probes, keyed by container: kea, healthcheck, api, confgen.
+  # The defaults below reproduce the probes the chart has always rendered.
+  # Each of liveness / readiness / startup accepts:
+  #   enabled: false      omit the probe (default true when unset).
+  #   <any probe field>   copied onto the Kubernetes probe as-is:
+  #                       initialDelaySeconds, periodSeconds, timeoutSeconds,
+  #                       successThreshold, failureThreshold,
+  #                       terminationGracePeriodSeconds. Zero is honored; set a
+  #                       field to null to drop a default.
+  #   httpGet | tcpSocket | exec | grpc
+  #                       replaces the default handler. The same type is merged
+  #                       over the default (override only `httpGet.path` and the
+  #                       port is kept); a different type replaces it.
+  # Keep these invariants unless you know what you are doing:
+  #   - liveness uses /livez (Kea process health) and must NOT use the strict
+  #     /healthcheck endpoint: a config mismatch must never restart Kea.
+  #   - readiness on healthcheck/api is the strict /healthcheck (Kea online AND
+  #     desired config applied); the external DHCP NLB targets it.
+  #   - confgen liveness is a heartbeat exec probe; its thresholds are looser
+  #     than the others (10 x 30s) so in-loop recovery wins over a restart.
+  # readiness and startup are off by default where no such probe existed
+  # (kea, confgen) and startup everywhere; enabling one uses the container's
+  # default handler.
+  # Example (give the api container more room before a restart):
+  #   networkDhcp:
+  #     probes:
+  #       api:
+  #         liveness: { failureThreshold: 20 }
+  probes:
+    kea:
+      liveness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 120
+        periodSeconds: 10
+        timeoutSeconds: 3
+      readiness:
+        enabled: false
+      startup:
+        enabled: false
+    healthcheck:
+      liveness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 120
+        periodSeconds: 10
+        timeoutSeconds: 3
+      readiness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 3
+      startup:
+        enabled: false
+    api:
+      liveness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 120
+        periodSeconds: 10
+        timeoutSeconds: 3
+      readiness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 3
+      startup:
+        enabled: false
+    confgen:
+      liveness:
+        enabled: true
+        initialDelaySeconds: 180
+        periodSeconds: 30
+        timeoutSeconds: 10
+        failureThreshold: 10
+      readiness:
+        enabled: false
+      startup:
+        enabled: false
   # Resources
   resources:
     dhcp:
@@ -1715,7 +1799,10 @@ temporal:
     devUi:
       # Hostname: temporal.<baseHostname> (Temporal native UI)
       hostname: "temporal.{{ .Values.gateway.baseHostname }}"
-      # Optional: restrict access to specific groups
+      # Optional: restrict access to specific groups (values of oidc.groupsClaim).
+      # Enforced by the OIDC proxy. Temporal Web has no authorization of its
+      # own, so if empty every authenticated user can view and act on every
+      # workflow.
       allowedGroups: []
       # Temporal Web is OIDC-only except for its health endpoint, which the
       # blackbox probe must reach without a login redirect.
@@ -1884,6 +1971,21 @@ temporal:
   # matchLabels:
   # app.kubernetes.io/component: nv-config-manager-worker
 
+  # Workflow plugins for the worker, API, scheduler host, and MCP.
+  # Each image provides plugin wheels under /plugin-wheels. Wheels install
+  # offline with --no-deps, so the image carries only the plugin and packages
+  # the service image lacks. Every process loads the same set.
+  # Requires a service image from NVCM 1.4.0 or later.
+  # images entries: {name, image, pullPolicy}
+  # rbac entries: {name, read_roles, execute_roles}, one per plugin API
+  # workflow, appended to rbac.workflows. A workflow without a row returns 403.
+  workflowPlugins:
+    enabled: false
+    # Match the glibc-based NVCM runtime so compiled wheels remain compatible.
+    installerImage: python:3.13-bookworm
+    images: []
+    rbac: []
+
   # Scheduler (for automatic backup scheduling and plugin-contributed schedulers).
   # By default only the built-in backup scheduler is enabled, and it is deployed
   # only with the built-in Nautobot provider (see requiresDcimProvider below).
@@ -1932,6 +2034,15 @@ temporal:
         memory: 256Mi
       limits:
         memory: 512Mi
+  # Temporal server persistence settings
+  persistence:
+    # Extra libpq connection parameters for both the default and visibility
+    # datastores. connect_timeout bounds each reconnect dial; without it a
+    # dial to an unreachable Postgres primary blocks for the kernel TCP
+    # timeout (~2m) after a CNPG failover.
+    connectAttributes:
+      connect_timeout: "10"
+
   # Dynamic configuration for Temporal server
   # See: https://docs.temporal.io/references/dynamic-configuration
   dynamicConfig: []
@@ -3085,6 +3196,16 @@ monitoring:
     # per-environment when probes need to match a site-specific alerting /
     # dashboard regex.
     jobNamePrefix: ""
+    # Bundled NATS (nautobotNats.enabled or externalServices.nats.local) has
+    # no gateway route, so its probe targets the in-cluster monitoring
+    # endpoint (`http://<release>-nats.<namespace>.svc:8222/healthz`). The
+    # namespace-isolation NetworkPolicy opens 8222 only to
+    # monitoring.prometheus.namespace, where the exporter must run.
+    nats:
+      enabled: true
+      # Override when the blackbox exporter runs outside the cluster and
+      # cannot resolve cluster-local service names.
+      target: ""
   # PodMonitors: each PodMonitor is enabled when podMonitors.enabled AND the
   # target service is enabled. CNPG scrapes also require podMonitors.cnpg.enabled
   # (and cnpg.enabled + each cluster's enabled flag).

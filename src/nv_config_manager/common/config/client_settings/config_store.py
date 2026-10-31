@@ -43,6 +43,11 @@ class ConfigStoreClientSettings(TypedDict):
     headers: HeaderProvider
 
 
+def config_store_ui_url(config: ConfigParser | None = None) -> str:
+    """Return the Config Store UI URL."""
+    return resolve_config(config)["config_store.client"]["ui_url"]
+
+
 def config_store_client_settings(
     config: ConfigParser | None = None,
     *,

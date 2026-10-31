@@ -1,0 +1,13 @@
+---
+
+{% set children = json.devices | default([]) | selectattr('parent_bay', 'defined') | selectattr('parent_bay') | list %}
+{% if children %}
+device_bays:
+{% for device in children %}
+  - "!create_or_update:name": {{ device.parent_bay.name | tojson }}
+    "!create_or_update:device": "!ref:device-{{ device.parent_bay.device.name }}"
+    installed_device: "!ref:device-{{ device.name }}"
+{% endfor %}
+{% else %}
+device_bays: []
+{% endif %}

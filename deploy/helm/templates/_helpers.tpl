@@ -1101,6 +1101,7 @@ Usage: {{ include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
   - |
     set -e
     echo "Installing template plugins from {{ .Values.renderService.templatePlugins.mountPath }}..."
+{{ .Files.Get "files/python-tooling.sh" | indent 4 }}
     for plugin_dir in {{ .Values.renderService.templatePlugins.mountPath }}/*; do
       if [ ! -d "$plugin_dir" ]; then
         continue
@@ -1112,11 +1113,13 @@ Usage: {{ include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
         echo "Installing offline plugin wheel(s): $plugin_dir/dist"
         pip install --no-index --target=/opt/plugins --no-deps "$plugin_dir"/dist/*.whl
       elif [ -f "$plugin_dir/source/pyproject.toml" ]; then
+        nvcm_bootstrap_pip
         echo "Installing build dependencies..."
         pip install --quiet hatchling
         echo "Installing plugin source: $plugin_dir/source"
         pip install --target=/opt/plugins --no-deps "$plugin_dir/source"
       elif [ -f "$plugin_dir/pyproject.toml" ]; then
+        nvcm_bootstrap_pip
         echo "Installing build dependencies..."
         pip install --quiet hatchling
         echo "Installing plugin source: $plugin_dir"
@@ -1247,6 +1250,215 @@ wheels must be present under /plugin-wheels.
 {{- end -}}
 {{- if .Values.renderService.templatePlugins.enabled -}}
 {{- $paths = append $paths "/opt/plugins" -}}
+{{- end -}}
+{{- if $paths }}
+- name: PYTHONPATH
+  value: "{{ join ":" $paths }}:${PYTHONPATH:-}"
+{{- end -}}
+{{- end -}}
+
+{{/*
+=============================================================================
+Workflow Plugin Helpers
+=============================================================================
+Workflow plugins are installed into an isolated shared volume for every
+process that builds the workflow registry: Temporal worker, API, scheduler
+host, and MCP. Each plugin image carries the plugin wheel, and any wheel the
+base image lacks, under /plugin-wheels. Wheels install with --no-deps so a
+plugin cannot shadow a package that ships in the service image.
+=============================================================================
+*/}}
+
+{{- define "nv-config-manager.copyWorkflowPluginImages" -}}
+{{- if .Values.temporal.workflowPlugins.enabled -}}
+{{- if not .Values.temporal.workflowPlugins.images -}}
+{{- fail "temporal.workflowPlugins.images is required when temporal.workflowPlugins.enabled is true" -}}
+{{- end -}}
+{{- $seen := dict }}
+{{- range .Values.temporal.workflowPlugins.images }}
+{{- /* Container names are limited to 63 characters, minus the 21-character "copy-workflow-plugin-" prefix. */}}
+{{- $name := required "temporal.workflowPlugins.images[].name is required" .name | lower | replace "_" "-" | trunc 42 | trimSuffix "-" }}
+{{- if hasKey $seen $name }}
+{{- fail (printf "temporal.workflowPlugins.images[].name %q collides with another image after normalizing and truncating to 42 characters" $name) }}
+{{- end }}
+{{- $_ := set $seen $name true }}
+- name: copy-workflow-plugin-{{ $name }}
+  image: {{ required "temporal.workflowPlugins.images[].image is required" .image }}
+  imagePullPolicy: {{ .pullPolicy | default "IfNotPresent" }}
+  command: ["/bin/sh", "-c"]
+  args:
+  - |
+    set -e
+    if ! ls /plugin-wheels/*.whl >/dev/null 2>&1; then
+      echo "Workflow plugin image does not contain /plugin-wheels/*.whl" >&2
+      exit 1
+    fi
+    target="/opt/workflow-plugin-packages/{{ $name }}/wheels"
+    mkdir -p "$target"
+    cp -R /plugin-wheels/. "$target/"
+  volumeMounts:
+  - name: workflow-plugins-source
+    mountPath: /opt/workflow-plugin-packages
+  {{- include "nv-config-manager.containerSecurityContext" $ | nindent 2 }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nv-config-manager.installWorkflowPlugins" -}}
+{{- if .Values.temporal.workflowPlugins.enabled }}
+- name: install-workflow-plugins
+  image: {{ .Values.temporal.workflowPlugins.installerImage | default "python:3.13-bookworm" }}
+  imagePullPolicy: IfNotPresent
+  command: ["/bin/sh", "-c"]
+  args:
+  - |
+    set -e
+    # One pip call for all wheels, because separate --target installs skip
+    # a top-level directory that an earlier wheel already created, which
+    # drops modules of plugins that share a namespace package.
+    set --
+    for wheel in /opt/workflow-plugin-packages/*/wheels/*.whl; do
+      if [ -e "$wheel" ]; then
+        set -- "$@" "$wheel"
+      fi
+    done
+    if [ "$#" -eq 0 ]; then
+      echo "No workflow plugin wheels found under /opt/workflow-plugin-packages" >&2
+      exit 1
+    fi
+    echo "Installing $# offline workflow plugin wheels"
+    pip install --no-index --no-deps --target=/opt/workflow-plugins "$@"
+  volumeMounts:
+  - name: workflow-plugins-source
+    mountPath: /opt/workflow-plugin-packages
+    readOnly: true
+  - name: workflow-plugins-installed
+    mountPath: /opt/workflow-plugins
+  {{- include "nv-config-manager.containerSecurityContext" . | nindent 2 }}
+# Runs in the service image so the checks see the packages the plugin must not shadow.
+- name: verify-workflow-plugins
+  image: {{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}
+  imagePullPolicy: {{ .Values.global.images.nvConfigManager.pullPolicy }}
+  command: ["python", "-c"]
+  {{- if .Values.dcim.providerPackages.enabled }}
+  env:
+  {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 2 }}
+  {{- end }}
+  args:
+  - |
+    import importlib.machinery
+    import importlib.metadata as md
+    import sys
+    from pathlib import Path
+
+    PLUGIN_DIR = Path("/opt/workflow-plugins")
+    MODULE_SUFFIXES = sorted(
+        [".py", *importlib.machinery.EXTENSION_SUFFIXES], key=len, reverse=True
+    )
+
+
+    def canonical(name):
+        return name.lower().replace("_", "-").replace(".", "-")
+
+
+    def top_level_modules(directory):
+        names = set()
+        for entry in directory.iterdir():
+            name = entry.name
+            if name == "bin" or name == "__pycache__":
+                continue
+            if name.endswith((".dist-info", ".data", ".egg-info")):
+                continue
+            if entry.is_dir():
+                names.add(name)
+                continue
+            for suffix in MODULE_SUFFIXES:
+                if name.endswith(suffix):
+                    names.add(name[: -len(suffix)])
+                    break
+        return names
+
+
+    plugin_dists = list(md.distributions(path=[str(PLUGIN_DIR)]))
+    base_names = {canonical(dist.metadata["Name"]) for dist in md.distributions()}
+    shadowed = {
+        canonical(dist.metadata["Name"])
+        for dist in plugin_dists
+        if canonical(dist.metadata["Name"]) in base_names
+    }
+    shadowed |= top_level_modules(PLUGIN_DIR) & set(md.packages_distributions())
+    shadowed = sorted(shadowed)
+    if shadowed:
+        sys.exit(
+            "Workflow plugin wheels shadow packages in the service image: "
+            + ", ".join(shadowed)
+            + ". Remove them from the plugin image."
+        )
+
+    declared = [
+        entry_point.name
+        for dist in plugin_dists
+        for entry_point in dist.entry_points
+        if entry_point.group == "nv_config_manager.workflows"
+    ]
+    if not declared:
+        sys.exit(
+            "No nv_config_manager.workflows entry point found in the plugin wheels. "
+            "Check that the plugin image holds the plugin wheel under /plugin-wheels."
+        )
+
+    try:
+        from nv_config_manager_workflows.registration import WorkflowRegistry
+    except ImportError as error:
+        sys.exit(
+            "The service image has no workflow plugin support. "
+            f"Workflow plugins require NVCM 1.4.0 or later: {error}"
+        )
+
+    sys.path.insert(0, str(PLUGIN_DIR))
+    registry = WorkflowRegistry.build()
+    loaded = sorted(diagnostic.name for diagnostic in registry.plugin_diagnostics)
+    missing = sorted(set(declared) - set(loaded))
+    if missing:
+        sys.exit(f"Workflow plugins declared but not loaded: {', '.join(missing)}")
+    print("Workflow plugins verified: " + ", ".join(loaded))
+  volumeMounts:
+  - name: workflow-plugins-installed
+    mountPath: /opt/workflow-plugins
+    readOnly: true
+  {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 2 }}
+  {{- include "nv-config-manager.containerSecurityContext" . | nindent 2 }}
+{{- end }}
+{{- end -}}
+
+{{- define "nv-config-manager.workflowPluginVolumes" -}}
+{{- if .Values.temporal.workflowPlugins.enabled }}
+- name: workflow-plugins-source
+  emptyDir: {}
+- name: workflow-plugins-installed
+  emptyDir: {}
+{{- end }}
+{{- end -}}
+
+{{- define "nv-config-manager.workflowPluginVolumeMount" -}}
+{{- if .Values.temporal.workflowPlugins.enabled }}
+- name: workflow-plugins-installed
+  mountPath: /opt/workflow-plugins
+  readOnly: true
+{{- end }}
+{{- end -}}
+
+{{/*
+PYTHONPATH for processes that load DCIM providers and workflow plugins.
+Both helpers would otherwise emit a PYTHONPATH entry of their own.
+*/}}
+{{- define "nv-config-manager.workflowPythonPath" -}}
+{{- $paths := list -}}
+{{- if .Values.dcim.providerPackages.enabled -}}
+{{- $paths = append $paths "/opt/dcim-providers" -}}
+{{- end -}}
+{{- if .Values.temporal.workflowPlugins.enabled -}}
+{{- $paths = append $paths "/opt/workflow-plugins" -}}
 {{- end -}}
 {{- if $paths }}
 - name: PYTHONPATH
@@ -1745,7 +1957,7 @@ Usage: {{ include "nv-config-manager.podTargetLabels" . | nindent 2 }}
 {{- if .Values.global.customLabels }}
 podTargetLabels:
   {{- range $key, $val := .Values.global.customLabels }}
-  - {{ $key }}
+  - {{ $key | quote }}
   {{- end }}
 {{- end }}
 {{- end -}}
@@ -1765,7 +1977,7 @@ Usage under each endpoint:
 - action: replace
   sourceLabels: [job]
   regex: .*
-  targetLabel: {{ $k }}
+  targetLabel: {{ $k | quote }}
   replacement: {{ $v | toString | quote }}
 {{ end }}
 {{- end }}
@@ -1792,6 +2004,60 @@ Usage (the `labels:` key lives at 6 spaces under the Probe spec, hence
 labels:
   {{- toYaml . | nindent 2 }}
 {{- end }}
+{{- end -}}
+
+{{/*
+Yields "true" when the bundled NATS blackbox Probe is rendered. The
+namespace-isolation NetworkPolicy uses the same condition to open the NATS
+monitoring port to the exporter.
+*/}}
+{{- define "nv-config-manager.natsProbeEnabled" -}}
+{{- $probes := .Values.monitoring.probes | default dict -}}
+{{- $nats := $probes.nats | default dict -}}
+{{- $bundled := or .Values.nautobotNats.enabled .Values.externalServices.nats.local -}}
+{{- if and .Values.monitoring.enabled $probes.enabled $probes.blackboxExporterUrl $bundled ($nats.enabled | default false) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Blackbox Probe CR for a single target URL.
+
+The job label is `<monitoring.probes.jobNamePrefix><name>-probe`, so site
+alerting regexes keyed on the job prefix match every Probe the chart renders.
+
+Params:
+  root      - chart root context
+  name      - Probe metadata.name (also the job name stem)
+  component - app.kubernetes.io/component label
+  scheme    - scheme Prometheus uses to reach the blackbox exporter
+  target    - full URL the exporter probes
+*/}}
+{{- define "nv-config-manager.blackboxProbe" -}}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: {{ .name }}
+  namespace: {{ .root.Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" .root | nindent 4 }}
+    app.kubernetes.io/component: {{ .component }}
+    {{- with .root.Values.global.customLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  interval: 30s
+  module: http_2xx
+  jobName: {{ .root.Values.monitoring.probes.jobNamePrefix | default "" }}{{ .name }}-probe
+  prober:
+    scheme: {{ .scheme }}
+    url: {{ .root.Values.monitoring.probes.blackboxExporterUrl }}
+  targets:
+    staticConfig:
+      {{- include "nv-config-manager.probeStaticConfigLabels" .root | nindent 6 }}
+      static:
+      - {{ .target }}
 {{- end -}}
 
 {{/*
@@ -1905,4 +2171,72 @@ Fails fast when neither is available so pods never point at a dead OTLP target.
   value: {{ $endpoint | quote }}
 - name: OTEL_SERVICE_NAME
   value: {{ .serviceName | quote }}
+{{- end -}}
+
+{{/*
+Render one container probe (livenessProbe / readinessProbe / startupProbe) from
+a chart-provided default handler plus operator-supplied values.
+
+  Context: (dict "kind" "liveness" "handler" <dict> "probes" <values map> "indent" <int>)
+
+  kind     liveness | readiness | startup; rendered as "<kind>Probe:".
+  handler  The probe's default action as a dict, e.g.
+           (dict "httpGet" (dict "path" "/healthcheck" "port" 9000)). Owned by the
+           template because it is tied to what the container actually serves.
+  probes   The container's values map holding the liveness / readiness / startup
+           entries (e.g. .Values.networkDhcp.probes.api); the entry named by
+           `kind` is used. May be nil/empty (the probe is then rendered with the
+           default handler and no timing fields).
+  indent   Spaces to indent the rendered block (it starts on a new line).
+
+Entry in the probes map:
+  enabled  false omits the probe entirely (default true when the key is absent).
+  Any other key is copied verbatim onto the Kubernetes probe, so every field the
+  Kubernetes API supports is available (initialDelaySeconds, periodSeconds,
+  timeoutSeconds, successThreshold, failureThreshold,
+  terminationGracePeriodSeconds, ...). Zero values are honored.
+  httpGet / tcpSocket / exec / grpc
+           When set, replaces the chart's default handler. If the chosen handler is
+           the same type as the default, its sub-keys are merged over the default's
+           (e.g. override only `httpGet.path`; `port` is kept). A different handler
+           type replaces the default one outright.
+
+Renders nothing when the probe is disabled.
+*/}}
+{{- define "nv-config-manager.probe" -}}
+{{- $handlerKeys := list "httpGet" "tcpSocket" "exec" "grpc" -}}
+{{- $user := deepCopy (get (.probes | default dict) .kind | default dict) -}}
+{{- $enabled := true -}}
+{{- if hasKey $user "enabled" -}}
+{{- $enabled = $user.enabled -}}
+{{- $_ := unset $user "enabled" -}}
+{{- end -}}
+{{- if $enabled -}}
+{{- $userHandler := false -}}
+{{- range $k := $handlerKeys -}}
+{{- if hasKey $user $k -}}
+{{- $userHandler = true -}}
+{{- end -}}
+{{- end -}}
+{{- $probe := dict -}}
+{{- if not $userHandler -}}
+{{- $probe = deepCopy .handler -}}
+{{- end -}}
+{{- range $k, $v := $user -}}
+{{- if and (has $k $handlerKeys) (kindIs "map" $v) (kindIs "map" (get $.handler $k)) -}}
+{{- $merged := deepCopy (get $.handler $k) -}}
+{{- range $hk, $hv := $v -}}
+{{- if eq $hv nil -}}
+{{- $_ := unset $merged $hk -}}
+{{- else -}}
+{{- $_ := set $merged $hk $hv -}}
+{{- end -}}
+{{- end -}}
+{{- $_ := set $probe $k $merged -}}
+{{- else -}}
+{{- $_ := set $probe $k $v -}}
+{{- end -}}
+{{- end -}}
+{{- printf "%sProbe:\n%s" .kind (toYaml $probe | indent 2) | nindent (int .indent) -}}
+{{- end -}}
 {{- end -}}

@@ -120,7 +120,7 @@ class TestCatalogs:
         descriptor = WorkflowPluginDescriptor(
             name="example",
             # Deliberately invalid: lifecycle checks run at registry build, not here.
-            schedulers=[MissingRunScheduler],  # type: ignore[list-item]
+            schedulers=[MissingRunScheduler],  # type: ignore[list-item]  # ty: ignore[invalid-argument-type]
         )
 
         assert descriptor.schedulers == (MissingRunScheduler,)
@@ -145,7 +145,7 @@ class TestImmutability:
         descriptor = WorkflowPluginDescriptor(name="example")
 
         with pytest.raises(ValidationError):
-            descriptor.name = "renamed"
+            descriptor.name = "renamed"  # ty: ignore[invalid-assignment]
 
     def test_descriptor_is_not_hashable_because_metadata_is_a_mapping(self) -> None:
         with pytest.raises(TypeError):

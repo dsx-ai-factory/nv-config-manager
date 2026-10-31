@@ -123,6 +123,127 @@ async def test_validation_classifies_cable_statuses() -> None:
     assert set(result.interfaces) == {"down", "mismatch", "ignored-no-neighbor"}
 
 
+class TestPortDescriptionValidity:
+    """Validation of hyper-reach cabling via LLDP port description."""
+
+    TEST_DEVICE = NetworkDeviceData(
+        id="device-1",
+        name="mock-switch",
+        role="leaf",
+        site="site-1",
+        device_type="switch",
+        platform=Platform.CUMULUS_LINUX,
+        primary_ip4="192.0.2.1",
+        primary_ip6=None,
+    )
+
+    @pytest.mark.asyncio
+    async def test_matching_port_description_is_valid(self) -> None:
+        """A port description matching the intended chassis and lane is a valid cable."""
+        intended = DeviceNeighborData(
+            neighbors={
+                "swp1": InterfaceNeighborData(
+                    label="C1-2-L1",
+                    device_name="MOCK-GPU-TRAY-01",
+                    device_role="gpu",
+                )
+            },
+        )
+        actual = DeviceNeighborData(
+            neighbors={
+                "swp1": InterfaceNeighborData(
+                    name="A56p0",
+                    device_name="mock-dpu-node",
+                    port_description="MOCK-GPU-TRAY-01 C1-2-L1",
+                )
+            },
+            link_states={"swp1": True},
+        )
+
+        result = await validate_device_neighbors(
+            ValidateDeviceNeighborsInput(
+                device=self.TEST_DEVICE,
+                intended=intended,
+                actual=actual,
+                mac_table=DeviceMacTable(),
+                arp_table=DeviceArpTable(),
+            )
+        )
+
+        assert result.interfaces == {}
+
+    @pytest.mark.asyncio
+    async def test_mismatched_port_description_is_invalid(self) -> None:
+        """A port description naming a different device is an invalid cable."""
+        intended = DeviceNeighborData(
+            neighbors={
+                "swp1": InterfaceNeighborData(
+                    label="C1-2-L1",
+                    device_name="MOCK-GPU-TRAY-01",
+                    device_role="gpu",
+                )
+            },
+        )
+        actual = DeviceNeighborData(
+            neighbors={
+                "swp1": InterfaceNeighborData(
+                    name="A56p0",
+                    device_name="mock-dpu-node",
+                    port_description="MOCK-GPU-TRAY-02 C1-2-L1",
+                )
+            },
+            link_states={"swp1": True},
+        )
+
+        result = await validate_device_neighbors(
+            ValidateDeviceNeighborsInput(
+                device=self.TEST_DEVICE,
+                intended=intended,
+                actual=actual,
+                mac_table=DeviceMacTable(),
+                arp_table=DeviceArpTable(),
+            )
+        )
+
+        assert "swp1" in result.interfaces
+
+    @pytest.mark.asyncio
+    async def test_port_description_matches_chassis_alias_over_device_name(self) -> None:
+        """A line card's chassis alias, not its own device name, matches the port description."""
+        intended = DeviceNeighborData(
+            neighbors={
+                "swp1": InterfaceNeighborData(
+                    label="C1-2-L1",
+                    device_name="MOCK-GPU-TRAY-01-pcie1",
+                    chassis_name="MOCK-GPU-TRAY-01",
+                    device_role="gpu",
+                )
+            },
+        )
+        actual = DeviceNeighborData(
+            neighbors={
+                "swp1": InterfaceNeighborData(
+                    name="A56p0",
+                    device_name="mock-dpu-node",
+                    port_description="MOCK-GPU-TRAY-01 C1-2-L1",
+                )
+            },
+            link_states={"swp1": True},
+        )
+
+        result = await validate_device_neighbors(
+            ValidateDeviceNeighborsInput(
+                device=self.TEST_DEVICE,
+                intended=intended,
+                actual=actual,
+                mac_table=DeviceMacTable(),
+                arp_table=DeviceArpTable(),
+            )
+        )
+
+        assert result.interfaces == {}
+
+
 @pytest.mark.asyncio
 async def test_update_cable_statuses_is_noop_for_unsupported_provider(
     monkeypatch: pytest.MonkeyPatch,

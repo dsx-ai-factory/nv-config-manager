@@ -98,14 +98,9 @@ spec:
         # endpoint -- a config mismatch (desired config not yet applied) must
         # leave a live Kea running and only mark the pod unready for
         # reconciliation, never trigger a restart of the Kea container.
-        livenessProbe:
-          failureThreshold: 10
-          httpGet:
-            path: /livez
-            port: 9090
-          initialDelaySeconds: 120
-          periodSeconds: 10
-          timeoutSeconds: 3
+        {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 8 "probes" .Values.networkDhcp.probes.kea "handler" (dict "httpGet" (dict "path" "/livez" "port" 9090))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 8 "probes" .Values.networkDhcp.probes.kea "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9090))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 8 "probes" .Values.networkDhcp.probes.kea "handler" (dict "httpGet" (dict "path" "/livez" "port" 9090))) }}
         resources:
           {{- toYaml .Values.networkDhcp.resources.dhcp | nindent 10 }}
         volumeMounts:
@@ -130,29 +125,19 @@ spec:
           name: healthcheck
         # Liveness only recycles this sidecar if Kea itself is dead (/livez); a
         # config mismatch must not restart it.
-        livenessProbe:
-          failureThreshold: 10
-          httpGet:
-            path: /livez
-            port: 9090
-          initialDelaySeconds: 120
-          periodSeconds: 10
-          timeoutSeconds: 3
+        {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 8 "probes" .Values.networkDhcp.probes.healthcheck "handler" (dict "httpGet" (dict "path" "/livez" "port" 9090))) }}
         # Strict readiness: Kea online AND desired config applied. This is the
         # endpoint the external DHCP NLB targets, so an unconfigured pod (no
         # applied config) stays unready and never receives external DHCP traffic.
-        readinessProbe:
-          failureThreshold: 10
-          httpGet:
-            path: /healthcheck
-            port: 9090
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 3
+        {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 8 "probes" .Values.networkDhcp.probes.healthcheck "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9090))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 8 "probes" .Values.networkDhcp.probes.healthcheck "handler" (dict "httpGet" (dict "path" "/livez" "port" 9090))) }}
         resources:
           {{- toYaml .Values.networkDhcp.resources.healthcheck | nindent 10 }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerSecretsDirEtcVault" . | nindent 8 }}
+        - name: dhcp-sync-state
+          mountPath: /tmp/nv-config-manager-dhcp-state
+          readOnly: true
       # API container
       - name: api
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -175,28 +160,18 @@ spec:
           name: api
         # Liveness only reflects Kea process health (/livez); config mismatches
         # must not restart the api container.
-        livenessProbe:
-          failureThreshold: 10
-          httpGet:
-            path: /livez
-            port: 9000
-          initialDelaySeconds: 120
-          periodSeconds: 10
-          timeoutSeconds: 3
+        {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 8 "probes" .Values.networkDhcp.probes.api "handler" (dict "httpGet" (dict "path" "/livez" "port" 9000))) }}
         # Strict readiness: Kea online AND desired config applied.
-        readinessProbe:
-          failureThreshold: 10
-          httpGet:
-            path: /healthcheck
-            port: 9000
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 3
+        {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 8 "probes" .Values.networkDhcp.probes.api "handler" (dict "httpGet" (dict "path" "/healthcheck" "port" 9000))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 8 "probes" .Values.networkDhcp.probes.api "handler" (dict "httpGet" (dict "path" "/livez" "port" 9000))) }}
         resources:
           {{- toYaml .Values.networkDhcp.resources.api | nindent 10 }}
         volumeMounts:
         {{- include "nv-config-manager.vaultAgent.configManagerSecretsDirEtcVault" . | nindent 8 }}
         {{- include "nv-config-manager.authVolumeMounts" . | nindent 8 }}
+        - name: dhcp-sync-state
+          mountPath: /tmp/nv-config-manager-dhcp-state
+          readOnly: true
       # Config sync container
       - name: config-sync-v4
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -233,21 +208,24 @@ spec:
         # (failureThreshold * periodSeconds = 300s of failure) so the in-loop
         # recovery wins under normal conditions and we only recycle the sidecar
         # if the loop itself is stuck.
-        livenessProbe:
-          exec:
-            command: ["nv-config-manager-dhcp-confgen", "check-sync-heartbeat"]
-          initialDelaySeconds: 180
-          periodSeconds: 30
-          timeoutSeconds: 10
-          failureThreshold: 10
+        {{- include "nv-config-manager.probe" (dict "kind" "liveness" "indent" 8 "probes" .Values.networkDhcp.probes.confgen "handler" (dict "exec" (dict "command" (list "nv-config-manager-dhcp-confgen" "check-sync-heartbeat")))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "readiness" "indent" 8 "probes" .Values.networkDhcp.probes.confgen "handler" (dict "exec" (dict "command" (list "nv-config-manager-dhcp-confgen" "check-sync-heartbeat")))) }}
+        {{- include "nv-config-manager.probe" (dict "kind" "startup" "indent" 8 "probes" .Values.networkDhcp.probes.confgen "handler" (dict "exec" (dict "command" (list "nv-config-manager-dhcp-confgen" "check-sync-heartbeat")))) }}
         resources:
           {{- toYaml .Values.networkDhcp.resources.confgen | nindent 10 }}
         volumeMounts:
-        {{- include "nv-config-manager.vaultAgent.configManagerIniFileMountEtcVault" . | nindent 8 }}
+        # Directory mount, not subPath: a subPath file is frozen at container
+        # start and never receives Secret updates.
+        {{- include "nv-config-manager.vaultAgent.configManagerSecretsDirEtcVault" . | nindent 8 }}
         {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
+        - name: dhcp-sync-state
+          mountPath: /tmp/nv-config-manager-dhcp-state
       {{- /* SPIFFE helper sidecar for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar" (dict "root" . "serviceName" "network-dhcp") | nindent 6 }}
       volumes:
+      - name: dhcp-sync-state
+        emptyDir:
+          sizeLimit: 1Mi
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
       {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
@@ -332,7 +310,9 @@ spec:
         resources:
           {{- toYaml .Values.networkDhcp.resources.confgen | nindent 10 }}
         volumeMounts:
-        {{- include "nv-config-manager.vaultAgent.configManagerIniFileMountEtcVault" . | nindent 8 }}
+        # Directory mount, not subPath: a subPath file is frozen at container
+        # start and never receives Secret updates.
+        {{- include "nv-config-manager.vaultAgent.configManagerSecretsDirEtcVault" . | nindent 8 }}
         {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
         {{- if .Values.spiffe.enabled }}
         - name: spiffe-jwt-svid

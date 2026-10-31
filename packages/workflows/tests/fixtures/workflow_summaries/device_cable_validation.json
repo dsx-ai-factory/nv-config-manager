@@ -1,0 +1,36 @@
+{
+  "workflows": [
+    {
+      "id": "docs-device-cable-validation-01",
+      "workflow_type": "DeviceCableValidationWorkflow",
+      "workflow_input": {
+        "device": null,
+        "device_id": "76984a54-3188-418b-8e03-0489355e19fc"
+      },
+      "started_by": "demo",
+      "start_time": "2025-03-04T02:33:00.874675Z",
+      "close_time": "2025-03-04T02:33:11.556508Z",
+      "status": "FAILED",
+      "pending_approval": false,
+      "search_attributes": {
+        "Site": ["PDX01"],
+        "DeviceName": ["LEAF2-GP1-CIN3-PDX01"],
+        "User": ["demo"],
+        "DeviceID": ["76984a54-3188-418b-8e03-0489355e19fc"],
+        "BuildIds": [
+          "unversioned",
+          "unversioned:879c4b06769e4c688df8fc5a3be6937d"
+        ],
+        "DeviceRole": ["cin-leaf"],
+        "DevicePlatform": ["cumulus-linux"],
+        "PendingApproval": [false],
+        "FailedStage": [true],
+        "ReadRoles": ["all"],
+        "ExecuteRoles": ["all"]
+      },
+      "href": "https://temporal-ui.example.com/namespaces/default/workflows/docs-device-cable-validation-01",
+      "failed_stage": true
+    }
+  ],
+  "next_page_token": null
+}

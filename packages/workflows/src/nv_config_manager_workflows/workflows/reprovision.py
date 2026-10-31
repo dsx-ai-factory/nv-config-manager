@@ -81,7 +81,10 @@ class ReprovisionInput(BaseModel):
                     "/v1/parameter/device",
                     "name",
                     "id",
-                    params={"managed_only": True, "platform": ["Cumulus Linux", "NV-OS"]},
+                    params={
+                        "managed_only": True,
+                        "platform": ["Cumulus Linux", "NV-OS", "Arista EOS"],
+                    },
                 ),
                 filters=("site", "tenant", "status"),
             ),

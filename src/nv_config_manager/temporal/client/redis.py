@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from nv_config_manager.common.client import RedisClient as BaseRedisClient
+from nv_config_manager.common.client.redis import RedisClient as BaseRedisClient
 
 
 class RedisClient(BaseRedisClient):

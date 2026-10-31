@@ -13,11 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import http.client
 import io
 import json
 import tarfile
 from typing import cast
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock, call, patch
 
 import pyeapi.eapilib
 import pytest
@@ -29,6 +30,7 @@ from nv_config_manager_workflows.clients.device.exceptions import (
     ConfigSyntaxException,
     DiffChangedException,
     NetworkDeviceException,
+    ZTPRollbackException,
 )
 
 
@@ -456,3 +458,462 @@ def test_run_diagnostic_command_serializes_new_arista_command() -> None:
     output = conn.run_diagnostic_command("show_platform_transceiver")
 
     assert json.loads(output) == {"error": "Transceiver data not available on this device"}
+
+
+# ---------------------------------------------------------------------------
+# Password fallback: pyeapi authenticates per request, so a rotated password
+# first shows up as a 401 on the first command.
+# ---------------------------------------------------------------------------
+
+
+class _FakeEapiConnection:
+    """An eAPI transport that accepts exactly one password."""
+
+    def __init__(self, accepted: str, first: str) -> None:
+        self.accepted = accepted
+        self.password = first
+        self.authentications: list[tuple[str, str]] = []
+        self.executed: list[list[object]] = []
+
+    def authentication(self, username: str, password: str) -> None:
+        self.authentications.append((username, password))
+        self.password = password
+
+    def execute(
+        self, commands: list[object], encoding: str, **_kwargs: object
+    ) -> dict[str, object]:
+        self.executed.append(commands)
+        if self.password != self.accepted:
+            raise pyeapi.eapilib.ConnectionError("eapi", "Unauthorized. Unauthorized")
+        return {"result": [{}, {"hostname": "leaf1"}]}
+
+
+def _fallback_node(
+    connection: _FakeEapiConnection, *others: str
+) -> tuple[arista._PasswordFallbackNode, list[str]]:
+    """Return the node and the list of passwords it reports as working."""
+    remembered: list[str] = []
+    node = arista._PasswordFallbackNode(
+        connection,
+        host="192.0.2.1",
+        username="svc",
+        passwords=lambda: list(others),
+        on_password=remembered.append,
+        enablepwd=connection.password,
+    )
+    return node, remembered
+
+
+def test_fallback_node_retries_a_rejected_request_with_the_other_passwords() -> None:
+    connection = _FakeEapiConnection(accepted="r1", first="r2")
+    node, remembered = _fallback_node(connection, "r1")
+
+    result = node.enable("show hostname")
+
+    assert result[0]["result"] == {"hostname": "leaf1"}
+    assert connection.authentications == [("svc", "r1")]
+    assert remembered == ["r1"]
+    # The enable password follows the login password.
+    assert connection.executed[-1][0] == {"cmd": "enable", "input": "r1"}
+
+
+def test_fallback_node_restores_the_original_password_when_every_password_is_rejected() -> None:
+    connection = _FakeEapiConnection(accepted="r9", first="r2")
+    node, remembered = _fallback_node(connection, "r1", "r0")
+
+    with pytest.raises(NetworkDeviceException, match="rejected every known password for svc"):
+        node.enable("show hostname")
+    # Each candidate once, then the original password is put back.
+    assert [password for _, password in connection.authentications] == ["r1", "r0", "r2"]
+    assert connection.password == "r2"
+    assert remembered == []
+
+
+def test_fallback_node_tries_the_other_passwords_once_per_session() -> None:
+    """Each failed login counts towards a lockout, so a failed pass is not repeated."""
+    connection = _FakeEapiConnection(accepted="r9", first="r2")
+    node, _ = _fallback_node(connection, "r1", "r0")
+    with pytest.raises(NetworkDeviceException):
+        node.enable("show hostname")
+    authentications, requests = len(connection.authentications), len(connection.executed)
+
+    with pytest.raises(NetworkDeviceException, match="other known passwords already failed"):
+        node.enable("show hostname")
+    assert len(connection.authentications) == authentications
+    assert len(connection.executed) == requests + 1
+
+
+def test_fallback_node_warns_when_another_password_works() -> None:
+    connection = _FakeEapiConnection(accepted="r1", first="r2")
+    node, _ = _fallback_node(connection, "r1")
+
+    with patch.object(arista, "logger") as logger:
+        node.enable("show hostname")
+    logger.warning.assert_called_once()
+    assert "192.0.2.1" in logger.warning.call_args.args
+
+
+def test_fallback_node_leaves_other_connection_errors_alone() -> None:
+    connection = _FakeEapiConnection(accepted="r2", first="r2")
+    node, _ = _fallback_node(connection, "r1")
+
+    with (
+        patch.object(
+            connection,
+            "execute",
+            side_effect=pyeapi.eapilib.ConnectionError("eapi", "unable to connect to eAPI"),
+        ),
+        pytest.raises(pyeapi.eapilib.ConnectionError, match="unable to connect"),
+    ):
+        node.enable("show hostname")
+    assert connection.authentications == []
+
+
+def test_fallback_node_puts_the_original_password_back_when_a_retry_fails_otherwise() -> None:
+    connection = _FakeEapiConnection(accepted="r1", first="r2")
+    node, remembered = _fallback_node(connection, "r1")
+    errors = [
+        pyeapi.eapilib.ConnectionError("eapi", "Unauthorized. Unauthorized"),
+        pyeapi.eapilib.ConnectionError("eapi", "timed out"),
+    ]
+
+    with (
+        patch.object(connection, "execute", side_effect=errors),
+        pytest.raises(pyeapi.eapilib.ConnectionError, match="timed out"),
+    ):
+        node.enable("show hostname")
+    assert connection.password == "r2"
+    assert remembered == []
+
+    # The fallback is not spent, so the next 401 still tries the other password.
+    node.enable("show hostname")
+    assert remembered == ["r1"]
+
+
+def test_fallback_node_keeps_a_password_that_eapi_accepted_for_a_failed_command() -> None:
+    connection = _FakeEapiConnection(accepted="r1", first="r2")
+    node, remembered = _fallback_node(connection, "r1")
+    errors = [
+        pyeapi.eapilib.ConnectionError("eapi", "Unauthorized. Unauthorized"),
+        pyeapi.eapilib.CommandError(1002, "CLI command 2 of 2 'show hostnme' failed"),
+    ]
+
+    with (
+        patch.object(connection, "execute", side_effect=errors),
+        pytest.raises(pyeapi.eapilib.CommandError),
+    ):
+        node.enable("show hostnme")
+    assert connection.password == "r1"
+    assert remembered == ["r1"]
+
+
+def test_connect_starts_with_the_newest_password_and_keeps_the_rest_for_fallback() -> None:
+    conn = AristaConnection.__new__(AristaConnection)
+    conn._host, conn._port, conn._username = "192.0.2.1", 443, "svc"
+    conn._passwords_to_try, conn._working_password = ["r2", "r1"], None
+    connection = _FakeEapiConnection(accepted="r1", first="r2")
+    with patch.object(arista.pyeapi, "connect", return_value=connection) as connect:
+        node = conn._connect()
+
+    assert connect.call_args.kwargs["password"] == "r2"
+    assert isinstance(node, arista._PasswordFallbackNode)
+    assert conn._working_password == "r2"
+    assert conn._other_passwords() == ["r1"]
+    node.enable("show hostname")  # falls back to r1 ...
+    assert conn._working_password == "r1"  # ... which is remembered for later connections
+
+
+def _connection_error(cause: BaseException | None) -> pyeapi.eapilib.ConnectionError:
+    """A pyeapi ConnectionError as pyeapi raises it, with the socket error as context."""
+    error = pyeapi.eapilib.ConnectionError(
+        "192.0.2.1", f"Socket error during eAPI connection: {cause}"
+    )
+    error.__context__ = cause
+    return error
+
+
+_MISSING_FILE = "Error renaming flash:/{} (No such file or directory)"
+_MOVE_ASIDE = [
+    "rename flash:startup-config flash:startup-config.nvcm-backup",
+    "rename flash:zerotouch-config flash:zerotouch-config.nvcm-backup",
+]
+
+
+def _restore(name: str) -> list[str]:
+    """The commands that check for a moved file and rename it back."""
+    return [
+        f"show file information flash:{name}",
+        f"show file information flash:{name}.nvcm-backup",
+        f"rename flash:{name}.nvcm-backup flash:{name}",
+    ]
+
+
+_RESTORE = [*_restore("startup-config"), *_restore("zerotouch-config")]
+
+
+def _no_such_file(name: str) -> pyeapi.eapilib.CommandError:
+    """What "show file information" raises for a file that is not on flash."""
+    return pyeapi.eapilib.CommandError(
+        1000,
+        "could not run command",
+        command_error=f"Error getting information about flash:{name} (No such file or directory)",
+    )
+
+
+def _restore_answers(name: str) -> list[object]:
+    """eAPI answers when the original is gone and the backup is there."""
+    return [_no_such_file(name), {}, {}]
+
+
+_RESTORE_ANSWERS = [*_restore_answers("startup-config"), *_restore_answers("zerotouch-config")]
+
+
+_RELOAD = "reload in 00:05 force"
+_CANCEL = "reload cancel"
+
+
+def _commands(node: MagicMock) -> list[str]:
+    return [c.args[0] for c in node.enable.call_args_list]
+
+
+def test_execute_ztp_moves_aside_what_blocks_zerotouch_then_schedules_the_reload() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node({}, {}, {"output": ""})
+    transport = conn._node.connection.transport
+    transport.timeout = 300
+
+    conn.execute_ztp()
+
+    assert _commands(conn._node) == [*_MOVE_ASIDE, _RELOAD]
+    # Sent once, as text: never replayed in another encoding.
+    assert conn._node.enable.call_args.kwargs == {"encoding": "text", "strict": True}
+    assert transport.timeout == 300
+
+
+def test_execute_ztp_sends_every_request_with_the_short_timeout() -> None:
+    """Requests that hang must leave time for the rollback inside the activity deadline."""
+    conn = _arista_connection()
+    conn._node = _eapi_node(
+        {}, {}, _connection_error(TimeoutError("timed out")), *_RESTORE_ANSWERS, {}
+    )
+    transport = conn._node.connection.transport
+    transport.timeout = 300
+    seen: list[int] = []
+    answers = iter(conn._node.enable.side_effect)
+
+    def answer(*_args: object, **_kwargs: object) -> object:
+        seen.append(transport.timeout)
+        result = next(answers)
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    conn._node.enable.side_effect = answer
+
+    with pytest.raises(NetworkDeviceException):
+        conn.execute_ztp()
+    assert len(seen) == 10
+    assert set(seen) == {20}
+    assert transport.timeout == 300
+
+
+def test_execute_ztp_skips_files_that_are_not_there() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(
+        {},
+        pyeapi.eapilib.CommandError(
+            1000, "could not run command", command_error=_MISSING_FILE.format("zerotouch-config")
+        ),
+        {},
+    )
+
+    conn.execute_ztp()
+
+    assert _commands(conn._node) == [*_MOVE_ASIDE, _RELOAD]
+
+
+def test_execute_ztp_undoes_the_reset_when_the_reload_is_refused() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(
+        {}, {}, pyeapi.eapilib.CommandError(1002, "Unavailable command"), *_RESTORE_ANSWERS, {}
+    )
+
+    with pytest.raises(NetworkDeviceException, match="did not confirm the reload") as exc:
+        conn.execute_ztp()
+    assert _commands(conn._node) == [*_MOVE_ASIDE, _RELOAD, *_RESTORE, _CANCEL]
+    assert "may still be at" not in str(exc.value)
+    assert not isinstance(exc.value, ZTPRollbackException)
+    assert not exc.value.non_retryable
+
+
+@pytest.mark.parametrize(
+    "cause",
+    [
+        TimeoutError("timed out"),
+        ConnectionResetError(104, "Connection reset by peer"),
+        http.client.RemoteDisconnected("Remote end closed connection without response"),
+        ConnectionRefusedError(111, "Connection refused"),
+        None,  # eAPI answered with an error status, such as a 401
+    ],
+)
+def test_execute_ztp_undoes_the_reset_when_the_reload_is_not_confirmed(
+    cause: BaseException | None,
+) -> None:
+    """Without an answer the reload may or may not be scheduled, so both are undone."""
+    conn = _arista_connection()
+    conn._node = _eapi_node({}, {}, _connection_error(cause), *_RESTORE_ANSWERS, {})
+
+    with pytest.raises(NetworkDeviceException, match="did not confirm the reload"):
+        conn.execute_ztp()
+    assert _commands(conn._node) == [*_MOVE_ASIDE, _RELOAD, *_RESTORE, _CANCEL]
+
+
+def test_execute_ztp_warns_when_the_reload_cannot_be_cancelled() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(
+        {},
+        {},
+        _connection_error(TimeoutError("timed out")),
+        *_RESTORE_ANSWERS,
+        _connection_error(TimeoutError("timed out")),
+    )
+
+    with patch.object(arista, "logger") as logger, pytest.raises(NetworkDeviceException):
+        conn.execute_ztp()
+    logger.warning.assert_called_once()
+
+
+def test_execute_ztp_renames_back_what_it_moved_when_a_rename_fails() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(
+        {},
+        pyeapi.eapilib.CommandError(1000, "could not run command"),
+        *_restore_answers("startup-config"),
+        {},  # zerotouch-config is still in place
+        {},
+    )
+
+    with pytest.raises(NetworkDeviceException, match="could not move flash:zerotouch-config"):
+        conn.execute_ztp()
+    assert _commands(conn._node) == [
+        *_MOVE_ASIDE,
+        *_restore("startup-config"),
+        "show file information flash:zerotouch-config",
+        _CANCEL,
+    ]
+
+
+def test_execute_ztp_renames_back_a_file_whose_rename_ran_before_the_connection_dropped() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(
+        _connection_error(TimeoutError("timed out")),
+        *_restore_answers("startup-config"),
+        {},  # zerotouch-config is in place
+        {},
+    )
+
+    with pytest.raises(NetworkDeviceException, match="could not move flash:startup-config"):
+        conn.execute_ztp()
+    assert _commands(conn._node) == [
+        _MOVE_ASIDE[0],
+        *_restore("startup-config"),
+        "show file information flash:zerotouch-config",
+        _CANCEL,
+    ]
+
+
+def test_execute_ztp_restores_a_file_an_earlier_attempt_moved() -> None:
+    """A retried activity finds startup-config already renamed; the rollback must still restore it."""
+    conn = _arista_connection()
+    conn._node = _eapi_node(
+        pyeapi.eapilib.CommandError(
+            1000, "could not run command", command_error=_MISSING_FILE.format("startup-config")
+        ),
+        pyeapi.eapilib.CommandError(
+            1000, "could not run command", command_error=_MISSING_FILE.format("zerotouch-config")
+        ),
+        _connection_error(TimeoutError("timed out")),
+        *_restore_answers("startup-config"),
+        _no_such_file("zerotouch-config"),
+        _no_such_file("zerotouch-config.nvcm-backup"),
+        {},
+    )
+
+    with pytest.raises(NetworkDeviceException, match="did not confirm the reload"):
+        conn.execute_ztp()
+    assert _commands(conn._node) == [
+        *_MOVE_ASIDE,
+        _RELOAD,
+        *_restore("startup-config"),
+        "show file information flash:zerotouch-config",
+        "show file information flash:zerotouch-config.nvcm-backup",
+        _CANCEL,
+    ]
+
+
+def test_execute_ztp_keeps_the_original_over_an_older_backup() -> None:
+    """The rename did not run, so the backup left by an earlier reset must not replace the file."""
+    conn = _arista_connection()
+    conn._node = _eapi_node(_connection_error(ConnectionRefusedError(111, "refused")), {}, {}, {})
+
+    with pytest.raises(NetworkDeviceException, match="could not move flash:startup-config"):
+        conn.execute_ztp()
+    assert _commands(conn._node) == [
+        _MOVE_ASIDE[0],
+        "show file information flash:startup-config",
+        "show file information flash:zerotouch-config",
+        _CANCEL,
+    ]
+
+
+def test_execute_ztp_reports_where_a_file_is_when_renaming_it_back_fails() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(
+        {},
+        {},
+        pyeapi.eapilib.CommandError(1002, "Unavailable command"),
+        _no_such_file("startup-config"),
+        {},
+        pyeapi.eapilib.CommandError(1000, "could not run command"),
+        *_restore_answers("zerotouch-config"),
+        {},
+    )
+
+    with patch.object(arista, "logger") as logger, pytest.raises(ZTPRollbackException) as exc:
+        conn.execute_ztp()
+    logger.error.assert_called_once()
+    assert "startup-config" in logger.error.call_args.args
+    assert str(exc.value).endswith(
+        "; flash:startup-config may still be at flash:startup-config.nvcm-backup"
+    )
+    assert exc.value.non_retryable
+    assert _commands(conn._node)[-1] == _CANCEL
+
+
+def test_execute_ztp_undoes_the_reset_when_every_password_is_rejected() -> None:
+    """eAPI stops accepting the credentials after the first rename: still roll back, and report it."""
+    rejected = NetworkDeviceException("eAPI on leaf1 rejected every known password for admin")
+    conn = _arista_connection()
+    conn._node = _eapi_node({}, rejected, rejected, rejected, rejected, rejected)
+
+    with pytest.raises(ZTPRollbackException, match="could not move flash:zerotouch-config") as exc:
+        conn.execute_ztp()
+    assert str(exc.value).endswith(
+        "; flash:startup-config may still be at flash:startup-config.nvcm-backup"
+        "; flash:zerotouch-config may still be at flash:zerotouch-config.nvcm-backup"
+    )
+    assert _commands(conn._node) == [
+        *_MOVE_ASIDE,
+        "show file information flash:startup-config",
+        "show file information flash:zerotouch-config",
+        _CANCEL,
+    ]
+
+
+def test_get_ztp_status_is_success_once_zerotouch_is_disabled() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node({"mode": "disabled", "scriptTimeout": 900})
+    assert conn.get_ztp_status() == "success"
+
+    conn._node = _eapi_node({"mode": "enabled", "scriptTimeout": 900})
+    assert conn.get_ztp_status() == "enabled"

@@ -34,19 +34,39 @@ Cable validation runs from the perspective of each in-scope network device. For 
 1. **Is the interface tagged for link-state-only validation?** If the link is up and the local interface has `cable-validation-link-state-only`, the connection passes without an identity check.
 1. **Does LLDP identify the intended neighbor?** The reported neighbor device and interface are compared with the far-end device and interface in the DCIM. The comparison is case-insensitive. The workflow also handles devices that advertise an interface MAC instead of a port or system name, including the supported DPU MAC-offset behavior.
 1. **Does the expected far-end MAC appear on the correct local interface?** The workflow takes the MAC from the connected far-end interface in the DCIM and looks for it in the local device's FDB or ARP table.
-1. **Classify the result.** A connection passes when either LLDP or the MAC check matches. If neither matches, the report distinguishes a wrong observed neighbor from a link that is up but has no usable neighbor data.
+1. **Does the LLDP port description identify the intended chassis and port?** For hyper-reach connections, the description can identify the GPU tray and cable lane even when the advertised system and port names differ. Refer to [Hyper-reach GPU tray connections](#hyper-reach-gpu-tray-connections) for the matching rules.
+1. **Classify the result.** A connection passes when any identity check matches: LLDP device and interface, far-end MAC, or LLDP port description. If none matches, the report distinguishes a wrong observed neighbor from a link that is up but has no usable neighbor data.
 
 The workflow also reports an LLDP neighbor on an interface that has no intended connection in the DCIM as `Unexpected connection found`. It does not treat every unmodeled FDB entry as an unexpected cable because a port can legitimately learn multiple MAC addresses.
 
-| Validation mode | Link state | LLDP identity | FDB/ARP MAC | Unexpected LLDP neighbor |
-| :-------------- | :--------: | :-----------: | :---------: | :----------------------: |
-| Full validation | Checked | Either LLDP or MAC must match | Either MAC or LLDP must match | Reported |
-| `cable-validation-link-state-only` | Checked | Skipped | Skipped | Not applicable to a modeled connection |
-| `cable-validation-ignore` | Skipped | Skipped | Skipped | Suppressed on the tagged interface |
+The validation modes apply the following checks:
+
+| Validation mode | Link state | Identity checks | Unexpected LLDP neighbor |
+| :-------------- | :--------: | :-------------- | :----------------------: |
+| Full validation | Checked | Any one must match: LLDP device and interface, FDB or ARP MAC, or LLDP port description | Reported |
+| `cable-validation-link-state-only` | Checked | Skipped | Not applicable to a modeled connection |
+| `cable-validation-ignore` | Skipped | Skipped | Suppressed on the tagged interface |
 
 <Warning>
 An operationally up link does not prove that it reaches the intended host or port. Link-state-only validation is an intentionally temporary, lower-confidence result for cases where the data needed for full validation is not available yet.
 </Warning>
+
+### Hyper-reach GPU tray connections
+
+For hyper-reach GPU compute trays connected to Cumulus Linux CIN-leaf switches, validation also checks the LLDP port description collected through NVUE. The description must contain exactly two whitespace-separated values: `<chassis-hostname> <cable-lane>`. The following example identifies chassis `gpu-tray-01` and cable lane `C1-2-L1`:
+
+```text
+gpu-tray-01 C1-2-L1
+```
+
+The workflow compares these values with the intended far end in the DCIM, ignoring letter case:
+
+- **Chassis hostname:** For a line-card device installed in a Nautobot DeviceBay, use the parent chassis device's name. Without a parent chassis name, use the connected device's own name. The line card retains its own identity for the other validation checks.
+- **Cable lane:** Use the connected far-end interface's label, falling back to its name when the label is empty.
+
+Model the cable to the line card's interface and install the line card in its parent chassis's DeviceBay. Set the interface label to the advertised cable lane. If the interface name already matches the lane, a label is unnecessary. The connected device must still have the name and role required for validation.
+
+A matching description passes full validation without a far-end MAC, provided the local link is up. A missing, malformed, or mismatched description does not pass this check, but the existing LLDP and MAC checks can still validate the connection. No additional workflow option or validation tag is required.
 
 ## DCIM cable status updates
 
@@ -86,9 +106,9 @@ Use the tag during the first validation pass as follows:
 1. Confirm the cable and both endpoints are modeled correctly in the DCIM.
 1. Add `cable-validation-link-state-only` to each affected in-scope switch interface before the first cable-validation run.
 1. Run site cable validation and resolve all link-down results. Treat a clean link-state-only result as confirmation of physical signal only, not confirmation that the host is connected to the correct port.
-1. Allow the compute management system to discover the hosts and populate their high-speed interface MAC addresses in the DCIM.
-1. Verify that the MAC is assigned to the correct far-end host interface, then remove `cable-validation-link-state-only` from the switch interface.
-1. Re-run device or site cable validation. The connection now receives full LLDP-or-MAC validation and can detect swapped host links.
+1. Allow the compute management system to discover the hosts and populate their high-speed interface MAC addresses in the DCIM. For hyper-reach connections, a matching [LLDP port description](#hyper-reach-gpu-tray-connections) can provide identity before the MAC is available.
+1. Verify the far-end interface's MAC assignment or the LLDP identity data against the intended cabling, then remove `cable-validation-link-state-only` from the switch interface.
+1. Re-run device or site cable validation. The connection now receives full identity validation and can detect swapped host links.
 
 Do not leave the tag in place after the required MAC or reliable LLDP data becomes available. Doing so permanently hides wrong-neighbor and cable-swap errors on an otherwise healthy link.
 
@@ -117,7 +137,7 @@ Use this for site bringup or any time you need a full-site view.
 
 1. Navigate to the Config Manager URL for your environment.
 
-1. Click the **+** in the top right and select **SiteCableValidationWorkflow**.
+1. Click the **+** in the top right and select **Site Cable Validation**.
 
    ![Workflow form](../../assets/images/cable-validation-workflow-form.png)
 
@@ -137,7 +157,9 @@ Use this for site bringup or any time you need a full-site view.
 
    ![Report link](../../assets/images/cable-validation-report-link.png)
 
-   ![Report example](../../assets/images/cable-validation-report-example.png)
+   See [Interpreting the report](#interpreting-the-report) for the result columns and a hyper-reach mismatch example.
+
+   ![Cable validation report showing the intended interface label and an incorrect observed LLDP port description](../../assets/images/cable-validation-report-example.png)
 
 1. Address any issues, then re-run the workflow to confirm they are resolved.
 
@@ -146,7 +168,7 @@ Use this for site bringup or any time you need a full-site view.
 Use this to re-validate a single device after fixing an issue without re-running the full site.
 
 1. Navigate to the Config Manager URL for your environment.
-1. Click the **+** in the top right and select **DeviceCableValidationWorkflow**.
+1. Click the **+** in the top right and select **Device Cable Validation**.
 1. Fill in the form using the field reference below and submit.
 
 | Field | Description | Required |
@@ -191,11 +213,11 @@ The device workflow runs six stages. The three data-collection stages (`get_devi
 
 1. **`get_device_intended_neighbors` — Read intended cabling from the DCIM.**
 
-   Pulls every enabled interface with a connected interface from the DCIM. For each connection, it records the far-end device, interface, role, rack position, and interface MAC when present. It also records `cable-validation-ignore` and `cable-validation-link-state-only` tags on the local interface.
+   Pulls every enabled interface with a connected interface from the DCIM. For each connection, it records the far-end device, interface, role, rack position, and interface MAC when present. It also records the far-end interface label and parent chassis name for port-description matching, plus `cable-validation-ignore` and `cable-validation-link-state-only` tags on the local interface.
 
 1. **`get_device_actual_neighbors` — Read observed cabling from the device.**
 
-   Queries the device for its LLDP neighbor table on every interface. This is the primary source of truth for what is physically connected.
+   Queries the device for its LLDP neighbor table on every interface, including port descriptions on Cumulus Linux devices. This is the primary source of truth for what is physically connected.
 
 1. **`get_device_mac_table` — Read the FDB and ARP table from the device.**
 
@@ -203,7 +225,7 @@ The device workflow runs six stages. The three data-collection stages (`get_devi
 
 1. **`validate_connections` — Compare intended vs actual and produce the report.**
 
-   Joins the three data sources and applies the decision order in [How each connection is evaluated](#how-each-connection-is-evaluated). It validates the required intended-neighbor fields before checking link state. After that prerequisite passes, an up interface marked link-state-only passes immediately; otherwise either LLDP or the expected far-end MAC must match. The stage then classifies every mismatch (link down, wrong neighbor, no neighbor found, unexpected connection), decorates findings with the stable `ID` hash used across runs, and formats the per-device Markdown report. For a standalone device run, the report appears while this stage persists cable statuses; a site-launched child returns its pending updates to the parent instead. This stage is not retryable — if validation logic or DCIM persistence raises, the run fails outright rather than masking a real error behind a retry.
+   Joins the three data sources and applies the decision order in [How each connection is evaluated](#how-each-connection-is-evaluated). It validates the required intended-neighbor fields before checking link state. After that prerequisite passes, an up interface marked link-state-only passes immediately; otherwise an LLDP device/interface, far-end MAC, or LLDP port-description match must identify the intended connection. The stage then classifies every mismatch (link down, wrong neighbor, no neighbor found, unexpected connection), decorates findings with the stable `ID` hash used across runs, and formats the per-device Markdown report. For a standalone device run, the report appears while this stage persists cable statuses; a site-launched child returns its pending updates to the parent instead. This stage is not retryable — if validation logic or DCIM persistence raises, the run fails outright rather than masking a real error behind a retry.
 
 The workflow's final output is a `DeviceCableValidationResult` whose `interfaces` field maps each invalid interface name to its findings.
 
@@ -212,6 +234,24 @@ The workflow's final output is a `DeviceCableValidationResult` whose `interfaces
 ### Actual vs. Intended
 
 The results in the report show the device/port pair being validated (Start Device/Port) and then what the intended connection should be (based on what is in the DCIM) compared to the actual observed connection on the device.
+
+**Intended Interface Label** shows the far-end interface label from the DCIM. **LLDP Port Description** shows the neighbor's advertised description. Both appear in device and site reports, including CSV and Excel downloads. Missing metadata appears as `--` in the UI table and as blank cells in CSV and Excel downloads. Interface names remain visible alongside this metadata.
+
+For example, this finding shows different metadata while preserving the intended and observed interface names:
+
+| Start Port | Intended End Port | Intended Interface Label | Actual End Port | LLDP Port Description |
+| :--------- | :---------------- | :----------------------- | :-------------- | :-------------------- |
+| swp2 | eth1 | C1-2-L1 | A56p0 | su02-hyperreach-chassis A56p0 |
+
+The **Issue** column gives a short finding and one next check, keeping the identifiers in the existing intended/observed columns:
+
+| Finding | Issue text |
+| :------ | :--------- |
+| Device identity matches; a C-notation identifier differs from another port naming format | Port naming differs. Check the Cerebro lane map and host LLDP configuration. |
+| Reported device identity differs from the intended device and known chassis aliases | Device identity differs. Verify the LLDP hostname and cable destination. |
+| Device identity matches; both port identifiers use C-notation and differ | C-notation labels differ. Verify the lane map, inventory, and cable placement. |
+
+The example above uses the **Port naming differs** message. Legacy interface names such as `eth_r0_p0` use the same guidance. Names such as `A56p0`, `eth_r0_0`, and `C1-2-L1` may identify the same physical lane under different conventions, so these messages recommend verification before re-cabling or re-provisioning. Missing, malformed, or conflicting identity data retains the generic LLDP issue when it cannot support a more specific finding. The same text appears in the UI, CSV and Excel; validation decisions are unchanged.
 
 ### Issue
 
@@ -301,7 +341,9 @@ For connections that exist in the DCIM but should not be validated (custom site 
 
 **High-speed host links fail because the intended MAC is empty or has not been discovered yet.**
 
-During initial bringup, add `cable-validation-link-state-only` to the leaf-side interfaces and validate physical link state first. After the compute management system populates the host interface MACs in the DCIM, verify their interface assignments, remove the tag, and re-run full validation. Do not use the temporary clean report as evidence that host links are in the correct order; only the later identity-aware pass can detect swaps.
+For hyper-reach connections, first check whether the LLDP port description matches the [GPU tray chassis and cable lane](#hyper-reach-gpu-tray-connections). Verify the line card's parent DeviceBay and far-end interface label in Nautobot. A matching description validates the connection without waiting for a MAC.
+
+If neither usable LLDP identity nor a MAC is available during initial bringup, add `cable-validation-link-state-only` to the leaf-side interfaces and validate physical link state first. After either becomes available, verify the identity data against the intended far-end interface, remove the tag, and re-run full validation. Do not use the temporary clean report as evidence that host links are in the correct order; only the later identity-aware pass can detect swaps.
 
 ## Related guides
 

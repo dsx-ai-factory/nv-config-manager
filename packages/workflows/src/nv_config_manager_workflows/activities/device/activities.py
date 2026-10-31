@@ -50,6 +50,7 @@ async def get_device_intended_neighbors(
         neighbors={
             interface.name: InterfaceNeighborData(
                 name=interface.connected_interface_name,
+                label=interface.connected_interface_label,
                 macs=(
                     [str(netaddr.EUI(interface.connected_interface_mac))]
                     if interface.connected_interface_mac
@@ -60,6 +61,7 @@ async def get_device_intended_neighbors(
                 device_role=(device.role.lower().replace(" ", "-") if device.role else None),
                 device_rack=device.rack,
                 device_position=device.position,
+                chassis_name=device.chassis_name,
             )
             for interface in interfaces
             if (device := interface.connected_device)
