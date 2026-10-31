@@ -27,6 +27,10 @@ from nats.js.api import (
     StreamConfig,
 )
 from nats.js.errors import BadRequestError, NotFoundError
+from nv_config_manager_infrastructure.nats.admin import (
+    ARCHIVE_CONSUMER_MAX_ACK_PENDING,
+    ARCHIVE_CONSUMER_MAX_DELIVER,
+)
 
 from nv_config_manager.common.client.nats import (
     DEFAULT_NATS_API_PREFIX,
@@ -431,7 +435,62 @@ async def test_consumer_binds_existing_durable_with_configured_api_prefix():
     assert config.deliver_policy == DeliverPolicy.NEW
     assert config.ack_policy == AckPolicy.EXPLICIT
     assert config.ack_wait == 360
-    assert config.max_deliver == -1
+    assert config.max_deliver == ARCHIVE_CONSUMER_MAX_DELIVER
+    assert config.max_ack_pending == ARCHIVE_CONSUMER_MAX_ACK_PENDING
+    assert kwargs["manual_ack"] is False
+
+
+@pytest.mark.parametrize(("durable_max_deliver", "expected"), [(5, 5), (-1, -1), (None, -1)])
+@pytest.mark.asyncio
+async def test_consumer_adopts_bound_durable_delivery_limit(durable_max_deliver, expected):
+    """JetStream enforces the durable's limit, so the consumer reports that one."""
+    consumer = NatsConsumer(
+        stream="nv-config-manager",
+        subject="nv-config-manager.workflow.result",
+        queue_suffix="archive",
+        handler=AsyncMock(),
+        server=TEST_SERVER,
+        deliver_subject="nv-config-manager.archive.delivery",
+    )
+    conn = MagicMock(is_closed=True)
+    conn.close = AsyncMock()
+    jetstream = conn.jetstream.return_value
+    config = consumer._expected_consumer_config()
+    config.max_deliver = durable_max_deliver
+    jetstream.consumer_info = AsyncMock(return_value=MagicMock(config=config))
+    jetstream.subscribe_bind = AsyncMock()
+
+    with patch.object(consumer, "connect", new_callable=AsyncMock, return_value=conn):
+        await consumer.main()
+
+    assert consumer.max_deliver == expected
+
+
+@pytest.mark.asyncio
+async def test_recreated_consumer_replaces_previous_delivery_limit():
+    """A durable created at startup is given up on at its own limit, not a stale one."""
+    consumer = NatsConsumer(
+        stream="nv-config-manager",
+        subject="nv-config-manager.workflow.result",
+        queue_suffix="archive",
+        handler=AsyncMock(),
+        server=TEST_SERVER,
+        deliver_subject="nv-config-manager.archive.delivery",
+    )
+    consumer.max_deliver = 5
+    conn = MagicMock(is_closed=True)
+    conn.close = AsyncMock()
+    jetstream = conn.jetstream.return_value
+    jetstream.consumer_info = AsyncMock(side_effect=NotFoundError)
+    jetstream.add_consumer = AsyncMock(
+        return_value=MagicMock(config=consumer._expected_consumer_config())
+    )
+    jetstream.subscribe_bind = AsyncMock()
+
+    with patch.object(consumer, "connect", new_callable=AsyncMock, return_value=conn):
+        await consumer.main()
+
+    assert consumer.max_deliver == ARCHIVE_CONSUMER_MAX_DELIVER
 
 
 @pytest.mark.asyncio
@@ -466,6 +525,7 @@ async def test_consumer_creates_missing_durable_then_binds_it():
         consumer="nv-config-manager-archive",
         config=created_info.config,
         cb=consumer.handler,
+        manual_ack=False,
     )
 
 
@@ -511,6 +571,50 @@ def test_consumer_mismatch_does_not_enforce_delivery_policy():
 
     config.ack_policy = AckPolicy.NONE
     assert "ack_policy" in consumer._consumer_configuration_mismatches(MagicMock(config=config))[0]
+
+
+def test_consumer_mismatch_reports_unbounded_ack_pending():
+    """A durable left at the server's default in-flight limit is reported."""
+    consumer = NatsConsumer(
+        stream="nv-config-manager",
+        subject="nv-config-manager.workflow.result",
+        queue_suffix="archive",
+        handler=AsyncMock(),
+        server=TEST_SERVER,
+        deliver_subject="nv-config-manager.archive.delivery",
+    )
+    config = consumer._expected_consumer_config()
+    config.max_ack_pending = 1000
+
+    mismatches = consumer._consumer_configuration_mismatches(MagicMock(config=config))
+
+    assert mismatches == [f"max_ack_pending=1000 expected {ARCHIVE_CONSUMER_MAX_ACK_PENDING!r}"]
+
+
+@pytest.mark.asyncio
+async def test_consumer_binds_with_manual_ack_when_requested():
+    """A handler that settles its own messages is not wrapped in an auto-ack."""
+    consumer = NatsConsumer(
+        stream="nv-config-manager",
+        subject="nv-config-manager.workflow.result",
+        queue_suffix="archive",
+        handler=AsyncMock(),
+        server=TEST_SERVER,
+        deliver_subject="nv-config-manager.archive.delivery",
+        manual_ack=True,
+    )
+    conn = MagicMock(is_closed=True)
+    conn.close = AsyncMock()
+    jetstream = conn.jetstream.return_value
+    jetstream.consumer_info = AsyncMock(
+        return_value=MagicMock(config=consumer._expected_consumer_config())
+    )
+    jetstream.subscribe_bind = AsyncMock()
+
+    with patch.object(consumer, "connect", new_callable=AsyncMock, return_value=conn):
+        await consumer.main()
+
+    assert jetstream.subscribe_bind.await_args.kwargs["manual_ack"] is True
 
 
 @pytest.mark.asyncio

@@ -26,6 +26,7 @@ from typing import Any
 import boto3
 from elasticsearch import Elasticsearch
 from nats.aio.msg import Msg
+from nv_config_manager_infrastructure.nats.admin import ARCHIVE_CONSUMER_MAX_DELIVER
 from requests_aws4auth import AWS4Auth  # type: ignore[import-untyped]
 
 from nv_config_manager.common.client.nvdataflow import NVDataflowClient
@@ -60,14 +61,68 @@ ELASTICSEARCH_INDEX_MAPPING = {
 }
 
 
-async def handle_archive_msg(msg: Msg) -> None:
-    """Handler callback for archive messages."""
-    data = json.loads(msg.data.decode("utf-8"))
+ARCHIVE_RETRY_DELAY_SECONDS = 300
+NVDATAFLOW_SUCCESS_STATUSES = frozenset({201, 202})
+NVDATAFLOW_REJECTED_STATUSES = frozenset({400, 413})
+
+
+class ArchiveRejectedError(Exception):
+    """The archive backend refused the record itself, so retrying cannot help."""
+
+
+async def handle_archive_msg(msg: Msg, max_deliver: int = ARCHIVE_CONSUMER_MAX_DELIVER) -> None:
+    """Archive one workflow result, then ack, retry, or discard its message.
+
+    A failed write goes back to JetStream with a delay instead of being acked,
+    so an outage leaves the backlog in the stream rather than dropping records.
+    ``max_deliver`` is the bound durable's limit; ``-1`` retries indefinitely.
+    """
+    try:
+        data = json.loads(msg.data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        logging.exception("Discarding unreadable archive message")
+        await msg.term()
+        return
+    if not isinstance(data, dict):
+        logging.error("Discarding archive message whose payload is not a JSON object")
+        await msg.term()
+        return
     logging.info("Received archive event: %s", data)
     if not data.get("workflow_id"):
         logging.error("No workflow ID in archive message: %s", data)
+        await msg.ack()
         return
 
+    workflow_id = data["workflow_id"]
+    try:
+        await _archive_workflow(data)
+    except ArchiveRejectedError:
+        logging.exception("Archive backend rejected workflow %s; discarding it", workflow_id)
+        await msg.term()
+        return
+    except Exception:
+        deliveries = msg.metadata.num_delivered
+        if max_deliver > 0 and deliveries >= max_deliver:
+            logging.exception(
+                "Giving up on archiving workflow %s after %d deliveries",
+                workflow_id,
+                deliveries,
+            )
+            await msg.term()
+            return
+        logging.exception(
+            "Failed to archive workflow %s on delivery %d; retrying in %ds",
+            workflow_id,
+            deliveries,
+            ARCHIVE_RETRY_DELAY_SECONDS,
+        )
+        await msg.nak(delay=ARCHIVE_RETRY_DELAY_SECONDS)
+        return
+    await msg.ack()
+
+
+async def _archive_workflow(data: dict[str, Any]) -> None:
+    """Look up the finished workflow in Temporal and write it to the archive backend."""
     temporal_client = await get_client()
     workflow_handle = temporal_client.get_workflow_handle(data["workflow_id"])
     workflow_response = await WorkflowDetailResponse.from_handle(workflow_handle)
@@ -118,13 +173,13 @@ async def _archive_nvdataflow(workflow_details: Any) -> None:
     ) as client:
         res_status_code = await client.post(data=archive_data)
 
-    if res_status_code != 201:
-        logging.error(
-            "Failed to archive workflow details to nvdataflow with status code %s",
-            res_status_code,
+    if res_status_code in NVDATAFLOW_REJECTED_STATUSES:
+        raise ArchiveRejectedError(f"nvdataflow rejected the record with status {res_status_code}")
+    if res_status_code not in NVDATAFLOW_SUCCESS_STATUSES:
+        raise RuntimeError(
+            f"Failed to archive workflow details to nvdataflow with status code {res_status_code}"
         )
-    else:
-        logging.info("Results written to nvdataflow. Archive handler complete")
+    logging.info("Results written to nvdataflow. Archive handler complete")
 
 
 def _archive_elasticsearch(workflow_details: Any) -> None:
@@ -207,11 +262,16 @@ def main() -> None:
     setup_telemetry("nv-config-manager-temporal-archive")
 
     stream, subject = nats_archive_config()
+
+    async def handler(msg: Msg) -> None:
+        await handle_archive_msg(msg, consumer.max_deliver)
+
     consumer = NatsConsumer(
         stream=stream,
         subject=subject,
         queue_suffix="archive",
-        handler=handle_archive_msg,
+        handler=handler,
+        manual_ack=True,
     )
     consumer.run()
 
