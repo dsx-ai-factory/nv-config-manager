@@ -24,7 +24,9 @@ CONSUMER_MAX_DELIVER = -1
 # take ~150s, so every in-flight message must finish inside the ack wait:
 # ARCHIVE_CONSUMER_MAX_ACK_PENDING * 150s < CONSUMER_ACK_WAIT_SECONDS.
 ARCHIVE_CONSUMER_MAX_ACK_PENDING = 2
-ARCHIVE_CONSUMER_MAX_DELIVER = 20
+# A record that gives up is never archived, so with the archive's 5-minute
+# retry delay this rides out about a day of backend outage.
+ARCHIVE_CONSUMER_MAX_DELIVER = 288
 
 
 def is_nats_permissions_error(exc: Exception) -> bool:
