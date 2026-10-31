@@ -65,6 +65,8 @@ class NatsConsumer(NatsClient):
         self.deliver_subject = deliver_subject
         self.manual_ack = manual_ack
         self.handler = handler
+        # The bound durable's limit, which is what JetStream enforces.
+        self.max_deliver = ARCHIVE_CONSUMER_MAX_DELIVER
         self._loop: asyncio.AbstractEventLoop | None = None
 
     @property
@@ -101,6 +103,11 @@ class NatsConsumer(NatsClient):
             jetstream = self.conn.jetstream(prefix=self.api_prefix)
             durable = self.full_queue_name
             consumer_info = await self._ensure_consumer(jetstream)
+            max_deliver = consumer_info.config.max_deliver
+            if max_deliver is None:
+                self.max_deliver = -1
+            elif isinstance(max_deliver, int):
+                self.max_deliver = max_deliver
 
             await jetstream.subscribe_bind(
                 stream=self.stream,

@@ -70,11 +70,12 @@ class ArchiveRejectedError(Exception):
     """The archive backend refused the record itself, so retrying cannot help."""
 
 
-async def handle_archive_msg(msg: Msg) -> None:
+async def handle_archive_msg(msg: Msg, max_deliver: int = ARCHIVE_CONSUMER_MAX_DELIVER) -> None:
     """Archive one workflow result, then ack, retry, or discard its message.
 
     A failed write goes back to JetStream with a delay instead of being acked,
     so an outage leaves the backlog in the stream rather than dropping records.
+    ``max_deliver`` is the bound durable's limit; ``-1`` retries indefinitely.
     """
     try:
         data = json.loads(msg.data.decode("utf-8"))
@@ -101,19 +102,18 @@ async def handle_archive_msg(msg: Msg) -> None:
         return
     except Exception:
         deliveries = msg.metadata.num_delivered
-        if deliveries >= ARCHIVE_CONSUMER_MAX_DELIVER:
+        if max_deliver > 0 and deliveries >= max_deliver:
             logging.exception(
-                "Giving up on archiving workflow %s after %d attempts",
+                "Giving up on archiving workflow %s after %d deliveries",
                 workflow_id,
                 deliveries,
             )
             await msg.term()
             return
         logging.exception(
-            "Failed to archive workflow %s (attempt %d of %d); retrying in %ds",
+            "Failed to archive workflow %s on delivery %d; retrying in %ds",
             workflow_id,
             deliveries,
-            ARCHIVE_CONSUMER_MAX_DELIVER,
             ARCHIVE_RETRY_DELAY_SECONDS,
         )
         await msg.nak(delay=ARCHIVE_RETRY_DELAY_SECONDS)
@@ -262,11 +262,15 @@ def main() -> None:
     setup_telemetry("nv-config-manager-temporal-archive")
 
     stream, subject = nats_archive_config()
+
+    async def handler(msg: Msg) -> None:
+        await handle_archive_msg(msg, consumer.max_deliver)
+
     consumer = NatsConsumer(
         stream=stream,
         subject=subject,
         queue_suffix="archive",
-        handler=handle_archive_msg,
+        handler=handler,
         manual_ack=True,
     )
     consumer.run()

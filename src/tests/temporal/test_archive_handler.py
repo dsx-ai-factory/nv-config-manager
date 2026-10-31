@@ -85,9 +85,39 @@ async def test_last_allowed_delivery_is_discarded() -> None:
         new_callable=AsyncMock,
         side_effect=RuntimeError("connection timeout"),
     ):
-        await handle_archive_msg(msg)
+        await handle_archive_msg(msg, ARCHIVE_CONSUMER_MAX_DELIVER)
 
     assert _settled(msg) == ["term"]
+
+
+@pytest.mark.asyncio
+async def test_lower_durable_limit_gives_up_at_that_limit() -> None:
+    """JetStream enforces the durable's limit, so the handler gives up at that one."""
+    msg = _msg(num_delivered=5)
+    with patch.object(
+        archive_main,
+        "_archive_workflow",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("connection timeout"),
+    ):
+        await handle_archive_msg(msg, 5)
+
+    assert _settled(msg) == ["term"]
+
+
+@pytest.mark.asyncio
+async def test_unbounded_durable_never_gives_up() -> None:
+    """A durable with max_deliver=-1 keeps retrying the record."""
+    msg = _msg(num_delivered=ARCHIVE_CONSUMER_MAX_DELIVER * 10)
+    with patch.object(
+        archive_main,
+        "_archive_workflow",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("connection timeout"),
+    ):
+        await handle_archive_msg(msg, -1)
+
+    assert _settled(msg) == ["nak"]
 
 
 @pytest.mark.asyncio
