@@ -20,6 +20,7 @@ import asyncio
 import inspect
 import json
 import logging
+from enum import Enum
 from typing import TYPE_CHECKING
 
 import nats.js
@@ -42,8 +43,18 @@ if TYPE_CHECKING:
     from nv_config_manager.common.client.redis import RedisClient
 
 
+QUEUED_FLAG_TTL_SECONDS = 60
+
+
 class DeviceNotEnabledError(Exception):
     """To be raised if a device is not enabled for NVIDIA Config Manager."""
+
+
+class EnqueueResult(Enum):
+    """Outcome of a render request that did not fail."""
+
+    PUBLISHED = "published"
+    ALREADY_QUEUED = "already_queued"
 
 
 def _get_queue_redis_client() -> RedisClient | None:
@@ -66,33 +77,21 @@ async def _close_queue_redis_client(client: RedisClient | None) -> None:
         await result
 
 
-async def mark_queued(device_uuid: str, client: RedisClient | None = None) -> None:
-    """Mark a device as queued for rendering."""
-    owned_client = client is None
-    client = client or _get_queue_redis_client()
-    if client is None:
-        # Local environment, skip Redis operations
-        return
+async def claim_queued(device_uuid: str, client: RedisClient | None = None) -> bool:
+    """Mark a device as queued for rendering unless it already is.
 
-    try:
-        queue_key = f"{device_uuid}_queued"
-        await client.setex(queue_key, 60, 1, serialize=False)  # TTL of 60 seconds
-    finally:
-        if owned_client:
-            await _close_queue_redis_client(client)
-
-
-async def is_queued(device_uuid: str, client: RedisClient | None = None) -> bool:
-    """Check if a device is already queued for rendering."""
+    Returns whether this caller set the flag. Checking and setting in one
+    command keeps two concurrent producers from both publishing a render.
+    """
     owned_client = client is None
     client = client or _get_queue_redis_client()
     if client is None:
         # Local environment, never consider as queued
-        return False
+        return True
 
     try:
         queue_key = f"{device_uuid}_queued"
-        return await client.exists(queue_key)
+        return bool(await client.redis.set(queue_key, 1, nx=True, ex=QUEUED_FLAG_TTL_SECONDS))
     finally:
         if owned_client:
             await _close_queue_redis_client(client)
@@ -133,7 +132,7 @@ async def _process_single_device_enqueue(
     logger: logging.Logger | logging.LoggerAdapter,
     queue_client: RedisClient | None,
     dcim_client: DCIMClient,
-) -> dict[str, str] | None:
+) -> EnqueueResult | dict[str, str]:
     """
     Process a single device render operation.
 
@@ -146,25 +145,25 @@ async def _process_single_device_enqueue(
         logger: Logger instance
 
     Returns:
-        None if successful, dict with error details if failed
+        The outcome if successful, dict with error details if failed
     """
+    claimed = False
     try:
-        # Check if device is already queued for rendering
-        if await is_queued(device_uuid, queue_client):
-            logger.info(
-                "Device %s already has a pending render, skipping duplicate queue request",
-                device_uuid,
-            )
-            return None
-
+        # Checked before claiming: a claim that is then dropped would make a
+        # concurrent request for a newly enabled device skip as a duplicate.
         if not await should_run(device_uuid, dcim_client):
             return {
                 "device_uuid": device_uuid,
                 "error": f"{device_uuid} is not enabled for configuration renders.",
             }
 
-        # Mark device as queued before publishing
-        await mark_queued(device_uuid, queue_client)
+        claimed = await claim_queued(device_uuid, queue_client)
+        if not claimed:
+            logger.info(
+                "Device %s already has a pending render, skipping duplicate queue request",
+                device_uuid,
+            )
+            return EnqueueResult.ALREADY_QUEUED
 
         # Publish message using provided jetstream connection
         message = {
@@ -182,11 +181,12 @@ async def _process_single_device_enqueue(
         )
 
         logger.debug(f"Successfully queued device {device_uuid}")
-        return None  # Success case
+        return EnqueueResult.PUBLISHED
 
     except Exception as exc:
-        # Clear the queued flag if we set it but publishing failed
-        await clear_queued(device_uuid, queue_client)
+        # Another producer's flag still stands for its own pending render.
+        if claimed:
+            await clear_queued(device_uuid, queue_client)
         error_msg = str(exc)
         logger.warning(f"Failed to queue device {device_uuid}: {error_msg}")
         return {"device_uuid": device_uuid, "error": error_msg}
@@ -246,7 +246,7 @@ async def queue_render(
         finally:
             await _close_queue_redis_client(queue_client)
 
-        if result is not None:
+        if isinstance(result, dict):
             # There was an error
             error_msg = result["error"]
             if "not enabled for configuration renders" in error_msg:
@@ -254,8 +254,8 @@ async def queue_render(
             else:
                 raise Exception(error_msg)
 
-        # Log successful publishing for backward compatibility
-        logger.info("Published message for device %s to NATS stream", device_uuid)
+        if result is EnqueueResult.PUBLISHED:
+            logger.info("Published message for device %s to NATS stream", device_uuid)
 
     finally:
         # Only close if we created the connection ourselves
@@ -313,7 +313,7 @@ async def queue_render_batch(
 
         async def process_single_device(
             device_uuid: str, session_client: DCIMClient
-        ) -> dict[str, str] | None:
+        ) -> EnqueueResult | dict[str, str]:
             """Process a single device with concurrency control."""
             async with semaphore:
                 return await _process_single_device_enqueue(
@@ -352,7 +352,7 @@ async def queue_render_batch(
             elif isinstance(result, dict):
                 # Failed device (result is dict[str, str])
                 failed_devices.append(result)
-            # If result is None, it was successful - no action needed
+            # Otherwise it was published or already queued - no action needed
 
         queued_count = len(device_uuids) - len(failed_devices)
         logger.info(

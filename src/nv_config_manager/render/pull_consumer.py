@@ -65,6 +65,15 @@ configure_logging(service="render")
 # JetStream error code for "stream not found".
 STREAM_NOT_FOUND_ERR_CODE = 10059
 
+# Ceiling on the delay before a failed message is redelivered. Doubling up to a
+# minute spreads the delivery limit over minutes of outage instead of seconds.
+RETRY_BACKOFF_MAX_SECONDS = 60
+
+# Lock waits back off too, so the deliveries a render spends waiting for another
+# render's device lock outlast how long that lock can be held.
+LOCK_RETRY_INITIAL_SECONDS = 5
+LOCK_RETRY_MAX_SECONDS = 30
+
 CONSUMER_METRIC_LABELS = ["consumer_name", "stream_name", "namespace"]
 CONSUMER_PENDING = Gauge(
     "nv_config_manager_nats_consumer_num_pending",
@@ -122,6 +131,8 @@ class PullConsumer:
         self.running = False
         self.namespace = os.getenv("NV_CONFIG_MANAGER_K8S_NAMESPACE", "unknown")
         self.metrics_refresh_interval = 15.0
+        # The existing durable's limit, which is what JetStream enforces.
+        self.max_deliver = CONSUMER_MAX_DELIVER
         self._metrics_permission_warning_logged = False
         self._last_permission_error: Exception | None = None
         self._permission_guidance_logged: set[str] = set()
@@ -200,6 +211,18 @@ class PullConsumer:
             )
         except Exception as e:
             self.logger.error("Error nacking message: %s", str(e))
+            raise
+
+    async def term(self, msg: Msg) -> None:
+        """Stop redelivery of a message with resilient error handling."""
+        try:
+            await msg.term()
+        except nats.errors.NoRespondersError:
+            self.logger.warning(
+                "No responders available for term (likely during shutdown), ignoring"
+            )
+        except Exception as e:
+            self.logger.error("Error terminating message: %s", str(e))
             raise
 
     async def main(self) -> None:
@@ -430,6 +453,7 @@ class PullConsumer:
                         ),
                     )
                 raise
+            self.max_deliver = CONSUMER_MAX_DELIVER
             self.logger.info("Consumer %s created successfully", self.queue)
         except Exception as e:
             if is_nats_permissions_error(e) or self._last_permission_error is not None:
@@ -442,6 +466,11 @@ class PullConsumer:
                 )
             raise
         else:
+            max_deliver = existing.config.max_deliver
+            if max_deliver is None:
+                self.max_deliver = -1
+            elif isinstance(max_deliver, int):
+                self.max_deliver = max_deliver
             mismatches = self._consumer_configuration_mismatches(existing)
             if mismatches:
                 self.logger.warning(
@@ -509,7 +538,7 @@ class PullConsumer:
             # For message handler errors, try to nak the message
             # Don't bubble up since these are processing errors, not consumer errors
             try:
-                await self.nak(msg)
+                await self.nak(msg, delay=_retry_delay(msg))
             except Exception as nak_error:
                 self.logger.error("Failed to nak message after handler error: %s", str(nak_error))
 
@@ -581,7 +610,7 @@ class PullDCIMConsumer(PullConsumer):
             await self.ack(msg)
         except Exception as e:
             self.logger.error("Error processing nautobot message", exc_info=e)
-            await self.nak(msg)
+            await self.nak(msg, delay=_retry_delay(msg))
 
 
 class PullNautobotConsumer(PullConsumer):
@@ -609,7 +638,7 @@ class PullNautobotConsumer(PullConsumer):
             await self.ack(msg)
         except Exception as e:
             self.logger.error("Error processing legacy DCIM message", exc_info=e)
-            await self.nak(msg)
+            await self.nak(msg, delay=_retry_delay(msg))
 
 
 class PullDeviceChangeConsumer(PullConsumer):
@@ -635,8 +664,11 @@ class PullDeviceChangeConsumer(PullConsumer):
         lock = await create_lock(device_id, blocking=False)
         acquired = await lock.acquire()
         if not acquired:
+            if _is_last_delivery(msg, self.max_deliver):
+                await self._give_up(msg, device_id, "it never won the device lock")
+                return
             self.logger.info("Another process owns the lock for %s, nacking.", device_id)
-            await self.nak(msg, delay=5)
+            await self.nak(msg, delay=_lock_retry_delay(msg))
             return
         try:
             # Clear the queued flag only after successfully acquiring the lock
@@ -649,12 +681,57 @@ class PullDeviceChangeConsumer(PullConsumer):
             await self.ack(msg)
         except Exception as e:
             self.logger.error("Error processing device change message: %s", data, exc_info=e)
-            await self.nak(msg)
+            if _is_last_delivery(msg, self.max_deliver):
+                await self._give_up(msg, device_id, "every delivery failed")
+            else:
+                await self.nak(msg, delay=_retry_delay(msg))
         finally:
             try:
                 await lock.release()
             except Exception as e:
                 self.logger.error("Error releasing lock for %s", device_id, exc_info=e)
+
+    async def _give_up(self, msg: Msg, device_id: str, reason: str) -> None:
+        """Drop a message JetStream will not redeliver.
+
+        The device's queued flag needs no cleanup here: it expires within
+        QUEUED_FLAG_TTL_SECONDS, after which the next change queues a new render.
+        """
+        self.logger.error(
+            "Giving up on render for %s after %d deliveries: %s",
+            device_id,
+            self.max_deliver,
+            reason,
+        )
+        await self.term(msg)
+
+
+def _num_delivered(msg: Msg) -> int | None:
+    """Return how many times JetStream has delivered this message."""
+    try:
+        delivered = msg.metadata.num_delivered
+    except Exception:  # pylint: disable=broad-exception-caught
+        # Not a JetStream message, so there is no delivery count.
+        return None
+    return delivered if isinstance(delivered, int) else None
+
+
+def _is_last_delivery(msg: Msg, max_deliver: int) -> bool:
+    """Return whether JetStream will not deliver this message again."""
+    delivered = _num_delivered(msg)
+    return max_deliver > 0 and delivered is not None and delivered >= max_deliver
+
+
+def _retry_delay(msg: Msg) -> int:
+    """Return how long to wait before redelivering a message that failed."""
+    attempt = _num_delivered(msg) or 1
+    return min(1 << min(attempt - 1, 6), RETRY_BACKOFF_MAX_SECONDS)
+
+
+def _lock_retry_delay(msg: Msg) -> int:
+    """Return how long to wait before retrying a message that lost the device lock."""
+    attempt = _num_delivered(msg) or 1
+    return min(LOCK_RETRY_INITIAL_SECONDS << min(attempt - 1, 3), LOCK_RETRY_MAX_SECONDS)
 
 
 def main() -> None:
