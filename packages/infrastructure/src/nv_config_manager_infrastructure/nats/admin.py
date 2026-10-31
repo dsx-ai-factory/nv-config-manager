@@ -20,9 +20,10 @@ from nats.js.errors import APIError
 CONSUMER_ACK_WAIT_SECONDS = 360
 # Bounded so that a message which can never be processed stops circulating.
 # With the render consumers' 1s-to-60s backoff, 20 deliveries ride out about
-# 14 minutes of dependency outage. Bad data needs no longer: fixing it triggers
-# a new render. Lock contention naks also count, at 5s each, so a render gives
-# up after waiting about 95 seconds for another render's device lock.
+# 14 minutes of handler failures. Bad data needs no longer: fixing it triggers
+# a new render. Lock contention naks also count, backing off from 5s to 30s, so
+# a render waits about 8 minutes for another render's device lock, longer than
+# the lock can be held.
 CONSUMER_MAX_DELIVER = 20
 
 

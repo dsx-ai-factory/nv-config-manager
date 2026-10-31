@@ -66,8 +66,13 @@ configure_logging(service="render")
 STREAM_NOT_FOUND_ERR_CODE = 10059
 
 # Ceiling on the delay before a failed message is redelivered. Doubling up to a
-# minute spreads the delivery limit over hours of outage instead of seconds.
+# minute spreads the delivery limit over minutes of outage instead of seconds.
 RETRY_BACKOFF_MAX_SECONDS = 60
+
+# Lock waits back off too, so the deliveries a render spends waiting for another
+# render's device lock outlast how long that lock can be held.
+LOCK_RETRY_INITIAL_SECONDS = 5
+LOCK_RETRY_MAX_SECONDS = 30
 
 CONSUMER_METRIC_LABELS = ["consumer_name", "stream_name", "namespace"]
 CONSUMER_PENDING = Gauge(
@@ -663,7 +668,7 @@ class PullDeviceChangeConsumer(PullConsumer):
                 await self._give_up(msg, device_id, "it never won the device lock")
                 return
             self.logger.info("Another process owns the lock for %s, nacking.", device_id)
-            await self.nak(msg, delay=5)
+            await self.nak(msg, delay=_lock_retry_delay(msg))
             return
         try:
             # Clear the queued flag only after successfully acquiring the lock
@@ -721,6 +726,12 @@ def _retry_delay(msg: Msg) -> int:
     """Return how long to wait before redelivering a message that failed."""
     attempt = _num_delivered(msg) or 1
     return min(1 << min(attempt - 1, 6), RETRY_BACKOFF_MAX_SECONDS)
+
+
+def _lock_retry_delay(msg: Msg) -> int:
+    """Return how long to wait before retrying a message that lost the device lock."""
+    attempt = _num_delivered(msg) or 1
+    return min(LOCK_RETRY_INITIAL_SECONDS << min(attempt - 1, 3), LOCK_RETRY_MAX_SECONDS)
 
 
 def main() -> None:

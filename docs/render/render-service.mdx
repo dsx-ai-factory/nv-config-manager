@@ -91,7 +91,7 @@ Clients specify their stream explicitly and do not request `STREAM.INFO` for ext
 
 An administrator-provisioned consumer should use the configured stream and filter subject with the fixed durable name, `deliver_policy=new`, `ack_policy=explicit`, `ack_wait=360s`, and `max_deliver=20`. The application validates operational settings but does not change an existing consumer or require its delivery policy to match; the owner can retain the delivery policy chosen for a migration boundary.
 
-The device render consumer follows the `max_deliver` of the durable it finds. On the final delivery that durable allows, it logs that it is giving up and terminates the message. A lower limit is therefore safe but shortens how long a render keeps retrying, and `max_deliver=-1` retries indefinitely. A message that fails is redelivered after a delay that doubles from 1 second up to 60 seconds, so the default limit rides out about 14 minutes of dependency outage. A render that waits on another render's device lock is retried every 5 seconds, and those retries count toward the same limit. A render that gives up because its data is bad is not lost for good: correcting the data triggers a new render.
+The device render consumer follows the `max_deliver` of the durable it finds. On the final delivery that durable allows, it logs that it is giving up and terminates the message. A lower limit is therefore safe but shortens how long a render keeps retrying, and `max_deliver=-1` retries indefinitely. A message whose handler raises, for example because Redis or NATS is unavailable, is redelivered after a delay that doubles from 1 second up to 60 seconds, so the default limit rides out about 14 minutes of such failures. DCIM and Config Store errors are not retried: the dispatcher logs and counts them, and the message is acknowledged. A render that waits on another render's device lock is retried after a delay that doubles from 5 seconds up to 30 seconds. Those retries count toward the same limit, and the default limit waits about 8 minutes, longer than a device lock can be held. A render that gives up because its data is bad is not lost for good: correcting the data triggers a new render.
 
 If create permission is omitted and the durable is absent, the consumer logs the exact provisioning request. If delete permission is omitted, the reset API returns instructions to delete and recreate the exact durable at the stream head. Configuration mismatches likewise produce an administrator-ready update request in the consumer log.
 
@@ -170,7 +170,7 @@ The chart exposes it to these workloads as `NV_CONFIG_MANAGER_DOMAIN`.
 **Consumer behavior**:
 
 - **ACK**: Successful processing, render exceptions (will not succeed on retry), disabled devices
-- **NAK**: Transient failures, with a delay that doubles from 1s up to 60s; lock acquisition failures, with a fixed 5s delay
+- **NAK**: Handler failures other than DCIM and Config Store errors, with a delay that doubles from 1s up to 60s; lock acquisition failures, with a delay that doubles from 5s up to 30s
 - **TERM**: The final delivery the durable's `max_deliver` allows, when the render still failed or never acquired the device lock
 - **Consumer recreation**: Any fetch/heartbeat failure triggers automatic consumer rebuild
 

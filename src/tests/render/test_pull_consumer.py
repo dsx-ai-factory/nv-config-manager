@@ -25,6 +25,7 @@ from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 from nats.js.errors import NotFoundError
 from redis.asyncio.lock import Lock as AsyncRedisLock
 
+from nv_config_manager.common.lock import LOCK_TIMEOUT_SECONDS
 from nv_config_manager.common.nats_admin import CONSUMER_MAX_DELIVER
 from nv_config_manager.render.events.util import DeviceNotEnabledError
 from nv_config_manager.render.pull_consumer import (
@@ -36,6 +37,7 @@ from nv_config_manager.render.pull_consumer import (
     PullDCIMConsumer,
     PullDeviceChangeConsumer,
     PullNautobotConsumer,
+    _lock_retry_delay,
 )
 
 # Test NATS configuration - mock credentials for testing only
@@ -486,7 +488,7 @@ async def test_device_change_lock_failure_gives_up_on_last_delivery(
 async def test_device_change_lock_failure_retries_before_last_delivery(
     mock_dispatcher, mock_lock, custom_ini
 ):
-    """Lock contention keeps its flat retry until the delivery limit."""
+    """Lock contention keeps retrying, at the capped lock delay, until the delivery limit."""
     custom_ini(TEST_NATS_CONFIG)
     consumer = PullDeviceChangeConsumer()
     consumer.max_deliver = 1000
@@ -495,8 +497,23 @@ async def test_device_change_lock_failure_retries_before_last_delivery(
 
     await consumer.message_handler(mock_msg)
 
-    mock_msg.nak.assert_awaited_once_with(delay=5)
+    mock_msg.nak.assert_awaited_once_with(delay=30)
     mock_msg.term.assert_not_awaited()
+
+
+@pytest.mark.parametrize(("num_delivered", "delay"), [(1, 5), (2, 10), (3, 20), (4, 30), (19, 30)])
+def test_lock_retry_delay_backs_off_to_cap(num_delivered, delay):
+    """Lock waits start short and back off to a 30s cap."""
+    assert _lock_retry_delay(_delivered_msg("test-device", num_delivered)) == delay
+
+
+def test_lock_waits_within_delivery_limit_outlast_device_lock():
+    """A render waiting on another render's lock does not give up while that lock can be held."""
+    total_wait = sum(
+        _lock_retry_delay(_delivered_msg("test-device", delivery))
+        for delivery in range(1, CONSUMER_MAX_DELIVER)
+    )
+    assert total_wait > LOCK_TIMEOUT_SECONDS
 
 
 @pytest.mark.asyncio
@@ -512,7 +529,7 @@ async def test_device_change_unbounded_durable_never_gives_up(
 
     await consumer.message_handler(mock_msg)
 
-    mock_msg.nak.assert_awaited_once_with(delay=5)
+    mock_msg.nak.assert_awaited_once_with(delay=30)
     mock_msg.term.assert_not_awaited()
 
 
