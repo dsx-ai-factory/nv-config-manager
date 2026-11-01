@@ -69,7 +69,7 @@ Two more hardware validation histories cover its Temporal patches:
 - `hardware_validation_arista_eos_pre_change.json`: the run before both
   patches. The DCIM returned two Cumulus Linux devices and an Arista EOS
   device, and only the Cumulus devices were validated. One device's PSU read
-  failed while the other's was still running, the PSU stage failed and the run
+  failed while the other's was still running. The PSU stage failed, and the run
   waited for a retry signal.
 
 ## Diagnostics fixtures

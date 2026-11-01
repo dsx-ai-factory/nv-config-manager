@@ -34,7 +34,7 @@ After submission, a status page appears showing each stage as it runs. The six c
 
 ## What gets checked
 
-The six collector stages each query a different endpoint on the device. State values other than `ok` (or, for LEDs, colors other than `green`) are flagged in the per-stage display and surface in the consolidated report. The commands below are the Cumulus Linux ones; the Arista EOS equivalents follow.
+The six collector stages gather platform or environmental data from the device. State values other than `ok` (or, for Cumulus LEDs, colors other than `green`) are flagged in the per-stage display and surface in the consolidated report. The commands below apply to Cumulus Linux; the Arista EOS behavior follows.
 
 - **Device info** — Pulled from Nautobot. Provides device name, rack, rack position, role, and platform; used to label every row in the report.
 - **Platform** — `nv show platform`. Model, serial number, ASIC, system memory, and other top-level platform attributes.
@@ -44,7 +44,12 @@ The six collector stages each query a different endpoint on the device. State va
 - **Voltage** — `nv show platform environment voltage`. Per-rail voltage measurements with min/max thresholds. Out-of-range rails are flagged with actual/min/max details.
 - **Inventory** — `nv show platform inventory`. Optics, modules, and other field-replaceable units present on the device.
 
-On Arista EOS the collectors use `show version` (platform), `show system environment cooling` (fans, including power-supply fans), `show system environment power` (PSUs, and the input and output voltage of each supply for the Voltage sheet, since EOS exposes no rail voltages over eAPI) and `show inventory` (chassis, power supplies, fan trays and pluggables with a serial number). EOS reports no LED state over eAPI, so the LED sheet has no rows for EOS devices. The results use the same field names as the Cumulus data, so flagging and the report work the same way; a power-supply slot reported as `Not Inserted` appears in Inventory with state `not-inserted`.
+On Arista EOS the collectors use `show version` (platform), `show system environment cooling` (fans, including power-supply fans), `show system environment power` (PSUs) and `show inventory` (chassis, power supplies, fan trays and pluggables with a serial number). The results use the same field names as the Cumulus data, so flagging and the report work the same way, with these differences:
+
+- **Voltage:** EOS exposes no rail voltages over eAPI, so the Voltage stage reports the input and output voltage of each power supply, read with the same `show system environment power` command as the PSU stage. These rows have no min/max thresholds and take the state of their power supply. A voltage row is flagged only when its supply's state is not `ok`; the workflow records the reading but does not check its range.
+- **LED:** EOS reports no LED state over eAPI. The LED stage does not query EOS devices and lists them under unsupported endpoints, so they do not count as validated and the LED sheet has no rows for them.
+- **Missing status:** a fan, PSU or voltage row that EOS reports without a status gets state `unknown` and is flagged.
+- **Empty power-supply slot:** a slot reported as `Not Inserted` appears in Inventory with state `not-inserted`.
 
 ## Execution stages
 
@@ -58,11 +63,11 @@ The workflow defines nine stages. The first two run sequentially to build the de
 
 1. **`get_environment_fan` — Collect fan state.** Per-fan state, speed, and thresholds; flags non-`ok` fans.
 
-1. **`get_environment_led` — Collect LED state.** Per-LED color; flags non-`green` LEDs.
+1. **`get_environment_led` — Collect LED state.** Per-LED color; flags non-`green` LEDs. Arista EOS devices are not queried and are listed as unsupported.
 
 1. **`get_environment_psu` — Collect PSU state.** Per-PSU state and electrical readings; flags non-`ok` PSUs.
 
-1. **`get_environment_voltage` — Collect voltage readings.** Per-rail voltage with min/max; flags out-of-range readings.
+1. **`get_environment_voltage` — Collect voltage readings.** Per-rail voltage with min/max; flags out-of-range readings. On Arista EOS, the input and output voltage of each power supply, flagged through the supply's state with no range check.
 
 1. **`get_inventory` — Collect inventory.** Optics, modules, and other replaceable parts present on each device.
 
@@ -76,12 +81,12 @@ The final stage attaches an Excel workbook to the workflow status page. The work
 
 **For a quick pass over a fresh run:**
 
-- **Filter the LED sheet on Color** and look for anything that is not `green`.
-- **Filter Fan, PSU, and Voltage on State** and look for anything that is not `ok`. For voltage, the Actual/Min/Max columns show by how much a rail is out of range.
+- **Filter the LED sheet on Color** and look for anything that is not `green`. Arista EOS devices have no LED rows.
+- **Filter Fan, PSU, and Voltage on State** and look for anything that is not `ok`. For voltage, the Actual/Min/Max columns show by how much a rail is out of range. Arista EOS voltage rows have no Min/Max; their State is the power supply's state.
 - **Compare the Inventory sheet** against the bill of materials for the site — missing optics or modules show up here.
 - **Cross-reference flagged rows with the per-stage display** on the workflow status page. The stage display has already grouped flags by device and includes the rack name and rack position so a DC Ops walk-down is straightforward.
 
-The display for each collector stage also surfaces three error buckets up front: **Unsupported endpoints** (the device does not implement that NVUE / NV CLI endpoint), **Connectivity issues** (the device was unreachable), and **Other errors** (everything else). Devices in any of those buckets are excluded from the worksheet for that category — re-run the workflow against just those devices once the underlying issue is fixed.
+The display for each collector stage also surfaces three error buckets up front: **Unsupported endpoints** (the device does not implement that NVUE / NV CLI endpoint, or, in the LED stage, the device runs Arista EOS), **Connectivity issues** (the device was unreachable), and **Other errors** (everything else). Devices in any of those buckets are excluded from the worksheet for that category — re-run the workflow against just those devices once the underlying issue is fixed.
 
 ## Common issues
 
@@ -91,7 +96,7 @@ The filter returned no Cumulus Linux or Arista EOS devices. Confirm the site, te
 
 **A collector reports `Unsupported endpoints` for some devices.**
 
-Older Cumulus releases (or certain platforms) do not implement every NVUE endpoint the collectors call. Those devices succeed on the categories they support and surface here on the ones they do not. Upgrade the device to a supported Cumulus Linux release if the missing data is needed. Arista EOS devices without power supplies (virtual EOS, for example) report empty PSU and Voltage results rather than an error.
+Older Cumulus releases (or certain platforms) do not implement every NVUE endpoint the collectors call. Those devices succeed on the categories they support and surface here on the ones they do not. Upgrade the device to a supported Cumulus Linux release if the missing data is needed. Arista EOS devices always appear here in the LED stage, because EOS reports no LED state. Arista EOS devices without power supplies (virtual EOS, for example) report empty PSU and Voltage results rather than an error.
 
 **A collector reports `Connectivity issues` for some devices.**
 
