@@ -589,6 +589,52 @@ async def test_no_supported_device_names_the_supported_platforms() -> None:
     assert "only runs against Cumulus Linux and Arista EOS devices." in output.display
 
 
+async def _run_led_stage(
+    execute_activity: AsyncMock, *devices: NetworkDeviceData
+) -> ValidateHardwareWorkflow.GetPlatformInfoStageOutput:
+    with patch(f"{_WORKFLOW_MODULE}.workflow.execute_activity", new=execute_activity):
+        return cast(
+            ValidateHardwareWorkflow.GetPlatformInfoStageOutput,
+            await cast(Any, ValidateHardwareWorkflow.get_environment_led_stage).__wrapped__(
+                _workflow_instance(),
+                ValidateHardwareWorkflow.GetPlatformInfoStageInput(
+                    devices_data={device.id: device for device in devices}
+                ),
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_led_stage_lists_arista_eos_as_unsupported() -> None:
+    """EOS reports no LED state, so its devices are listed as unsupported, not validated."""
+    execute_activity = AsyncMock(
+        return_value=HardwareValidationOutput(info={"LED1": {"color": "green"}})
+    )
+
+    output = await _run_led_stage(
+        execute_activity,
+        _device_on(Platform.CUMULUS_LINUX, "leaf-1"),
+        _device_on(Platform.ARISTA_EOS, "mgmt-leaf-1"),
+    )
+
+    [led_query] = [call.args[1] for call in execute_activity.await_args_list]
+    assert led_query.device_data.name == "leaf-1"
+    assert output.devices_data_and_results["mgmt-leaf-1-id"]["error_type"] == "not_found"
+    assert "1/2 devices validated" in output.display
+    assert "Unsupported Led Endpoints" in output.display
+
+
+@pytest.mark.asyncio
+async def test_led_stage_with_only_arista_eos_does_not_report_passed_checks() -> None:
+    execute_activity = AsyncMock()
+
+    output = await _run_led_stage(execute_activity, _device_on(Platform.ARISTA_EOS, "mgmt-leaf-1"))
+
+    execute_activity.assert_not_awaited()
+    assert "All LED checks passed" not in output.display
+    assert "Unsupported Led Endpoints" in output.display
+
+
 _PSU_AND_INVENTORY_STAGES = [
     ValidateHardwareWorkflow.get_environment_psu_stage,
     ValidateHardwareWorkflow.get_inventory_stage,

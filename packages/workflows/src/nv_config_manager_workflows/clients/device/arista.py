@@ -807,6 +807,8 @@ class AristaConnection(NetworkConnection):
     # platform endpoints so the validation workflow's flagging and its
     # Excel export treat every platform alike: a component is flagged when
     # its "state" is not "ok", and "actual"/"min"/"max" are reported.
+    # EOS reports no LED state over eAPI, so there is no LED collector; the
+    # workflow lists EOS devices as unsupported in its LED stage.
     # ------------------------------------------------------------------
 
     def _environment(self, section: str) -> dict[str, Any]:
@@ -863,10 +865,6 @@ class AristaConnection(NetworkConnection):
                         "direction": str(cooling.get("airflowDirection", "")),
                     }
         return fans
-
-    def get_platform_environment_led(self) -> dict[str, dict[str, object]]:
-        """EOS reports no LED state over eAPI; the LED sheet stays empty."""
-        return {}
 
     def get_platform_environment_psu(self) -> dict[str, dict[str, object]]:
         """Report every power supply from ``show system environment power``."""

@@ -692,6 +692,14 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
     ) -> GetPlatformInfoStageOutput:
         """Get LED information from devices."""
 
+        # EOS reports no LED state over eAPI, so its devices are listed as unsupported
+        # instead of counting as validated. EOS devices only get here under
+        # ARISTA_EOS_PATCH_ID, so histories recorded before it are unaffected.
+        led_devices = {
+            device_id: device_data
+            for device_id, device_data in stage_input.devices_data.items()
+            if device_data.platform != Platform.ARISTA_EOS
+        }
         device_tasks = [
             workflow.execute_activity(
                 get_platform_environment_led,
@@ -699,16 +707,23 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
                 start_to_close_timeout=DEVICE_QUERY_START_TO_CLOSE_TIMEOUT,
                 retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
             )
-            for device_id, device_data in stage_input.devices_data.items()
+            for device_id, device_data in led_devices.items()
         ]
 
         results = await asyncio.gather(*device_tasks, return_exceptions=True)
 
         devices_info = {}
-        devices_data_and_results = {}
-        for (device_id, device_data), result in zip(
-            stage_input.devices_data.items(), results, strict=False
-        ):
+        devices_data_and_results: dict[str, dict[str, Any]] = {
+            device_id: {
+                "device_data": device_data,
+                "command_result": {},
+                "error": "Arista EOS reports no LED state",
+                "error_type": "not_found",
+            }
+            for device_id, device_data in stage_input.devices_data.items()
+            if device_id not in led_devices
+        }
+        for (device_id, device_data), result in zip(led_devices.items(), results, strict=False):
             if isinstance(result, Exception):
                 # Activity failed after retries
                 devices_data_and_results[device_id] = {

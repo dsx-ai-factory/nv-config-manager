@@ -1121,7 +1121,16 @@ def test_environment_without_power_supplies_is_empty_not_an_error() -> None:
 
     assert conn.get_platform_environment_psu() == {}
     assert conn.get_platform_environment_voltage() == {}
-    assert conn.get_platform_environment_led() == {}
+
+
+def test_eos_has_no_led_collector() -> None:
+    """EOS reports no LED state, so asking for it fails instead of passing with no rows."""
+    conn = _arista_connection()
+    conn._node = MagicMock()
+
+    with pytest.raises(NotImplementedError):
+        conn.get_platform_environment_led()
+    conn._node.enable.assert_not_called()
 
 
 @pytest.mark.parametrize(
