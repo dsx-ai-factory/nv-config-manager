@@ -1082,17 +1082,48 @@ def test_psu_and_voltage_reports_share_the_power_data() -> None:
     }
 
 
+def _no_power_supplies() -> pyeapi.eapilib.CommandError:
+    """What vEOS 4.34.7M answers to ``show system environment power``."""
+    return pyeapi.eapilib.CommandError(
+        1000,
+        "CLI command 1 of 1 'show system environment power' failed: could not run command",
+        command_error="There seem to be no power supplies connected.",
+    )
+
+
 def test_environment_without_power_supplies_is_empty_not_an_error() -> None:
     """A switch without power supplies, such as vEOS, fails ``show system environment power``."""
     conn = _arista_connection()
-    conn._node = _eapi_node(
-        pyeapi.eapilib.CommandError(1000, "could not run command"),
-        pyeapi.eapilib.CommandError(1000, "could not run command"),
-    )
+    conn._node = _eapi_node(_no_power_supplies(), _no_power_supplies())
 
     assert conn.get_platform_environment_psu() == {}
     assert conn.get_platform_environment_voltage() == {}
     assert conn.get_platform_environment_led() == {}
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pyeapi.eapilib.CommandError(
+            1005, "Command unauthorized: user has insufficient permissions to run the command"
+        ),
+        pyeapi.eapilib.CommandError(
+            1002, "CLI command 1 of 1 failed: invalid command", command_error="Invalid input"
+        ),
+    ],
+    ids=["unauthorized", "invalid"],
+)
+def test_other_environment_errors_fail_the_collector(error: pyeapi.eapilib.CommandError) -> None:
+    """Only the no-power-supplies answer means no readings; a refused command is a failure."""
+    conn = _arista_connection()
+    conn._node = _eapi_node(error, error, error)
+
+    with pytest.raises(pyeapi.eapilib.CommandError):
+        conn.get_platform_environment_fan()
+    with pytest.raises(pyeapi.eapilib.CommandError):
+        conn.get_platform_environment_psu()
+    with pytest.raises(pyeapi.eapilib.CommandError):
+        conn.get_platform_environment_voltage()
 
 
 def test_inventory_lists_chassis_supplies_trays_and_pluggables() -> None:

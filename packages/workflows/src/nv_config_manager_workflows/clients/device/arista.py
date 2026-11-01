@@ -82,6 +82,11 @@ def _unrestored_note(names: list[str]) -> str:
     )
 
 
+# What EOS answers to "show system environment power" on a switch without power
+# supplies, such as vEOS 4.34.
+_NO_POWER_SUPPLIES = "no power supplies connected"
+
+
 class _PasswordFallbackNode(Node):
     """A pyeapi node that retries a rejected request with the other known passwords.
 
@@ -796,7 +801,13 @@ class AristaConnection(NetworkConnection):
     # ------------------------------------------------------------------
 
     def _environment(self, section: str) -> dict[str, Any]:
-        """Run ``show system environment <section>``; an unsupported section is empty."""
+        """Run ``show system environment <section>``.
+
+        A switch without power supplies, such as vEOS, refuses the power section with
+        "There seem to be no power supplies connected."; that means no readings. Any
+        other error, such as a user without permission for the command (1005), is
+        raised so the device is reported as failed rather than as passing.
+        """
         try:
             return cast(
                 dict[str, Any],
@@ -804,9 +815,10 @@ class AristaConnection(NetworkConnection):
                     "result"
                 ],
             )
-        except pyeapi.eapilib.CommandError:
-            # Virtual EOS has no sensors, so the command fails there.
-            return {}
+        except pyeapi.eapilib.CommandError as exc:
+            if _NO_POWER_SUPPLIES in str(exc.command_error):
+                return {}
+            raise
 
     def get_platform(self) -> dict[str, str]:
         """Describe the chassis from ``show version``."""
