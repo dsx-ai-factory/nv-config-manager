@@ -87,6 +87,15 @@ def _unrestored_note(names: list[str]) -> str:
 _NO_POWER_SUPPLIES = "no power supplies connected"
 
 
+def _component_state(value: object) -> str:
+    """Return an EOS component status, or "unknown" when EOS leaves it out.
+
+    The validation flags any state other than "ok", but skips an empty one, so a
+    missing status must not come back empty.
+    """
+    return str(value) if value else "unknown"
+
+
 class _PasswordFallbackNode(Node):
     """A pyeapi node that retries a rejected request with the other known passwords.
 
@@ -847,7 +856,7 @@ class AristaConnection(NetworkConnection):
             for tray in cooling.get(slot_kind) or []:
                 for fan in tray.get("fans") or []:
                     fans[f"{prefix}{fan.get('label', '')}"] = {
-                        "state": str(fan.get("status", "")),
+                        "state": _component_state(fan.get("status")),
                         "current-speed": fan.get("actualSpeed"),
                         "configured-speed": fan.get("configuredSpeed"),
                         "max-speed": fan.get("maxSpeed"),
@@ -864,7 +873,7 @@ class AristaConnection(NetworkConnection):
         supplies = self._environment("power").get("powerSupplies") or {}
         return {
             f"PSU{slot}": {
-                "state": str(supply.get("state", "")),
+                "state": _component_state(supply.get("state")),
                 "model": str(supply.get("modelName", "")),
                 "capacity": supply.get("capacity"),
                 "current": supply.get("inputCurrent"),
@@ -883,7 +892,7 @@ class AristaConnection(NetworkConnection):
         supplies = self._environment("power").get("powerSupplies") or {}
         rails: dict[str, dict[str, object]] = {}
         for slot, supply in supplies.items():
-            state = str(supply.get("state", ""))
+            state = _component_state(supply.get("state"))
             rails[f"PSU{slot}/input"] = {"state": state, "actual": supply.get("inputVoltage")}
             rails[f"PSU{slot}/output"] = {"state": state, "actual": supply.get("outputVoltage")}
         return rails

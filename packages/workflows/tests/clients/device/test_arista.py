@@ -1082,6 +1082,29 @@ def test_psu_and_voltage_reports_share_the_power_data() -> None:
     }
 
 
+@pytest.mark.parametrize("status", [None, ""], ids=["missing", "empty"])
+def test_missing_status_is_reported_as_unknown_so_it_gets_flagged(status: str | None) -> None:
+    """The validation skips an empty state, so a status EOS leaves out must not come back empty."""
+    fan: dict[str, object] = {"label": "1/1", "actualSpeed": 30}
+    supply: dict[str, object] = {"modelName": "PWR-1021-AC-RED", "inputVoltage": 207.25}
+    if status is not None:
+        fan["status"] = status
+        supply["state"] = status
+    cooling = {
+        "airflowDirection": "frontToBackAirflow",
+        "fanTraySlots": [{"fans": [fan]}],
+        "powerSupplySlots": [],
+    }
+    power = {"powerSupplies": {"1": supply}}
+    conn = _arista_connection()
+    conn._node = _eapi_node(cooling, power, power)
+
+    assert conn.get_platform_environment_fan()["Fan1/1"]["state"] == "unknown"
+    assert conn.get_platform_environment_psu()["PSU1"]["state"] == "unknown"
+    voltage = conn.get_platform_environment_voltage()
+    assert {rail["state"] for rail in voltage.values()} == {"unknown"}
+
+
 def _no_power_supplies() -> pyeapi.eapilib.CommandError:
     """What vEOS 4.34.7M answers to ``show system environment power``."""
     return pyeapi.eapilib.CommandError(
