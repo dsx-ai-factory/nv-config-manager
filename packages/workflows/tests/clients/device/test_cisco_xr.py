@@ -148,6 +148,7 @@ class FakeSession:
         self.commit_error: Exception | None = None
         self.confirm_error: Exception | None = None
         self.extra_diff_lines = ""
+        self.timeouts: dict[str, float] = {}
 
     def _diff(self, text: str) -> str:
         diff = _router_diff(self.shows["show running-config"], text)
@@ -168,12 +169,14 @@ class FakeSession:
     def candidate_diff(self, text: str, *, timeout: float) -> str:
         if self.load_error:
             raise self.load_error
+        self.timeouts["candidate_diff"] = timeout
         self.diff_texts.append(text)
         return self._diff(text)
 
     def load_replacement(self, text: str, *, timeout: float) -> str:
         if self.load_error:
             raise self.load_error
+        self.timeouts["load_replacement"] = timeout
         self.loaded.append(text)
         return self._diff(text)
 
@@ -185,6 +188,7 @@ class FakeSession:
             self.shows["show running-config"] = self.loaded[-1]
 
     def remaining_diff(self, text: str, *, timeout: float) -> str:
+        self.timeouts["remaining_diff"] = timeout
         self.remaining_texts.append(text)
         return self._diff(text)
 
@@ -567,14 +571,99 @@ def test_apply_does_not_confirm_when_the_checks_used_up_the_commit_timer(
     session, probe = FakeSession(), FakeSession({"show clock": "ok"})
     connection, _ = _connection(session, probe)
     approved = connection.perform_candidate_diff(CHANGED)
-    clock = iter([1000.0, 1000.0 + connection._COMMIT_CONFIRM_SECONDS])  # commit, then pre-confirm
-    monkeypatch.setattr(xr_connection.time, "monotonic", lambda: next(clock))
+    now = [1000.0]
+    monkeypatch.setattr(xr_connection.time, "monotonic", lambda: now[0])
+    fast_diff = session.remaining_diff
+
+    def slow_diff(text: str, *, timeout: float) -> str:
+        diff = fast_diff(text, timeout=timeout)
+        now[0] += connection._COMMIT_CONFIRM_SECONDS  # the checks took the whole timer
+        return diff
+
+    monkeypatch.setattr(session, "remaining_diff", slow_diff)
 
     with pytest.raises(NetworkDeviceException, match="used up the commit timer") as raised:
         connection.commit_candidate_config(CHANGED, approved)
 
     assert session.confirmed == 0
     assert raised.value.non_retryable
+
+
+def _slow_open(connection: CiscoIosXrConnection, now: list[float], seconds: float) -> None:
+    """Make opening the NETCONF session take ``seconds`` on the fake clock."""
+    opened = connection._open_session
+
+    def slow() -> Any:
+        now[0] += seconds
+        return opened()
+
+    connection._open_session = slow  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+
+def test_the_diff_budget_covers_connecting_as_well_as_the_copy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = FakeSession()
+    connection, _ = _connection(session)
+    now = [1000.0]
+    monkeypatch.setattr(xr_connection.time, "monotonic", lambda: now[0])
+    _slow_open(connection, now, 100.0)
+
+    connection.perform_candidate_diff(CHANGED)
+
+    assert session.timeouts["candidate_diff"] == connection._DIFF_BUDGET_SECONDS - 100.0
+
+
+def test_a_diff_whose_connection_used_up_the_budget_sends_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = FakeSession()
+    connection, _ = _connection(session)
+    now = [1000.0]
+    monkeypatch.setattr(xr_connection.time, "monotonic", lambda: now[0])
+    _slow_open(connection, now, connection._DIFF_BUDGET_SECONDS)
+
+    with pytest.raises(NetworkDeviceException, match="Timed out before the diff") as raised:
+        connection.perform_candidate_diff(CHANGED)
+
+    assert not raised.value.non_retryable
+    assert session.diff_texts == []
+
+
+def test_the_apply_load_budget_covers_connecting(monkeypatch: pytest.MonkeyPatch) -> None:
+    approved = _connection(FakeSession())[0].perform_candidate_diff(CHANGED)
+    session = FakeSession()
+    connection, _ = _connection(session)
+    now = [1000.0]
+    monkeypatch.setattr(xr_connection.time, "monotonic", lambda: now[0])
+    _slow_open(connection, now, 100.0)
+
+    connection.commit_candidate_config(CHANGED, approved, commit_confirm=False)
+
+    assert session.timeouts["load_replacement"] == connection._LOAD_BUDGET_SECONDS - 100.0
+
+
+def test_the_verification_diff_gets_only_what_is_left_of_the_commit_timer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, probe = FakeSession(), FakeSession({"show clock": "ok"})
+    connection, _ = _connection(session, probe)
+    approved = connection.perform_candidate_diff(CHANGED)
+    now = [1000.0]
+    monkeypatch.setattr(xr_connection.time, "monotonic", lambda: now[0])
+    fast_commit = session.commit
+
+    def slow_commit(*, confirm_seconds: int | None, timeout: float) -> None:
+        fast_commit(confirm_seconds=confirm_seconds, timeout=timeout)
+        now[0] += connection._COMMIT_CONFIRM_SECONDS - 100.0  # 100 s of the timer are left
+
+    monkeypatch.setattr(session, "commit", slow_commit)
+
+    connection.commit_candidate_config(CHANGED, approved)
+
+    left = 100.0 - connection._CONFIRM_MARGIN_SECONDS
+    assert session.timeouts["remaining_diff"] == left
+    assert session.confirmed == 1
 
 
 def test_apply_counts_the_commit_reply_delay_against_the_commit_timer(

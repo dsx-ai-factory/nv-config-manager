@@ -21,6 +21,7 @@ from lxml import etree  # type: ignore[import-untyped]  # ty: ignore[unresolved-
 from ncclient.operations import RPCError  # type: ignore[import-untyped]
 from ncclient.transport.errors import SSHError  # type: ignore[import-untyped]
 
+from nv_config_manager_workflows.clients.device.cisco_xr import netconf
 from nv_config_manager_workflows.clients.device.cisco_xr.netconf import (
     CLI_CFG_NS,
     DIFF_NS,
@@ -175,8 +176,74 @@ def test_the_copy_runs_under_the_given_timeout_and_the_session_timeout_is_restor
 
     session.load_replacement(TEXT, timeout=45)
 
-    assert seen == [45]
+    assert seen == [pytest.approx(45, abs=1)]
     assert manager.timeout == 30
+
+
+def test_a_slow_copy_leaves_the_diff_less_time_and_the_candidate_is_released(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The step ends inside its budget and unlocks, so a retry never races a held lock."""
+    session, manager = _session()
+    now = [1000.0]
+    monkeypatch.setattr(netconf.time, "monotonic", lambda: now[0])
+
+    def slow_copy(**_: object) -> None:
+        now[0] += 45  # the copy used the whole budget
+
+    manager.copy_config.side_effect = slow_copy
+
+    with pytest.raises(NetworkDeviceException, match="Timed out before reading the diff") as raised:
+        session.load_replacement(TEXT, timeout=45)
+
+    assert not raised.value.non_retryable
+    manager.dispatch.assert_not_called()
+    manager.discard_changes.assert_called()
+    manager.unlock.assert_called_once_with("candidate")
+    assert manager.timeout == 30
+
+
+def test_the_diff_runs_under_the_time_left_after_the_copy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, manager = _session()
+    now = [1000.0]
+    monkeypatch.setattr(netconf.time, "monotonic", lambda: now[0])
+    seen: list[float] = []
+
+    def copy(**_: object) -> None:
+        now[0] += 30
+
+    def dispatch(_rpc: object) -> MagicMock:
+        seen.append(manager.timeout)
+        reply = MagicMock()
+        reply.xml = _diff_reply(DIFF)
+        return reply
+
+    manager.copy_config.side_effect = copy
+    manager.dispatch.side_effect = dispatch
+
+    assert session.load_replacement(TEXT, timeout=100) == DIFF
+    assert seen == [70]
+
+
+def test_an_exhausted_budget_sends_no_rpc_and_still_unlocks_when_locked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, manager = _session()
+    now = [1000.0]
+    monkeypatch.setattr(netconf.time, "monotonic", lambda: now[0])
+
+    def slow_lock(_name: str) -> None:
+        now[0] += 10  # the lock used the whole budget
+
+    manager.lock.side_effect = slow_lock
+
+    with pytest.raises(NetworkDeviceException, match="Timed out before clearing the candidate"):
+        session.load_replacement(TEXT, timeout=10)
+
+    manager.copy_config.assert_not_called()
+    manager.unlock.assert_called_once_with("candidate")
 
 
 def test_candidate_diff_returns_the_diff_and_leaves_nothing_loaded() -> None:

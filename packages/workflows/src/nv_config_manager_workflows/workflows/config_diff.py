@@ -37,6 +37,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from nv_config_manager_workflows.activities.deploy import (
         DiffActivityInput,
+        diff_activity_timeout,
         load_intended_configuration,
         perform_candidate_diff,
     )
@@ -207,7 +208,7 @@ class ConfigDiffWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archive
             DiffActivityInput(
                 device_data=stage_input.device, configuration=stage_input.intended_config
             ),
-            start_to_close_timeout=timedelta(minutes=1),
+            start_to_close_timeout=diff_activity_timeout(stage_input.device),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
         if not diff.strip():

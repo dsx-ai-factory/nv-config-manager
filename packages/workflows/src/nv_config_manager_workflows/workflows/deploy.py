@@ -60,7 +60,9 @@ with workflow.unsafe.imports_passed_through():
         DiffActivityInput,
         LoadPartialConfigurationActivityInput,
         ValidateConfigDiffActivityInput,
+        apply_activity_timeout,
         apply_approved_configuration,
+        diff_activity_timeout,
         load_intended_configuration,
         load_partial_configuration,
         perform_candidate_diff,
@@ -249,7 +251,7 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
         diff = await workflow.execute_activity(
             perform_candidate_diff,
             DiffActivityInput(device_data=result.device, configuration=stage_input.intended_config),
-            start_to_close_timeout=timedelta(minutes=1),
+            start_to_close_timeout=diff_activity_timeout(result.device),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
         if not diff.strip():
@@ -317,7 +319,7 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
                     approved_diff=stage_input.approved_diff,
                     commit_confirm=stage_input.commit_confirm,
                 ),
-                start_to_close_timeout=timedelta(minutes=5),
+                start_to_close_timeout=apply_activity_timeout(result.device),
                 retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
             )
         except ActivityError as e:
@@ -698,7 +700,7 @@ class TenantDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
                 configuration=stage_input.deployment_config,
                 partial=stage_input.partial,
             ),
-            start_to_close_timeout=timedelta(minutes=1),
+            start_to_close_timeout=diff_activity_timeout(stage_input.device),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
         if not diff.strip():
@@ -795,7 +797,7 @@ class TenantDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
                 approved_diff=stage_input.diff,
                 partial=stage_input.partial,
             ),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=apply_activity_timeout(stage_input.device),
             # Do not retry if the diff changed after approval
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )

@@ -159,10 +159,18 @@ class CiscoIosXrConnection(NetworkConnection):
     # Do not send the confirming commit with less than this left on the rollback timer.
     _CONFIRM_MARGIN_SECONDS = 15.0
 
-    # The diff activity runs under one minute (as for Junos, which uses 45 s) and the apply
-    # activity under five. A 12,000-line copy-config took 36 s on a lab router and, once, over 120 s.
-    _DIFF_TIMEOUT_SECONDS = 45.0
-    _APPLY_TIMEOUT_SECONDS = 120.0
+    # Time budgets. A 12,000-line copy-config took 36 s on a lab router and, once, over 120 s;
+    # the whole diff took about 23 s and the whole apply about 50 s through NVCM. Each step
+    # (connect, lock, discard, copy, diff) shares one budget, so the step ends, and cleans up
+    # the candidate lock, before the activity's own timeout (``activities.deploy.timeouts``:
+    # 4 minutes for the diff, 12 for the apply) can fire and start a retry beside it.
+    # A diff: connect + lock + discard + copy + diff.
+    _DIFF_BUDGET_SECONDS = 180.0
+    # The apply's load, before the commit: connect + lock + discard + copy + diff.
+    _LOAD_BUDGET_SECONDS = 180.0
+    _COMMIT_TIMEOUT_SECONDS = 120.0
+    # The post-commit copy and diff, also capped by what is left of the rollback timer.
+    _VERIFY_BUDGET_SECONDS = 180.0
     _SHOW_READ_TIMEOUT_SECONDS = 60.0
     _CONN_TIMEOUT_SECONDS = 30
 
@@ -372,6 +380,16 @@ class CiscoIosXrConnection(NetworkConnection):
         """The router's diff without its headers; empty when nothing would change."""
         return config.parse_router_diff(raw)
 
+    def _time_left(self, started: float, budget: float, before: str) -> float:
+        """Seconds left of a step that began at ``started``; an error once none are left."""
+        left = budget - (time.monotonic() - started)
+        if left <= 0:
+            raise NetworkDeviceException(
+                f"Timed out before {before} on {self._host}: the time allowed for this step "
+                "is used up."
+            )
+        return left
+
     def perform_candidate_diff(self, new_configuration: str, partial: bool = False) -> str:
         """Return the router's diff between the running configuration and the intended one.
 
@@ -381,10 +399,12 @@ class CiscoIosXrConnection(NetworkConnection):
         """
         self._reject_partial(partial)
         self._parse_intended(new_configuration)
+        started = time.monotonic()
         try:
-            raw = self._get_session().candidate_diff(
+            session = self._get_session()
+            raw = session.candidate_diff(
                 config.replacement_text(new_configuration),
-                timeout=self._DIFF_TIMEOUT_SECONDS,
+                timeout=self._time_left(started, self._DIFF_BUDGET_SECONDS, "the diff"),
             )
         except TRANSPORT_ERRORS as error:
             raise NetworkDeviceException(
@@ -420,10 +440,13 @@ class CiscoIosXrConnection(NetworkConnection):
         self._reject_partial(partial)
         intended = self._parse_intended(new_configuration)
         text = config.replacement_text(new_configuration)
+        started = time.monotonic()
         session = self._get_session()
         # (1) Load: lock, discard, copy-config, get-cli-config-diff. The lock stays held.
         try:
-            raw = session.load_replacement(text, timeout=self._APPLY_TIMEOUT_SECONDS)
+            raw = session.load_replacement(
+                text, timeout=self._time_left(started, self._LOAD_BUDGET_SECONDS, "the load")
+            )
         except TRANSPORT_ERRORS as error:
             raise NetworkDeviceException(
                 f"Failed to load the candidate configuration on {self._host}: {error}"
@@ -464,7 +487,7 @@ class CiscoIosXrConnection(NetworkConnection):
         # can be before the reply reaches us, so this deadline is never later than its expiry.
         deadline = time.monotonic() + self._COMMIT_CONFIRM_SECONDS
         try:
-            session.commit(confirm_seconds=confirm_seconds, timeout=self._APPLY_TIMEOUT_SECONDS)
+            session.commit(confirm_seconds=confirm_seconds, timeout=self._COMMIT_TIMEOUT_SECONDS)
         except Exception as error:  # noqa: BLE001 - any failure of a confirmed commit is wrapped
             if not commit_confirm:
                 if isinstance(error, NetworkDeviceException):
@@ -503,9 +526,25 @@ class CiscoIosXrConnection(NetworkConnection):
         """
         try:
             self._check_fresh_login()
-            remaining = self._router_diff(
-                self._get_session().remaining_diff(text, timeout=self._APPLY_TIMEOUT_SECONDS)
+        except Exception as error:  # noqa: BLE001 - nothing after the commit may be retried
+            raise NetworkDeviceException(
+                f"Commit on {self._host} was not confirmed ({error}); "
+                "the router will roll back when the commit timer expires.",
+                non_retryable=True,
+            ) from error
+        # The copy and the diff may use what is left of the rollback timer, less the margin.
+        budget = min(
+            self._VERIFY_BUDGET_SECONDS,
+            deadline - time.monotonic() - self._CONFIRM_MARGIN_SECONDS,
+        )
+        if budget <= 0:
+            raise NetworkDeviceException(
+                f"Commit on {self._host} was not confirmed: the checks used up the commit "
+                "timer; the router rolls back when it expires.",
+                non_retryable=True,
             )
+        try:
+            remaining = self._router_diff(self._get_session().remaining_diff(text, timeout=budget))
         except Exception as error:  # noqa: BLE001 - nothing after the commit may be retried
             raise NetworkDeviceException(
                 f"Commit on {self._host} was not confirmed ({error}); "
@@ -519,9 +558,9 @@ class CiscoIosXrConnection(NetworkConnection):
                 "the commit timer expires.",
                 non_retryable=True,
             )
-        # The checks above can use up the rollback window (password retries, two 120 s
-        # operations). If the timer has expired or is about to, the router has reverted or
-        # is reverting, and a confirming commit would succeed as a no-op on the old config.
+        # The checks above can use up the rollback window (password retries, the copy and the
+        # diff). If the timer has expired or is about to, the router has reverted or is
+        # reverting, and a confirming commit would succeed as a no-op on the old config.
         if deadline - time.monotonic() < self._CONFIRM_MARGIN_SECONDS:
             raise NetworkDeviceException(
                 f"Commit on {self._host} was not confirmed: the checks used up the commit "

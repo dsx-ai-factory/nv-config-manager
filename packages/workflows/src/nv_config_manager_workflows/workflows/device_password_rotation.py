@@ -43,7 +43,9 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.deploy import (
         ConfigApplyActivityInput,
         DiffActivityInput,
+        apply_activity_timeout,
         apply_approved_configuration,
+        diff_activity_timeout,
         load_intended_configuration,
         perform_candidate_diff,
     )
@@ -253,7 +255,7 @@ class DevicePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
         diff = await workflow.execute_activity(
             perform_candidate_diff,
             DiffActivityInput(device_data=result.device, configuration=stage_input.intended_config),
-            start_to_close_timeout=timedelta(minutes=1),
+            start_to_close_timeout=diff_activity_timeout(result.device),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
         if not diff.strip():
@@ -327,7 +329,7 @@ class DevicePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
                 configuration=stage_input.intended_config,
                 approved_diff=stage_input.approved_diff,
             ),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=apply_activity_timeout(result.device),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
 

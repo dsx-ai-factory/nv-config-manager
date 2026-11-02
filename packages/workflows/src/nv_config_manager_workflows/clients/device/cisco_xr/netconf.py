@@ -27,6 +27,9 @@ another release differs.
 from __future__ import annotations
 
 import re
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Protocol
 
 from lxml import etree  # type: ignore[import-untyped]  # ty: ignore[unresolved-import]
@@ -232,7 +235,29 @@ class NetconfIosXrSession:
             except Exception:  # noqa: BLE001 - cleanup must not mask the original error
                 logger.debug("NETCONF cleanup step failed", exc_info=True)
 
-    def _copy_replacement(self, text: str, timeout: float) -> None:
+    @contextmanager
+    def _within(self, deadline: float, what: str, cap: float | None = None) -> Iterator[None]:
+        """Run one RPC with the time left until ``deadline`` as the session timeout.
+
+        A step has one budget shared by all its RPCs (lock, discard, copy, diff), so a slow
+        copy leaves less time for the diff and the step as a whole ends before the activity's
+        own timeout does. Without this a slow router could outlast the activity: Temporal
+        would retry while this attempt still held the candidate lock. Raises before sending
+        when the budget is already used up. The session timeout is restored afterwards.
+        """
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise NetworkDeviceException(
+                f"Timed out before {what}: the time allowed for this step is used up."
+            )
+        previous = self._session.timeout
+        self._session.timeout = min(left, cap) if cap is not None else left
+        try:
+            yield
+        finally:
+            self._session.timeout = previous
+
+    def _copy_replacement(self, text: str, deadline: float) -> None:
         """``<copy-config>`` of ``text`` onto the candidate: the whole candidate becomes ``text``.
 
         This is the replace. RFC 6241 section 7.3 defines ``<copy-config>`` as creating or
@@ -242,30 +267,29 @@ class NetconfIosXrSession:
         both replace forms are rejected with ``operation-not-supported``.
 
         A rejected text (syntax the router does not parse) is a :class:`ConfigSyntaxException`.
-        A router that does not implement the request is a non-retryable error. The session
-        timeout is raised for the call because a 12,000-line copy takes tens of seconds.
+        A router that does not implement the request is a non-retryable error. The call may
+        use all the time left until ``deadline``: a 12,000-line copy takes tens of seconds
+        and was seen taking over two minutes.
         """
-        previous = self._session.timeout
-        self._session.timeout = timeout
         try:
-            self._session.copy_config(source=self._source_payload(text), target="candidate")
+            with self._within(deadline, "the copy-config"):
+                self._session.copy_config(source=self._source_payload(text), target="candidate")
         except RPCError as error:
             if _is_unsupported(error):
                 raise self._unsupported("configuration", error) from error
             raise ConfigSyntaxException(_rpc_message(error)) from error
         except TRANSPORT_ERRORS as error:
             raise NetworkDeviceException(f"Failed to load configuration: {error}") from error
-        finally:
-            self._session.timeout = previous
 
-    def _candidate_diff_text(self, timeout: float) -> str:
+    def _candidate_diff_text(self, deadline: float) -> str:
         """The router's CLI diff of the candidate against running (``get-cli-config-diff``).
 
         An empty ``<response>`` is the router saying there is no difference. A reply with
         no ``<response>`` element, or that is not XML, is an error: reading it as "no
         difference" would let the post-commit check confirm a change it never verified.
         """
-        reply = self.action(DIFF_NS, "get-cli-config-diff", read_timeout=timeout)
+        with self._within(deadline, "reading the diff"):
+            reply = self.action(DIFF_NS, "get-cli-config-diff", read_timeout=self._session.timeout)
         try:
             node = etree.fromstring(reply.encode()).find(f".//{{{DIFF_NS}}}response")
         except etree.XMLSyntaxError as error:
@@ -285,10 +309,13 @@ class NetconfIosXrSession:
 
         The candidate datastore is shared by every session, so the lock keeps another
         session from editing it between the load and the commit; the diff that was
-        approved is then the diff that is committed.
+        approved is then the diff that is committed. ``timeout`` is the budget for the
+        whole step (lock, discard, copy, diff); each RPC gets the time that is left.
         """
+        deadline = time.monotonic() + timeout
         try:
-            self._session.lock("candidate")
+            with self._within(deadline, "locking the candidate", cap=30.0):
+                self._session.lock("candidate")
         except RPCError as error:
             raise NetworkDeviceException(
                 f"Cannot lock the candidate configuration ({_rpc_message(error)}); "
@@ -298,11 +325,12 @@ class NetconfIosXrSession:
             raise NetworkDeviceException(f"Cannot lock the candidate: {error}") from error
         try:
             # Clear edits left by an earlier session so the candidate starts equal to running.
-            self._session.discard_changes()
+            with self._within(deadline, "clearing the candidate", cap=30.0):
+                self._session.discard_changes()
             # The replace: the candidate becomes the intended configuration.
-            self._copy_replacement(text, timeout)
+            self._copy_replacement(text, deadline)
             # The router, not NVCM, computes what would change (as Junos cu.diff() does).
-            return self._candidate_diff_text(timeout)
+            return self._candidate_diff_text(deadline)
         except RPCError as error:
             self._discard_and_unlock()
             raise NetworkDeviceException(
@@ -323,11 +351,13 @@ class NetconfIosXrSession:
 
         The lock from :meth:`load_replacement` is still held, so the copy-config goes
         straight onto the candidate. If the commit took effect as intended the diff has
-        no changed lines; the candidate is discarded either way.
+        no changed lines; the candidate is discarded either way. ``timeout`` is the budget
+        for the copy and the diff together.
         """
+        deadline = time.monotonic() + timeout
         try:
-            self._copy_replacement(text, timeout)
-            return self._candidate_diff_text(timeout)
+            self._copy_replacement(text, deadline)
+            return self._candidate_diff_text(deadline)
         finally:
             try:
                 self._session.discard_changes()
