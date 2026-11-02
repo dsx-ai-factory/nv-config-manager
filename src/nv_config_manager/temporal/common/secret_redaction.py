@@ -15,7 +15,13 @@
 """Compatibility export for workflow-owned secret redaction."""
 
 from nv_config_manager_workflows.secret_redaction import (
+    redact_device_secrets as redact_device_secrets,
+)
+from nv_config_manager_workflows.secret_redaction import (
     redact_junos_secrets as redact_junos_secrets,
 )
+from nv_config_manager_workflows.secret_redaction import (
+    redact_secrets_in_data as redact_secrets_in_data,
+)
 
-__all__ = ["redact_junos_secrets"]
+__all__ = ["redact_device_secrets", "redact_junos_secrets", "redact_secrets_in_data"]
