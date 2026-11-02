@@ -50,6 +50,7 @@ from nv_config_manager.mcp.settings import (
     MCPSettings,
 )
 from nv_config_manager.mcp.tools import register_tools
+from nv_config_manager.temporal.workflow_registry import build_workflow_registry
 
 configure_logging(service="mcp")
 setup_tracing("nv-config-manager-mcp")
@@ -62,6 +63,8 @@ def create_mcp_server(
     """Create the FastMCP server and register tools."""
     resolved_settings = settings or MCPSettings.from_config()
     resolved_oauth_settings = oauth_settings or MCPOAuthSettings.from_config()
+    # Registry build errors propagate so an invalid plugin set fails server startup.
+    registry = build_workflow_registry()
     server = FastMCP(
         "nv-config-manager-mcp",
         instructions=(
@@ -89,7 +92,7 @@ def create_mcp_server(
     if resolved_oauth_settings.enabled:
         _register_oauth_metadata_routes(server, resolved_oauth_settings)
 
-    register_tools(server, resolved_settings)
+    register_tools(server, resolved_settings, registry.mcp_workflows)
     return server
 
 

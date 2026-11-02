@@ -12,32 +12,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Configuration-related activities and utilities for Temporal workflows."""
+"""Deprecated service import path for reusable configuration activities."""
 
-from temporalio import activity
+# isort: off
+from nv_config_manager_workflows.activities.config import (
+    CONFIG_ACTIVITIES as CONFIG_ACTIVITIES,
+    build_workflow_url as build_workflow_url,
+    get_ui_base_url as get_ui_base_url,
+)
+# isort: on
 
-
-def build_workflow_url(ui_base_url: str, workflow_id: str) -> str:
-    """Build a full UI URL for a workflow, handling scheme and trailing slashes."""
-    base = ui_base_url.rstrip("/")
-    if base.startswith("https://") or base.startswith("http://"):
-        return f"{base}/workflows/{workflow_id}"
-    return f"https://{base}/workflows/{workflow_id}"
-
-
-@activity.defn
-def get_ui_base_url() -> str:
-    """Get the UI base URL from configuration.
-
-    Returns:
-        The UI base URL string from the configuration file.
-
-    Raises:
-        KeyError: If the configuration is missing the required ui_url setting.
-        FileNotFoundError: If the configuration file cannot be found.
-    """
-    from nv_config_manager.common.config import load_config
-
-    # Load configuration to get UI URL
-    config = load_config()
-    return config["temporal"]["ui_url"]
+__all__ = [
+    "CONFIG_ACTIVITIES",
+    "build_workflow_url",
+    "get_ui_base_url",
+]

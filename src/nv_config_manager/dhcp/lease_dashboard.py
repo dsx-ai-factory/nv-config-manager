@@ -112,32 +112,30 @@ def _response_arguments(
     return arguments
 
 
-def _stat_value(statistics: dict[str, Any], name: str) -> int | None:
-    """Return the latest integer value for a KEA statistic."""
-    samples = statistics.get(name)
-    if not isinstance(samples, list) or not samples:
-        return None
-    latest = samples[0]
-    if not isinstance(latest, list) or not latest:
-        return None
-    value = latest[0]
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    return int(value)
-
-
-def _subnet_stat_total(statistics: dict[str, Any], name: str) -> int | None:
-    """Sum a current statistic across every subnet, including stale subnet IDs."""
-    suffix = f"].{name}"
-    values = [
-        value
-        for stat_name in statistics
-        if stat_name.startswith("subnet[")
-        and ".pool[" not in stat_name
-        and stat_name.endswith(suffix)
-        and (value := _stat_value(statistics, stat_name)) is not None
-    ]
-    return sum(values) if values else None
+def _active_lease_count(payload: list[dict[str, Any]], ip_version: IpVersion) -> int:
+    """Sum database-backed assigned counts across the returned subnet rows."""
+    command = f"stat-lease{ip_version}-get"
+    arguments = _response_arguments(payload, command, allow_empty=True)
+    if payload[0]["result"] == 3:
+        return 0
+    result_set = arguments.get("result-set")
+    if not isinstance(result_set, dict):
+        raise KeaException(f"KEA returned invalid {command} result-set")
+    columns = result_set.get("columns")
+    rows = result_set.get("rows")
+    assigned_stat = "assigned-addresses" if ip_version == IpVersion.V4 else "assigned-nas"
+    if not isinstance(columns, list) or assigned_stat not in columns or not isinstance(rows, list):
+        raise KeaException(f"KEA returned invalid {command} columns or rows")
+    assigned_index = columns.index(assigned_stat)
+    total = 0
+    for row in rows:
+        if not isinstance(row, list) or len(row) != len(columns):
+            raise KeaException(f"KEA returned invalid {command} row")
+        count = row[assigned_index]
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise KeaException(f"KEA returned invalid {command} assigned count")
+        total += count
+    return total
 
 
 def _expires_at(cltt: int, valid_lft: int) -> datetime | None:
@@ -497,16 +495,10 @@ def build_dhcp_summary(
 ) -> DhcpSummaryResponse:
     """Convert KEA configuration and statistics into a DHCP summary."""
     dhcp_config = _dhcp_config(config_payload, ip_version)
-    statistics = _response_arguments(statistics_payload, "statistic-get-all")
 
     reservations = _reservation_records(dhcp_config, ip_version)
     pools = _pool_records(dhcp_config, ip_version)
-    assigned_stat = "assigned-addresses" if ip_version == 4 else "assigned-nas"
-    active_lease_count = _stat_value(statistics, assigned_stat)
-    if active_lease_count is None:
-        active_lease_count = _subnet_stat_total(statistics, assigned_stat)
-    if active_lease_count is None:
-        active_lease_count = 0
+    active_lease_count = _active_lease_count(statistics_payload, ip_version)
 
     return DhcpSummaryResponse(
         active_lease_count=active_lease_count,

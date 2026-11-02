@@ -33,6 +33,20 @@
     - dcim.cable
   deployment_types: [all, superpod]
 
+- name: Disconnected
+  description: Cable validation found the link down
+  color: f44336
+  content_types:
+    - dcim.cable
+  deployment_types: [all, superpod]
+
+- name: Invalid
+  description: Cable validation found a connection mismatch
+  color: f44336
+  content_types:
+    - dcim.cable
+  deployment_types: [all, superpod]
+
 - name: Planned
   description: Planned but not yet deployed
   color: 00bcd4

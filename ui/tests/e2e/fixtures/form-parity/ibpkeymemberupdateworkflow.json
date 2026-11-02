@@ -1,0 +1,89 @@
+{
+  "workflow": "IBPKeyMemberUpdateWorkflow",
+  "input_model": "IBPKeyMemberUpdateInput",
+  "scenarios": [
+    {
+      "name": "interfaces",
+      "legacy_url": "/workflows/ibpkeymemberupdateworkflow/form",
+      "new_url": "/workflows/new/ib-pkey-member-update",
+      "legacy_payload": {
+        "host": "ufm-1.lab",
+        "pkey": "0x8001",
+        "interfaces": [
+          {
+            "device": "hca01",
+            "interface": "mlx5_0",
+            "membership": "limited"
+          }
+        ]
+      },
+      "generic_payload": {
+        "host": "ufm-1.lab",
+        "pkey": "0x8001",
+        "interfaces": [
+          {
+            "device": "hca01",
+            "interface": "mlx5_0",
+            "membership": "limited"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GUIDs",
+      "legacy_url": "/workflows/ibpkeymemberupdateworkflow/form",
+      "new_url": "/workflows/new/ib-pkey-member-update",
+      "legacy_payload": {
+        "host": "ufm-1.lab",
+        "pkey": "0x8001",
+        "guids": [
+          "0x0011223344556677",
+          "0x8899aabbccddeeff"
+        ],
+        "guid_memberships": [
+          "limited",
+          "full"
+        ]
+      },
+      "generic_payload": {
+        "host": "ufm-1.lab",
+        "pkey": "0x8001",
+        "guids": [
+          "0x0011223344556677",
+          "0x8899aabbccddeeff"
+        ],
+        "guid_memberships": [
+          "limited",
+          "full"
+        ]
+      }
+    },
+    {
+      "name": "prefill host and pkey from URL",
+      "legacy_url": "/workflows/ibpkeymemberupdateworkflow/form?host=ufm-1.lab&pkey=0x8001",
+      "new_url": "/workflows/new/ib-pkey-member-update?host=ufm-1.lab&pkey=0x8001",
+      "legacy_payload": {
+        "host": "ufm-1.lab",
+        "pkey": "0x8001",
+        "interfaces": [
+          {
+            "device": "hca01",
+            "interface": "mlx5_0",
+            "membership": "full"
+          }
+        ]
+      },
+      "generic_payload": {
+        "host": "ufm-1.lab",
+        "pkey": "0x8001",
+        "interfaces": [
+          {
+            "device": "hca01",
+            "interface": "mlx5_0",
+            "membership": "full"
+          }
+        ]
+      }
+    }
+  ]
+}

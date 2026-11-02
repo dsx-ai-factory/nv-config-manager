@@ -50,7 +50,7 @@ from paramiko.sftp import (
 from paramiko.transport import Transport
 from prometheus_client import start_http_server
 
-from nv_config_manager.common.config import get_storage_client
+from nv_config_manager.common.config.storage import get_storage_client
 from nv_config_manager.common.log import (
     EscapingLoggerAdapter,
     LogCategory,

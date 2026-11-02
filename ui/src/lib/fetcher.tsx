@@ -34,7 +34,7 @@ export const fetcher = async (url: string | URL | Request) => {
     const data = await response.json().catch(() => null);
     errorMessage = data?.error || errorMessage;
 
-    throw new APIError(errorMessage, response.status);
+    throw new APIError(errorMessage, response.status, data?.detail);
   }
 
   return response.json();

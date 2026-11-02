@@ -136,7 +136,7 @@ spec:
   {{- range $.paths }}
   - matches:
     - path:
-        type: PathPrefix
+        type: {{ $.pathType | default "PathPrefix" }}
         value: {{ . }}
       {{- if $.requireAuthorization }}
       headers:
@@ -373,6 +373,20 @@ spec:
 ---
 # Temporal Web UI HTTPRoute (temporal.<base>) - OIDC-only, via browser proxy
 {{- if .Values.temporal.server.enabled }}
+{{- if .Values.temporal.gateway.devUi.authBypass }}
+{{- /* Exact match: Temporal Web serves its app for any path under /healthz/. */}}
+{{- include "nv-config-manager.authBypassHTTPRoute" (dict
+    "root" .
+    "routeName" (printf "%s-web" $temporalName)
+    "enabled" (.Values.temporal.gateway.devUi.authBypass.enabled | default false)
+    "paths" (.Values.temporal.gateway.devUi.authBypass.paths | default list)
+    "pathType" "Exact"
+    "hostname" (tpl .Values.temporal.gateway.devUi.hostname .)
+    "backendName" (printf "%s-web-service" $temporalName)
+    "backendPort" 8080
+) }}
+---
+{{- end }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -397,6 +411,20 @@ spec:
 ---
 # Unified UI HTTPRoute (at base hostname) - OIDC-only, direct to app port
 {{- if .Values.ui.enabled }}
+{{- if .Values.ui.gateway.authBypass }}
+{{- /* Exact match: a prefix would also skip the login for any route added under /api/health/. */}}
+{{- include "nv-config-manager.authBypassHTTPRoute" (dict
+    "root" .
+    "routeName" $uiName
+    "enabled" (.Values.ui.gateway.authBypass.enabled | default false)
+    "paths" (.Values.ui.gateway.authBypass.paths | default list)
+    "pathType" "Exact"
+    "hostname" (tpl .Values.ui.gateway.hostname .)
+    "backendName" $uiName
+    "backendPort" 3000
+) }}
+---
+{{- end }}
 {{- if and .Values.oidc.enabled .Values.oidc.authUtility.enabled }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -482,6 +510,19 @@ spec:
     "backendPort" 80
     "requireAuthorization" true
 ) }}
+{{- /* The health probe sends no Authorization header, so it needs its own route. */}}
+{{- if .Values.nautobot.gateway.healthBypass }}
+{{- include "nv-config-manager.authBypassHTTPRoute" (dict
+    "root" .
+    "routeName" (printf "%s-health" $nautobotName)
+    "enabled" (.Values.nautobot.gateway.healthBypass.enabled | default false)
+    "paths" (.Values.nautobot.gateway.healthBypass.paths | default list)
+    "pathType" "Exact"
+    "hostname" (tpl .Values.nautobot.gateway.hostname .)
+    "backendName" $nautobotName
+    "backendPort" 80
+) }}
+{{- end }}
 # Main Nautobot HTTPRoute (for UI/browser access with OIDC)
 ---
 apiVersion: gateway.networking.k8s.io/v1

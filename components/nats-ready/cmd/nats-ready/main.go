@@ -23,7 +23,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	natsready "github.com/nvidia/nv-config-manager/components/nats-ready/internal/nats-ready"
+	natsready "github.com/dsx-ai-factory/nv-config-manager/components/nats-ready/internal/nats-ready"
 )
 
 func main() {
@@ -39,7 +39,7 @@ func main() {
 	address := flag.String("address", "nats://localhost:4222", "NATS server address")
 	flag.Parse()
 
-	logger.Info().Str("address", *address).Msg("NATS server address")
+	logger.Info().Str("address", natsready.RedactAddress(*address)).Msg("NATS server address")
 
 	natsReady, err := natsready.NewRunner(&natsready.NatsReadyConfig{
 		Address: *address,

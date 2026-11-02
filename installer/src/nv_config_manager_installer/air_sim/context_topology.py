@@ -143,6 +143,7 @@ def build_site_design_from_mock_context(
                 "name": intf_name,
                 "type": intf.get("type", "1000base-t"),
                 "description": intf.get("description", ""),
+                "label": intf.get("label", ""),
                 "mac_address": intf.get("mac_address"),
                 "role": _name(intf.get("role")),
                 "mgmt_only": bool(intf.get("mgmt_only", False)),
@@ -196,9 +197,18 @@ def build_site_design_from_mock_context(
     }
 
 
-def write_site_design_from_mock_context(blueprint: str, deployment_name: str) -> str:
+def write_site_design_from_mock_context(
+    blueprint: str,
+    deployment_name: str,
+    *,
+    context_root: Path = DEFAULT_MOCK_CONTEXT_ROOT,
+) -> str:
     """Write a temporary site-design YAML generated from mock context and return its path."""
-    site_design = build_site_design_from_mock_context(blueprint, deployment_name)
+    site_design = build_site_design_from_mock_context(
+        blueprint,
+        deployment_name,
+        context_root=context_root,
+    )
     tmp = tempfile.NamedTemporaryFile(
         mode="w", suffix=".yaml", prefix=f"air-{blueprint}-", delete=False
     )

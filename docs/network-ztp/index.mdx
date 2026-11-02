@@ -8,7 +8,9 @@ The NVIDIA Config Manager Network ZTP service is a FastAPI app that serves boot 
 
 Zero Touch Provisioning (ZTP) is an automated method for configuring and deploying network devices without manual intervention. When a new device boots, it automatically retrieves its configuration, firmware, and boot scripts from a central server, enabling rapid deployment and consistent configuration across your network infrastructure.
 
-The Config Manager Network ZTP Server is a REST API service that facilitates Zero Touch Provisioning for network devices. It serves as the central point for devices to retrieve:
+The Config Manager Network ZTP Server provides REST and SFTP services that
+facilitate Zero Touch Provisioning for network devices. It serves as the
+central point for devices to retrieve:
 
 - **Boot scripts** - Initialization scripts that guide the device through the provisioning process
 - **Configuration files** - Device-specific configurations rendered from templates
@@ -31,7 +33,9 @@ properly tracked throughout provisioning.
 
 - **Device and user authorization** - Device requests must come from registered IP addresses; user requests must come through the Envoy gateway as authenticated users when SSO is enabled
 - **Serial number validation** - Devices must validate their serial numbers before provisioning
-- **Secure file transfers** - All transfers use HTTPS with checksum verification
+- **Secure file transfers** - Sensitive Cumulus rendered configuration defaults
+  to source-IP-authorized SFTP; HTTP and HTTPS remain available for bootstrap,
+  firmware, and compatibility flows
 
 **DCIM provider integration**:
 

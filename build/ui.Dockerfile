@@ -7,7 +7,7 @@
 # =============================================================================
 # Dependencies stage - install npm packages
 # =============================================================================
-FROM docker.io/library/node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS deps
+FROM docker.io/library/node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS deps
 
 WORKDIR /app
 
@@ -21,7 +21,7 @@ RUN npm ci
 # =============================================================================
 FROM deps AS builder
 WORKDIR /app
-COPY next-env.d.ts next.config.mjs postcss.config.mjs tailwind.config.ts tsconfig.json ./
+COPY next-env.d.ts next.config.mjs postcss.config.mjs tailwind.config.ts tsconfig.json tsconfig.build.json ./
 COPY public/ ./public/
 COPY src/ ./src/
 
@@ -33,7 +33,7 @@ RUN npm run build
 # =============================================================================
 # Runtime stage - NVIDIA distroless Node.js
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/node:24-v4.0.10@sha256:43151afc5b44dc241551e1f816ba27b07d02424b529faa758374b45c44eb86e4 AS runner
+FROM nvcr.io/nvidia/distroless/node:24-v4.1.8@sha256:eb352ba3f15ebd89191e86bdf9bdea98fdf6c7d02817ac9e069635c51367d866 AS runner
 
 WORKDIR /app
 

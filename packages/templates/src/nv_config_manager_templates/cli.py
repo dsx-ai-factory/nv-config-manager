@@ -218,7 +218,12 @@ def list_entrypoints(
 @click.option("--entrypoint", help="entrypoint template to render")
 @click.option("--template", help="full template path to render")
 @click.option("--output-file", help="optional output file for rendered output")
-@click.option("--vault", is_flag=True, default=False, help="perform Vault lookups during render")
+@click.option(
+    "--vault",
+    is_flag=True,
+    default=False,
+    help="perform Vault lookups during render against VAULT_ADDR",
+)
 @click.option("--debug", is_flag=True, default=False, help="display tracebacks in error output")
 def render(
     provider_config: str | None,

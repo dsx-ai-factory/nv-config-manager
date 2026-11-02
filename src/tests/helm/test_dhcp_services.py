@@ -24,7 +24,9 @@ keep an unconfigured DHCP pod from becoming a Ready external DHCP target:
   ``publishNotReadyAddresses`` and exposes ONLY port 8000;
 * the config-refresh container is pointed at that bootstrap Service;
 * container liveness uses ``/livez`` (Kea process) while readiness uses the
-  strict ``/healthcheck`` (Kea online AND desired config applied).
+  strict ``/healthcheck`` (Kea online AND desired config applied);
+* the config-sync sidecar's liveness is its own heartbeat exec probe, so it is
+  never gated on an HTTP endpoint that reflects config state.
 
 The tests skip cleanly when ``helm`` is unavailable or chart dependencies have
 not been vendored (``helm dependency build``), so they never block a plain
@@ -177,5 +179,43 @@ def test_liveness_uses_livez_and_readiness_uses_healthcheck() -> None:
         assert _probe_path(containers[name], "livenessProbe") == "/livez"
         assert _probe_path(containers[name], "readinessProbe") == "/healthcheck"
 
-    # The config-sync backstop must not restart on a config mismatch.
-    assert _probe_path(containers["config-sync-v4"], "livenessProbe") == "/livez"
+
+def test_verified_config_hash_is_shared_with_readiness_containers() -> None:
+    """Sync publishes its verified hash through a pod-local volume mounted by probes."""
+    docs = _load_docs(_render())
+    deployment = next(
+        doc
+        for doc in docs
+        if doc.get("kind") == "Deployment" and doc["metadata"]["name"] == _DHCP_NAME
+    )
+    pod_spec = deployment["spec"]["template"]["spec"]
+    volumes = {volume["name"]: volume for volume in pod_spec["volumes"]}
+    containers = {container["name"]: container for container in pod_spec["containers"]}
+
+    assert volumes["dhcp-sync-state"]["emptyDir"] == {"sizeLimit": "1Mi"}
+    for name in ("healthcheck", "api", "config-sync-v4"):
+        mounts = {mount["name"]: mount for mount in containers[name]["volumeMounts"]}
+        assert mounts["dhcp-sync-state"]["mountPath"] == "/tmp/nv-config-manager-dhcp-state"
+    for name in ("healthcheck", "api"):
+        mounts = {mount["name"]: mount for mount in containers[name]["volumeMounts"]}
+        assert mounts["dhcp-sync-state"]["readOnly"] is True
+
+
+def test_config_sync_liveness_is_the_heartbeat_probe() -> None:
+    """config-sync liveness tracks its own loop, not an endpoint reflecting config state.
+
+    #170 pointed this probe at ``/livez`` so a config mismatch could not restart
+    the sidecar. The heartbeat exec probe keeps that invariant and narrows it
+    further: liveness now depends only on this container's own loop progress, so
+    neither a config mismatch nor a dead Kea recycles it. Kea process health is
+    covered by the kea container's own ``/livez`` probe.
+    """
+    docs = _load_docs(_render())
+    containers = _containers(docs, _DHCP_NAME)
+
+    probe = containers["config-sync-v4"]["livenessProbe"]
+    assert probe["exec"]["command"] == [
+        "nv-config-manager-dhcp-confgen",
+        "check-sync-heartbeat",
+    ]
+    assert "httpGet" not in probe

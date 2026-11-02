@@ -14,15 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/**
+ * The Python form declaration supplies mutually exclusive interface/GUID row variants.
+ */
 import { expect } from "@playwright/test";
+import { mockServerCatalogAndUser } from "./shared/apiMocks";
 import { test, TEST_TIMEOUT, WORKFLOW_DETAILS_TIMEOUT } from "./shared/utils";
 
 const FORM_TITLE = "New InfiniBand PKey Member Update Workflow";
-const FORM_PATH = "/workflows/ibpkeymemberupdateworkflow/form";
+const FORM_PATH = "/workflows/new/ib-pkey-member-update";
 const ENDPOINT = "/v1/workflow/ngc/ib_pkey_member_update";
 
 test.describe("IB PKey Member Update Form", () => {
   test.beforeEach(async ({ page }) => {
+    await mockServerCatalogAndUser(page, ["reader", "executor"]);
     await page.goto(FORM_PATH);
   });
 
@@ -50,7 +56,7 @@ test.describe("IB PKey Member Update Form", () => {
     await page.getByPlaceholder("device (e.g. hca01)").fill("hca01");
     await page.getByPlaceholder("interface (e.g. mlx5_0)").fill("mlx5_0");
 
-    await page.getByLabel("Membership for interface row 1").click();
+    await page.getByLabel("Membership Type for row 1").click();
     await page.getByRole("option", { name: "full" }).click();
 
     await page.getByRole("button", { name: "Replace Members" }).click();
@@ -78,7 +84,7 @@ test.describe("IB PKey Member Update Form", () => {
     await page.getByPlaceholder("device (e.g. hca01)").fill("hca01");
     await page.getByPlaceholder("interface (e.g. mlx5_0)").fill("mlx5_0");
 
-    await page.getByLabel("Membership for interface row 1").click();
+    await page.getByLabel("Membership Type for row 1").click();
     await page.getByRole("option", { name: "limited" }).click();
 
     await page.getByRole("button", { name: "Replace Members" }).click();
@@ -108,12 +114,12 @@ test.describe("IB PKey Member Update Form", () => {
     await page.getByLabel("By GUIDs").click();
 
     await page.getByLabel("GUID 1").fill("0x0011223344556677");
-    await page.getByLabel("Membership for GUID row 1").click();
+    await page.getByLabel("Membership Type for row 1").click();
     await page.getByRole("option", { name: "limited" }).click();
 
     await page.getByRole("button", { name: "Add Row" }).click();
     await page.getByLabel("GUID 2").fill("0x8899aabbccddeeff");
-    await page.getByLabel("Membership for GUID row 2").click();
+    await page.getByLabel("Membership Type for row 2").click();
     await page.getByRole("option", { name: "full" }).click();
 
     await page.getByRole("button", { name: "Replace Members" }).click();

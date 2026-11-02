@@ -20,7 +20,9 @@ from unittest.mock import patch
 
 import pytest
 
-from nv_config_manager.common.client import RenderClient, TemporalClient, ZTPClient
+from nv_config_manager.common.client.render import RenderClient
+from nv_config_manager.common.client.temporal import TemporalClient
+from nv_config_manager.common.client.ztp import ZTPClient
 
 
 @pytest.mark.asyncio
@@ -31,20 +33,14 @@ from nv_config_manager.common.client import RenderClient, TemporalClient, ZTPCli
         (RenderClient, "http://render-service:9000"),
     ],
 )
-async def test_retry_client_does_not_own_shared_connector(client_cls, base_url):
-    """Per-request sessions must not close the client-level connector."""
+async def test_client_owns_generated_connection_pool(client_cls, base_url):
+    """The wrapper owns one generated transport pool for its full lifetime."""
     client = client_cls(base_url=base_url)
-
-    try:
-        with patch("nv_config_manager.common.client._mixins.RetryClient") as retry_client:
-            client._new_session()
-
-        retry_client.assert_called_once()
-        kwargs = retry_client.call_args.kwargs
-        assert kwargs["connector"] is client.connector
-        assert kwargs["connector_owner"] is False
-    finally:
-        await client.connector.close()
+    async with client:
+        pool = client.api_client.rest_client.pool_manager
+        client._ensure_transport()
+        assert client.api_client.rest_client.pool_manager is pool
+    assert pool._client.closed
 
 
 class TestZTPClientInternalAuth:
@@ -160,6 +156,7 @@ class TestTemporalClientInternalAuth:
             base_url="http://temporal-api:9000",
             user_domain="nvidia.com",
             headers=headers,
+            allow_insecure_auth=True,
         )
         assert client.base_url == "http://temporal-api:9000"
         assert client._headers == headers
@@ -196,6 +193,32 @@ class TestTemporalClientInternalAuth:
         assert client.base_url == "https://external-temporal.example.com"
         assert client._headers is None
 
+    def test_from_config_has_vendor_neutral_domain_fallback(self):
+        """A hand-written INI without a domain does not assume a vendor domain."""
+        config = ConfigParser()
+        config.add_section("temporal")
+        config.set("temporal", "api_service", "http://internal-temporal:9000")
+        config.set("temporal", "api_url", "https://external-temporal.example.com")
+        config.set("temporal", "use_internal_endpoint", "true")
+
+        client = TemporalClient.from_config(config)
+
+        assert client.user_domain is None
+
+    def test_from_config_can_retain_service_specific_domain(self):
+        """Explicit callers can continue selecting a service-specific domain section."""
+        config = ConfigParser()
+        config.add_section("temporal")
+        config.set("temporal", "api_service", "http://internal-temporal:9000")
+        config.set("temporal", "api_url", "https://external-temporal.example.com")
+        config.set("temporal", "use_internal_endpoint", "true")
+        config.add_section("ztp")
+        config.set("ztp", "user_domain", "test.platform.example.com")
+
+        client = TemporalClient.from_config(config, user_domain_section="ztp")
+
+        assert client.user_domain == "test.platform.example.com"
+
     @pytest.mark.asyncio
     async def test_session_includes_headers(self):
         """Test that async context manager creates session with headers."""
@@ -207,7 +230,8 @@ class TestTemporalClientInternalAuth:
             base_url="http://temporal-api:9000",
             user_domain="nvidia.com",
             headers=headers,
+            allow_insecure_auth=True,
         )
         async with client:
-            assert client._session is not None
-            assert client._session._default_headers is not None
+            assert client.api_client.rest_client.pool_manager is not None
+            assert client._resolve_headers() == headers

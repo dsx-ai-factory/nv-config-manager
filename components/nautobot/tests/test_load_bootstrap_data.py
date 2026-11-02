@@ -422,6 +422,20 @@ class TestLoadTags:
 
 
 class TestLoadCustomFields:
+    def test_bundled_custom_fields_define_device_alias(self):
+        mod = _import_module()
+        data_path = Path(mod.__file__).resolve().parents[1] / "data" / "custom_fields.yaml"
+
+        custom_fields = {field["key"]: field for field in yaml.safe_load(data_path.read_text())}
+
+        assert custom_fields["alias"]["label"] == "Alias"
+        assert custom_fields["alias"]["type"] == "text"
+        assert custom_fields["alias"]["description"] == (
+            "Optional host alias used by Connected Host Metadata workflows."
+        )
+        assert custom_fields["alias"]["content_types"] == ["dcim.device"]
+        assert "all" in custom_fields["alias"]["deployment_types"]
+
     def test_creates_custom_field(self, tmp_path):
         from django.contrib.contenttypes.models import ContentType
         from nautobot.extras.models import CustomField
@@ -601,6 +615,18 @@ class TestLoadNamespaces:
 
 
 class TestLoadStatuses:
+    def test_bootstrap_defines_cable_validation_statuses(self):
+        mod = _import_module()
+        statuses_path = Path(mod.__file__).parents[1] / "data" / "statuses.yaml"
+
+        statuses = {status["name"]: status for status in yaml.safe_load(statuses_path.read_text())}
+
+        for name in ("Connected", "Disconnected", "Invalid"):
+            assert statuses[name]["content_types"] == ["dcim.cable"]
+        assert statuses["Connected"]["color"] == "4caf50"
+        assert statuses["Disconnected"]["color"] == "f44336"
+        assert statuses["Invalid"]["color"] == "f44336"
+
     def test_creates_status(self, tmp_path):
         mod = _import_module()
         from nautobot.extras.models import Status
@@ -723,6 +749,21 @@ class TestLoadConfigContexts:
             "alt-image-file-name",
             "http-port",
         } <= option_names
+
+    def test_bundled_arista_ztp_context_points_option_67_at_the_boot_script(self) -> None:
+        """The bundled Arista EOS context points DHCP option 67 at the rendered boot script."""
+        data_path = Path(__file__).resolve().parents[1] / "nv_config_manager_jobs/data/config_contexts.yaml"
+        with data_path.open() as f:
+            config_contexts = yaml.safe_load(f)
+
+        ztp_context = next(context for context in config_contexts if context["name"] == "Arista EOS ZTP DHCP Options")
+        assert ztp_context["platforms"] == ["Arista EOS"]
+        interfaces = ztp_context["data"]["dhcp"]["options"]["interface_names"]
+        assert set(interfaces) == {"Management1", "Management0"}
+        for options in interfaces.values():
+            assert options["reservation_options"] == {
+                "boot-file-name": "http://{{ ztp_server }}/v1/device/{{ device_id }}/boot-script"
+            }
 
     def test_bundled_juniper_ztp_context_targets_junos_and_full_config(self):
         data_path = Path(__file__).resolve().parents[1] / "nv_config_manager_jobs/data/config_contexts.yaml"

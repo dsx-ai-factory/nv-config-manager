@@ -19,6 +19,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 from fastapi import FastAPI
@@ -27,6 +28,7 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.utils import suppress_instrumentation
+from opentelemetry.metrics import NoOpMeterProvider
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -160,4 +162,13 @@ def _http_client_instrumentors() -> list[tuple[str, Callable[[], None]]]:
         ("httpx", HTTPXClientInstrumentor),
         ("requests", RequestsInstrumentor),
     )
-    return [(name, cls().instrument) for name, cls in candidates if cls is not None]
+    # Without an explicit meter provider the instrumentors fall back to the global
+    # proxy provider, which keeps every meter it hands out. aiohttp asks for a new
+    # meter on each ClientSession, so services that open a session per request
+    # grow without bound.
+    meter_provider = NoOpMeterProvider()
+    return [
+        (name, partial(cls().instrument, meter_provider=meter_provider))
+        for name, cls in candidates
+        if cls is not None
+    ]

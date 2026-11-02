@@ -7,7 +7,7 @@
 # - Supervisor is needed for process management (kea-dhcp4 + stork-agent)
 # - Stork agent requires shell scripts and dynamic configuration
 
-FROM nvcr.io/nvidia/base/ubuntu:noble-20260217
+FROM nvcr.io/nvidia/base/ubuntu:noble-20260917@sha256:7e0f726d635d440d28a7f18e6498d3bdb76c7038bd4c90a090c21eb7c9f40686
 
 ARG APT_MIRROR=""
 ARG APT_MIRROR_GPG_KEY_URL=""
@@ -23,6 +23,8 @@ RUN set -eux; \
         curl \
         gnupg \
         supervisor && \
+    { dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20260816ubuntu0.24.04.1 || \
+        { echo "ca-certificates < 20260816ubuntu0.24.04.1" >&2; exit 1; }; } && \
     # Add ISC Cloudsmith repository for Kea 2.6
     curl -1sLf 'https://dl.cloudsmith.io/public/isc/kea-2-6/setup.deb.sh' | bash && \
     apt-get update && \
@@ -36,10 +38,10 @@ RUN set -eux; \
     { getent group kea >/dev/null || groupadd -r kea; } && \
     { id -u kea >/dev/null 2>&1 || useradd -r -g kea kea; }
 
-# Install Stork agent (pinned to 2.4.x for Go dependency CVE fixes)
+# Install Stork agent (pinned to upstream 2.4.2 for patched Go dependencies)
 COPY build/setup.stork.deb.sh /tmp/setup.stork.deb.sh
 RUN bash /tmp/setup.stork.deb.sh && \
-    apt-get install -y --no-install-recommends isc-stork-agent=2.4.1* && \
+    apt-get install -y --no-install-recommends isc-stork-agent=2.4.2* && \
     rm /tmp/setup.stork.deb.sh && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*

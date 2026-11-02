@@ -140,6 +140,35 @@ force-pushing it.
 
 ## Getting Started
 
+Python development requires **uv 0.13.5 or newer**, enforced by each project's
+`pyproject.toml`. GitHub Actions reads that requirement directly. Shared pip/uv
+bootstrap versions and hashes live in `deploy/helm/files/python-tooling.sh`, used
+by GitLab CI and embedded in the chart's source-plugin installer. Container CA
+validation lives in `build/python-ca.py`.
+
+Upgrading uv does not replace existing Python environments. Refresh managed
+interpreters separately and upgrade existing environments to pip 26.2.2 or newer.
+
+After building container images, audit their actual system CA bundles and
+individual trust anchors with `build/check-image-trust.sh IMAGE`. Add `--node`
+to also check Node's bundled roots. The GitLab PR image builds run this audit
+before uploading each image artifact.
+
+Protected promotion independently audits
+the archives with trusted main-branch scripts and verifies their hashes before
+pushing. Main/tag builds audit both architectures and create manifests from
+the verified digests. The audit process receives no CI or registry credentials;
+Node runs without network access or host mounts.
+
+This works with distroless images and
+requires Docker, Python 3, and uv on the host. CI image pins
+live in `.gitlab/ci/images.yml`; GitLab project/group variables override those
+defaults and must be refreshed to matching versions and digests too.
+
+Build, container, and CI tooling tests belong in `ci/tests/`. Run them with
+`make test-ci`; GitHub and GitLab CI run this suite separately from the
+application tests and their coverage collection. Service tests belong in `src/tests/`.
+
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
    ```bash
@@ -180,6 +209,29 @@ force-pushing it.
 
 ## How to Contribute
 
+### Discuss Changes First
+
+Before implementing a feature, behavior change, or substantial refactor, open or
+find an issue and agree on the approach with a maintainer. Link that issue in the
+pull request. Small typo fixes and straightforward bug fixes may go directly to
+a pull request with a clear problem description. Report vulnerabilities privately
+using [SECURITY.md](SECURITY.md).
+
+Maintainers assign issue priority based on user impact, security, regressions,
+release dependencies, and available capacity. Contributors can influence priority
+by adding reproducible examples, affected versions, impact, and offers to help
+to the issue. Explain disagreements in the issue so the rationale stays public;
+priority does not guarantee a delivery date.
+
+### AI-Assisted Contributions
+
+AI-assisted contributions follow the same review, testing, licensing, and DCO
+requirements as other contributions. Contributors remain responsible for every
+submitted line: verify behavior, provenance, and generated explanations. Disclose
+substantial AI assistance in the pull request and describe human review and tests.
+Do not submit confidential data, credentials, or third-party code to a tool unless
+you have permission to do so. Follow [AGENTS.md](AGENTS.md) when using coding agents.
+
 ### Reporting Bugs
 
 - Use the GitHub issue tracker to report bugs
@@ -213,7 +265,7 @@ entry-point, Pydantic model, event, render-data, and test contract.
 1. **Ensure all tests pass** before submitting:
    ```bash
    # Python tests
-   uv run pytest
+   make test
 
    # Linting
    uv run ruff check .
@@ -265,8 +317,8 @@ uv run --project installer ruff check installer/src/ installer/tests/
 ```
 
 Lists where order is insignificant (a registry or lookup table where entries
-are read by name, not by position — e.g. `REGISTERED_WORKFLOWS` in
-`src/nv_config_manager/temporal/ngc/workflows/__init__.py`) should stay
+are read by name, not by position — e.g. `BUILTIN_WORKFLOWS` in
+`packages/workflows/src/nv_config_manager_workflows/workflows/builtin.py`) should stay
 alphabetically ordered for readability. Wrap those in `# keep-sorted start` /
 `# keep-sorted end` comments, enforced by
 [keep-sorted](https://github.com/google/keep-sorted), pinned via

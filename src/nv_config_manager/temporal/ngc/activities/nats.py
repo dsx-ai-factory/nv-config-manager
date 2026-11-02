@@ -12,51 +12,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Activities for NATS."""
+"""Deprecated service import path for the reusable NATS activity."""
 
-import nats
-import nats.errors
-import nats.js.errors
-from pydantic import BaseModel
-from temporalio import activity
+# isort: off
+from nv_config_manager_workflows.activities.nats import (
+    ARCHIVE_SUBJECT as ARCHIVE_SUBJECT,
+    NATS_ACTIVITIES as NATS_ACTIVITIES,
+    PublishNatsInput as PublishNatsInput,
+    publish_nats as publish_nats,
+)
+# isort: on
 
-from nv_config_manager.common.config import nats_archive_config
-from nv_config_manager.common.log import LogCategory, get_logger
-from nv_config_manager.temporal.client.nats import NatsProducer
-
-logger = get_logger(__name__, category=LogCategory.NATS)
-
-# Default subject used when no archive subject is configured.
-ARCHIVE_SUBJECT = "nv-config-manager.workflow.result"
-
-
-class PublishNatsInput(BaseModel):
-    """Input for publish activity."""
-
-    subject: str | None = None
-    message: str
-
-
-@activity.defn
-async def publish_nats(activity_input: PublishNatsInput) -> None:
-    """Publish a NATS message to the workflow result bus."""
-    stream, configured_subject = nats_archive_config()
-    subject = activity_input.subject or configured_subject
-    logger.info(
-        "Publishing to NATS stream=%s subject=%s (message_len=%d)",
-        stream,
-        subject,
-        len(activity_input.message),
-    )
-    client = NatsProducer()
-    try:
-        await client.publish(subject, activity_input.message, stream=stream)
-    except (nats.errors.Error, nats.js.errors.Error) as error:
-        logger.error(
-            "NATS publish failed: subject=%s server=%s error=%s",
-            subject,
-            client.server,
-            error,
-            exc_info=True,
-        )
-        raise
+__all__ = [
+    "ARCHIVE_SUBJECT",
+    "NATS_ACTIVITIES",
+    "PublishNatsInput",
+    "publish_nats",
+]

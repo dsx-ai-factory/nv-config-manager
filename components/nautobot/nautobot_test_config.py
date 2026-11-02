@@ -41,7 +41,6 @@ CACHES = {
         },
     }
 }
-CACHEOPS_REDIS = parse_redis_connection(redis_database=1)
 
 DATABASES = {
     "default": {

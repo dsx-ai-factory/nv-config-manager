@@ -70,6 +70,10 @@ spec:
           value: "render"
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- with .Values.global.defaultUserDomain }}
+        - name: NV_CONFIG_MANAGER_DOMAIN
+          value: {{ . | quote }}
+        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
         - name: NV_CONFIG_MANAGER_DEV_SALT
@@ -209,6 +213,10 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- with .Values.global.defaultUserDomain }}
+        - name: NV_CONFIG_MANAGER_DOMAIN
+          value: {{ . | quote }}
+        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         - name: NV_CONFIG_MANAGER_DEV_SALT
           value: "W585uq6K"
@@ -320,6 +328,10 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- with .Values.global.defaultUserDomain }}
+        - name: NV_CONFIG_MANAGER_DOMAIN
+          value: {{ . | quote }}
+        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         - name: NV_CONFIG_MANAGER_DEV_SALT
           value: "W585uq6K"
@@ -419,6 +431,8 @@ spec:
       {{- include "nv-config-manager.copyTemplatePluginImages" . | nindent 6 }}
       {{- include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
       {{- end }}
+      {{- include "nv-config-manager.spiffeClientSidecar" (dict "root" . "native" true) | nindent 6 }}
+      {{- include "nv-config-manager.waitForSpiffeJwt" . | nindent 6 }}
       containers:
       - name: template-updater
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -431,6 +445,10 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- with .Values.global.defaultUserDomain }}
+        - name: NV_CONFIG_MANAGER_DOMAIN
+          value: {{ . | quote }}
+        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         - name: NV_CONFIG_MANAGER_DEV_SALT
           value: "W585uq6K"
@@ -456,6 +474,11 @@ spec:
           readOnly: true
         {{- end }}
         {{- include "nv-config-manager.dcimProviderPackageVolumeMount" . | nindent 8 }}
+        {{- if and .Values.spiffe.enabled (eq (.Values.spiffe.authMode | default "jwt") "jwt") }}
+        - name: spiffe-jwt-svid
+          mountPath: /var/run/secrets/spiffe
+          readOnly: true
+        {{- end }}
       volumes:
       {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
       {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}

@@ -508,4 +508,6 @@ Use that portable cache with `--cached-render-data`. It is the only cache format
 accepted by `template-cli`.
 
 Vault lookups are disabled by default for local renders unless `--vault` is
-provided.
+provided. With `--vault`, set `VAULT_ADDR` (and `VAULT_NAMESPACE` if your Vault
+uses namespaces) and log in so `~/.vault-token` exists. There is no default
+Vault address, so the render fails if `VAULT_ADDR` is not set.

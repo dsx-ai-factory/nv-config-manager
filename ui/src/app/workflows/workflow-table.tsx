@@ -19,15 +19,20 @@
 import * as React from "react";
 import { DataTable } from "@/components/data-table/data-table";
 import { getWorkflowColumns } from "./columns";
-import { WorkflowTableProps } from "@/types/data-table.types";
+import type { WorkflowCatalogEntry } from "@/types/workflow-catalog.types";
+
+type WorkflowTableProps = {
+  title?: string;
+  workflowCatalog: readonly WorkflowCatalogEntry[];
+};
 
 const WorkflowTable: React.FC<WorkflowTableProps> = ({
   title = "Workflows",
-  workflowMetadata,
+  workflowCatalog,
 }) => {
   const workflowColumns = React.useMemo(
-    () => getWorkflowColumns(workflowMetadata),
-    [workflowMetadata]
+    () => getWorkflowColumns(workflowCatalog),
+    [workflowCatalog]
   );
 
   return (

@@ -43,6 +43,15 @@ class DCIMInvalidDataError(DCIMError):
     """A provider returned data that does not satisfy the SDK contract."""
 
 
+class DCIMReadCancelledError(DCIMError):
+    """The DCIM's own datastore cancelled a read before it returned.
+
+    Nothing is wrong with the request or the records; the read lost a race with
+    the datastore, so an identical call later can succeed. Callers should retry
+    or keep their last good result rather than fail hard.
+    """
+
+
 class DCIMOperationNotSupportedError(DCIMError):
     """The selected provider does not implement the requested SDK operation."""
 

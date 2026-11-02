@@ -1,3 +1,3 @@
-module github.com/nvidia/nv-config-manager/components/temporal
+module github.com/dsx-ai-factory/nv-config-manager/components/temporal
 
 go 1.26.4

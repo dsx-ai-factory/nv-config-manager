@@ -5,6 +5,15 @@
 # Device custom fields
 # ============================================================================
 
+# Alias is queried by the Connected Host Metadata workflow as cf_alias.
+- key: alias
+  label: Alias
+  type: text
+  description: Optional host alias used by Connected Host Metadata workflows.
+  content_types:
+    - dcim.device
+  deployment_types: [all]
+
 # nico_info holds NICo machine info (machine_type, state, GPU
 # summary, attached DPU machine ids), stored as JSON.
 - key: nico_info

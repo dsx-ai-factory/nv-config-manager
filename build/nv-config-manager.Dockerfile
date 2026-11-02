@@ -9,7 +9,10 @@
 # =============================================================================
 # Builder stage - use official uv image with Python
 # =============================================================================
-FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim@sha256:531f855bda2c73cd6ef67d56b733b357cea384185b3022bd09f05e002cd144ca AS builder
+
+# Use the emSign remediation release instead of the base image's bundled uv.
+COPY --from=ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff /uv /uvx /usr/local/bin/
 
 ARG APT_MIRROR_DEBIAN=""
 ARG APT_MIRROR_GPG_KEY_URL=""
@@ -20,16 +23,19 @@ ARG NVCM_NUMPY_ALLOW_NOBLAS=true
 
 # Install build dependencies for native extensions (numpy, psycopg2, etc.)
 # Also install openssh-server to get the moduli file and sftp binary for SFTP server
-COPY --from=scripts configure-apt-mirror.sh /tmp/configure-apt-mirror.sh
+COPY --from=scripts configure-apt-mirror.sh python-ca.py /tmp/
 RUN set -eux; \
     /tmp/configure-apt-mirror.sh "$APT_MIRROR_DEBIAN" "$APT_MIRROR_GPG_KEY_URL" debian && \
     apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     g++ \
     gcc \
     libffi-dev \
     libpq-dev \
     openssh-server \
     sshpass && \
+    python /tmp/python-ca.py && \
+    uv pip install --system 'pip>=26.2.2' && \
     rm -rf /var/lib/apt/lists/* && \
     # Stage sftp/ssh/sshpass binaries and their dependencies for multi-arch support
     mkdir -p /sftp-bin /sftp-lib && \
@@ -45,6 +51,9 @@ ARG TEMPLATE_ENGINE_VERSION=""
 COPY pyproject.toml uv.lock README.md /code/nv-config-manager/
 COPY src/nv_config_manager/ /code/nv-config-manager/src/nv_config_manager/
 COPY src/tests/ /code/nv-config-manager/src/tests/
+COPY packages/clients/ /code/nv-config-manager/packages/clients/
+COPY packages/infrastructure/ /code/nv-config-manager/packages/infrastructure/
+COPY packages/logging/ /code/nv-config-manager/packages/logging/
 COPY packages/dcim/pyproject.toml packages/dcim/README.md /code/nv-config-manager/packages/dcim/
 COPY packages/dcim/src/ /code/nv-config-manager/packages/dcim/src/
 COPY plugins/dcim/nautobot-2x/pyproject.toml plugins/dcim/nautobot-2x/README.md /code/nv-config-manager/plugins/dcim/nautobot-2x/
@@ -77,12 +86,24 @@ RUN --mount=type=cache,id=nvcm-uv-cache,target=/root/.cache/uv \
     else \
         uv sync --frozen --no-dev --group integration-test --no-editable; \
     fi; \
+    # Some dependency wheels include Git metadata that is not needed at runtime.
+    find /code/nv-config-manager/.venv -name .git -prune -exec rm -rf '{}' +; \
     chmod -R a+rX /code/nv-config-manager/.venv /code/nv-config-manager/db /code/nv-config-manager/src
 
 # =============================================================================
 # Runtime stage - NVIDIA distroless Python
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/python:3.13-v4.1.1
+FROM nvcr.io/nvidia/distroless/python:3.13-v4.1.10@sha256:c718fc9571456bdb18a964450aa77025898747e3a5f92b7d4d81b194413bc09d
+
+# Replace the pinned runtime's trust store, including hashed certificate paths.
+# Copying only the bundle would leave distrusted roots reachable through capath.
+USER 0:0
+COPY --from=scripts python-ca.py /tmp/python-ca.py
+RUN ["python", "/tmp/python-ca.py", "--reset"]
+COPY --from=builder /etc/ssl/certs/ /etc/ssl/certs/
+COPY --from=builder /usr/share/ca-certificates/ /usr/share/ca-certificates/
+# Check the actual runtime bundle, including the affected cross-sign trust anchor.
+RUN ["python", "/tmp/python-ca.py"]
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

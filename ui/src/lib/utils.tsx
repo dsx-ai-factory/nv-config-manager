@@ -20,7 +20,6 @@ import { twMerge } from "tailwind-merge";
 import { badgeVariants, BadgeProps } from "@/components/ui/badge";
 import { StateHistory, Workflow, WorkflowStage } from "@/types/data-table.types";
 import { Link } from "@/components/ui/link";
-import { Option } from "@/types/workflow-form.types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -172,11 +171,12 @@ export const startWorkflow = async (endpoint: string, params: object) => {
     if (!response.ok) {
       const result = await response.json();
       const message = result.error ?? result.detail;
-      if (message) {
-        throw new Error(String(message));
-      } else {
-        throw new Error("Failed to submit workflow.");
-      }
+      // The status and raw `detail` ride along so a form can map FastAPI/Pydantic 422
+      // details to fields; the message (and String(error)) is unchanged.
+      throw Object.assign(
+        new Error(message ? String(message) : "Failed to submit workflow."),
+        { status: response.status, detail: result.detail as unknown }
+      );
     }
     const result = await response.json();
     globalThis.location.href = `/workflows/${result.id}`;
@@ -194,38 +194,6 @@ export function sanitizeUrl(url: string): string {
   const res = url.replaceAll(/([^:]\/)\/+/g, "$1");
   return res;
 }
-
-/* Format object to be key value pairs to work with component design.
- * */
-export const mapRoles = (
-  data: Record<string, string>[] | undefined,
-  keyField: string,
-  valueField: string
-) => {
-  // Return empty array if data is undefined or not an array
-  if (!Array.isArray(data)) {
-    return [];
-  }
-
-  return data.map((item) => ({
-    key: item[keyField],
-    value: item[valueField],
-  }));
-};
-
-/**
- * Converts a comma-separated string into an array of Option objects
- * @param envVarString - Comma-separated string from environment variable
- * @returns Array of Option objects with key and value properties
- */
-export const envVarToOptions = (envVarString?: string): Option[] => {
-  if (!envVarString) return [];
-
-  return envVarString.split(",").map((item) => ({
-    key: item.trim(),
-    value: item.trim(),
-  }));
-};
 
 /**
  * Formats a JSON string with proper indentation

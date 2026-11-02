@@ -17,7 +17,9 @@ The Config Manager DHCP config refresh job reads data from Nautobot and generate
 
 ## Tags
 
-To find existing tags in Nautobot, expand Organization in the left sidebar, scroll to the Metadata section,and click Tags. Enter "dhcp" in the search to show only DHCP-related tags.
+To find existing tags in Nautobot, expand **Organization** in the left sidebar,
+scroll to **Metadata**, and select **Tags**. Search for `dhcp` to show only
+DHCP-related tags.
 
 Config Manager uses three specific tags to identify DHCP-related objects in Nautobot: `dhcp-subnet`, `dhcp-pool`, and `dhcp-reserve`.
 
@@ -51,7 +53,9 @@ This tag applies to individual IP addresses, which are objects of type `ipam.ipa
 For example, tag IP addresses 10.1.100.10 through 10.1.100.100 with `dhcp-pool` to create a dynamic allocation range of 10.1.100.10 to 10.1.100.100.
 
 <Note>
-If an IP tagged with `dhcp-pool` is assigned to an interface that has DHCP subnet options applied, those options will be applied to the DHCP pool subnet (see DHCP Options section below)
+If an IP tagged with `dhcp-pool` is assigned to an interface that has DHCP
+subnet options applied, those options also apply to the DHCP pool subnet. For
+details, refer to [DHCP options](#dhcp-options).
 </Note>
 
 A few behaviors to note:

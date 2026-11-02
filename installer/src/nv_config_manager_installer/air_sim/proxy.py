@@ -23,10 +23,10 @@ import subprocess
 import time
 from dataclasses import dataclass
 
-from nv_config_manager_installer.air_sim.constants import NVCM_BOX_USER
+from nv_config_manager_installer.air_sim.constants import CONFIG_MANAGER_HOSTNAME, NVCM_BOX_USER
 
 SOCKS_PORT = 8080
-_NVCM_URL = "https://nautobot.nvcm.air"
+_NVCM_URL = f"https://{CONFIG_MANAGER_HOSTNAME}"
 
 _SSH_OPTS = [
     "-o",

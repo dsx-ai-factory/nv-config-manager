@@ -1,0 +1,8 @@
+--- a/api.mustache
++++ b/api.mustache
+@@ -114 +114 @@
+-            _path_params['{{baseName}}'] = {{paramName}}{{#isEnumRef}}.value{{/isEnumRef}}
++            _path_params['{{baseName}}'] = {{paramName}}
+@@ -146 +146 @@
+-            _query_params.append(('{{baseName}}', {{paramName}}{{#isEnumRef}}.value{{/isEnumRef}}))
++            _query_params.append(('{{baseName}}', {{paramName}}))

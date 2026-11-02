@@ -7,6 +7,8 @@ readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.13"
 dependencies = [
+    # Remove compromised emSign CA trust (GHSA-6q48-6c7w-9gw2).
+    "certifi>=2026.10.19",
     "nv-air-sdk==1.4.0",
     "click>=8.1.7",
     "kubernetes>=32.0.0",
@@ -29,6 +31,7 @@ build-backend = "hatchling.build"
 packages = ["src/nv_config_manager_installer"]
 
 [tool.uv]
+required-version = ">=0.13.5"
 package = true
 
 [tool.ruff]
@@ -46,5 +49,5 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=6.0.0",
     "responses>=0.25.0",
-    "ruff==0.16.3",
+    "ruff==0.17.3",
 ]

@@ -15,13 +15,22 @@
 """Public contract every workflow plugin entry point must return."""
 
 from collections.abc import Callable, Sequence
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, SkipValidation
 
 from nv_config_manager_workflows.registration.scheduler import WorkflowScheduler
 
 UNKNOWN_PLUGIN_VERSION = "unknown"
+
+
+def _scheduler_classes(
+    schedulers: Sequence[object],
+) -> tuple[type[WorkflowScheduler], ...]:
+    """Freeze scheduler classes while leaving lifecycle validation to the registry."""
+    if not all(isinstance(scheduler, type) for scheduler in schedulers):
+        raise ValueError("every scheduler contribution must be a class")
+    return cast(tuple[type[WorkflowScheduler], ...], tuple(schedulers))
 
 
 class WorkflowPluginDescriptor(BaseModel):
@@ -44,5 +53,8 @@ class WorkflowPluginDescriptor(BaseModel):
     version: str | None = Field(default=None, min_length=1)
     workflows: Annotated[Sequence[type], AfterValidator(tuple)] = ()
     activities: Annotated[Sequence[Callable[..., Any]], AfterValidator(tuple)] = ()
-    schedulers: Annotated[Sequence[type[WorkflowScheduler]], AfterValidator(tuple)] = ()
+    schedulers: Annotated[
+        Sequence[SkipValidation[type[WorkflowScheduler]]],
+        AfterValidator(_scheduler_classes),
+    ] = ()
     metadata: dict[str, Any] = Field(default_factory=dict)

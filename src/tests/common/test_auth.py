@@ -18,14 +18,19 @@ from __future__ import annotations
 
 import os
 import time
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from configparser import ConfigParser
+from datetime import UTC, datetime, timedelta
 from threading import Lock
 from unittest.mock import MagicMock, patch
 
 import jwt as pyjwt
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 from fastapi import Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 from starlette.testclient import TestClient as StarletteClient
@@ -47,7 +52,7 @@ from nv_config_manager.common.auth import (
     require_authenticated_identity,
     require_group,
 )
-from nv_config_manager.common.config import clear_config_cache
+from nv_config_manager.common.config.loader import clear_config_cache
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -172,6 +177,22 @@ class TestConfigLoading:
         assert cfg.accept_request_headers is True
         assert cfg.cookie_name == "MyCookie"
 
+    @pytest.mark.parametrize(("env_value", "expected"), [("true", False), ("false", True)])
+    def test_reject_identity_headers_env(self, monkeypatch, env_value, expected):
+        """The env var can force header trust off but never on."""
+        monkeypatch.setenv(auth_mod.REJECT_IDENTITY_HEADERS_ENV, env_value)
+        cp = _make_config(auth={"accept_request_headers": "true"})
+        assert load_auth_config(cp).accept_request_headers is expected
+
+    def test_reject_identity_headers_env_cannot_enable(self, monkeypatch):
+        monkeypatch.setenv(auth_mod.REJECT_IDENTITY_HEADERS_ENV, "false")
+        assert load_auth_config(ConfigParser()).accept_request_headers is False
+
+    def test_reject_identity_headers_env_invalid(self, monkeypatch):
+        monkeypatch.setenv(auth_mod.REJECT_IDENTITY_HEADERS_ENV, "sometimes")
+        with pytest.raises(ValueError, match="must be a boolean"):
+            load_auth_config(ConfigParser())
+
     def test_single_jwt_provider(self):
         """A single [auth.jwt.*] section is parsed correctly."""
         cp = _make_config(
@@ -288,8 +309,10 @@ class TestInstallIdentityProbe:
         @app.get("/state-user")
         async def state_user(request: Request):
             """Expose normalized request identity fields for middleware tests."""
+            identity = request.state.identity
             return {
                 "user": request.state.user,
+                "identity": identity.email if identity is not None else None,
                 "auth_source": request.state.auth_source,
             }
 
@@ -311,7 +334,11 @@ class TestInstallIdentityProbe:
 
         resp = client.get("/state-user", headers={"X-Auth-Request-Email": "alice@example.com"})
         assert resp.status_code == 200
-        assert resp.json() == {"user": "alice", "auth_source": "sso"}
+        assert resp.json() == {
+            "user": "alice",
+            "identity": "alice@example.com",
+            "auth_source": "sso",
+        }
 
     def test_docs_are_protected(self):
         auth_mod._auth_config = load_auth_config(
@@ -331,7 +358,11 @@ class TestInstallIdentityProbe:
 
         resp = client.get("/state-user")
         assert resp.status_code == 200
-        assert resp.json() == {"user": "anonymous", "auth_source": "anonymous"}
+        assert resp.json() == {
+            "user": "anonymous",
+            "identity": "anonymous",
+            "auth_source": "anonymous",
+        }
 
     def test_openapi_describes_default_bearer_auth_and_public_paths(self):
         schema = self._make_app().openapi()
@@ -907,6 +938,42 @@ class TestExtractIdentityPriority:
         assert data["user"] == "user"
         assert "admin" in data["groups"]
         assert "viewer" in data["groups"]
+
+    @pytest.mark.parametrize(
+        ("include_request_headers", "expected_source"), [(True, "mtls"), (False, None)]
+    )
+    def test_ssl_client_cert_header_requires_request_header_trust(
+        self, rsa_keypair, include_request_headers, expected_source
+    ):
+        """An unverified ssl-client-cert header is ignored unless header trust is on."""
+        name = x509.Name(
+            [
+                x509.NameAttribute(NameOID.COMMON_NAME, "forged@example.com"),
+                x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "admin"),
+            ]
+        )
+        now = datetime.now(UTC)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(name)
+            .issuer_name(name)
+            .public_key(rsa_keypair.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now)
+            .not_valid_after(now + timedelta(days=1))
+            .sign(rsa_keypair, hashes.SHA256())
+        )
+        pem = urllib.parse.quote(cert.public_bytes(serialization.Encoding.PEM).decode())
+
+        app = FastAPI()
+
+        @app.get("/whoami")
+        async def whoami(request: Request):
+            identity = extract_identity(request, include_request_headers=include_request_headers)
+            return {"source": identity.source if identity else None}
+
+        resp = TestClient(app).get("/whoami", headers={"ssl-client-cert": pem})
+        assert resp.json()["source"] == expected_source
 
 
 # ── Backward compatibility tests ─────────────────────────────────────────

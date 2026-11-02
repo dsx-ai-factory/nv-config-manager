@@ -24,6 +24,8 @@ Code under test:
 HTTP responses are intercepted via aioresponses — no real connections are made.
 """
 
+from unittest.mock import patch
+
 import pytest
 from aioresponses import aioresponses
 from temporalio import workflow
@@ -65,6 +67,21 @@ def test_init_sets_bearer_auth_header():
     """Authorization header uses Bearer scheme with the provided token."""
     provider = JiraTicketingProvider(base_url=BASE_URL, api_token="my-token")
     assert provider._headers["Authorization"] == "Bearer my-token"
+
+
+def test_from_config_uses_ticketing_client_settings():
+    """Provider construction delegates configuration lookup to the service adapter."""
+    settings = {"base_url": BASE_URL, "api_token": API_TOKEN}
+
+    with patch(
+        "nv_config_manager.temporal.client.jira.ticketing_client_settings",
+        return_value=settings,
+    ) as client_settings:
+        provider = JiraTicketingProvider.from_config()
+
+    client_settings.assert_called_once_with(platform="jira")
+    assert provider._base_url == BASE_URL
+    assert provider._headers["Authorization"] == f"Bearer {API_TOKEN}"
 
 
 # =============================================================================

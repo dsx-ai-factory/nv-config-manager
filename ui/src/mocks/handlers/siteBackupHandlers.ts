@@ -32,14 +32,20 @@ export function validateSiteBackupPayload(
   if (typeof payload.site !== "string" || !payload.site.trim()) {
     return { error: "Missing required field: site" };
   }
-  if (!Array.isArray(payload.roles)) {
-    return { error: "Missing required field: roles" };
+  if (payload.roles !== undefined && !Array.isArray(payload.roles)) {
+    return { error: "Invalid field: roles" };
   }
-  if (!Array.isArray(payload.status) || payload.status.length === 0) {
-    return { error: "Missing required field: status" };
+  if (
+    payload.status !== undefined &&
+    (!Array.isArray(payload.status) || payload.status.length === 0)
+  ) {
+    return { error: "Invalid field: status" };
   }
-  if (typeof payload.backup_enabled_only !== "boolean") {
-    return { error: "Missing required field: backup_enabled_only" };
+  if (
+    payload.backup_enabled_only !== undefined &&
+    typeof payload.backup_enabled_only !== "boolean"
+  ) {
+    return { error: "Invalid field: backup_enabled_only" };
   }
 
   return null;

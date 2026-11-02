@@ -242,20 +242,21 @@ async def test_status_scopes_to_the_dhcp_service_when_given_a_version() -> None:
     }
 
 
-async def test_get_statistics_forwards_service_version() -> None:
+@pytest.mark.parametrize("version", [4, 6])
+async def test_get_lease_statistics_forwards_service_version(version: int) -> None:
     """Verify dashboard statistics target the requested KEA service."""
-    response = [{"result": 0, "arguments": {"assigned-addresses": [[2, "timestamp"]]}}]
+    response = [{"result": 0, "arguments": {"result-set": {"columns": [], "rows": []}}}]
 
     with aioresponses() as mocked:
         mocked.post("http://kea.example.com:8000/", payload=response)
         async with KeaClient(host="kea.example.com", port=8000) as client:
-            result = await client.get_statistics(version=4)
+            result = await client.get_lease_statistics(version=version)
 
         request = mocked.requests[("POST", URL("http://kea.example.com:8000/"))][0]
 
     assert result == response
     assert request.kwargs["json"] == {
-        "command": "statistic-get-all",
-        "service": ["dhcp4"],
+        "command": f"stat-lease{version}-get",
+        "service": [f"dhcp{version}"],
         "arguments": {},
     }

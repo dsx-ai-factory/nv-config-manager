@@ -51,6 +51,15 @@ query ListManagedDeviceMetadata($limit: Int!, $offset: Int!) {
   }
 }
 
+# Top-level devices annotate config context in one query; the same field nested
+# under another object is resolved once per row.
+query ListDeviceContexts($ids: [String]) {
+  devices(id: $ids) {
+    id
+    config_context
+  }
+}
+
 query GetDeviceSerial($id: ID!) {
   device(id: $id) { serial }
 }

@@ -14,7 +14,8 @@
 # limitations under the License.
 """Server-side authentication and identity extraction for NVIDIA Config Manager services.
 
-All configuration is read from ``nv-config-manager.ini`` (via :func:`nv_config_manager.common.config.load_config`).
+All configuration is read from ``nv-config-manager.ini``
+(via :func:`nv_config_manager.common.config.loader.load_config`).
 
 INI sections::
 
@@ -55,10 +56,14 @@ INI sections::
 
 Authentication methods (checked in order):
 
-1. **mTLS** -- ``ssl-client-cert`` header
+1. **mTLS** -- ``ssl-client-cert`` header from a TLS-terminating proxy
 2. **SPIFFE JWT-SVID** -- validated via PyJWT + JWKS
 3. **OIDC / JWT** -- validated against JWKS (multi-issuer)
 4. **Proxy headers** -- ``X-Auth-Request-*`` from the gateway
+
+Methods 1 and 4 trust a header the caller could set themselves, so they are
+only consulted when ``[auth] accept_request_headers`` is ``true`` and the
+``NV_CONFIG_MANAGER_REJECT_IDENTITY_HEADERS`` env var does not forbid it.
 
 Usage (FastAPI dependency -- require auth)::
 
@@ -103,7 +108,7 @@ from fastapi.responses import JSONResponse
 from jwt.types import Options as JWTDecodeOptions
 from pydantic import BaseModel
 
-from nv_config_manager.common.config import load_config
+from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
 
 logger = get_logger(__name__, category=LogCategory.AUTH)
@@ -299,6 +304,26 @@ def _load_spiffe_from_ini(config: ConfigParser) -> SpiffeConfig | None:
     )
 
 
+REJECT_IDENTITY_HEADERS_ENV = "NV_CONFIG_MANAGER_REJECT_IDENTITY_HEADERS"
+
+
+def _rejects_identity_headers() -> bool:
+    """Return whether this process must never trust caller-supplied identity headers.
+
+    Listeners reachable without the gateway in front (for example a device-facing
+    LoadBalancer) set this, because nothing strips spoofed headers on that path.
+    It can only disable header trust; the shared INI setting cannot re-enable it.
+    """
+    raw = os.getenv(REJECT_IDENTITY_HEADERS_ENV, "").strip().lower()
+    if not raw:
+        return False
+    if raw not in ConfigParser.BOOLEAN_STATES:
+        raise ValueError(
+            f"{REJECT_IDENTITY_HEADERS_ENV} must be a boolean value (received {raw!r})"
+        )
+    return ConfigParser.BOOLEAN_STATES[raw]
+
+
 def load_auth_config(config: ConfigParser | None = None) -> AuthConfig:
     """Load auth configuration from ``nv-config-manager.ini``.
 
@@ -336,13 +361,13 @@ def load_auth_config(config: ConfigParser | None = None) -> AuthConfig:
         if service_section:
             raw_groups = config.get(service_section, "allowed_groups", fallback="")
         allowed_groups = tuple(g.strip() for g in raw_groups.split(",") if g.strip())
+        rejects_identity_headers = _rejects_identity_headers()
 
         _auth_config = AuthConfig(
             required=config.getboolean(auth_section, "required", fallback=True),
-            accept_request_headers=config.getboolean(
-                auth_section,
-                "accept_request_headers",
-                fallback=False,
+            accept_request_headers=(
+                config.getboolean(auth_section, "accept_request_headers", fallback=False)
+                and not rejects_identity_headers
             ),
             cookie_name=config.get(
                 auth_section, "cookie_name", fallback="NVConfigManagerAccessToken"
@@ -740,11 +765,18 @@ def extract_identity(
     """Try all authentication methods in priority order.
 
     Order: mTLS → SPIFFE JWT-SVID → OIDC JWT → gateway headers.
+    The mTLS and gateway header methods are skipped unless
+    ``include_request_headers`` is true, because the ``ssl-client-cert``
+    certificate is never verified here and is only as trustworthy as the
+    proxy that sets it.
     Returns the first successful identity, or ``None``.
     """
-    identity = (
-        identity_from_mtls(request) or identity_from_spiffe(request) or identity_from_jwt(request)
-    )
+    if include_request_headers:
+        identity = identity_from_mtls(request)
+        if identity is not None:
+            return identity
+
+    identity = identity_from_spiffe(request) or identity_from_jwt(request)
     if identity is not None:
         return identity
 
@@ -852,7 +884,7 @@ def _install_openapi_auth_schema(
 
         return schema
 
-    app.openapi: Callable[[], dict[str, Any]] = openapi_with_auth  # type: ignore[misc,method-assign]
+    app.openapi = openapi_with_auth  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
 # ── FastAPI dependencies ──────────────────────────────────────────────────
@@ -877,9 +909,9 @@ def _enforce_allowed_groups(identity: SSOIdentity) -> SSOIdentity:
 async def require_authenticated_identity(request: Request) -> SSOIdentity:
     """Require a trusted identity from mTLS, SPIFFE JWT-SVID, JWT/OIDC, or headers.
 
-    Validated mTLS, SPIFFE JWT-SVID, and configured JWT/OIDC providers are
-    always accepted. Gateway-injected ``X-Auth-Request-*`` headers are only
-    accepted when ``[auth] accept_request_headers`` is ``true``.
+    Validated SPIFFE JWT-SVIDs and configured JWT/OIDC providers are always
+    accepted. Proxy-injected ``ssl-client-cert`` and ``X-Auth-Request-*``
+    headers are only accepted when ``[auth] accept_request_headers`` is ``true``.
 
     When ``[auth] required`` is ``false``, returns
     :data:`ANONYMOUS_IDENTITY` instead of raising.
@@ -947,9 +979,10 @@ async def get_sso_identity(request: Request) -> SSOIdentity | None:
 async def require_sso_or_device(request: Request) -> SSOIdentity | None:
     """FastAPI dependency for endpoints accessible by both SSO users and devices.
 
-    Validated mTLS, SPIFFE JWT-SVID, and configured JWT/OIDC providers are
-    always accepted.  Gateway-injected ``X-Auth-Request-*`` headers are only
-    accepted when ``[auth] accept_request_headers`` is ``true``.  Returns
+    Validated SPIFFE JWT-SVIDs and configured JWT/OIDC providers are always
+    accepted.  Proxy-injected ``ssl-client-cert`` and ``X-Auth-Request-*``
+    headers are only accepted when ``[auth] accept_request_headers`` is
+    ``true``.  Returns
     ``None`` when no trusted service/user identity is present so the caller
     can fall back to device-level authorization (e.g. IP allow-list).
 
@@ -969,7 +1002,7 @@ async def require_sso_or_device(request: Request) -> SSOIdentity | None:
 #
 # Installs a ``GET /whoami`` endpoint plus the ``normalize_auth_data``
 # middleware on a FastAPI app.  Shared across nv-config-manager FastAPI services so the
-# identity contract (request.state.user/roles/auth_source, /whoami response
+# identity contract (request.state.identity/user/roles/auth_source, /whoami response
 # shape) is guaranteed identical — regressions in one service can't diverge
 # from the others.  Used both by operational diagnostics ("who does X see me
 # as?") and by the SPIFFE client-injection integration tests.
@@ -1000,11 +1033,12 @@ def install_identity_probe(
       unless the path is in ``unauthenticated_paths``.  This keeps healthchecks
       as the explicit unauthenticated exception instead of requiring every route
       author to remember an auth dependency.
-    - Every request has ``request.state.user`` (str), ``request.state.roles``
-      (set[str]), and ``request.state.auth_source`` (str) populated from
-      :func:`extract_identity`, falling back to ``user="anonymous"`` and
-      ``auth_source="anonymous"`` when auth is disabled, or ``user="unknown"``
-      and ``auth_source="unknown"`` when auth is enabled but no identity can be derived.
+    - Every request has ``request.state.identity`` (``SSOIdentity | None``),
+      ``request.state.user`` (str), ``request.state.roles`` (set[str]), and
+      ``request.state.auth_source`` (str) populated from :func:`extract_identity`,
+      falling back to the anonymous identity when auth is disabled, or
+      ``identity=None``, ``user="unknown"``, and ``auth_source="unknown"`` when
+      auth is enabled but no identity can be derived.
     - ``GET /whoami`` returns the current caller's identity. By default this
       endpoint requires a trusted identity, matching the rest of the API
       surface; set ``require_auth=False`` only for local diagnostics.
@@ -1067,14 +1101,17 @@ def install_identity_probe(
         """
         identity = extract_identity(request, include_request_headers=accept_request_headers())
         if identity is not None:
+            request.state.identity = identity
             request.state.user = identity.user
             request.state.roles = identity.groups
             request.state.auth_source = identity.source
         elif not auth_required():
+            request.state.identity = ANONYMOUS_IDENTITY
             request.state.user = ANONYMOUS_IDENTITY.user
             request.state.roles = ANONYMOUS_IDENTITY.groups
             request.state.auth_source = ANONYMOUS_IDENTITY.source
         else:
+            request.state.identity = None
             request.state.user = "unknown"
             request.state.roles = {"all"}
             request.state.auth_source = "unknown"

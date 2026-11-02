@@ -12,10 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Compatibility alias for the former InfiniBand DCIM activity module name."""
+"""Compatibility alias for InfiniBand PKey activities."""
 
 import sys
 
-from nv_config_manager.temporal.ngc.activities import ib_dcim
+from nv_config_manager_workflows.activities import ib_pkey
 
-sys.modules[__name__] = ib_dcim
+sys.modules[__name__] = ib_pkey

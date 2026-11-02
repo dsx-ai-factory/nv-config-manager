@@ -26,6 +26,7 @@ from nautobot_app_overlays.choices import (
     OverlayAssignmentRoleChoices,
     PKeyMembershipTypeChoices,
 )
+from nautobot_app_overlays.models import OverlayAssignment
 from nautobot_app_overlays.tests.fixtures import (
     create_device_test_data,
     create_overlay_test_data,
@@ -233,6 +234,7 @@ class OverlayAssignmentFormTestCase(TestCase):
     def setUpTestData(cls):
         create_overlay_test_data(cls)
         create_device_test_data(cls)
+        cls.interface = _create_interface(cls.devices[0])
 
     def test_form_valid_data_with_device(self):
         """Valid assignment form with a device submits successfully."""
@@ -265,6 +267,110 @@ class OverlayAssignmentFormTestCase(TestCase):
         choices = [c[0] for c in forms.OverlayAssignmentForm().fields["object_type"].choices]
         for expected in ("device", "interface", "rack"):
             self.assertIn(expected, choices)
+
+    def test_ib_pkey_overlay_rejects_non_interface_object_type(self):
+        """IB PKey overlays only accept interface assignments."""
+        form = forms.OverlayAssignmentForm(
+            data={
+                "overlay": self.overlays[2].pk,  # isolation_type=IB_PKEY
+                "object_type": "device",
+                "device": self.devices[0].pk,
+                "guid": "0002c903000e0b72",
+                "status": self.assignment_status.pk,
+            }
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn(
+            "IB PKey overlays can only have Interface assignments. Please select an interface.",
+            form.non_field_errors(),
+        )
+
+    def test_ib_pkey_overlay_requires_guid(self):
+        """IB PKey overlay assignments require a GUID."""
+        form = forms.OverlayAssignmentForm(
+            data={
+                "overlay": self.overlays[2].pk,  # isolation_type=IB_PKEY
+                "object_type": "interface",
+                "interface": self.interface.pk,
+                "status": self.assignment_status.pk,
+            }
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("GUID is required for IB PKey overlay assignments.", form.errors["guid"])
+
+    def test_vxlan_overlay_rejects_guid_and_membership_type(self):
+        """Non-IB-PKey overlays flag both GUID and membership type when set."""
+        isolation_type = self.overlays[0].isolation_type  # VXLAN_EVPN
+        form = forms.OverlayAssignmentForm(
+            data={
+                "overlay": self.overlays[0].pk,
+                "object_type": "device",
+                "device": self.devices[0].pk,
+                "guid": "0002c903000e0b72",
+                "membership_type": PKeyMembershipTypeChoices.FULL,
+                "status": self.assignment_status.pk,
+            }
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn(f"GUID should not be set for {isolation_type} overlay assignments.", form.errors["guid"])
+        self.assertIn(
+            f"Membership type should not be set for {isolation_type} overlay assignments.",
+            form.errors["membership_type"],
+        )
+
+    def test_missing_object_for_selected_type_is_invalid(self):
+        """Selecting an object type without picking the object raises a type-specific error."""
+        form = forms.OverlayAssignmentForm(
+            data={
+                "overlay": self.overlays[0].pk,
+                "object_type": "interface",
+                "status": self.assignment_status.pk,
+            }
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("Please select an interface.", form.non_field_errors())
+
+    def test_edit_form_prepopulates_interface_and_parent_device(self):
+        """Editing an interface assignment pre-selects the object type, interface, and its device."""
+        assignment = OverlayAssignment.objects.create(
+            overlay=self.overlays[0],
+            assigned_object_type=ContentType.objects.get_for_model(Interface),
+            assigned_object_id=self.interface.pk,
+            status=self.assignment_status,
+        )
+        form = forms.OverlayAssignmentForm(instance=assignment)
+        self.assertEqual(form.initial["object_type"], "interface")
+        self.assertEqual(form.initial["interface"], self.interface)
+        self.assertEqual(form.initial["device"], self.devices[0])
+
+    def test_edit_form_prepopulates_device(self):
+        """Editing a device assignment pre-selects the object type and device."""
+        assignment = OverlayAssignment.objects.create(
+            overlay=self.overlays[0],
+            assigned_object_type=ContentType.objects.get_for_model(Device),
+            assigned_object_id=self.devices[1].pk,
+            status=self.assignment_status,
+        )
+        form = forms.OverlayAssignmentForm(instance=assignment)
+        self.assertEqual(form.initial["object_type"], "device")
+        self.assertEqual(form.initial["device"], self.devices[1])
+        self.assertNotIn("interface", form.initial)
+
+    def test_form_save_sets_generic_fk_for_device(self):
+        """Saving with a device sets assigned_object_type and assigned_object_id correctly."""
+        form = forms.OverlayAssignmentForm(
+            data={
+                "overlay": self.overlays[0].pk,
+                "object_type": "device",
+                "device": self.devices[2].pk,
+                "status": self.assignment_status.pk,
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        instance = form.save()
+        self.assertEqual(instance.assigned_object_type, ContentType.objects.get_for_model(Device))
+        self.assertEqual(instance.assigned_object_id, self.devices[2].pk)
+        instance.delete()
 
 
 class IBPKeyOverlayAssignmentFormTestCase(TestCase):

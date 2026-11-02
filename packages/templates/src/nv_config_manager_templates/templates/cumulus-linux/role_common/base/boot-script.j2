@@ -38,6 +38,32 @@ function retry_curl() {
   return $exit_code
 }
 
+function retry_command() {
+  local max_attempts=5
+  local attempt=1
+  local exit_code=0
+  local retry_delay=5
+
+  while [ $attempt -le $max_attempts ]; do
+    echo "Attempt $attempt of $max_attempts: $*" >&2
+    if "$@"; then
+      return 0
+    else
+      exit_code=$?
+    fi
+
+    if [ $attempt -lt $max_attempts ]; then
+      echo "Command failed with exit code $exit_code; retrying in $retry_delay seconds..." >&2
+      sleep $retry_delay
+      retry_delay=$((retry_delay * 2))
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  echo "Command failed after $max_attempts attempts" >&2
+  return $exit_code
+}
+
 # Log all output from this script
 exec >> /var/log/autoprovision 2>&1
 date "+%FT%T ztp starting script $0"
@@ -111,7 +137,20 @@ http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/valid
 {% block ar_profile_custom %}{% endblock %}
 
 #Load configuration from ZTP server
-retry_curl --fail http://{{ (device_data|ztp_servers)[0] }}/v1/device/{{ device_data|uuid }}/config/startup.yaml -o /tmp/startup.yaml
+rm -f /tmp/startup.yaml
+{% if device_data|supports_nvue_file_fetch %}
+retry_command nv action fetch system file-path /tmp/startup.yaml \
+  uri sftp://ztp:ztp@{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/startup.yaml \
+  file-permissions 600 \
+  vrf {{ device_data|ztp_vrf }}
+{% else %}
+touch /tmp/startup.yaml
+chmod 600 /tmp/startup.yaml
+retry_command {% if (device_data|ztp_vrf) == "mgmt" %}ip vrf exec mgmt {% endif %}curl --fail --silent --show-error --insecure \
+  --user ztp:ztp \
+  --output /tmp/startup.yaml \
+  sftp://{{ (device_data|ztp_servers)[0] }}:2222/device/{{ device_data|uuid }}/startup.yaml
+{% endif %}
 nv config replace /tmp/startup.yaml
 nv config apply -y
 #Reload DHCP to workaround Cumulus 5.11.0 bug 4423269

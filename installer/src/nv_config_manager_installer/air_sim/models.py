@@ -42,6 +42,7 @@ class DeviceInfo:
     serial: str = ""
     nvcm_enabled: bool = False
     air_config: dict[str, Any] = field(default_factory=dict)
+    air_enabled: bool = True
 
 
 @dataclass

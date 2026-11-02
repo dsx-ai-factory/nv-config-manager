@@ -1,0 +1,1286 @@
+{
+  "run_backup": {
+    "input_schema": {
+      "$defs": {
+        "TriggerEnum": {
+          "description": "Enum of potential backup triggers.",
+          "enum": [
+            "SCHEDULED",
+            "SYSLOG",
+            "WORKFLOW",
+            "API"
+          ],
+          "title": "TriggerEnum",
+          "type": "string"
+        }
+      },
+      "description": "Backup Workflow Input Definiton.",
+      "properties": {
+        "device_id": {
+          "description": "Identifier of the network device to back up.",
+          "title": "Device Id",
+          "type": "string"
+        },
+        "intended_config_commit_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Config Store commit containing the intended configuration.",
+          "title": "Intended Config Commit Id"
+        },
+        "suppress_drift_notification": {
+          "default": false,
+          "description": "Suppress the Slack notification when configuration drift is detected.",
+          "title": "Suppress Drift Notification",
+          "type": "boolean"
+        },
+        "terminate_on_failure": {
+          "default": false,
+          "description": "Terminate the workflow instead of waiting to retry a failed stage.",
+          "title": "Terminate On Failure",
+          "type": "boolean"
+        },
+        "trigger": {
+          "$ref": "#/$defs/TriggerEnum",
+          "default": "API",
+          "description": "Reason the backup workflow was started."
+        },
+        "user": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "User that requested the backup.",
+          "title": "User"
+        },
+        "user_domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Domain of the user requesting the backup.",
+          "title": "User Domain"
+        },
+        "workflow_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Identifier of the parent workflow, if any.",
+          "title": "Workflow Id"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "BackupInput",
+      "type": "object"
+    },
+    "tool_input_schema": {
+      "$defs": {
+        "TriggerEnum": {
+          "description": "Enum of potential backup triggers.",
+          "enum": [
+            "SCHEDULED",
+            "SYSLOG",
+            "WORKFLOW",
+            "API"
+          ],
+          "title": "TriggerEnum",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "device_id": {
+          "description": "Identifier of the network device to back up.",
+          "title": "Device Id",
+          "type": "string"
+        },
+        "intended_config_commit_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Config Store commit containing the intended configuration.",
+          "title": "Intended Config Commit Id"
+        },
+        "suppress_drift_notification": {
+          "default": false,
+          "description": "Suppress the Slack notification when configuration drift is detected.",
+          "title": "Suppress Drift Notification",
+          "type": "boolean"
+        },
+        "terminate_on_failure": {
+          "default": false,
+          "description": "Terminate the workflow instead of waiting to retry a failed stage.",
+          "title": "Terminate On Failure",
+          "type": "boolean"
+        },
+        "trigger": {
+          "$ref": "#/$defs/TriggerEnum",
+          "default": "API",
+          "description": "Reason the backup workflow was started."
+        },
+        "user": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "User that requested the backup.",
+          "title": "User"
+        },
+        "user_domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Domain of the user requesting the backup.",
+          "title": "User Domain"
+        },
+        "workflow_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Identifier of the parent workflow, if any.",
+          "title": "Workflow Id"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "run_backupArguments",
+      "type": "object"
+    },
+    "workflow": "BackupWorkflow"
+  },
+  "run_connected_host_metadata": {
+    "input_schema": {
+      "description": "Connected Host Workflow Input.",
+      "properties": {
+        "device_id": {
+          "description": "Identifier of the network device to analyze.",
+          "title": "Device Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "ConnectedHostWorkflowInput",
+      "type": "object"
+    },
+    "tool_input_schema": {
+      "properties": {
+        "device_id": {
+          "description": "Identifier of the network device to analyze.",
+          "title": "Device Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "run_connected_host_metadataArguments",
+      "type": "object"
+    },
+    "workflow": "ConnectedHostMetadataWorkflow"
+  },
+  "run_cumulus_hardware_validation": {
+    "input_schema": {
+      "$defs": {
+        "DCIMLocationType": {
+          "type": "string"
+        }
+      },
+      "description": "Validate Hardware Workflow Input.",
+      "properties": {
+        "device_type_ids": {
+          "default": [],
+          "description": "Device type identifiers used to filter network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Device Type Ids",
+          "type": "array"
+        },
+        "raise_for_invalid": {
+          "default": false,
+          "description": "Whether invalid hardware should fail the workflow.",
+          "title": "Raise For Invalid",
+          "type": "boolean"
+        },
+        "roles": {
+          "default": [],
+          "description": "Device roles used to filter the selected network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "site": {
+          "description": "Site used to select network devices for validation.",
+          "title": "Site",
+          "type": "string"
+        },
+        "site_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DCIMLocationType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "DCIM location type for the site identifier."
+        },
+        "status": {
+          "default": [
+            "Active",
+            "Provisioned"
+          ],
+          "description": "Device statuses used to filter the selected network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Status",
+          "type": "array"
+        },
+        "tenant": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tenant used to filter the selected network devices.",
+          "title": "Tenant"
+        }
+      },
+      "required": [
+        "site"
+      ],
+      "title": "ValidateHardwareInput",
+      "type": "object"
+    },
+    "tool_input_schema": {
+      "$defs": {
+        "DCIMLocationType": {
+          "type": "string"
+        }
+      },
+      "properties": {
+        "device_type_ids": {
+          "default": [],
+          "description": "Device type identifiers used to filter network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Device Type Ids",
+          "type": "array"
+        },
+        "raise_for_invalid": {
+          "default": false,
+          "description": "Whether invalid hardware should fail the workflow.",
+          "title": "Raise For Invalid",
+          "type": "boolean"
+        },
+        "roles": {
+          "default": [],
+          "description": "Device roles used to filter the selected network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "site": {
+          "description": "Site used to select network devices for validation.",
+          "title": "Site",
+          "type": "string"
+        },
+        "site_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DCIMLocationType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "DCIM location type for the site identifier."
+        },
+        "status": {
+          "default": [
+            "Active",
+            "Provisioned"
+          ],
+          "description": "Device statuses used to filter the selected network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Status",
+          "type": "array"
+        },
+        "tenant": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tenant used to filter the selected network devices.",
+          "title": "Tenant"
+        }
+      },
+      "required": [
+        "site"
+      ],
+      "title": "run_cumulus_hardware_validationArguments",
+      "type": "object"
+    },
+    "workflow": "ValidateHardwareWorkflow"
+  },
+  "run_device_cable_validation": {
+    "input_schema": {
+      "$defs": {
+        "NetworkDeviceData": {
+          "description": "Normalized network-device inventory and configuration intent.",
+          "properties": {
+            "backup_enabled": {
+              "default": false,
+              "title": "Backup Enabled",
+              "type": "boolean"
+            },
+            "deploy_enabled": {
+              "default": false,
+              "title": "Deploy Enabled",
+              "type": "boolean"
+            },
+            "device_type": {
+              "title": "Device Type",
+              "type": "string"
+            },
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "intent": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Intent"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "platform": {
+              "$ref": "#/$defs/Platform"
+            },
+            "position": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Position"
+            },
+            "primary_ip4": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Primary Ip4"
+            },
+            "primary_ip6": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Primary Ip6"
+            },
+            "rack": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Rack"
+            },
+            "render_enabled": {
+              "default": false,
+              "title": "Render Enabled",
+              "type": "boolean"
+            },
+            "role": {
+              "title": "Role",
+              "type": "string"
+            },
+            "site": {
+              "title": "Site",
+              "type": "string"
+            },
+            "ztp_enabled": {
+              "default": false,
+              "title": "Ztp Enabled",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "role",
+            "site",
+            "device_type",
+            "platform",
+            "primary_ip4",
+            "primary_ip6"
+          ],
+          "title": "NetworkDeviceData",
+          "type": "object"
+        },
+        "Platform": {
+          "description": "Network device platform types understood by the workflow services.",
+          "enum": [
+            "arista-eos",
+            "cumulus-linux",
+            "nv-os",
+            "mlnx-os",
+            "juniper-junos",
+            "ufm"
+          ],
+          "title": "Platform",
+          "type": "string"
+        }
+      },
+      "description": "Input for Device Cable Validation Workflow.",
+      "properties": {
+        "defer_cable_status_updates": {
+          "default": false,
+          "description": "Return pending DCIM updates to a parent site workflow. Direct API calls must leave this false.",
+          "title": "Defer Cable Status Updates",
+          "type": "boolean"
+        },
+        "device": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NetworkDeviceData",
+              "description": "Preloaded data for the target network device, if available."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Preloaded data for the target network device, if available."
+        },
+        "device_id": {
+          "description": "Identifier of the network device to validate.",
+          "title": "Device Id",
+          "type": "string"
+        },
+        "ignore_no_neighbor": {
+          "default": false,
+          "description": "Whether interfaces without discovered neighbors should be ignored.",
+          "title": "Ignore No Neighbor",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "DeviceCableValidationInput",
+      "type": "object"
+    },
+    "tool_input_schema": {
+      "$defs": {
+        "NetworkDeviceData": {
+          "description": "Normalized network-device inventory and configuration intent.",
+          "properties": {
+            "backup_enabled": {
+              "default": false,
+              "title": "Backup Enabled",
+              "type": "boolean"
+            },
+            "deploy_enabled": {
+              "default": false,
+              "title": "Deploy Enabled",
+              "type": "boolean"
+            },
+            "device_type": {
+              "title": "Device Type",
+              "type": "string"
+            },
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "intent": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Intent"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "platform": {
+              "$ref": "#/$defs/Platform"
+            },
+            "position": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Position"
+            },
+            "primary_ip4": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Primary Ip4"
+            },
+            "primary_ip6": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Primary Ip6"
+            },
+            "rack": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Rack"
+            },
+            "render_enabled": {
+              "default": false,
+              "title": "Render Enabled",
+              "type": "boolean"
+            },
+            "role": {
+              "title": "Role",
+              "type": "string"
+            },
+            "site": {
+              "title": "Site",
+              "type": "string"
+            },
+            "ztp_enabled": {
+              "default": false,
+              "title": "Ztp Enabled",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "role",
+            "site",
+            "device_type",
+            "platform",
+            "primary_ip4",
+            "primary_ip6"
+          ],
+          "title": "NetworkDeviceData",
+          "type": "object"
+        },
+        "Platform": {
+          "description": "Network device platform types understood by the workflow services.",
+          "enum": [
+            "arista-eos",
+            "cumulus-linux",
+            "nv-os",
+            "mlnx-os",
+            "juniper-junos",
+            "ufm"
+          ],
+          "title": "Platform",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "defer_cable_status_updates": {
+          "default": false,
+          "description": "Return pending DCIM updates to a parent site workflow. Direct API calls must leave this false.",
+          "title": "Defer Cable Status Updates",
+          "type": "boolean"
+        },
+        "device": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NetworkDeviceData",
+              "description": "Preloaded data for the target network device, if available."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Preloaded data for the target network device, if available."
+        },
+        "device_id": {
+          "description": "Identifier of the network device to validate.",
+          "title": "Device Id",
+          "type": "string"
+        },
+        "ignore_no_neighbor": {
+          "default": false,
+          "description": "Whether interfaces without discovered neighbors should be ignored.",
+          "title": "Ignore No Neighbor",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "run_device_cable_validationArguments",
+      "type": "object"
+    },
+    "workflow": "DeviceCableValidationWorkflow"
+  },
+  "run_infiniband_cable_validation": {
+    "input_schema": {
+      "description": "IB Cable Validation Workflow Input Definition.",
+      "properties": {
+        "switch_device_ids": {
+          "description": "Identifiers of the InfiniBand switches to validate.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Switch Device Ids",
+          "type": "array"
+        },
+        "ufm_device_id": {
+          "description": "Identifier of the UFM device used to inspect the InfiniBand fabric.",
+          "title": "Ufm Device Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ufm_device_id",
+        "switch_device_ids"
+      ],
+      "title": "InfinibandCableValidationInput",
+      "type": "object"
+    },
+    "tool_input_schema": {
+      "properties": {
+        "switch_device_ids": {
+          "description": "Identifiers of the InfiniBand switches to validate.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Switch Device Ids",
+          "type": "array"
+        },
+        "ufm_device_id": {
+          "description": "Identifier of the UFM device used to inspect the InfiniBand fabric.",
+          "title": "Ufm Device Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ufm_device_id",
+        "switch_device_ids"
+      ],
+      "title": "run_infiniband_cable_validationArguments",
+      "type": "object"
+    },
+    "workflow": "InfinibandCableValidationWorkflow"
+  },
+  "run_infiniband_get_unhealthy_ports": {
+    "input_schema": {
+      "description": "Unhealthy Ports Validation Workflow Input Definition.",
+      "properties": {
+        "device_id": {
+          "description": "Identifier of the UFM device to inspect.",
+          "title": "Device Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "InfinibandGetUnhealthyPortsInput",
+      "type": "object"
+    },
+    "tool_input_schema": {
+      "properties": {
+        "device_id": {
+          "description": "Identifier of the UFM device to inspect.",
+          "title": "Device Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "run_infiniband_get_unhealthy_portsArguments",
+      "type": "object"
+    },
+    "workflow": "InfinibandGetUnhealthyPortsWorkflow"
+  },
+  "run_port_lldp_info": {
+    "input_schema": {
+      "description": "Input for Port LLDP Info Workflow.",
+      "properties": {
+        "device_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Identifier of the network device to inspect.",
+          "title": "Device Id"
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of the local interface.",
+          "title": "Interface"
+        },
+        "remote_mac_address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "MAC address of the remote device to locate.",
+          "title": "Remote Mac Address"
+        }
+      },
+      "title": "PortLLDPInfoInput",
+      "type": "object"
+    },
+    "tool_input_schema": {
+      "properties": {
+        "device_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Identifier of the network device to inspect.",
+          "title": "Device Id"
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of the local interface.",
+          "title": "Interface"
+        },
+        "remote_mac_address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "MAC address of the remote device to locate.",
+          "title": "Remote Mac Address"
+        }
+      },
+      "title": "run_port_lldp_infoArguments",
+      "type": "object"
+    },
+    "workflow": "PortLLDPInfoWorkflow"
+  },
+  "run_site_backup": {
+    "input_schema": {
+      "$defs": {
+        "DCIMLocationType": {
+          "type": "string"
+        }
+      },
+      "description": "Site Configuration Backup Workflow Input Definition.",
+      "properties": {
+        "backup_enabled_only": {
+          "default": true,
+          "description": "When true, only devices with backup enabled are included.",
+          "title": "Backup Enabled Only",
+          "type": "boolean"
+        },
+        "roles": {
+          "default": [],
+          "description": "Device roles used to filter the selected network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "site": {
+          "description": "Site containing the network devices to back up.",
+          "minLength": 1,
+          "title": "Site",
+          "type": "string"
+        },
+        "site_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DCIMLocationType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "DCIM location type for the site identifier."
+        },
+        "status": {
+          "default": [
+            "Active",
+            "Provisioned"
+          ],
+          "description": "Device statuses used to filter the selected network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Status",
+          "type": "array"
+        },
+        "tenant": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tenant used to filter the selected network devices.",
+          "title": "Tenant"
+        },
+        "user": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "User that requested the site backup.",
+          "title": "User"
+        },
+        "user_domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Domain of the user requesting the site backup.",
+          "title": "User Domain"
+        }
+      },
+      "required": [
+        "site"
+      ],
+      "title": "SiteBackupInput",
+      "type": "object"
+    },
+    "tool_input_schema": {
+      "$defs": {
+        "DCIMLocationType": {
+          "type": "string"
+        }
+      },
+      "properties": {
+        "backup_enabled_only": {
+          "default": true,
+          "description": "When true, only devices with backup enabled are included.",
+          "title": "Backup Enabled Only",
+          "type": "boolean"
+        },
+        "roles": {
+          "default": [],
+          "description": "Device roles used to filter the selected network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "site": {
+          "description": "Site containing the network devices to back up.",
+          "minLength": 1,
+          "title": "Site",
+          "type": "string"
+        },
+        "site_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DCIMLocationType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "DCIM location type for the site identifier."
+        },
+        "status": {
+          "default": [
+            "Active",
+            "Provisioned"
+          ],
+          "description": "Device statuses used to filter the selected network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Status",
+          "type": "array"
+        },
+        "tenant": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tenant used to filter the selected network devices.",
+          "title": "Tenant"
+        },
+        "user": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "User that requested the site backup.",
+          "title": "User"
+        },
+        "user_domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Domain of the user requesting the site backup.",
+          "title": "User Domain"
+        }
+      },
+      "required": [
+        "site"
+      ],
+      "title": "run_site_backupArguments",
+      "type": "object"
+    },
+    "workflow": "SiteBackupWorkflow"
+  },
+  "run_site_cable_validation": {
+    "input_schema": {
+      "$defs": {
+        "DCIMLocationType": {
+          "type": "string"
+        }
+      },
+      "description": "Input for Site Cable Validation Workflow.",
+      "properties": {
+        "device_type_ids": {
+          "default": [],
+          "description": "Device type identifiers used to filter network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Device Type Ids",
+          "type": "array"
+        },
+        "raise_for_invalid": {
+          "default": false,
+          "description": "Whether invalid cabling should fail the workflow.",
+          "title": "Raise For Invalid",
+          "type": "boolean"
+        },
+        "roles": {
+          "default": [],
+          "description": "Device roles used to filter the selected network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "site": {
+          "description": "Site containing the network devices to validate.",
+          "title": "Site",
+          "type": "string"
+        },
+        "site_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DCIMLocationType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "DCIM location type for the site identifier."
+        },
+        "status": {
+          "default": [
+            "Active",
+            "Provisioned"
+          ],
+          "description": "Device statuses used to filter the selected network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Status",
+          "type": "array"
+        },
+        "tenant": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tenant used to filter the selected network devices.",
+          "title": "Tenant"
+        }
+      },
+      "required": [
+        "site"
+      ],
+      "title": "SiteCableValidationInput",
+      "type": "object"
+    },
+    "tool_input_schema": {
+      "$defs": {
+        "DCIMLocationType": {
+          "type": "string"
+        }
+      },
+      "properties": {
+        "device_type_ids": {
+          "default": [],
+          "description": "Device type identifiers used to filter network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Device Type Ids",
+          "type": "array"
+        },
+        "raise_for_invalid": {
+          "default": false,
+          "description": "Whether invalid cabling should fail the workflow.",
+          "title": "Raise For Invalid",
+          "type": "boolean"
+        },
+        "roles": {
+          "default": [],
+          "description": "Device roles used to filter the selected network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "site": {
+          "description": "Site containing the network devices to validate.",
+          "title": "Site",
+          "type": "string"
+        },
+        "site_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DCIMLocationType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "DCIM location type for the site identifier."
+        },
+        "status": {
+          "default": [
+            "Active",
+            "Provisioned"
+          ],
+          "description": "Device statuses used to filter the selected network devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Status",
+          "type": "array"
+        },
+        "tenant": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tenant used to filter the selected network devices.",
+          "title": "Tenant"
+        }
+      },
+      "required": [
+        "site"
+      ],
+      "title": "run_site_cable_validationArguments",
+      "type": "object"
+    },
+    "workflow": "SiteCableValidationWorkflow"
+  }
+}

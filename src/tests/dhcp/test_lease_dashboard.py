@@ -105,7 +105,7 @@ def dashboard_payloads() -> tuple[list[dict], list[dict], list[dict]]:
         {
             "result": 0,
             "arguments": {
-                "assigned-addresses": [[3, "2026-07-10 00:00:00"]],
+                "result-set": {"columns": ["subnet-id", "assigned-addresses"], "rows": [[7, 3]]},
             },
         }
     ]
@@ -134,13 +134,10 @@ def test_build_dhcp_summary() -> None:
     ]
 
 
-def test_build_dhcp_summary_counts_leases_from_unconfigured_subnets() -> None:
+def test_build_dhcp_summary_sums_all_returned_subnets() -> None:
     """Keep active lease totals independent from configured pool inventory."""
     config, _, statistics = dashboard_payloads()
-    stats = statistics[0]["arguments"]
-    stats.pop("assigned-addresses")
-    stats["subnet[7].assigned-addresses"] = [[3, "2026-07-10 00:00:00"]]
-    stats["subnet[99].assigned-addresses"] = [[997, "2026-07-10 00:00:00"]]
+    statistics[0]["arguments"]["result-set"]["rows"] = [[7, 3], [99, 997]]
 
     summary = build_dhcp_summary(config, statistics)
 
@@ -248,7 +245,7 @@ def test_build_ipv6_dhcp_summary() -> None:
         {
             "result": 0,
             "arguments": {
-                "assigned-nas": [[1, "2026-07-10 00:00:00"]],
+                "result-set": {"columns": ["subnet-id", "assigned-nas"], "rows": [[9, 1]]},
             },
         }
     ]
@@ -276,3 +273,41 @@ def test_build_dhcp_summary_rejects_kea_error() -> None:
             [{"result": 1, "text": "configuration unavailable"}],
             statistics,
         )
+
+
+@pytest.mark.parametrize("version", [IpVersion.V4, IpVersion.V6])
+@pytest.mark.parametrize("empty_result", [False, True])
+def test_summary_database_count_empty(version, empty_result) -> None:
+    """Empty shared lease statistics produce zero for either address family."""
+    column = "assigned-addresses" if version == IpVersion.V4 else "assigned-nas"
+    config = [{"result": 0, "arguments": {f"Dhcp{version}": {}}}]
+    statistics = (
+        [{"result": 3, "text": "No subnets found"}]
+        if empty_result
+        else [{"result": 0, "arguments": {"result-set": {"columns": [column], "rows": []}}}]
+    )
+    assert build_dhcp_summary(config, statistics, ip_version=version).active_lease_count == 0
+
+
+@pytest.mark.parametrize(
+    "result_set",
+    [
+        None,
+        {"columns": [], "rows": []},
+        {"columns": ["assigned-addresses"], "rows": [[-1]]},
+        {"columns": ["assigned-addresses"], "rows": [[True]]},
+        {"columns": ["assigned-addresses"], "rows": [["1"]]},
+        {"columns": ["assigned-addresses"], "rows": [[]]},
+    ],
+)
+def test_summary_rejects_invalid_database_statistics(result_set) -> None:
+    """Malformed database counts must not silently become a false zero."""
+    config, _, _ = dashboard_payloads()
+    with pytest.raises(KeaException, match="KEA returned invalid stat-lease4-get"):
+        build_dhcp_summary(config, [{"result": 0, "arguments": {"result-set": result_set}}])
+
+
+def test_summary_rejects_database_statistics_failure() -> None:
+    config, _, _ = dashboard_payloads()
+    with pytest.raises(KeaException, match="stat-lease4-get failed: unavailable"):
+        build_dhcp_summary(config, [{"result": 1, "text": "unavailable"}])

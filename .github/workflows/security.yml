@@ -23,17 +23,36 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: &actions_checkout actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@14229018fe157c83e03c008f27d183d8e99bc67c
+      - name: Select secret scan range
+        id: secret-scan-range
+        env:
+          SCAN_REF: ${{ github.ref }}
+          SCAN_HEAD: ${{ github.sha }}
+        run: |
+          base=""
+          empty=false
+          if [[ "$SCAN_REF" == refs/heads/pull-request/* ]]; then
+            base=$(git merge-base origin/main "$SCAN_HEAD")
+            if [[ "$base" == "$SCAN_HEAD" ]]; then
+              empty=true
+              echo "Mirrored PR has no commits beyond main; no PR changes to scan."
+            fi
+          fi
+          # An explicit head with an empty base scans its full history, rather
+          # than letting the action limit main pushes to the event's commits.
+          printf 'base=%s\nhead=%s\nempty=%s\n' "$base" "$SCAN_HEAD" "$empty" >> "$GITHUB_OUTPUT"
       - name: Scan for secrets
-        uses: trufflesecurity/trufflehog@bcfcf73aaf4759d4dadc2783177c245a02792318 # v3.97.0
-        with:
-          version: 3.97.0
-          extra_args: --results=verified,unknown
+        if: steps.secret-scan-range.outputs.empty != 'true'
+        env:
+          SCAN_BASE: ${{ steps.secret-scan-range.outputs.base }}
+          SCAN_HEAD: ${{ steps.secret-scan-range.outputs.head }}
+        run: .github/scripts/run-trufflehog
 
   codeql:
     name: CodeQL (${{ matrix.language }})
@@ -57,20 +76,20 @@ jobs:
             build-mode: none
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: *actions_checkout
         with:
           persist-credentials: false
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@14229018fe157c83e03c008f27d183d8e99bc67c
       - name: Setup Go
         if: matrix.language == 'go'
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: components/temporal/go.mod
           cache: false
       - name: Setup Node
         if: matrix.language == 'javascript-typescript'
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
       - name: Initialize CodeQL

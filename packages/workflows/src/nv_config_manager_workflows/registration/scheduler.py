@@ -22,6 +22,9 @@ from typing import Protocol, runtime_checkable
 class WorkflowScheduler(Protocol):
     """A long-running scheduler the scheduler service can construct and run."""
 
+    scheduler_identity: str
+    """Stable, globally unique identity used for selection and diagnostics."""
+
     @abstractmethod
     async def run(self) -> None:
         """Run until the scheduler is cancelled or asked to stop."""

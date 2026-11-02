@@ -18,11 +18,13 @@ import os
 import time
 from configparser import ConfigParser
 from copy import deepcopy
+from pathlib import Path
 from unittest.mock import AsyncMock, call, patch
 
 import jwt as pyjwt
 import pytest
 from aiohttp import ClientConnectionError, ClientResponseError, RequestInfo
+from aioresponses import CallbackResult, aioresponses
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -35,7 +37,7 @@ from nv_config_manager.dhcp.api import (
     _install_cors,
     app,
 )
-from nv_config_manager.dhcp.kea import KeaClient
+from nv_config_manager.dhcp.kea import KeaClient, KeaException
 
 _HEADERS_TRUSTED = AuthConfig(accept_request_headers=True)
 _AUTH_DISABLED = AuthConfig(required=False)
@@ -155,7 +157,7 @@ LEASE_DASHBOARD_STATISTICS = [
     {
         "result": 0,
         "arguments": {
-            "assigned-addresses": [[1, "2026-07-10 00:00:00"]],
+            "result-set": {"columns": ["subnet-id", "assigned-addresses"], "rows": [[7, 1]]},
         },
     }
 ]
@@ -237,53 +239,61 @@ def test_cors_rejects_wildcard_origin() -> None:
         _install_cors(FastAPI())
 
 
-def test_healthcheck_success():
+def test_healthcheck_success() -> None:
     """Verify healthcheck success case."""
     client = TestClient(app)
 
-    with patch(
-        "nv_config_manager.dhcp.api.KeaClient.status", new_callable=AsyncMock
-    ) as mock_status:
-        mock_status.return_value = [
-            {"arguments": {"pid": 9, "reload": 63173, "uptime": 63173}, "result": 0}
-        ]
-        with patch(
-            "nv_config_manager.dhcp.api.KeaClient.get_config", new_callable=AsyncMock
-        ) as mock_get_config:
-            mock_get_config.return_value = MIN_READY_CONFIG
-            with patch(
-                "nv_config_manager.dhcp.api.RedisClient.load_kea_config", new_callable=AsyncMock
-            ) as mock_load_kea:
-                mock_load_kea.return_value = {"some": "data"}
-                rsp = client.get("/healthcheck")
-                assert rsp.status_code == 200
-                assert rsp.json() == "OK"
+    with (
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.status",
+            new_callable=AsyncMock,
+            return_value=[{"arguments": {"pid": 9}, "result": 0}],
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.get_config_hash",
+            new_callable=AsyncMock,
+            return_value="verified-hash",
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.read_expected_config_hash",
+            return_value="verified-hash",
+        ),
+    ):
+        rsp = client.get("/healthcheck")
+
+    assert rsp.status_code == 200
+    assert rsp.json() == "OK"
 
 
-def test_healthcheck_unsynced():
-    """Verify healthcheck with unsynced config."""
+def test_healthcheck_rejects_config_hash_mismatch() -> None:
+    """Readiness rejects Kea when its running config differs from the verified config."""
     client = TestClient(app)
 
-    with patch(
-        "nv_config_manager.dhcp.api.KeaClient.status", new_callable=AsyncMock
-    ) as mock_status:
-        mock_status.return_value = [
-            {"arguments": {"pid": 9, "reload": 63173, "uptime": 63173}, "result": 0}
-        ]
-        with patch(
-            "nv_config_manager.dhcp.api.KeaClient.get_config", new_callable=AsyncMock
-        ) as mock_get_config:
-            mock_get_config.return_value = MIN_UNSYNCED_CONFIG
-            with patch(
-                "nv_config_manager.dhcp.api.RedisClient.load_kea_config", new_callable=AsyncMock
-            ) as mock_load_kea:
-                mock_load_kea.return_value = {"some": "data"}
-                rsp = client.get("/healthcheck")
-                assert rsp.status_code == 500
-                assert rsp.json() == {"detail": "Lease database not present in Dhcp4 config"}
+    with (
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.status",
+            new_callable=AsyncMock,
+            return_value=[{"arguments": {"pid": 9}, "result": 0}],
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.get_config_hash",
+            new_callable=AsyncMock,
+            return_value="bootstrap-hash",
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.read_expected_config_hash",
+            return_value="verified-hash",
+        ),
+    ):
+        rsp = client.get("/healthcheck")
+
+    assert rsp.status_code == 500
+    assert rsp.json() == {
+        "detail": "KEA configuration hash does not match the last verified configuration"
+    }
 
 
-def test_healthcheck_status_error():
+def test_healthcheck_status_error() -> None:
     """Verify healthcheck with status error."""
     client = TestClient(app)
 
@@ -302,7 +312,7 @@ def test_healthcheck_status_error():
             assert rsp.json() == {"detail": "Kea DHCPv4 is unavailable"}
 
 
-def test_healthcheck_http_error():
+def test_healthcheck_http_error() -> None:
     """Verify healthcheck with HTTP error."""
     client = TestClient(app)
 
@@ -319,14 +329,12 @@ def test_healthcheck_http_error():
             assert rsp.json() == {"detail": "HTTP ERROR"}
 
 
-def test_healthcheck_not_ready_when_redis_has_no_config():
-    """Strict readiness: an unconfigured pod must NOT be ready even if Redis is empty.
+def test_healthcheck_not_ready_without_verified_hash() -> None:
+    """Strict readiness rejects a bootstrap-only pod before sync publishes a hash.
 
     This is the core of "preserve strict DHCP traffic gating": a freshly started
-    Kea on the bootstrap config (memfile lease-db) with no desired config in
-    Redis previously returned "OK" so the refresh process could reach it. That
-    escape hatch is removed -- the bootstrap path now reaches Kea via the
-    internal validation Service instead, so readiness stays strict.
+    Kea has its own valid hash, but it must not receive traffic until config-sync
+    has applied and verified the desired configuration.
     """
     client = TestClient(app)
 
@@ -337,24 +345,23 @@ def test_healthcheck_not_ready_when_redis_has_no_config():
             return_value=[{"arguments": {"pid": 9}, "result": 0}],
         ),
         patch(
-            "nv_config_manager.dhcp.api.KeaClient.get_config",
+            "nv_config_manager.dhcp.api.KeaClient.get_config_hash",
             new_callable=AsyncMock,
-            return_value=MIN_UNSYNCED_CONFIG,
+            return_value="bootstrap-hash",
         ),
         patch(
-            "nv_config_manager.dhcp.api.RedisClient.load_kea_config",
-            new_callable=AsyncMock,
+            "nv_config_manager.dhcp.api.read_expected_config_hash",
             return_value=None,
         ),
     ):
         rsp = client.get("/healthcheck")
 
     assert rsp.status_code == 500
-    assert rsp.json() == {"detail": "Lease database not present in Dhcp4 config"}
+    assert rsp.json() == {"detail": "Verified KEA configuration hash is unavailable"}
 
 
-def test_healthcheck_ready_when_kea_online_and_config_applied():
-    """Readiness reflects Kea-online AND desired config applied (postgresql lease-db)."""
+def test_healthcheck_not_ready_when_kea_omits_config_hash() -> None:
+    """Readiness rejects old Kea responses that do not provide a config hash."""
     client = TestClient(app)
 
     with (
@@ -364,19 +371,58 @@ def test_healthcheck_ready_when_kea_online_and_config_applied():
             return_value=[{"arguments": {"pid": 9}, "result": 0}],
         ),
         patch(
+            "nv_config_manager.dhcp.api.KeaClient.get_config_hash",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.read_expected_config_hash",
+            return_value="verified-hash",
+        ),
+    ):
+        rsp = client.get("/healthcheck")
+
+    assert rsp.status_code == 500
+    assert rsp.json() == {"detail": "KEA configuration hash is unavailable"}
+
+
+def test_healthcheck_uses_checksum_without_fetching_full_config(tmp_path: Path) -> None:
+    """Readiness compares verified hashes without issuing an expensive config-get."""
+    client = TestClient(app)
+    expected_hash_file = tmp_path / "expected-config-hash-v4"
+    expected_hash_file.write_text("verified-hash\n", encoding="ascii")
+
+    with (
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.status",
+            new_callable=AsyncMock,
+            return_value=[{"arguments": {"pid": 9}, "result": 0}],
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.get_config_hash",
+            new_callable=AsyncMock,
+            return_value="verified-hash",
+        ),
+        patch(
             "nv_config_manager.dhcp.api.KeaClient.get_config",
             new_callable=AsyncMock,
-            return_value=MIN_READY_CONFIG,
+            return_value=MIN_UNSYNCED_CONFIG,
+        ) as mock_get_config,
+        patch(
+            "nv_config_manager.dhcp.config_hash.EXPECTED_CONFIG_HASH_FILE",
+            str(expected_hash_file),
+            create=True,
         ),
     ):
         rsp = client.get("/healthcheck")
 
     assert rsp.status_code == 200
     assert rsp.json() == "OK"
+    mock_get_config.assert_not_awaited()
 
 
-def test_healthcheck_reports_config_get_failure():
-    """A KEA config-get error surfaces as an unready (500) response."""
+def test_healthcheck_reports_config_hash_get_failure() -> None:
+    """A KEA config-hash-get error surfaces as an unready (500) response."""
     client = TestClient(app)
 
     with (
@@ -386,15 +432,15 @@ def test_healthcheck_reports_config_get_failure():
             return_value=[{"arguments": {"pid": 9}, "result": 0}],
         ),
         patch(
-            "nv_config_manager.dhcp.api.KeaClient.get_config",
+            "nv_config_manager.dhcp.api.KeaClient.get_config_hash",
             new_callable=AsyncMock,
-            return_value=[{"result": 1, "text": "configuration unavailable"}],
+            side_effect=KeaException("Failed to get configuration hash: unavailable"),
         ),
     ):
         rsp = client.get("/healthcheck")
 
     assert rsp.status_code == 500
-    assert rsp.json() == {"detail": "Failed to get KEA config: configuration unavailable"}
+    assert rsp.json() == {"detail": "Failed to get configuration hash: unavailable"}
 
 
 def test_livez_ready_when_kea_online_without_applied_config():
@@ -1588,10 +1634,10 @@ def test_get_summary():
             return_value=LEASE_DASHBOARD_CONFIG,
         ) as mock_get_config,
         patch(
-            "nv_config_manager.dhcp.api.KeaClient.get_statistics",
+            "nv_config_manager.dhcp.api.KeaClient.get_lease_statistics",
             new_callable=AsyncMock,
             return_value=LEASE_DASHBOARD_STATISTICS,
-        ) as mock_get_statistics,
+        ) as mock_get_lease_statistics,
         patch("nv_config_manager.common.auth._auth_config", _HEADERS_TRUSTED),
     ):
         rsp = client.get("/summary?ip_version=4")
@@ -1611,7 +1657,7 @@ def test_get_summary():
     assert "reservations" not in payload
     assert "pools" not in payload
     mock_get_config.assert_awaited_once_with(4)
-    mock_get_statistics.assert_awaited_once_with(4)
+    mock_get_lease_statistics.assert_awaited_once_with(4)
 
 
 def test_get_summary_kea_error():
@@ -1625,7 +1671,7 @@ def test_get_summary_kea_error():
             return_value=[{"result": 1, "text": "configuration unavailable"}],
         ),
         patch(
-            "nv_config_manager.dhcp.api.KeaClient.get_statistics",
+            "nv_config_manager.dhcp.api.KeaClient.get_lease_statistics",
             new_callable=AsyncMock,
             return_value=LEASE_DASHBOARD_STATISTICS,
         ),
@@ -1664,9 +1710,85 @@ async def test_summary_source_failure_cancels_and_drains_siblings() -> None:
     client = KeaClient(host="kea.example.com", port=8000)
     with (
         patch.object(client, "get_config", new=AsyncMock(side_effect=fail_config)),
-        patch.object(client, "get_statistics", new=AsyncMock(side_effect=block_statistics)),
+        patch.object(client, "get_lease_statistics", new=AsyncMock(side_effect=block_statistics)),
         pytest.raises(ClientConnectionError, match="KEA connection failed"),
     ):
         await _fetch_summary_sources(client, ip_version=4)
 
     assert cancelled == {"statistics"}
+
+
+def test_summary_after_clear_agrees_across_kea_replicas():
+    """Repeated summary reads follow the shared lease DB despite stale local counters."""
+    client = TestClient(app)
+    urls = [f"http://kea-{index}.example:8000/" for index in range(3)]
+    local_counts = [1, 1, 1]
+    shared_count = 1
+    next_replica = 0
+
+    def make_client():
+        nonlocal next_replica
+        replica = next_replica % 3
+        next_replica += 1
+        return KeaClient(host=f"kea-{replica}.example", port=8000)
+
+    def response_for(replica):
+        def respond(url, **kwargs):
+            nonlocal shared_count
+            command = kwargs["json"]["command"]
+            if command == "config-get":
+                payload = LEASE_DASHBOARD_CONFIG
+            elif command == "lease4-del":
+                shared_count = 0
+                local_counts[replica] = 0
+                payload = [{"result": 0, "text": "IPv4 lease deleted."}]
+            elif command == "stat-lease4-get":
+                payload = [
+                    {
+                        "result": 0,
+                        "arguments": {
+                            "result-set": {
+                                "columns": ["subnet-id", "assigned-addresses"],
+                                "rows": [[1, shared_count]],
+                            }
+                        },
+                    }
+                ]
+            elif command == "statistic-get-all":
+                payload = [
+                    {
+                        "result": 0,
+                        "arguments": {
+                            "assigned-addresses": [[local_counts[replica], "timestamp"]],
+                        },
+                    }
+                ]
+            elif command == "lease4-get-page":
+                assert shared_count == 0
+                payload = [{"result": 3, "arguments": {"leases": []}}]
+            else:
+                raise AssertionError(f"Unexpected Kea command: {command}")
+            return CallbackResult(payload=payload)
+
+        return respond
+
+    headers = {"X-Auth-Request-Email": "test@example.com"}
+    with (
+        aioresponses() as mocked,
+        patch("nv_config_manager.dhcp.api.KeaClient.from_config", side_effect=make_client),
+        patch("nv_config_manager.common.auth._auth_config", _HEADERS_TRUSTED),
+    ):
+        for replica, url in enumerate(urls):
+            mocked.post(url, callback=response_for(replica), repeat=True)
+        before = client.get("/summary", headers=headers)
+        assert before.status_code == 200
+        assert before.json()["active_lease_count"] == 1
+        assert client.delete("/lease/10.0.0.10", headers=headers).status_code == 204
+        for _ in range(40):
+            rsp = client.get("/summary", headers=headers)
+            assert rsp.status_code == 200
+            assert rsp.json()["active_lease_count"] == 0
+        leases = client.get("/lease", headers=headers)
+        assert leases.status_code == 200
+        assert leases.json()["leases"] == []
+    assert local_counts.count(1) == 2
