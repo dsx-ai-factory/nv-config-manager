@@ -61,6 +61,14 @@ disabled, a user-managed Temporal endpoint is required instead.
 {{- end }}
 
 {{/*
+Resolve the Temporal history shard count while preserving the legacy fallback
+to the number of History service replicas.
+*/}}
+{{- define "nv-config-manager.temporalShardCount" -}}
+{{- default .Values.temporal.services.history.replicas .Values.temporal.numHistoryShards -}}
+{{- end }}
+
+{{/*
 Render a Temporal TLS server name as a single raw INI value.  Helm's `quote`
 helper produces YAML quotes, which ConfigParser preserves as part of the TLS
 domain name.  Limit the value to DNS-name/IP-literal characters so direct
