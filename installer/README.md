@@ -547,8 +547,8 @@ Per-workflow overrides are selected from a dropdown of known workflows:
 
 | Field | Description |
 |-------|-------------|
-| History Replicas | Optional History service pod count; blank uses the deployment size profile and chart default |
-| History Shards | Optional persisted shard count; blank derives it from the History replica count |
+| **History Replicas** | Optional History service pod count; blank uses the deployment size profile and chart default |
+| **History Shards** | Optional persisted shard count; blank derives it from the History replica count |
 
 > **Warning:** Blank History Shards follows History Replicas. After Temporal
 > initializes its database, pin the current shard count before changing replicas.
