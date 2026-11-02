@@ -1961,11 +1961,12 @@ temporal:
 
   # Dynamic configuration for Temporal server
   # See: https://docs.temporal.io/references/dynamic-configuration
-  dynamicConfig: []
-  # Example:
-  # - key: system.enableActivityEagerExecution
-  #   value: true
-  #   constraints: []
+  # Native Temporal configuration, rendered directly: each key maps to a list of values.
+  # Constraints use Temporal namespace names, not Kubernetes namespaces.
+  dynamicConfig:
+    # Per Temporal namespace, per frontend pod.
+    frontend.namespaceRPS.visibility:
+      - value: 50
   # Redfish / BMC workflows
   # Enable only if Redfish provisioning workflows are in use.
   # When disabled, redfish-creds secret is not required.
