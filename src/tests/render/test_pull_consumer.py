@@ -592,6 +592,87 @@ async def test_dcim_consumer_failure_backs_off(mock_dispatcher, custom_ini):
 
 
 @pytest.mark.asyncio
+async def test_dcim_consumer_failure_gives_up_on_last_delivery(mock_dispatcher, custom_ini):
+    """A DCIM change event that fails on every delivery is terminated and logged."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDCIMConsumer()
+    consumer.max_deliver = 20
+    mock_msg = _delivered_msg("unused", 20)
+    mock_dispatcher.dcim_event_dispatch.side_effect = Exception("down")
+
+    with (
+        patch(
+            "nv_config_manager.render.pull_consumer.normalize_dcim_event",
+            return_value=MagicMock(),
+        ),
+        patch.object(consumer.logger, "error") as log_error,
+    ):
+        await consumer.message_handler(mock_msg)
+
+    mock_msg.term.assert_awaited_once()
+    mock_msg.nak.assert_not_awaited()
+    assert any("Giving up" in c.args[0] for c in log_error.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_lock_error_gives_up_on_last_delivery(mock_dispatcher, mock_lock, custom_ini):
+    """A lock that cannot be reached, such as Redis being down, still ends in a logged give-up."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    consumer.max_deliver = 20
+    mock_msg = _delivered_msg("test-device", 20)
+    mock_lock.acquire.side_effect = ConnectionError("redis down")
+
+    with patch.object(consumer.logger, "error") as log_error:
+        await consumer._resilient_message_handler(mock_msg)
+
+    mock_msg.term.assert_awaited_once()
+    mock_msg.nak.assert_not_awaited()
+    assert any("Giving up" in c.args[0] for c in log_error.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_lock_error_backs_off_before_last_delivery(mock_dispatcher, mock_lock, custom_ini):
+    """A lock error before the last delivery is retried with the failure backoff."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    consumer.max_deliver = 20
+    mock_msg = _delivered_msg("test-device", 3)
+    mock_lock.acquire.side_effect = ConnectionError("redis down")
+
+    await consumer._resilient_message_handler(mock_msg)
+
+    mock_msg.nak.assert_awaited_once_with(delay=4)
+    mock_msg.term.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_metrics_refresh_tracks_edited_delivery_limit(custom_ini, mock_jetstream):
+    """A limit edited on the durable is picked up without restarting the consumer."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    consumer.max_deliver = 20
+    consumer.jetstream = mock_jetstream
+    consumer.nats_conn = MagicMock(is_closed=False)
+    consumer.running = True
+    mock_jetstream.consumer_info.return_value = MagicMock(
+        config=MagicMock(max_deliver=50),
+        num_pending=0,
+        num_ack_pending=0,
+        num_redelivered=0,
+        num_waiting=0,
+    )
+
+    async def stop(_seconds):
+        consumer.running = False
+
+    with patch("nv_config_manager.render.pull_consumer.asyncio.sleep", side_effect=stop):
+        await consumer._record_consumer_metrics_loop()
+
+    assert consumer.max_deliver == 50
+
+
+@pytest.mark.asyncio
 async def test_resilient_message_handler_success(custom_ini):
     """Test _resilient_message_handler with successful processing."""
     custom_ini(TEST_NATS_CONFIG)
