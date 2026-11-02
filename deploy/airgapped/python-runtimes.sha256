@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-# Release: https://github.com/astral-sh/python-build-standalone/releases/tag/20260320
-bf44c6afeabc8926086eaf00fcc98fadece6e74194989231186225e31e57773f  cpython-3.13.12+20260320-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz
-e90de3ba83ab6cc4068bdd5fafcd6be9ebc8acf88dd720dfe6f9db166fd908dc  cpython-3.13.12+20260320-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz
-1b9b6274f5cc621e40c8c39606729aed81554eff7da33ca573885a5eecb698e5  cpython-3.13.12+20260320-x86_64-apple-darwin-install_only_stripped.tar.gz
-3b51d3715da5f943c39f987a27a1399a78917ecaf3c450b86d6c215aa8bd7ec7  cpython-3.13.12+20260320-aarch64-apple-darwin-install_only_stripped.tar.gz
+# Release: https://github.com/astral-sh/python-build-standalone/releases/tag/20261026
+df15fe60d3ff55bf9dcf25824b5572756bb8816ff93865a273d3301d7066a8b7  cpython-3.13.18+20261026-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz
+578d9da1983463ffb0c8c98ab0da2f18177f44069328eb0af847860c1eb05c3e  cpython-3.13.18+20261026-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz
+7412c19d896c99431b74a18a5643e110449a7f9590fbab179c3e5ab27b9aa9e3  cpython-3.13.18+20261026-x86_64-apple-darwin-install_only_stripped.tar.gz
+8392b6ea51d94391befb2c31ebe75463f045d0b69dfcf5e1bb3234e1f5fa3405  cpython-3.13.18+20261026-aarch64-apple-darwin-install_only_stripped.tar.gz

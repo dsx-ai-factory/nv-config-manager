@@ -21,7 +21,7 @@ packages receive an explicit provider name and a plain settings mapping.
 from __future__ import annotations
 
 import warnings
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncGenerator, Callable, Mapping
 from configparser import ConfigParser
 from contextlib import asynccontextmanager
 from typing import Any
@@ -170,7 +170,7 @@ def normalize_dcim_event(
 
 
 @asynccontextmanager
-async def dcim_client_session(config: ConfigParser | None = None) -> AsyncIterator[DCIMClient]:
+async def dcim_client_session(config: ConfigParser | None = None) -> AsyncGenerator[DCIMClient]:
     """Yield a configured client and always release provider resources."""
     client = create_dcim_client(config)
     try:

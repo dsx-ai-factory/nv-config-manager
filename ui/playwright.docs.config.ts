@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const BASE_URL = process.env.BASE_URL || "http://127.0.0.1:3000";
+const BASE_URL = process.env.BASE_URL || "http://localhost:3000";
 const WEB_SERVER_COMMAND = process.env.CI ? "npm run start" : "npm run dev";
 
 export default defineConfig({

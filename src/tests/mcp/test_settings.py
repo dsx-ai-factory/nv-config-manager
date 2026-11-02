@@ -82,6 +82,41 @@ def test_nautobot_auth_explicit_override() -> None:
     assert settings.nautobot_auth_mode == "jwt"
 
 
+def test_dhcp_settings_resolve_when_the_dhcp_section_exists() -> None:
+    settings = MCPSettings.from_config(_config("https://nautobot.example.test"))
+
+    assert settings.dhcp_enabled is True
+    assert settings.dhcp_api_url == "http://dhcp:9000"
+
+
+def test_dhcp_is_disabled_when_the_cell_has_no_dhcp_section() -> None:
+    """A cell without DHCP still starts the MCP server."""
+    config = _config("https://nautobot.example.test")
+    config.remove_section("dhcp")
+
+    settings = MCPSettings.from_config(config)
+
+    assert settings.dhcp_enabled is False
+    assert settings.dhcp_api_url == ""
+
+
+def test_dhcp_section_without_api_service_still_fails_fast() -> None:
+    config = _config("https://nautobot.example.test")
+    del config["dhcp"]["api_service"]
+
+    with pytest.raises(ValueError, match=r"\[dhcp\] api_service"):
+        MCPSettings.from_config(config)
+
+
+@pytest.mark.parametrize("section", ["temporal", "config_store.client"])
+def test_other_required_services_still_fail_fast_when_missing(section: str) -> None:
+    config = _config("https://nautobot.example.test")
+    config.remove_section(section)
+
+    with pytest.raises(ValueError, match=rf"\[{section}\] api_service"):
+        MCPSettings.from_config(config)
+
+
 def test_mcp_tracks_the_selected_dcim_provider() -> None:
     config = _config("https://nautobot.example.test")
     config["dcim"] = {"provider": "synthetic"}
