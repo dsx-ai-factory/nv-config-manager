@@ -180,12 +180,12 @@ class TestNVConfigManagerInstallConfig:
         with pytest.raises(ValueError, match="namespace must not contain control characters"):
             ExternalTemporalConfig(namespace=namespace)
 
-    def test_default_yaml_omits_temporal_deployment(self):
+    def test_default_yaml_omits_temporal_deployment(self) -> None:
         data = yaml.safe_load(NVConfigManagerInstallConfig().to_yaml_str())
 
         assert "temporal" not in data
 
-    def test_temporal_deployment_yaml_roundtrip(self, tmp_path: Path):
+    def test_temporal_deployment_yaml_roundtrip(self, tmp_path: Path) -> None:
         path = tmp_path / "config.yaml"
         config = NVConfigManagerInstallConfig(
             temporal=TemporalDeploymentConfig(
@@ -205,7 +205,7 @@ class TestNVConfigManagerInstallConfig:
         }
 
     @pytest.mark.parametrize("field", ["history_replicas", "num_history_shards"])
-    def test_temporal_deployment_rejects_negative_values(self, field: str):
+    def test_temporal_deployment_rejects_negative_values(self, field: str) -> None:
         with pytest.raises(ValueError, match="greater than or equal to 0"):
             TemporalDeploymentConfig(**{field: -1})
 
@@ -224,7 +224,7 @@ class TestNVConfigManagerInstallConfig:
             },
         ],
     )
-    def test_temporal_deployment_rejects_unmanaged_server(self, config: dict[str, object]):
+    def test_temporal_deployment_rejects_unmanaged_server(self, config: dict[str, object]) -> None:
         with pytest.raises(ValueError, match="managed Temporal server"):
             NVConfigManagerInstallConfig(**config)
 

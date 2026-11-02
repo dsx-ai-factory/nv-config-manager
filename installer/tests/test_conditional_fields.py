@@ -123,7 +123,7 @@ async def test_deploy_section_exists():
 
 
 @pytest.mark.asyncio
-async def test_temporal_server_sizing_fields_shown_for_managed_temporal():
+async def test_temporal_server_sizing_fields_shown_for_managed_temporal() -> None:
     app = NVConfigManagerInstallerApp(config=NVConfigManagerInstallConfig())
 
     async with app.run_test():
@@ -133,7 +133,7 @@ async def test_temporal_server_sizing_fields_shown_for_managed_temporal():
 
 
 @pytest.mark.asyncio
-async def test_temporal_server_sizing_fields_hidden_for_external_temporal():
+async def test_temporal_server_sizing_fields_hidden_for_external_temporal() -> None:
     config = NVConfigManagerInstallConfig(
         external_services=ExternalServicesConfig(
             temporal=ExternalTemporalConfig(address="temporal.example.com:7233")
@@ -148,7 +148,7 @@ async def test_temporal_server_sizing_fields_hidden_for_external_temporal():
 
 
 @pytest.mark.asyncio
-async def test_temporal_server_sizing_fields_hidden_when_temporal_disabled():
+async def test_temporal_server_sizing_fields_hidden_when_temporal_disabled() -> None:
     config = NVConfigManagerInstallConfig()
     config.services.temporal = False
     app = NVConfigManagerInstallerApp(config=config)

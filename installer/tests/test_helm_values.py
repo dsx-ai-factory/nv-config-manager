@@ -371,13 +371,13 @@ class TestGenerateHelmValues:
         assert values["cnpg"]["temporal"]["enabled"] is False
         assert values["cnpg"]["temporalVisibility"]["enabled"] is False
 
-    def test_temporal_deployment_defaults_do_not_override_chart_values(self):
+    def test_temporal_deployment_defaults_do_not_override_chart_values(self) -> None:
         temporal = _gen(_make_config())["temporal"]
 
         assert "numHistoryShards" not in temporal
         assert "services" not in temporal
 
-    def test_temporal_deployment_maps_history_replicas_and_shards(self):
+    def test_temporal_deployment_maps_history_replicas_and_shards(self) -> None:
         config = _make_config(
             temporal=TemporalDeploymentConfig(
                 history_replicas=16,
@@ -390,7 +390,7 @@ class TestGenerateHelmValues:
         assert temporal["services"]["history"]["replicas"] == 16
         assert temporal["numHistoryShards"] == 128
 
-    def test_temporal_deployment_maps_only_history_replicas(self):
+    def test_temporal_deployment_maps_only_history_replicas(self) -> None:
         config = _make_config(
             temporal=TemporalDeploymentConfig(history_replicas=8),
         )
@@ -400,7 +400,7 @@ class TestGenerateHelmValues:
         assert temporal["services"]["history"]["replicas"] == 8
         assert "numHistoryShards" not in temporal
 
-    def test_temporal_deployment_maps_only_history_shards(self):
+    def test_temporal_deployment_maps_only_history_shards(self) -> None:
         config = _make_config(
             temporal=TemporalDeploymentConfig(num_history_shards=64),
         )
@@ -410,7 +410,7 @@ class TestGenerateHelmValues:
         assert temporal["numHistoryShards"] == 64
         assert "services" not in temporal
 
-    def test_temporal_deployment_overrides_size_profile(self):
+    def test_temporal_deployment_overrides_size_profile(self) -> None:
         config = _make_config(
             temporal=TemporalDeploymentConfig(
                 history_replicas=8,

@@ -162,7 +162,7 @@ async def test_collect_config():
 
 
 @pytest.mark.asyncio
-async def test_workflows_collects_temporal_server_sizing():
+async def test_workflows_collects_temporal_server_sizing() -> None:
     config = NVConfigManagerInstallConfig()
     config.temporal.history_replicas = 16
     config.temporal.num_history_shards = 128
@@ -186,7 +186,7 @@ async def test_workflows_collects_temporal_server_sizing():
 
 
 @pytest.mark.asyncio
-async def test_workflows_temporal_sizing_blocks_negative_input():
+async def test_workflows_temporal_sizing_blocks_negative_input() -> None:
     config = NVConfigManagerInstallConfig()
     app = NVConfigManagerInstallerApp(config=config)
 

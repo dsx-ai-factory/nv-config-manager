@@ -29,6 +29,7 @@ render_notes() {
 
     helm install test "$test_chart" \
         --namespace "$namespace" \
+        -f "${chart}/values-ci.yaml" \
         --set "global.namespace=${namespace}" \
         --set temporal.enabled=true \
         --set temporal.server.enabled=true \
