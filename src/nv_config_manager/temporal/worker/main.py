@@ -22,6 +22,7 @@ from typing import Any
 from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
+from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
@@ -37,6 +38,27 @@ from nv_config_manager_workflows.workflows import LOCAL_TEST_WORKFLOWS
 
 configure_logging(service="temporal-worker")
 
+DEFAULT_MAX_CACHED_WORKFLOWS = 200
+
+# The sandbox re-imports every non-passthrough module for each workflow run and
+# keeps a private copy per cached run. These packages hold no state that workflow
+# code mutates, so sharing the host copy is deterministic and avoids that cost.
+SANDBOX_PASSTHROUGH_MODULES = (
+    "annotated_types",
+    "pydantic",
+    "pydantic_core",
+    "typing_extensions",
+    "typing_inspection",
+    "nv_config_manager_dcim",
+    "nv_config_manager_infrastructure",
+    "nv_config_manager_workflows.activities",
+    "nv_config_manager_workflows.clients",
+    "nv_config_manager_workflows.metadata",
+    "nv_config_manager_workflows.mixins",
+    "nv_config_manager_workflows.stage",
+    "nv_config_manager_workflows.ui",
+)
+
 
 def _enabled_env_flag(name: str) -> bool:
     """Return true when an environment flag is explicitly enabled."""
@@ -49,6 +71,26 @@ def _registered_workflows(registry: WorkflowRegistry) -> list[type[Any]]:
     if _enabled_env_flag("NVCM_ENABLE_LOCAL_TEST_WORKFLOWS"):
         workflows.extend(LOCAL_TEST_WORKFLOWS)
     return workflows
+
+
+def _max_cached_workflows() -> int:
+    """Return the sticky workflow cache size, overridable with NVCM_MAX_CACHED_WORKFLOWS."""
+    raw = os.getenv("NVCM_MAX_CACHED_WORKFLOWS", "").strip()
+    if not raw:
+        return DEFAULT_MAX_CACHED_WORKFLOWS
+    value = int(raw)
+    if value < 0:
+        raise ValueError(f"NVCM_MAX_CACHED_WORKFLOWS must be >= 0, got {value}")
+    return value
+
+
+def workflow_runner() -> SandboxedWorkflowRunner:
+    """Return the sandboxed workflow runner used by the worker."""
+    return SandboxedWorkflowRunner(
+        restrictions=SandboxRestrictions.default.with_passthrough_modules(
+            *SANDBOX_PASSTHROUGH_MODULES
+        )
+    )
 
 
 async def main() -> None:
@@ -77,6 +119,8 @@ async def main() -> None:
         workflows=workflows,
         activities=registry.all_activities,  # type: ignore[arg-type]
         activity_executor=ThreadPoolExecutor(100),
+        workflow_runner=workflow_runner(),
+        max_cached_workflows=_max_cached_workflows(),
     )
 
     await worker.run()
