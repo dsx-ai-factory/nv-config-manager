@@ -310,6 +310,26 @@ def test_arp_table_skips_unresolved_entries_and_the_mac_table_is_empty() -> None
     assert connection.get_mac_table().by_mac == {}
 
 
+def test_arp_skips_malformed_and_all_zero_macs_and_accepts_other_mac_formats() -> None:
+    xml = _REPLY.format(
+        '<arp xmlns="http://cisco.com/ns/yang/Cisco-IOS-XR-ipv4-arp-oper"><nodes><node>'
+        "<node-name>0/RP0/CPU0</node-name><entries>"
+        + _arp_entry("10.1.1.1", "not-a-mac", "HundredGigE0/0/0/0")
+        + _arp_entry("10.1.1.2", "0000.0000.0000", "HundredGigE0/0/0/0")
+        + _arp_entry("10.1.1.3", "0011.2233.4466", "HundredGigE0/0/0/1")
+        + _arp_entry("10.1.1.4", "00-11-22-33-44-77", "HundredGigE0/0/0/1")
+        + "</entries></node></nodes></arp>"
+    )
+    connection, _ = _connection(FakeSession(gets={FILTER_ARP: xml}))
+
+    arp = connection.get_arp_table()
+
+    assert arp.ip_to_mac == {
+        "10.1.1.3": ["00-11-22-33-44-66"],
+        "10.1.1.4": ["00-11-22-33-44-77"],
+    }
+
+
 def test_operational_read_errors_are_network_device_errors() -> None:
     session = FakeSession()
     session.get = MagicMock(side_effect=SSHError("reset"))  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]

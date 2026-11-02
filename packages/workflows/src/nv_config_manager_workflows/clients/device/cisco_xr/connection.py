@@ -100,7 +100,6 @@ import re
 import time
 from typing import Any
 
-import netaddr
 from ncclient import manager  # type: ignore[import-untyped]
 from ncclient.transport.errors import AuthenticationError  # type: ignore[import-untyped]
 from nv_config_manager_logging import LogCategory, get_logger
@@ -341,8 +340,8 @@ class CiscoIosXrConnection(NetworkConnection):
         table = DeviceArpTable()
         for ip, mac, interface in parse_arp(self._get(FILTER_ARP)):
             try:
-                table.add_entry(ip, str(netaddr.EUI(mac)), interface)
-            except (ValueError, netaddr.core.AddrFormatError):
+                table.add_entry(ip, mac, interface)
+            except ValueError:
                 logger.warning("Invalid ARP entry from %s, skipping: %s %s", self._host, ip, mac)
         return table
 

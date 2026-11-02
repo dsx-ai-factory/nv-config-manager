@@ -26,12 +26,15 @@ from typing import Any
 
 import netaddr
 from lxml import etree  # type: ignore[import-untyped]  # ty: ignore[unresolved-import]
+from nv_config_manager_logging import LogCategory, get_logger
 
 from nv_config_manager_workflows.clients.device.exceptions import NetworkDeviceException
 from nv_config_manager_workflows.clients.device.models import (
     InterfaceNeighborData,
     is_mac_address,
 )
+
+logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
 
 # --- Operational data through YANG (reply shapes read from a lab router running 26.4.1) ---
 # IOS XR has no "run this show command" RPC, so every read NVCM needs is a <get> on an
@@ -112,7 +115,10 @@ def parse_link_states(xml: str) -> dict[str, bool]:
 
 
 def parse_arp(xml: str) -> list[tuple[str, str, str]]:
-    """(ip, mac, interface) for each resolved entry of the ipv4-arp-oper ``entries`` container."""
+    """(ip, mac, interface) for each resolved entry of the ipv4-arp-oper ``entries`` container.
+
+    The MAC is normalized by ``netaddr.EUI``; an entry whose MAC is malformed or all zeros is skipped.
+    """
     rows: list[tuple[str, str, str]] = []
     for entry in _xml_root(xml, "ARP").iterfind(".//{*}entries/{*}entry"):
         if entry.findtext("{*}state") in _ARP_UNRESOLVED_STATES:
@@ -120,6 +126,13 @@ def parse_arp(xml: str) -> list[tuple[str, str, str]]:
         ip = entry.findtext("{*}address")
         mac = entry.findtext("{*}hardware-address")
         interface = entry.findtext("{*}interface-name")
-        if ip and mac and interface and int(mac.replace(":", ""), 16):
-            rows.append((ip, mac, interface))
+        if not (ip and mac and interface):
+            continue
+        try:
+            eui = netaddr.EUI(mac)
+        except (ValueError, netaddr.core.AddrFormatError):
+            logger.warning("Invalid ARP hardware address, skipping: %s %s", ip, mac)
+            continue
+        if int(eui):
+            rows.append((ip, str(eui), interface))
     return rows
