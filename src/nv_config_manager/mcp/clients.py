@@ -294,6 +294,8 @@ def config_store_client(settings: MCPSettings, file_type: str = "intended") -> C
 
 def dhcp_client(settings: MCPSettings) -> DHCPClient:
     """Create a DHCP API client."""
+    if not settings.dhcp_enabled:
+        raise MCPClientError("DHCP is not deployed on this cell.")
     return DHCPClient.for_mcp(
         base_url=settings.dhcp_api_url,
         headers=mcp_downstream_auth_headers,
