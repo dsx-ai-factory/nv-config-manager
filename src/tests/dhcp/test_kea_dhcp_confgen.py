@@ -15,6 +15,7 @@
 import ipaddress
 import json
 import os
+from collections.abc import Callable
 from copy import deepcopy
 from unittest.mock import patch
 
@@ -185,7 +186,7 @@ async def test_expected_config():
 
 
 @pytest.mark.asyncio
-async def test_generate_config_uses_explicit_multi_threading(kea_ini) -> None:
+async def test_generate_config_uses_explicit_multi_threading(kea_ini: Callable[..., None]) -> None:
     """Explicit [dhcp.kea] settings replace both derived Kea threading values."""
     kea_ini(thread_pool_size="4", packet_queue_size="10")
 
@@ -202,7 +203,9 @@ async def test_generate_config_uses_explicit_multi_threading(kea_ini) -> None:
 
 
 @pytest.mark.asyncio
-async def test_generate_config_derives_packet_queue_from_thread_pool(kea_ini) -> None:
+async def test_generate_config_derives_packet_queue_from_thread_pool(
+    kea_ini: Callable[..., None],
+) -> None:
     """A configured thread pool gets eight queued packets per thread by default."""
     kea_ini(thread_pool_size="3")
 
@@ -231,7 +234,9 @@ async def test_generate_config_defaults_multi_threading_without_settings() -> No
 
 
 @pytest.mark.asyncio
-async def test_generate_config_accepts_explicit_auto_thread_pool(kea_ini) -> None:
+async def test_generate_config_accepts_explicit_auto_thread_pool(
+    kea_ini: Callable[..., None],
+) -> None:
     """thread-pool-size 0 is Kea auto-detection and keeps the 64-packet queue."""
     kea_ini(thread_pool_size="0")
 
@@ -254,7 +259,7 @@ async def test_generate_config_accepts_explicit_auto_thread_pool(kea_ini) -> Non
     ],
 )
 async def test_generate_config_rejects_invalid_multi_threading_settings(
-    kea_ini,
+    kea_ini: Callable[..., None],
     option: str,
     value: str,
 ) -> None:

@@ -693,12 +693,12 @@ class TestGenerateHelmValues:
         assert values["networkZtp"]["enabled"] is True
         assert values["mcp"]["enabled"] is False
 
-    def test_kea_multi_threading_omitted_by_default(self):
+    def test_kea_multi_threading_omitted_by_default(self) -> None:
         values = _gen(_make_config())
 
         assert "kea" not in values["networkDhcp"]
 
-    def test_kea_multi_threading_size_from_cpu_request(self):
+    def test_kea_multi_threading_size_from_cpu_request(self) -> None:
         config = _make_config(
             dhcp=DHCPConfig(kea_multi_threading=KeaMultiThreadingConfig(size_from_cpu_request=True))
         )
@@ -707,7 +707,7 @@ class TestGenerateHelmValues:
 
         assert values["networkDhcp"]["kea"]["multiThreading"] == {"sizeFromCpuRequest": True}
 
-    def test_kea_multi_threading_explicit_overrides(self):
+    def test_kea_multi_threading_explicit_overrides(self) -> None:
         config = _make_config(
             dhcp=DHCPConfig(
                 kea_multi_threading=KeaMultiThreadingConfig(

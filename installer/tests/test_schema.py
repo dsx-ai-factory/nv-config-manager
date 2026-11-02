@@ -813,7 +813,7 @@ class TestGitTokenConfig:
 
 
 class TestKeaMultiThreadingConfig:
-    def test_defaults_keep_kea_auto_detection(self):
+    def test_defaults_keep_kea_auto_detection(self) -> None:
         kea = NVConfigManagerInstallConfig().dhcp.kea_multi_threading
 
         assert kea.size_from_cpu_request is False
@@ -821,19 +821,19 @@ class TestKeaMultiThreadingConfig:
         assert kea.packet_queue_size is None
 
     @pytest.mark.parametrize(
-        "field, value",
+        ("field", "value"),
         [("thread_pool_size", -1), ("packet_queue_size", 0)],
     )
-    def test_rejects_out_of_range_sizes(self, field, value):
+    def test_rejects_out_of_range_sizes(self, field: str, value: int) -> None:
         with pytest.raises(ValidationError):
             KeaMultiThreadingConfig(**{field: value})
 
     @pytest.mark.parametrize("pool_size", [0, 4])
-    def test_rejects_cpu_sizing_with_explicit_thread_pool(self, pool_size):
+    def test_rejects_cpu_sizing_with_explicit_thread_pool(self, pool_size: int) -> None:
         with pytest.raises(ValidationError, match="mutually exclusive"):
             KeaMultiThreadingConfig(size_from_cpu_request=True, thread_pool_size=pool_size)
 
-    def test_yaml_round_trip(self, tmp_path):
+    def test_yaml_round_trip(self, tmp_path: Path) -> None:
         config = NVConfigManagerInstallConfig(
             dhcp=DHCPConfig(
                 kea_multi_threading=KeaMultiThreadingConfig(
