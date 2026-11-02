@@ -77,6 +77,21 @@ async def _close_queue_redis_client(client: RedisClient | None) -> None:
         await result
 
 
+async def is_queued(device_uuid: str, client: RedisClient | None = None) -> bool:
+    """Return whether a device already has a pending render, without claiming it."""
+    owned_client = client is None
+    client = client or _get_queue_redis_client()
+    if client is None:
+        # Local environment, never consider as queued
+        return False
+
+    try:
+        return bool(await client.redis.exists(f"{device_uuid}_queued"))
+    finally:
+        if owned_client:
+            await _close_queue_redis_client(client)
+
+
 async def claim_queued(device_uuid: str, client: RedisClient | None = None) -> bool:
     """Mark a device as queued for rendering unless it already is.
 
@@ -123,6 +138,12 @@ async def should_run(device_uuid: str, dcim_client: DCIMClient) -> bool:
     return env_aggregate_managed == device.is_aggregate_managed
 
 
+def _log_duplicate(logger: logging.Logger | logging.LoggerAdapter, device_uuid: str) -> None:
+    logger.info(
+        "Device %s already has a pending render, skipping duplicate queue request", device_uuid
+    )
+
+
 async def _process_single_device_enqueue(
     device_uuid: str,
     commit_message: str,
@@ -149,6 +170,12 @@ async def _process_single_device_enqueue(
     """
     claimed = False
     try:
+        # Skips known duplicates without a DCIM lookup. The claim below still
+        # decides between producers that both pass this check.
+        if await is_queued(device_uuid, queue_client):
+            _log_duplicate(logger, device_uuid)
+            return EnqueueResult.ALREADY_QUEUED
+
         # Checked before claiming: a claim that is then dropped would make a
         # concurrent request for a newly enabled device skip as a duplicate.
         if not await should_run(device_uuid, dcim_client):
@@ -159,10 +186,7 @@ async def _process_single_device_enqueue(
 
         claimed = await claim_queued(device_uuid, queue_client)
         if not claimed:
-            logger.info(
-                "Device %s already has a pending render, skipping duplicate queue request",
-                device_uuid,
-            )
+            _log_duplicate(logger, device_uuid)
             return EnqueueResult.ALREADY_QUEUED
 
         # Publish message using provided jetstream connection
