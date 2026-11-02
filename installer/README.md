@@ -813,7 +813,10 @@ temporal:
 ```
 
 `history_replicas` controls History service pods and can be adjusted with
-capacity. `num_history_shards` initializes immutable cluster metadata and is
+capacity, up to the shard count. Each History pod processes only the shards it
+owns, so replicas beyond the shard count add no capacity; choose enough shards
+for planned replica growth before the first install.
+`num_history_shards` initializes immutable cluster metadata and is
 ignored after Temporal's first run. If an initialized deployment still derives
 shards from replicas, confirm and pin its persisted shard count before changing
 `history_replicas`. Changing the persisted count requires a separate-cluster

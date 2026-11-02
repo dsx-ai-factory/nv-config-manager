@@ -69,8 +69,16 @@ shard migration procedure instead.
 
 The installer maps `temporal.history_replicas` to the Helm value
 `temporal.services.history.replicas`. This controls the number of History
-service pods. After the shard count is pinned, these replicas can be adjusted
-as load changes. The equivalent direct Helm override is:
+service pods. Each History pod processes only the shards it owns, so the shard
+count limits useful History replicas. With the default four shards, at most
+four pods own shards; additional replicas add no shard-processing capacity.
+Choose a shard count that covers the largest planned History replica count
+before Temporal initializes the cluster. See Temporal's
+[History shards](https://github.com/temporalio/temporal/blob/v1.31.4/docs/architecture/history-service.md#history-shards)
+architecture notes for the deployed server version.
+
+After the shard count is pinned, History replicas can be adjusted as load
+changes, up to the shard count. The equivalent direct Helm override is:
 
 ```yaml
 temporal:
