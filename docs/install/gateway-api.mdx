@@ -138,17 +138,18 @@ gateway:
 
 With `oidc.enabled`, browser routes are served through the OIDC proxy, so a
 backend that has gone away surfaces as a `502` from the proxy rather than a
-refused connection. `safeMethods` adds a rule named `safe-methods` to each
-browser route that matches only `GET` and `HEAD`, and a policy on that rule
-(a `BackendTrafficPolicy` or a kgateway `TrafficPolicy`) that also retries
-`502`. Other methods keep the connection-level
-retry only, because a `502` cannot be told apart from a write that already
-committed.
+refused connection. `safeMethods` adds a `safe-methods` rule to each browser
+route. The rule matches only `GET` and `HEAD`. A `BackendTrafficPolicy` or
+kgateway `TrafficPolicy` attached to the rule also retries `502` responses.
+Other methods keep only connection-level retries because a `502` cannot be
+distinguished from a write that already committed.
 
 The OIDC proxy's upstream timeout is set to the route's gateway timeout:
 `gateway.timeout.requestTimeout`, or `networkZtp.upload.timeout` for ZTP. A
 backend that is too slow is therefore ended by the gateway with a `504`, which
-is not retried, rather than by the proxy with a `502`, which would be.
+is not retried, rather than by the proxy with a `502`, which would be. This
+holds only while the gateway enforces the same timeout; see
+[With an existing Gateway](#with-an-existing-gateway) for when it does not.
 
 ### With an existing Gateway
 
@@ -168,14 +169,24 @@ that mode:
 - With `oidc.enabled`, browser `GET` and `HEAD` requests are retried, and the
   chart's `gateway.timeout.*` values apply to them. If the platform Gateway has
   its own `BackendTrafficPolicy`, the chart's policy is merged over it for
-  those requests, so the chart's timeouts take precedence there and its other
-  settings, such as rate limits, are kept.
+  those requests. The chart's timeouts take precedence. Other settings in the
+  platform policy, such as rate limits, are retained.
 
 To keep the platform Gateway's own settings for browser reads, set
 `gateway.retry.safeMethods.enabled: false`. To disable the chart's retries
 entirely, set `gateway.retry.enabled: false`. Neither setting changes retries
 configured by the platform Gateway's own policy; change that policy to disable
 them.
+
+Neither setting removes the OIDC proxy's upstream timeout. The proxy always
+uses `gateway.timeout.requestTimeout` (`300s` by default), but in this mode the
+chart enforces that timeout at the gateway only for browser `GET` and `HEAD`
+requests, and only while `safeMethods` is enabled. Other browser requests, and
+all of them once either setting is turned off, are bounded by the platform
+Gateway's timeout. If the platform timeout is longer, a slow backend is ended
+by the proxy with a `502` rather than by the gateway with a `504`, and any
+platform retry on `502` replays it. Set `gateway.timeout.requestTimeout` to the
+platform Gateway's request timeout in these installations.
 
 ## Upgrading an Argo CD deployment
 
