@@ -277,6 +277,20 @@ async def test_nvdataflow_malformed_record_is_rejected(
 
 
 @pytest.mark.asyncio
+async def test_nvdataflow_missing_server_setting_is_retried(
+    nvdataflow_backend: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deployment missing its Temporal URL is not mistaken for a malformed record."""
+    nvdataflow_backend.post = AsyncMock(return_value=201)
+    config = ConfigParser()
+    config.read_string("[temporal]\n[temporal.nvdataflow]\nproject = archive\n")
+    monkeypatch.setattr(archive_main, "config", config)
+
+    with pytest.raises(KeyError, match="api_url"):
+        await archive_main._archive_nvdataflow(dict(WORKFLOW_DETAILS))
+
+
+@pytest.mark.asyncio
 async def test_elasticsearch_event_without_publish_time_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -343,6 +357,18 @@ def test_elasticsearch_other_failures_are_retryable(
 
     with pytest.raises(ApiError):
         archive_main._archive_elasticsearch(dict(WORKFLOW_DETAILS))
+
+
+def test_elasticsearch_retry_overwrites_the_same_run(elasticsearch_client: MagicMock) -> None:
+    """A retry after an abandoned write replaces that run's document instead of duplicating it."""
+    archive_main._archive_elasticsearch(dict(WORKFLOW_DETAILS))
+    archive_main._archive_elasticsearch(dict(WORKFLOW_DETAILS))
+    rerun = {**WORKFLOW_DETAILS, "start_time": "2026-10-12T00:00:00+00:00"}
+    archive_main._archive_elasticsearch(rerun)
+
+    ids = [call.kwargs["id"] for call in elasticsearch_client.index.call_args_list]
+    assert ids[0] == ids[1] == "wf-1@2026-10-11T00:00:00+00:00"
+    assert ids[2] != ids[0]
 
 
 def test_index_created_by_a_concurrent_archive_is_used(elasticsearch_client: MagicMock) -> None:

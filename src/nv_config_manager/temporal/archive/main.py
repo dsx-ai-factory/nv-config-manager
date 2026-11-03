@@ -163,6 +163,7 @@ async def _archive_nvdataflow(workflow_details: Any) -> None:
     """Archive workflow details to nvdataflow."""
     compressed = gzip.compress(json.dumps(workflow_details).encode("utf-8"))
     encoded = base64.b64encode(compressed).decode("utf-8")
+    temporal_server = config["temporal"]["api_url"]
 
     with _rejecting_malformed_records():
         archive_data = {
@@ -172,7 +173,7 @@ async def _archive_nvdataflow(workflow_details: Any) -> None:
             ),
             "s_started_by": workflow_details["started_by"],
             "s_status": workflow_details["status"],
-            "s_config_manager_temporal_server": config["temporal"]["api_url"],
+            "s_config_manager_temporal_server": temporal_server,
             "s_workflow_id": workflow_details["id"],
             "s_workflow_type": workflow_details["workflow_type"],
             "obj_search_attributes": workflow_details["search_attributes"],
@@ -243,6 +244,9 @@ def _archive_elasticsearch(workflow_details: Any) -> None:
     logging.debug("Connected to ElasticSearch: %s", elastic.info())
     with _rejecting_malformed_records():
         index = f"{ELASTICSEARCH_INDEX_PREFIX}_{workflow_details['workflow_type'].lower()}"
+        # A write abandoned at the deadline can still land, so a retry of the same
+        # run overwrites it. A rerun reusing the workflow ID starts later.
+        document_id = f"{workflow_details['id']}@{workflow_details['start_time']}"
     if not elastic.indices.exists(index=index):
         logging.info("Creating ElasticSearch index: %s", index)
         try:
@@ -257,6 +261,7 @@ def _archive_elasticsearch(workflow_details: Any) -> None:
     try:
         elastic.index(
             index=index,
+            id=document_id,
             document=workflow_details,
         )
     except ApiError as exc:
