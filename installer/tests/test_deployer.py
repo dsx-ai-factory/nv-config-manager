@@ -23,6 +23,7 @@ import tempfile
 import threading
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -35,6 +36,7 @@ from nv_config_manager_installer.deployer import (
     StepStatus,
     _get_image_digest_tag,
     _hash_content_dir,
+    _kind_api_server,
     _kind_preload_images,
     _parallel_build_limit,
     _ParallelCommand,
@@ -1599,7 +1601,7 @@ class TestK8sClientIntegration:
         deployer = Deployer(config, DeployOptions())
         assert deployer._k8s is None
 
-    def test_load_kind_refuses_a_non_kind_context(self):
+    def test_load_kind_refuses_a_non_kind_context(self) -> None:
         deployer = Deployer(
             _make_config(), DeployOptions(load_kind=True, kind_cluster="nv-config-manager")
         )
@@ -1607,18 +1609,86 @@ class TestK8sClientIntegration:
         with pytest.raises(RuntimeError, match=r"current kube context is 'prod-eks'"):
             deployer._validate_local_cluster_target("prod-eks", "https://prod.example.com:443")
 
-    def test_load_kind_accepts_the_matching_kind_context(self):
+    def test_load_kind_accepts_the_matching_kind_context(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._kind_api_server",
+            lambda cluster: "https://127.0.0.1:6443",
+        )
         deployer = Deployer(
             _make_config(), DeployOptions(load_kind=True, kind_cluster="nv-config-manager")
         )
 
-        deployer._validate_local_cluster_target("kind-nv-config-manager", "https://127.0.0.1:6443")
+        deployer._validate_local_cluster_target("kind-nv-config-manager", "https://127.0.0.1:6443/")
 
-    def test_load_kind_refuses_a_different_kind_cluster(self):
+    def test_load_kind_refuses_a_different_kind_cluster(self) -> None:
         deployer = Deployer(_make_config(), DeployOptions(load_kind=True, kind_cluster="a"))
 
         with pytest.raises(RuntimeError, match=r"Kind cluster 'a'"):
             deployer._validate_local_cluster_target("kind-b", "https://127.0.0.1:6443")
+
+    def test_load_kind_refuses_a_kind_named_context_pointing_elsewhere(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._kind_api_server",
+            lambda cluster: "https://127.0.0.1:6443",
+        )
+        deployer = Deployer(
+            _make_config(), DeployOptions(load_kind=True, kind_cluster="nv-config-manager")
+        )
+
+        with pytest.raises(RuntimeError, match=r"would target different clusters"):
+            deployer._validate_local_cluster_target(
+                "kind-nv-config-manager", "https://prod.example.com:443"
+            )
+
+    def test_load_kind_refuses_when_kind_cannot_report_the_api_server(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._kind_api_server", lambda cluster: None
+        )
+        deployer = Deployer(
+            _make_config(), DeployOptions(load_kind=True, kind_cluster="nv-config-manager")
+        )
+
+        with pytest.raises(RuntimeError, match=r"could not report its API server"):
+            deployer._validate_local_cluster_target(
+                "kind-nv-config-manager", "https://127.0.0.1:6443"
+            )
+
+    @pytest.mark.parametrize(
+        ("returncode", "stdout", "expected"),
+        [
+            (
+                0,
+                "clusters:\n- cluster:\n    server: https://127.0.0.1:6443\n",
+                "https://127.0.0.1:6443",
+            ),
+            (1, "", None),
+            (0, "clusters: []\n", None),
+            (0, "clusters: [\n", None),
+        ],
+    )
+    def test_kind_api_server_reads_the_kind_kubeconfig(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        returncode: int,
+        stdout: str,
+        expected: str | None,
+    ) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            calls.append(cmd)
+            return MagicMock(returncode=returncode, stdout=stdout, stderr="")
+
+        monkeypatch.setattr("nv_config_manager_installer.deployer._run", fake_run)
+
+        assert _kind_api_server("nv-config-manager") == expected
+        assert calls == [["kind", "get", "kubeconfig", "--name", "nv-config-manager"]]
 
     @pytest.mark.parametrize(
         ("context", "server"),
@@ -1629,7 +1699,9 @@ class TestK8sClientIntegration:
             ("my-laptop", "https://localhost:6443"),
         ],
     )
-    def test_local_images_accept_a_local_cluster(self, monkeypatch, context, server):
+    def test_local_images_accept_a_local_cluster(
+        self, monkeypatch: pytest.MonkeyPatch, context: str, server: str
+    ) -> None:
         monkeypatch.delenv("NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES", raising=False)
         config = _make_config()
         config.images.source = ImageSource.LOCAL
@@ -1637,7 +1709,7 @@ class TestK8sClientIntegration:
 
         deployer._validate_local_cluster_target(context, server)
 
-    def test_local_images_refuse_a_remote_cluster(self, monkeypatch):
+    def test_local_images_refuse_a_remote_cluster(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES", raising=False)
         config = _make_config()
         config.images.source = ImageSource.LOCAL
@@ -1646,7 +1718,9 @@ class TestK8sClientIntegration:
         with pytest.raises(RuntimeError, match=r"does not look like a cluster on this machine"):
             deployer._validate_local_cluster_target("prod-eks", "https://prod.example.com:443")
 
-    def test_local_images_allow_a_remote_cluster_when_opted_in(self, monkeypatch):
+    def test_local_images_allow_a_remote_cluster_when_opted_in(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES", "1")
         config = _make_config()
         config.images.source = ImageSource.LOCAL
@@ -1654,12 +1728,14 @@ class TestK8sClientIntegration:
 
         deployer._validate_local_cluster_target("dev-vm", "https://dev-vm.example.com:6443")
 
-    def test_registry_images_allow_any_cluster(self):
+    def test_registry_images_allow_any_cluster(self) -> None:
         deployer = Deployer(_make_config(), DeployOptions())
 
         deployer._validate_local_cluster_target("prod-eks", "https://prod.example.com:443")
 
-    def test_prereqs_refuse_load_kind_against_a_remote_context(self, monkeypatch):
+    def test_prereqs_refuse_load_kind_against_a_remote_context(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(
             "nv_config_manager_installer.deployer.shutil.which",
             lambda tool: f"/usr/bin/{tool}",

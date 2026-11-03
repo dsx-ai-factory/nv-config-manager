@@ -408,6 +408,27 @@ def _kind_preload_images(config: NVConfigManagerInstallConfig) -> list[str]:
     return images
 
 
+def _kind_api_server(cluster: str) -> str | None:
+    """Return the API server URL Kind reports for ``cluster``, or None if unavailable."""
+    result = _run(["kind", "get", "kubeconfig", "--name", cluster], check=False)
+    if result.returncode != 0:
+        return None
+    try:
+        kubeconfig = yaml.safe_load(result.stdout) or {}
+    except yaml.YAMLError:
+        return None
+    for entry in kubeconfig.get("clusters") or []:
+        server = (entry.get("cluster") or {}).get("server")
+        if server:
+            return str(server)
+    return None
+
+
+def _normalize_api_server(server: str) -> str:
+    """Normalize an API server URL for comparison."""
+    return server.strip().rstrip("/").lower()
+
+
 def _kind_node_names(cluster: str) -> list[str]:
     """Return Docker container names for nodes in a Kind cluster."""
     result = _run(["kind", "get", "nodes", "--name", cluster], check=True)
@@ -1398,6 +1419,21 @@ class Deployer:
                     f"current kube context is '{context}'. Refusing to deploy. Run "
                     f"`kubectl config use-context {expected}` (or set KUBECONFIG to a "
                     "Kind-only kubeconfig) and retry."
+                )
+            kind_server = _kind_api_server(self.options.kind_cluster)
+            if kind_server is None:
+                raise RuntimeError(
+                    f"--load-kind targets Kind cluster '{self.options.kind_cluster}', but "
+                    "`kind get kubeconfig` could not report its API server. Refusing to deploy. "
+                    "Check that the cluster exists with `kind get clusters` and retry."
+                )
+            if _normalize_api_server(kind_server) != _normalize_api_server(server):
+                raise RuntimeError(
+                    f"Kube context '{context}' points at {server}, but Kind cluster "
+                    f"'{self.options.kind_cluster}' serves its API at {kind_server}. "
+                    "`kind load` and the deployment would target different clusters. "
+                    f"Refusing to deploy. Run `kind export kubeconfig --name "
+                    f"{self.options.kind_cluster}` to restore the context and retry."
                 )
             return
         if self.config.images.source != ImageSource.LOCAL:
