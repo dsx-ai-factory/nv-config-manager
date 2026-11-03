@@ -16,6 +16,7 @@
 
 import asyncio
 import os
+import pkgutil
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -24,6 +25,7 @@ from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
+import nv_config_manager_workflows
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
 from nv_config_manager.temporal.converter import get_data_converter
@@ -39,10 +41,15 @@ from nv_config_manager_workflows.workflows import LOCAL_TEST_WORKFLOWS
 configure_logging(service="temporal-worker")
 
 DEFAULT_MAX_CACHED_WORKFLOWS = 200
+# Workflow tasks are CPU-bound and share one event loop thread, so extra slots
+# only time-slice the same CPU; a burst of 100 parallel first tasks can push
+# every one past the 10s workflow task timeout and into retries.
+DEFAULT_MAX_CONCURRENT_WORKFLOW_TASKS = 10
 
 # The sandbox re-imports every non-passthrough module for each workflow run and
 # keeps a private copy per cached run. These packages hold no state that workflow
 # code mutates, so sharing the host copy is deterministic and avoids that cost.
+# Workflow definitions under nv_config_manager_workflows.workflows stay sandboxed.
 SANDBOX_PASSTHROUGH_MODULES = (
     "annotated_types",
     "pydantic",
@@ -51,12 +58,11 @@ SANDBOX_PASSTHROUGH_MODULES = (
     "typing_inspection",
     "nv_config_manager_dcim",
     "nv_config_manager_infrastructure",
-    "nv_config_manager_workflows.activities",
-    "nv_config_manager_workflows.clients",
-    "nv_config_manager_workflows.metadata",
-    "nv_config_manager_workflows.mixins",
-    "nv_config_manager_workflows.stage",
-    "nv_config_manager_workflows.ui",
+    *(
+        f"{nv_config_manager_workflows.__name__}.{module.name}"
+        for module in pkgutil.iter_modules(nv_config_manager_workflows.__path__)
+        if module.name != "workflows"
+    ),
 )
 
 
@@ -73,15 +79,27 @@ def _registered_workflows(registry: WorkflowRegistry) -> list[type[Any]]:
     return workflows
 
 
+def _int_env(name: str, default: int, minimum: int) -> int:
+    """Return an integer environment override, or the default when unset."""
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    value = int(raw)
+    if value < minimum:
+        raise ValueError(f"{name} must be >= {minimum}, got {value}")
+    return value
+
+
 def _max_cached_workflows() -> int:
     """Return the sticky workflow cache size, overridable with NVCM_MAX_CACHED_WORKFLOWS."""
-    raw = os.getenv("NVCM_MAX_CACHED_WORKFLOWS", "").strip()
-    if not raw:
-        return DEFAULT_MAX_CACHED_WORKFLOWS
-    value = int(raw)
-    if value < 0:
-        raise ValueError(f"NVCM_MAX_CACHED_WORKFLOWS must be >= 0, got {value}")
-    return value
+    return _int_env("NVCM_MAX_CACHED_WORKFLOWS", DEFAULT_MAX_CACHED_WORKFLOWS, minimum=0)
+
+
+def _max_concurrent_workflow_tasks() -> int:
+    """Return the workflow task slot count, overridable with NVCM_MAX_CONCURRENT_WORKFLOW_TASKS."""
+    return _int_env(
+        "NVCM_MAX_CONCURRENT_WORKFLOW_TASKS", DEFAULT_MAX_CONCURRENT_WORKFLOW_TASKS, minimum=1
+    )
 
 
 def workflow_runner() -> SandboxedWorkflowRunner:
@@ -121,6 +139,7 @@ async def main() -> None:
         activity_executor=ThreadPoolExecutor(100),
         workflow_runner=workflow_runner(),
         max_cached_workflows=_max_cached_workflows(),
+        max_concurrent_workflow_tasks=_max_concurrent_workflow_tasks(),
     )
 
     await worker.run()

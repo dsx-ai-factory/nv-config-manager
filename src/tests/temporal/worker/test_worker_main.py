@@ -237,8 +237,9 @@ async def test_worker_uses_passthrough_sandbox_and_bounded_cache(
     mocker: MockerFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Shared libraries are passed through the sandbox and the sticky cache is bounded."""
+    """Shared libraries are passed through the sandbox and cache and task slots are bounded."""
     monkeypatch.delenv("NVCM_MAX_CACHED_WORKFLOWS", raising=False)
+    monkeypatch.delenv("NVCM_MAX_CONCURRENT_WORKFLOW_TASKS", raising=False)
     worker_constructor = _mock_worker_startup(mocker)
     mocker.patch.object(worker_main, "log_workflow_registry")
 
@@ -246,9 +247,54 @@ async def test_worker_uses_passthrough_sandbox_and_bounded_cache(
 
     options = worker_constructor.call_args.kwargs
     assert options["max_cached_workflows"] == worker_main.DEFAULT_MAX_CACHED_WORKFLOWS
+    assert (
+        options["max_concurrent_workflow_tasks"]
+        == worker_main.DEFAULT_MAX_CONCURRENT_WORKFLOW_TASKS
+    )
     runner = options["workflow_runner"]
     assert isinstance(runner, SandboxedWorkflowRunner)
     assert set(worker_main.SANDBOX_PASSTHROUGH_MODULES) <= runner.restrictions.passthrough_modules
+
+
+def test_passthrough_covers_shared_workflow_modules_but_not_definitions() -> None:
+    """Every shared workflows submodule is passed through; workflow definitions stay sandboxed."""
+    passthrough = set(worker_main.SANDBOX_PASSTHROUGH_MODULES)
+
+    assert {
+        "nv_config_manager_workflows.decorators",
+        "nv_config_manager_workflows.metadata",
+        "nv_config_manager_workflows.stage",
+        "nv_config_manager_workflows.workflow_references",
+    } <= passthrough
+    assert not any(
+        name == "nv_config_manager_workflows"
+        or name.startswith("nv_config_manager_workflows.workflows")
+        for name in passthrough
+    )
+
+
+@pytest.mark.parametrize(("value", "expected"), [("", 10), ("1", 1), (" 25 ", 25)])
+def test_max_concurrent_workflow_tasks_reads_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+    expected: int,
+) -> None:
+    """NVCM_MAX_CONCURRENT_WORKFLOW_TASKS overrides the default slot count."""
+    monkeypatch.setenv("NVCM_MAX_CONCURRENT_WORKFLOW_TASKS", value)
+
+    assert worker_main._max_concurrent_workflow_tasks() == expected
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "many"])
+def test_max_concurrent_workflow_tasks_rejects_invalid_values(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+) -> None:
+    """A malformed slot count fails worker startup instead of silently using a default."""
+    monkeypatch.setenv("NVCM_MAX_CONCURRENT_WORKFLOW_TASKS", value)
+
+    with pytest.raises(ValueError):
+        worker_main._max_concurrent_workflow_tasks()
 
 
 @pytest.mark.parametrize(("value", "expected"), [("", 200), ("0", 0), (" 50 ", 50)])
